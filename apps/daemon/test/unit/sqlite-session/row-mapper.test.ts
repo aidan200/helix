@@ -303,3 +303,32 @@ describe("F1.7：instanceId 新列 RowMapper 往返（TR-AD-14）", () => {
     // T1.2 边界：instances 清单的权威投影在 agent_lifecycle 每实例行；快照装配/落盘由 T2.x 接
   });
 });
+
+describe("损坏行防御：rowToDomainEvent payload 兜底（code-review 低危组7）", () => {
+  test("payload 非法 JSON → 原文透出不抛错（对齐 SqliteTraceQueryAdapter 降级口径）", () => {
+    const ev = RowMapper.rowToDomainEvent({
+      session_id: "s-corrupt",
+      agent_kind: "main",
+      agent_instance_id: "agent-x",
+      type: "message.completed",
+      payload: "{not json",
+      ts: "2024-01-01T00:00:00.000Z",
+    });
+    expect(ev.payload).toBe("{not json"); // 损坏行防御：原文透出，恢复/查询面不整面红
+    expect(ev.sessionId).toBe("s-corrupt");
+    expect(ev.instanceId).toBe("agent-x");
+  });
+
+  test("payload 合法 JSON → 正常解析（回归保护）", () => {
+    const ev = RowMapper.rowToDomainEvent({
+      session_id: "s-ok",
+      agent_kind: "main",
+      agent_instance_id: "agent-y",
+      type: "message.completed",
+      payload: JSON.stringify({ a: 1 }),
+      ts: "2024-01-01T00:00:00.000Z",
+    });
+    expect(ev.payload).toEqual({ a: 1 });
+    expect(ev.instanceId).toBe("agent-y"); // 列值直存语义不变（空值兜底归 F1.7 ② 用例）
+  });
+});

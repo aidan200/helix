@@ -159,7 +159,8 @@ export const META_KEYS = {
   degraded: "sync:degraded",
 } as const;
 
-/** .kg 库内全部域表名（9 张域表 + meta；测试/守护断言用）。 */
+/** .kg 库内全部域表名（9 张域表 + meta；测试/守护断言用，purgeAll 维护面
+ *  消费——新增表改此处即全清面自动覆盖）。 */
 export const KG_TABLES = [
   "nodes",
   "anchor_decl",

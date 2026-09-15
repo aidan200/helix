@@ -41,8 +41,10 @@ import type {
  * SqliteKnowledgeGraph —— KnowledgeGraphPort 的 SQLite 实现（.helix-kg 单库读面）。
  *
  * 只读 SELECT（AG-06 写点白名单不含本文件）；共用知识层通道连接（WAL 读
- * 不阻塞写）。supersede 链组装：change_log 的 supersede_of 边双向游走
- * （older=本节点 create 行 supersede_of / newer=他节点 create 行
+ * 不阻塞写）。全公共读方法统一缺库守卫（readDb：库文件缺席 → 各自空
+ * 形状/零计数，不新建库——latestIteration 既有 existsSync 先例的读面全量
+ * 推广，code-review 低危组7）。supersede 链组装：change_log 的 supersede_of
+ * 边双向游走（older=本节点 create 行 supersede_of / newer=他节点 create 行
  * supersede_of=本节点），环防护 + 步数上限。
  */
 export interface SqliteKnowledgeGraphDeps {
@@ -60,7 +62,10 @@ export class SqliteKnowledgeGraph {
   }
 
   getAttachmentSnapshot(projectRoot: string): AttachmentSnapshot {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    // 缺库守卫：空快照（读面统一不新建库文件——对齐 latestIteration 既有
+    // existsSync 先例；见类尾 readDb）
+    const db = this.readDb(projectRoot);
+    if (db === null) return { nodes: [], fileAnchors: [], symbolAnchors: [], contains: [] };
     // 扁平 join 中间行（AttachmentAnchor，RowMapper 中间形状）→ 分组投影
     // （AttachmentSnapshot，T1.2 匹配层契约定稿；superseded 节点不进快照；
     // orphan 锚不进快照——T2.2 失效标记即附着静默）
@@ -136,7 +141,8 @@ export class SqliteKnowledgeGraph {
   }
 
   search(projectRoot: string, q: string): readonly NodeDigestRow[] {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
     const escaped = q.replace(/[\\%_]/g, (ch) => `\\${ch}`);
     const like = `%${escaped}%`;
     const rows = db
@@ -162,7 +168,8 @@ export class SqliteKnowledgeGraph {
    * 声明（viaDecl=true）。只读 SELECT（AG-06）。
    */
   reverseAnchorLookup(projectRoot: string, target: string): readonly AnchorReverseHit[] {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
     const materialized = (
       db
         .prepare(
@@ -224,7 +231,8 @@ export class SqliteKnowledgeGraph {
   }
 
   getNode(projectRoot: string, id: string): NodeDetail | null {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return null;
     const nodeRow = db
       .prepare(
         "SELECT id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes WHERE id = ?",
@@ -300,7 +308,8 @@ export class SqliteKnowledgeGraph {
    * 知识层通道连接读（WAL 读不阻塞 sync 写）。
    */
   getSyncBaseline(projectRoot: string): SyncBaselineView {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return { files: [], symbols: [], activeAnchors: [], anchorDeclarations: [] };
     const files = (
       db.prepare("SELECT path, mtime, sha256 FROM files").all() as FileBaselineRow[]
     ).map((row) => ({ path: row.path, mtime: row.mtime, sha256: row.sha256 }));
@@ -337,7 +346,8 @@ export class SqliteKnowledgeGraph {
   }
 
   getIndexStatus(projectRoot: string): IndexStatus {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return { baseline: null, symbolCount: 0, degraded: false };
     const baselineRow = db.prepare("SELECT value FROM meta WHERE key = ?").get(META_KEYS.baseline) as
       | { value: string }
       | null;
@@ -357,7 +367,8 @@ export class SqliteKnowledgeGraph {
    * 标记）/锚声明全集/文件面——只读 SELECT，零写路径（AD-6）。
    */
   getVerifyView(projectRoot: string): VerifyView {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return { nodes: [], edges: [], anchors: [], anchorDeclarations: [], files: [] };
     const nodes = (
       db.prepare(
         "SELECT id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes ORDER BY id",
@@ -397,7 +408,8 @@ export class SqliteKnowledgeGraph {
    *  iterationId=null（P0 ④）→ 无迭代归属行（WHERE iteration_id IS NULL——
    *  去残留聚合口径；历史非空行照旧按值过滤）。 */
   getChangeLog(projectRoot: string, iterationId: string | null): readonly ChangeLogEntry[] {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
     const rows = (
       iterationId === null
         ? db
@@ -425,7 +437,8 @@ export class SqliteKnowledgeGraph {
 
   /** 知识节点计数（kg.list total 数据源——过滤前全集含 superseded；只读 COUNT）。 */
   countNodes(projectRoot: string): number {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return 0;
     const row = db.prepare("SELECT COUNT(*) AS n FROM nodes").get() as { n: number };
     return row.n;
   }
@@ -435,7 +448,8 @@ export class SqliteKnowledgeGraph {
    * 准入「知识层为空」机械定义 + kg.projects nodeCount 口径——留史行不计入）。
    */
   countActiveNodes(projectRoot: string): number {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return 0;
     const row = db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE status != 'superseded'").get() as { n: number };
     return row.n;
   }
@@ -445,7 +459,8 @@ export class SqliteKnowledgeGraph {
    * 精化口径——sediment 沉淀节点 layer 为 NULL，不算产出、不阻挡入口）。
    */
   countActiveLayeredNodes(projectRoot: string): number {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return 0;
     const row = db
       .prepare("SELECT COUNT(*) AS n FROM nodes WHERE status != 'superseded' AND layer IS NOT NULL")
       .get() as { n: number };
@@ -459,7 +474,8 @@ export class SqliteKnowledgeGraph {
    */
   listNodeIdsByOriginBatches(projectRoot: string, batchIds: readonly string[]): readonly string[] {
     if (batchIds.length === 0) return [];
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
     const placeholders = batchIds.map(() => "?").join(", ");
     const rows = db
       .prepare(
@@ -474,8 +490,8 @@ export class SqliteKnowledgeGraph {
    *  冻结值不随末行 NULL 自我延续）；读面纪律：库文件缺席 → null
    *  （不新建库文件——connectionOf 会 mkdir+建库）。 */
   latestIteration(projectRoot: string): string | null {
-    if (!existsSync(kgDbPath(projectRoot))) return null;
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return null;
     const row = db
       .prepare("SELECT iteration_id FROM change_log ORDER BY seq DESC LIMIT 1")
       .get() as { iteration_id: string | null } | null;
@@ -487,7 +503,8 @@ export class SqliteKnowledgeGraph {
    * 聚合，缺态 = 0；只读，零写路径——调用方先行 hasIndex 判定）。
    */
   countCandidatesByStatus(projectRoot: string): CandidateStatusCounts {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return { pending: 0, deferred: 0, applied: 0, discarded: 0 };
     const rows = db
       .prepare("SELECT status, COUNT(*) AS n FROM candidates GROUP BY status")
       .all() as { status: string; n: number }[];
@@ -508,7 +525,8 @@ export class SqliteKnowledgeGraph {
    * 清台判读需要）。只读 SELECT（AG-06 写点白名单不含本文件）。
    */
   listCandidates(projectRoot: string, query: CandidateListQuery): readonly CandidateRow[] {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
     const sql =
       "SELECT id, formal_id, kind, title, body, status, source_task_id, source_iteration_id, defer_age, target_node, " +
       "created_at, decided_at, decision_reason, applied_node_id FROM candidates " +
@@ -546,7 +564,8 @@ export class SqliteKnowledgeGraph {
    * 升序确定性。只读 SELECT（AG-06 写点白名单不含本文件）。
    */
   listGlobalResidentRules(projectRoot: string): readonly GlobalResidentRuleRow[] {
-    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
     const rows = db
       .prepare(
         "SELECT DISTINCT n.id, n.kind, n.name, n.scene FROM anchor_decl d JOIN nodes n ON n.id = d.node_id " +
@@ -560,6 +579,17 @@ export class SqliteKnowledgeGraph {
       scene: row.scene,
     }));
   }
+  // ── supersede 链组装（双向游走） ──────────────────────
+
+  /** 读面连接（库文件缺席 → null，不新建库——统一缺库守卫收口点：
+   *  connectionOf 会 mkdir+建库，读面调它即副作用建库；全公共读方法经
+   *  此取连接，缺席时各自返回空形状/零计数，对齐 latestIteration 既有
+   *  existsSync 守卫先例（code-review 低危组7：读面统一）。 */
+  private readDb(projectRoot: string): Database | null {
+    if (!existsSync(kgDbPath(projectRoot))) return null;
+    return this.deps.database.knowledgeConnection(projectRoot);
+  }
+
   // ── supersede 链组装（双向游走） ──────────────────────────
 
   /**

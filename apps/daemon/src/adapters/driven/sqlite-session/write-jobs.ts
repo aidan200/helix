@@ -48,7 +48,8 @@ export type WriteJob =
       readonly content: string;
     }
   | {
-      /** 会话删除——六表按 session_id 清行（删除收口链的删库步；AD-4）。 */
+      /** 会话删除——会话维全部表按 session_id 清行 + work_item 按 instance 维
+       *  清行（八表；删除收口链的删库步；AD-4）。 */
       readonly kind: "deleteSession";
       readonly sessionId: string;
     }

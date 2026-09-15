@@ -38,12 +38,20 @@ export function domainEventToRow(event: DomainEvent, agentKind: string): DomainE
 }
 
 export function rowToDomainEvent(row: DomainEventRow): DomainEvent {
+  // 损坏行兜底：payload 原文透出不崩读面（对齐 SqliteTraceQueryAdapter
+  // rowToTraceEventRow 同款口径——手工改库/断电半写等异常行不该让恢复/查询面整面红）
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    payload = row.payload;
+  }
   return {
     type: row.type as DomainEvent["type"],
     sessionId: row.session_id,
     // 旧行兜底（TR-AD-14：列前时代的行/未回填连接读到的空值）——主实例语义
     instanceId: row.agent_instance_id ?? LEGACY_MAIN_INSTANCE_ID,
-    payload: JSON.parse(row.payload) as unknown,
+    payload,
     occurredAt: row.ts,
   };
 }

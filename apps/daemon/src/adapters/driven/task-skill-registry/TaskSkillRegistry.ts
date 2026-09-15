@@ -103,10 +103,14 @@ export class TaskSkillRegistry implements TaskSkillRegistryPort {
     }
     const normalized = raw.replace(/\r\n/g, "\n");
     if (!normalized.startsWith("---\n")) return { kind: "absent" };
-    const endIndex = normalized.indexOf("\n---", 3);
-    if (endIndex === -1) return { kind: "absent" };
+    // 闭合标记行级精确判定：单独一行恰为 "---"（容行尾空白）。宽松的
+    // indexOf("\n---") 会把 frontmatter 值或正文中以 "---" 开头的行
+    // （"----" 分隔线、"---foo" 等）误判为闭合，截断 YAML 或吞正文——
+    // pi loadSourcedSkills 的 parseFrontmatter 同款宽松实现，不可复用。
+    const close = /\n---[ \t]*(?=\n|$)/.exec(normalized);
+    if (close === null) return { kind: "absent" };
     try {
-      const parsed = parseYaml(normalized.slice(4, endIndex));
+      const parsed = parseYaml(normalized.slice(4, close.index));
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
         return { kind: "present", value: parsed as Record<string, unknown> };
       }

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { symlink, mkdir, realpath, stat } from "node:fs/promises";
+import { symlink, mkdir, realpath, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -20,7 +20,8 @@ import type {
  *
  * exec 通道：node execFile（非 Bun.spawn——沙箱内 Bun.spawn 的 posix_spawn
  * 对 /private 前缀 cwd 形态 ENOENT，execFile 不受影响；bashSnapshot 同款
- * 通道选择）。软链/建目录走 node fs（同因）。
+ * 通道选择）。软链/建目录/删锁走 node fs（同因，不 Shell out 到 rm——
+ * node fs 单进程内完成，无 PATH/引号面）。
  */
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 15_000;
@@ -46,7 +47,7 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
       const lockPath = `${root}/.git/config.lock`;
       if (await Bun.file(lockPath).exists()) {
         try {
-          await execFileAsync("rm", ["-f", lockPath], { timeout: GIT_TIMEOUT_MS });
+          await unlink(lockPath);
           added = await this.gitOk(addArgs, root);
         } catch {
           /* 删锁失败走下方既有探测/报错 */

@@ -117,7 +117,8 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     }));
   }
 
-  /** 会话删除（AD-4）：六表清行经单写通道（同会话仓内 FIFO 保序）。 */
+  /** 会话删除（AD-4）：会话维全部表（八表：七表 session_id 维 + work_item
+   *  instance 维）清行经单写通道（同会话仓内 FIFO 保序）。 */
   async deleteSession(sessionId: string): Promise<void> {
     await this.queue.deleteSession(sessionId);
   }
