@@ -258,6 +258,7 @@ function compactionHooks(profile: AgentProfile, deps: AgentRuntimeDeps): HookSet
       settings: profile.compaction,
       models: deps.models,
       model: deps.model,
+      getApiKey: deps.getApiKey, // 摘要调用显式 key（code-review H5，与主链路同 hook 面）
       onCompleted: deps.onCompactionCompleted,
       onFailed: deps.onCompactionFailed,
     }),

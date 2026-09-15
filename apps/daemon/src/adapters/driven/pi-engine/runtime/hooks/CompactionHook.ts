@@ -20,7 +20,8 @@ import type { HookSet } from "../HookSet";
  * （contextTokens > contextWindow - reserveTokens）→ messagesToEntries 转换桥
  * （compaction 函数族吃 Entry[]，而 agent transcript 是 AgentMessage[]）→
  * prepareCompaction → compact（摘要走 models.completeSimple，provider 约束 =
- * 支持流式，契约 §8-4）→ CompactionEntry 插树 + retainedTail 重建上下文 →
+ * 支持流式，契约 §8-4；apiKey 经 Models 装饰显式注入，code-review H5）→
+ * CompactionEntry 插树 + retainedTail 重建上下文 →
  * buildSessionContext 复算 tokensAfter。
  *
  * 契约：失败不抛出（prepareNextTurn 钩子禁抛）——上抛 onFailed（上层转
@@ -45,6 +46,16 @@ export interface CompactionHookDeps {
   readonly models: Models;
   /** 装配期兑底模型（运行期换模前/现场模型缺席时兜底；正常路径读 agent.state.model——code-review H7）。 */
   readonly model: Model<any>;
+  /**
+   * 摘要调用显式 key 查询（code-review H5）：与主链路 agent-loop 同一
+   * hook 面（AG-08/AD-11/13——每调用按摘要模型 provider 解析，不走
+   * env）。pi compact() 的 options 组装无 apiKey 通道（回落 pi 自身
+   * CredentialStore，helix 从不写入），故经 Models 装饰注入
+   * completeSimple 的 options.apiKey。缺省不注入（现状透传，测试替身
+   * 零破坏）；抛错（explicitGetApiKey 缺 key fail-fast）经外层 catch
+   * 降级 onFailed——文案与主链路同源，不崩会话。
+   */
+  readonly getApiKey?: (provider: string) => string | undefined;
   /** 压缩完成上抛（adapter → port compaction_completed 事件）。 */
   readonly onCompleted?: (result: CompactionOutcome) => void;
   /** 压缩失败上抛（adapter → port engine_error 事件；会话继续）。 */
@@ -82,6 +93,12 @@ export class CompactionHook implements HookSet {
     // 可能永不触发（上下文溢出）且摘要调用走旧 provider。
     const model = (agent.state.model ?? this.deps.model) as Model<any>;
     try {
+      // 摘要调用显式 apiKey（code-review H5）：在 pi 重试环外解析一次（缺
+      // key 抛错不进 pi retry 风暴，直接降级 onFailed），经 Models 装饰注入
+      // completeSimple options.apiKey——与主链路 agent-loop 每请求解析
+      // （AG-08）同源同面：给谁做摘要就用谁的 key。
+      const apiKey = this.deps.getApiKey?.(model.provider);
+      const summaryModels = apiKey !== undefined ? withApiKey(models, apiKey) : models;
       // 压缩源 = state.messages（≡ turn.context.messages，同步契约见头注释 M7⑤）
       const messages = agent.state.messages;
       const est = estimateContextTokens(messages);
@@ -97,7 +114,7 @@ export class CompactionHook implements HookSet {
       if (!prep.value) return undefined; // 无可压缩内容（如刚压缩完）：保持现状
 
       // signal 恢复（deferred 批签名修正后从 WithContext 通道第二参透传）。
-      const result = await compact(prep.value, models, model, undefined, signal);
+      const result = await compact(prep.value, summaryModels, model, undefined, signal);
       if (!result.ok) {
         this.deps.onFailed?.(`compaction 摘要失败：${JSON.stringify(result.error).slice(0, 200)}`);
         return undefined;
@@ -156,4 +173,25 @@ function messagesToEntries(messages: AgentMessage[]): Entry[] {
     timestamp: (message as { timestamp?: number }).timestamp ?? Date.now(),
     message,
   }));
+}
+
+/**
+ * Models 装饰：completeSimple 注入显式 apiKey，其余成员透传真体（bind
+ * 保持 this 语义）。pi compact()/generateSummaryWithUsage() 内部组装
+ * options 无 apiKey 参（pi-agent-core 0.84.4 签名核实），但 pi-ai
+ * ProviderRequestOptions 契约带 apiKey 字段——唯一无损补链点 = Models
+ * 装饰面。Proxy 形态对真体（原型方法）与替身（自有属性）都成立。
+ */
+function withApiKey(models: Models, apiKey: string): Models {
+  return new Proxy(models, {
+    get(target, prop) {
+      if (prop === "completeSimple") {
+        const completeSimple: Models["completeSimple"] = (model, context, options) =>
+          target.completeSimple(model, context, { ...options, apiKey });
+        return completeSimple;
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
 }
