@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseDuckDuckGoHtml, parseBingHtml } from "../../src/adapters/driven/tools/web/WebSearchTool";
-import { classifyIp, htmlToMarkdown, toJinaUrl } from "../../src/adapters/driven/tools/web/WebFetchTool";
+import { classifyIp, classifyTarget, htmlToMarkdown, toJinaUrl } from "../../src/adapters/driven/tools/web/WebFetchTool";
 
 /**
  * T1 静态联网工具族：解析核与转换核纯函数 unit（只 import 纯函数符号，
@@ -172,5 +172,30 @@ describe("classifyIp（SSRF 守卫 IP 分类，code-review H12 口径 D1）", ()
   test("非 IP 输入拒绝", () => {
     expect(classifyIp("not-an-ip")).toBe("blocked");
     expect(classifyIp("")).toBe("blocked");
+  });
+});
+
+describe("classifyTarget（SSRF 守卫 URL 目标分类，code-review H13：IPv6 字面方括号旁路）", () => {
+  test("IPv6 字面（WHATWG URL hostname 带方括号）——环回/私网/链路本地不旁路", async () => {
+    // 缺陷形态：hostname="[::1]" 含方括号 → isIP 判 0 → 走 DNS 解析失败 →
+    // unknown 放行直连（私网 ULA/链路本地同理）——全类 IPv6 字面旁路守卫
+    expect(await classifyTarget("http://[::1]:8080/")).toBe("loopback");
+    expect(await classifyTarget("http://[fd00::1]/")).toBe("blocked");
+    expect(await classifyTarget("http://[fd12:3456::1]/")).toBe("blocked");
+    expect(await classifyTarget("http://[fe80::1]/")).toBe("blocked");
+    expect(await classifyTarget("http://[::]/")).toBe("blocked");
+    // v4-mapped 递归分类不因方括号断链
+    expect(await classifyTarget("http://[::ffff:127.0.0.1]/")).toBe("loopback");
+    expect(await classifyTarget("http://[::ffff:192.168.0.1]/")).toBe("blocked");
+    expect(await classifyTarget("http://[::ffff:8.8.8.8]/")).toBe("public");
+    // 公网 IPv6 字面照常放行
+    expect(await classifyTarget("http://[2606:4700:4700::1111]/")).toBe("public");
+  });
+  test("IPv4 字面与协议白名单口径不变", async () => {
+    expect(await classifyTarget("http://127.0.0.1/")).toBe("loopback");
+    expect(await classifyTarget("http://10.0.0.1/")).toBe("blocked");
+    expect(await classifyTarget("http://1.1.1.1/")).toBe("public");
+    expect(await classifyTarget("ftp://1.1.1.1/")).toBe("blocked");
+    expect(await classifyTarget("not a url")).toBe("blocked");
   });
 });
