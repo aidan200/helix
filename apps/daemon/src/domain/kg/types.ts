@@ -446,7 +446,7 @@ export interface SymbolBatch {
   readonly materializedAnchors: readonly MaterializedAnchor[];
   /** 本窗口删除/改名文件（整文件符号行+contains 边+files 行清除）。 */
   readonly deletedFiles?: readonly string[];
-  /** 失效锚（orphan 标记保留行；失效信号同步入 SyncResult 供 T5.1 入队）。 */
+  /** 失效锚（orphan 标记保留行；失效信号走库——applySync 落库后读面自足，无独立返回面）。 */
   readonly orphanedAnchors?: readonly MaterializedAnchor[];
   readonly baseline: string;
   readonly degraded: boolean;
