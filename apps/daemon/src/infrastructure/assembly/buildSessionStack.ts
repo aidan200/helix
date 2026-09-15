@@ -217,6 +217,17 @@ export interface BuildSessionStackDeps {
    */
   readonly codegraphPath?: string;
   /**
+   * rg 二进制定格路径（code-review H7 修复）：组合根启动定格产物
+   * （bootPrelude freeze——bundle env 优先、config.json rgPath 兑底）
+   * 透传 SubagentLauncher → 子进程 env HELIX_RG_PATH。显式钉传为覆盖
+   * 语义（launcher env 面该键在 ...process.env 之后）：bundle 级与继承
+   * 同值（no-op）；config 级是唯一通道——子进程 grep 只吃 env（ChildMain
+   * 不重读 config.json），缺此透传则 chat 会话 spawn 的 SubAgent 子进程
+   * grep 响亮失败（任务栈 buildTaskOrchestrator 同构接线）。缺省/
+   * undefined = 不注入（子进程仅靠继承 env 自解析）。
+   */
+  readonly rgPath?: string;
+  /**
    * task_create 工具注入面（T2.4，AD-7）：主会话 executor 注册 task_create
    *（chat 第二创建入口；仅 MainAgent 生效集——SubAgent 子进程本地栈不
    * 注入）。组合根接任务栈（TaskEngineService.createTask + TaskQueryService
@@ -755,6 +766,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 子进程三级解析缺 config 级，定格值透传保持父子一致；未定格不传键，
           // 子进程靠继承 env 自解析，失败则 codegraph 工具 degraded）
           codegraphPath: deps.codegraphPath,
+          // rg 二进制定格路径（code-review H7）：同 codegraphPath 哲学——
+          // 显式钉传覆盖继承面；config 级 rg 的唯一通道（子进程 grep 只吃
+          // env，不重读 config.json），与任务栈 launcher 接线同构
+          rgPath: deps.rgPath,
           // 沙箱开关批：spawn 时读 KV 现值（persistence 注入）→ HELIX_SANDBOX
           // env 透传子进程；未装配（测试栈）不传键 = 子进程沙箱关
           ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}),

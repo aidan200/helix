@@ -276,4 +276,24 @@ describe("uiModelSlot：profile 槽位 UI 化（M6 T2；T12 两级链）", () =>
     expect(l3.resolveModelFor("subagent-worker").id).toBe("global");
     expect(counters()).toEqual({ slotCalls: 2, globalCalls: 1 });
   });
+
+  test("⑥ rg 定格透传（code-review H7）：deps.rgPath → spawn env HELIX_RG_PATH 显式注入（覆盖继承面；config 级 rg 唯一通道）", () => {
+    const real = Bun.spawn;
+    const calls: SpawnCall[] = [];
+    patchSpawn(calls);
+    try {
+      const launcher = new SubagentLauncher({
+        profile: SubAgentProfile,
+        model: mkModel("global"),
+        apiKeys: { fake: "k" },
+        toolCwd: tmpDir(),
+        rgPath: "/opt/pinned/rg", // config 级定格值形态（bootPrelude freeze 产物）
+      });
+      launcher.launch(makeInstance("agent-rg"), "任务");
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.env["HELIX_RG_PATH"]).toBe("/opt/pinned/rg");
+    } finally {
+      restoreSpawn(real);
+    }
+  });
 });
