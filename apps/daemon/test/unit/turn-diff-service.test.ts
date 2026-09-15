@@ -329,6 +329,17 @@ describe("⑦ computeStats 口径（+行/-行）", () => {
     expect(x.status).toBe("deleted");
     expect(x.removed).toBe(2);
     expect(x.added).toBe(0);
+
+    // 第三轮：尾换行基线——不产幻影行（code-review 低危："p\nq\n" 是 2 行非 3 行）
+    svc.beginTurn(state, "turn-3", "t4");
+    disk.set("/w/y.txt", "p\nq\n");
+    svc.recordWrite(state, "/w/y.txt", disk.get("/w/y.txt")!, "agent-main");
+    disk.delete("/w/y.txt");
+    await svc.endTurn(state, "completed", "t5");
+    const y = state.frozen[2]!.files[0]!;
+    expect(y.status).toBe("deleted");
+    expect(y.removed).toBe(2); // 尾换行不计行（旧实现 split 后空段幻影 +1）
+    expect(y.added).toBe(0);
   });
 
   test("降级条目（无基线原文）→ 无 patch、±行按 size 差粗估", async () => {

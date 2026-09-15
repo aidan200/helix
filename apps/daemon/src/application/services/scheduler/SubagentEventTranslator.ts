@@ -28,7 +28,6 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  * 会话投影消费者（SessionProjection）消费事件后落 Session 聚合（SubAgent
  * Entry 进聚合，instanceId 归属；MainAgent 上下文零混入——closure 注入仍是
  * 唯一入口）。事件载荷携完整条目数据（id 为 agent 作用域 `${instanceId}#N`，
- * entry id 为 agent 作用域 `${instanceId}#N`，
  * 与流式 messageId 同源）。流序对齐主线（T35 即时化）：thinking_end 即时
  * 完成（delta×N → thinking.completed），消息完成与账目收口在 message_end
  * （message.completed → usage）。
@@ -129,10 +128,10 @@ export class SubagentEventTranslator {
       return;
     }
     if (event.type === "message_update") {
+      const messageId = this.streamEntryIds.get(instanceId);
+      if (messageId === undefined) return; // 未预留（乱序/非 assistant 流）：丢弃——计数在预留检查之后（丢弃帧计入会虚高 T3-A Δ）
       this.assistantChars.set(instanceId, (this.assistantChars.get(instanceId) ?? 0) + event.delta.length); // T3-A 计数
       this.streamCharsInFlight.set(instanceId, (this.streamCharsInFlight.get(instanceId) ?? 0) + event.delta.length);
-      const messageId = this.streamEntryIds.get(instanceId);
-      if (messageId === undefined) return; // 未预留（乱序/非 assistant 流）：丢弃
       this.deps.events.publishDelta({
         messageId,
         delta: event.delta,

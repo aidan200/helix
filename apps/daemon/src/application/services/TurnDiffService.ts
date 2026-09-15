@@ -184,10 +184,11 @@ export function fnvHash(text: string): string {
   return `${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
 }
 
-/** 行数（空串 0；结尾无换行的末行计 1）。 */
+/** 行数（空串 0；结尾无换行的末行计 1；尾换行不产幻影行——split 末尾空段剔去）。 */
 function countLines(text: string): number {
   if (text === "") return 0;
-  return text.split("\n").length;
+  const lines = text.split("\n").length;
+  return text.endsWith("\n") ? lines - 1 : lines;
 }
 
 /** size 差 → ±行粗估（external/降级条目口径）。 */

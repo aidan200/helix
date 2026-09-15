@@ -10,6 +10,7 @@ import type {
 import type { WorkItemData } from "../../ports/outbound/WorkLedgerPort";
 import { isTerminalJob } from "../../../domain/task/job";
 import { MAX_BATCH_RETRY } from "../../../domain/task/retry";
+import { DEFAULT_PROFILE_KIND } from "../../ports/outbound/ResourceStatePort"; // profileKind 缺省单源（与 SchedulerService.spawn 缺省同值）
 import type { ParkReason } from "../../../domain/events/DomainEvent";
 import type { WorkLedgerService } from "./WorkLedgerService";
 
@@ -73,7 +74,7 @@ type DispatchProfileKind = "subagent-worker" | "subagent-kg-writer" | "subagent-
  * → 组合根组装快照按 kind 派发生效集（buildSessionStack 单点）。
  */
 export function dispatchProfileKindOf(jobType: string): DispatchProfileKind {
-  return DISPATCH_PROFILE_KINDS[jobType] ?? "subagent-worker";
+  return DISPATCH_PROFILE_KINDS[jobType] ?? DEFAULT_PROFILE_KIND;
 }
 
 /** 编排会话驱动面（编排服务消费的最小接缝；生产实现 = pi 引擎装配，组合根注入）。 */
@@ -193,7 +194,9 @@ interface LoopState {
   /**
    * 推进检查重驱位（task-efd68911 第二重事故）：编排会话收场且无在跑实例
    * 但任务存在未完批次/阶段 → 重驱一次提示推进；置位后再次检测仍此态 →
-   * failJob 收口（有界：防网络持续断/LLM 持续不推进时永久 running）。
+   * failJob 收口（有界：防网络持续断/LLM 持续不推进时永久 running）。界 =
+   * 单次静置死局非全生命周期一次：批次收口（settleInstance 尾）复位——
+   * 长任务每次实质推进后重获一次重驱机会。
    */
   progressRedriven: boolean;
   /** 推进检查定时器（收场后延迟窗；新收场重置，循环满退/停摆清理）。 */
@@ -520,6 +523,10 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         );
       }
     }
+    // 批次收口 = 实质推进事件：推进检查重驱机会复位（有界语义的界针对单次
+    // 静置死局，非任务全生命周期一次——长任务多次静置各获一次重驱；收口后
+    // 新死局再次重驱，持续不推进仍会 failJob，无无限循环面）。
+    loop.progressRedriven = false;
     this.wake(loop, this.closureNotice(agentId, batch, verdict, redispatched));
     this.reapDrained(loop); // drain 态（haltJob 后）收口清扫
   }
@@ -624,7 +631,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
           if (agentId !== null) {
             this.wake(
               loop,
-              `【重派补漏】批次 #${batch.stageSeq}.${batch.seq}「${batch.scope}」已补派新实例 ${agentId}（前序失败 ${batch.retryCount} 次）。`,
+              `【重派补漏】批次 #${current.stageSeq}.${current.seq}「${current.scope}」已补派新实例 ${agentId}（前序失败 ${current.retryCount} 次）。`,
             );
           }
           continue;
@@ -640,11 +647,14 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
               batch.id,
               `对账补收口：running 批次实例 ${batch.instanceId} 已终态（${state}${outcome?.summary !== undefined ? `：${outcome.summary}` : ""}）——收口链断链兑底`,
             );
+            // failBatch 后重读批次行：retryCount/retryNote 已更新（迭代前快照为 running 旧行）
+            // ——重派 brief（前次失败次数/原因）与 wake 文案按现值装配（①分支 current 同构）
+            const current = this.deps.store.getBatch(batch.id) ?? batch;
             let redispatched: string | null = null;
-            if (retryScheduled) redispatched = await this.reDispatch(loop, batch);
+            if (retryScheduled) redispatched = await this.reDispatch(loop, current);
             this.wake(
               loop,
-              `【批次对账】批次 #${batch.stageSeq}.${batch.seq}「${batch.scope}」实例 ${batch.instanceId} 已终态但批次滞留 running——已机械补收口${
+              `【批次对账】批次 #${current.stageSeq}.${current.seq}「${current.scope}」实例 ${batch.instanceId} 已终态但批次滞留 running——已机械补收口${
                 redispatched !== null ? `并自动重派新实例 ${redispatched}` : "（重试耗尽已上浮任务失败）"
               }。`,
             );
@@ -698,7 +708,8 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
    * 仍此态 → failJob。事故形态：编排会话收场（如网络错误收场）后无任何
    * wake 源（无在跑实例 = 无 closure 通知），剩余 pending 批次/stage 永无人
    * 推进，job 永久 running。有界 = progressRedriven 单次位（网络持续断时
-   * 重驱轮同样收场 → 再静置一窗 → failJob 快速失败，不无限循环）。
+   * 重驱轮同样收场 → 再静置一窗 → failJob 快速失败，不无限循环；批次收口
+   * 时复位——界针对单次静置死局非任务全生命周期）。
    */
   private async checkProgressAfterDrive(loop: LoopState): Promise<void> {
     if (loop.stopped || loop.parked || loop.drain || loop.running) return;
@@ -770,8 +781,8 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   private taskOrchestrationPort(jobId: string): AgentOrchestrationPort {
     const job = this.deps.store.getJob(jobId);
     // D8 W-R6：观测面同源分流结果（批次实例 profileKind 按任务类型路由；
-    // 缺省 subagent-worker 与 dispatch 缺省一致——task-worker 已撤）
-    const profileKind = job !== undefined ? dispatchProfileKindOf(job.type) : "subagent-worker";
+    // 缺省与 dispatch 缺省一致——task-worker 已撤，单源 DEFAULT_PROFILE_KIND）
+    const profileKind = job !== undefined ? dispatchProfileKindOf(job.type) : DEFAULT_PROFILE_KIND;
     return {
       spawn: (task: string) => this.spawnBatch(jobId, task),
       send: () => ({ delivered: false, detail: "任务批次实例不支持编排会话消息注入" }),

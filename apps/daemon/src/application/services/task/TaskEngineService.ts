@@ -768,7 +768,7 @@ export class TaskEngineService implements TaskEnginePort {
     if (job.status !== "running") {
       throw new TaskError(
         "task.invalid_state",
-        `任务 ${jobId} 当前状态 ${job.status}（已暂停或终态：不执行推进动作——paused 经 resume 恢后续跑，终态任务不可推进，O-2）`,
+        `任务 ${jobId} 当前状态 ${job.status}（已暂停或终态：不执行推进动作——paused 经 resume 恢复后续跑，终态任务不可推进，O-2）`,
       );
     }
     return job;

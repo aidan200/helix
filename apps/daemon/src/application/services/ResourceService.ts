@@ -35,9 +35,12 @@ import type {
  *
  * 【toggle 未知名】显式跳过不落库（{ status: "skipped" }）：全集之外的名
  * （如 subagent 禁 agent_spawn）无生效面，落库只会制造永不生效的差异行。
- * 【task SOP 防护】：audience=task 技能写面 audience-guard 拒绝——
- * 消费通道在任务系统 kickoff，不经技能段（同轨批 builtin-immutable
- * 已撤——builtin 技能与 user 同轨显式启用）。
+ * 【task SOP 防护】：audience=task 技能写面 audience-guard 拒绝——目录二分
+ * （编排归位批）：task 类 SOP 不进任何 kind 提示词技能段与 agent 卡技能列表
+ * （消费通道 = 任务系统 kickoff；orchestrator 系统块技能区 = 任务 SOP 注册表
+ * 展示）。「变相禁用」由 kind 维缺省（orchestrator 全禁）+ 写面只读承担
+ * ——加载链同构无双轨（同轨批 builtin-immutable 已撤——builtin 技能与
+ * user 同轨显式启用）。
  *
  * 结构满足 ResourceConfigPort（agent.config 命令族回口，AG-12
  * driving 只 import ports）；list 增透传扫描诊断（契约读面），toggle 以
@@ -299,10 +302,3 @@ export class ResourceService implements ResourceConfigPort {
     return seeded;
   }
 }
-
-/**
- * audience 目录二分（编排归位批恢复）：task 类 SOP 不进任何 kind 提示词
- * 技能段与 agent 卡技能列表（消费通道 = 任务系统 kickoff；orchestrator
- * 系统块技能区 = 任务 SOP 注册表展示）。「变相禁用」由 kind 维缺省
- *（orchestrator 全禁）+ 写面只读承担——加载链同构无双轨。
- */

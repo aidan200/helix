@@ -3,8 +3,7 @@
  *
  * 纯函数无 IO、无状态（非 Service——application 核心共享工具，供多域消费）：
  * - parseDataUrlImages：上行入口校验 + 解码（数量/格式/尺寸三防护，超限抛
- *   中文 Error——ChatService 消息发送前调用，错误直达用户）；
- * - imageDataUrl：下行组装（ImageContent 形状 → data URL，工具截图回填用）。
+ *   中文 Error——ChatService 消息发送前调用，错误直达用户）。
  * 消费面：ChatService（本层）/ AgentRuntime 与 FakeAgentEngine（引擎面双
  * 实现同源解码——pi-engine runtime 受 arch 约束不 import domain，故落
  * application 核心）/ BrowserTools 与 CoreToolExecutor（下行截图提取）。
@@ -80,11 +79,6 @@ export function parseDataUrlImages(images: readonly string[]): DecodedImage[] {
     out.push({ mimeType, data });
   }
   return out;
-}
-
-/** 下行组装：base64 数据 + mimeType → data URL（工具截图等回填 images 用）。 */
-export function imageDataUrl(image: DecodedImage): string {
-  return `data:${image.mimeType};base64,${image.data}`;
 }
 
 /**

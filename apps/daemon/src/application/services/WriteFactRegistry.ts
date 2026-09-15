@@ -67,6 +67,12 @@ export class WriteFactRegistry {
     this.recordMany([fact]);
   }
 
+  /**
+   * 批量记账（幂等累积同 record：同路径计数增长、置信高覆盖低）。
+   * 批次约束：**同会话**——观察者通知按首条 sessionId 单发（topSessionId），
+   * 跨会话混批只通知首个会话；factObserver 逐条回调不受此约束。调用方
+   * （WriteManifestStore flush 批）应保证同实例同会话批次。
+   */
   recordMany(facts: readonly WriteFact[]): void {
     const topSessionId = facts.length > 0 ? facts[0]!.sessionId : undefined;
     for (const f of facts) {

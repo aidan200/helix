@@ -311,6 +311,22 @@ describe("WorkspaceService：restore（启动恢复）", () => {
     // 失效项不自动删除：再次快照仍在
     expect(service.get().recents).toHaveLength(2);
   });
+
+  test("KV recents 坏形状过滤：root 合法但 name/lastUsedAt 缺失或非 string 的条目剔除（code-review 低危：三字段全量类型校验）", async () => {
+    const rig = makeRig();
+    rig.kv.map.set("workspace.recents", JSON.stringify([
+      { root: "/ok/ws", name: "ok", lastUsedAt: "2026-08-26T00:00:00.000Z" },
+      { root: "/no-name", lastUsedAt: "2026-08-26T00:00:00.000Z" }, // name 缺
+      { root: "/no-time", name: "x" }, // lastUsedAt 缺
+      { root: "/bad-name", name: 42, lastUsedAt: "2026-08-26T00:00:00.000Z" }, // name 非 string
+      { root: "/bad-time", name: "x", lastUsedAt: 123 }, // lastUsedAt 非 string
+    ]));
+    const { service } = rig.makeService({ realpaths: { "/ok/ws": "/ok/ws" }, readableDirs: new Set(["/ok/ws"]) });
+    await service.restore();
+    const snap = service.get();
+    expect(snap.recents).toHaveLength(1);
+    expect(snap.recents[0]).toMatchObject({ root: "/ok/ws", valid: true });
+  });
 });
 
 describe("WorkspaceService：bindCwd（CLI 例外条款）", () => {
@@ -340,7 +356,7 @@ describe("WorkspaceService：bindInitial（组合根初始绑定注入面）", (
 });
 
 describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
-  test("buildStack 抛错 → 异常上抛 + 持有者置空（非死栈）+ 再次 open 好根可恢复", async () => {
+  test("buildStack 抛错 → 结构化错误回执 + 持有者置空（非死栈）+ 再次 open 好根可恢复", async () => {
     const rig = makeRig();
     const built: string[] = [];
     let disposed = 0;
@@ -376,7 +392,15 @@ describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
     await service.open(WS_A);
     expect(service.stack()).not.toBe(null);
     failBuild = true;
-    await expect(service.open(WS_B)).rejects.toThrow("注入建栈失败");
+    // 内建栈失败归一结构化 outcome（code-review 低危：不再裸抛——原裸抛经
+    // handler 兑底 catch 错标 command.invalid_payload，绑定失败非用户输入错）
+    const failed = await service.open(WS_B);
+    expect(failed.ok).toBe(false);
+    if (!failed.ok) {
+      expect(failed.error.code).toBe("daemon.internal");
+      expect(failed.error.message).toContain("注入建栈失败");
+      expect(failed.error.message).toContain("已回退未绑定态");
+    }
     // 半途态加固：旧栈已 dispose、持有者与 current 同步置空（code-review M4：
     // 原「current 不变」让 isBound()=true 而 stack()=null，门禁与能力背离）；
     // KV/broadcast 不受污染（异常先于持久化）；会话卸载不在此刻发生（无栈

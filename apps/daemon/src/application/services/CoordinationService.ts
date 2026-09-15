@@ -302,9 +302,10 @@ export class CoordinationService {
     }
   }
 
-  /** 会话卸载（SessionRegistry onSessionUnload 链）：该会话租约全释放。 */
+  /** 会话卸载（SessionRegistry onSessionUnload 链）：该会话租约全释放 + 轮起始水位同清（turnStartAt 不再泄漏已卸会话键）。 */
   onSessionGone(sessionId: string): void {
     this.release({ ownerSessionId: sessionId });
+    this.turnStartAt.delete(sessionId);
   }
 
   /**

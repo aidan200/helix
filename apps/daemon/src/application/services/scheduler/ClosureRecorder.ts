@@ -30,7 +30,8 @@ import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
  *      深入，深入才 read，报告全文不进主线，dense payload 教训 F-4）+
  *      F3.0③ findings→kg 落账管道（sediment 条目映射写 op，经注入的
  *      findingsSink＝KgWriteService 同形接口，绝不旁路；落账失败不阻塞
- *      closure 主流程，可重试语义由 change_log 幂等保证）。
+ *      closure 主流程，重复落账防护 = candidates 台账人审去重——重提同
+ *      问题由人审合并裁决，不再经 change_log 幂等，TR-36④）。
  *
  * 【两段式拆点】门面在两段之间持有 `closures.set(instanceId, closure)`
  * （观测面留档 Map 归门面）——与拆分前 onInstanceClosure 内联序列逐行
@@ -247,7 +248,7 @@ export class ClosureRecorder {
           this.warnFindings(instance.instanceId, `落账被拒（${result.error.code}：${result.error.message}）`);
         }
       } catch (err) {
-        // 落账失败不阻塞 closure 主流程（注入与落库照常；可重试语义由 change_log 幂等保证）
+        // 落账失败不阻塞 closure 主流程（注入与落库照常；重复落账防护 = candidates 台账人审去重，TR-36④）
         this.warnFindings(instance.instanceId, `落账异常（${(err as Error).message}）`);
       }
     }

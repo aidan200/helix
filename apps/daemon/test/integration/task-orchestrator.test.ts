@@ -1141,6 +1141,47 @@ describe("编排收场推进检查（drive 结束点：无在跑实例 + 未完�
       );
     });
   });
+
+  test("批次收口后重驱位复位：第二次静置死局再获一次重驱（而非直接 failJob）——任务照常完成", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      { kind: "reply", text: "已划批，稍后派发。" }, // 第 1 轮收场——静置 1
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" }, // 第 2 轮 = 重驱 1 唤醒
+      { kind: "reply", text: "收到收口通知，阶段产物稍后申报。" }, // 第 3 轮 = 收口通知唤醒——收场形成静置 2（阶段未完）
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } }, // 第 4 轮 = 重驱 2 唤醒（复位后重获，未复位则静置 2 直接 failJob）——本轮直接推进收口不再静置
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script, progressCheckDelayMs: 50 }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      // 第 1 轮收场 → 静置 1 → 重驱 1（剧本第 2 轮 spawn + dispatch）
+      await env.until(() => env.recorder.calls.length === 1); // spawn 已发生
+      await env.until(
+        () =>
+          env.store.getBatches(jobId, 1)[0]?.status === "running" &&
+          env.store.getBatches(jobId, 1)[0]?.instanceId === env.recorder.call(1).agentId, // 已接线（未接线 settle 会判游离丢弃）
+      );
+      // 实例收口（done + resolved）→ 复位 + 收口通知唤醒第 3 轮 → 静置 2
+      await settleInstance(env, env.recorder.call(1).agentId, { closure: "done", plan: "resolved" });
+      // 复位后第二次静置再获重驱（未复位则 failJob——断言任务最终 done 兑底）
+      await env.until(
+        () => env.sessionLog.filter((e) => e.kind === "drive" && e.text.includes("推进检查")).length >= 2,
+        10000,
+      );
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      await env.until(() =>
+        env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+        env.orchestratorLog.filter((l) => l.includes("驱动开始")).length,
+      );
+    });
+  }, 30000);
 });
 
 describe("code-review M：收口判据读面异常并入 try（兜底 failBatch 链不旁路）", () => {

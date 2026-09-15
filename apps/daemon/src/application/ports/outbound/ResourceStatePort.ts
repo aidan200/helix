@@ -27,6 +27,14 @@
  */
 export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
+/**
+ * 缺省 profile kind（spawn 无显式声明时的回落值，Q-6=A 单一通用 worker）。
+ * 单源点：SchedulerService.spawn 缺省与 TaskOrchestratorService
+ * dispatchProfileKindOf 缺省同值消费（此前双字面量漂移面，code-review
+ * 低危上收）；字面量窄类型保持——既是 ProfileKind 也是编排层窄联合成员。
+ */
+export const DEFAULT_PROFILE_KIND = "subagent-worker" as const;
+
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串
  *  槽位，缺省无记录 = 未配置 → 解析链后续档，全链未配置 = 默认关；
