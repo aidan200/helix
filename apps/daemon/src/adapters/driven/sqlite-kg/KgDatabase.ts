@@ -41,8 +41,9 @@ export class KgDatabase {
   }
 
   /** 关闭全部通道连接（测试清理/daemon 退出；库文件保留）。任一连接关闭
-   * 异常不阻断其余连接关闭（逐项聚合，末尾统一抛）；两 Map 无条件 clear
-   * ——不留半关状态。 */
+   * 异常不阻断其余连接关闭（逐项收集）；两 Map 无条件 clear——不留半关
+   * 状态；有关闭失败统一抛 AggregateError（不吞次因——只抛首个会让并发
+   * 关闭的多路故障丢现场；无失败则静默）。 */
   closeAll(): void {
     const failures: unknown[] = [];
     for (const db of this.knowledgeChannels.values()) {
@@ -62,7 +63,7 @@ export class KgDatabase {
     this.knowledgeChannels.clear();
     this.syncChannels.clear();
     if (failures.length > 0) {
-      throw failures[0] instanceof Error ? failures[0] : new Error(String(failures[0]));
+      throw new AggregateError(failures, `KgDatabase.closeAll：${failures.length} 路连接关闭失败`);
     }
   }
 

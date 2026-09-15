@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { KgDatabase } from "./KgDatabase";
-import { META_KEYS } from "./schema";
+import { META_KEYS, KG_TABLES } from "./schema";
 import type { KgPurgeSummary } from "../../../application/ports/outbound/KnowledgeStorePort";
 import { formatCandidateId, formatNodeId, parseCandidateId, parseMigrationId } from "../../../domain/kg/node-id";
 import { supersedeTransition } from "../../../domain/kg/supersede";
@@ -120,7 +120,7 @@ export class SqliteKnowledgeStore {
   ): WriteResult {
     if (op.nodes.length === 0) {
       // 空批结构化拒绝（服务层 KgWriteService 已拦非空——port 直调防御，
-      // 避兔 lastId 空断言让 null 穿透 nodeId 类型）
+      // 避免 lastId 空断言让 null 穿透 nodeId 类型）
       return err("KG_E_SCHEMA", "batchCreateNodes nodes 不能为空数组", "op.nodes");
     }
     let lastId: string | null = null;
@@ -538,10 +538,12 @@ export class SqliteKnowledgeStore {
   // ── 维护面（C1：kg.graph.purge / kg.index.delete 消费） ─────────
 
   /**
-   * purge 全清：九表全部清零，单事务（知识层通道连接跨面执行——purge 是
-   * 跨双通道域的管理面操作，busy_timeout 吸收与在途 sync 写的事务竞争；
-   * 调用方已先清 sync 定时器）。meta 全清含 seq 发号计数器——全库归零后
-   * 重新发号自 TR-1/E-1 起（历史行已随库清零，无复用冲突面）。
+   * purge 全清：KG_TABLES 全清单（9 域表 + meta）逐表清零，单事务（知识层
+   * 通道连接跨面执行——purge 是跨双通道域的管理面操作，busy_timeout 吸收
+   * 与在途 sync 写的事务竞争；调用方已先清 sync 定时器）。meta 全清含 seq
+   * 发号计数器——全库归零后重新发号自 TR-1/E-1 起（历史行已随库清零，无
+   * 复用冲突面）。清单单源 schema.ts KG_TABLES（新增表只改一处，purge 面
+   * 自动覆盖）。
    */
   purgeAll(projectRoot: string): KgPurgeSummary {
     const db = this.deps.database.knowledgeConnection(projectRoot);
@@ -554,18 +556,7 @@ export class SqliteKnowledgeStore {
         symbolsRemoved: count("symbols"),
         filesRemoved: count("files"),
       };
-      for (const table of [
-        "nodes",
-        "anchor_decl",
-        "change_log",
-        "edges",
-        "materialized_anchors",
-        "candidates",
-        "files",
-        "symbols",
-        "contains_edges",
-        "meta",
-      ]) {
+      for (const table of KG_TABLES) {
         db.exec(`DELETE FROM ${table}`);
       }
       db.exec("COMMIT");

@@ -11,6 +11,13 @@ import { statSync } from "node:fs";
  *   handle 一律返回 null（HTTP 404 由 ws-server 兜底）。
  *
  * 零依赖：Bun.file + 扩展名自动 Content-Type；路径穿越（..）拒绝。
+ *
+ * 信任边界声明（code-review 低危组7）：穿越守卫是**词法比对**（join 后
+ * 前缀校验），不解析符号链接——root 下若存在指向 root 外的 symlink，
+ * Bun.file 会跟随读出。现实风险可忽略：staticDir 来自 daemon 侧
+ * config.json（运维面，非用户请求输入），且构建产物目录（vite build
+ * 输出）不应含 symlink；若部署形态变更（staticDir 可被低信任方写入），
+ * 需升级为 realpath 后比对。
  */
 export class StaticServe {
   private readonly root: string | undefined;

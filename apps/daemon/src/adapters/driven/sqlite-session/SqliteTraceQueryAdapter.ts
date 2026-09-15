@@ -134,7 +134,10 @@ export class SqliteTraceQueryAdapter implements TraceQueryPort {
   private queryInstancePanel(sessionId: string): readonly TraceInstanceRecord[] {
     const aggregates = this.queue.database
       .prepare(
-        "SELECT agent_instance_id, MIN(agent_kind) AS agent_kind, MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS c " +
+        // agent_kind 取聚合代表值：同一实例的 kind 恒定（实例 id 发号时定格，
+        // 行间无漂移），MIN/MAX 等价；取 MAX 避免老库个别空串/小写字面值漂移时
+        // 「字典序最小者」被误当代表（聚合列必须选非分组列的取值而 SQLite 要求包裹聚合函数）
+        "SELECT agent_instance_id, MAX(agent_kind) AS agent_kind, MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS c " +
           "FROM domain_events WHERE session_id = ? GROUP BY agent_instance_id",
       )
       .all(sessionId) as {

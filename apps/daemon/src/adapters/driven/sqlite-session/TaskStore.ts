@@ -174,7 +174,8 @@ export class TaskStore implements TaskStorePort {
  * 直连连接调用——spawn 时刻父进程尚不可知批次归属（insertBatch→spawn→
  * dispatchBatch 序：batch.instance_id 在 dispatchBatch 才落章），故由
  * 子进程在 kg-update 执行时惰性解析（届时 instance_id 早已落章）。
- * 纯 SELECT（AG-06 读面自由）；无命中 = 非任务上下文（chat 子进程等）。
+ * 纯 SELECT（AG-06 读面自由；instance 维等值查走 idx_batch_instance——
+ * O-1 后 additive 补建）；无命中 = 非任务上下文（chat 子进程等）。
  */
 export function readTaskContextByInstance(
   db: Database,

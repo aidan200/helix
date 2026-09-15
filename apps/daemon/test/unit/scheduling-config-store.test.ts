@@ -90,3 +90,29 @@ describe("SchedulingConfigStore（KV scheduling_config 单键）", () => {
     }
   });
 });
+
+describe("KvConfigStore 收编语义（code-review 低危组7：四件同构骨架工厂化）", () => {
+  test("曾成功读到合法值后 KV 被外部脏写 → 保持最近已知值（与读面异常分支同向）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sched-store-"));
+    try {
+      const wq = new WriteQueue(join(dir, "helix.db"));
+      const kv = new RuntimeConfigStore(wq);
+      const store = new SchedulingConfigStore(kv, {
+        maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
+        maxQueued: DEFAULT_SCHEDULING.maxQueued,
+      });
+      await store.set({ maxConcurrent: 5, maxQueued: 12 });
+      expect(store.current()).toEqual({ maxConcurrent: 5, maxQueued: 12 });
+      // 外部脏写（另一进程/手工 sqlite 场景）：parse 不可用 → 最近已知值
+      // （收编决策：Compaction/Scheduling 原「回落固定 fallback」与自身
+      // db-关闭分支不一致，统一取「保持最近值」；脏写窗口 daemon 内部不存在）
+      await kv.set("scheduling_config", "{not json");
+      expect(store.current()).toEqual({ maxConcurrent: 5, maxQueued: 12 });
+      // 合法值恢复后重新跟随 KV
+      await kv.set("scheduling_config", JSON.stringify({ maxConcurrent: 2, maxQueued: 4 }));
+      expect(store.current()).toEqual({ maxConcurrent: 2, maxQueued: 4 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

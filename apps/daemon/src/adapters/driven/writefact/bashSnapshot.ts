@@ -20,6 +20,7 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { STAT_WALK_IGNORED_SEGMENTS } from "../workspace-stat-walk";
 import { planBashSegments } from "../../../domain/writefact/bashExtract";
 import { parsePorcelainZ } from "../../../domain/writefact/snapshotDiff";
 
@@ -29,13 +30,14 @@ const execFileAsync = promisify(execFile);
 const GIT_STATUS_TIMEOUT_MS = 500;
 /** 非 git 遍历软预算（超时整面放弃——部分索引会产生假新增）。 */
 const WALK_BUDGET_MS = 300;
-/** 遍历忽略段（与 workspace-stat-walk 同口径——重目录/运行时目录噪声面）。 */
-const WALK_IGNORED = new Set([
-  "node_modules", ".git", ".hg", ".svn", "dist", "build", "out", ".next",
-  ".nuxt", "target", "coverage", ".turbo", ".cache", ".parcel-cache",
-  "vendor", ".venv", "__pycache__", ".helix", ".kg", ".codegraph",
-  "test-results", "evidence", ".worktrees",
-]);
+/** 遍历忽略段：基集复用 workspace-stat-walk 单源清单（重目录/运行时目录噪声
+ *  面，两 walk 同口径），bash 感知面额外并集 .worktrees——GitWorktreeProvisioner
+ *  的隔离工作树落点（内容为主仓副本，纳入遍历会瞬间烧穿 300ms 预算致整面
+ *  放弃，比忽略更糟；且 worktree 内写事实的归属在子实例 cwd 维度、由该
+ *  子进程自己的 bash 感知覆盖，本仓快照跳过不产生盲区）。workspace-stat-
+ *  walk 不忽略 .worktrees 属预期：那边是全量统计面语义（无时间预算硬钳
+ *  制，且 node_modules 基集已控住成本）。 */
+const WALK_IGNORED = new Set([...STAT_WALK_IGNORED_SEGMENTS, ".worktrees"]);
 /** 遍历深度上限。 */
 const WALK_MAX_DEPTH = 8;
 

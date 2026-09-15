@@ -155,8 +155,10 @@ CREATE TABLE IF NOT EXISTS mcp_server (
  * 任务四表域 DDL（O-1：helix.db 新表域；§3.2 列为权威）：与 SCHEMA_SQL
  * 同构幂等（CREATE TABLE IF NOT EXISTS——新库直建 / 老库 additive 补建，
  * 二次装配 no-op）。状态列不加 CHECK（TR-AD-3：状态机收口在 domain）；
- * batch 查询/级联删按 (job_id, stage_seq) 走辅助索引（stage/work_item 的
- * 复合主键前缀已覆盖各自 job/instance 维查询）。
+ * batch 双索引：job/stage 维按 (job_id, stage_seq)（查询/级联删），instance
+ * 维单列（readTaskContextByInstance 等值查——子进程 kg-update 惰性解析
+ * 批次归属的热路径；stage/work_item 的复合主键前缀已覆盖各自 job/instance
+ * 维查询）。
  */
 export const TASK_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS job (
@@ -195,6 +197,7 @@ CREATE TABLE IF NOT EXISTS batch (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_batch_job_stage ON batch(job_id, stage_seq);
+CREATE INDEX IF NOT EXISTS idx_batch_instance ON batch(instance_id);
 
 CREATE TABLE IF NOT EXISTS work_item (
   instance_id TEXT NOT NULL,

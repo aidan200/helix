@@ -467,3 +467,47 @@ class InMemoryResourceState implements ResourceStatePort {
     return undefined;
   }
 }
+
+describe("frontmatter 闭合标记行级精确判定（code-review 低危组7）", () => {
+  // 闭合 = 单独一行恰为 "---"（容行尾空白）；宽松 indexOf("\n---") 会把
+  // 以 "---" 开头的其他行（"----" 等）误判为闭合
+  const validTask = [
+    "name: fm-precise",
+    "description: 行级闭合判定演示",
+    "task:",
+    "  paramsSchema: { root: { type: string, required: true } }",
+    "  stages:",
+    "    strategy: fixed",
+    "    list: [探测]",
+    "  confirm: skip",
+    "  plan: optional",
+    "  projects: { min: 0, max: 1 }",
+  ].join("\n");
+
+  test("⑩ 正文以 ---- / ---foo 顶格行开头 → 闭合定位不受干扰，manifest 正常入表", async () => {
+    const builtin = tmpDir("helix-t23-fm1-");
+    makeSkill(builtin, "fm-precise", validTask, "----\n---foo\n正文第一段");
+    const registry = await loadRegistry(builtin);
+    expect(registry.getTaskType("fm-precise")?.stages).toEqual({ strategy: "fixed", list: ["探测"] });
+  });
+
+  test("⑪ 闭合行带行尾空白 → 仍判 present（容 [ \\t]*；入表键 = frontmatter name）", async () => {
+    const builtin = tmpDir("helix-t23-fm2-");
+    const dir = path.join(builtin, "task", "fm-tail-space");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "SKILL.md"), `---\n${validTask}\n---  \n\n正文\n`, "utf8");
+    const registry = await loadRegistry(builtin);
+    expect(registry.getTaskType("fm-precise")?.stages).toEqual({ strategy: "fixed", list: ["探测"] });
+  });
+
+  test("⑫ frontmatter 内顶格 ---- 行（笔误四连字符）→ 不再被当闭合线歪打正着截断：YAML 非法诚实暴露为 failed + warning", async () => {
+    const builtin = tmpDir("helix-t23-fm3-");
+    // 旧行为：indexOf("\n---") 前缀匹配 "\n----" → YAML 截在非法行之前，歪打正着
+    // 入表（非法行被静默丢弃）；新行为："----" 不是精确闭合行，顶格非法 YAML
+    // 诚实暴露 → failed + warning（提示文件损坏，而非静默吞）
+    makeSkill(builtin, "fm-dash4", `${validTask}\n----`);
+    const registry = await loadRegistry(builtin);
+    expect(registry.getTaskType("fm-dash4")).toBeNull();
+    expect(warnings.some((w) => w.includes("fm-dash4") && w.includes("YAML 解析失败"))).toBe(true);
+  });
+});

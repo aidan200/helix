@@ -1,48 +1,41 @@
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { CompactionConfig, CompactionConfigPort } from "../../../application/ports/outbound/CompactionConfigPort";
-import { isDbClosedError } from "./RuntimeConfigStore";
+import { makeKvConfigStore, type KvConfigStore } from "./KvConfigStore";
 
 /**
  * CompactionConfigStore —— 压缩参数配置的语义包装（DefaultModelStore 同构：
  * RuntimeConfigPort KV 上 compaction_config 键（JSON 序列化）读写，缺省回落
  * AgentProfile.DEFAULT_COMPACTION）。写面经 RuntimeConfigPort → WriteQueue
- * 单写通道（AG-06）。
+ * 单写通道（AG-06）。骨架收编于 makeKvConfigStore（code-review 低危组7）。
  *
  * 单键 JSON 而非双键：set 一次落盘原子（reserveTokens/keepRecentTokens 不
  * 半写）；读面非法值（脏数据/旧格式）回落默认，不抛错。
  */
 export class CompactionConfigStore implements CompactionConfigPort {
-  /** KV 里的压缩参数键名（JSON 序列化 {reserveTokens, keepRecentTokens}）。 */
-  private static readonly KEY = "compaction_config";
-
-  /** 最近已知值（shutdown 后 db 关闭时的读面兜底）。 */
-  private cached: CompactionConfig;
+  private readonly store: KvConfigStore<CompactionConfig>;
 
   constructor(
-    private readonly runtimeConfig: RuntimeConfigPort,
-    private readonly fallback: CompactionConfig,
+    runtimeConfig: RuntimeConfigPort,
+    fallback: CompactionConfig,
   ) {
-    this.cached = { ...fallback };
+    this.store = makeKvConfigStore(runtimeConfig, {
+      key: "compaction_config",
+      parse: parseCompactionConfig,
+      fallback,
+      clone: (v) => ({ ...v }),
+      serialize: (v) => JSON.stringify(v),
+      warnLabel: "CompactionConfigStore",
+    });
   }
 
   /** 当前生效压缩参数（存储值 ?? 内置默认；db 已关闭 → 最近已知值）。 */
   current(): CompactionConfig {
-    try {
-      const raw = this.runtimeConfig.get(CompactionConfigStore.KEY);
-      this.cached = parseCompactionConfig(raw) ?? { ...this.fallback };
-    } catch (error) {
-      // db 已关闭（daemon 收尾后观测面）——最近已知值；非关闭类不静默
-      if (!isDbClosedError(error)) {
-        console.warn(`CompactionConfigStore 读面异常（非 db 关闭类）：${(error as Error).message}`);
-      }
-    }
-    return this.cached;
+    return this.store.current();
   }
 
   /** 写入压缩参数（单写通道，落盘完成即返回；同步观测缓存）。 */
-  async set(config: CompactionConfig): Promise<void> {
-    this.cached = { ...config };
-    await this.runtimeConfig.set(CompactionConfigStore.KEY, JSON.stringify(config));
+  set(config: CompactionConfig): Promise<void> {
+    return this.store.set(config);
   }
 }
 
