@@ -85,24 +85,29 @@ export class McpRegistry implements McpServerPort {
       this.publishStatus(entry.status);
       return entry.status;
     }
+    const client = new McpClient(config, {
+      logger: this.logger,
+      onExit: (code) => {
+        // 身份守卫（code-review 低危，对齐 CdpConnectionManager M3 close 守卫
+        // 先例）：同名 server 移除重加后，旧 client 的迟到 onExit 不得触碰
+        // 新 entry——只响应当前注册表里的同一 client 本体。
+        const current = this.servers.get(config.name);
+        if (current?.client !== client) return;
+        // 常驻进程意外退出（非 stop 主动路径）：降级 error——下次调用懒重连。
+        // 注：isReady() 此处恒 false（onClose 先复位 ready 再回调 onExit，
+        // McpClient.ts onClose 时序），条件保留以钉住该前提——若时序变化
+        // （onExit 先于 ready 复位）此处会静默不改状态，测试可据此报警。
+        if (current.client.isReady() === false && current.status.state === "running") {
+          this.setStatus(current, {
+            state: "error",
+            lastError: `server 进程意外退出（code=${code ?? "null"}），下次调用自动重连`,
+          });
+        }
+      },
+    });
     const entry: ServerEntry = {
       config,
-      client: new McpClient(config, {
-        logger: this.logger,
-        onExit: (code) => {
-          // 常驻进程意外退出（非 stop 主动路径）：降级 error——下次调用懒重连。
-          // 注：isReady() 此处恒 false（onClose 先复位 ready 再回调 onExit，
-          // McpClient.ts onClose 时序），条件保留以钉住该前提——若时序变化
-          // （onExit 先于 ready 复位）此处会静默不改状态，测试可据此报警。
-          const current = this.servers.get(config.name);
-          if (current && current.client.isReady() === false && current.status.state === "running") {
-            this.setStatus(current, {
-              state: "error",
-              lastError: `server 进程意外退出（code=${code ?? "null"}），下次调用自动重连`,
-            });
-          }
-        },
-      }),
+      client,
       status: { name: config.name, state: "connecting" },
       tools: [],
     };

@@ -458,7 +458,18 @@ export class CdpConnectionManager implements BrowserPort {
     });
   }
 
-  /** 断线收尾：清 sessions/tabs/发现缓存 + 在飞命令立即拒绝 + 状态回 idle。 */
+  /**
+   * 断线收尾：清 sessions/tabs/发现缓存 + 在飞命令立即拒绝 + 状态回 idle。
+   *
+   * 已接受取舍（code-review 低危，裁决：头注明示而非对账实现）：重连后
+   * 不做 Target.getTargets 对账回收——断线窗口内浏览器侧新开/遗留的 tab
+   * 不再被 registry 追踪，idle sweep 扫不到，只能由用户自行关闭。理由：
+   * ① registry 已清空后无从判定哪些 tab 归 daemon（owner 语义不跨重连
+   * 持久化），对账回收需按全量 target 清杀——会误杀用户自己的 tab；
+   * ② tab 是用户可见资源（非隐藏进程/句柄），遗留可见可自管，非元资源
+   * 泄漏；③ 断线是异常态，恢复路径优先简单可靠（M3 身份守卫已保不误杀
+   * 新连接）。后续若引入跨重连 owner 持久化再评估对账。
+   */
   private handleClose(): void {
     const hadConnection = this.ws !== undefined;
     this.ws = undefined;

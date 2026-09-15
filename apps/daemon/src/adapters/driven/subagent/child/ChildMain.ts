@@ -805,14 +805,16 @@ async function main(): Promise<void> {
 let crashCleanup: (() => void) | undefined;
 
 export function runChildMainEntry(): void {
-  main().catch((err) => {
-    process.stdout.write(
-      encodeLine({
-        type: "crash",
-        instanceId: process.env.HELIX_INSTANCE_ID ?? "agent-?",
-        error: err instanceof Error ? err.message : String(err),
-      } satisfies ChildOutboundLine),
-    );
+  // crash 行是大载荷可能被管道截断（与 closure 行同理，见 writeLineAndFlush
+  // 注释）——await flush 回调后再 exit(1)（code-review 低危：原同步 write 后
+  // 立即 exit，crash 主信息可能丢失导致父侧只剩裸 exit 检测）。调用方
+  // （main.ts 分发 / import.meta.main）不 await：进程归宿仍是本函数末尾的 exit。
+  void main().catch(async (err) => {
+    await writeLineAndFlush({
+      type: "crash",
+      instanceId: process.env.HELIX_INSTANCE_ID ?? "agent-?",
+      error: err instanceof Error ? err.message : String(err),
+    } satisfies ChildOutboundLine);
     // code-review M：crash 路径补 MCP 清场——正常路径 mcpRegistry.stopAll()
     // 防孤儿 npx 进程（main 尾部），crash 路径原样 exit(1) 会把 MCP stdio 子
     // 进程留成孤儿常驻（McpClient spawn 非 detached，crash 自行 exit 不经父侧

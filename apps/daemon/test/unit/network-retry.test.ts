@@ -163,6 +163,17 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "402 Payment Required")).toBe("permanent");
   });
 
+  test("裸 timeout 字样（非库常量形态）→ 永久（code-review 低危：末尾裸 |timeout 兜底已剔除）", () => {
+    // 任何含 "timeout" 字样的 provider 散文不再被末位兜底误判瞬时——
+    // 库常量形态（ETIMEDOUT/Headers·Body·Connect Timeout Error/request
+    // timed out 族）已在前序条目枚举覆盖
+    expect(classifyLlmError("error", "timeout after 5000ms")).toBe("permanent");
+    expect(classifyLlmError("error", "Operation timeout window exceeded")).toBe("permanent");
+    // 收窄后保留的库常量形态仍瞬时
+    expect(classifyLlmError("error", "request timeout")).toBe("transient");
+    expect(classifyLlmError("error", "timed out")).toBe("transient");
+  });
+
   test("abort/正常停止/未知错误/空消息 → 永久（fail-fast 安全缺省）", () => {
     expect(classifyLlmError("aborted", "Request was aborted")).toBe("permanent");
     expect(classifyLlmError("stop", undefined)).toBe("permanent");

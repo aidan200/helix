@@ -1,6 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, TextContent, Usage, UserMessage } from "@earendil-works/pi-ai";
-import { LEGACY_MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../../domain/session/Entry";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
@@ -37,23 +36,10 @@ export function textOfContent(content: unknown): string {
   return "";
 }
 
-/** pi 消息 → 纯文本。 */
+/** pi 消息 → 纯文本（user/assistant/toolResult 三角色同体走 textOfContent；其余角色空串）。 */
 export function textOfMessage(message: AgentMessage): string {
   const m = message as { role: string; content: unknown };
-  switch (m.role) {
-    case "user":
-    case "assistant":
-      return textOfContent(m.content);
-    case "toolResult":
-      return textOfContent(m.content);
-    default:
-      return "";
-  }
-}
-
-/** 构造 pi 用户消息（steer 注入 / prompt 驱动共用）。 */
-export function userMessage(text: string): UserMessage {
-  return { role: "user", content: text, timestamp: Date.now() };
+  return m.role === "user" || m.role === "assistant" || m.role === "toolResult" ? textOfContent(m.content) : "";
 }
 
 /** assistant 停止原因（abort/错误时 "error"|"aborted"）。 */
@@ -92,37 +78,6 @@ export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
   const usage = (message as { usage?: Usage }).usage;
   if (usage === undefined) return undefined;
   return usageOfPi(usage);
-}
-
-/** pi 消息 → domain Entry 数据形状（工具结果归 tool；custom 消息忽略）。
- *  实例归属恒为主实例（pi-engine 映射的是主会话引擎流；SubAgent 侧
- * 映射归子进程 adapter）。本文件供引擎事件侧薄映射；完整 Entry
- * 树映射归持久化适配器。 */
-export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null): EntryData | null {
-  const m = message as { role: string; content: unknown };
-  if (m.role === "user") {
-    return {
-      id: "",
-      role: "user",
-      text: textOfContent(m.content),
-      turnId: fallbackTurnId,
-      isSteer: false,
-      instanceId: LEGACY_MAIN_INSTANCE_ID,
-      createdAt: new Date().toISOString(),
-    };
-  }
-  if (m.role === "assistant") {
-    return {
-      id: "",
-      role: "assistant",
-      text: textOfContent(m.content),
-      turnId: fallbackTurnId,
-      isSteer: false,
-      instanceId: LEGACY_MAIN_INSTANCE_ID,
-      createdAt: new Date().toISOString(),
-    };
-  }
-  return null;
 }
 
 // ── 反向映射：Entry → pi AgentMessage（恢复回填） ─────────────────────

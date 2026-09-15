@@ -24,9 +24,12 @@ import type { EngineContainsEdge, EngineFileRecord, EngineSymbol, SymbolSet } fr
  * - 文件面/基准 ← files（path/content_hash/modified_at/indexed_at）。
  */
 /**
- * schema 版本门已测上限：真实 CLI 实测证据——helix 旧库 v8；当前
- * codegraph 1.5.0（workspace 源码构建）全量首建产出 v9，v9 迁移仅加
- * files.generated 列（对投影零影响）；真 CLI 冒烟（kg-codegraph-cli-smoke）
+ * schema 版本门已测上限：真实 CLI 实测证据——helix 旧库 v8；当前 pin
+ * v1.6.0（fetch-codegraph release tag 口径；包内 CLI 自报 1.5.0 为上游
+ * tag 与 package.json 漂移，见 fetch-codegraph.ts 注）全量首建产出 v9
+ * （2026-09-15 实测：bin init 后 schema_versions 单条直达 v9「Initial
+ * schema includes all migrations」，无中间迁移行；v9 较 v8 仅加
+ * files.generated 列，对投影零影响）；真 CLI 冒烟（kg-codegraph-cli-smoke）
  * 即 v9 库上的投影验证。高于此值或缺表 → degraded。
  */
 export const CODEGRAPH_SCHEMA_MAX_VERSION = 9;

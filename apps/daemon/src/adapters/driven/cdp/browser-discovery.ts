@@ -108,19 +108,29 @@ export interface DetectBrowsersDeps {
 /**
  * 返回所有开了调试 toggle 且端口活的浏览器（候选声明序）。
  * 单个候选的任何失败（文件缺失/端口非法/探活失败）只跳过该候选，不抛错。
+ * 探活并行化（code-review 低危）：TCP 探活单候选 2s 超时，串行最坏
+ * N×2s；逐候选同步读端口文件后 Promise.all 并行探活，结果按候选声明
+ * 序过滤保序（map 保序，filter 不改相对序）。
  */
 export async function detectBrowsers(deps: DetectBrowsersDeps): Promise<DiscoveredBrowser[]> {
   const fsReader = deps.fsReader ?? defaultFsReader;
   const tcpProber = deps.tcpProber ?? defaultTcpProber;
-  const result: DiscoveredBrowser[] = [];
-  for (const candidate of knownBrowsers(deps.platform, deps.homeDir, deps.localAppData)) {
+  const candidates = knownBrowsers(deps.platform, deps.homeDir, deps.localAppData);
+  // 同步预读端口文件 + 立即发起探活（无效候选不发起）；alive 位待 Promise.all 落定
+  const probed = candidates.map((candidate) => {
     const content = fsReader(candidate.devToolsPath);
-    if (content === null) continue;
+    if (content === null) return null;
     const lines = content.trim().split(/\r?\n/).filter(Boolean);
     const port = parseInt(lines[0] ?? "", 10);
-    if (!(port > 0 && port < 65536)) continue;
-    if (!(await tcpProber(port))) continue;
-    result.push({ id: candidate.id, label: candidate.label, port, wsPath: lines[1] ?? null });
-  }
-  return result;
+    if (!(port > 0 && port < 65536)) return null;
+    return { candidate, port, wsPath: lines[1] ?? null, alive: tcpProber(port) };
+  });
+  const settled = await Promise.all(
+    probed.map(async (p) => (p === null ? null : { ...p, alive: await p.alive })),
+  );
+  return settled
+    .filter((p): p is { candidate: (typeof candidates)[number]; port: number; wsPath: string | null; alive: true } =>
+      p !== null && p.alive,
+    )
+    .map((p) => ({ id: p.candidate.id, label: p.candidate.label, port: p.port, wsPath: p.wsPath }));
 }

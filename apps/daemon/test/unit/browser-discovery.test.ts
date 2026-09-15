@@ -150,4 +150,26 @@ describe("detectBrowsers（DevToolsActivePort 解析 + 探活选择）", () => {
     });
     expect(found.map((b) => b.id)).toEqual(["edge"]);
   });
+
+  test("探活并行化（code-review 低危）：多候选同时 in-flight，总耗时 ≈ 单候选（非串行叠加）", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const found = await detectBrowsers({
+      platform: "darwin",
+      homeDir: home,
+      fsReader: fakeFs({
+        [chromePath]: "9222\n/devtools/browser/c",
+        [edgePath]: "9444\n/devtools/browser/e",
+      }),
+      tcpProber: async (port) => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 30)); // 模拟探活延迟窗口
+        inFlight--;
+        return port > 0;
+      },
+    });
+    expect(maxInFlight).toBe(2); // 双候选同时 in-flight（串行实现恒 1，红）
+    expect(found.map((b) => b.id)).toEqual(["chrome", "edge"]); // 并行后仍按候选声明序保序
+  });
 });

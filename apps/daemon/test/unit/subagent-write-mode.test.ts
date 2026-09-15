@@ -124,3 +124,56 @@ describe("U3 spawn writes 三档（launcher 侧）", () => {
     expect(h.closures[0]!.outcome.closure.summary).toContain("未装配");
   });
 });
+
+describe("isolated 档 launch 去重窗（code-review 低危）", () => {
+  test("provision 窗口内重复 launch 被占位去重：单次 provision + 单次 spawnSnapshot", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const wtPath = "/tmp/fake-workspace/.worktrees/agent-dedup";
+    const h = mkHarness({
+      provision: async (slug, baseCwd) => {
+        h.provisioned.push({ slug, baseCwd });
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 20)); // 拉长 provision 窗口
+        inFlight--;
+        return { path: `${wtPath}-${slug}`, branch: `helix/${slug}` };
+      },
+      remove: async () => true,
+    });
+    const inst = mkInstance("isolated");
+    h.launcher.launch(inst, "t");
+    h.launcher.launch(inst, "t"); // provision 未落定期间的重复 launch——占位去重
+    h.launcher.launch(inst, "t");
+    await new Promise((r) => setTimeout(r, 60));
+    expect(h.provisioned.length).toBe(1); // 无双 provision
+    expect(maxInFlight).toBe(1); // 无并发 provision
+    expect(h.snapshotCalls.filter((c) => c.writeMode === "isolated").length).toBe(1); // 无双 spawn
+    // 失败后占位即清（同 id 可重试）：provision 失败形态见前述用例，此处
+    // 成功路径去重交棒给 children entry（后续 launch 仍被 children.has 拦）
+    h.launcher.launch(inst, "t");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(h.provisioned.length).toBe(1); // children entry 去重生效
+    void (h.launcher as unknown as { dispose?: () => void }).dispose?.();
+  });
+
+  test("provision 失败后占位清除：同 id 可重新 launch（重试通道可达）", async () => {
+    let attempts = 0;
+    const h = mkHarness({
+      provision: async (slug, baseCwd) => {
+        h.provisioned.push({ slug, baseCwd });
+        attempts++;
+        return attempts === 1 ? { error: "临时失败" } : { path: "/tmp/fake-workspace/.worktrees/agent-retry", branch: "b" };
+      },
+      remove: async () => true,
+    });
+    const inst = mkInstance("isolated");
+    h.launcher.launch(inst, "t");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(h.closures.length).toBe(1); // 首发失败收口
+    h.launcher.launch(inst, "t"); // 占位已清——重试不被去重吞
+    await new Promise((r) => setTimeout(r, 10));
+    expect(h.provisioned.length).toBe(2); // 第二次 provision 真实发生
+    expect(h.worktreeRegistered.length).toBe(1); // 重试成功登记
+  });
+});
