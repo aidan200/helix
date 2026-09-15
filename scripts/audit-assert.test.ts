@@ -3,7 +3,8 @@
  * - executable = process.execPath（不写死 "bun" 走 PATH）；
  * - spawnSync 带 timeout 兜底（TCP 半死防永久挂起，TR-104 同类面）；
  * - 超时杀（exitCode=null）按「请求失败」口径入重试，非漏洞检出；
- * - 真漏洞检出不重试（requestFailed=false）。
+ * - 真漏洞检出不重试（requestFailed=false）；
+ * - exit 0 即 ok（退出码唯一权威）；佐证文案缺席仅 warn 不翻转判定。
  * 注入假 spawnSync 全分支单测，不真起 bun audit（不联网）。
  */
 import { describe, expect, test } from "bun:test";
@@ -31,6 +32,13 @@ function fakeSpawn(result: { exitCode: number | null; stdout?: string; stderr?: 
 describe("runAuditAttempt（①节单次尝试，M13 批 #2.40）", () => {
   test("零漏洞（exit 0 + No vulnerabilities found）→ ok", () => {
     const { spawn } = fakeSpawn({ exitCode: 0, stdout: "No vulnerabilities found" });
+    const r = runAuditAttempt("/tmp", spawn);
+    expect(r.ok).toBe(true);
+    expect(r.requestFailed).toBe(false);
+  });
+
+  test("exit 0 但佐证文案缺席 → 仍 ok（文案匹配降级为佐证/warn）", () => {
+    const { spawn } = fakeSpawn({ exitCode: 0, stdout: "audit completed" });
     const r = runAuditAttempt("/tmp", spawn);
     expect(r.ok).toBe(true);
     expect(r.requestFailed).toBe(false);

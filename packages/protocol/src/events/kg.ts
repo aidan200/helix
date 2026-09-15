@@ -15,7 +15,7 @@ import type {
 // ── kg 批新增信封（iter-20260825-11fo T5.3；P-1 图谱查看页六命令族） ──
 
 /**
- * kg 族结果帧通则：六个结果帧全部为**命令点对点回执**（TR-AD-21 模式，
+ * kg 族结果帧通则：本族结果帧全部为**命令点对点回执**（TR-AD-21 模式，
  * 仅发发起命令的连接，不经 EventStream 广播）；信封 sessionId =
  * SYSTEM_SESSION_ID、channel = "kg"。O-6 裁决零推送事件——索引进度走
  * kg.index.status 命令轮询（500ms-1s 间隔前端定），本族无任何广播事件。
@@ -77,11 +77,17 @@ export interface KgIndexStatusResultEvent extends EventFrame<KgIndexStatusResult
 
 // ── kg-bootstrap 批新增回执（iter-20260829-ys7q T3.2，五命令；契约 = contracts/kg-bootstrap-api.md）──
 
-/** kg.bootstrap.create.result：任务已创建（前端引导「前往『任务』页观察 →」）。 */
-export interface KgBootstrapCreateResultPayload {
+/**
+ * 任务创建受理回执载荷（ok + jobId）：kg.bootstrap.create / kg.review.create /
+ * code.review.create 三回执同构共享（后端受理即回，进度经任务页观察）。
+ */
+export interface TaskCreateAcceptedPayload {
   ok: true;
   jobId: string;
 }
+
+/** kg.bootstrap.create.result：任务已创建（前端引导「前往『任务』页观察 →」）。 */
+export type KgBootstrapCreateResultPayload = TaskCreateAcceptedPayload;
 
 /** kg.bootstrap.produce.result：产出三级分组（payload 即分组本体；空 groups = 无 bootstrap 产出）。 */
 export interface KgBootstrapProduceResultPayload {
@@ -180,10 +186,7 @@ export interface KgCandidatesListResultEvent extends EventFrame<KgCandidatesList
 // ── kg 评审批新增回执（W2-F 轨二：kg.review.create 一命令）──
 
 /** kg.review.create.result：体检任务已创建（前端引导「前往『任务』页观察 →」，bootstrap 同形）。 */
-export interface KgReviewCreateResultPayload {
-  ok: true;
-  jobId: string;
-}
+export type KgReviewCreateResultPayload = TaskCreateAcceptedPayload;
 
 export interface KgReviewCreateResultEvent extends EventFrame<KgReviewCreateResultPayload> {
   channel?: "kg";
@@ -191,10 +194,7 @@ export interface KgReviewCreateResultEvent extends EventFrame<KgReviewCreateResu
 }
 
 /** code.review.create.result：代码评审任务已创建（code-review v1.5；kg.review.create.result 同形）。 */
-export interface CodeReviewCreateResultPayload {
-  ok: true;
-  jobId: string;
-}
+export type CodeReviewCreateResultPayload = TaskCreateAcceptedPayload;
 
 export interface CodeReviewCreateResultEvent extends EventFrame<CodeReviewCreateResultPayload> {
   channel?: "kg";

@@ -56,9 +56,3 @@ export interface McpServersTestCommand extends CommandFrame<McpServerInput> {
 export interface McpToolsListCommand extends CommandFrame<{ server: string }> {
   type: "mcp.tools.list";
 }
-
-/**
- * 命令信封联合（判别式：type 字段窄化）。成员与 COMMAND_TYPES 常量一一
- * 对应，由 catalog.test.ts 双向一致性断言机械守护——不记手维护批次计数链
- * （曾漂移失真）；批次史见 PROTOCOL-CHANGELOG.md。
- */

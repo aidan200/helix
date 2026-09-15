@@ -8,7 +8,7 @@
  * externalBin triple 命名 / 资产命名分档 / 守护断言形态，全部集中此处，
  * 禁散落于各脚本 if-else。
  *
- * 平台入参解析（三脚本同口径）：`--platform <档>` argv 优先 → env
+ * 平台入参解析（管线脚本统一口径）：`--platform <档>` argv 优先 → env
  * HELIX_DESKTOP_PLATFORM → 宿主推断（win32 → windows-x64，其余 →
  * darwin-arm64——mac 缺省行为与硬编码时代逐字节一致，零回归）。
  *

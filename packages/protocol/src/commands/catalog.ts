@@ -1,4 +1,9 @@
-/** 命令信封联合与命令目录常量（双向一致由 catalog.test.ts 机械守护）。 */
+/**
+ * 命令信封联合与命令目录常量（判别式：type 字段窄化）。成员与
+ * COMMAND_TYPES 常量一一对应，由 catalog.test.ts 双向一致性断言机械
+ * 守护——不记手维护批次计数链（曾漂移失真）；批次史见
+ * PROTOCOL-CHANGELOG.md。
+ */
 import type { CommandFrame } from "../envelope";
 import type {
   ChatSendCommand,

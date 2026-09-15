@@ -8,15 +8,17 @@
  *   红（不静默放行），真检出漏洞不重试直接红；单次尝试带 timeout 兜底
  *   （code-review M13 批 #2.40：子进程自身联网遇 TCP 半死零超时即永久
  *   挂起，4 次退避重试救不了单次挂死——TR-104 同类半死面）；
- * ② 版本地板：lock 实装 vite ≥8.2.0 + vitest ≥4.1.0（防 lock 回退到漏洞窗；
- *   T1.2 升级至 latest 线 vite 8.2.2 / vitest 4.1.11，地板随实装 major.minor 线上调）；
- * ③ 生产运行时不引入审计敏感包：root + apps/* 的 dependencies（非 dev）
- *   不含 vite / vitest / esbuild（漏洞全在 dev 链，生产面零挂载的对照守护）；
+ * ② 版本地板：实装面（node_modules 包清单）vite ≥8.2.0 + vitest ≥4.1.0
+ *   （防 lock 回退到漏洞窗；T1.2 升级至 latest 线 vite 8.2.2 / vitest
+ *   4.1.11，地板随实装 major.minor 线上调）；
+ * ③ 生产运行时不引入审计敏感包：root + apps/* + packages/*（Glob 扫描
+ *   package.json 清单）的 dependencies（非 dev）不含 vite / vitest /
+ *   esbuild（漏洞全在 dev 链，生产面零挂载的对照守护）；
  * ④ 体量双线（TR-AD-25 ④ / AD-3 / CL-3 / F(3.6)）：扫描面 .ts 文件
  *   >1000 行 fail / ≥700 行 warn 汇总（不阻断）。行数 = wc -l 物理行语义，
  *   边界恰等：1000 行 warn 不 fail、1001 行 fail、700 行即 warn；
  *   阈值 700/1000 为裁决定值禁止上调；豁免清单 SIZE_EXEMPT 唯一通道
- *   （仓库根相对路径精确匹配 + 理由留痕，本期预期空）；.tsx 不在断言面
+ *   （仓库根相对路径精确匹配 + 理由留痕）；.tsx 不在断言面
  *   （TR-AD-25 口径，入池备注）。
  * （原 ⑤ kg 锚点跟随断言随 v1 docs/kg 清除一并退役——v2 SoT 在 .helix-kg/kg.db，
  *   锚点治理由 kg 侧锚物化/体检通道承担。）
@@ -71,6 +73,9 @@ export type AuditSpawnSync = (
  * - timeout 兜底——bun audit 子进程自身联网遇 TCP 半死时零超时即永久挂起
  *   （TR-104 同类半死面），超时 SIGTERM 后 exitCode=null，按「请求失败」
  *   口径入重试（基础设施故障，非漏洞检出）；
+ * - exit 0 即判 ok（退出码是唯一权威判据）；"No vulnerabilities found"
+ *   文案匹配降级为佐证——exit 0 但佐证文案缺席时 warn（bun 版本文案
+ *   漂移线索），不阻断、不翻转判定；
  * - 请求类失败（"audit request failed" / 超时杀）≠ 漏洞检出；其余非零
  *   退出 = 真漏洞检出（或其它断言级失败），不可重试。
  */
@@ -80,7 +85,12 @@ export function runAuditAttempt(
 ): AuditAttemptResult {
   const audit = spawnSync([process.execPath, "audit"], { cwd, timeout: AUDIT_TIMEOUT_MS });
   const out = audit.stdout.toString() + audit.stderr.toString();
-  if (audit.exitCode === 0 && out.includes("No vulnerabilities found")) {
+  if (audit.exitCode === 0) {
+    if (!out.includes("No vulnerabilities found")) {
+      console.warn(
+        "⚠ ① bun audit exit 0 但佐证文案 \"No vulnerabilities found\" 缺席（bun 版本文案漂移？）——按退出码判通过",
+      );
+    }
     return { ok: true, requestFailed: false, out };
   }
   const requestFailed = audit.exitCode === null || out.includes("audit request failed");
@@ -141,7 +151,14 @@ async function main(): Promise<void> {
 
   // ── ③ 生产依赖面零审计敏感包（vite/vitest/esbuild 只允许 devDependencies） ──
   const AUDIT_SENSITIVE = ["vite", "vitest", "esbuild"];
-  const manifests = ["package.json", "apps/daemon/package.json", "apps/shell/package.json"];
+  // manifest 清单 = root 固定 + apps/*/packages/* 经 Glob 扫描（新增 workspace
+  // 包自动入断言面，免手维护清单漂移）。
+  const manifests = ["package.json"];
+  for (const pattern of ["apps/*/package.json", "packages/*/package.json"] as const) {
+    for await (const rel of new Bun.Glob(pattern).scan({ cwd: root })) {
+      manifests.push(rel);
+    }
+  }
   for (const rel of manifests) {
     const pkg = JSON.parse(readFileSync(join(root, rel), "utf8")) as {
       dependencies?: Record<string, string>;
@@ -159,7 +176,7 @@ async function main(): Promise<void> {
   // 扫描面 = apps/**/src|test + packages/*/src|test 的 .ts（.tsx 不在断言面）；
   // node_modules 排除（三方依赖不受本仓治理面约束）。
   const SIZE_EXEMPT: Array<{ file: string; reason: string }> = [
-    // 豁免唯一通道：仓库根相对 posix 路径精确匹配 + 一行理由；本期预期空，演示登记后须还原。
+    // 豁免唯一通道：仓库根相对 posix 路径精确匹配 + 一行理由留痕；过期豁免由下方核销断言守护（配置漂移即红）。
     {
       file: "apps/daemon/src/infrastructure/assembly/buildSessionStack.ts",
       reason:

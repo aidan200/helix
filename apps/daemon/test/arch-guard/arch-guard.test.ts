@@ -700,9 +700,10 @@ describe("AG-15 / TR-AD-28：@helix/common 业务无关通用层零依赖结构�
     expect(pkg.dependencies).toEqual({});
   });
 
-  test("③ common 依赖边登记（与 AG-05① 四键联动）：daemon workspace:* + protocol 依赖恰一键 @helix/common（re-export 通道）", () => {
+  test("③ common 依赖边登记（与 AG-05① 四键联动）：daemon workspace:* + protocol 依赖恰一键 @helix/common（空置预留位）", () => {
     // protocol 首条 dependencies（AD-1 预期内）：仅 @helix/common 一键——
-    // re-export 通道所需最小依赖面，多一键即越零依赖纪律面。
+    // @helix/common 现为空置预留（尚无源码消费面），此键即预留依赖位，
+    // 多一键即越零依赖纪律面。
     const daemonDeps = (
       JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
         dependencies: Record<string, string>;

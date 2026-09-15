@@ -14,7 +14,7 @@
  *   实时数据源）。
  */
 import type { EventFrame } from "../envelope";
-import type { McpServerInput } from "../commands";
+import type { McpServerInput } from "../commands/mcp";
 
 /** MCP server 运行状态（与 daemon McpRegistry 状态机对齐）。 */
 export type McpServerRuntimeState = "idle" | "connecting" | "running" | "error" | "stopped";
