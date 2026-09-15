@@ -554,7 +554,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   let subagentAssembly = await computeAssembly("subagent-worker");
   // D8 W-R6：kg-writer 组装快照 = 自身 kind 独立装配（声明面单源
   // SubAgentKgWriterProfile——全集已含 kg 工具；生效集受自身差异行管控）
-  // + 评审纪律后缀。toggle 刷新自身重算（独立配置，不随 worker 联动）。
+  // + 图谱产出型后缀。toggle 刷新自身重算（独立配置，不随 worker 联动）。
   const computeKgWriterAssembly = async (): Promise<{
     readonly tools: readonly string[];
     readonly systemPrompt: string;
@@ -930,7 +930,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     deps.mainPlan === undefined
       ? undefined
       : (() => {
-          const ledger = new LazyWorkLedger(deps.mainPlan?.dbPath ?? paths.dbPath());
+          const ledger = new LazyWorkLedger(deps.mainPlan.dbPath ?? paths.dbPath());
           const service = new WorkLedgerService({ reader: ledger, writer: ledger });
           /** 成功后广播（失败路径不发布：写面抛错即工具 error 结果，无事件）。 */
           const publish = (instanceId: string): void => {
@@ -961,8 +961,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           };
           return { ledger, planToolService, service };
         })();
-        // U4：轮末对账 plan 读面晚绑回填（main plan 键 = sessionId）
-        planReaderRef = mainPlanStack?.service;
+  // U4：轮末对账 plan 读面晚绑回填（main plan 键 = sessionId）
+  planReaderRef = mainPlanStack?.service;
 
   // ── service：多会话容器（AD-4 主承载） ─────────────────────
   // 会话绑定引擎工厂（M5 切片，assembly/sessionEngineFactory——语义注释随

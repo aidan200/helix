@@ -13,8 +13,8 @@ import { TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchest
  * （AG-02④ 豁免面 infrastructure/assembly/**）。
  *
  * fan-out 发布面（FanoutPublisher）由组合根先构造——服务构造期（scheduler/
- * ChatService 族）依赖稳定引用；本函数在其后装配七目标（⑤ 链 A 新增
- * task-park-bridge）。**带名注册表序
+ * ChatService 族）依赖稳定引用；本函数在其后装配目标（目标全集以函数内
+ * 注册表为准）。**带名注册表序
  * 即语义唯一权威**（断言面）——重排一行即断言红。
  */
 export interface NamedFanoutTarget {
@@ -111,8 +111,8 @@ export interface WireEventFanoutDeps {
 }
 
 /**
- * fan-out 八目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
- * → 任务停桥（task-park-bridge，第 4 目标）→ 写队列持久化（事件行，行级
+ * fan-out 目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
+ * → 任务停桥（task-park-bridge）→ 写队列持久化（事件行，行级
  * session_id 分仓路由）→ 会话投影路由（**先事件行后状态行**，同会话仓内 FIFO 保序）
  * → 清单运行态桥（活动标记 + state_changed）→ 占用协调桥（coord-bridge，U4
  * 增强面末位——序位不阻断既有目标语义）。
@@ -182,7 +182,7 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       publishDelta: (delta) => registry.touchActivity(delta.sessionId),
     },
   });
-  // 第八目标（U4）：占用协调桥——turn.* 轮末对账 + agent.* 实例终态/闲置
+  // 占用协调桥（U4）：turn.* 轮末对账 + agent.* 实例终态/闲置
   // 事件流入协调面（coord.* 自身事件在 service 内部被忽略，防回环）。
   // 序位末尾：协调是增强面，不阻断既有目标语义。
   if (deps.coordination !== undefined) {
