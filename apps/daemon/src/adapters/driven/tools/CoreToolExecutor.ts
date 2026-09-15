@@ -185,8 +185,8 @@ export interface CoreToolExecutorOptions {
    */
   readonly taskReport?: TaskReportToolDeps;
   /**
-   * 任务引擎回口工具族注入面（T2.2，AD-3③）：六工具（划批次落行/派发落章/
-   * 阶段推进/阶段产物聚合/任务收口）+ 编排者台账读变体。仅编排主 agent
+   * 任务引擎回口工具族注入面（T2.2，AD-3③）：七工具（划批次落行/派发落章/
+   * 阶段推进/阶段产物聚合/任务收口/装配完成回执）+ 编排者台账读变体。仅编排主 agent
    * 会话（组合根 orchestrator-runtime 工厂）注入——不进主会话/SubAgent
    * 生效集（批次成败收口不在 LLM 面，硬约束判定归 TaskOrchestratorService
    * 代码机械执行）。jobId 由装配面绑定。缺省不注册。

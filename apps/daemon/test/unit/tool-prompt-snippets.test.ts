@@ -33,7 +33,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 32 条（main 全集 + plan 三工具 + 编排 task 回口六工具——T2.2 + D3
+    // 恰 32 条（main 全集 + plan 三工具 + 编排 task 回口七工具——T2.2 + D3
     // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
