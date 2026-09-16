@@ -27,7 +27,8 @@ import { seenKeyOf } from "../../src/domain/kg/attachment/budget";
  * 共享）。空命中整段省略（AD-18 空段省略不占位）。
  *
  * 覆盖：①命中注入格式（CL-1.A10 前半）②跨通道去重互通 ③空命中无段
- * ④superseded 不进切片 ⑤预算硬顶贪心 ⑥SchedulerService.spawn 挂点接线。
+ * ④superseded 不进切片 ⑤预算硬顶贪心 ⑥SchedulerService.spawn 挂点接线
+ * ⑦协议行受众分叉 ⑧F3 键空间归一 ⑨空足迹不注入 ⑩足迹收窄（U7 并轨）。
  */
 
 interface Fixture {
@@ -83,7 +84,7 @@ describe("任务层切片注入（F1.3）", () => {
     const f = makeFixture();
     const id = seedNode(f, "handler 幂等规则", "handler 编辑必须保持幂等语义");
     const task = "实现 handler 接口的幂等重试逻辑并补测试";
-    const out = f.query.injectTaskSlice("sess-A", task);
+    const out = f.query.injectTaskSlice("sess-A", task, "main", [f.proj]);
     // 原文保留 + 切片段追加
     expect(out.startsWith(task)).toBe(true);
     expect(out.length).toBeGreaterThan(task.length);
@@ -102,17 +103,17 @@ describe("任务层切片注入（F1.3）", () => {
     const task = "改造队列写入路径";
 
     // 先注入 → 注册表可见（T3.2 attachAfterEdit 侧据此去重；复合键口径，F3）
-    f.query.injectTaskSlice("sess-B", task);
+    f.query.injectTaskSlice("sess-B", task, "main", [f.proj]);
     expect(f.attachment.seenInSession("sess-B").has(seenKeyOf(f.proj, id))).toBe(true);
 
     // 同会话二次派发同任务 → 已注入节点不再重复注入（原文原样返回）
-    const again = f.query.injectTaskSlice("sess-B", task);
+    const again = f.query.injectTaskSlice("sess-B", task, "main", [f.proj]);
     expect(again.indexOf(SLICE_HEADER)).toBe(-1);
 
     // 反向：动作层先行（T3.2 markInjected）→ 任务层注入排除该节点
     const id2 = seedNode(f, "队列读取规则", "队列读取走 WAL 快照");
     f.attachment.markInjected("sess-C", [{ project: f.proj, nodeId: id2 }]);
-    const out = f.query.injectTaskSlice("sess-C", "改造队列写入与读取路径");
+    const out = f.query.injectTaskSlice("sess-C", "改造队列写入与读取路径", "main", [f.proj]);
     expect(out).toContain(`kg get ${id}`); // 未登记 id 正常注入
     expect(out).not.toContain(`kg get ${id2}`); // 已登记 id 排除
   });
@@ -121,11 +122,11 @@ describe("任务层切片注入（F1.3）", () => {
     const f = makeFixture();
     seedNode(f, "无关规则", "与任务文本毫无交集的摘要");
     const task = "重构 build 脚本的输出目录布局";
-    const out = f.query.injectTaskSlice("sess-D", task);
+    const out = f.query.injectTaskSlice("sess-D", task, "main", [f.proj]);
     expect(out).toBe(task);
     // 图空（新 fixture 未建任何节点）同样省略
     const f2 = makeFixture();
-    expect(f2.query.injectTaskSlice("sess-D2", "任意任务文本")).toBe("任意任务文本");
+    expect(f2.query.injectTaskSlice("sess-D2", "任意任务文本", "main", [f2.proj])).toBe("任意任务文本");
   });
 
   test("④ superseded 节点不进切片（被推翻知识不作约束注入）", () => {
@@ -133,7 +134,7 @@ describe("任务层切片注入（F1.3）", () => {
     const id = seedNode(f, "旧口径规则", "已被推翻的旧口径摘要");
     const r = f.write.write(f.proj, { kind: "supersede", nodeId: id, iterationId: "iter-t33", reason: "口径更替" });
     expect(r.ok).toBe(true);
-    const out = f.query.injectTaskSlice("sess-E", "按旧口径规则改造实现");
+    const out = f.query.injectTaskSlice("sess-E", "按旧口径规则改造实现", "main", [f.proj]);
     expect(out.indexOf(SLICE_HEADER)).toBe(-1);
   });
 
@@ -142,7 +143,7 @@ describe("任务层切片注入（F1.3）", () => {
     const names = ["alphaOne", "betaTwo", "gammaThree", "deltaFour", "epsilonFive", "zetaSix", "etaSeven", "thetaEight", "iotaNine"];
     for (const name of names) seedNode(f, `${name} 规则`, `${name} `.repeat(60).trim());
     const task = `批量改造 ${names.join(" 、")} 的实现`;
-    const out = f.query.injectTaskSlice("sess-F", task);
+    const out = f.query.injectTaskSlice("sess-F", task, "main", [f.proj]);
     expect(out).toContain(SLICE_HEADER);
     const slice = out.slice(out.indexOf(SLICE_HEADER));
     const pointers = [...slice.matchAll(/kg get /g)].length;
@@ -151,16 +152,16 @@ describe("任务层切片注入（F1.3）", () => {
     expect(slice.length).toBeLessThanOrEqual(800 * 4); // token 硬顶（估算=chars/4）
   });
 
-  test("⑦ W-R6 协议行受众分叉：audience=worker → worker 版协议行；缺省 → main 版不变", () => {
+  test("⑦ W-R6 协议行受众分叉：audience=worker → worker 版协议行；main → main 版不变", () => {
     const f = makeFixture();
     seedNode(f, "限流规则", "网关限流必须按租户隔离");
     const task = "改造网关限流的租户隔离逻辑";
-    // 缺省（主会话 ChatService 注入链）：main 版措辞
-    const mainOut = f.query.injectTaskSlice("sess-M", task);
+    // main（主会话 ChatService 注入链）：main 版措辞
+    const mainOut = f.query.injectTaskSlice("sess-M", task, "main", [f.proj]);
     expect(mainOut).toContain(ATTACHMENT_PROTOCOL_LINE);
     expect(mainOut).not.toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
     // worker（SubAgent spawn 注入链）：无 kg-update，改 findings 文件申报
-    const workerOut = f.query.injectTaskSlice("sess-N", "改造网关限流的租户隔离与熔断逻辑", "worker");
+    const workerOut = f.query.injectTaskSlice("sess-N", "改造网关限流的租户隔离与熔断逻辑", "worker", [f.proj]);
     expect(workerOut).toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
     expect(workerOut).not.toContain(ATTACHMENT_PROTOCOL_LINE);
   });
@@ -195,14 +196,62 @@ describe("任务层切片注入（F1.3）", () => {
 
     // 项目 A 节点已到达（复合键登记）→ 项目 B 同 id 节点必须照常注入（裸 id 键空间下会被静默误排）
     attachment.markInjected("sess-MP", [{ project: projA, nodeId: idA }]);
-    const out = query.injectTaskSlice("sess-MP", "改造队列写入路径");
+    const out = query.injectTaskSlice("sess-MP", "改造队列写入路径", "main", [projA, projB]);
     expect(out).toContain(SLICE_HEADER);
     expect(out).toContain(`kg get ${idB}（project: projB）`); // 多项目指针尾注（renderEntry multiProject 形态）
     expect(out).not.toContain(`kg get ${idA}（project: projA）`);
     // 反向同型：项目 B 已到达不排项目 A（对称键空间）
     attachment.markInjected("sess-MP2", [{ project: projB, nodeId: idB }]);
-    const out2 = query.injectTaskSlice("sess-MP2", "改造队列写入路径");
+    const out2 = query.injectTaskSlice("sess-MP2", "改造队列写入路径", "main", [projA, projB]);
     expect(out2).toContain(`kg get ${idA}（project: projA）`);
+  });
+
+  test("⑨ U7 并轨：空足迹 → 原文透传不注入（感知不到项目时不注入，不猜项目）", () => {
+    const f = makeFixture();
+    seedNode(f, "队列规则", "队列写入必须串行");
+    const task = "改造队列写入路径";
+    // 任务文本明明命中，但会话零足迹 → 不注入（「感知不到项目时的默认行为，
+    // 不该比注入错误项目规则更差」——residentRulesSection 同口径）
+    expect(f.query.injectTaskSlice("sess-F0", task, "main", [])).toBe(task);
+    // 足迹指向 workspace 外/未建图谱项目 → 过滤后项目集空，同样不注入
+    expect(f.query.injectTaskSlice("sess-F1", task, "main", [path.join(f.root, "nonexistent")])).toBe(task);
+  });
+
+  test("⑩ U7 并轨：足迹收窄——多项目 workspace 只注入足迹内项目的命中节点", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kg-slice-fp-it-"));
+    const projA = path.join(root, "projA");
+    const projB = path.join(root, "projB");
+    mkdirSync(projA, { recursive: true });
+    mkdirSync(projB, { recursive: true });
+    const database = new KgDatabase();
+    const graph = new SqliteKnowledgeGraph({ database });
+    const store = new SqliteKnowledgeStore({ database });
+    const write = new KgWriteService({ store });
+    const attachment = new KgAttachmentService({ graph, hasIndex: () => true });
+    const query = new KgQueryService({ graph, projects: () => [projA, projB], attachment });
+    fixtures.push({ root, proj: projA, database, graph, write, attachment, query });
+    const seedIn = (proj: string, name: string): string => {
+      const r = write.write(proj, {
+        kind: "createNode",
+        iterationId: "iter-t33",
+        draft: { kind: "rule", name, digest: `${name}摘要`, scene: "测试场景" },
+      });
+      if (!r.ok) throw new Error(`种子建节点失败：${r.error.message}`);
+      if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
+      return r.nodeId;
+    };
+    const idA = seedIn(projA, "会话规则");
+    const idB = seedIn(projB, "会话规则");
+    // 足迹只含 projA → 两项目同词命中，仅 projA 节点进切片
+    //（两项目同 id 同名为结构性前提——以 project 尾注有无判别来源项目）
+    const out = query.injectTaskSlice("sess-FP", "改造会话恢复链路", "main", [projA]);
+    expect(out).toContain(SLICE_HEADER);
+    expect(out).toContain(`kg get ${idA}`);
+    expect(out).not.toContain("projB"); // projB 节点/尾注均不出现
+    // 对称：足迹只含 projB
+    const outB = query.injectTaskSlice("sess-FP2", "改造会话恢复链路", "main", [projB]);
+    expect(outB).toContain(`kg get ${idB}`);
+    expect(outB).not.toContain("projA");
   });
 
   test("⑥ spawn 派发挂点（探查 A 六跳链挂点）：SchedulerService.taskInjector → task 文本携带切片", () => {
@@ -217,7 +266,7 @@ describe("任务层切片注入（F1.3）", () => {
       clock: { now: () => "2026-08-25T00:00:00.000Z", nowMs: () => Date.now() },
       stalledPollMs: 60_000,
       // 组合根同款接线：sessionId + task → KgQueryService.injectTaskSlice
-      taskInjector: (sessionId, task) => f.query.injectTaskSlice(sessionId, task),
+      taskInjector: (sessionId, task) => f.query.injectTaskSlice(sessionId, task, "worker", [f.proj]),
     });
     try {
       const out = scheduler.spawn("sess-G", "实现支付回调的幂等去重");

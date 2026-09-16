@@ -7,10 +7,12 @@
  *    ——search 汇总各已建 .kg 项目的 LIKE 命中行（project 伴随）；get 按
  *    项目排序确定性首命中。项目列表经 deps.projects 注入（已建 .kg 过滤
  *    ——读面绝不新建库文件）。
- * 2. **任务层切片注入**（spawn 派发时，SchedulerService.taskInjector 消费）：
- *    任务文本 → extractIdentifiers（与 edit 附着同源分词）→ 各项目 search
- *    同源匹配 → selectTaskSlice（排除+去重+预算）→ digest+指针切片追加进
- *    task 文本尾部（约束区语义）。注入成功后经 attachment.markInjected 登记
+ * 2. **任务层切片注入**（spawn 派发与主会话首轮双链消费同一注入器，
+   *    SchedulerService / ChatService）：任务文本 → extractIdentifiers
+   *    （与 edit 附着同源分词）→ 会话足迹过滤后的各项目 search 同源匹配
+   *    （U7 并轨：空足迹不注入）→ selectTaskSlice（排除+去重+预算）→
+   *    digest+指针切片追加进 task 文本尾部（约束区语义）。注入成功后经
+   *    attachment.markInjected 登记
  *    会话注册表（与 edit 附着跨通道共享去重，F1.2）。任何失败静默返回
  *    原文——注入是增强，绝不阻断 spawn。
  */
@@ -192,12 +194,29 @@ export class KgQueryService {
    * 空命中/失败返回原文逐字节不变——空段省略不占位，AD-18）。
    * 注入的 id 即时 markInjected（跨通道去重闭环）。audience（W-R6）：
    * worker 受众协议行改 findings 申报措辞（组合根 spawn 链传 "worker"，
-   * 主会话 ChatService 链缺省/传 "main"）。
+   * 主会话 ChatService 链传 "main"）。
+   *
+   * projectRoots = 会话项目足迹（栈内 writeFacts.projectFootprint(sessionId)
+   * 补齐，U7 去全扫化并轨 residentRulesSection 口径）：空足迹 → 原文透传
+   * 不注入——「感知不到项目时的默认行为，不该比注入错误项目规则更差」；
+   * 足迹经 normalizeRoot 归一（worktree 归主仓）后过滤 deps.projects()。
    */
-  injectTaskSlice(sessionId: string, taskText: string, audience: TaskSliceAudience = "main"): string {
+  injectTaskSlice(
+    sessionId: string,
+    taskText: string,
+    audience: TaskSliceAudience,
+    projectRoots: readonly string[],
+  ): string {
     try {
-      const projects = this.deps.projects();
-      if (projects.length === 0 || taskText.trim() === "") return taskText;
+      if (taskText.trim() === "") return taskText;
+      const wanted = projectRoots
+        .map((root) => normalizeRoot(root))
+        .filter((r): r is string => r !== null);
+      if (wanted.length === 0) return taskText;
+      const projects = this.deps.projects().filter((project) =>
+        wanted.includes(normalizeRoot(project) ?? ""),
+      );
+      if (projects.length === 0) return taskText;
       const renderOptions: TaskSliceRenderOptions = {
         multiProject: projects.length > 1,
         ...(audience === "worker" ? { protocolLine: ATTACHMENT_PROTOCOL_LINE_WORKER } : {}),

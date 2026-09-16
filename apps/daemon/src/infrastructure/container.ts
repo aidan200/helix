@@ -564,8 +564,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // W1：未绑定 → 空切片（无图查询面，零副作用）。audience（D8 W-R6）：
     // SubAgent spawn 链传 "worker"（协议行 findings 申报措辞），主会话
     // ChatService 链传/缺省 "main"（kg-update 直落措辞）——buildSessionStack 按消费链分叉。
-    taskInjector: (sessionId, task, audience) =>
-      workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience) ?? "",
+    taskInjector: (sessionId, task, audience, projectRoots) =>
+      workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience, projectRoots) ?? "",
     // findings 落账管道（F3.0，T4.1）：findings 文件 canonical → KgWriteService 唯一
     // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
     // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。

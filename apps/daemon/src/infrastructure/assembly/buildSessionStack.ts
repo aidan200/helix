@@ -268,9 +268,16 @@ export interface BuildSessionStackDeps {
    * spawn 派发任务切片注入器（T3.3，F1.3）：透传 SchedulerService
    * （组合根接 KgQueryService.injectTaskSlice）。缺省不注入。第三参
    * audience（D8 W-R6）：本函数经两条消费链分叉——SchedulerService
-   * （SubAgent spawn）传 "worker"，ChatService（主会话）传 "main"。
+   * （SubAgent spawn）传 "worker"，ChatService（主会话）传 "main"；
+   * 第四参 projectRoots = 会话项目足迹（U7 并轨：栈内 writeFacts
+   * .projectFootprint(sessionId) 补齐，空足迹不注入）。
    */
-  readonly taskInjector?: (sessionId: string, task: string, audience?: "main" | "worker") => string;
+  readonly taskInjector?: (
+    sessionId: string,
+    task: string,
+    audience: "main" | "worker",
+    projectRoots: readonly string[],
+  ) => string;
   /**
    * findings 落账管道（F3.0，T4.1）：透传 SchedulerService→ClosureRecorder
    * （组合根接 kg 栈 KgWriteService；测试工厂可注入替身）。缺省不注入
@@ -848,9 +855,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     spawnAnchorFor: (sessionId) => backfill.computeSpawnAnchor?.(sessionId) ?? null,
     // spawn 派发任务切片注入（T3.3，F1.3）：任务文本成形后/传给 launcher 前
     // 单点挂接（SchedulerService 内部消化失败）。D8 W-R6：spawn 链恒 worker
-    // 受众（协议行 findings 申报措辞——SubAgent 无 kg-update）。
+    // 受众（协议行 findings 申报措辞——SubAgent 无 kg-update）。U7 并轨：
+    // 第四参会话足迹显式透传（TR-175 少参静默吞参纪律——尾参显式书写）。
     ...(deps.taskInjector !== undefined
-      ? { taskInjector: (sessionId: string, task: string) => deps.taskInjector!(sessionId, task, "worker") }
+      ? {
+          taskInjector: (sessionId: string, task: string) =>
+            deps.taskInjector!(sessionId, task, "worker", writeFacts.projectFootprint(sessionId)),
+        }
       : {}),
     // findings 落账管道（F3.0，T4.1）：透传 ClosureRecorder（组合根接 kg 栈）
     ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
@@ -1041,7 +1052,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),
       ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
       ...(deps.taskReport !== undefined ? { taskReport: deps.taskReport } : {}),
-      ...(deps.taskInjector !== undefined ? { taskInjector: deps.taskInjector } : {}),
+      ...(deps.taskInjector !== undefined
+        ? {
+            // U7 并轨：主会话链同按会话足迹收窄（空足迹不注入）——尾参显式
+            // 书写（TR-175）；audience 缺省 "main" 在 sessionEngineFactory 侧补齐
+            taskInjector: (sessionId: string, task: string, audience?: "main" | "worker") =>
+              deps.taskInjector!(sessionId, task, audience ?? "main", writeFacts.projectFootprint(sessionId)),
+          }
+        : {}),
       ...(deps.mainSessionLlmOverride !== undefined ? { mainSessionLlmOverride: deps.mainSessionLlmOverride } : {}),
     }),
     onListChanged: (change) => eventStream.broadcastListChanged(change),
