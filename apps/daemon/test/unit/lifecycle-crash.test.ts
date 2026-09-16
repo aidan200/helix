@@ -48,9 +48,11 @@ describe("陈锁接管签名（previousCrash）", () => {
 describe("installCrashLogging 崩溃留痕", () => {
   test("unhandledRejection → ERROR 落盘 + 退出码 1（子进程实测）", async () => {
     const dir = makeDir("helix-crash-");
+    // 路径锚定本测试文件（import.meta.dir）而非进程 cwd——CI 从仓根跑
+    // `bun test apps/daemon`，path.resolve 相对 cwd 会解析到仓根下不存在的 src/。
     const childSrc = `
-import { installCrashLogging } from ${JSON.stringify(path.resolve("src/infrastructure/lifecycle"))};
-import { createFileLogger } from ${JSON.stringify(path.resolve("src/infrastructure/logging"))};
+import { installCrashLogging } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/infrastructure/lifecycle"))};
+import { createFileLogger } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/infrastructure/logging"))};
 installCrashLogging(createFileLogger(${JSON.stringify(dir)}));
 Promise.reject(new Error("boom-probe"));
 `;
