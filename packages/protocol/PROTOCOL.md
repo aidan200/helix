@@ -6,13 +6,13 @@
 > SoT 守护口径。
 >
 > **命令/事件 payload 形状与字段语义单源 = `src/` 的 TypeScript 类型 +
-> JSDoc**（协议文档收口批，PROTOCOL-CHANGELOG.md §39）——本文档不再
+> JSDoc**（协议文档收口批，changelog/ §39）——本文档不再
 > 登记 payload 形状（原 §15/§16 已退役，节号墓碑保留下文）；字段级语义
 > （缺省行为、错误路径、落盘语义、版本考古）随类型定义的 JSDoc 维护，
 > 与代码同 commit 同文件。
 >
 > **节号引用口径**：本文档中形如 §10–§14、§17.5+、§18–§39 的节号引用，
-> 均指 PROTOCOL-CHANGELOG.md 中的**原节号**（迁移与退役原样保留，未重排）。
+> 均指 changelog/ 目录版本文件中的**原节号**（全域保留，经 changelog/README.md 索引定位）。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon 与前端 shell
 > 共同 import，**仓库内禁止平行手写协议类型**（AD-8 / AG-13）。设计溯源
@@ -120,7 +120,7 @@ export interface EventFrame<T = unknown> {
 ## 4. 命令与事件目录（代码自证）
 
 命令/事件全集与 payload 形状不再于本文档登记（协议文档收口批，§15/§16 退役，
-见 PROTOCOL-CHANGELOG.md §39）——**目录与形状单源 = 代码**：
+见 changelog/ §39）——**目录与形状单源 = 代码**：
 
 - 命令目录常量 `COMMAND_TYPES` + 判别联合 `CommandEnvelope`：`src/commands/`
   （按族分文件：catalog / kg / mcp / model-config / resource / session /
@@ -254,13 +254,13 @@ WS 连接本身不受 CORS 约束（浏览器允许跨源 WS），仅 token 的 
 Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重写，前端握手
 失败即重新拉取）。
 
-> **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 PROTOCOL-CHANGELOG.md**
+> **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 changelog/（v0-v0.4.md）**
 >（原节号保留——下文节号自 §9 直接跳至 §15 即此迁移痕迹，非缺节）。
 
 
 ## 15. 命令 payload 形状总登记（已退役）
 
-> 协议文档收口批（PROTOCOL-CHANGELOG.md §39）退役：payload 形状与字段语义
+> 协议文档收口批（changelog/ §39）退役：payload 形状与字段语义
 > 单源收敛至 `src/commands/` / `src/types/` 的类型 + JSDoc。本节号保留为
 > **墓碑**（防历史引用悬空）——历史登记内容见 CHANGELOG 各批次节；存量文档
 > 引用「PROTOCOL.md §15.x」请改指源码类型或 CHANGELOG 对应节。
@@ -285,7 +285,7 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 
 - **原① payload 形状正文登记律：废除**（§15/§16 登记面退役）。新增 / 变更
   命令·事件·payload 字段只须改类型（含 JSDoc 同 commit）并在
-  PROTOCOL-CHANGELOG.md 落批次备案——无文档登记步。
+  changelog/ 当前版本文件落批次节（分配规则见 changelog/README.md）——无文档登记步。
 - **② 版本位单点律（保留）**：`PROTOCOL_VERSION` 唯一定义于
   `packages/protocol/src/envelope.ts`；任何脚本 / 文档 / 测试引用版本一律从
   单点读或由断言①守护，禁止手写字面量。
@@ -297,8 +297,11 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 
 1. **① 版本位一致（保留）**：本文档标题行与 §3 代码块中的版本字面量 ==
    `PROTOCOL_VERSION` 导出值（防版本字面量漂移复发）。
-2. **⑥ 文件职责守护（开放式重构）**：PROTOCOL-CHANGELOG.md 存在且非空、
-   含批次节标题（**开放判定，不封顶节号**——未来 §40+ 批次节自动合法）；
+2. **⑥ 文件职责守护（目录化）**：changelog/ 目录含 v*.md 版本文件且当前
+   版本位对应文件在位（版本 bump 须开新文件）；`## N.` 批次节号**全域连续
+   无跳号且不得重复**（{10..14} ∪ {18..max}，§40+ 开放顺延；重复即红——
+   set 去重盲区事故实证后补）；§15–§17 的 ## 级节号为
+   本文档保留域（changelog/ 内出现即红——域分离）；
    本文档节号白名单 `{1–9, 15, 16, 17}` 与实际节标题**双向恰等**（白名单外
    节号出现即红——任何未来批次节写回现行文件即红；白名单内节号缺失亦红
    ——节号漂移即红）；`### 17.x` 小节只许 17.1–17.4。
@@ -314,5 +317,5 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 收窄为断言① + ⑥——该生成式需求的前提（文档承载形状）不复存在。
 
 > **§17.5 起的批次登记（v0.5–v0.12）与 §18–§39 additive 微批备案均在
-> PROTOCOL-CHANGELOG.md**（原节号保留；§17.4 为本节末尾）。登记纪律
+> changelog/ 目录**（原节号全域保留；§17.4 为本节末尾）。登记纪律
 > （批次备案同 commit 落 CHANGELOG）见 §17.2。

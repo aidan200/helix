@@ -122,16 +122,16 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(thinkingChanged.v).toBe("0.12");
   });
 
-  // ── v0.11 sot 断言（T3.1 补）：envelope 单点 ↔ PROTOCOL-CHANGELOG.md §17.11 批次登记一致性（protocol-split 批：批次备案迁 CHANGELOG，断言随迁）──
+  // ── v0.11 sot 断言（T3.1 补）：envelope 单点 ↔ CHANGELOG §17.11 批次登记一致性（protocol-split 批：批次备案迁 CHANGELOG，断言随迁；CHANGELOG §40 目录化：节随版本域迁 changelog/v0.5-v0.11.md，断言再随迁）──
   // sot-consistency ①~⑤ 守护面（§17.3 口径）之外的批次专断：§17.N 登记节与当前
   // 版本位/批次内容的一致。解析失败必须红（缺节/缺登记点 → throw），永真断言 = 未生效。
   test("v0.11 sot：§17.11 批次登记节四块登记锚完整（coord 批 v0.12 起节号锄定历史节，不随版本位走）", () => {
-    const doc = readFileSync(fileURLToPath(new URL("../../PROTOCOL-CHANGELOG.md", import.meta.url)), "utf8");
+    const doc = readFileSync(fileURLToPath(new URL("../../changelog/v0.5-v0.11.md", import.meta.url)), "utf8");
     // ① thinking 批历史登记节存在（标题静态锄定 v0.11）
     const batchAnchor = /^### 17\.11 v0\.11 批次登记$/m;
     const head = doc.match(batchAnchor);
     if (!head || head.index === undefined) {
-      throw new Error("PROTOCOL-CHANGELOG.md 解析失败：未找到批次登记节「### 17.11 v0.11 批次登记」");
+      throw new Error("changelog/v0.5-v0.11.md 解析失败：未找到批次登记节「### 17.11 v0.11 批次登记」");
     }
     const after = doc.slice(head.index + head[0].length);
     const stop = after.match(/^### |^## /m);
@@ -139,7 +139,7 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     // ② 四块登记点在批次节内有叙述锚（缺任一 = 登记不完整，红）
     for (const anchor of ["thinking.set", "thinking.changed", "reasoning", "thinkingLevels", "thinkingLevel"]) {
       if (!section.includes(anchor)) {
-        throw new Error(`PROTOCOL-CHANGELOG.md 解析失败：§17.11 批次节缺登记点「${anchor}」`);
+        throw new Error(`changelog/v0.5-v0.11.md 解析失败：§17.11 批次节缺登记点「${anchor}」`);
       }
     }
     // ③ 批次声明计数与常量目录实况一致（27 → 28 / 47 → 48；历史声明不动，
