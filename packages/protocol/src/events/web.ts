@@ -1,5 +1,6 @@
 /**
- * web 族事件（v0.7，T4 联网状态图标；契约 = PROTOCOL.md §16.8）。
+ * web 族事件（v0.7，T4 联网状态图标；批次备案见 PROTOCOL-CHANGELOG.md
+ * web 批（v0.7 T4 / v0.9 T7））。
  *
  * 域形状与 daemon BrowserPort 的 BrowserStatus / TabInfo 对齐（DTO 映射归
  * daemon driving 层 handlers/web.ts；本包零 CDP 符号——id/label/port/tab

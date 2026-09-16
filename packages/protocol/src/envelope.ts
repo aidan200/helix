@@ -47,8 +47,8 @@ export const SYSTEM_SESSION_ID = "__system__" as const;
  * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events/ 目录
  * 以判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）；
  * 通道归属例外（type 前缀 ≠ channel）：auth.* 与 config.* 结果帧挂 model
- * 通道、task.changed 挂 notification 通道——均以 EVENT_CHANNELS 与 PROTOCOL.md
- * §16.6/§16.1 登记为准，非默认推断面。
+ * 通道、task.changed 挂 notification 通道——均以 EVENT_CHANNELS 登记为准
+ * （代码单源），非默认推断面。
  * 扩展纪律：新增族 = additive，不动分发器（TR-AD-18 同构口径）。
  */
 export type Channel =

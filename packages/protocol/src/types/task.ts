@@ -1,12 +1,13 @@
 /**
  * task 族共享 DTO + 事件 + 点对点结果帧（P-2 任务页数据面，iter-20260829-ys7q T1.5）。
  *
- * 契约权威源 = 本迭代 `development/contracts/task-api.md`（T1.5 daemon 协议面
- * 与 T3.1 shell 前端的共同约定；逐字段以契约为准）。本文件是该契约的协议类型
- * 落位（AD-8/AG-13：两端同源，仓内不得平行手写）。
+ * 本文件即契约权威源（协议文档收口批，PROTOCOL-CHANGELOG.md §39）：形状与
+ * 字段语义以本文件类型 + JSDoc 为准（AD-8/AG-13：两端同源，仓内不得平行
+ * 手写；历史设计稿 development/contracts/task-api.md 已降为档案，不再是
+ * 实现规范依据）。
  *
  * 批次：v0.11 后 additive 微批（版本位不 bump，§19/§20 同构先例）——
- * 九命令（PROTOCOL.md §15.11）+ `task.changed` 唯一新事件（EVENT_TYPES
+ * 九命令（task 批备案见 PROTOCOL-CHANGELOG.md）+ `task.changed` 唯一新事件（EVENT_TYPES
  * 57→58；挂既有 notification 通道，不新增 Channel 值——契约 §0）。
  * 九命令结果帧为**命令点对点回执**（TR-AD-21 模式，sendNow 直发不经
  * EventStream 广播）——与 kg 批不同，本批结果帧不入 EVENT_TYPES 目录

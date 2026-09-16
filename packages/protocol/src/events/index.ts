@@ -2,13 +2,15 @@
  * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
  * 事件全集以 EVENT_TYPES 常量为准——头注释不记硬计数（易腐，曾与实际
- * 严重漂移），计数由机械断言守护（PROTOCOL.md §17.3 断言③：文档计数声明 ==
- * 常量目录长度；catalog.test.ts：EVENT_TYPES ↔ EventEnvelope 双向一致）。
+ * 严重漂移），计数 = 代码自证（catalog.test.ts：EVENT_TYPES ↔
+ * EventEnvelope 双向一致）——协议文档收口批（PROTOCOL-CHANGELOG.md §39）
+ * 起文档不再承载计数声明（原 sot 断言③随 §16 登记面退役）。
  * 批次演进史见 PROTOCOL-CHANGELOG.md。
  *
  * 口径要点（非计数）：点对点命令结果帧仅发发起命令的连接（TR-AD-21）；
  * 其中 task 族十结果帧与 diff.get.result 不入本目录（types/task.ts /
- * types/diff.ts 窄化接口供出），登记判据见 PROTOCOL.md §16 头注。
+ * types/diff.ts 窄化接口供出），窄化接口轨为已登记历史例外（PROTOCOL.md
+ * §17.2③ 结果帧单轨律：不得效仿扩展）。
  * `EventEnvelope` 为判别式联合，前端 switch(event.type) 窄化各分支
  * payload（投影 reducer）。
  *

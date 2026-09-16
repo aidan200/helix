@@ -6,9 +6,11 @@
 > 保留**（未重排）——仓内「PROTOCOL-CHANGELOG.md §N」引用即指本文件中原
 > 节号。
 >
-> 现行契约（§1–§9 / §15 / §16 / §17.1–§17.4）与 SoT 守护见 PROTOCOL.md；
-> 登记纪律：版本 bump / additive 微批 = 本文件加批次节（或批内补登节）+
-> PROTOCOL.md §15/§16 落字段行，同 commit（PROTOCOL.md §17.2①）。
+> 现行契约导览（§1–§9 / §17）与 SoT 守护口径见 PROTOCOL.md；命令/事件形状
+> 与字段语义单源 = packages/protocol/src 类型 + JSDoc（协议文档收口批 §39 起
+> PROTOCOL.md 不再登记 payload 形状）。登记纪律（§39 修订）：版本 bump /
+> additive 微批 = 本文件加批次节（或批内补登节）+ 类型与 JSDoc 同 commit
+>（原「PROTOCOL.md §15/§16 落字段行」登记步已废除，见 PROTOCOL.md §17.2）。
 >
 > 迁移批次：protocol-split（设计：docs/temp/protocol-split-design.md）——
 > 以下内容逐字节保真迁入（hash 校验），零内容改写。
@@ -1187,3 +1189,27 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 >   entry source 字段透传——占用者被 claim 重叠时开 turn 响应。
 > - 协调状态不进 entries 不进上下文（会话 store 零写入）；前端活动窗口
 >   轻通知 = shell CoordNoticeToast（TaskSyncHintToast 先例）。
+
+## 39. 协议文档收口批（PROTOCOL.md §15/§16 退役：SoT 收敛至类型 + JSDoc；零协议形状变更，版本位不 bump）
+
+> 用户裁决（2026-09-15 会话，三案对比定案注释化收口；裁决件：workspace
+> docs/temp/protocol-sot-collapse-adjudication.md）。
+>
+> **动因**：三写已存在（types/*.ts JSDoc 已承载字段级语义，§15/§16 字段表
+> 与之逐字级重复，sot 断言④的 110 行字段 presence 清单构成第三处手工双写）
+> 且腐烂实证（版本位正文停 0.11、§3 代码块注释与 envelope.ts 脱节、§8 双
+>「=当前」残留、断言⑥白名单封顶 §23 而本文件已至 §38、§4/§5 目录停
+> v0.1 与全集计数自相矛盾）。
+>
+> **变更**：PROTOCOL.md 2321 → 318 行——§15/§16 退役为节号墓碑；§4/§5
+> v0.1 遗物目录删除（行为注记并入新 §4「目录=代码自证」）；§6 删代码块
+> 复述留设计原则；§2 时序图与 §3 FrameVersion 注释对齐 0.12；§8 演进
+> 叙事补 v0.12 与本批。sot-consistency 断言族重构：①保留、⑥开放式化
+>（节号白名单 {1,2,3,4,6,7,8,9,15,16,17} 双向恰等 + CHANGELOG 批次节开放
+> 判定不封顶——原 CAND-324 盲区随批消解），②③④⑤随登记面退役（接管面
+> = typecheck + exports.test + arch-guard）。六文件七处 §15.x/§16.x 节号
+> 引用与废黜权威源引用（development/contracts/task-api.md）清理。
+>
+> **守护真空论证**：新命令/事件必然改代码（COMMAND_TYPES/EVENT_TYPES +
+> 构造器 + handler），typecheck/exports/arch-guard 即时拦截；字段漏定义在
+> 前端消费处编译期爆红，强于原 presence 断言（只查锚存在不查内容）。

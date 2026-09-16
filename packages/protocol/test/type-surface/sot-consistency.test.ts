@@ -1,30 +1,26 @@
 /**
- * sot-consistency：PROTOCOL.md ↔ @helix/protocol 导出 SoT 守护断言（T2.4，AD-4；
- * 断言口径 = PROTOCOL.md §17.3 五条；AC2.4「可演示」——每条断言的红演示证据
- * 落 docs/iterations/iter-20260820-qhv8/evidence/dev/T2.4/）。
+ * sot-consistency：PROTOCOL.md ↔ @helix/protocol SoT 守护断言。
  *
- * 守护面（文档 ↔ 代码不一致即红）：
- * ① 版本位一致：标题行 + §3 代码块版本字面量 == PROTOCOL_VERSION（§17.2② 单点律的文档面）；
- * ② 类型 presence：COMMAND_TYPES / EVENT_TYPES 每字面量在 §15/§16 有 `#### \`<type>\`` 登记锚；
- * ③ 计数一致：§15/§16 计数声明行数值 == 常量目录长度（61 / 78）；
- * ④ additive 字段 presence：anchorEntryId / tier / instanceId / draft / model 在对应登记表有字段行；
- * ⑤ 通道归属一致：§16 各族小节事件 type 集合 == EVENT_CHANNELS 对应通道值域；
- * ⑥ 文件职责守护（protocol-split 批）：PROTOCOL-CHANGELOG.md 存在且非空；
- *   PROTOCOL.md 内不出现批次节标题（^## 1[0-4]. / ^## 1[89]|2[0-3]. /
- *   ^### 17.5–17.11）——批次备案写回现行文件即红（单一职责机械兑底）。
+ * 协议文档收口批（PROTOCOL-CHANGELOG.md §39）重构后的守护面（两条）：
+ * ① 版本位一致：标题行 + §3 代码块版本字面量 == PROTOCOL_VERSION
+ *    （§17.2② 单点律的文档面）；
+ * ⑥ 文件职责守护（开放式）：PROTOCOL-CHANGELOG.md 存在非空且含批次节标题
+ *    （开放判定 `^## N. `，不封顶节号——未来 §40+ 批次节自动合法）；
+ *    PROTOCOL.md 节号白名单 {1,2,3,4,6,7,8,9,15,16,17} 与实际节标题
+ *    **双向恰等**——白名单外节号出现即红（任何未来批次节写回现行文件即红），
+ *    白名单内节号缺失亦红（节号漂移即红）；`### 17.x` 小节只许 17.1–17.4。
  *
- * 粒度边界（§17.4 已裁决）：presence 级——字段改类型不改名不守护（字段级逐形状
- * diff 属生成式文档工具，转池不做）。
+ * 原断言②③④⑤（类型 presence / 计数一致 / additive 字段 presence / 通道
+ * 归属）随 §15/§16 登记面退役而退役——守护对象消失；接管面 = typecheck
+ * （字段与形状即契约，前端消费编译期即红）+ exports.test + arch-guard。
  *
- * 解析失败必须红（禁止静默通过）：以下全部解析 helper 在结构缺失时 throw
- * （标题/节标题/计数声明行/登记锚/族小节缺失 → 测试失败），永真断言 = 未生效。
- *
- * 位于 test/type-surface/（T3.4 随迁自 test/ 根；断言与解析逻辑原样）。
+ * 解析失败必须红（禁止静默通过）：解析 helper 在结构缺失时 throw，永真
+ * 断言 = 未生效。
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES, PROTOCOL_VERSION } from "../../src/index";
+import { PROTOCOL_VERSION } from "../../src/index";
 
 const DOC = fileURLToPath(new URL("../../PROTOCOL.md", import.meta.url));
 const CHANGELOG = fileURLToPath(new URL("../../PROTOCOL-CHANGELOG.md", import.meta.url));
@@ -45,71 +41,14 @@ function section(doc: string, startRe: RegExp, endRe: RegExp): string {
   return doc.slice(start.index, start.index + end.index);
 }
 
-/** 提取节内全部 `#### \`<type>\`` 登记锚（锚格式 §15/§16 钉死）。 */
-function anchorsOf(sectionText: string): string[] {
-  return [...sectionText.matchAll(/^#### `([^`]+)`/gm)].map((m) => m[1]!);
-}
+/**
+ * PROTOCOL.md 合法节号白名单（协议文档收口批定格）：§1–§4 行为契约 +
+ * §6–§9（§5 随 v0.1 遗物目录删除）+ §15/§16 墓碑 + §17 守护口径。
+ * 修改节号结构 = 修改本白名单 + 同 commit 改 §17.3 口径（双向恰等断言强制）。
+ */
+const SECTION_WHITELIST = new Set([1, 2, 3, 4, 6, 7, 8, 9, 15, 16, 17]);
 
-/** 节内唯一匹配（零命中或多命中 → throw = 红：声明行歧义即解析失败）。 */
-function uniqueNumber(sectionText: string, re: RegExp, what: string): number {
-  const hits = [...sectionText.matchAll(new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`))];
-  if (hits.length !== 1) throw new Error(`PROTOCOL.md 解析失败：${what} 声明行应恰有一条，实得 ${hits.length} 条`);
-  return Number(hits[0]![1]);
-}
-
-/** §15（命令）/ §16（事件）登记节。 */
-function commandRegistry(doc: string): string {
-  return section(doc, /^## 15\. /m, /^## 16\. /m);
-}
-function eventRegistry(doc: string): string {
-  return section(doc, /^## 16\. /m, /^## 17\. /m);
-}
-
-/** 定位登记锚小节文本（锚缺失 → throw = 红；小节止于下一 `####` 锚或 `###` 族小节标题）。 */
-function anchorSection(registryText: string, anchor: string): string {
-  const re = new RegExp(`^#### \`${anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\`$`, "m");
-  const head = registryText.match(re);
-  if (!head || head.index === undefined) throw new Error(`PROTOCOL.md 解析失败：未找到登记锚 \`#### \\\`${anchor}\\\`\``);
-  const after = registryText.slice(head.index + head[0].length);
-  const stop = after.match(/^#### |^### /m);
-  return stop && stop.index !== undefined ? after.slice(0, stop.index) : after;
-}
-
-/** 登记锚小节的字段表行名集合（首列表格单元格 `` `field` ``）。 */
-function fieldRowsOf(anchorText: string): Set<string> {
-  return new Set([...anchorText.matchAll(/^\| `([^`]+)` \|/gm)].map((m) => m[1]!));
-}
-
-// ── ⑤ 解析：§16 族小节 → { 声明通道, 小节事件集 } ─────────────
-
-interface FamilySection {
-  channels: string[];
-  events: string[];
-}
-
-/** 解析 §16 全部 `### 16.N <通道名…>族` 小节（无小节/标题无通道名 → throw = 红）。 */
-function parseEventFamilies(doc: string): FamilySection[] {
-  const sec16 = eventRegistry(doc);
-  const heads = [...sec16.matchAll(/^### (16\.\d+) (.+)$/gm)];
-  if (heads.length === 0) throw new Error("PROTOCOL.md 解析失败：§16 无 `### 16.N` 族小节");
-  const sections: FamilySection[] = [];
-  for (let i = 0; i < heads.length; i += 1) {
-    const head = heads[i]!;
-    // 标题通道段：`### 16.N <通道 · 通道 · …>（通道）?族…`——截到首个「族」前
-    const titleMatch = head[2]!.match(/^([^族]*?)(?:通道)?族/);
-    if (!titleMatch) throw new Error(`PROTOCOL.md 解析失败：§16 小节标题未声明族通道（${head[1]}）`);
-    const channels = titleMatch[1]!.split("·").map((s) => s.trim()).filter((s) => s !== "");
-    if (channels.length === 0 || channels.some((c) => c === "")) {
-      throw new Error(`PROTOCOL.md 解析失败：§16 小节标题通道名为空（${head[1]}）`);
-    }
-    const bodyStart = head.index! + head[0].length;
-    const bodyEnd = i + 1 < heads.length ? heads[i + 1]!.index! : sec16.length;
-    sections.push({ channels, events: anchorsOf(sec16.slice(bodyStart, bodyEnd)) });
-  }
-  return sections;
-}
-
-describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，AD-4；口径 = PROTOCOL.md §17.3）", () => {
+describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（协议文档收口批口径 = PROTOCOL.md §17.3）", () => {
   test("① 版本位一致：标题行与 §3 代码块版本字面量 == PROTOCOL_VERSION 导出值", () => {
     const doc = loadDoc();
     const title = doc.match(/^# .+ v(\d+(?:\.\d+)?)\s*$/m);
@@ -121,193 +60,38 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
     expect(codeVer[1]).toBe(PROTOCOL_VERSION);
   });
 
-  test("② 类型 presence：COMMAND_TYPES / EVENT_TYPES 每字面量在 §15/§16 有登记锚", () => {
-    const doc = loadDoc();
-    const cmdAnchors = anchorsOf(commandRegistry(doc));
-    const evtAnchors = anchorsOf(eventRegistry(doc));
-    const missingCommands = COMMAND_TYPES.filter((t) => !cmdAnchors.includes(t));
-    const missingEvents = EVENT_TYPES.filter((t) => !evtAnchors.includes(t));
-    expect(missingCommands).toEqual([]);
-    expect(missingEvents).toEqual([]);
-  });
-
-  test("③ 计数一致：§15/§16 计数声明行数值 == 常量目录长度", () => {
-    const doc = loadDoc();
-    const declaredCommands = uniqueNumber(commandRegistry(doc), /计数声明：(\d+) 命令全集/, "§15 命令计数");
-    const declaredEvents = uniqueNumber(eventRegistry(doc), /计数声明：(\d+) 事件全集/, "§16 事件计数");
-    expect(declaredCommands).toBe(COMMAND_TYPES.length);
-    expect(declaredEvents).toBe(EVENT_TYPES.length);
-  });
-
-  test("④ additive 字段 presence：anchorEntryId / tier / instanceId / draft / model 在对应登记表有字段行", () => {
-    const doc = loadDoc();
-    const cmdRegistry = commandRegistry(doc);
-    const evtRegistry = eventRegistry(doc);
-    // (登记锚, 字段) presence 清单：v0.3/v0.4/§14 批次新增可选字段 + 首登必填字段（§17.3④）
-    const required: ReadonlyArray<{ registry: "cmd" | "evt"; anchor: string; field: string }> = [
-      { registry: "cmd", anchor: "chat.send", field: "draft" }, // §14.3（防 draft 零登记复发）
-      { registry: "cmd", anchor: "chat.send", field: "model" }, // §14.2
-      { registry: "cmd", anchor: "chat.steer", field: "instanceId" }, // §12.1 steer 定向寻址
-      { registry: "cmd", anchor: "session.subscribe", field: "tier" }, // §12.2 monitor 档
-      { registry: "evt", anchor: "agent.spawned", field: "anchorEntryId" }, // §12.1 spawn 锚
-      { registry: "evt", anchor: "agent.instantiated", field: "instanceId" }, // §13.3
-      { registry: "evt", anchor: "agent.model.changed", field: "instanceId" }, // §13.3
-      { registry: "evt", anchor: "connection.welcome", field: "draft" }, // §14.1
-      { registry: "evt", anchor: "connection.welcome", field: "model" }, // v0 首登（draft 同批位对照）
-      // v0.6 批次（M6 T3 agent.config 族）：首登必填字段 presence（防零登记复发）
-      { registry: "cmd", anchor: "agent.config.list", field: "profileKind" },
-      { registry: "cmd", anchor: "agent.config.set_enabled", field: "profileKind" },
-      { registry: "cmd", anchor: "agent.config.set_enabled", field: "resourceType" },
-      { registry: "cmd", anchor: "agent.config.set_enabled", field: "name" },
-      { registry: "cmd", anchor: "agent.config.set_enabled", field: "enabled" },
-      { registry: "evt", anchor: "agent.config.changed", field: "profileKind" },
-      { registry: "evt", anchor: "agent.config.changed", field: "resourceType" },
-      { registry: "evt", anchor: "agent.config.changed", field: "name" },
-      { registry: "evt", anchor: "agent.config.changed", field: "enabled" },
-      // v0.6 批内补登（M6 T4 智能体页）：tools 行 snippet 一句话说明（daemon
-      // ToolPromptSnippets 注册表同源；presence 防零登记复发）
-      { registry: "evt", anchor: "agent.config.list.result", field: "profiles[].tools[].snippet" },
-      // v0.7 批次（T4 web 族）：首登必填字段 presence（防零登记复发）
-      { registry: "evt", anchor: "web.status.result", field: "state" },
-      { registry: "evt", anchor: "web.status.result", field: "tabCount" },
-      { registry: "evt", anchor: "web.status.result", field: "tabs" },
-      { registry: "evt", anchor: "web.stop.result", field: "status" },
-      { registry: "evt", anchor: "web.status.changed", field: "state" },
-      { registry: "evt", anchor: "web.status.changed", field: "tabs" },
-      // v0.9 批次（T7 web.start 显式启动通路）：首登必填字段 presence（防零登记复发）
-      { registry: "evt", anchor: "web.start.result", field: "status" },
-      { registry: "evt", anchor: "web.start.result", field: "reason" },
-      // v0.10 批次（T9 图片上下行）：可选字段 presence（防零登记复发）
-      { registry: "cmd", anchor: "chat.send", field: "images" },
-      { registry: "evt", anchor: "chat.message.completed", field: "entry.images" },
-      { registry: "evt", anchor: "tool.call.result", field: "entry.images" },
-      // v0.11 批次（thinking 批，iter-20260823-6ps5 T1.1）：首登必填字段 presence（防零登记复发）
-      { registry: "cmd", anchor: "thinking.set", field: "level" },
-      { registry: "evt", anchor: "thinking.changed", field: "override" },
-      { registry: "evt", anchor: "thinking.changed", field: "effective" },
-      { registry: "evt", anchor: "agent.instantiated", field: "thinkingLevel" },
-      { registry: "evt", anchor: "model.catalog.result", field: "models[].reasoning" },
-      { registry: "evt", anchor: "model.catalog.result", field: "models[].thinkingLevels" },
-      // v0.11 批内补登（T1.3 agent.config thinking 槽位 + 修复批 F-6/F-8）：presence 防零登记复发
-      { registry: "evt", anchor: "agent.config.list.result", field: "profiles[].thinkingLevel" },
-      { registry: "evt", anchor: "session.snapshot", field: "snapshot.thinking" },
-      // v0.11 批内补登（T11a closure/steer source 贯通）：可选字段 presence（防零登记复发）
-      { registry: "evt", anchor: "steer.queued", field: "source" },
-      { registry: "evt", anchor: "steer.drained", field: "source" },
-      { registry: "evt", anchor: "chat.message.completed", field: "entry.source" },
-      // P1 会话模式框架批（mode-framework T2）：可选字段 presence（防零登记复发；
-      // 版本位不 bump——§18 微批登记，§14 同构先例）
-      { registry: "cmd", anchor: "chat.send", field: "mode" },
-      { registry: "evt", anchor: "connection.welcome", field: "mode" },
-      { registry: "evt", anchor: "session.snapshot", field: "snapshot.mode" },
-      // kg 批（iter-20260825-11fo T5.3：P-1 六命令族）：首登必填字段 presence
-      //（防零登记复发；project 作用域总则字段逐命令核对）
-      { registry: "cmd", anchor: "kg.list", field: "project" },
-      { registry: "cmd", anchor: "kg.list", field: "kind" },
-      { registry: "cmd", anchor: "kg.list", field: "status" },
-      { registry: "cmd", anchor: "kg.list", field: "q" },
-      { registry: "cmd", anchor: "kg.node.detail", field: "project" },
-      { registry: "cmd", anchor: "kg.node.detail", field: "id" },
-      { registry: "cmd", anchor: "kg.change.report", field: "project" },
-      { registry: "cmd", anchor: "kg.change.report", field: "iterationId" },
-      { registry: "cmd", anchor: "kg.node.confirm", field: "project" },
-      { registry: "cmd", anchor: "kg.node.confirm", field: "id" },
-      { registry: "cmd", anchor: "kg.index.status", field: "project" },
-      { registry: "cmd", anchor: "kg.index.status", field: "rebuild" },
-      { registry: "evt", anchor: "kg.projects.result", field: "projects" },
-      { registry: "evt", anchor: "kg.list.result", field: "total" },
-      { registry: "evt", anchor: "kg.list.result", field: "matched" },
-      { registry: "evt", anchor: "kg.list.result", field: "nodes" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "desc" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "rules" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "anchors" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "relations" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "supersede.history" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "supersede.current" },
-      { registry: "evt", anchor: "kg.node.detail.result", field: "log" },
-      { registry: "evt", anchor: "kg.change.report.result", field: "iterationId" },
-      { registry: "evt", anchor: "kg.change.report.result", field: "entries" },
-      { registry: "evt", anchor: "kg.node.confirm.result", field: "applied" },
-      { registry: "evt", anchor: "kg.node.confirm.result", field: "node" },
-      { registry: "evt", anchor: "kg.index.status.result", field: "state" },
-      { registry: "evt", anchor: "kg.index.status.result", field: "degradedNote" },
-      // task 批（iter-20260829-ys7q T1.5：P-2 任务页九命令族）：首登必填字段
-      // presence（防零登记复发；契约 task-api §2 逐命令核对；jobId 为 join 键）
-      { registry: "cmd", anchor: "task.list", field: "status" },
-      { registry: "cmd", anchor: "task.list", field: "project" },
-      { registry: "cmd", anchor: "task.detail", field: "jobId" },
-      { registry: "cmd", anchor: "task.artifacts", field: "jobId" },
-      { registry: "cmd", anchor: "task.subscribe", field: "jobId" },
-      { registry: "cmd", anchor: "task.unsubscribe", field: "jobId" },
-      { registry: "cmd", anchor: "task.pause", field: "jobId" },
-      { registry: "cmd", anchor: "task.resume", field: "jobId" },
-      { registry: "cmd", anchor: "task.cancel", field: "jobId" },
-      { registry: "cmd", anchor: "task.delete", field: "jobId" },
-      { registry: "evt", anchor: "task.changed", field: "jobId" },
-      { registry: "evt", anchor: "task.changed", field: "changed" },
-      { registry: "evt", anchor: "task.changed", field: "status" },
-      // kg 维护批（C1：kg.graph.purge / kg.index.delete 两命令族）：首登必填字段
-      // presence（防零登记复发；project 作用域总则字段逐命令核对）
-      { registry: "cmd", anchor: "kg.graph.purge", field: "project" },
-      { registry: "cmd", anchor: "kg.index.delete", field: "project" },
-      { registry: "evt", anchor: "kg.graph.purge.result", field: "purged" },
-      { registry: "evt", anchor: "kg.graph.purge.result", field: "nodesRemoved" },
-      { registry: "evt", anchor: "kg.graph.purge.result", field: "symbolsRemoved" },
-      { registry: "evt", anchor: "kg.index.delete.result", field: "deleted" },
-      { registry: "evt", anchor: "kg.index.delete.result", field: "state" },
-      { registry: "evt", anchor: "kg.index.delete.result", field: "watcherStopped" },
-    ];
-    const missing: string[] = [];
-    for (const item of required) {
-      const text = item.registry === "cmd" ? anchorSection(cmdRegistry, item.anchor) : anchorSection(evtRegistry, item.anchor);
-      if (!fieldRowsOf(text).has(item.field)) missing.push(`\`${item.anchor}\` 缺字段行 \`${item.field}\``);
-    }
-    expect(missing).toEqual([]);
-  });
-
-  test("⑤ 通道归属一致：§16 各族小节事件 type 集合 == EVENT_CHANNELS 对应通道值域", () => {
-    const doc = loadDoc();
-    const families = parseEventFamilies(doc);    const valueChannels = [...new Set(Object.values(EVENT_CHANNELS))];
-    const channelDomain = new Map<string, string[]>(valueChannels.map((c) => [c, [] as string[]]));
-    for (const [evt, ch] of Object.entries(EVENT_CHANNELS)) {
-      channelDomain.get(ch)!.push(evt);
-    }
-
-    const violations: string[] = [];
-    // (a) 小节声明的通道必须在 EVENT_CHANNELS 值域内（标题通道名漂移即红）
-    for (const f of families) {
-      for (const c of f.channels) {
-        if (!channelDomain.has(c)) violations.push(`§16 小节声明通道 \`${c}\` 不在 EVENT_CHANNELS 值域`);
-      }
-    }
-    // (b) 每个通道恰被一个小节认领（零认领/重复认领即红）
-    for (const c of valueChannels) {
-      const claims = families.filter((f) => f.channels.includes(c)).length;
-      if (claims !== 1) violations.push(`通道 \`${c}\` 应恰被 1 个 §16 小节认领，实得 ${claims}`);
-    }
-    // (c) 双向恰等：小节事件集 == 其声明通道的值域并集（漏登/错挂/幽灵事件即红）
-    for (const f of families) {
-      const expected = new Set(f.channels.flatMap((c) => channelDomain.get(c) ?? []));
-      const actual = new Set(f.events);
-      for (const e of expected) if (!actual.has(e)) violations.push(`事件 \`${e}\` 未落在其通道所属 §16 小节`);
-      for (const e of actual) if (!expected.has(e)) violations.push(`§16 小节事件 \`${e}\` 不属于该小节声明的通道值域`);
-    }
-    expect(violations).toEqual([]);
-  });
-
-  test("⑥ 文件职责守护：CHANGELOG 存在非空；PROTOCOL.md 无批次节标题（protocol-split）", () => {
+  test("⑥ 文件职责守护：CHANGELOG 存在非空含批次节（开放判定）；PROTOCOL.md 节号白名单双向恰等", () => {
     // (a) 批次备案文件存在且非空（缺失/空 → throw = 红）
     const changelog = readFileSync(CHANGELOG, "utf8");
     if (changelog.trim() === "") throw new Error("PROTOCOL-CHANGELOG.md 缺失或为空——批次备案文件丢失");
-    // (b) 现行文件内不得出现批次节标题（§10–§14 / §18–§23 节级 + §17.5–§17.11 小节级）
-    const doc = loadDoc();
-    const staleHeads = [
-      ...doc.matchAll(/^## (1[0-4]|1[89]|2[0-3])\. /gm),
-      ...doc.matchAll(/^### 17\.(?:5|6|7|8|9|10|11) /gm),
-    ].map((m) => m[0]!.trim());
-    expect(staleHeads).toEqual([]);
-    // (c) CHANGELOG 至少含一个批次节标题（守护「备案文件装的是备案」，非任意占位文本）
-    const batchHeads = [...changelog.matchAll(/^## (?:1[0-4]|1[89]|2[0-3])\. |^### 17\.(?:5|6|7|8|9|10|11) /gm)];
+    // (b) CHANGELOG 至少含一个批次节标题——开放判定 `^## N. `，不封顶节号
+    //   （协议文档收口批开放式重构：原封顶白名单 §10–§23 对 §24+ 失明，CAND-324）
+    const batchHeads = [...changelog.matchAll(/^## (\d+)\. /gm)];
     if (batchHeads.length === 0) throw new Error("PROTOCOL-CHANGELOG.md 无任何批次节标题——内容形态不符");
+    for (const m of batchHeads) {
+      const n = Number(m[1]);
+      if (!Number.isInteger(n) || n < 1) throw new Error(`PROTOCOL-CHANGELOG.md 批次节号非法：\`${m[0].trim()}\``);
+    }
+
+    const doc = loadDoc();
+    // (c) PROTOCOL.md 节号白名单双向恰等
+    const actual = [...doc.matchAll(/^## (\d+)\. /gm)].map((m) => Number(m[1]));
+    const actualSet = new Set(actual);
+    if (actual.length !== actualSet.size) {
+      throw new Error(`PROTOCOL.md 存在重复节号：[${actual.join(", ")}]`);
+    }
+    const violations: string[] = [];
+    for (const n of actualSet) {
+      if (!SECTION_WHITELIST.has(n)) violations.push(`节 \`## ${n}.\` 不在白名单（批次节写回现行文件即红）`);
+    }
+    for (const n of SECTION_WHITELIST) {
+      if (!actualSet.has(n)) violations.push(`白名单节 \`## ${n}.\` 缺失（节号漂移即红——改节号须同 commit 改断言白名单与 §17.3 口径）`);
+    }
+    // (d) §17 小节只许 17.1–17.4（批次登记节 17.5+ 属 CHANGELOG，写回即红）
+    for (const m of doc.matchAll(/^### 17\.(\d+) /gm)) {
+      const minor = Number(m[1]);
+      if (minor < 1 || minor > 4) violations.push(`\`### 17.${minor} \` 越界（17.5+ 批次登记属 CHANGELOG）`);
+    }
+    expect(violations).toEqual([]);
   });
 });

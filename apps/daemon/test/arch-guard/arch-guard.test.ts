@@ -601,8 +601,8 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
       }
       // 白名单的否定面：禁 services/infrastructure/driven
       //（T5.3 例外：application/services/kg/ 的 type-only 面见上；W1：
-      // application/services/workspace/ 同口径——§15.10/§16.10 命令回口；
-      // task 批：application/services/task/ 同口径——§15.11/§16.1 命令回口）
+      // application/services/workspace/ 同口径——workspace 批命令回口；
+      // task 批：application/services/task/ 同口径——task 批命令回口）
       for (const spec of importSpecifiers(src)) {
         if (
           (/\/services\/(kg|workspace|task)\//.test(spec) || /\/services\/TurnDiffService$/.test(spec)) &&
