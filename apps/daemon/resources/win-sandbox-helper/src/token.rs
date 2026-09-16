@@ -1,12 +1,14 @@
 //! token.rs——受限 token 构造（helix 裁剪版，参照 codex windows-sandbox-rs token.rs）。
 //!
 //! 机制：CreateRestrictedToken(DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED)
-//! + restricting SIDs = [随机 capability SID, user SID, logon SID, everyone SID]
+//! + restricting SIDs = [随机 capability SID]（CI run32 修正：codex 原序混 user/logon/everyone
+//! ——additional check 实测为 at-least-one，混 user 即被用户目录恒 grant 放行，多列反而放宽；
+//! [cap] 单元素免疫，详见 token.rs 尾部实现注释与知识库 TR-164）
 //! + default DACL（新建对象可建管道/IPC 不炸）+ SeChangeNotifyPrivilege（遍历目录）。
 //!
-//! 写访问检查语义（WRITE_RESTRICTED）：grant 当且仅当**全部** restricting SIDs
-//! 都被对象 ACL grant 写。随机 capability SID 在普通文件 ACL 里不存在 grant
-//! → 全盘写拒；acl.rs 对 writableRoots 预写 grant(cap SID) ACE → 范围内放行。
+//! 写访问检查语义（WRITE_RESTRICTED）：additional check 为 at-least-one——对象 ACL
+//! grant 任意一枚 restricting SID 即放行。随机 capability SID 在普通文件 ACL 里无
+//! grant → 全盘写拒；acl.rs 对 writableRoots 预写 grant(cap SID) ACE → 范围内放行。
 //! 残留 ACE 指向死 SID 无害（SID 随机不复用）。
 
 use std::ffi::c_void;
