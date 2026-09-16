@@ -307,4 +307,48 @@ describe("KgSyncService 集成管道（tmp 真库）", () => {
       db.close();
     }
   });
+
+  test("⑧ 孤儿锚复活复位：符号消亡标 orphan → 符号复活（文件 mtime/hash 不变）→ 增量窗口 sync 后须复位——生产 8 行假孤儿复现", async () => {
+    const s = makeStack();
+    stacks.push(s);
+    s.engine.setSymbols(healthyFixture());
+    const node = expectOk(s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "rule", name: "r-orphan", digest: "d", scene: "测试场景" },
+    }));
+    expectOk(s.write.write(s.root, {
+      kind: "declareAnchors",
+      iterationId: "it",
+      nodeId: node,
+      anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#handle" }],
+    }));
+    await s.service.onStartup(s.root);
+    const orphanOf = (): number => {
+      const db = new Database(kgDbPath(s.root), { readonly: true });
+      try {
+        return (db.query("SELECT orphan FROM materialized_anchors WHERE node_id = ? AND anchor_symbol = 'handle'").get(s.root ? node : node) as { orphan: number }).orphan;
+      } finally {
+        db.close();
+      }
+    };
+    expect(orphanOf()).toBe(0); // 物化在位
+
+    // 阶段一：符号消亡 → 差集标记 orphan=1
+    const shrunk = healthyFixture();
+    shrunk.symbols = shrunk.symbols.filter((x) => x.name !== "handle");
+    shrunk.containsEdges = shrunk.containsEdges.filter((x) => x.symbolId !== "m:1");
+    s.engine.setSymbols(shrunk);
+    s.service.notifyWrite(s.root, "src/app.ts", "h2");
+    await sleep(120);
+    expect(orphanOf()).toBe(1);
+
+    // 阶段二：符号复活且文件指纹不变（healthyFixture 原样）——增量窗口 sync，
+    // 物化每次全量重算 → 应产出该锚 → upsert DO UPDATE SET orphan=0 复位。
+    // 生产观察：该复位未发生（8 行假孤儿卡死）——本步复现。
+    s.engine.setSymbols(healthyFixture());
+    s.service.notifyWrite(s.root, "src/app.ts", "h3");
+    await sleep(120);
+    expect(orphanOf()).toBe(0);
+  });
 });
