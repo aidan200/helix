@@ -93,7 +93,7 @@ export interface WsServerAdapterDeps {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
-  /** 越权申请仲裁面（ask.answer 命令回口；可选——测试缺省回 unimplemented）。 */
+  /** 提权申请仲裁面（ask.answer 命令回口；可选——测试缺省回 unimplemented）。 */
   readonly askService?: AskService;
   /**
    * 资源配置面（契约 v0.6）：agent.config 命令族回口（profile kind 维

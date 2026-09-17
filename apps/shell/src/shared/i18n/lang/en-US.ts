@@ -66,13 +66,13 @@ export const enUS = {
       hint: "You can retry later; details are in the daemon log",
     },
     ask: {
-      title: "Sandbox escape request",
+      title: "Permission request",
       from: "from {instanceId}",
       approve: "Approve & run",
       deny: "Deny",
       countdown: "auto-deny in {secs}s",
       expired: "Expired, awaiting resolution…",
-      hint: "Approval runs this command once outside the sandbox (no permanent grant)",
+      hint: "Approval runs this command once with elevated permission (no permanent grant)",
     },
     engineRetry: {
       title: "Network retrying (attempt {n}/{total}, in ~{secs}s)",

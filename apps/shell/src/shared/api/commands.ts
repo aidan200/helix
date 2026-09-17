@@ -153,7 +153,7 @@ export function chatSteerCommand(text: string, sessionId?: string, instanceId?: 
     : { v: PROTOCOL_VERSION, type: "chat.steer", sessionId, payload };
 }
 
-/** ask.answer：越权申请裁决（sandbox_request 批；信封 sessionId = 申请归属会话——
+/** ask.answer：提权申请裁决（permission_request 批；信封 sessionId = 申请归属会话——
  *  会话作用域命令，daemon 按信封路由 AskService 单 pending 槽）。 */
 export function askAnswerCommand(askId: string, approved: boolean, sessionId: string): AskAnswerCommand {
   return { v: PROTOCOL_VERSION, type: "ask.answer", sessionId, payload: { askId, approved } };

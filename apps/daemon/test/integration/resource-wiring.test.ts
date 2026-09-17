@@ -48,7 +48,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
-      // tools 全集注入：两 profile 声明面（main 27 含编排四件与 coord 三工具（U4）与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）与 task_report（D3 仅 main）与 plan 三工具（main-session plan 批两域同构）与 edit-lines（F4 接通批）与 sandbox_request（越权申请批）；subagent 15 同含 plan 三工具与 edit-lines 与 sandbox_request）
+      // tools 全集注入：两 profile 声明面（main 27 含编排四件与 coord 三工具（U4）与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）与 task_report（D3 仅 main）与 plan 三工具（main-session plan 批两域同构）与 edit-lines（F4 接通批）与 permission_request（提权申请批）；subagent 15 同含 plan 三工具与 edit-lines 与 permission_request）
       expect(daemon.resource.getEffectiveTools("main-session")).toEqual([
         "bash",
         "read",
@@ -76,7 +76,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "coord_claim", // U4 占用协调三工具（仅 main——决策主体）
         "coord_release",
         "coord_query",
-        "sandbox_request", // 越权申请批（声明恒在，注册面门控）
+        "permission_request", // 提权申请批（声明恒在，注册面门控）
       ]);
       expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual([
         "bash",
@@ -93,7 +93,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "plan_create", // T1.4：plan 三工具（AD-6①，subagent 独有）
         "plan_update",
         "plan_read",
-        "sandbox_request", // 越权申请批（两域同扩）
+        "permission_request", // 提权申请批（两域同扩）
       ]);
 
       // skills：user 层扫出（source 标签 = user；统一启停批：缺省禁用显式启用制）

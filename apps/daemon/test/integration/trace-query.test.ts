@@ -446,11 +446,11 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       const mainSnap = mainInst.events[0]!.payload as {
         profileSnapshot: { systemPrompt: string; tools: string[] };
       };
-      expect(mainSnap.profileSnapshot.tools).toHaveLength(25); // U4 +coord 三工具（toggle 关 grep 后 27-1；沙箱 off 注册面门控再剔 sandbox_request）
+      expect(mainSnap.profileSnapshot.tools).toHaveLength(25); // U4 +coord 三工具（toggle 关 grep 后 27-1；沙箱 off 注册面门控再剔 permission_request）
       expect(mainSnap.profileSnapshot.tools).not.toContain("grep");
       expect(mainSnap.profileSnapshot.systemPrompt).not.toContain("- grep:");
 
-      // Sub instantiated：快照 = 组装缓存（14 工具不含 read——越权批后全集 15）+ 槽位模型（非 spawn 透传）
+      // Sub instantiated：快照 = 组装缓存（14 工具不含 read——提权批后全集 15）+ 槽位模型（非 spawn 透传）
       const subInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], agentKind: "subagent" });
       expect(subInst.events.length).toBe(2);
       for (const row of subInst.events) {

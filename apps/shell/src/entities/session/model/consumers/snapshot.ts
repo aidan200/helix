@@ -300,7 +300,7 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         // 与 thinking 切片同判）
         plan: snap.plan !== undefined ? snap.plan : s.plan,
         ledger: snap.plan !== undefined ? (snap.ledger ?? null) : s.ledger,
-        // additive：越权申请卡重建（sandbox_request 批，权威）——携带时整体
+        // additive：提权申请卡重建（permission_request 批，权威）——携带时整体
         // 替换（null = 无挂起如实落）；缺省保留现值（旧 daemon 兼容）
         pendingAsk: snap.pendingAsk !== undefined ? (snap.pendingAsk ?? null) : s.pendingAsk,
         spawnToast: null, // 快照为新会话视图；旧 toast 不跨会话残留

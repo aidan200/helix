@@ -437,7 +437,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
   const fanoutPublisher = new FanoutPublisher(logger);
 
-  // ── 越权申请批：AskService 单例（main executor 与 SubagentLauncher wire
+  // ── 提权申请批：AskService 单例（main executor 与 SubagentLauncher wire
   //    转发两端同持；KV pending 恢复在会话清单就绪后调 restoreFromKv）──
   const askService = new AskService({
     publish: (event) => fanoutPublisher.publish(event),
@@ -471,7 +471,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     compactionConfig: persistence.compactionConfig, // 压缩参数可配置
     schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
     sandboxConfig: persistence.sandboxConfig, // 沙箱开关（装配期定格读取，沙箱开关批）
-    askService, // 越权申请批：sandbox_request 工具仲裁（沙箱 on 时注册）
+    askService, // 提权申请批：permission_request 工具仲裁（沙箱 on 时注册）
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -801,7 +801,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
-    askService, // ask.answer 命令回口（越权申请批；同容器单例，与工具装配同源）
+    askService, // ask.answer 命令回口（提权申请批；同容器单例，与工具装配同源）
     registry,
     scheduler,
     resolveSubagentModelId,

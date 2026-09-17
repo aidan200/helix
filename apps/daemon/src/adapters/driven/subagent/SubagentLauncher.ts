@@ -173,7 +173,7 @@ export interface SubagentLauncherDeps {
    */
   readonly browser?: BrowserPort;
   /**
-   * 越权申请仲裁面（sandbox_request 批）：子进程 ask.request tool-req 分流
+   * 提权申请仲裁面（permission_request 批）：子进程 ask.request tool-req 分流
    * 目标——父进程 AskService 单例（卡片弹在归属会话页）。会话归属由本侧
    * instance 注册裁决（子上行不携 sessionId，防伪造）。缺省 → ok:false「未装配」。
    */
@@ -572,7 +572,7 @@ export class SubagentLauncher implements InstanceRunner {
   private async onToolRequest(id: string, reqId: number, method: string, args: readonly unknown[]): Promise<void> {
     let res: ToolResponseLine;
     if (method === "ask.request") {
-      // sandbox_request 批：越权申请分流父进程 AskService（会话归属 = instance
+      // permission_request 批：提权申请分流父进程 AskService（会话归属 = instance
       // 注册定格值——子上行不携 sessionId；args = [command, reason]）
       const [command, reason] = args;
       if (this.deps.askService === undefined) {

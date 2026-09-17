@@ -2,7 +2,7 @@ import type { DomainEvent } from "../../domain/events/DomainEvent";
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 
 /**
- * AskService —— agent ↔ 用户越权执行申请的仲裁服务（sandbox_request 批）。
+ * AskService —— agent ↔ 用户提权执行申请的仲裁服务（permission_request 批）。
  *
  * 生命周期：request（agent 工具发起）→ 发 ask.started 事件 + KV 落 pending
  * + 60s 计时器 → 三终态收口（answer 批准/拒绝、超时自动拒绝、重启恢复）→
@@ -22,9 +22,14 @@ import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
  */
 export const ASK_TIMEOUT_MS = 60_000;
 
+/** 申请类别判别位（与 @helix/protocol AskKind 同值镜像——domain 不依赖协议包，字面联合单源在协议侧）。 */
+export type AskKind = "permission_request";
+
 /** 挂起申请记录（KV 落盘行 + 快照 pendingAsk 同源形状）。 */
 export interface AskPendingRecord {
   readonly askId: string;
+  /** 申请类别（消费者分发键；additive——旧 KV 行缺省按 permission_request 兼容） */
+  readonly kind?: AskKind;
   readonly command: string;
   readonly reason: string;
   readonly instanceId: string;
@@ -62,7 +67,7 @@ export class AskService {
   constructor(private readonly deps: AskServiceDeps) {}
 
   /**
-   * 发起越权申请：发 ask.started 事件 + KV 落 pending + 60s 计时器，
+   * 发起提权申请：发 ask.started 事件 + KV 落 pending + 60s 计时器，
    * Promise 挂起至三终态之一收口。
    * @returns 裁决结果（approved=用户批准；denied=用户拒绝；timeout=60s 超时）
    * @throws 同会话已有挂起申请时拒绝（工具层转引导文案）
@@ -72,17 +77,23 @@ export class AskService {
     readonly instanceId: string;
     readonly command: string;
     readonly reason: string;
+    /** 申请类别（缺省 = permission_request——本族首个消费者） */
+    readonly kind?: AskKind;
+    /** 超时时长（缺省 60s——不同消费者对时延容忍不同，按类可携） */
+    readonly timeoutMs?: number;
   }): Promise<AskOutcome> {
     if (this.pending.has(input.sessionId)) {
-      throw new Error(`会话已有挂起的越权申请（${this.pending.get(input.sessionId)!.record.askId}），待其收口后再发起`);
+      throw new Error(`会话已有挂起的提权申请（${this.pending.get(input.sessionId)!.record.askId}），待其收口后再发起`);
     }
+    const timeoutMs = input.timeoutMs ?? ASK_TIMEOUT_MS;
     const now = this.deps.now();
     const record: AskPendingRecord = {
       askId: this.deps.newId(),
+      kind: input.kind ?? "permission_request",
       command: input.command,
       reason: input.reason,
       instanceId: input.instanceId,
-      expiresAt: now + ASK_TIMEOUT_MS,
+      expiresAt: now + timeoutMs,
     };
     this.deps.publish({
       type: "ask.started",
@@ -96,7 +107,7 @@ export class AskService {
     return new Promise<AskOutcome>((resolve) => {
       const timer = setTimeout(() => {
         this.settle(input.sessionId, "timeout");
-      }, ASK_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(input.sessionId, { record, sessionId: input.sessionId, timer, resolve });
     });
   }

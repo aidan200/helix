@@ -54,7 +54,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   plan_create: "创建本会话工作台账（一次给出全部计划条目，开工前调用；全部办结后可重建重开）",
   plan_update: "更新工作台账条目状态（in_progress/done/abandoned——放弃必须带理由 note；可记产物指针）",
   plan_read: "读工作台账条目（收口/交代前自查全部办结或带理由放弃；台账对用户可见）",
-  sandbox_request: "申请一次性在沙箱外执行命令（写沙箱可写根外、全局安装、宿主机系统命令等被沙箱拦截的场景）。用户批准后仅本次执行放行（不记 always-allow）；拒绝或 60s 超时后收到引导，应改道沙箱内方案或放弃。",
+  permission_request: "权限申请：申请一次性提升权限执行命令（写沙箱可写根外、全局安装、宿主机系统命令等被沙箱拦截的场景）。用户批准后仅本次执行放行（不记 always-allow）；拒绝或 60s 超时后收到引导，应改道沙箱内方案或放弃。",
   coord_claim: "登记本会话对某范围的写占用（跨会话共享工作树防踩踏；冲突时返回对方意图与处置建议）",
   coord_release: "释放本会话占用租约（工作完成或让渡时）",
   coord_query: "查询占用协调面（动手改共享项目前查冲突；含 stale/undeclared 标记）",

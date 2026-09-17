@@ -131,7 +131,7 @@ export interface SessionRegistryDeps {
    */
   readonly mainPlanOf?: (sessionId: string) => readonly WorkItemData[];
   /**
-   * 未收口越权申请读面（sandbox_request 批）：快照组装附 pendingAsk
+   * 未收口提权申请读面（permission_request 批）：快照组装附 pendingAsk
    *（重连/切换后 ask 卡片重建）。缺省不携带（未接 ask 栈——旧装配兼容）。
    */
   readonly pendingAskOf?: (sessionId: string) => SessionStateView["pendingAsk"];
@@ -751,7 +751,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       ...(this.deps.mainPlanOf !== undefined
         ? { plan: this.deps.mainPlanOf(runtime.sessionId) }
         : {}),
-      // 未收口越权申请（sandbox_request 批，additive）：读面注入才携带
+      // 未收口提权申请（permission_request 批，additive）：读面注入才携带
       ...(this.deps.pendingAskOf !== undefined
         ? { pendingAsk: this.deps.pendingAskOf(runtime.sessionId) }
         : {}),

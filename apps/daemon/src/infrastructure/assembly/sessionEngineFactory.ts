@@ -94,7 +94,7 @@ export type SessionEngineFactory = (
  */
 export function effectiveMainToolNames(
   declared: readonly string[],
-  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean; readonly coord: boolean; readonly sandboxRequest: boolean },
+  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean; readonly coord: boolean; readonly permissionRequest: boolean },
 ): string[] {
   return declared
     .filter((t) => injected.kg || (t !== "kg" && t !== "kg-update"))
@@ -109,8 +109,8 @@ export function effectiveMainToolNames(
       (t) =>
         injected.coord || (t !== "coord_claim" && t !== "coord_release" && t !== "coord_query"),
     )
-    // 越权申请批：沙箱未开启（executor 未注入 sandboxRequest 槽）时剔除
-    .filter((t) => injected.sandboxRequest || t !== "sandbox_request");
+    // 提权申请批：沙箱未开启（executor 未注入 permissionRequest 槽）时剔除
+    .filter((t) => injected.permissionRequest || t !== "permission_request");
 }
 
 export interface MainEngineFactoryCtx {
@@ -132,7 +132,7 @@ export interface MainEngineFactoryCtx {
   readonly toolCwdOf: () => string;
   /** 沙箱运行时现值读面（可选槽——装配层注入则包装 bash/写面；缺省不注入）。 */
   readonly sandboxOf?: () => import("../../adapters/driven/tools/SandboxEnvWrap").SandboxRuntime | undefined;
-  /** 越权申请仲裁面（越权申请批；沙箱 on 时 executor 注册 sandbox_request 工具）。 */
+  /** 提权申请仲裁面（提权申请批；沙箱 on 时 executor 注册 permission_request 工具）。 */
   readonly askService?: Pick<import("../../application/services/AskService").AskService, "request">;
   readonly turnDiff: TurnDiffService;
   /** U0a 写事实登记表（跨轮跨会话底座——buildSessionStack 单例透传；未注入不记录）。 */
@@ -214,8 +214,8 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       ctx.coordination === undefined
         ? undefined
         : { service: ctx.coordination, sessionId, instanceId: bind?.mainInstanceId ?? "main" };
-    // 越权申请批：裸执行面独立构造（与 executor 同参 NodeExecutionEnv——
-    // 自引用闭包拆环：sandboxRequest 槽在构造 options 内消费，不能反向
+    // 提权申请批：裸执行面独立构造（与 executor 同参 NodeExecutionEnv——
+    // 自引用闭包拆环：permissionRequest 槽在构造 options 内消费，不能反向
     // 引用 toolExecutor 自身）。
     const rawExecEnv = new NodeExecutionEnv({ cwd: ctx.toolCwdOf(), shellEnv: {
       HELIX_SESSION_ID: sessionId,
@@ -296,12 +296,12 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       ...(ctx.taskReport !== undefined ? { taskReport: ctx.taskReport } : {}),
       // 主会话 plan 三工具（main-session plan 批）：台账写面 + 广播包装
       ...(planDeps !== undefined ? { plan: planDeps } : {}),
-      // 越权申请批：sandbox_request 工具——沙箱开启 + askService 注入时注册
-      //（沙箱 off 无越权语义不注册；effectiveMainToolNames 同步剔除声明名）。
+      // 提权申请批：permission_request 工具——沙箱开启 + askService 注入时注册
+      //（沙箱 off 无提权语义不注册；effectiveMainToolNames 同步剔除声明名）。
       // 裸执行面 = executor.unsandboxedExec（沙箱装饰前的原始 exec 通道）。
       ...(ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined
         ? {
-            sandboxRequest: {
+            permissionRequest: {
               ask: ctx.askService,
               sessionId,
               instanceId: bind?.mainInstanceId ?? "main",
@@ -370,7 +370,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
           taskReport: ctx.taskReport !== undefined,
           plan: planDeps !== undefined,
           coord: ctx.coordination !== undefined,
-          sandboxRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
+          permissionRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
         }),
         // 压缩参数可配置（KV 存储值 ?? DEFAULT_COMPACTION）；每会话装配读现值。
         compaction: ctx.compactionSettings(),
@@ -434,7 +434,7 @@ export interface SessionRuntimeFactoryCtx {
   readonly taskReport?: TaskReportToolDeps;
   readonly taskInjector?: (sessionId: string, task: string, audience?: "main" | "worker") => string;
   readonly mainSessionLlmOverride?: MainSessionLlmOverride;
-  /** 越权申请批：instantiatedSnapshot 的 sandboxRequest 旗标源（与 engineFor 同源）。 */
+  /** 提权申请批：instantiatedSnapshot 的 permissionRequest 旗标源（与 engineFor 同源）。 */
   readonly askService?: Pick<import("../../application/services/AskService").AskService, "request">;
   readonly sandboxOf?: () => import("../../adapters/driven/tools/SandboxEnvWrap").SandboxRuntime | undefined;
 }
@@ -505,7 +505,7 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
           taskReport: ctx.taskReport !== undefined,
           plan: ctx.hasMainPlan,
           coord: ctx.coordination !== undefined,
-          sandboxRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
+          permissionRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
         }),
         model: engine.currentModel?.() ?? ctx.defaultModel.current(),
         ...(MainSessionProfile.compaction !== undefined

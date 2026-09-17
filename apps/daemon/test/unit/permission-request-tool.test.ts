@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
-import { createSandboxRequestTool, type SandboxRequestToolDeps } from "../../src/adapters/driven/tools/sandbox-request/SandboxRequestTool";
+import { createPermissionRequestTool, type PermissionRequestToolDeps } from "../../src/adapters/driven/tools/permission-request/PermissionRequestTool";
 
-function depsOf(overrides: Partial<SandboxRequestToolDeps> = {}): SandboxRequestToolDeps {
+function depsOf(overrides: Partial<PermissionRequestToolDeps> = {}): PermissionRequestToolDeps {
   return {
     ask: { request: async () => "approved" as const },
     sessionId: "s1",
@@ -12,13 +12,13 @@ function depsOf(overrides: Partial<SandboxRequestToolDeps> = {}): SandboxRequest
   };
 }
 
-async function run(deps: SandboxRequestToolDeps, params = { command: "echo hi", reason: "r" }) {
-  const tool = createSandboxRequestTool(deps);
+async function run(deps: PermissionRequestToolDeps, params = { command: "echo hi", reason: "r" }) {
+  const tool = createPermissionRequestTool(deps);
   const result = await tool.execute("tc1", params, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
   return result.content.map((c) => ("text" in c ? c.text : "")).join("");
 }
 
-describe("createSandboxRequestTool", () => {
+describe("createPermissionRequestTool", () => {
   test("批准 → 裸跑执行，stdout 作工具结果返回（bash 同形态）", async () => {
     const text = await run(depsOf());
     expect(text).toBe("ok\n");
@@ -80,7 +80,7 @@ describe("createSandboxRequestTool", () => {
         },
       }),
     );
-    expect(text).toContain("越权申请未发起：已有挂起申请");
+    expect(text).toContain("提权申请未发起：已有挂起申请");
   });
 
   test("裸跑通道抛错 → 执行失败文案（不抛）", async () => {
@@ -91,11 +91,11 @@ describe("createSandboxRequestTool", () => {
         },
       }),
     );
-    expect(text).toBe("越权执行失败：spawn ENOENT");
+    expect(text).toBe("提权执行失败：spawn ENOENT");
   });
 
   test("申请携带会话/实例归属与命令理由（防伪造面）", async () => {
-    let seen: { sessionId?: string; instanceId?: string; command?: string; reason?: string } = {};
+    let seen: { sessionId?: string; instanceId?: string; command?: string; reason?: string; kind?: string } = {};
     await run(
       depsOf({
         ask: {
@@ -112,6 +112,7 @@ describe("createSandboxRequestTool", () => {
       instanceId: "i1",
       command: "brew install x",
       reason: "需要全局安装",
+      kind: "permission_request", // kind 判别位随申请上行（原语消费者分发键）
     });
   });
 });

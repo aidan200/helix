@@ -1,7 +1,7 @@
 /**
  * app 入口组装（FSD 顶层）：providers（主题/i18n/Toast/会话/workspace
  * 门禁）× 门禁分支（W3：phase !== main 全屏占位，主壳不渲染即无
- * kg/session 消费者——结构保证 gate 态零越权请求）× 应用壳
+ * kg/session 消费者——结构保证 gate 态零提权请求）× 应用壳
  * （IconRail 常驻导航 + 页面域五路由位）。
  *
  * 会话连接在 SessionProvider 挂载时自动启动（连接状态机见 shared/api）；

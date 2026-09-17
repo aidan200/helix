@@ -1,5 +1,5 @@
 /**
- * ask 消费者 —— 越权申请问答卡（sandbox_request 批，interaction 通道双帧）。
+ * ask 消费者 —— 提权申请问答卡（permission_request 批，interaction 通道双帧）。
  *
  * 承接 2 case（承接面定稿，写入模块头）：
  * - ask.started：agent 发起一次性沙箱外执行申请 → pendingAsk 置位（会话
@@ -21,12 +21,23 @@ export function applyAskEvent(s: SessionState, frame: EventEnvelope): SessionSta
   if (frame.type === "ask.started") {
     const p = frame.payload as {
       askId: string;
+      kind?: "permission_request";
       command: string;
       reason: string;
       instanceId: string;
       expiresAt: number;
     };
-    return { ...s, pendingAsk: { askId: p.askId, command: p.command, reason: p.reason, instanceId: p.instanceId, expiresAt: p.expiresAt } };
+    return {
+      ...s,
+      pendingAsk: {
+        askId: p.askId,
+        ...(p.kind !== undefined ? { kind: p.kind } : {}), // TR-159：additive 可选位显式透传
+        command: p.command,
+        reason: p.reason,
+        instanceId: p.instanceId,
+        expiresAt: p.expiresAt,
+      },
+    };
   }
   if (frame.type === "ask.resolved") {
     return { ...s, pendingAsk: null };

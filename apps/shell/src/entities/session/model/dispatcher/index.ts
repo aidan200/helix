@@ -72,7 +72,7 @@ export function route(type: string): SessionEventHandler | undefined {
 // conn：帧驱动 connection.*（conn 语义归 conn 块，定稿见 consumers/conn.ts 头注）
 register({ types: CONN_EVENT_TYPES, apply: applyConnEvent });
 register({ types: CHAT_EVENT_TYPES, apply: applyChatEvent });
-// ask 双帧（sandbox_request 批）：越权申请问答卡热态（重建权威 = 快照 pendingAsk）
+// ask 双帧（permission_request 批）：提权申请问答卡热态（重建权威 = 快照 pendingAsk）
 register({ types: ASK_EVENT_TYPES, apply: applyAskEvent });
 register({ types: AGENT_EVENT_TYPES, apply: applyAgentEvent });
 register({ types: THINKING_USAGE_EVENT_TYPES, apply: applyThinkingUsageEvent });

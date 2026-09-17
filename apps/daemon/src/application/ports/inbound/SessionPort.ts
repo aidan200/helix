@@ -58,12 +58,14 @@ export interface SessionStateView {
    */
   readonly plan?: readonly WorkItemData[];
   /**
-   * 未收口越权申请（sandbox_request 批，additive）：重连/切换会话后 ask
+   * 未收口提权申请（permission_request 批，additive）：重连/切换会话后 ask
    * 卡片重建数据源（与 SessionSnapshotDto.pendingAsk 同构镜像）。读面注入
    * 才携带（未接 ask 栈缺省兼容）；null = 无挂起申请。
    */
   readonly pendingAsk?: {
     readonly askId: string;
+    /** 申请类别判别位（additive；缺省 = permission_request） */
+    readonly kind?: "permission_request";
     readonly command: string;
     readonly reason: string;
     readonly instanceId: string;

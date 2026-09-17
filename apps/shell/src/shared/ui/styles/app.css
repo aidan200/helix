@@ -844,7 +844,7 @@ html.light .bubble code.inline { color: var(--accent); }
   50% { opacity: 0.35; }
 }
 
-/* ═══ 越权执行申请卡（sandbox_request 批：ask.started → 问答卡；warning 系待定语义）═══ */
+/* ═══ 提权执行申请卡（permission_request 批：ask.started → 问答卡；warning 系待定语义）═══ */
 .ask-card {
   margin: 8px 0; border: 1px solid rgb(var(--warning-rgb) / 0.35); border-radius: 10px;
   background: rgb(var(--warning-rgb) / 0.06); padding: 12px 14px;

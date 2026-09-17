@@ -244,7 +244,7 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
     state.mainInstanceId, // T10c：主实例 id 习得（快照）变化时重采基线（thinking 槽位键随之切换）
     state.thinkingStreams[state.mainInstanceId],
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
-    state.pendingAsk !== null, // sandbox_request 批：申请卡出入视口同样贴底
+    state.pendingAsk !== null, // permission_request 批：申请卡出入视口同样贴底
     showGeneratingPlaceholder, // 占位卡出入（agentState 切换不吃条目变化时）同样贴底
   ]);
 
@@ -324,7 +324,7 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
           <NetworkRetryCard />
           {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}
           <EngineErrorCard />
-          {/* sandbox_request 批：越权执行申请问答卡（瞬态；resolved 帧/快照收口） */}
+          {/* permission_request 批：提权执行申请问答卡（瞬态；resolved 帧/快照收口） */}
           <AskCard />
         </div>
         {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty onFocusInput={onFocusInput} />)}

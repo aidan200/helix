@@ -123,8 +123,8 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
       expect(snap.tools).toContain(name);
     }
     expect(snap.tools).not.toContain("kg-update");
-    // 生效集恰为 worker 声明面 − write/edit/edit-lines/sandbox_request（缺省全启用；越权批同摘）
-    expect(snap.tools).toEqual(SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit" && t !== "edit-lines" && t !== "sandbox_request"));
+    // 生效集恰为 worker 声明面 − write/edit/edit-lines/permission_request（缺省全启用；提权批同摘）
+    expect(snap.tools).toEqual(SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit" && t !== "edit-lines" && t !== "permission_request"));
     // 评审纪律后缀在快照 prompt（派生不复制）
     expect(snap.systemPrompt).toContain(SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX);
     expect(snap.systemPrompt).not.toContain(SUBAGENT_KG_WRITER_PROMPT_SUFFIX);
@@ -139,7 +139,7 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
     const kgwSnap = await snapshotOf(rig, kgw.agentId);
     expect(workerSnap.tools).toContain("write");
     expect(workerSnap.tools).toContain("edit");
-    expect(kgwSnap.tools).toEqual([...SubAgentProfile.tools.filter((t) => t !== "edit-lines" && t !== "sandbox_request"), "kg-update"]);
+    expect(kgwSnap.tools).toEqual([...SubAgentProfile.tools.filter((t) => t !== "edit-lines" && t !== "permission_request"), "kg-update"]);
     expect(kgwSnap.systemPrompt).toContain(SUBAGENT_KG_WRITER_PROMPT_SUFFIX);
     // 无图谱 workspace（kgWorkspaceRoot=home 且无项目目录）：常驻规则段
     // 整体省略（零注入痕迹，用户裁决 2026-09-10）

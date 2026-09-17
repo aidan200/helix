@@ -1,9 +1,9 @@
 import type { ChildOutboundLine, ToolResponseLine } from "../transport/wire";
 
 /**
- * RemoteAskPort —— 越权申请仲裁的进程外实现（sandbox_request 批，子进程侧）。
+ * RemoteAskPort —— 提权申请仲裁的进程外实现（permission_request 批，子进程侧）。
  *
- * 子进程零仲裁知识：sandbox_request 工具的 ask.request 调用序列化为
+ * 子进程零仲裁知识：permission_request 工具的 ask.request 调用序列化为
  * tool-req 行（method="ask.request"，args=[command, reason]）上 wire，
  * daemon 侧 SubagentLauncher 分流到父进程 AskService 单例仲裁（会话归属
  * 由父侧 instance 注册表裁决——子上行不携 sessionId，防伪造），
@@ -52,7 +52,7 @@ export class RemoteAskPort {
   }
 
   /**
-   * AskService.request 同形态适配（SandboxRequestToolDeps.ask 消费面）——
+   * AskService.request 同形态适配（PermissionRequestToolDeps.ask 消费面）——
    * sessionId/instanceId 由装配面绑定传入但不上 wire（父侧以 instance
    * 注册表裁决会话归属，子上行只携 command/reason）。
    */

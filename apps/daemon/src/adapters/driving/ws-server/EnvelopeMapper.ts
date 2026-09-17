@@ -442,7 +442,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       return frame;
     }
 
-    // ── ask 越权申请族（sandbox_request 批；直映射 interaction 通道双帧）──
+    // ── ask 提权申请族（permission_request 批；直映射 interaction 通道双帧）──
     case "ask.started": {
       const p = event.payload as AskStartedPayload;
       const frame: AskStartedEvent = {
@@ -450,6 +450,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         type: "ask.started",
         payload: {
           askId: p.askId,
+          ...(p.kind !== undefined ? { kind: p.kind } : {}), // TR-159：additive 可选位显式透传（缺省 = permission_request）
           command: p.command,
           reason: p.reason,
           instanceId: p.instanceId,

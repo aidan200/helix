@@ -11,7 +11,7 @@ import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/run
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 三 profile 全集全覆盖：main 27 名 + subagent 15 名 + kg-writer 14 名均有非空 snippet（F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；越权申请批 +sandbox_request 进 main/worker）", () => {
+  test("① 三 profile 全集全覆盖：main 27 名 + subagent 15 名 + kg-writer 14 名均有非空 snippet（F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；提权申请批 +permission_request 进 main/worker）", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
@@ -26,16 +26,16 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     // T2.4 +task_create 仅 main，AD-7；D3 +task_report 仅 main；W1-B +codegraph R5；D8 W-R6 -kg-update
     // 收权；⑤ 链 C +agent_park/agent_resume 仅 main，P1；main-session plan 批
     // Main 同含 plan 三名两域同构——subagent 计数不变；F4 接通批 +edit-lines
-    // main/worker 同扩；越权申请批 +sandbox_request main/worker 同扩）；
-    // kg-writer = subagent 去 edit-lines/sandbox_request + kg-update（14，豁免面——越权裸跑不渗入图谱产出面）
-    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具；越权申请批 +sandbox_request
+    // main/worker 同扩；提权申请批 +permission_request main/worker 同扩）；
+    // kg-writer = subagent 去 edit-lines/permission_request + kg-update（14，豁免面——提权裸跑不渗入图谱产出面）
+    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具；提权申请批 +permission_request
     expect(SubAgentProfile.tools).toHaveLength(15);
     expect(SubAgentKgWriterProfile.tools).toHaveLength(14);
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
     // 恰 33 条（main 全集 + plan 三工具 + 编排 task 回口七工具——T2.2 + D3
-    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具；越权申请批 +sandbox_request）
+    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具；提权申请批 +permission_request）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -59,7 +59,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "plan_read",
         "plan_update",
         "read",
-        "sandbox_request",
+        "permission_request",
         "task_advance_stage",
         "task_assembly_done",
         "task_complete_job",

@@ -73,13 +73,13 @@ export const zhCN = {
       hint: "可稍后重试发送；错误详情可在 daemon 日志查看",
     },
     ask: {
-      title: "越权执行申请",
+      title: "权限申请",
       from: "来自 {instanceId}",
       approve: "批准执行",
       deny: "拒绝",
       countdown: "{secs}s 后自动拒绝",
       expired: "已超时，等待收口…",
-      hint: "批准后仅本次命令在沙箱外执行（不记永久放行）",
+      hint: "批准后仅本次命令提权执行（不记永久放行）",
     },
     engineRetry: {
       title: "网络重试中（第 {n}/{total} 次，约 {secs}s 后）",

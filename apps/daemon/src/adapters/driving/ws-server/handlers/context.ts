@@ -96,7 +96,7 @@ export interface WsCommandContext {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
-  /** 越权申请仲裁面（ask.answer 命令回口；未装配 → unimplemented）。 */
+  /** 提权申请仲裁面（ask.answer 命令回口；未装配 → unimplemented）。 */
   readonly askService?: AskService;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */
   readonly system: SystemPort;

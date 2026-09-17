@@ -1,15 +1,18 @@
 import type { EventFrame } from "../envelope";
+import type { AskKind } from "../types/session";
 
 // ── payload ──────────────────────────────────────────────────
 
 /**
- * ask.started：agent 发起越权执行申请（sandbox_request 工具触发）。
- * 落盘为时间轴原位条目（pending 态），前端渲染问答卡片。
+ * ask.started：agent 向用户发起一问一答申请（问答原语首帧）。
+ * 落盘为时间轴原位条目（pending 态），前端渲染问答卡片（内容区按 kind 分发）。
  */
 export interface AskStartedPayload {
   /** 申请 id（`ask-<唯一串>`，answer 命令回指键） */
   askId: string;
-  /** 申请执行的命令原文 */
+  /** 申请类别判别位（additive；缺省 = "permission_request"——本族首个消费者） */
+  kind?: AskKind;
+  /** 申请执行的命令原文（kind=permission_request 载荷） */
   command: string;
   /** agent 自述申请理由（LLM 生成，领域数据不 i18n） */
   reason: string;

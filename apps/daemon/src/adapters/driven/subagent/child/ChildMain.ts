@@ -528,7 +528,7 @@ async function main(): Promise<void> {
   // H-3：browser 工具经 wire 转发通道接入 daemon 全局唯一 CDP 单例
   // （子进程零 CDP 知识/零连接状态；ownerId = 本实例 instanceId）
   const remoteBrowser = new RemoteBrowserPort(instanceId, writeLine);
-  const remoteAsk = new RemoteAskPort(instanceId, writeLine); // sandbox_request 批：仲裁转发父进程 AskService
+  const remoteAsk = new RemoteAskPort(instanceId, writeLine); // permission_request 批：仲裁转发父进程 AskService
   // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——D8 W-R6 后
   // subagent-worker 只声明 kg、subagent-kg-writer（图谱产出型批次）声明双工具；
   // 注册面恒宽（声明面管控谁可见）
@@ -581,11 +581,11 @@ async function main(): Promise<void> {
       profile = { ...profile, tools: filteredTools }; // tools readonly：重建对象
     }
   }
-  // sandbox_request（越权申请批）：沙箱 off → executor 不注 sandboxRequest 槽，
+  // permission_request（提权申请批）：沙箱 off → executor 不注 permissionRequest 槽，
   // 声明名同步剔除（resolveTools 硬校验防吊名；main 侧 effectiveMainToolNames 同构）
   if (process.env.HELIX_SANDBOX !== "1" || process.env.HELIX_DB_PATH === undefined) {
-    if (profile.tools.includes("sandbox_request")) {
-      profile = { ...profile, tools: profile.tools.filter((t) => t !== "sandbox_request") };
+    if (profile.tools.includes("permission_request")) {
+      profile = { ...profile, tools: profile.tools.filter((t) => t !== "permission_request") };
     }
   }
   // deferred 批：物化集（本地内存态）+ engine 晚绑定槽（onDiscover 闭包
@@ -611,14 +611,14 @@ async function main(): Promise<void> {
     process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
       ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd, childSandboxExtraRoots)
       : undefined;
-  // U1 护栏 shellEnv（executor 与越权裸执行面同参双消费——提成常量）
+  // U1 护栏 shellEnv（executor 与提权裸执行面同参双消费——提成常量）
   const childShellEnv = {
     HELIX_SESSION_ID: process.env.HELIX_SESSION_ID ?? instanceId,
     ...(process.env.HELIX_WRITE_FACTS_DIR !== undefined
       ? { HELIX_WRITE_FACTS_DIR: process.env.HELIX_WRITE_FACTS_DIR }
       : {}),
   };
-  // 越权申请批：裸执行面（未装饰 NodeExecutionEnv——与 executor 同 cwd/shellEnv）
+  // 提权申请批：裸执行面（未装饰 NodeExecutionEnv——与 executor 同 cwd/shellEnv）
   const childRawExecEnv = new NodeExecutionEnv({ cwd: toolCwd, shellEnv: childShellEnv });
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
@@ -627,12 +627,12 @@ async function main(): Promise<void> {
     shellEnv: childShellEnv,
     ...(childSandbox !== undefined ? { sandbox: childSandbox } : {}),
     browser: remoteBrowser,
-    // sandbox_request（越权申请批）：沙箱 on 时注册——仲裁经 RemoteAskPort
+    // permission_request（提权申请批）：沙箱 on 时注册——仲裁经 RemoteAskPort
     // tool-req 行转发父进程 AskService 单例（卡片弹在归属会话页）；裸执行
     // 面 = 本地未装饰 NodeExecutionEnv（与 executor 同 cwd/shellEnv 同参构造）。
     ...(childSandbox !== undefined
       ? {
-          sandboxRequest: {
+          permissionRequest: {
             ask: remoteAsk,
             sessionId: process.env.HELIX_SESSION_ID ?? instanceId,
             instanceId,
@@ -766,7 +766,7 @@ async function main(): Promise<void> {
       onSteer: (text) => engine.steer(text), // AD-7⑤：Agent.steer() 内建队列（挂起期即暂存）
     },
     (line) => {
-      // H-3/sandbox_request 批：tool-res → 两转发 port pending 关联 settle
+      // H-3/permission_request 批：tool-res → 两转发 port pending 关联 settle
       //（reqId 区间错开——browser 自 1 递增，ask 自 1_000_000 起，互不互踩）
       remoteBrowser.handleResponse(line);
       remoteAsk.handleResponse(line);

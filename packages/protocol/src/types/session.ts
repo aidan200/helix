@@ -93,13 +93,26 @@ export interface PendingSteerDto {
 }
 
 /**
- * 未收口越权申请（SessionSnapshotDto.pendingAsk，additive）：重连/切换会话
+ * 未收口提权申请（SessionSnapshotDto.pendingAsk，additive）：重连/切换会话
  * 后 ask 卡片重建数据源——申请挂起时刷新/重进，快照携带本字段原位复活卡片。
  * 缺省/null = 无挂起申请（旧剧本兼容）。与 AskStartedPayload 同构
  * （同一次申请的两个投影：事件帧 = 实时推送，本 DTO = 快照重建）。
  */
+/**
+ * 申请类别判别位（ask 原语的消费者分发键）：原语层（仲裁/超时/快照/卡片壳）
+ * 不 care 类别语义，载荷形状与卡片内容区按 kind 分发。
+ * - "permission_request"：一次性提升权限执行申请（permission_request 工具
+ *   触发）——载荷携 command/reason；卡片渲染命令卡。
+ * 新增消费者 = 新增 kind 成员 + 各自载荷注释 + 各自卡片内容区。
+ * 缺省兼容：旧帧无 kind 字段一律按 "permission_request" 处理（本族首个
+ * 消费者即 permission_request，additive 演进）。
+ */
+export type AskKind = "permission_request";
+
 export interface PendingAskDto {
   askId: string;
+  /** 申请类别判别位（additive；缺省 = "permission_request"——与 AskStartedPayload.kind 同源） */
+  kind?: AskKind;
   command: string;
   reason: string;
   instanceId: string;
@@ -140,7 +153,7 @@ export interface SessionSnapshotDto {
    */
   pendingSteer?: PendingSteerDto[];
   /**
-   * 未收口越权申请（additive，sandbox_request 批）：重连/切换会话后 ask
+   * 未收口提权申请（additive，permission_request 批）：重连/切换会话后 ask
    * 卡片重建数据源。缺省 = 无挂起申请。
    */
   pendingAsk?: PendingAskDto | null;

@@ -2,7 +2,7 @@ import type { AskAnswerPayload } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
 
 /**
- * ask.answer 命令处理：用户对越权执行申请（sandbox_request）的裁决。
+ * ask.answer 命令处理：用户对提权执行申请（permission_request）的裁决。
  *
  * 裁决闭环 → AskService.answer（幂等容忍：无此挂起申请/已终态静默吞，
  * double-click 与超时竞态安全）。sessionId 取自信封（会话作用域命令）。

@@ -150,14 +150,14 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // kg-writer：自身 catalog 透传（声明全集含 kg-update）+ pinned 徽标面
       expect(kgw!.profileKind).toBe("subagent-kg-writer");
       expect(kgw!.pinnedTools).toEqual(["kg-update"]);
-      expect(kgw!.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "edit-lines" && n !== "sandbox_request"), "kg-update"]); // F4 接通批：edit-lines 不渗入 kg-writer；越权批：sandbox_request 同法不渗入
+      expect(kgw!.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "edit-lines" && n !== "permission_request"), "kg-update"]); // F4 接通批：edit-lines 不渗入 kg-writer；提权批：permission_request 同法不渗入
       expect(kgw!.tools.every((t) => t.enabled === true)).toBe(true); // 自身差异行缺省开
       // kg-update snippet 注册表同源（main 目录面同名行单源取回）
       const kgUpdate = kgw!.tools.find((t) => t.name === "kg-update")!;
       expect(kgUpdate.snippet).toContain("知识图谱即时落账");
       // D5 reviewer：自身 catalog 透传（声明面已减 write/edit）
       expect(reviewer!.profileKind).toBe("subagent-code-reviewer");
-      expect(reviewer!.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "edit-lines" && n !== "sandbox_request"));
+      expect(reviewer!.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "edit-lines" && n !== "permission_request"));
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("kg-update");
       expect(reviewer!.tools.every((t) => t.enabled === true)).toBe(true);
       // 派生块技能行 = 自身 kind 清单（含 enabled 位，透传同构；makeRig 空
@@ -293,14 +293,14 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // 终态：kg-writer 读自身差异行（无禁用记录 → 全量 enabled=true），
       // 不随 worker toggle 收窄
       const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
-      expect(kgw.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "edit-lines" && n !== "sandbox_request"), "kg-update"]); // F4 接通批：edit-lines 不渗入 kg-writer；越权批：sandbox_request 同法不渗入
+      expect(kgw.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "edit-lines" && n !== "permission_request"), "kg-update"]); // F4 接通批：edit-lines 不渗入 kg-writer；提权批：permission_request 同法不渗入
       expect(kgw.tools.every((t) => t.enabled === true)).toBe(true);
       // kind 隔离：orchestrator 同样不受 worker toggle 影响
       const orch = system.find((b) => b.profileKind === "orchestrator")!;
       expect(orch.tools.some((t) => t.name === "grep")).toBe(true);
       // D5 reviewer：独立全量（write/edit 声明面已减）
       const reviewer = system.find((b) => b.profileKind === "subagent-code-reviewer")!;
-      expect(reviewer.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "edit-lines" && n !== "sandbox_request"));
+      expect(reviewer.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "edit-lines" && n !== "permission_request"));
       expect(reviewer.tools.some((t) => t.name === "grep")).toBe(true);
     } finally {
       await client.close();

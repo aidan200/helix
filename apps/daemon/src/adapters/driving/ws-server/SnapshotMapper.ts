@@ -146,7 +146,7 @@ export function toSnapshotDto(
           })),
         }
       : {}),
-    // 未收口越权申请（sandbox_request 批，additive）：视图携带才下发——
+    // 未收口提权申请（permission_request 批，additive）：视图携带才下发——
     // 重连/切换会话后 ask 卡片原位复活（倒计时按 expiresAt 剩余量续走）
     ...(view.pendingAsk !== undefined ? { pendingAsk: view.pendingAsk } : {}),
     // 主会话工作台账（main-session plan 批，additive）：携带才下发——plan

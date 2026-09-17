@@ -150,9 +150,9 @@ export interface SessionDeleteCommand extends CommandFrame<EmptyPayload> {
   type: "session.delete";
 }
 
-// ── ask 族（interaction 通道；sandbox_request 越权申请的应答命令） ──
+// ── ask 族（interaction 通道；permission_request 提权申请的应答命令） ──
 
-/** ask.answer 载荷：用户对越权执行申请的裁决；信封 sessionId 必填（路由到申请归属会话） */
+/** ask.answer 载荷：用户对提权执行申请的裁决；信封 sessionId 必填（路由到申请归属会话） */
 export interface AskAnswerPayload {
   /** 申请 id（ask.started 下发值） */
   askId: string;

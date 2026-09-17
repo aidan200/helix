@@ -441,7 +441,7 @@ export interface SessionState {
    *  瞬态不落盘——新轮开始即清；持久事实在 daemon 日志与领域事件流） */
   engineError: { message: string } | null;
   /**
-   * 挂起的越权执行申请（sandbox_request 批：ask.started 帧 → 会话底部问答卡
+   * 挂起的提权执行申请（permission_request 批：ask.started 帧 → 会话底部问答卡
    * 「命令 + 理由 + 倒计时 + 批准/拒绝」；ask.resolved 帧或快照权威清除）。
    * 瞬态不落盘——重建权威 = 快照 pendingAsk 字段（重连/切换会话原位复活，
    * 倒计时按 expiresAt 剩余量续走）；daemon 侧 60s 机械超时是终裁，前端

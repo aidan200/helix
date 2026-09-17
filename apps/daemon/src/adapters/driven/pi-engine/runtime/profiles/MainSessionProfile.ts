@@ -109,11 +109,11 @@ export const MainSessionProfile: AgentProfile = {
     "coord_claim",
     "coord_release",
     "coord_query",
-    // sandbox_request（越权申请批）：一次性沙箱外执行申请——仅沙箱开启时
-    // 注册面注入生效（CoreToolExecutor options.sandboxRequest 条件注册；
+    // permission_request（提权申请批）：一次性沙箱外执行申请——仅沙箱开启时
+    // 注册面注入生效（CoreToolExecutor options.permissionRequest 条件注册；
     // 声明恒在，注册面门控——沙箱 off 时 executor 未注入该槽则装配面
     // 同步剔除本名，见 sessionEngineFactory engineFor）
-    "sandbox_request",
+    "permission_request",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

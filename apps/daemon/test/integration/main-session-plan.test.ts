@@ -254,9 +254,9 @@ describe("① 主会话装配面（main-session plan 批）", () => {
 
   test("effectiveMainToolNames：plan/coord 注入时保留；未注入时剔除（声明面 = 注册面一致）", () => {
     const declared = MainSessionProfile.tools;
-    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, sandboxRequest: true });
+    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: true });
     expect(kept).toEqual([...declared]);
-    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: false, coord: true, sandboxRequest: true });
+    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: false, coord: true, permissionRequest: true });
     for (const name of ["plan_create", "plan_update", "plan_read"]) {
       expect(dropped).not.toContain(name);
     }
@@ -265,21 +265,21 @@ describe("① 主会话装配面（main-session plan 批）", () => {
       declared.filter((t) => !t.startsWith("plan_")).length,
     );
     // taskReport 未注入 → task_report 剔除（taskCreate/plan/coord 同构：声明面 = 注册面一致）
-    const noReport = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: false, plan: true, coord: true, sandboxRequest: true });
+    const noReport = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: false, plan: true, coord: true, permissionRequest: true });
     expect(noReport).not.toContain("task_report");
     // coord 未注入 → coord 三名剔除（U4）
-    const noCoord = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: false, sandboxRequest: false });
+    const noCoord = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: false, permissionRequest: false });
     for (const name of ["coord_claim", "coord_release", "coord_query"]) {
       expect(noCoord).not.toContain(name);
     }
   });
 
-  test("effectiveMainToolNames：sandbox_request 未注入时剔除；注入时保留（越权申请批）", () => {
+  test("effectiveMainToolNames：permission_request 未注入时剔除；注入时保留（提权申请批）", () => {
     const declared = MainSessionProfile.tools;
-    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, sandboxRequest: true });
-    expect(kept).toContain("sandbox_request");
-    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, sandboxRequest: false });
-    expect(dropped).not.toContain("sandbox_request");
+    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: true });
+    expect(kept).toContain("permission_request");
+    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: false });
+    expect(dropped).not.toContain("permission_request");
   });
 });
 

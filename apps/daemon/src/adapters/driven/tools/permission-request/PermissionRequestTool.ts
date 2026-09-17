@@ -6,7 +6,7 @@ import type {
 import type { AskService } from "../../../../application/services/AskService";
 
 /**
- * sandbox_request 工具（越权申请批）——agent 主动申请一次性越权执行。
+ * permission_request 工具（提权申请批）——agent 主动申请一次性提权执行。
  *
  * 语义（与用户四轮裁决定稿一致）：
  * - **agent 主动申请**（非沙箱拒绝自动弹）：agent 预判命令会越界（写沙箱
@@ -17,17 +17,17 @@ import type { AskService } from "../../../../application/services/AskService";
  * - **拒绝/超时 = 引导文案**：60s 无裁决自动拒绝（AskService 机械超时）；
  * - 结果（stdout/stderr/exitCode）直接作为工具结果返回——与 bash 工具同形态。
  *
- * 注册门控：仅沙箱开启时注册（装配面判定——沙箱 off 无越权语义）；
+ * 注册门控：仅沙箱开启时注册（装配面判定——沙箱 off 无提权语义）；
  * main/subagent 双 profile 声明，SubAgent 经 ask-request wire 行转发父进程
  * 仲裁（父持 AskService 单例——卡片弹在归属会话页）。
  */
 
-const sandboxRequestParameters = {
+const permissionRequestParameters = {
   type: "object",
   properties: {
     command: {
       type: "string",
-      description: "要越权执行的命令原文（与 bash 工具 command 同语义）",
+      description: "要提权执行的命令原文（与 bash 工具 command 同语义）",
     },
     reason: {
       type: "string",
@@ -38,8 +38,8 @@ const sandboxRequestParameters = {
   additionalProperties: false,
 } as const;
 
-export interface SandboxRequestToolDeps {
-  /** 越权申请仲裁服务（父进程单例；SubAgent 经 wire 转发同此面）。 */
+export interface PermissionRequestToolDeps {
+  /** 提权申请仲裁服务（父进程单例；SubAgent 经 wire 转发同此面）。 */
   readonly ask: Pick<AskService, "request">;
   /** 本会话 id（装配面绑定——工具参数零 sessionId，防伪造他会话申请）。 */
   readonly sessionId: string;
@@ -55,15 +55,15 @@ export interface SandboxRequestToolDeps {
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
 
-export function createSandboxRequestTool(
-  deps: SandboxRequestToolDeps,
+export function createPermissionRequestTool(
+  deps: PermissionRequestToolDeps,
 ): AgentHarnessTool<ExecutionToolContext, any, undefined> {
   return {
-    name: "sandbox_request",
-    label: "申请沙箱外执行",
+    name: "permission_request",
+    label: "申请提权执行",
     description:
-      "申请一次性在沙箱外执行命令（写沙箱可写根外、全局安装、宿主机系统命令等被沙箱拦截的场景）。用户批准后仅本次执行放行（不记 always-allow）；拒绝或 60s 超时后收到引导，应改道沙箱内方案或放弃。",
-    parameters: sandboxRequestParameters,
+      "权限申请：申请一次性提升权限执行命令（写沙箱可写根外、全局安装、宿主机系统命令等被沙箱拦截的场景）。用户批准后仅本次执行放行（不记 always-allow）；拒绝或 60s 超时后收到引导，应改道沙箱内方案或放弃。",
+    parameters: permissionRequestParameters,
     execute: async (_toolCallId, params): Promise<AgentToolResult<undefined>> => {
       const { command, reason } = params as { command: string; reason: string };
       let outcome: "approved" | "denied" | "timeout";
@@ -73,10 +73,11 @@ export function createSandboxRequestTool(
           instanceId: deps.instanceId,
           command,
           reason,
+          kind: "permission_request",
         });
       } catch (err) {
         return {
-          content: [{ type: "text", text: `越权申请未发起：${(err as Error).message}` }],
+          content: [{ type: "text", text: `提权申请未发起：${(err as Error).message}` }],
           details: undefined,
         };
       }
@@ -86,7 +87,7 @@ export function createSandboxRequestTool(
           content: [
             {
               type: "text",
-              text: `越权执行申请被拒绝（${why}）：\`${command}\`。请改道沙箱内方案（写入工作区或 ~/.helix 下路径），或向用户说明后请其在设置页调整沙箱配置。`,
+              text: `提权执行申请被拒绝（${why}）：\`${command}\`。请改道沙箱内方案（写入工作区或 ~/.helix 下路径），或向用户说明后请其在设置页调整沙箱配置。`,
             },
           ],
           details: undefined,
@@ -105,7 +106,7 @@ export function createSandboxRequestTool(
         };
       } catch (err) {
         return {
-          content: [{ type: "text", text: `越权执行失败：${(err as Error).message}` }],
+          content: [{ type: "text", text: `提权执行失败：${(err as Error).message}` }],
           details: undefined,
         };
       }

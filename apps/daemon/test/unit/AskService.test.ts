@@ -28,7 +28,7 @@ function makeDeps(nowRef: { t: number }) {
   return { deps, events, kv };
 }
 
-describe("AskService（越权申请仲裁）", () => {
+describe("AskService（提权申请仲裁）", () => {
   beforeEach(() => {
     // 用假时钟前记录原计时器
   });

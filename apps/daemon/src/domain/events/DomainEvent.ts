@@ -54,7 +54,7 @@ export type DomainEventType =
   | "coord.settled"
   | "coord.undeclared"
   | "coord.conflict"
-  // ── ask 越权申请族（sandbox_request 批；started 落盘为时间轴原位条目，
+  // ── ask 提权申请族（permission_request 批；started 落盘为时间轴原位条目，
   // resolved 为收口帧——协议 interaction 通道 ask.started/ask.resolved）──
   | "ask.started"
   | "ask.resolved";
@@ -328,9 +328,11 @@ export interface CoordLeasePayload {
   readonly escalated?: boolean;
 }
 
-/** ask.started 载荷（sandbox_request 批）：与协议 AskStartedPayload 同构。 */
+/** ask.started 载荷（permission_request 批）：与协议 AskStartedPayload 同构。 */
 export interface AskStartedPayload {
   readonly askId: string;
+  /** 申请类别判别位（additive；缺省 = permission_request——与协议 AskKind 同值镜像） */
+  readonly kind?: "permission_request";
   readonly command: string;
   readonly reason: string;
   readonly instanceId: string;

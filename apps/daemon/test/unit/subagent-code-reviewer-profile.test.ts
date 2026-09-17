@@ -18,14 +18,14 @@ import { dispatchProfileKindOf } from "../../src/application/services/task/TaskO
  */
 
 describe("D5 专用 profile：subagent-code-reviewer 工具面", () => {
-  test("kind 声明 + 工具集 = 通用 worker − write/edit/edit-lines/sandbox_request（代码写面机械关闭；F4 接通批 edit-lines 同摘；越权申请批 sandbox_request 同摘——裸跑是写面逃生舱）", () => {
+  test("kind 声明 + 工具集 = 通用 worker − write/edit/edit-lines/permission_request（代码写面机械关闭；F4 接通批 edit-lines 同摘；提权申请批 permission_request 同摘——裸跑是写面逃生舱）", () => {
     expect(SubAgentCodeReviewerProfile.kind).toBe("subagent-code-reviewer");
     expect(SubAgentCodeReviewerProfile.tools).not.toContain("write");
     expect(SubAgentCodeReviewerProfile.tools).not.toContain("edit");
     expect(SubAgentCodeReviewerProfile.tools).not.toContain("edit-lines");
-    expect(SubAgentCodeReviewerProfile.tools).not.toContain("sandbox_request");
+    expect(SubAgentCodeReviewerProfile.tools).not.toContain("permission_request");
     expect(SubAgentCodeReviewerProfile.tools).toEqual(
-      SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit" && t !== "edit-lines" && t !== "sandbox_request"),
+      SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit" && t !== "edit-lines" && t !== "permission_request"),
     );
   });
 
@@ -46,8 +46,8 @@ describe("D5 专用 profile：subagent-code-reviewer 工具面", () => {
       expect(SubAgentCodeReviewerProfile.tools).toContain(name);
     }
     expect(SubAgentCodeReviewerProfile.tools).not.toContain("kg-update");
-    // 越权申请批：sandbox_request 同摘不渗入（越权裸跑是写面逃生舱，与只读评审面冲突）
-    expect(SubAgentCodeReviewerProfile.tools).not.toContain("sandbox_request");
+    // 提权申请批：permission_request 同摘不渗入（提权裸跑是写面逃生舱，与只读评审面冲突）
+    expect(SubAgentCodeReviewerProfile.tools).not.toContain("permission_request");
   });
 
   test("single-shot + hooks/model 与通用 worker 同声明（派生面零分叉）", () => {
@@ -72,7 +72,7 @@ describe("D5 评审纪律后缀（增量常量单源）", () => {
   });
 
   test("摘除常量导出（组装快照派生面单源——buildSessionStack 按此拼 reviewer 生效集）", () => {
-    expect(SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS).toEqual(["write", "edit", "edit-lines", "sandbox_request"]);
+    expect(SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS).toEqual(["write", "edit", "edit-lines", "permission_request"]);
   });
 });
 

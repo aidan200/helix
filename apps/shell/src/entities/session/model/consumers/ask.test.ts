@@ -7,7 +7,7 @@ function frameOf(type: string, payload: Record<string, unknown>): EventEnvelope 
   return { v: 1, sessionId: "s1", type, payload } as unknown as EventEnvelope;
 }
 
-describe("ask 消费者（越权申请问答卡）", () => {
+describe("ask 消费者（提权申请问答卡）", () => {
   test("ask.started → pendingAsk 置位（五字段整体落切片）", () => {
     const s = createInitialSessionState();
     const next = applyAskEvent(
