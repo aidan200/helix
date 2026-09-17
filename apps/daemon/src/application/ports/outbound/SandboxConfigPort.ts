@@ -13,6 +13,12 @@
 /** 沙箱开关（与 KV sandbox_config 单键 JSON 同构）。 */
 export interface SandboxConfig {
   enabled: boolean;
+  /**
+   * 额外可写根（全局清单，绝对路径；缺省 []）——设置页「通用 → 命令沙箱」配置，
+   * 装配期定格追加进 writableRoots（工具链/环境目录逃生门；「写隔壁项目」需求
+   * 的正解是纳入同一 workspace，不是开洞）。
+   */
+  extraRoots: string[];
 }
 
 export interface SandboxConfigPort {

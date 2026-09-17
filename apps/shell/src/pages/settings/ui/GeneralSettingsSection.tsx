@@ -63,11 +63,30 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   /** 沙箱开关 send 失败交代（code-review H8：断线窗口不静默——结果帧驱动的开关无在途态，行内错误即全部反馈面）。 */
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const toggleSandbox = (enabled: boolean): void => {
-    if (setSandboxConfig(enabled) === false) {
+    if (setSandboxConfig({ enabled }) === false) {
       setSandboxError(t("chat.settings.general.sendFail"));
       return;
     }
     setSandboxError(null);
+  };
+
+  // 额外可写目录（B 全局清单）：本地编辑态 null = 未编辑（展示现值）；
+  // 保存走部分更新（仅 extraRoots），结果帧回填后清编辑态。
+  const [extraRootsDraft, setExtraRootsDraft] = useState<string | null>(null);
+  const [extraRootsInvalid, setExtraRootsInvalid] = useState<string | null>(null);
+  const extraRootsValue = extraRootsDraft ?? (sandboxCfg?.extraRoots ?? []).join("\n");
+  const saveExtraRoots = (): void => {
+    const lines = extraRootsValue.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    if (!lines.every((l) => /^([/\\]|[A-Za-z]:[/\\])/.test(l))) {
+      setExtraRootsInvalid(t("chat.settings.general.sandboxExtraRootsInvalid"));
+      return;
+    }
+    setExtraRootsInvalid(null);
+    if (setSandboxConfig({ extraRoots: lines }) === false) {
+      setSandboxError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setExtraRootsDraft(null);
   };
 
   // code-review 族A：沙箱开关 daemon 拒绝交代——开关无在途位（结果帧驱动），
@@ -368,6 +387,38 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             </span>
           )}
         </div>
+        <div className="fld">
+          <label className="hud-label" htmlFor="sandbox-extra-roots">
+            {t("chat.settings.general.sandboxExtraRoots")}
+          </label>
+          <textarea
+            id="sandbox-extra-roots"
+            className="hud-input"
+            rows={3}
+            value={extraRootsValue}
+            placeholder={t("chat.settings.general.sandboxExtraRootsPlaceholder")}
+            data-sandbox-extra-roots
+            onChange={(e) => {
+              setExtraRootsInvalid(null);
+              setExtraRootsDraft(e.target.value);
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          className="hud-btn hud-btn-cyan"
+          data-sandbox-extra-roots-save
+          disabled={extraRootsDraft === null}
+          onClick={saveExtraRoots}
+        >
+          {t("chat.settings.general.save")}
+        </button>
+        {extraRootsInvalid !== null && (
+          <span className="mcp-err" data-sandbox-extra-roots-invalid role="alert">
+            {extraRootsInvalid}
+          </span>
+        )}
+        <span className="ag-note">{t("chat.settings.general.sandboxExtraRootsNote")}</span>
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
       </div>
     </div>

@@ -22,6 +22,17 @@ describe("parseSandboxConfig", () => {
   test("解析失败安全方向：off（不沙箱不锁死）", () => {
     expect(parseSandboxConfig("garbage-string", WS, HOME).mode).toBe("off");
   });
+
+  test("extraRoots 合并进 writableRoots（归一去重保序）", () => {
+    const p = parseSandboxConfig({ enabled: true, extraRoots: ["/Users/x/.cache/uv/", "/opt/tools", WS] }, WS, HOME);
+    expect(p.writableRoots).toEqual([WS, HOME, "/Users/x/.cache/uv", "/opt/tools"]);
+  });
+
+  test("extraRoots 非字符串/空串项过滤；enabled=false 时忽略", () => {
+    const p = parseSandboxConfig({ enabled: true, extraRoots: ["/ok", 42, "  ", null] }, WS, HOME);
+    expect(p.writableRoots).toEqual([WS, HOME, "/ok"]);
+    expect(parseSandboxConfig({ enabled: false, extraRoots: ["/ok"] }, WS, HOME).writableRoots).toEqual([]);
+  });
 });
 
 describe("normalizeRoots", () => {

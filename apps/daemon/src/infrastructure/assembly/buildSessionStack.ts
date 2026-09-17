@@ -1003,7 +1003,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     onMcpDiscover: mcpSurface.onMcpDiscover,
     // 沙箱（可选开启，KV sandbox_config + 自检降级；off/失败 → undefined 纯透传。
     // 开关在会话创建时定格读取——设置页改开关对新会话生效，运行中不热切换）
-    sandboxOf: () => readSandboxRuntime(deps.sandboxConfig?.current().enabled ?? false, paths.home, toolCwdOf()),
+    sandboxOf: () => {
+      const cfg = deps.sandboxConfig?.current();
+      return readSandboxRuntime(cfg?.enabled ?? false, paths.home, toolCwdOf(), cfg?.extraRoots);
+    },
     ...(deps.editDeps !== undefined ? { editDeps: deps.editDeps } : {}),
     ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
     ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),

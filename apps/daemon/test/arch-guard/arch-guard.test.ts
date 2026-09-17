@@ -492,6 +492,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）
       "HELIX_RG_PATH", // rg 二进制定格路径透传（SubagentLauncher 注入 / ChildMain grep 门面消费；rg 单后端）
       "HELIX_SANDBOX", // 沙箱开关批：spawn 时刻 KV 现值定格透传（子进程据此装配/不装配沙箱）
+      "HELIX_SANDBOX_EXTRA_ROOTS", // 用户额外可写根随开关同帧透传（JSON 数组——子进程不再读库）
       "HELIX_SESSION_ID", // U1 护栏：会话标识透传（子进程 bash commit 归属判定与父会话同域）
       "HELIX_SYSTEM_PROMPT",
       "HELIX_THINKING_LEVEL",

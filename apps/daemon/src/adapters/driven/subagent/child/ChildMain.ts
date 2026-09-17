@@ -586,9 +586,20 @@ async function main(): Promise<void> {
   // spawn 时父进程读 KV sandbox_config——沙箱开关批）；workspaceRoot = toolCwd。
   // off/自检失败 → undefined。
   const childDbPath = process.env.HELIX_DB_PATH;
+  // 用户额外可写根随开关同帧透传（JSON 数组；解析失败/缺省 = 空清单不阻断）
+  const childSandboxExtraRoots = (() => {
+    try {
+      const raw = process.env.HELIX_SANDBOX_EXTRA_ROOTS;
+      if (raw === undefined) return [];
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
+    } catch {
+      return [];
+    }
+  })();
   const childSandbox =
     process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
-      ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd)
+      ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd, childSandboxExtraRoots)
       : undefined;
   const executor = new CoreToolExecutor({
     cwd: toolCwd,

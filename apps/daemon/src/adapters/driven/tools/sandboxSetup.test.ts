@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 
 import { readSandboxRuntime } from "./sandboxSetup";
 
@@ -28,5 +29,23 @@ describe("readSandboxRuntime（执行器装配）", () => {
       expect(rt.policy.mode).toBe("on");
       expect(rt.policy.writableRoots.length).toBeGreaterThan(0);
     }
+  });
+
+  test("extraRoots 追加进 writableRoots（不存在的路径 realpath 容错保原值）", () => {
+    const rt = readSandboxRuntime(true, "/tmp/h", "/tmp/w", ["/definitely/not/exist-helix-test"]);
+    expect(rt).toBeDefined();
+    expect(rt?.policy.writableRoots).toContain("/definitely/not/exist-helix-test");
+  });
+
+  test("cacheEnv 四键指向 <helixHome>/tool-cache/*（纯缓存类）", () => {
+    const rt = readSandboxRuntime(true, "/tmp/h", "/tmp/w");
+    expect(rt?.cacheEnv).toEqual({
+      UV_CACHE_DIR: path.join("/tmp/h", "tool-cache", "uv"),
+      npm_config_cache: path.join("/tmp/h", "tool-cache", "npm"),
+      PIP_CACHE_DIR: path.join("/tmp/h", "tool-cache", "pip"),
+      BUN_INSTALL_CACHE_DIR: path.join("/tmp/h", "tool-cache", "bun"),
+    });
+    // off 态无 runtime 即无注入（零侵入）
+    expect(readSandboxRuntime(false, "/tmp/h", "/tmp/w")).toBeUndefined();
   });
 });

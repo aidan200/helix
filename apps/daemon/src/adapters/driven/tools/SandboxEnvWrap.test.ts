@@ -11,16 +11,20 @@ const HOME = "/Users/x/.helix";
 /** mock base env（记录调用 + 受控返回）。 */
 function mockEnv(): SandboxEnvTarget & {
   execCalls: string[];
+  execOptions: (Record<string, unknown> | undefined)[];
   writeCalls: string[];
 } {
   const execCalls: string[] = [];
+  const execOptions: (Record<string, unknown> | undefined)[] = [];
   const writeCalls: string[] = [];
   return {
     cwd: WS,
     execCalls,
+    execOptions,
     writeCalls,
-    async exec(command: string) {
+    async exec(command: string, options?: Record<string, unknown>) {
       execCalls.push(command);
+      execOptions.push(options);
       return { ok: true as const, value: { stdout: "", stderr: "", exitCode: 0 } };
     },
     async absolutePath(p: string) {
@@ -193,6 +197,26 @@ describe("wrapEnvForSandbox fallback 态（规则级执行器——U0c 二期）
     const w = wrapEnvForSandbox(env, fallbackRuntime());
     await w.exec("ls -la | grep foo; cat README.md");
     expect(env.execCalls.length).toBe(1);
+  });
+
+  test("cacheEnv merge：缺省键兑底注入 + options.env 显式值优先", async () => {
+    const env = mockEnv();
+    const rt: SandboxRuntime = {
+      ...fallbackRuntime(),
+      cacheEnv: { UV_CACHE_DIR: "/h/tool-cache/uv", npm_config_cache: "/h/tool-cache/npm" },
+    };
+    const w = wrapEnvForSandbox(env, rt);
+    await w.exec("ls");
+    expect(env.execOptions[0]?.["env"]).toEqual({ UV_CACHE_DIR: "/h/tool-cache/uv", npm_config_cache: "/h/tool-cache/npm" });
+    await w.exec("ls", { env: { UV_CACHE_DIR: "/custom" } });
+    expect(env.execOptions[1]?.["env"]).toEqual({ UV_CACHE_DIR: "/custom", npm_config_cache: "/h/tool-cache/npm" });
+  });
+
+  test("cacheEnv 缺省（runtime 未携带）→ options 原样透传", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    await w.exec("ls", { timeout: 5 });
+    expect(env.execOptions[0]).toEqual({ timeout: 5 });
   });
 
   test("工具写判定与 seatbelt 同构（fallback 下写方法族照常）", async () => {

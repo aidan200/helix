@@ -68,6 +68,8 @@ export interface ConfigSetPortResultEvent extends EventFrame<ConfigSetPortResult
 /** config.get_sandbox.result：沙箱开关读面回执（点对点；全局命令）。 */
 export interface ConfigGetSandboxResultPayload {
   enabled: boolean;
+  /** 额外可写根全局清单（缺省 []）。 */
+  extraRoots: string[];
 }
 export interface ConfigGetSandboxResultEvent extends EventFrame<ConfigGetSandboxResultPayload> {
   channel?: "model";
@@ -77,6 +79,8 @@ export interface ConfigGetSandboxResultEvent extends EventFrame<ConfigGetSandbox
 /** config.set_sandbox.result：沙箱开关写回执（点对点；生效时机提示在 UI 层）。 */
 export interface ConfigSetSandboxResultPayload {
   enabled: boolean;
+  /** 额外可写根全局清单（合并写后的全量现值）。 */
+  extraRoots: string[];
 }
 export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandboxResultPayload> {
   channel?: "model";

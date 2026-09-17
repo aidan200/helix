@@ -339,6 +339,8 @@ export interface PortConfigState {
 /** 沙箱开关（与协议 payload 同构；新会话/新任务生效）。 */
 export interface SandboxConfigState {
   enabled: boolean;
+  /** 额外可写根全局清单（缺省 []——旧 daemon 回执缺键的兑底）。 */
+  extraRoots: string[];
 }
 
 /** 初始配置面（未请求态；数据由命令结果帧驱动填充）。 */

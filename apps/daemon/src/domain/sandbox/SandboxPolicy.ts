@@ -20,17 +20,21 @@ export interface SandboxPolicy {
   readonly writableRoots: readonly string[];
 }
 
-/** 解析沙箱开关配置载荷（KV sandbox_config 布尔载荷 {enabled}——沙箱开关批
- * 2026-09-12 起开关存 db 单键；第一版 <home>/sandbox.json 文件开关已由
- * bootPrelude.migrateLegacySandboxConfig 一次性迁移退役）。 */
+/** 解析沙箱开关配置载荷（KV sandbox_config 单键 JSON {enabled, extraRoots?}——
+ * 沙箱开关批 2026-09-12 起开关存 db 单键；第一版 <home>/sandbox.json 文件开关已由
+ * bootPrelude.migrateLegacySandboxConfig 一次性迁移退役；extraRoots = 用户配置的
+ * 全局额外可写根（设置页「通用 → 命令沙箱」），归一后与固定集合合并）。 */
 export function parseSandboxConfig(raw: unknown, workspaceRoot: string, helixHomeDir: string): SandboxPolicy {
   const obj = (raw ?? {}) as Record<string, unknown>;
   const enabled = obj["enabled"] === true;
+  const extra = Array.isArray(obj["extraRoots"])
+    ? obj["extraRoots"].filter((r): r is string => typeof r === "string" && r.trim() !== "")
+    : [];
   return {
     mode: enabled ? "on" : "off",
-    // writableRoots 第一版固定集合：workspace 根 + helix 全局数据目录（SubAgent
-    // 报告等 daemon 自身数据面）。系统 /tmp 由 SEATBELT_SCRATCH_POLICY 覆盖。
-    writableRoots: enabled ? normalizeRoots([workspaceRoot, helixHomeDir]) : [],
+    // writableRoots 固定集合：workspace 根 + helix 全局数据目录（SubAgent
+    // 报告等 daemon 自身数据面）+ 用户额外可写根。系统 /tmp 由 SEATBELT_SCRATCH_POLICY 覆盖。
+    writableRoots: enabled ? normalizeRoots([workspaceRoot, helixHomeDir, ...extra]) : [],
   };
 }
 

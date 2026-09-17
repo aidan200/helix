@@ -293,9 +293,10 @@ export function configGetSandboxCommand(): ConfigGetSandboxCommand {
   return { v: PROTOCOL_VERSION, type: "config.get_sandbox", payload: {} };
 }
 
-/** config.set_sandbox：沙箱开关写面（全局命令；新会话/新任务生效）。 */
-export function configSetSandboxCommand(enabled: boolean): ConfigSetSandboxCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: { enabled } };
+/** config.set_sandbox：沙箱配置写面（全局命令；新会话/新任务生效）。
+ * 部分更新语义：enabled/extraRoots 任选至少一项，未携带项保留现值。 */
+export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?: string[] }): ConfigSetSandboxCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: patch };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

@@ -24,7 +24,7 @@ const requestPortConfig = vi.fn();
 const requestSandboxConfig = vi.fn();
 const setSandboxConfig = vi.fn();
 /** 沙箱开关状态（结果帧驱动回填用可变位）。 */
-let mockSandbox: { enabled: boolean } | null = null;
+let mockSandbox: { enabled: boolean; extraRoots: string[] } | null = null;
 const setPortConfig = vi.fn();
 /** M44/M46：压缩参数结果帧可变位（结果帧驱动回填 / 「已保存」对账）。 */
 let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null = null;
@@ -317,14 +317,14 @@ describe("沙箱开关卡（沙箱开关批）", () => {
     expect(off?.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("点击开启 → setSandboxConfig(true)；回执驱动状态回填（aria-pressed 翻转）", () => {
+  it("点击开启 → setSandboxConfig({enabled:true})；回执驱动状态回填（aria-pressed 翻转）", () => {
     const view = ui();
     const container = view.container;
     const on = container.querySelector<HTMLElement>('[data-sandbox-option="on"]')!;
     fireEvent.click(on);
-    expect(setSandboxConfig).toHaveBeenCalledWith(true);
+    expect(setSandboxConfig).toHaveBeenCalledWith({ enabled: true });
     // 结果帧驱动回填（无乐观更新——mock 态变更 + rerender 模拟回执落态）
-    mockSandbox = { enabled: true };
+    mockSandbox = { enabled: true, extraRoots: [] };
     view.rerender(
       <I18nProvider>
         <ToastProvider>
@@ -334,6 +334,25 @@ describe("沙箱开关卡（沙箱开关批）", () => {
     );
     expect(on.getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector<HTMLElement>('[data-sandbox-option="off"]')?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("extraRoots：编辑 → 保存发部分更新 {extraRoots}；非绝对路径行 → 行内拒绝不发出", () => {
+    mockSandbox = { enabled: true, extraRoots: ["/Users/x/.cache/uv"] };
+    const { container } = ui();
+    const ta = container.querySelector<HTMLTextAreaElement>("[data-sandbox-extra-roots]")!;
+    // 未编辑态展示现值
+    expect(ta.value).toBe("/Users/x/.cache/uv");
+    const saveBtn = container.querySelector<HTMLButtonElement>("[data-sandbox-extra-roots-save]")!;
+    expect(saveBtn.disabled).toBe(true); // 无编辑不可保存
+    // 非绝对路径行 → 拒绝不发出
+    fireEvent.change(ta, { target: { value: "/ok/path\nrelative/bad" } });
+    fireEvent.click(saveBtn);
+    expect(setSandboxConfig).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-sandbox-extra-roots-invalid]")).not.toBeNull();
+    // 修正后保存 → 部分更新只携带 extraRoots（trim + 空行过滤）
+    fireEvent.change(ta, { target: { value: " /Users/x/.cache/uv \n\n/opt/tools" } });
+    fireEvent.click(saveBtn);
+    expect(setSandboxConfig).toHaveBeenCalledWith({ extraRoots: ["/Users/x/.cache/uv", "/opt/tools"] });
   });
 });
 

@@ -151,7 +151,7 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
     case "config.get_sandbox.result":
     case "config.set_sandbox.result":
       // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）
-      next = { ...mc, sandbox: { enabled: frame.payload.enabled } };
+      next = { ...mc, sandbox: { enabled: frame.payload.enabled, extraRoots: frame.payload.extraRoots ?? [] } };
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);

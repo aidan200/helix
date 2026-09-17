@@ -421,9 +421,10 @@ export const COMMAND_SURFACE = {
         deps.send(configGetSandboxCommand());
       }
     },
-  /** 沙箱开关写入（新会话/新任务生效——装配期定格，无热切换）。send 返回值透传（code-review H8）。 */
+  /** 沙箱配置写入（新会话/新任务生效——装配期定格，无热切换）。
+   * 部分更新语义：enabled/extraRoots 任选至少一项。send 返回值透传（code-review H8）。 */
   setSandboxConfig: (deps) =>
-    (enabled: boolean): boolean => deps.send(configSetSandboxCommand(enabled)),
+    (patch: { enabled?: boolean; extraRoots?: string[] }): boolean => deps.send(configSetSandboxCommand(patch)),
   /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
    *  恢复发送前凭据条目 + 返回 false。 */
   verifyProvider: (deps) =>

@@ -92,10 +92,18 @@ function windowsHelperSelfCheck(helperPath: string): boolean {
  * （CoreToolExecutor 未注入 = 纯透传，行为零差）；enabled=true →
  * seatbelt（darwin 且自检过）或 helper（win32 且可用且自检过）或
  * fallback（其余——规则级降级）。
+ *
+ * extraRoots（可选第四参）= KV sandbox_config 的用户额外可写根（全局清单），
+ * 与固定集合合并后进 policy；不存在的路径 realpath 容错保留原值。
  */
-export function readSandboxRuntime(enabled: boolean, helixHome: string, workspaceRoot: string): SandboxRuntime | undefined {
+export function readSandboxRuntime(
+  enabled: boolean,
+  helixHome: string,
+  workspaceRoot: string,
+  extraRoots?: readonly string[],
+): SandboxRuntime | undefined {
   if (!enabled) return undefined;
-  let policy = parseSandboxConfig({ enabled }, workspaceRoot, helixHome);
+  let policy = parseSandboxConfig({ enabled, extraRoots: extraRoots ?? [] }, workspaceRoot, helixHome);
   // roots realpath 归一 + per-user tmpdir 追加：macOS 符号链接（/var → /private/var）
   // ——subpath 匹配真实 vnode 路径，未归一的 root 形同未放行；TMPDIR 的
   // DARWIN_USER_TEMP_DIR 因人而异，静态 SCRATCH 段覆盖不了，运行时入 roots
@@ -129,5 +137,28 @@ export function readSandboxRuntime(enabled: boolean, helixHome: string, workspac
           : `[helix-sandbox] 本平台（${process.platform}）无原生执行器——启用规则级防护（bash 写候选静态判定 + 工具写判定）。`,
     );
   }
-  return { policy, profileDir, enforcer, ...(helperPath !== undefined ? { helperPath } : {}) };
+  return {
+    policy,
+    profileDir,
+    enforcer,
+    cacheEnv: toolCacheEnv(helixHome),
+    ...(helperPath !== undefined ? { helperPath } : {}),
+  };
+}
+
+/** 工具链缓存重定向清单（A 方案）：env 键 → tool-cache 子目录名。只收「纯缓存」
+ * 类（重定向不破坏已有安装面）——CARGO_HOME/GOPATH 类混放 bin/安装物的键不收。 */
+const TOOL_CACHE_DIRS: Record<string, string> = {
+  UV_CACHE_DIR: "uv",
+  npm_config_cache: "npm",
+  PIP_CACHE_DIR: "pip",
+  BUN_INSTALL_CACHE_DIR: "bun",
+};
+
+/** 工具链用户级缓存 env 重定向到 <helixHome>/tool-cache/*（可写根内）——
+ * 包管理器项目内 install 的缓存写不再被沙箱误伤；不动 seatbelt profile 一行。 */
+export function toolCacheEnv(helixHome: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(TOOL_CACHE_DIRS).map(([key, dir]) => [key, path.join(helixHome, "tool-cache", dir)]),
+  );
 }

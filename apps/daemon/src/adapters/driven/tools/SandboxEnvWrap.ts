@@ -31,6 +31,9 @@ export interface SandboxRuntime {
   readonly profileDir: string;
   /** 执行器形态：seatbelt = macOS 内核级；helper = Windows 受限 token（exe）；fallback = 全平台规则级（静态判定）。 */
   readonly enforcer: "seatbelt" | "helper" | "fallback";
+  /** 工具链缓存重定向 env（sandboxSetup.toolCacheEnv 产物）：exec 时 merge 进
+   * options.env（显式传入优先）——包管理器用户级缓存写指向可写根内。 */
+  readonly cacheEnv?: Record<string, string>;
   /** helper.exe 绝对路径（仅 enforcer=helper 时消费；探测见 sandboxSetup）。 */
   readonly helperPath?: string;
 }
@@ -95,6 +98,13 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
   const wrapped = Object.assign(Object.create(Object.getPrototypeOf(base)) as T, base);
   const w = wrapped as T & SandboxEnvTarget;
 
+  /** exec options merge 缓存重定向 env（options.env 显式值优先——agent 自设覆盖兑底）。 */
+  const withCacheEnv = (options?: Record<string, unknown>): Record<string, unknown> | undefined => {
+    if (runtime.cacheEnv === undefined) return options;
+    const explicit = (options?.["env"] ?? {}) as Record<string, string>;
+    return { ...options, env: { ...runtime.cacheEnv, ...explicit } };
+  };
+
   w.exec = async (command: string, options?: Record<string, unknown>) => {
     if (runtime.enforcer === "fallback") {
       // 规则级执行器：静态写候选判定（U0c 二期——Windows / 自检失败降级）。
@@ -103,7 +113,7 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
       if (!verdict.allowed) {
         return { ok: true as const, value: { stdout: "", stderr: fallbackDeniedMessage(verdict.violations), exitCode: 126 } };
       }
-      return base.exec(command, options);
+      return base.exec(command, withCacheEnv(options));
     }
     if (runtime.enforcer === "helper") {
       // Windows 受限 token 执行器（U0c 二期②）：与 seatbelt 同构的命令改写——
@@ -111,7 +121,7 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
       // helper 走 PATH 解析（pi 已确保 bash 在 PATH 是既定前提）。
       const writables = policy.writableRoots.map((r) => `--writable ${shellQuote(r)}`).join(" ");
       const wrapped = `${shellQuote(runtime.helperPath ?? "helix-sandbox-helper.exe")} ${writables} -- bash -c ${shellQuote(command)}`;
-      const result = await base.exec(wrapped, options);
+      const result = await base.exec(wrapped, withCacheEnv(options));
       if (result.ok) {
         const v = classifyBashOutput(result.value.exitCode, result.value.stderr);
         if (v.isViolation) {
@@ -125,7 +135,7 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
       process.env.SHELL !== undefined && process.env.SHELL.startsWith("/") ? process.env.SHELL : "/bin/bash"; // macOS 26 实测：/bin/sh 在沙箱内 abort，bash/zsh 正常
     const sandboxed =
       `/usr/bin/sandbox-exec -f ${shellQuote(profileFile)} -- ${shellQuote(shell)} -c ${shellQuote(command)}`;
-    const result = await base.exec(sandboxed, options);
+    const result = await base.exec(sandboxed, withCacheEnv(options));
     if (result.ok) {
       const v = classifyBashOutput(result.value.exitCode, result.value.stderr);
       if (v.isViolation) {

@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { SandboxConfig, SandboxConfigPort } from "../../../application/ports/outbound/SandboxConfigPort";
 import { makeKvConfigStore, type KvConfigStore } from "./KvConfigStore";
@@ -21,8 +22,8 @@ export class SandboxConfigStore implements SandboxConfigPort {
     this.store = makeKvConfigStore<SandboxConfig>(runtimeConfig, {
       key: "sandbox_config",
       parse: parseSandboxConfig,
-      fallback: { enabled: false },
-      clone: (v) => ({ enabled: v.enabled }),
+      fallback: { enabled: false, extraRoots: [] },
+      clone: (v) => ({ enabled: v.enabled, extraRoots: [...v.extraRoots] }),
       serialize: (v) => JSON.stringify(v),
       warnLabel: "SandboxConfigStore",
     });
@@ -39,13 +40,18 @@ export class SandboxConfigStore implements SandboxConfigPort {
   }
 }
 
-/** 解析 KV JSON 值 → SandboxConfig；非法/缺失 enabled → undefined（调用方保缺省关）。 */
+/** 解析 KV JSON 值 → SandboxConfig；非法/缺失 enabled → undefined（调用方保缺省关）。
+ * extraRoots 缺键 → []（旧载荷向后兼容）；逐项过滤非字符串/非绝对路径/重复项。 */
 function parseSandboxConfig(raw: string | undefined): SandboxConfig | undefined {
   if (raw === undefined) return undefined;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (typeof parsed["enabled"] !== "boolean") return undefined;
-    return { enabled: parsed["enabled"] };
+    const extraRaw = parsed["extraRoots"];
+    const extraRoots = Array.isArray(extraRaw)
+      ? [...new Set(extraRaw.filter((r): r is string => typeof r === "string" && isAbsolute(r)))]
+      : [];
+    return { enabled: parsed["enabled"], extraRoots };
   } catch {
     return undefined;
   }

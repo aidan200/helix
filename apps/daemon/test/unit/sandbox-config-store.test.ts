@@ -22,7 +22,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
   test("未设置 → current() 回落 {enabled:false}（缺省关——失败安全）", () => {
     const dir = mkdtempSync(join(tmpdir(), "sandbox-store-"));
     try {
-      expect(makeStore(dir).current()).toEqual({ enabled: false });
+      expect(makeStore(dir).current()).toEqual({ enabled: false, extraRoots: [] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -32,11 +32,11 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
     const dir = mkdtempSync(join(tmpdir(), "sandbox-store-"));
     try {
       const store = makeStore(dir);
-      await store.set({ enabled: true });
-      expect(store.current()).toEqual({ enabled: true });
-      expect(makeStore(dir).current()).toEqual({ enabled: true }); // 重启模拟
-      await store.set({ enabled: false });
-      expect(store.current()).toEqual({ enabled: false });
+      await store.set({ enabled: true, extraRoots: [] });
+      expect(store.current()).toEqual({ enabled: true, extraRoots: [] });
+      expect(makeStore(dir).current()).toEqual({ enabled: true, extraRoots: [] }); // 重启模拟
+      await store.set({ enabled: false, extraRoots: [] });
+      expect(store.current()).toEqual({ enabled: false, extraRoots: [] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -48,12 +48,39 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
       const wq = new WriteQueue(join(dir, "helix.db"));
       const kv = new RuntimeConfigStore(wq);
       await kv.set("sandbox_config", "{not-json");
-      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: false });
+      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: false, extraRoots: [] });
       await kv.set("sandbox_config", JSON.stringify({ enabled: "yes" }));
-      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: false });
+      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: false, extraRoots: [] });
       // 合法值不受脏读面影响
       await kv.set("sandbox_config", JSON.stringify({ enabled: true }));
-      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: true });
+      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: true, extraRoots: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("extraRoots 往返 + 旧载荷缺键兼容（→ []）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sandbox-store-"));
+    try {
+      const store = makeStore(dir);
+      await store.set({ enabled: true, extraRoots: ["/Users/x/.cache/uv", "/opt/tools"] });
+      expect(store.current()).toEqual({ enabled: true, extraRoots: ["/Users/x/.cache/uv", "/opt/tools"] });
+      expect(makeStore(dir).current()).toEqual({ enabled: true, extraRoots: ["/Users/x/.cache/uv", "/opt/tools"] }); // 重启模拟
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("extraRoots 逐项过滤：非字符串/相对路径丢弃 + 去重（增强面不阻断）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sandbox-store-"));
+    try {
+      const wq = new WriteQueue(join(dir, "helix.db"));
+      const kv = new RuntimeConfigStore(wq);
+      await kv.set("sandbox_config", JSON.stringify({ enabled: true, extraRoots: ["/abs/ok", "relative/bad", 42, "/abs/ok", null] }));
+      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: true, extraRoots: ["/abs/ok"] });
+      // extraRoots 非数组 → []
+      await kv.set("sandbox_config", JSON.stringify({ enabled: true, extraRoots: "nope" }));
+      expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: true, extraRoots: [] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
