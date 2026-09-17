@@ -146,6 +146,9 @@ export function toSnapshotDto(
           })),
         }
       : {}),
+    // 未收口越权申请（sandbox_request 批，additive）：视图携带才下发——
+    // 重连/切换会话后 ask 卡片原位复活（倒计时按 expiresAt 剩余量续走）
+    ...(view.pendingAsk !== undefined ? { pendingAsk: view.pendingAsk } : {}),
     // 主会话工作台账（main-session plan 批，additive）：携带才下发——plan
     // 全行 + ledger 计数摘要（服务端组装）；空台账 = 双 null；缺省 = 未携带
     //（旧装配/未接 plan 读面兼容，读侧保持现值）

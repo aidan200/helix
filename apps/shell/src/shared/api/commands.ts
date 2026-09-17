@@ -107,6 +107,7 @@ import type {
   WebStopCommand,
   WorkspaceGetCommand,
   WorkspaceOpenCommand,
+  AskAnswerCommand,
 } from "@helix/protocol";
 
 /** chat.send：既有会话发送（信封 sessionId = 活跃会话）。
@@ -150,6 +151,12 @@ export function chatSteerCommand(text: string, sessionId?: string, instanceId?: 
   return sessionId === undefined
     ? { v: PROTOCOL_VERSION, type: "chat.steer", payload }
     : { v: PROTOCOL_VERSION, type: "chat.steer", sessionId, payload };
+}
+
+/** ask.answer：越权申请裁决（sandbox_request 批；信封 sessionId = 申请归属会话——
+ *  会话作用域命令，daemon 按信封路由 AskService 单 pending 槽）。 */
+export function askAnswerCommand(askId: string, approved: boolean, sessionId: string): AskAnswerCommand {
+  return { v: PROTOCOL_VERSION, type: "ask.answer", sessionId, payload: { askId, approved } };
 }
 
 // ── agent 实例三命令（契约 v0.1 §4；抽屉 kill 两步确认 / 订阅全流）────

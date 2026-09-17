@@ -1086,6 +1086,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     ...(mainPlanStack !== undefined
       ? { mainPlanOf: (sessionId: string) => mainPlanStack.ledger.getItems(sessionId) }
       : {}),
+    // 未收口越权申请读面（sandbox_request 批）：快照组装附 pendingAsk
+    //（重连/切换后 ask 卡片重建；未接 ask 栈 = 缺省不携带）
+    ...(deps.askService !== undefined
+      ? { pendingAskOf: (sessionId: string) => deps.askService!.pendingOf(sessionId) }
+      : {}),
     idleUnloadMs: deps.sessionIdleUnloadMs,
     idlePollMs: deps.sessionIdlePollMs,
     logger,

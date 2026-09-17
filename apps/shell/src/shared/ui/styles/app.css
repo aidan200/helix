@@ -843,6 +843,42 @@ html.light .bubble code.inline { color: var(--accent); }
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+
+/* ═══ 越权执行申请卡（sandbox_request 批：ask.started → 问答卡；warning 系待定语义）═══ */
+.ask-card {
+  margin: 8px 0; border: 1px solid rgb(var(--warning-rgb) / 0.35); border-radius: 10px;
+  background: rgb(var(--warning-rgb) / 0.06); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px; max-width: 72%; margin-left: auto;
+}
+.ak-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--text-body); font-weight: 600; color: var(--warning);
+}
+.ak-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--warning);
+  box-shadow: 0 0 6px rgb(var(--warning-rgb) / 0.5); flex: none;
+  animation: nr-pulse 1.6s ease-in-out infinite;
+}
+.ak-from { font-size: var(--text-small); color: var(--text-faint); font-weight: 400; }
+.ak-countdown { margin-left: auto; font-size: var(--text-small); color: var(--text-faint); font-weight: 400; }
+.ak-command {
+  font-size: var(--text-body); color: var(--text); line-height: 1.55;
+  word-break: break-all; white-space: pre-wrap; font-family: var(--font-mono, monospace);
+  background: rgb(var(--void-rgb) / 0.5); border-radius: 6px; padding: 8px 10px;
+}
+.ak-reason { font-size: var(--text-small); color: var(--text-dim, var(--text)); line-height: 1.5; }
+.ak-actions { display: flex; gap: 8px; }
+.ak-btn {
+  display: inline-flex; height: 30px; align-items: center; justify-content: center;
+  padding: 0 14px; border-radius: 6px; font-size: var(--text-body); font-weight: 500;
+  cursor: pointer; transition: background 0.15s, border-color 0.15s;
+}
+.ak-btn-approve { border: 1px solid rgb(var(--warning-rgb) / 0.4); background: rgb(var(--warning-rgb) / 0.12); color: var(--warning); }
+.ak-btn-approve:hover:not(:disabled) { background: rgb(var(--warning-rgb) / 0.2); }
+.ak-btn-deny { border: 1px solid var(--border); background: transparent; color: var(--text-faint); }
+.ak-btn-deny:hover:not(:disabled) { border-color: var(--text-faint); color: var(--text); }
+.ak-btn:disabled { opacity: 0.4; cursor: default; }
+.ak-hint { font-size: var(--text-small); color: var(--text-faint); }
 .nr-body {
   font-size: var(--text-body); color: var(--text); line-height: 1.55;
   word-break: break-word; white-space: pre-wrap; font-family: var(--font-mono, monospace);

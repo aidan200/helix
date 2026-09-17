@@ -57,6 +57,18 @@ export interface SessionStateView {
    * （旧装配兼容）；携带时空数组 = 无台账（wire 面 null）。
    */
   readonly plan?: readonly WorkItemData[];
+  /**
+   * 未收口越权申请（sandbox_request 批，additive）：重连/切换会话后 ask
+   * 卡片重建数据源（与 SessionSnapshotDto.pendingAsk 同构镜像）。读面注入
+   * 才携带（未接 ask 栈缺省兼容）；null = 无挂起申请。
+   */
+  readonly pendingAsk?: {
+    readonly askId: string;
+    readonly command: string;
+    readonly reason: string;
+    readonly instanceId: string;
+    readonly expiresAt: number;
+  } | null;
 }
 
 /** 实例快照条目（AgentInstanceData + task/closure/usage/model；契约 AgentInstanceDto 的 domain 侧镜像）。 */

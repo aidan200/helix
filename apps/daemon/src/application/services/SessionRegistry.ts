@@ -130,6 +130,11 @@ export interface SessionRegistryDeps {
    *（instanceId 维度 = sessionId）。缺省不携带（未接 plan 栈——旧装配兼容）。
    */
   readonly mainPlanOf?: (sessionId: string) => readonly WorkItemData[];
+  /**
+   * 未收口越权申请读面（sandbox_request 批）：快照组装附 pendingAsk
+   *（重连/切换后 ask 卡片重建）。缺省不携带（未接 ask 栈——旧装配兼容）。
+   */
+  readonly pendingAskOf?: (sessionId: string) => SessionStateView["pendingAsk"];
 }
 
 /** 触发 runState 重算（list_changed{state_changed} 判定）的事件集。 */
@@ -745,6 +750,10 @@ export class SessionRegistry implements SessionDirectoryPort {
       //（未接 plan 栈的旧装配/测试形态不附带——快照缺省兼容）
       ...(this.deps.mainPlanOf !== undefined
         ? { plan: this.deps.mainPlanOf(runtime.sessionId) }
+        : {}),
+      // 未收口越权申请（sandbox_request 批，additive）：读面注入才携带
+      ...(this.deps.pendingAskOf !== undefined
+        ? { pendingAsk: this.deps.pendingAskOf(runtime.sessionId) }
         : {}),
       instances: [
         {

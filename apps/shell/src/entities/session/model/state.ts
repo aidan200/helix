@@ -24,6 +24,7 @@ import type {
   UsageDto,
   WebStatusPayload,
   WorkItemDto,
+  PendingAskDto,
 } from "@helix/protocol";
 import { DEFAULT_MODE_ID, ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
 
@@ -440,6 +441,14 @@ export interface SessionState {
    *  瞬态不落盘——新轮开始即清；持久事实在 daemon 日志与领域事件流） */
   engineError: { message: string } | null;
   /**
+   * 挂起的越权执行申请（sandbox_request 批：ask.started 帧 → 会话底部问答卡
+   * 「命令 + 理由 + 倒计时 + 批准/拒绝」；ask.resolved 帧或快照权威清除）。
+   * 瞬态不落盘——重建权威 = 快照 pendingAsk 字段（重连/切换会话原位复活，
+   * 倒计时按 expiresAt 剩余量续走）；daemon 侧 60s 机械超时是终裁，前端
+   * 倒计时到零仅作展示置灰（resolved 帧必达收口）。
+   */
+  pendingAsk: PendingAskDto | null;
+  /**
    * LLM 网络重试等待中（P2 ⑦ 网络重试批：engine.retrying 帧 → 聊天流
    * 状态卡「网络重试中（第 N/3 次，约 Xs 后）」）。瞬态不落盘——主线
    * 流恢复（chat.stream.delta）/ 最终失败（engine.error，换错误卡）/ 轮次
@@ -637,6 +646,7 @@ export function createInitialSessionState(): SessionState {
     connAttempts: 1,
     connError: null,
     engineError: null,
+    pendingAsk: null,
     engineRetrying: null,
     diff: null,
     pendingManualRetry: false,

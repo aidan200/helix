@@ -17,6 +17,7 @@ import type { EventEnvelope } from "@helix/protocol";
 import type { SessionState } from "../state";
 import { applyConnEvent, CONN_EVENT_TYPES } from "../consumers/conn";
 import { applyChatEvent, CHAT_EVENT_TYPES } from "../consumers/chat";
+import { applyAskEvent, ASK_EVENT_TYPES } from "../consumers/ask";
 import { applyAgentEvent, AGENT_EVENT_TYPES } from "../consumers/agent";
 import {
   applyThinkingUsageEvent,
@@ -71,6 +72,8 @@ export function route(type: string): SessionEventHandler | undefined {
 // conn：帧驱动 connection.*（conn 语义归 conn 块，定稿见 consumers/conn.ts 头注）
 register({ types: CONN_EVENT_TYPES, apply: applyConnEvent });
 register({ types: CHAT_EVENT_TYPES, apply: applyChatEvent });
+// ask 双帧（sandbox_request 批）：越权申请问答卡热态（重建权威 = 快照 pendingAsk）
+register({ types: ASK_EVENT_TYPES, apply: applyAskEvent });
 register({ types: AGENT_EVENT_TYPES, apply: applyAgentEvent });
 register({ types: THINKING_USAGE_EVENT_TYPES, apply: applyThinkingUsageEvent });
 register({ types: SNAPSHOT_EVENT_TYPES, apply: applySnapshotEvent });

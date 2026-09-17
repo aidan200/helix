@@ -51,6 +51,7 @@ import {
   authListCommand,
   authSetKeyCommand,
   authVerifyCommand,
+  askAnswerCommand,
   chatAbortCommand,
   chatSendCommand,
   chatSendDraftCommand,
@@ -203,6 +204,15 @@ export const COMMAND_SURFACE = {
     () => {
       const { sessionId } = deps.getTopology().active;
       if (sessionId !== null) deps.send(chatAbortCommand(sessionId));
+    },
+  /** 越权申请裁决（sandbox_request 批：问答卡批准/拒绝按钮消费；
+   *  ask.answer 信封 sessionId = 活跃会话——daemon 按信封路由单 pending 槽。
+   *  不乐观清卡：resolved 帧必达收口（daemon settle 唯一通道）；双击安全
+   * （daemon 侧幂等容忍已终态静默吞）。 */
+  answerAsk: (deps) =>
+    (askId: string, approved: boolean) => {
+      const { sessionId } = deps.getTopology().active;
+      if (sessionId !== null) deps.send(askAnswerCommand(askId, approved, sessionId));
     },
   /** 切换会话（unsubscribe 旧 + subscribe 新 + 尾窗重建 loading→success） */
   switchSession: (deps) =>

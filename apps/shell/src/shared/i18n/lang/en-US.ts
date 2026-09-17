@@ -65,6 +65,15 @@ export const enUS = {
       title: "Generation failed",
       hint: "You can retry later; details are in the daemon log",
     },
+    ask: {
+      title: "Sandbox escape request",
+      from: "from {instanceId}",
+      approve: "Approve & run",
+      deny: "Deny",
+      countdown: "auto-deny in {secs}s",
+      expired: "Expired, awaiting resolution…",
+      hint: "Approval runs this command once outside the sandbox (no permanent grant)",
+    },
     engineRetry: {
       title: "Network retrying (attempt {n}/{total}, in ~{secs}s)",
     },
