@@ -144,8 +144,9 @@ const MAIN_TOOLS = [
   "coord_claim", // U4 占用协调三工具（仅 main——决策主体）
   "coord_release",
   "coord_query",
+  "sandbox_request", // 越权申请批（声明恒在，注册面门控）
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines
+const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read", "sandbox_request"]; // H-3：+browser；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines；越权申请批：+sandbox_request
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {
@@ -170,7 +171,9 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       await daemon.chat.sendMessage("first");
       expect(seen[0]!.systemPrompt).toContain("主会话助手");
       expect(seen[0]!.systemPrompt).not.toContain("可用工具");
-      expect(seen[0]!.tools).toEqual(MAIN_TOOLS);
+      // 生效集 = 声明全集 − sandbox_request（测试栈沙箱 off——engineFor
+      // effectiveMainToolNames 注册面门控剔除；声明全集口径见 agent.config.list 面）
+      expect(seen[0]!.tools).toEqual(MAIN_TOOLS.filter((t) => t !== "sandbox_request"));
 
       // toggle 关 grep → 活跃 runtime 直改（systemPrompt 重算 + tools 重 resolve）
       const outcome = await daemon.resource.toggle("main-session", "tool", "grep", false);
@@ -181,7 +184,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       expect(seen[1]!.systemPrompt).toContain(`- agent_spawn: ${TOOL_PROMPT_SNIPPETS["agent_spawn"]!}`);
       expect(seen[1]!.systemPrompt).toContain("主会话助手"); // base 段不动
       expect(seen[1]!.systemPrompt).not.toContain("可用技能"); // 无技能目录
-      expect(seen[1]!.tools).toEqual(MAIN_TOOLS.filter((t) => t !== "grep")); // 能力+提示双断
+      expect(seen[1]!.tools).toEqual(MAIN_TOOLS.filter((t) => t !== "grep" && t !== "sandbox_request")); // 能力+提示双断
 
       // 未知名 toggle → skipped，不触发刷新（下一 run 提示不变）
       const skipped = await daemon.resource.toggle("main-session", "tool", "no-such-tool", false);
@@ -254,7 +257,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       await daemon.chat.sendMessage("second");
       // main 会话不受 subagent kind 变更影响：toggle 前后两 run 提示逐字相同
       expect(seen[1]!.systemPrompt).toBe(seen[0]!.systemPrompt);
-      expect(seen[1]!.tools).toEqual(MAIN_TOOLS);
+      expect(seen[1]!.tools).toEqual(MAIN_TOOLS.filter((t) => t !== "sandbox_request"));
     } finally {
       await daemon.shutdown();
     }

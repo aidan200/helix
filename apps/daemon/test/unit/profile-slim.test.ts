@@ -45,6 +45,7 @@ const TOOL_NAMES = [
   "coord_claim", // U4 占用协调三工具（仅 Main——决策主体；SubAgent 执行者不拿决策工具）
   "coord_release",
   "coord_query",
+  "sandbox_request", // 越权申请批：一次性沙箱外执行申请（main/worker 同面；声明恒在注册面门控）
 ] as const;
 
 /** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务；D3 task_report 同理——批次/编排面无查询任务报告职责）。 */
@@ -91,7 +92,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 26 / subagent 14（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main；F4 接通批 +edit-lines 两 profile 同扩）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 27 / subagent 15（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main；F4 接通批 +edit-lines 两 profile 同扩；越权申请批 +sandbox_request 两 profile 同扩）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       TOOL_NAMES.filter((t) => !t.startsWith("agent_"))

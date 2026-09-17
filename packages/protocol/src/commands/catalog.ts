@@ -17,6 +17,7 @@ import type {
   SessionListCommand,
   SessionLoadHistoryCommand,
   SessionDeleteCommand,
+  AskAnswerCommand,
 } from "./session";
 import type {
   ModelSetCommand,
@@ -170,13 +171,15 @@ export type CommandEnvelope =
   | McpServersUpdateCommand
   | McpServersRemoveCommand
   | McpServersTestCommand
-  | McpToolsListCommand;
+  | McpToolsListCommand
+  | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
   "chat.send",
   "chat.steer",
   "chat.abort",
+  "ask.answer",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",

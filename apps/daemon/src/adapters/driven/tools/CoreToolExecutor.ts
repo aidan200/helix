@@ -23,6 +23,7 @@ import type {
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
+import { createSandboxRequestTool, type SandboxRequestToolDeps } from "./sandbox-request/SandboxRequestTool";
 import { createEditTool, type EditToolDeps } from "./edit/EditTool";
 import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
@@ -254,11 +255,20 @@ export interface CoreToolExecutorOptions {
    * （ChildMain → wire bash-fact 行上报）两端同构注入。
    */
   readonly bashSense?: BashSenseRuntime;
+  /**
+   * sandbox_request 越权申请工具注入面（越权申请批）：提供则注册
+   * sandbox_request（agent 主动申请一次性沙箱外执行——批准后走
+   * unsandboxedExec 裸跑）。仅沙箱开启时注入（装配面判定）；off 态不注册。
+   * 缺省不注册（既有测试形态）。
+   */
+  readonly sandboxRequest?: SandboxRequestToolDeps;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
   private readonly context: ExecutionToolContext;
   private readonly registry: Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>;
+  /** 越权申请批：sandbox_request 裸执行面（构造时绑 baseEnv；批准后的执行通道）。 */
+  readonly unsandboxedExec: (command: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
   constructor(options: CoreToolExecutorOptions) {
     const baseEnv = new NodeExecutionEnv({
@@ -277,6 +287,26 @@ export class CoreToolExecutor implements ToolExecutorPort {
       options.bashSense,
     );
     this.context = { env };
+    // 越权申请批：sandbox_request 裸执行面 = baseEnv（沙箱装饰前的原始
+    // NodeExecutionEnv——批准后绕开 sandbox-exec 的唯一通道；与共享 env
+    // 同 cwd/shellEnv）。pi 0.85 exec 结果只携 exitCode+元数据，输出经
+    // onUpdate 投递——本面挂一级折叠 tap 收全文（SandboxEnvWrap.tapOutput
+    // 同手法）。
+    this.unsandboxedExec = async (command: string) => {
+      let text = "";
+      const res = await baseEnv.exec(
+        command,
+        {
+          onUpdate: (update) => {
+            if (update.kind === "append") text += update.text;
+            else if (update.kind === "replace") text = update.output.text;
+          },
+        },
+        BACKGROUND_CONTEXT,
+      );
+      if (!res.ok) throw new Error(res.error.message);
+      return { stdout: text, stderr: "", exitCode: res.value.exitCode };
+    };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [
       // pi 内置四工具基线注册（F-20：registry 按 name 平铺，内置无特权）
       createBashTool(),
@@ -356,6 +386,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
       // 任务引擎回口工具族（T2.2，AD-3③）：仅编排主 agent 会话生效集
       tools.push(...createTaskOpsTools(options.taskOps));
     }
+    if (options.sandboxRequest !== undefined) {
+      // sandbox_request（越权申请批）：沙箱开启时装配面注入——agent 一次性
+      // 越权执行申请通道（批准后裸跑，不记 always-allow）
+      tools.push(createSandboxRequestTool(options.sandboxRequest));
+    }
     if (options.mcp !== undefined && options.mcp.tools.length > 0) {
       // 第九族（mcp 批）：MCP 动态发现工具——组合根先行发现适配后注入
       //（注册面零 MCP 知识；后注册者胜同内置语义——MCP 追加在末尾，撞名时
@@ -383,6 +418,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
     for (const name of names) {
       const tool = this.registry.get(name);
       if (!tool) {
+        // sandbox_request（越权申请批）：「声明恒在、注册面门控」特例——沙箱
+        // off 时 executor 未注入该槽，本名单点容忍跳过（其余名维持硬校验防
+        // 吊名；装配面 effectiveMainToolNames/ChildMain 剔除是生效集观测面，
+        // 与本容忍互补不冲突）
+        if (name === "sandbox_request") continue;
         throw new Error(
           `工具 "${name}" 不在注册表（已注册：${[...this.registry.keys()].join(", ")}）——检查 profile 的 tools 声明`,
         );

@@ -233,8 +233,9 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
       // U4：coord 三名 stub 注入保持 resolveTools 可装配
       coord: stubCoordDeps(),
     });
-    // main 全集（减动态族 browser——条件注册面，与本任务无关）
-    const names = MainSessionProfile.tools.filter((t) => t !== "browser");
+    // main 全集（减动态族 browser——条件注册面，与本任务无关；sandbox_request
+    // 同为条件注册面——越权申请批槽未注入时 resolveTools 单名容忍跳过）
+    const names = MainSessionProfile.tools.filter((t) => t !== "browser" && t !== "sandbox_request");
     const resolved = executor.resolveTools(names);
     expect(resolved.map((t) => t.name)).toEqual([...names]);
     expect(resolved.some((t) => t.name === "task_create")).toBe(true);

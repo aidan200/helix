@@ -53,7 +53,11 @@ export type DomainEventType =
   | "coord.released"
   | "coord.settled"
   | "coord.undeclared"
-  | "coord.conflict";
+  | "coord.conflict"
+  // ── ask 越权申请族（sandbox_request 批；started 落盘为时间轴原位条目，
+  // resolved 为收口帧——协议 interaction 通道 ask.started/ask.resolved）──
+  | "ask.started"
+  | "ask.resolved";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -322,4 +326,20 @@ export interface CoordLeasePayload {
   readonly conflictWith?: readonly string[];
   /** 冲突升级（U6：同一冲突对反复 claim 无动作 ≥2 次——留给人裁决的信号）。 */
   readonly escalated?: boolean;
+}
+
+/** ask.started 载荷（sandbox_request 批）：与协议 AskStartedPayload 同构。 */
+export interface AskStartedPayload {
+  readonly askId: string;
+  readonly command: string;
+  readonly reason: string;
+  readonly instanceId: string;
+  /** 超时时刻（epoch ms） */
+  readonly expiresAt: number;
+}
+
+/** ask.resolved 载荷：三终态（批准/拒绝/超时），单一收口事件。 */
+export interface AskResolvedPayload {
+  readonly askId: string;
+  readonly outcome: "approved" | "denied" | "timeout";
 }

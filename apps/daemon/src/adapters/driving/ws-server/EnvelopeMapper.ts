@@ -32,9 +32,12 @@ import type {
 import type { DiffChangedEvent, DiffChangedPayload } from "@helix/protocol";
 import { PROTOCOL_VERSION, EVENT_CHANNELS, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { CoordChangedEvent } from "@helix/protocol";
+import type { AskResolvedEvent, AskStartedEvent } from "@helix/protocol";
 
 import type {
   AgentStateChangedPayload,
+  AskResolvedPayload,
+  AskStartedPayload,
   CoordLeasePayload,
   DomainEvent,
   EngineRetryingPayload,
@@ -435,6 +438,33 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
           waitMs: p.waitMs,
           message: p.message,
         },
+      };
+      return frame;
+    }
+
+    // ── ask 越权申请族（sandbox_request 批；直映射 interaction 通道双帧）──
+    case "ask.started": {
+      const p = event.payload as AskStartedPayload;
+      const frame: AskStartedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "ask.started",
+        payload: {
+          askId: p.askId,
+          command: p.command,
+          reason: p.reason,
+          instanceId: p.instanceId,
+          expiresAt: p.expiresAt,
+        },
+      };
+      return frame;
+    }
+
+    case "ask.resolved": {
+      const p = event.payload as AskResolvedPayload;
+      const frame: AskResolvedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "ask.resolved",
+        payload: { askId: p.askId, outcome: p.outcome },
       };
       return frame;
     }

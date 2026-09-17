@@ -35,6 +35,8 @@ import type { McpServerConfig } from "../../mcp/types";
 import { encodeLine, parseParentLine } from "../transport/wire";
 import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
 import { RemoteBrowserPort } from "./RemoteBrowserPort";
+import { RemoteAskPort } from "./RemoteAskPort";
+import { NodeExecutionEnv, BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 import { ParkGuardHooks } from "./ParkGuardHooks";
 import {
   isParkInstruction,
@@ -526,6 +528,7 @@ async function main(): Promise<void> {
   // H-3：browser 工具经 wire 转发通道接入 daemon 全局唯一 CDP 单例
   // （子进程零 CDP 知识/零连接状态；ownerId = 本实例 instanceId）
   const remoteBrowser = new RemoteBrowserPort(instanceId, writeLine);
+  const remoteAsk = new RemoteAskPort(instanceId, writeLine); // sandbox_request 批：仲裁转发父进程 AskService
   // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——D8 W-R6 后
   // subagent-worker 只声明 kg、subagent-kg-writer（图谱产出型批次）声明双工具；
   // 注册面恒宽（声明面管控谁可见）
@@ -578,6 +581,13 @@ async function main(): Promise<void> {
       profile = { ...profile, tools: filteredTools }; // tools readonly：重建对象
     }
   }
+  // sandbox_request（越权申请批）：沙箱 off → executor 不注 sandboxRequest 槽，
+  // 声明名同步剔除（resolveTools 硬校验防吊名；main 侧 effectiveMainToolNames 同构）
+  if (process.env.HELIX_SANDBOX !== "1" || process.env.HELIX_DB_PATH === undefined) {
+    if (profile.tools.includes("sandbox_request")) {
+      profile = { ...profile, tools: profile.tools.filter((t) => t !== "sandbox_request") };
+    }
+  }
   // deferred 批：物化集（本地内存态）+ engine 晚绑定槽（onDiscover 闭包
   // 构造早于 engine 赋值——setTools 需 engine 就绪后直达）。
   const childMaterialized = new Set<string>();
@@ -601,18 +611,45 @@ async function main(): Promise<void> {
     process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
       ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd, childSandboxExtraRoots)
       : undefined;
+  // U1 护栏 shellEnv（executor 与越权裸执行面同参双消费——提成常量）
+  const childShellEnv = {
+    HELIX_SESSION_ID: process.env.HELIX_SESSION_ID ?? instanceId,
+    ...(process.env.HELIX_WRITE_FACTS_DIR !== undefined
+      ? { HELIX_WRITE_FACTS_DIR: process.env.HELIX_WRITE_FACTS_DIR }
+      : {}),
+  };
+  // 越权申请批：裸执行面（未装饰 NodeExecutionEnv——与 executor 同 cwd/shellEnv）
+  const childRawExecEnv = new NodeExecutionEnv({ cwd: toolCwd, shellEnv: childShellEnv });
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
     // U1 护栏：子进程 bash 同样携带会话标识（subagent 的写归属其父会话——
     // 与父进程 manifest 同域；写集合经 bash-fact/file-write 上报在父侧汇合）
-    shellEnv: {
-      HELIX_SESSION_ID: process.env.HELIX_SESSION_ID ?? instanceId,
-      ...(process.env.HELIX_WRITE_FACTS_DIR !== undefined
-        ? { HELIX_WRITE_FACTS_DIR: process.env.HELIX_WRITE_FACTS_DIR }
-        : {}),
-    },
+    shellEnv: childShellEnv,
     ...(childSandbox !== undefined ? { sandbox: childSandbox } : {}),
     browser: remoteBrowser,
+    // sandbox_request（越权申请批）：沙箱 on 时注册——仲裁经 RemoteAskPort
+    // tool-req 行转发父进程 AskService 单例（卡片弹在归属会话页）；裸执行
+    // 面 = 本地未装饰 NodeExecutionEnv（与 executor 同 cwd/shellEnv 同参构造）。
+    ...(childSandbox !== undefined
+      ? {
+          sandboxRequest: {
+            ask: remoteAsk,
+            sessionId: process.env.HELIX_SESSION_ID ?? instanceId,
+            instanceId,
+            unsandboxedExec: async (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+              let text = "";
+              const res = await childRawExecEnv.exec(command, {
+                onUpdate: (update: { kind: string; text?: string; output?: { text: string } }) => {
+                  if (update.kind === "append") text += update.text ?? "";
+                  else if (update.kind === "replace") text = update.output?.text ?? "";
+                },
+              }, BACKGROUND_CONTEXT);
+              if (!res.ok) throw new Error(res.error.message);
+              return { stdout: text, stderr: "", exitCode: res.value.exitCode };
+            },
+          },
+        }
+      : {}),
     ownerId: instanceId,
     kg: kg.tools,
     codegraph,
@@ -728,7 +765,12 @@ async function main(): Promise<void> {
       },
       onSteer: (text) => engine.steer(text), // AD-7⑤：Agent.steer() 内建队列（挂起期即暂存）
     },
-    (line) => remoteBrowser.handleResponse(line), // H-3：tool-res → pending 关联 settle
+    (line) => {
+      // H-3/sandbox_request 批：tool-res → 两转发 port pending 关联 settle
+      //（reqId 区间错开——browser 自 1 递增，ask 自 1_000_000 起，互不互踩）
+      remoteBrowser.handleResponse(line);
+      remoteAsk.handleResponse(line);
+    },
   );
 
   // single-shot：驱动一次 run（含 steer drain 轮）
@@ -754,6 +796,7 @@ async function main(): Promise<void> {
 
   // H-3：退出清场——abort/异常中断的在飞转发请求统一拒绝（定时器同清）
   remoteBrowser.rejectAll("子进程退出清场");
+  remoteAsk.rejectAll("子进程退出清场");
 
   // 任务归属机械注入（缺口修复）：closure 的 taskId 缺省回落本实例归属 jobId——
   // 与 kg-update 工具 taskContext 同源；LLM 显式写优先，缺省机械注入（kg-review

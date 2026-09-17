@@ -264,8 +264,8 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
   test("② 常量语义值 + 目录计数（config 瘦身批 + diff 批 + mcp 批：命令 73 / 事件 91；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.12"); // v0.12 批次版本位（coord 批；契约 = PROTOCOL-CHANGELOG.md §17.12）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2（config.get/set_sandbox）
-    expect(protocol.EVENT_TYPES.length).toBe(95); // coord 批 +1（coord.changed）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(95); // 登记目录恰等（coord 批 +1）
+    expect(protocol.COMMAND_TYPES.length).toBe(77); // 越权申请批 +1（ask.answer）
+    expect(protocol.EVENT_TYPES.length).toBe(97); // 越权申请批 +2（ask.started/ask.resolved）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(97); // 登记目录恰等（越权申请批 +2）
   });
 });

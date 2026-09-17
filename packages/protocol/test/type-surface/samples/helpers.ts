@@ -229,6 +229,10 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `mcp-tools:${event.payload.server}:${event.payload.tools.length}`;
     case "mcp.status.changed":
       return `mcp-status:${event.payload.server.name}:${event.payload.server.state}`;
+    case "ask.started":
+      return `ask-start:${event.payload.askId}:${event.payload.command}`;
+    case "ask.resolved":
+      return `ask-resolved:${event.payload.askId}:${event.payload.outcome}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -244,6 +248,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `steer:${cmd.payload.text}:${cmd.payload.instanceId ?? "main"}`; // v0.3：可选定向（缺省 = 主实例）
     case "chat.abort":
       return "abort";
+    case "ask.answer":
+      return `ask-answer:${cmd.payload.askId}:${cmd.payload.approved}`;
     case "session.subscribe":
       return `subscribe:${cmd.sessionId ?? "-"}:${cmd.payload.tier ?? "full"}`; // v0.2 信封路由 + v0.3 tier（缺省 full）
     case "session.unsubscribe":

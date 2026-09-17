@@ -91,6 +91,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
       "plan_create",
       "plan_update",
       "plan_read",
+      "sandbox_request", // 越权申请批：一次性沙箱外执行申请随 Main 清单直传（两域同扩；声明恒在注册面门控）
     ]);
   });
 

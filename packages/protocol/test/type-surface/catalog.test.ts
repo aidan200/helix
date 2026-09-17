@@ -93,7 +93,9 @@ type _V02ResultEventMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V02ResultEventTypes>, V02ResultEventTypes>
 >;
 
-type _InteractionFamily = Expect<Equal<TypeOfChannel<"interaction">, never>>; // 占位族：无事件挂靠
+type _InteractionFamily = Expect<
+  Equal<TypeOfChannel<"interaction">, "ask.resolved" | "ask.started">
+>; // 越权申请批：占位族启用（ask 双帧挂 interaction 通道）
 
 // v0.6 新增 agent.config 族 type 字面量全部在联合中（漏任一 → Extract 不等）
 type V06CommandTypes = "agent.config.list" | "agent.config.set_enabled";
@@ -159,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 76 个 type（… + 沙箱开关批 2）", () => {
+  test("命令目录恰为 77 个 type（… + 越权申请批 ask 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -170,6 +172,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.skill_content.get",
         "agent.subscribe",
         "agent.unsubscribe",
+        "ask.answer",
         "auth.delete_key",
         "auth.list",
         "auth.set_key",
@@ -242,7 +245,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 92 个 type（… + skills 添加批 1）", () => {
+  test("事件目录恰为 94 个 type（… + 越权申请批 ask 2）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -263,6 +266,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.stalled",
         "agent.started",
         "agent.state.changed",
+        "ask.resolved",
+        "ask.started",
         "auth.delete_key.result",
         "auth.list.result",
         "auth.set_key.result",
@@ -541,7 +546,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "model.set_default.result",
       "model.set_thinking_default.result",
     ]);
-    expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
+    expect(roster("interaction")).toEqual(["ask.resolved", "ask.started"]); // 越权申请批：占位族启用（agent ↔ 用户问答双帧）
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome", "coord.changed", "task.changed"]); // task 批：+task.changed（挂既有 notification 通道，不新增 Channel 值）
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
@@ -575,10 +580,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
   });
 
   test("目录计数（coord 批后）：EVENT_TYPES 95 / EVENT_CHANNELS 95 键 / COMMAND_TYPES 76", () => {
-    expect(EVENT_TYPES.length).toBe(95); // coord 批 +1（coord.changed）
-    expect(new Set(EVENT_TYPES).size).toBe(95); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(95); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2（config.get/set_sandbox）
+    expect(EVENT_TYPES.length).toBe(97); // 越权申请批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(97); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(97); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(77); // 越权申请批 +1
   });
 
 });

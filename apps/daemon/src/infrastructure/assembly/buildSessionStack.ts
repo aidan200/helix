@@ -4,6 +4,7 @@ import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../../application/ports/outbound/BrowserPort";
 import type { ProfileKind } from "../../application/ports/outbound/ResourceStatePort";
 import type { InstanceRunner } from "../../application/services/InstanceRunner";
+import type { AskService } from "../../application/services/AskService";
 import type { SessionRunStateLike } from "../../domain/agent/ObservabilityState";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -114,8 +115,9 @@ import { buildMcpCatalogSurface, MCP_ALLOWED_OF } from "./mcpCatalogSurface";
 
 // ── U3 readonly 档派生面（任一 kind 生效集减三写工具 + 只读纪律后缀；
 //    模块级导出供 parity 测试 import——E-98 reviewer 减法同构）──────────
-/** 与 reviewer 摘除面同值（write/edit/edit-lines）；语义独立常量，不跨档耦合。 */
-export const SUBAGENT_READONLY_REMOVED_TOOLS = ["write", "edit", "edit-lines"] as const;
+/** 与 reviewer 摘除面同值（write/edit/edit-lines + sandbox_request）；语义独立常量，不跨档耦合。
+ * sandbox_request：越权裸跑是写面逃生舱（批准后可写任意路径）——readonly 档同摘。 */
+export const SUBAGENT_READONLY_REMOVED_TOOLS = ["write", "edit", "edit-lines", "sandbox_request"] as const;
 /** 只读纪律行：诚实声明 bash 软约束（非形式化只读，事实流对账兜底）。 */
 export const SUBAGENT_READONLY_PROMPT_SUFFIX =
   "【写面声明：readonly】本任务为只读任务：write/edit/edit-lines 已不可用。" +
@@ -155,6 +157,8 @@ export interface BuildSessionStackDeps {
   readonly schedulingConfig?: SchedulingConfigPort;
   /** 沙箱开关（可选——缺省关；会话创建时读 KV，新会话生效）。 */
   readonly sandboxConfig?: SandboxConfigPort;
+  /** 越权申请仲裁（可选——越权申请批；注入 + 沙箱 on 时 executor 注册 sandbox_request 工具）。 */
+  readonly askService?: Pick<AskService, "request" | "pendingOf" | "restoreFromKv">;
   readonly browserPort: BrowserPort;
   /** fan-out 发布面（组合根先建、wireEventFanout 后装目标——服务构造期依赖稳定引用）。 */
   readonly events: EventPublisherPort;
@@ -783,6 +787,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // H-3：tool-req 转发目标 = 全局唯一 CDP 单例（ScopedBrowserProxy
           // 归属校验：ownerId 强制 = 通道 instanceId）
           browser: browserPort,
+          // sandbox_request 批：ask.request tool-req 分流目标 = 父进程
+          // AskService 单例（卡片弹在归属会话页；未注入 → ok:false「未装配」）
+          ...(deps.askService !== undefined ? { askService: deps.askService } : {}),
           // T2 turn diff：子进程 file-write 元数据行 → 归属会话热 runtime 的
           // diff 记账（recordExternal——agents 集合累积 SubAgent 实例）。
           // 会话反向查找同 injectClosure 先例（scheduler.instance →
@@ -1007,6 +1014,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       const cfg = deps.sandboxConfig?.current();
       return readSandboxRuntime(cfg?.enabled ?? false, paths.home, toolCwdOf(), cfg?.extraRoots);
     },
+    // 越权申请批：sandbox_request 工具仲裁面（engineFor 内按沙箱开关门控注册）
+    ...(deps.askService !== undefined ? { askService: deps.askService } : {}),
     ...(deps.editDeps !== undefined ? { editDeps: deps.editDeps } : {}),
     ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
     ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),
@@ -1064,6 +1073,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           }
         : {}),
       ...(deps.mainSessionLlmOverride !== undefined ? { mainSessionLlmOverride: deps.mainSessionLlmOverride } : {}),
+      // 越权申请批：instantiatedSnapshot 的 sandboxRequest 旗标源（与 engineFor 同源）
+      ...(deps.askService !== undefined ? { askService: deps.askService } : {}),
+      sandboxOf: () => {
+        const cfg = deps.sandboxConfig?.current();
+        return readSandboxRuntime(cfg?.enabled ?? false, paths.home, toolCwdOf(), cfg?.extraRoots);
+      },
     }),
     onListChanged: (change) => eventStream.broadcastListChanged(change),
     // 主会话工作台账读面（main-session plan 批）：快照组装附 plan 全行

@@ -172,6 +172,12 @@ export interface SubagentLauncherDeps {
    * → tool-req 回执 ok:false「未装配」。
    */
   readonly browser?: BrowserPort;
+  /**
+   * 越权申请仲裁面（sandbox_request 批）：子进程 ask.request tool-req 分流
+   * 目标——父进程 AskService 单例（卡片弹在归属会话页）。会话归属由本侧
+   * instance 注册裁决（子上行不携 sessionId，防伪造）。缺省 → ok:false「未装配」。
+   */
+  readonly askService?: { request: (input: { sessionId: string; instanceId: string; command: string; reason: string }) => Promise<"approved" | "denied" | "timeout"> };
   /** tool-res 出口 result 截断上限字节（可注入；缺省 256KB，wire.ts 常量）。 */
   readonly toolResultMaxBytes?: number;
   /** 线协议观测面（测试断言/诊断；WS 事件映射接线点）。 */
@@ -196,6 +202,8 @@ export interface SubagentLauncherDeps {
 
 interface ChildEntry {
   readonly transport: ChildProcessTransport;
+  /** 归属会话 id（ask.request 分流裁决面——spawn 时定格，与 HELIX_SESSION_ID 同口径）。 */
+  readonly sessionId: string;
   /** 已上报收口（防重；late crash 行被吞）。 */
   closed: boolean;
   /** 进程 exit 已观测（崩溃检测 watcher 落定；M21 双落定清理判据之一）。 */
@@ -437,7 +445,7 @@ export class SubagentLauncher implements InstanceRunner {
       });
       return;
     }
-    this.children.set(id, { transport, closed: false, exited: false });
+    this.children.set(id, { transport, closed: false, exited: false, sessionId: instance.sessionId || id });
     transport.onLine((line) => this.onChildLine(id, line));
     // 崩溃检测：exit 后先等 stdout 排空（closure 行可能尚在管道缓冲），
     // 仍未收口才判 failed（cap 500ms 防孙进程长期占住管道）。
@@ -563,7 +571,28 @@ export class SubagentLauncher implements InstanceRunner {
    */
   private async onToolRequest(id: string, reqId: number, method: string, args: readonly unknown[]): Promise<void> {
     let res: ToolResponseLine;
-    if (this.deps.browser === undefined) {
+    if (method === "ask.request") {
+      // sandbox_request 批：越权申请分流父进程 AskService（会话归属 = instance
+      // 注册定格值——子上行不携 sessionId；args = [command, reason]）
+      const [command, reason] = args;
+      if (this.deps.askService === undefined) {
+        res = { type: "tool-res", reqId, ok: false, error: "ask 未装配（SubagentLauncher 无 askService 注入）" };
+      } else if (typeof command !== "string" || typeof reason !== "string") {
+        res = { type: "tool-res", reqId, ok: false, error: "ask.request 参数非法（command/reason 字符串必填）" };
+      } else {
+        try {
+          const value = await this.deps.askService.request({
+            sessionId: this.children.get(id)?.sessionId ?? id,
+            instanceId: id,
+            command,
+            reason,
+          });
+          res = { type: "tool-res", reqId, ok: true, value };
+        } catch (err) {
+          res = { type: "tool-res", reqId, ok: false, error: (err as Error).message };
+        }
+      }
+    } else if (this.deps.browser === undefined) {
       res = { type: "tool-res", reqId, ok: false, error: "browser 未装配（SubagentLauncher 无 browser 注入——测试 Fake 引擎形态）" };
     } else {
       try {

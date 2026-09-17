@@ -73,6 +73,9 @@ export const SubAgentProfile: AgentProfile = {
     "plan_create", // T1.4（AD-6①）：实例工作台账——全量配给所有 SubAgent（chat/task 两域同构；main-session 后批同款声明，AD-6① 已扩展）
     "plan_update",
     "plan_read",
+    // sandbox_request（越权申请批）：与主会话同面——SubAgent 经 wire
+    // ask-request 行转发父进程仲裁（卡片弹在归属会话页；沙箱 on 时注册）
+    "sandbox_request",
   ],
   lifecycle: { mode: "single-shot" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：与主会话同坑同填——装配点实例化）

@@ -128,6 +128,7 @@ import {
 } from "./handlers/model";
 import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
+import { handleAskAnswer } from "./handlers/ask";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
 import { handleDiffGet } from "./handlers/diff";
 import {
@@ -630,6 +631,9 @@ export class WsServerAdapter {
       // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
       case "thinking.set":
         return handleThinkingSet(this.contexts.commandContext(ws, type, payload, envelope));
+      // ── ask 族（越权申请裁决；sandbox_request 批，handlers/ask.ts）──
+      case "ask.answer":
+        return handleAskAnswer(this.contexts.commandContext(ws, type, payload, envelope));
       // ── v0.2 auth 管理族（AD-2，契约 C §1.3；真行为回口 + 结果帧）──
       // case 体机械迁出 handlers/auth.ts（语义逐字节等价），此处一行转发（AD-3）
       case "auth.list":

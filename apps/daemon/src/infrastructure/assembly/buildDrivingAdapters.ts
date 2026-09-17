@@ -21,6 +21,7 @@ import type { SessionRegistry } from "../../application/services/SessionRegistry
 import type { SessionService } from "../../application/services/SessionService";
 import type { SchedulerService } from "../../application/services/scheduler/SchedulerService";
 import type { ResourceService } from "../../application/services/ResourceService";
+import type { AskService } from "../../application/services/AskService";
 import type { WorkspaceService } from "../../application/services/workspace/WorkspaceService";
 import { ModelService } from "../../application/services/ModelService";
 import { CliAdapter, StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
@@ -152,6 +153,8 @@ export interface WsDrivingDeps {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 回口；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
+  /** 越权申请仲裁面（ask.answer 命令回口；sandbox_request 批）。 */
+  readonly askService?: AskService;
   readonly modelStack: ModelStack;
   readonly taskStack: TaskStack;
   /**
@@ -297,6 +300,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
     ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}), // config 族命令回口（沙箱开关；沙箱开关批）
+    ...(deps.askService !== undefined ? { askService: deps.askService } : {}), // ask.answer 命令回口（越权申请批）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）

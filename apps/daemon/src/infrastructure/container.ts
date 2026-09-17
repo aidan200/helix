@@ -35,6 +35,7 @@ import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, installCrashLogging, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
+import { AskService } from "../application/services/AskService";
 import type { SessionRunStateLike } from "../domain/agent/ObservabilityState";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
@@ -363,7 +364,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   }
   const modelStack = buildModelStack({ paths, logger });
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
-
   // ── 装配序步 2-5：任务栈（T1.3，与三 build* 同列）──
   //    任务类型注册表（T2.3 真体）：独立 SkillScanner 实例扫 builtin 层（与
   //    buildSessionStack 的提示装配扫描器同形同源、无共享状态——扫描现拍现
@@ -437,6 +437,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
   const fanoutPublisher = new FanoutPublisher(logger);
 
+  // ── 越权申请批：AskService 单例（main executor 与 SubagentLauncher wire
+  //    转发两端同持；KV pending 恢复在会话清单就绪后调 restoreFromKv）──
+  const askService = new AskService({
+    publish: (event) => fanoutPublisher.publish(event),
+    kv: persistence.runtimeConfig,
+    now: () => clock.nowMs(),
+    newId: () => `ask-${crypto.randomUUID().slice(0, 8)}`,
+  });
+
   // ── driven：CDP 浏览器连接（地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──
   // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。
   const browserPort: BrowserPort = deps.browserPort;
@@ -462,6 +471,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     compactionConfig: persistence.compactionConfig, // 压缩参数可配置
     schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
     sandboxConfig: persistence.sandboxConfig, // 沙箱开关（装配期定格读取，沙箱开关批）
+    askService, // 越权申请批：sandbox_request 工具仲裁（沙箱 on 时注册）
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -791,6 +801,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
+    askService, // ask.answer 命令回口（越权申请批；同容器单例，与工具装配同源）
     registry,
     scheduler,
     resolveSubagentModelId,

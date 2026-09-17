@@ -137,6 +137,7 @@ import type {
   McpToolsListResultEvent,
   McpStatusChangedEvent,
 } from "./mcp";
+import type { AskResolvedEvent, AskStartedEvent } from "./interaction";
 
 export * from "./notification";
 export * from "./session";
@@ -153,6 +154,7 @@ export * from "./workspace";
 export * from "./diff";
 export * from "./coord";
 export * from "./mcp";
+export * from "./interaction";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -250,7 +252,9 @@ export type EventEnvelope =
   | McpServersRemoveResultEvent
   | McpServersTestResultEvent
   | McpToolsListResultEvent
-  | McpStatusChangedEvent;
+  | McpStatusChangedEvent
+  | AskStartedEvent
+  | AskResolvedEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -349,6 +353,8 @@ export const EVENT_TYPES = [
   "mcp.servers.test.result",
   "mcp.tools.list.result",
   "mcp.status.changed",
+  "ask.started",
+  "ask.resolved",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -455,4 +461,6 @@ export const EVENT_CHANNELS = {
   "mcp.servers.test.result": "mcp",
   "mcp.tools.list.result": "mcp",
   "mcp.status.changed": "mcp",
+  "ask.started": "interaction",
+  "ask.resolved": "interaction",
 } as const satisfies Record<EventType, Channel>;

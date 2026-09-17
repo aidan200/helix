@@ -92,6 +92,21 @@ export interface PendingSteerDto {
   source?: SteerSource;
 }
 
+/**
+ * 未收口越权申请（SessionSnapshotDto.pendingAsk，additive）：重连/切换会话
+ * 后 ask 卡片重建数据源——申请挂起时刷新/重进，快照携带本字段原位复活卡片。
+ * 缺省/null = 无挂起申请（旧剧本兼容）。与 AskStartedPayload 同构
+ * （同一次申请的两个投影：事件帧 = 实时推送，本 DTO = 快照重建）。
+ */
+export interface PendingAskDto {
+  askId: string;
+  command: string;
+  reason: string;
+  instanceId: string;
+  /** 超时时刻（epoch ms）；快照重建后倒计时按剩余量续走 */
+  expiresAt: number;
+}
+
 export interface SessionSnapshotDto {
   sessionId: string;
   /** 展示用模型名（P-1 header 模型徽标；T2.3（AD-2）：会话级模型——引擎观测值，缺省回退 SQLite 默认表 + builtin 兜底） */
@@ -124,6 +139,11 @@ export interface SessionSnapshotDto {
    * 本字段重建。缺省/空 = 无排队注入（旧剧本兼容）。
    */
   pendingSteer?: PendingSteerDto[];
+  /**
+   * 未收口越权申请（additive，sandbox_request 批）：重连/切换会话后 ask
+   * 卡片重建数据源。缺省 = 无挂起申请。
+   */
+  pendingAsk?: PendingAskDto | null;
   /**
    * 会话 thinking 覆盖/生效双位（v0.11 批内补登，thinking 批③ F-8 修复——
    * daemon SessionStateView.thinking 的 wire 面接通）：切换会话/重连/重启
