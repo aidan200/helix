@@ -13,6 +13,7 @@ import { buildKnowledgeStack, buildEditToolDeps } from "../../src/infrastructure
 import { createEditTool } from "../../src/adapters/driven/tools/edit/EditTool";
 import type { CodegraphResolution } from "../../src/adapters/driven/codegraph-engine/resolve-codegraph";
 import type { AnchorDeclaration, SymbolBatch } from "../../src/domain/kg/types";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层：D8 W-R2/W-R3 worktree 读穿透（tmp 目录造 .worktrees 结构 + 主仓
@@ -148,7 +149,7 @@ describe("W-R3 附着穿透：worktree 内 edit → 命中主仓锚（projectRoo
     env: NodeExecutionEnv,
   ): Promise<RunResult> {
     try {
-      const result = await tool.execute("tc-1", args as never, undefined, undefined, { env });
+      const result = await tool.execute("tc-1", args as never, undefined as never, { env }, undefined as never, BACKGROUND_CONTEXT);
       return { ok: true, text: (result.content as any[]).map((b) => (b.type === "text" ? b.text : `(${b.type})`)).join("\n") };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

@@ -45,12 +45,15 @@ export interface BashSenseRuntime {
   readonly now?: () => number;
 }
 
+import type { Context } from "@earendil-works/pi-agent-core/node";
+
 /** 包装目标最小结构面。 */
 export interface BashSenseEnvTarget {
   cwd: string;
   exec(
     command: string,
-    options?: Record<string, unknown>,
+    options: Record<string, unknown> | undefined,
+    context: Context,
   ): Promise<{ ok: boolean } & Record<string, unknown>>;
 }
 
@@ -62,7 +65,7 @@ export function wrapEnvForBashSense<T extends BashSenseEnvTarget>(base: T, runti
   const wrapped = Object.assign(Object.create(Object.getPrototypeOf(base)) as T, base);
   const w = wrapped as T & BashSenseEnvTarget;
 
-  w.exec = async (command: string, options?: Record<string, unknown>) => {
+  w.exec = async (command: string, options: Record<string, unknown> | undefined, context: Context) => {
     const t0 = now();
     // 前快照（失败 → undefined，执行后走 L1 降级或零记录）
     let before: BashSnapshot | undefined;
@@ -94,7 +97,7 @@ export function wrapEnvForBashSense<T extends BashSenseEnvTarget>(base: T, runti
       }
     };
     try {
-      const result = await base.exec(command, options);
+      const result = await base.exec(command, options, context);
       await settle();
       return result;
     } catch (err) {

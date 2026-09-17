@@ -10,6 +10,7 @@ import { KgWriteService } from "../../src/application/services/kg/KgWriteService
 import { KgQueryService } from "../../src/application/services/kg/KgQueryService";
 import { createKgUpdateTool } from "../../src/adapters/driven/tools/kg-update/KgUpdateTool";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层（真 SQLite tmp 库）：kg-update 工具面 declareAnchors op——
@@ -67,7 +68,7 @@ function makeTool(stack: Stack) {
 }
 
 async function call(tool: ReturnType<typeof makeTool>, params: Record<string, unknown>): Promise<string> {
-  const result = await tool.execute("call-1", params as never, undefined, undefined, undefined as never);
+  const result = await tool.execute("call-1", params as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
   return result.content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => c.text)

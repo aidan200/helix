@@ -11,6 +11,7 @@ import { KgWriteService } from "../../src/application/services/kg/KgWriteService
 import { KgQueryService } from "../../src/application/services/kg/KgQueryService";
 import { createKgTool } from "../../src/adapters/driven/tools/kg/KgTool";
 import type { MaterializedAnchor, SymbolBatch } from "../../src/domain/kg/types";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层（真 SQLite tmp 库）：kg 锚反查 op affected（R20 裁决，
@@ -50,7 +51,7 @@ afterAll(() => {
 });
 
 async function execText(f: Fixture, params: Record<string, unknown>): Promise<string> {
-  const result = await f.kg.execute("call-1", params, undefined, undefined, f.env as any);
+  const result = await f.kg.execute("call-1", params, undefined as never, f.env as any, undefined as never, BACKGROUND_CONTEXT);
   return result.content.filter((c): c is { type: "text"; text: string } => c.type === "text").map((c) => c.text).join("\n");
 }
 

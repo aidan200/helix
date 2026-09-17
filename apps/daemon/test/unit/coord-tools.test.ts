@@ -13,6 +13,7 @@ import {
 } from "../../src/adapters/driven/tools/coord/CoordTools";
 import type { AgentHarnessTool, AgentToolResult, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 const WS = "/ws";
 
@@ -29,7 +30,7 @@ function service() {
 }
 
 async function run(tool: AgentHarnessTool<ExecutionToolContext, any, undefined>, params: unknown): Promise<string> {
-  const r = await tool.execute("tc-1", params, undefined as never, undefined as never, undefined as never);
+  const r = await tool.execute("tc-1", params, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
   return r.content
     .map((c) => (c.type === "text" ? (c as { text: string }).text : ""))
     .join("\n");

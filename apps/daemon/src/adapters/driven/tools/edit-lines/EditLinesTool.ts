@@ -77,7 +77,7 @@ export function createEditLinesTool(
     description:
       "Edit a file by line range with an exact-content guard: expectedText must equal the current lines startLine..endLine exactly (including whitespace) or the edit is rejected with the actual lines shown. Replacement text may span a different number of lines. Get line numbers from read output or the scene of a failed edit.",
     parameters: editLinesParameters as any,
-    async execute(_toolCallId, params, signal, _onUpdate, { env }): Promise<AgentToolResult<any>> {
+    async execute(_toolCallId, params, _onUpdate, { env }, _invocation, context): Promise<AgentToolResult<any>> {
       const input = params as EditLinesInput;
       const { file, startLine, endLine, expectedText, newText } = input;
       if (!Number.isInteger(startLine) || startLine < 1) {
@@ -86,12 +86,12 @@ export function createEditLinesTool(
       if (!Number.isInteger(endLine) || endLine < startLine) {
         throw new Error("endLine must be an integer >= startLine.");
       }
-      const absoluteResult = await env.absolutePath(file, signal);
+      const absoluteResult = await env.absolutePath(file, context);
       if (!absoluteResult.ok) throw absoluteResult.error;
       const absolutePath = absoluteResult.value;
       return withFileMutationQueue(env, absolutePath, async () => {
-        if (signal?.aborted) throw new Error("Operation aborted");
-        const info = await env.fileInfo(absolutePath, signal);
+        if (context.abortSignal?.aborted) throw new Error("Operation aborted");
+        const info = await env.fileInfo(absolutePath, context);
         if (!info.ok) {
           throw new Error(`Could not edit file: ${file}. Error code: ${info.error.code}.`, {
             cause: info.error as Error,
@@ -100,7 +100,7 @@ export function createEditLinesTool(
         if (info.value.kind !== "file" && info.value.kind !== "symlink") {
           throw new Error(`Could not edit file: ${file}. Path is not a file.`);
         }
-        const readResult = await env.readTextFile(absolutePath, signal);
+        const readResult = await env.readTextFile(absolutePath, context);
         if (!readResult.ok) {
           throw new Error(`Could not edit file: ${file}. Error code: ${readResult.error.code}.`, {
             cause: readResult.error as Error,
@@ -136,7 +136,7 @@ export function createEditLinesTool(
         const hadTrailingNewline = lf.endsWith("\n");
         const newLf = nextLines.join("\n") + (hadTrailingNewline ? "\n" : "");
         const finalContent = bom + restoreLineEndings(newLf, originalEnding);
-        const writeResult = await env.writeFile(absolutePath, finalContent, signal);
+        const writeResult = await env.writeFile(absolutePath, finalContent, context);
         if (!writeResult.ok) {
           throw new Error(`Could not edit file: ${file}. Error code: ${writeResult.error.code}.`, {
             cause: writeResult.error as Error,
@@ -154,7 +154,7 @@ export function createEditLinesTool(
             firstChangedLine: diffResult.firstChangedLine,
           },
         };
-      });
+      }, context);
     },
   };
 }

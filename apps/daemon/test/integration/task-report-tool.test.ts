@@ -22,6 +22,7 @@ import type { ClosureRecordData } from "../../src/application/ports/outbound/Ses
 import type { JobStatus } from "../../src/domain/task/types";
 import { TaskError } from "../../src/application/services/task/TaskError";
 import { taskReportStub } from "../helpers/taskReportStub";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层：task_report 工具（D3——chat 回流通用报告查询面；多 op 单工具，
@@ -122,7 +123,7 @@ async function run(
 ): Promise<RunResult> {
   const env = new NodeExecutionEnv({ cwd: tmpdir() });
   try {
-    const result = await tool.execute("tc-task-report", args as never, undefined, undefined, { env });
+    const result = await tool.execute("tc-task-report", args as never, undefined as never, { env }, undefined as never, BACKGROUND_CONTEXT);
     return {
       ok: true,
       text: (result.content as any[]).map((b) => (b.type === "text" ? b.text : `(${b.type})`)).join("\n"),

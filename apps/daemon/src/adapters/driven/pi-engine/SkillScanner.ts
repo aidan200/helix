@@ -1,4 +1,4 @@
-import { loadSourcedSkills, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT, loadSourcedSkills, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -69,9 +69,14 @@ export class SkillScanner implements SkillSourcePort {
   async scan(): Promise<SkillScanResult> {
     // 泛型只用 TSource（TSkill 约束须 extends pi 的 Skill 含 content——helix
     // 域形状不含正文，映射在包装数组解包后做）；pi 类型不越出本文件
-    const { skills, diagnostics } = await loadSourcedSkills<ScanTag>(this.env, [
-      ...this.inputs, // pi 签名要求可变数组，浅拷贝传入（内部不修改）
-    ]);
+    const { skills, diagnostics } = await loadSourcedSkills<ScanTag>(
+      this.env,
+      [
+        ...this.inputs, // pi 签名要求可变数组，浅拷贝传入（内部不修改）
+      ],
+      undefined, // mapSkill 缺省（原样 Skill；0.85 起该参前移、末参为必传 Context）
+      BACKGROUND_CONTEXT,
+    );
     const mapped: SkillScanDiagnostic[] = diagnostics.map((d) => ({
       code: d.code,
       message: d.message,

@@ -14,6 +14,7 @@ import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue"
 import { TaskStore } from "../../src/adapters/driven/sqlite-session/TaskStore";
 import { EDGE_VERBS, type KnowledgeWriteOp } from "../../src/domain/kg/types";
 import { counterClock } from "../helpers/task-fixtures";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层（真 SQLite @ tmp）：kg-update 任务归属元数据机械注入（T4.2，AD-10
@@ -92,7 +93,7 @@ function makeTool(stack: KgStack, taskContext?: () => { taskId: string; originBa
 }
 
 async function call(tool: ReturnType<typeof makeTool>, params: Record<string, unknown>): Promise<string> {
-  const result = await tool.execute("call-1", params as never, undefined, undefined, undefined as never);
+  const result = await tool.execute("call-1", params as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
   return result.content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => c.text)

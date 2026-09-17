@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
 import { globToRegExp } from "../../src/adapters/driven/tools/grep/contract";
 import { createGrepTool } from "../../src/adapters/driven/tools/grep/GrepTool";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * TP-CL5-2（U）：grep 工具门面的 framework-free 面——
@@ -28,14 +29,14 @@ describe("grep 门面 unavailable 定格：响亮失败", () => {
   test("缺省 deps（无 rgPath）→ 抛明确错误：含原因与修复指引，不静默", async () => {
     const tool = createGrepTool();
     await expect(
-      tool.execute("tc-1", { pattern: "x", path: "." }, undefined, undefined, fakeContext),
+      tool.execute("tc-1", { pattern: "x", path: "." }, undefined as never, fakeContext, undefined as never, BACKGROUND_CONTEXT),
     ).rejects.toThrow(/grep 工具不可用/);
   });
 
   test("unavailableReasons 透传进错误文案（启动定格原因对 agent 可见）", async () => {
     const tool = createGrepTool({ unavailableReasons: ["bundle：HELIX_RG_PATH 未注入或为空", "config：未配置 rgPath"] });
     try {
-      await tool.execute("tc-1", { pattern: "x", path: "." }, undefined, undefined, fakeContext);
+      await tool.execute("tc-1", { pattern: "x", path: "." }, undefined as never, fakeContext, undefined as never, BACKGROUND_CONTEXT);
       expect.unreachable("应抛响亮失败");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

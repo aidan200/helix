@@ -14,6 +14,7 @@ import { buildEditToolDeps } from "../../src/infrastructure/assembly/buildKnowle
 import { createEditTool } from "../../src/adapters/driven/tools/edit/EditTool";
 import { ATTACHMENT_PROTOCOL_LINE } from "../../src/domain/kg/attachment/render";
 import type { AnchorDeclaration, MaterializedAnchor, SymbolBatch } from "../../src/domain/kg/types";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层：edit 附着接线（T3.2，CL-1 F1.1/F1.2，AD-4/AD-7 补充/AD-13/AD-15）。
@@ -73,7 +74,7 @@ type RunResult = { ok: true; text: string } | { ok: false; error: string };
 
 async function run(tool: AgentHarnessTool<ExecutionToolContext, any, any>, args: unknown, env: NodeExecutionEnv): Promise<RunResult> {
   try {
-    const result = await tool.execute("tc-1", args as never, undefined, undefined, { env });
+    const result = await tool.execute("tc-1", args as never, undefined as never, { env }, undefined as never, BACKGROUND_CONTEXT);
     return { ok: true, text: (result.content as any[]).map((b) => (b.type === "text" ? b.text : `(${b.type})`)).join("\n") };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

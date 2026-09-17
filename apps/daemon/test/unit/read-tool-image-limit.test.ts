@@ -5,6 +5,7 @@ import path from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { createReadTool } from "../../src/adapters/driven/tools/read/ReadTool";
 import { MAX_IMAGE_BYTES } from "../../src/application/services/images";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * read 图片大小上限（M8 修复红→绿）：detectImageMimeType 命中后不再无条件
@@ -36,9 +37,10 @@ describe("read 图片路径：MAX_IMAGE_BYTES 上限", () => {
     const result = await createReadTool().execute(
       "tc-1",
       { path: "big.png" } as never,
-      undefined,
-      undefined,
+      undefined as never,
       { env },
+      undefined as never,
+      BACKGROUND_CONTEXT,
     );
     const blocks = result.content as Array<{ type: string; text?: string }>;
     expect(blocks.every((b) => b.type === "text")).toBe(true);
@@ -52,9 +54,10 @@ describe("read 图片路径：MAX_IMAGE_BYTES 上限", () => {
     const result = await createReadTool().execute(
       "tc-1",
       { path: "small.png" } as never,
-      undefined,
-      undefined,
+      undefined as never,
       { env },
+      undefined as never,
+      BACKGROUND_CONTEXT,
     );
     const blocks = result.content as Array<{ type: string; mimeType?: string }>;
     expect(blocks.some((b) => b.type === "image" && b.mimeType === "image/png")).toBe(true);
@@ -70,9 +73,10 @@ describe("read 文本路径：limit<1 鉗制为 1（首行必含）", () => {
       const result = await createReadTool().execute(
         "tc-clamp",
         { path: "a.txt", limit } as never,
-        undefined,
-        undefined,
+        undefined as never,
         { env },
+        undefined as never,
+        BACKGROUND_CONTEXT,
       );
       const text = (result.content as Array<{ type: string; text?: string }>).map((b) => b.text ?? "").join("");
       expect(text).toContain("     1\tline1");

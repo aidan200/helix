@@ -6,6 +6,7 @@ import type { ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { createGrepTool } from "../../src/adapters/driven/tools/grep/GrepTool";
 import { RgExecError } from "../../src/adapters/driven/tools/grep/backends/rg-backend";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * grep 工具 golden fixture 契约测试（rg 唯一化后的语义基准锚）：
@@ -66,9 +67,10 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
       const result = await tool.execute(
         "tc-1",
         { path: ".", ...params },
-        new AbortController().signal,
-        undefined,
+        undefined as never,
         context,
+        undefined as never,
+        BACKGROUND_CONTEXT,
       );
       const text = result.content.map((b) => (b as { type: string; text?: string }).text ?? "").join("\n");
       return { text, isError: false };
@@ -141,7 +143,7 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
     chmodSync(fake, 0o755);
     const tool = createGrepTool({ rgPath: fake });
     await expect(
-      tool.execute("tc-2", { pattern: "x", path: "." }, undefined, undefined, context),
+      tool.execute("tc-2", { pattern: "x", path: "." }, undefined as never, context, undefined as never, BACKGROUND_CONTEXT),
     ).rejects.toBeInstanceOf(RgExecError);
   });
 });

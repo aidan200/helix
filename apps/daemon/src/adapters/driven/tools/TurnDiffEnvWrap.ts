@@ -2,7 +2,7 @@
  * env.writeFile 写前快照包装（T2 turn diff 数据链）。
  *
  * CoreToolExecutor 全工具共享单 NodeExecutionEnv 实例——edit/edit-lines/
- * pi-write 落盘都走 env.writeFile(path, content, signal)。本包装在 writeFile
+ * pi-write 落盘都走 env.writeFile(path, content, context)。本包装在 writeFile
  * 前调 hook(path, content)（读旧内容快照 + 记账），hook 异常吞咽（diff
  * 失败不影响写入），hook 缺省原样返回（行为零差）。
  *
@@ -16,12 +16,14 @@
  * **写前**触发（快照语义——必须先于落盘读到原文），零冲突。
  */
 
+import type { Context } from "@earendil-works/pi-agent-core/node";
+
 /** 包装目标的最小结构面（NodeExecutionEnv 的 writeFile 切片）。 */
 export interface EnvWriteTarget {
   writeFile(
     path: string,
     content: string | Uint8Array,
-    abortSignal?: AbortSignal,
+    context: Context,
   ): Promise<unknown>;
 }
 
@@ -35,13 +37,13 @@ export type EnvWriteHook = (path: string, content: string | Uint8Array) => void 
 export function wrapEnvForDiff<T extends EnvWriteTarget>(base: T, hook: EnvWriteHook | undefined): T {
   if (hook === undefined) return base;
   const wrapped = Object.assign(Object.create(Object.getPrototypeOf(base)) as T, base);
-  (wrapped as T & EnvWriteTarget).writeFile = async (path, content, abortSignal) => {
+  (wrapped as T & EnvWriteTarget).writeFile = async (path, content, context) => {
     try {
       await hook(path, content);
     } catch {
       /* hook 异常吞咽：diff 链失败不波及写入 */
     }
-    return base.writeFile(path, content, abortSignal);
+    return base.writeFile(path, content, context);
   };
   return wrapped;
 }

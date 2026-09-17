@@ -1,9 +1,12 @@
 import type {
   AgentHarnessTool,
+  AgentHarnessToolInvocation,
   AgentTool,
   AgentToolResult,
+  Context,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/node";
 import type { TextContent } from "@earendil-works/pi-ai";
 import {
   createBashTool,
@@ -68,8 +71,11 @@ import { wrapEnvForBashSense, type BashSenseRuntime } from "./BashSenseEnvWrap";
 
 /**
  * AgentHarnessTool → AgentTool 的 context 绑定（签名差异闭包消解）：
- * 内置工具 execute 签名多一个 context 参数，Agent 期望 4 参形态，
- * 用闭包把 {env} 绑进去。
+ * pi 0.85 后内置工具 execute 为六参形态（onUpdate/toolContext/invocation/
+ * context），Agent 期望四参形态（signal/onUpdate 可选）——用闭包把
+ * {env} toolContext 绑进去；signal 折进 chord Context（withAbortSignal），
+ * invocation 用无备忘能力的占位实现（经典 Agent 驱动面无 harness
+ * invocation 概念）。
  */
 export function bindToolContext<T extends ExecutionToolContext>(
   tool: AgentHarnessTool<T, any, any>,
@@ -78,8 +84,31 @@ export function bindToolContext<T extends ExecutionToolContext>(
   return {
     ...tool,
     execute: (toolCallId, params, signal, onUpdate) =>
-      tool.execute(toolCallId, params, signal, onUpdate, context),
+      tool.execute(
+        toolCallId,
+        params,
+        onUpdate ?? (() => {}),
+        context,
+        noopInvocation(toolCallId),
+        contextOfSignal(signal),
+      ),
   } as AgentTool<any>;
+}
+
+/** AbortSignal → chord Context（无信号 = BACKGROUND_CONTEXT）。 */
+function contextOfSignal(signal: AbortSignal | undefined): Context {
+  return signal === undefined ? BACKGROUND_CONTEXT : withAbortSignal(signal, BACKGROUND_CONTEXT);
+}
+
+/** 经典 Agent 驱动面的 invocation 占位（memo 无持久后备，恒 undefined/空操作）。 */
+function noopInvocation(toolCallId: string): AgentHarnessToolInvocation {
+  return {
+    invocationId: toolCallId,
+    operationId: toolCallId,
+    turnId: toolCallId,
+    getMemo: () => Promise.resolve(undefined),
+    setMemo: () => Promise.resolve(),
+  };
 }
 
 /** kg 双工具注入面（T3.3；query/write 均为结构化面——KgQueryService/
@@ -375,9 +404,10 @@ export class CoreToolExecutor implements ToolExecutorPort {
       const result: AgentToolResult<any> = await tool.execute(
         request.toolCallId,
         request.args as never,
-        request.signal,
-        undefined,
+        () => {},
         this.context,
+        noopInvocation(request.toolCallId),
+        contextOfSignal(request.signal),
       );
       // 图片下行：工具结果 content 内的 image 块 → images data URL 数组
       //（textOfResult 不动——文本拼接仍是纯文本 + (image) 占位）

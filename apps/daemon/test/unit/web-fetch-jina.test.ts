@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createWebFetchTool } from "../../src/adapters/driven/tools/web/WebFetchTool";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * M25 单元：WebFetchTool Jina 备选分支约束——
@@ -25,7 +26,7 @@ describe("M25：web_fetch Jina 备选分支约束", () => {
       throw new Error("网络不可达");
     });
     const tool = createWebFetchTool();
-    await expect(tool.execute("t1", { url: "https://x.example/", format: "html" } as never, undefined, undefined, undefined as never)).rejects.toThrow(
+    await expect(tool.execute("t1", { url: "https://x.example/", format: "html" } as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT)).rejects.toThrow(
       /网络不可达/,
     );
     expect(calls).toEqual(["https://x.example/"]); // 无 r.jina.ai 二次请求
@@ -34,7 +35,7 @@ describe("M25：web_fetch Jina 备选分支约束", () => {
   test("format=html 直连成功 → 返回原始 HTML（回归）", async () => {
     stubFetch(async () => new Response("<html><body><h1>Hi</h1></body></html>", { status: 200 }));
     const tool = createWebFetchTool();
-    const result = await tool.execute("t2", { url: "https://x.example/", format: "html" } as never, undefined, undefined, undefined as never);
+    const result = await tool.execute("t2", { url: "https://x.example/", format: "html" } as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
     expect((result.content as { type: string; text: string }[])[0]!.text).toContain("<html>");
   });
 
@@ -46,7 +47,7 @@ describe("M25：web_fetch Jina 备选分支约束", () => {
       throw new Error("直连超时");
     });
     const tool = createWebFetchTool();
-    const result = await tool.execute("t3", { url: "https://x.example/" } as never, undefined, undefined, undefined as never);
+    const result = await tool.execute("t3", { url: "https://x.example/" } as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
     const text = (result.content as { type: string; text: string }[])[0]!.text;
     expect(calls).toEqual(["https://x.example/", "https://r.jina.ai/x.example/"]);
     expect(text).toContain("Jina 备选");
@@ -56,7 +57,7 @@ describe("M25：web_fetch Jina 备选分支约束", () => {
   test("markdown 直连成功 → 走转换核且无 Jina 标注（回归）", async () => {
     stubFetch(async () => new Response("<html><body><h1>Title</h1><p>para</p></body></html>", { status: 200 }));
     const tool = createWebFetchTool();
-    const result = await tool.execute("t4", { url: "https://x.example/" } as never, undefined, undefined, undefined as never);
+    const result = await tool.execute("t4", { url: "https://x.example/" } as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
     const text = (result.content as { type: string; text: string }[])[0]!.text;
     expect(text).toContain("# Title");
     expect(text).not.toContain("Jina 备选");
@@ -68,6 +69,6 @@ describe("M25：web_fetch Jina 备选分支约束", () => {
       throw new Error("直连超时");
     });
     const tool = createWebFetchTool();
-    await expect(tool.execute("t5", { url: "https://x.example/" } as never, undefined, undefined, undefined as never)).rejects.toThrow(/直连超时.*Jina 限流/s);
+    await expect(tool.execute("t5", { url: "https://x.example/" } as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT)).rejects.toThrow(/直连超时.*Jina 限流/s);
   });
 });

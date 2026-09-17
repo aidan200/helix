@@ -13,6 +13,7 @@ import { createEditTool } from "../../src/adapters/driven/tools/edit/EditTool";
 import { createReadTool } from "../../src/adapters/driven/tools/read/ReadTool";
 import { createEditLinesTool } from "../../src/adapters/driven/tools/edit-lines/EditLinesTool";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/node";
 
 /**
  * T3.1 自写 edit / read / edit-lines 三工具（F1.4，AD-12 方案 C + AF-1 复制收口）。
@@ -54,7 +55,7 @@ async function run(
   e: NodeExecutionEnv,
 ): Promise<RunResult> {
   try {
-    const result = await tool.execute("tc-1", args as never, undefined, undefined, { env: e });
+    const result = await tool.execute("tc-1", args as never, undefined as never, { env: e }, undefined as never, BACKGROUND_CONTEXT);
     return {
       ok: true,
       text: (result.content as any[]).map((b) => (b.type === "text" ? b.text : `(${b.type})`)).join("\n"),
@@ -550,7 +551,7 @@ describe("⑦ 同名覆盖注册（CL-1.A12）：edit/read 自写生效，write/
       args: { path: "w.txt", content: "data" },
     });
     expect(write.isError).toBe(false);
-    expect(write.content).toBe("Successfully wrote 4 bytes to w.txt");
+    expect(write.content).toBe("Successfully wrote to w.txt"); // pi 0.85 文案（不再带字节数）
     // bash：pi 保留（真 shell 执行）
     const bash = await executor.execute({ toolCallId: "tc", toolName: "bash", args: { command: "echo parity-ok" } });
     expect(bash.isError).toBe(false);
@@ -576,7 +577,7 @@ describe("⑧ VENDORED 纪律（AF-1）：逐字复制 + 零 pi import", () => {
     (name) => {
       const ours = readFileSync(path.join(kernelDir, name), "utf8");
       const upstream = readFileSync(path.join(upstreamDir, name), "utf8");
-      expect(ours.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.84.2")).toBe(true);
+      expect(ours.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.85.1")).toBe(true);
       expect(sha(body(ours))).toBe(sha(upstream));
     },
   );
@@ -680,9 +681,10 @@ describe("⑨ 注入面：notifyWrite（T2.2 契约）与 onEditApplied（T3.2 �
     const result = await tool.execute(
       "tc-1",
       { path: "m23.txt", edits: [{ oldText: "old", newText: "new" }] } as never,
-      controller.signal as never,
-      undefined,
+      undefined as never,
       { env: wrapped as unknown as NodeExecutionEnv },
+      undefined as never,
+      withAbortSignal(controller.signal, BACKGROUND_CONTEXT),
     );
     expect((result.content as any[])[0].text).toContain("Successfully replaced");
     expect(notified).toEqual([`/proj:${path.join(d, "m23.txt")}`]);

@@ -1,4 +1,4 @@
-// VENDORED from @earendil-works/pi-agent-core@0.84.2 dist/harness/tools/file-mutation-queue.js
+// VENDORED from @earendil-works/pi-agent-core@0.85.1 dist/harness/tools/file-mutation-queue.js
 // Upstream unexported (package exports whitelist) — AF-1, iter-20260825-11fo.
 // Do NOT hand-edit. Re-sync = re-copy from pinned version + parity tests must pass.
 // [AF-1 sole allowed deviation] getOrThrow inlined from upstream ../types.js
@@ -17,9 +17,9 @@ function getState(env) {
     }
     return state;
 }
-async function getMutationQueueKey(env, path) {
-    const absolutePath = getOrThrow(await env.absolutePath(path));
-    const canonicalPath = await env.canonicalPath(absolutePath);
+async function getMutationQueueKey(env, path, context) {
+    const absolutePath = getOrThrow(await env.absolutePath(path, context));
+    const canonicalPath = await env.canonicalPath(absolutePath, context);
     if (canonicalPath.ok)
         return canonicalPath.value;
     if (canonicalPath.error.code === "not_found" || canonicalPath.error.code === "not_supported")
@@ -27,10 +27,10 @@ async function getMutationQueueKey(env, path) {
     throw canonicalPath.error;
 }
 /** Serialize file mutations targeting the same environment and canonical path. */
-export async function withFileMutationQueue(env, path, fn) {
+export async function withFileMutationQueue(env, path, fn, context) {
     const state = getState(env);
     const registration = state.registration.then(async () => {
-        const key = await getMutationQueueKey(env, path);
+        const key = await getMutationQueueKey(env, path, context);
         const currentQueue = state.queues.get(key) ?? Promise.resolve();
         let releaseNext = () => { };
         const nextQueue = new Promise((resolve) => {

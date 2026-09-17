@@ -4,6 +4,7 @@ import type {
   CodegraphQueryRequest,
 } from "../../src/application/ports/outbound/CodegraphEnginePort";
 import { createCodegraphTool } from "../../src/adapters/driven/tools/codegraph/CodegraphTool";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * W1-B（R5/R6）codegraph 只读 agent 工具单测——薄壳语义：
@@ -42,7 +43,7 @@ function makeTool(opts: { indexExists?: (root: string) => boolean; result?: stri
 }
 
 async function run(tool: ReturnType<typeof createCodegraphTool>, params: Record<string, unknown>): Promise<string> {
-  const r = await tool.execute("call-1", params as never, undefined, undefined, undefined as never);
+  const r = await tool.execute("call-1", params as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
   return r.content.map((b) => (b as { type: string; text?: string }).text ?? "").join("\n");
 }
 

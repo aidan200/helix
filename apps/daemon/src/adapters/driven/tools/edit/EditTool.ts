@@ -189,9 +189,9 @@ export function createEditTool(
       "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
     parameters: editParameters as any,
     prepareArguments: normalizeEditInput as any,
-    async execute(_toolCallId, rawInput, signal, _onUpdate, { env }): Promise<AgentToolResult<any>> {
+    async execute(_toolCallId, rawInput, _onUpdate, { env }, _invocation, context): Promise<AgentToolResult<any>> {
       const { path: filePath, edits } = validateEditInput(normalizeEditInput(rawInput));
-      const absoluteResult = await env.absolutePath(filePath, signal);
+      const absoluteResult = await env.absolutePath(filePath, context);
       if (!absoluteResult.ok) throw absoluteResult.error;
       const absolutePath = absoluteResult.value;
       // 临界区（withFileMutationQueue）：只包「读 → 编辑 → 写」——同文件 mutation
@@ -203,15 +203,15 @@ export function createEditTool(
         env,
         absolutePath,
         async (): Promise<{ baseContent: string; newContent: string; finalContent: string }> => {
-          if (signal?.aborted) throw new Error("Operation aborted");
-          const info = await env.fileInfo(absolutePath, signal);
+          if (context.abortSignal?.aborted) throw new Error("Operation aborted");
+          const info = await env.fileInfo(absolutePath, context);
           if (!info.ok) throw editAccessError(filePath, info.error);
           if (info.value.kind !== "file" && info.value.kind !== "symlink") {
             throw new Error(`Could not edit file: ${filePath}. Path is not a file.`);
           }
-          const readResult = await env.readTextFile(absolutePath, signal);
+          const readResult = await env.readTextFile(absolutePath, context);
           if (!readResult.ok) throw editAccessError(filePath, readResult.error);
-          if (signal?.aborted) throw new Error("Operation aborted");
+          if (context.abortSignal?.aborted) throw new Error("Operation aborted");
           const { bom, text: content } = stripBom(readResult.value);
           const originalEnding = detectLineEnding(content);
           const normalizedContent = normalizeToLF(content);
@@ -227,12 +227,13 @@ export function createEditTool(
               filePath,
             );
           }
-          if (signal?.aborted) throw new Error("Operation aborted");
+          if (context.abortSignal?.aborted) throw new Error("Operation aborted");
           const finalContent = bom + restoreLineEndings(newContent, originalEnding);
-          const writeResult = await env.writeFile(absolutePath, finalContent, signal);
+          const writeResult = await env.writeFile(absolutePath, finalContent, context);
           if (!writeResult.ok) throw editAccessError(filePath, writeResult.error);
           return { baseContent, newContent, finalContent };
         },
+        context,
       );
       // M23：写后不再查 abort（对齐 EditLinesTool 写前查一次即可）——文件已落盘，
       // 写后 abort 抛错会跳过 notifyWrite/kg 同步 hooks 并吞掉成功结果（事实与回执分裂）

@@ -9,6 +9,7 @@ import { parentWorkLedger } from "../../src/adapters/driven/sqlite-session/WorkL
 import { LazyWorkLedger } from "../../src/adapters/driven/sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../src/application/services/task/WorkLedgerService";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层：plan 工具族（T1.4，CL-2 F2.5，AD-6①⑤）——真 SQLite @ tmp。
@@ -96,7 +97,7 @@ async function run(
   env: NodeExecutionEnv,
 ): Promise<RunResult> {
   try {
-    const result = await tool.execute("tc-plan", args as never, undefined, undefined, { env });
+    const result = await tool.execute("tc-plan", args as never, undefined as never, { env }, undefined as never, BACKGROUND_CONTEXT);
     return {
       ok: true,
       text: (result.content as any[]).map((b) => (b.type === "text" ? b.text : `(${b.type})`)).join("\n"),
@@ -222,8 +223,8 @@ describe("③ plan_read 实例作用域隔离（CL-2-T7）", () => {
       const env = new NodeExecutionEnv({ cwd: dir });
       const [createA, readA] = mk(ledgerA, "agent-scope-a");
       const [createB, readB] = mk(ledgerB, "agent-scope-b");
-      await createA!.execute("t", { items: ["A1", "A2"] } as never, undefined, undefined, { env });
-      await createB!.execute("t", { items: ["B1", "B2", "B3"] } as never, undefined, undefined, { env });
+      await createA!.execute("t", { items: ["A1", "A2"] } as never, undefined as never, { env }, undefined as never, BACKGROUND_CONTEXT);
+      await createB!.execute("t", { items: ["B1", "B2", "B3"] } as never, undefined as never, { env }, undefined as never, BACKGROUND_CONTEXT);
 
       const ra = await run(readA!, {}, env);
       const rb = await run(readB!, {}, env);

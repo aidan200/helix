@@ -69,12 +69,9 @@ export function createMcpTool(
     parameters,
     async execute(
       _toolCallId: string,
-      params: Record<string, unknown>,
-      _signal: AbortSignal | undefined,
-      _onUpdate: undefined,
-      _context: ExecutionToolContext,
+      params: unknown,
     ): Promise<AgentToolResult<unknown>> {
-      const result = await registry.callNamespacedTool(namespaced, params);
+      const result = await registry.callNamespacedTool(namespaced, params as Record<string, unknown>);
       if (result.isError) {
         throw new Error(`${namespaced} 执行失败：${textOfContent(result.content)}`);
       }

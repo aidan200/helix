@@ -10,6 +10,7 @@ import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/Sqlite
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
 import type { KnowledgeWriteOp, WriteResult } from "../../src/domain/kg/types";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * I 层：kg-update 工具 batchCreateNodes 薄壳（T2.1，O-5 裁决——LLM 按写入量
@@ -73,7 +74,7 @@ type RunResult = { ok: true; text: string } | { ok: false; error: string };
 
 async function run(f: Fixture, args: unknown): Promise<RunResult> {
   try {
-    const result = await f.tool.execute("tc-batch", args as never, undefined, undefined, { env: f.env });
+    const result = await f.tool.execute("tc-batch", args as never, undefined as never, { env: f.env }, undefined as never, BACKGROUND_CONTEXT);
     return { ok: true, text: (result.content as any[]).map((b) => (b.type === "text" ? b.text : `(${b.type})`)).join("\n") };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

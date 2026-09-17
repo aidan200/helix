@@ -107,7 +107,7 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
       "跨文件检索勿在 bash 中改用系统 grep（BSD/GNU 正则语义、无截断无超时保护），仅管道/计数等组合场景除外。" +
       "跳过 node_modules 与 .git。单次检索有超时上限；超大目录建议收窄 path 或加 glob 过滤。",
     parameters: grepParameters as any,
-    async execute(toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<undefined>> {
+    async execute(toolCallId, params, _onUpdate, context, _invocation, chordContext): Promise<AgentToolResult<undefined>> {
       void toolCallId;
       const { pattern, path, glob, ignoreCase, regex } = params as {
         pattern: string;
@@ -116,7 +116,7 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
         ignoreCase?: boolean;
         regex?: boolean;
       };
-      const matches = await search({ pattern, glob, ignoreCase, regex }, path, context, signal);
+      const matches = await search({ pattern, glob, ignoreCase, regex }, path, context, chordContext.abortSignal);
       // 输出截断（code-review M24）：与 read/bash 同口径（2000 行 / 50KB 先到
       // 先截 + 截断注明 + 收窄提示）——高频 pattern 全量 join 可向模型上下文
       // 注入数十万行。

@@ -1,4 +1,4 @@
-// VENDORED from @earendil-works/pi-agent-core@0.84.2 dist/harness/tools/edit-diff.js
+// VENDORED from @earendil-works/pi-agent-core@0.85.1 dist/harness/tools/edit-diff.js
 // Upstream unexported (package exports whitelist) — AF-1, iter-20260825-11fo.
 // Do NOT hand-edit. Re-sync = re-copy from pinned version + parity tests must pass.
 /**

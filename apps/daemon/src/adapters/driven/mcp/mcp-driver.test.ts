@@ -6,6 +6,7 @@ import { McpClient, parseMcpLines } from "./McpClient";
 import { McpRegistry } from "./McpRegistry";
 import { createMcpDiscoverTools, createMcpTools, mcpDiscoverToolName } from "./mcp-tool";
 import type { McpServerConfig } from "./types";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * mcp 驱动层单测：真子进程 stdio JSON-RPC 往返（假 server 脚本——
@@ -235,7 +236,7 @@ describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
       type: "object",
       properties: { text: { type: "string" } },
     });
-    const result = await tool?.execute("call-1", { text: "z" }, undefined, undefined, {} as never);
+    const result = await tool?.execute("call-1", { text: "z" }, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
     expect(result?.content).toEqual([{ type: "text", text: 'called:echo:{"text":"z"}' }]);
     registry.stopAll();
   });
@@ -248,7 +249,7 @@ describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
       definition: { name: "fail", description: "always fails" },
     };
     const [tool] = createMcpTools([badTool], registry);
-    await expect(tool?.execute("call-2", {}, undefined, undefined, {} as never)).rejects.toThrow(
+    await expect(tool?.execute("call-2", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT)).rejects.toThrow(
       "执行失败",
     );
     registry.stopAll();
@@ -272,7 +273,7 @@ describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
       [{ server: "mm", definition: { name: "multimodal", description: "returns media" } }],
       registry,
     );
-    const result = await tool?.execute("call-mm", {}, undefined, undefined, {} as never);
+    const result = await tool?.execute("call-mm", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
     const text = (result?.content[0] as { text: string }).text;
     expect(text).toContain("[image mimeType=image/png]");
     expect(text).toContain("[audio mimeType=audio/wav]");
@@ -309,7 +310,7 @@ describe("createMcpDiscoverTool / createMcpDiscoverTools（真 registry）", () 
     });
     expect(tools.map((t) => t.name)).toEqual(["fake__discover"]);
     const discover = tools[0]!;
-    const result = await discover.execute("c1", {}, undefined, undefined, {} as never);
+    const result = await discover.execute("c1", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
     expect(result.addedToolNames).toEqual(["fake__echo", "fake__ping"]);
     expect(result.content[0]).toMatchObject({ type: "text" });
     const text = (result.content[0] as { text: string }).text;
@@ -325,7 +326,7 @@ describe("createMcpDiscoverTool / createMcpDiscoverTools（真 registry）", () 
       onDiscover: () => {},
     });
     const discover = tools[0]!;
-    const result = await discover.execute("c1", {}, undefined, undefined, {} as never);
+    const result = await discover.execute("c1", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
     expect(result.addedToolNames).toEqual(["fake__echo"]);
     expect((result.content[0] as { text: string }).text).not.toContain("fake__ping");
   });

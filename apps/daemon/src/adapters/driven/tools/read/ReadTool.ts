@@ -42,11 +42,11 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
       `Supports text files and images (jpg, png, gif, webp, bmp; images are sent as attachments). ` +
       `Text output is truncated to ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files.`,
     parameters: readParameters as any,
-    async execute(_toolCallId, params, signal, _onUpdate, { env }): Promise<AgentToolResult<any>> {
+    async execute(_toolCallId, params, _onUpdate, { env }, _invocation, context): Promise<AgentToolResult<any>> {
       const { path: filePath, offset, limit } = params as { path: string; offset?: number; limit?: number };
-      const absoluteResult = await env.absolutePath(filePath, signal);
+      const absoluteResult = await env.absolutePath(filePath, context);
       if (!absoluteResult.ok) throw absoluteResult.error;
-      const bytesResult = await env.readBinaryFile(absoluteResult.value, signal);
+      const bytesResult = await env.readBinaryFile(absoluteResult.value, context);
       if (!bytesResult.ok) {
         throw new Error(`Could not read file: ${filePath}. Error code: ${bytesResult.error.code}.`, {
           cause: bytesResult.error as Error,

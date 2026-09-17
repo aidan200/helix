@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { StageArtifact } from "../../src/application/ports/outbound/TaskStorePort";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "../../src/adapters/driven/tools/task-ops/TaskOpsTools";
+import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 
 /**
  * task 引擎回口工具族参数面（T2.2 薄壳；D2 artifact body additive）：
@@ -58,7 +59,7 @@ describe("task_stage_artifact 工具（D2：body additive）", () => {
       stageSeq: 1,
       summary: "审 3 模块：阻断 1 / 高 2",
       body: "## 发现\n\n- [阻断] x.ts:1 空指针\n- [高] y.ts:2 竞态",
-    }, undefined, undefined, { env: new NodeExecutionEnv({ cwd: tmpdir() }) });
+    }, undefined as never, { env: new NodeExecutionEnv({ cwd: tmpdir() }) }, undefined as never, BACKGROUND_CONTEXT);
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toEqual({
       jobId: "job-1",
@@ -72,9 +73,10 @@ describe("task_stage_artifact 工具（D2：body additive）", () => {
     await stageArtifactTool(deps).execute(
       "call-1",
       { stageSeq: 2, summary: "仅摘要" },
-      undefined,
-      undefined,
+      undefined as never,
       { env: new NodeExecutionEnv({ cwd: tmpdir() }) },
+      undefined as never,
+      BACKGROUND_CONTEXT,
     );
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]!.artifact).toEqual({ summary: "仅摘要" });
@@ -102,8 +104,10 @@ describe("task_assembly_done 工具（A 批：装配完成申报薄壳）", () =
     };
     const tool = createTaskOpsTools(deps).find((t) => t.name === "task_assembly_done");
     if (tool === undefined) throw new Error("task_assembly_done 未注册");
-    const result = await tool.execute("call-1", { stageSeq: 2 }, undefined, undefined, {
+    const result = await tool.execute("call-1", { stageSeq: 2 }, undefined as never, {
       env: new NodeExecutionEnv({ cwd: tmpdir() }) },
+      undefined as never,
+      BACKGROUND_CONTEXT,
     );
     expect(calls).toEqual([{ jobId: "job-9", stageSeq: 2 }]);
     expect(JSON.parse(result.content[0]!.type === "text" ? result.content[0]!.text : "{}")).toEqual({

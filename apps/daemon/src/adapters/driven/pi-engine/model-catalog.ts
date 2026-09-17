@@ -266,6 +266,7 @@ export class ModelCatalog implements ModelCatalogPort {
       completeSimple: (model, context, options) => catalog.base.completeSimple(model, context, options),
       fetchDeferred: (model, handle, options) => catalog.base.fetchDeferred(model, handle, options),
       cancelDeferred: (model, handle, options) => catalog.base.cancelDeferred(model, handle, options),
+      streamDeferred: (model, handle, options) => catalog.base.streamDeferred(model, handle, options),
     };
   }
 

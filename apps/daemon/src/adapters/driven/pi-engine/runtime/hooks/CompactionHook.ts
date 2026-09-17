@@ -1,11 +1,13 @@
 import type { Agent, AgentLoopTurnUpdate, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Entry } from "@earendil-works/pi-agent-core";
 import {
-  buildSessionContext,
+  BACKGROUND_CONTEXT,
   compact,
+  createCompactionSummaryMessage,
   estimateContextTokens,
   prepareCompaction,
   shouldCompact,
+  withAbortSignal,
 } from "@earendil-works/pi-agent-core";
 import type { Model, Models } from "@earendil-works/pi-ai";
 import type { AgentEngineUsage } from "../../../../../application/ports/outbound/AgentEnginePort";
@@ -21,8 +23,8 @@ import type { HookSet } from "../HookSet";
  * （compaction 函数族吃 Entry[]，而 agent transcript 是 AgentMessage[]）→
  * prepareCompaction → compact（摘要走 models.completeSimple，provider 约束 =
  * 支持流式，契约 §8-4；apiKey 经 Models 装饰显式注入，code-review H5）→
- * CompactionEntry 插树 + retainedTail 重建上下文 →
- * buildSessionContext 复算 tokensAfter。
+ * compactionSummary 消息 + retainedTail 重建上下文（0.85 起 buildSessionContext
+ * 包未导出，等价语义内联）→ 复算 tokensAfter。
  *
  * 契约：失败不抛出（prepareNextTurn 钩子禁抛）——上抛 onFailed（上层转
  * engine_error 可观测），返回 undefined 保持现状继续 turn，会话无损。
@@ -113,35 +115,26 @@ export class CompactionHook implements HookSet {
       }
       if (!prep.value) return undefined; // 无可压缩内容（如刚压缩完）：保持现状
 
-      // signal 恢复（deferred 批签名修正后从 WithContext 通道第二参透传）。
-      const result = await compact(prep.value, summaryModels, model, undefined, signal);
+      // signal 折进 chord Context（0.85：compact 末参为必传 Context）。
+      const context = signal === undefined ? BACKGROUND_CONTEXT : withAbortSignal(signal, BACKGROUND_CONTEXT);
+      const result = await compact(prep.value, summaryModels, model, undefined, undefined, undefined, undefined, context);
       if (!result.ok) {
         this.deps.onFailed?.(`compaction 摘要失败：${JSON.stringify(result.error).slice(0, 200)}`);
         return undefined;
       }
       const cr = result.value;
 
-      // CompactionEntry 插树（retainedTail 存于条目内部——buildSessionContext
-      // 对 compaction 条目自动展开 tail，此处不再显式续链否则重复计数；
-      // 后续 compaction 经 prepareCompaction 的 virtualRetainedEntries 还原 tail）。
-      // 此后上下文 = compactionSummary + retainedTail + 后续新消息
-      const postEntries: Entry[] = [
-        {
-          type: "compaction",
-          id: `c${entries.length}`,
-          parentId: entries.at(-1)?.id ?? null,
-          seq: entries.length,
-          timestamp: Date.now(),
-          summary: cr.summary,
-          retainedTail: cr.retainedTail,
-          tokensBefore: cr.tokensBefore,
-          ...(cr.usage !== undefined ? { usage: cr.usage } : {}),
-        },
+      // 上下文重建（0.85：buildSessionContext 不再从包导出——等价内联其
+      // compaction 分支语义）：上下文 = compactionSummary 消息 + retainedTail
+      // （滤除 error/aborted/deferred 终态的 assistant 消息，与 pi
+      // sessionEntryToContextMessages 同口径）+ 后续新消息。
+      const rebuiltMessages: AgentMessage[] = [
+        createCompactionSummaryMessage(cr.summary, cr.tokensBefore, Date.now()),
+        ...cr.retainedTail.filter(isContextMessage),
       ];
-      const rebuilt = buildSessionContext(postEntries);
-      const tokensAfter = estimateContextTokens(rebuilt.messages).tokens;
+      const tokensAfter = estimateContextTokens(rebuiltMessages).tokens;
       // 双写：agent.state（跨 run 持久）+ 返回替换 context（本 run 下一请求生效）
-      agent.state.messages = rebuilt.messages;
+      agent.state.messages = rebuiltMessages;
       this.deps.onCompleted?.({
         tokensBefore: cr.tokensBefore,
         tokensAfter,
@@ -151,7 +144,7 @@ export class CompactionHook implements HookSet {
       return {
         context: {
           systemPrompt: agent.state.systemPrompt,
-          messages: rebuilt.messages,
+          messages: rebuiltMessages,
           tools: agent.state.tools,
         },
       };
@@ -173,6 +166,14 @@ function messagesToEntries(messages: AgentMessage[]): Entry[] {
     timestamp: (message as { timestamp?: number }).timestamp ?? Date.now(),
     message,
   }));
+}
+
+/** pi sessionEntryToContextMessages 的上下文消息过滤口径（0.85 同构内联——该函数包未导出）。 */
+function isContextMessage(message: AgentMessage): boolean {
+  return (
+    message.role !== "assistant" ||
+    (message.stopReason !== "error" && message.stopReason !== "aborted" && message.stopReason !== "deferred")
+  );
 }
 
 /**
