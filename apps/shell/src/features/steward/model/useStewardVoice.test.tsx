@@ -28,6 +28,14 @@ const sendStewardGetConfig = vi.fn(() => true);
 const sendSttTranscribe = vi.fn(() => true);
 const sendVoiceSynthesize = vi.fn(() => true);
 
+// ── V3b-1 流式面（streamStartEnabled 开关：false = 开流不可达，既有 V3a
+//    回落路径回归不受串扰；true = 流式链路）──
+let streamStartEnabled = false;
+const sendSttStreamStart = vi.fn(() => streamStartEnabled);
+const sendSttStreamChunk = vi.fn(() => true);
+const sendSttStreamFinish = vi.fn(() => true);
+const sendSttStreamStop = vi.fn(() => true);
+
 const listeners: Record<string, Set<(e: EventEnvelope) => void>> = {
   steward: new Set(),
   stt: new Set(),
@@ -59,6 +67,10 @@ vi.mock("@/entities/session/SessionContext", () => ({
     subscribeStewardFrames,
     sendSttTranscribe,
     subscribeSttFrames,
+    sendSttStreamStart,
+    sendSttStreamChunk,
+    sendSttStreamFinish,
+    sendSttStreamStop,
     sendVoiceSynthesize,
     subscribeVoiceFrames,
   }),
@@ -348,5 +360,255 @@ describe("useStewardVoice（V3a 管家语音闭环）", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// ── V3b-1 流式转写面：interim 上屏 → final 即刻喂 ask + 回落链 + 单飞门控 ──
+
+describe("useStewardVoice（V3b-1 流式转写面）", () => {
+  let restoreEnv: (() => void) | null = null;
+  /** fake PCM 泵（帧注入面）。 */
+  let pumpCb: ((frame: ArrayBuffer) => void) | null = null;
+  const pump = {
+    onFrame: (cb: (frame: ArrayBuffer) => void) => {
+      pumpCb = cb;
+    },
+    close: vi.fn(),
+  };
+  const createPump = () => Promise.resolve(pump);
+
+  beforeEach(() => {
+    localStorage.clear();
+    for (const s of Object.values(listeners)) s.clear();
+    pumpCb = null;
+    streamStartEnabled = false;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    FakeAudio.instances = [];
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  function renderStream(opts?: { streamFinalTimeoutMs?: number }) {
+    return renderHook(() => useStewardVoice(true, { createPump, streamFinalTimeoutMs: opts?.streamFinalTimeoutMs }), {
+      wrapper: I18nProvider,
+    }).result;
+  }
+
+  /** 走到「开流就绪 + 录音中」（含 fake clock；返回 result）。 */
+  async function startStream(result: { current: ReturnType<typeof useStewardVoice> }): Promise<void> {
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    try {
+      await act(async () => {
+        await result.current.startListening();
+      });
+      await tick();
+      act(() => {
+        emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-1", provider: "dashscope", model: "qwen3-asr-flash-realtime" }, "stt"));
+      });
+      (result as { __now?: () => void }).__now = () => {
+        nowMs += 500;
+      };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("流式闭环：start 开流 → PCM 块上行 → interim 上屏 → finish → final 即刻喂 ask（单次、零非流式上传）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const r = renderStream();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await act(async () => {
+      await r.current.startListening();
+    });
+    await tick();
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-1", provider: "dashscope", model: "qwen3-asr-flash-realtime" }, "stt"));
+    });
+    // PCM 帧 → chunk 上行（base64 PCM）
+    act(() => {
+      pumpCb?.(new Uint8Array([1, 2, 3, 4]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(1);
+    expect(typeof (sendSttStreamChunk.mock.calls as unknown as [string][])[0]?.[0]).toBe("string");
+    // interim 上屏（prior+text+stash 拼接）
+    act(() => {
+      emit("stt", frame("stt.stream.interim", { streamId: "str-1", prior: "", text: "帮我把", stash: "Paraformer" }, "stt"));
+    });
+    expect(r.current.interim).toBe("帮我把Paraformer");
+    expect(r.current.phase).toBe("listening");
+    // 强制停 → finish → final → ask 恰一次（零 stt.transcribe 上传——单转写）
+    nowMs += 500;
+    act(() => {
+      r.current.stopListening();
+    });
+    expect(sendSttStreamFinish).toHaveBeenCalledTimes(1);
+    const askBefore = sendStewardAsk.mock.calls.length;
+    act(() => {
+      emit("stt", frame("stt.stream.final", { status: "ok", streamId: "str-1", text: "帮我把 Paraformer 接入 DashScope", provider: "dashscope" }, "stt"));
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(sendStewardAsk.mock.calls.length).toBe(askBefore + 1), { timeout: 2000 });
+    expect((sendStewardAsk.mock.calls as unknown as [string][])[sendStewardAsk.mock.calls.length - 1]?.[0]).toBe("帮我把 Paraformer 接入 DashScope");
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    expect(r.current.interim).toBeNull(); // 出态清浮字
+  });
+
+  it("开流失败（started error）→ 静默降级：停后 blob 回落非流式，结果等价喂 ask", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const r = renderStream();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await act(async () => {
+      await r.current.startListening();
+    });
+    await tick();
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "error", reason: "key 未配" }, "stt"));
+    });
+    expect(r.current.streamDegraded).toBe(true);
+    nowMs += 500;
+    act(() => {
+      r.current.stopListening();
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 }); // 回落上传
+    expect(sendSttStreamFinish).not.toHaveBeenCalled(); // 死流不发 finish
+    const askBefore = sendStewardAsk.mock.calls.length;
+    act(() => {
+      emit("stt", frame("stt.transcribe.result", { status: "ok", text: "回落转写等价文本", provider: "dashscope" }, "stt"));
+    });
+    await waitFor(() => expect(sendStewardAsk.mock.calls.length).toBe(askBefore + 1), { timeout: 2000 });
+    expect((sendStewardAsk.mock.calls as unknown as [string][])[sendStewardAsk.mock.calls.length - 1]?.[0]).toBe("回落转写等价文本");
+  });
+
+  it("final error → 回落非流式（degraded 提示位）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const r = renderStream();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await act(async () => {
+      await r.current.startListening();
+    });
+    await tick();
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-1", provider: "dashscope", model: "m" }, "stt"));
+    });
+    nowMs += 500;
+    act(() => {
+      r.current.stopListening();
+    });
+    expect(sendSttStreamFinish).toHaveBeenCalledTimes(1);
+    act(() => {
+      emit("stt", frame("stt.stream.final", { status: "error", streamId: "str-1", reason: "上游连接断开" }, "stt"));
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(r.current.streamDegraded).toBe(true);
+  });
+
+  it("终帧超时 → 自动回落非流式（短窗注入 50ms）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const r = renderStream({ streamFinalTimeoutMs: 50 });
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await act(async () => {
+      await r.current.startListening();
+    });
+    await tick();
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-1", provider: "dashscope", model: "m" }, "stt"));
+    });
+    nowMs += 500;
+    act(() => {
+      r.current.stopListening();
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(r.current.streamDegraded).toBe(true);
+    // 迟到 final 不再消费（finalPending 已清 + streamId 已弃）
+    const askBefore = sendStewardAsk.mock.calls.length;
+    act(() => {
+      emit("stt", frame("stt.stream.final", { status: "ok", streamId: "str-1", text: "迟到终帧", provider: "dashscope" }, "stt"));
+    });
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    expect(sendStewardAsk.mock.calls.length).toBe(askBefore); // 未重复 ask
+  });
+
+  it("单飞门控：他流 streamId 的 interim/final 帧丢弃（不串台）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const r = renderStream();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await act(async () => {
+      await r.current.startListening();
+    });
+    await tick();
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-1", provider: "dashscope", model: "m" }, "stt"));
+    });
+    act(() => {
+      emit("stt", frame("stt.stream.interim", { streamId: "str-OTHER", prior: "", text: "他面", stash: "" }, "stt"));
+    });
+    expect(r.current.interim).toBeNull(); // 他流帧丢弃
+    nowMs += 500;
+    act(() => {
+      r.current.stopListening();
+    });
+    spy.mockRestore();
+    const askBefore = sendStewardAsk.mock.calls.length;
+    act(() => {
+      emit("stt", frame("stt.stream.final", { status: "ok", streamId: "str-OTHER", text: "他面终帧", provider: "dashscope" }, "stt"));
+    });
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    expect(sendStewardAsk.mock.calls.length).toBe(askBefore); // 他流终帧零消费
+  });
+
+  it("provider 偏好非 dashscope：零开流零连接（money 纪律——无流式能力不开流）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    // readSttProviderPref 已被 mock 为 undefined——动态改 mock 返回值
+    const prefMod = await import("@/shared/lib/stt-provider-pref");
+    const prefSpy = vi.spyOn(prefMod, "readSttProviderPref").mockReturnValue("siliconflow");
+    const r = renderStream();
+    await act(async () => {
+      await r.current.startListening();
+    });
+    expect(sendSttStreamStart).not.toHaveBeenCalled();
+    prefSpy.mockRestore();
+  });
+
+  it("开流不可达（sendSttStreamStart 缺席）：既有 V3a 行为等价（停即上传）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = false; // start 返回 false = 未连接形态
+    const r = renderStream();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await act(async () => {
+      await r.current.startListening();
+    });
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    nowMs += 500;
+    await tick();
+    act(() => {
+      r.current.stopListening();
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 });

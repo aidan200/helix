@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 87 个 type（… + 语音播报批 voice 3 + 文本管家批 steward 6）", () => {
+  test("命令目录恰为 91 个 type（… + 语音播报批 voice 3 + 文本管家批 steward 6 + 流式转写批 stt.stream 4）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -230,6 +230,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "steward.set_config",
         "steward.subscribe",
         "steward.unsubscribe",
+        "stt.stream.chunk",
+        "stt.stream.finish",
+        "stt.stream.start",
+        "stt.stream.stop",
         "stt.transcribe",
         "task.artifacts",
         "task.cancel",
@@ -255,7 +259,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 105 个 type（… + 语音播报批 voice 2 + 文本管家批 steward 4 + 管家流式体验批 steward.ask.delta）", () => {
+  test("事件目录恰为 108 个 type（… + 语音播报批 voice 2 + 文本管家批 steward 4 + 管家流式体验批 steward.ask.delta + 流式转写批 stt.stream 3）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -345,6 +349,9 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "steward.config.result",
         "steward.confirm.result",
         "steward.feed",
+        "stt.stream.final",
+        "stt.stream.interim",
+        "stt.stream.started",
         "stt.transcribe.result",
         "task.changed",
         "thinking.changed",
@@ -568,7 +575,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome", "coord.changed", "task.changed"]); // task 批：+task.changed（挂既有 notification 通道，不新增 Channel 值）
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
-    expect(roster("stt")).toEqual(["stt.transcribe.result"]); // 语音输入批新族（V1 云转写：点对点结果帧）
+    expect(roster("stt")).toEqual(["stt.stream.final", "stt.stream.interim", "stt.stream.started", "stt.transcribe.result"]); // 语音输入批新族（V1 云转写）+ 流式转写批 +3（V3b-1）
     expect(roster("voice")).toEqual(["voice.broadcast", "voice.synthesize.result"]); // 语音播报批新族（V2 TTS：广播帧 + 点对点结果帧）
     expect(roster("kg")).toEqual([
       // kg 批新族（iter-20260825-11fo T5.3）：六命令点对点回执，O-6 零推送事件
@@ -599,11 +606,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（管家流式体验批后）：EVENT_TYPES 105 / EVENT_CHANNELS 105 键 / COMMAND_TYPES 87", () => {
-    expect(EVENT_TYPES.length).toBe(105); // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(105); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(105); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(87); // 文本管家批 +6 // 语音播报批 +3
+  test("目录计数（流式转写批后）：EVENT_TYPES 108 / EVENT_CHANNELS 108 键 / COMMAND_TYPES 91", () => {
+    expect(EVENT_TYPES.length).toBe(108); // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(108); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(108); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(91); // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });

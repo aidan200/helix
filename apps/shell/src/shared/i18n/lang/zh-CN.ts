@@ -1101,6 +1101,7 @@ export const zhCN = {
       phaseAsking: "思考中…",
       phaseSpeaking: "朗读中…",
       micUnavailable: "当前环境不支持录音，已切回文本输入",
+      streamDegraded: "实时转写不可用，已用整段转写",
     },
   },
 };

@@ -40,6 +40,10 @@ import type {
 } from "@helix/protocol";
 import {
   agentBasePromptGetCommand,
+  sttStreamChunkCommand,
+  sttStreamFinishCommand,
+  sttStreamStartCommand,
+  sttStreamStopCommand,
   sttTranscribeCommand,
   stewardAskCommand,
   stewardConfirmCommand,
@@ -211,6 +215,18 @@ export const COMMAND_SURFACE = {
       const { sessionId } = deps.getTopology().active;
       return deps.send(sttTranscribeCommand(audio, opts, sessionId ?? undefined));
     },
+
+  // ── 流式转写面（V3b-1 stt.stream）────────────────────
+  /** 开流（回执 stt.stream.started 两判别经 subscribeSttFrames 点对点消费；
+   *  返回 false = 未连接——消费方静默降级非流式链路）。 */
+  sendSttStreamStart: (deps) =>
+    (opts?: { language?: string; provider?: string }): boolean => deps.send(sttStreamStartCommand(opts)),
+  /** 音频块上行（base64 PCM 16k mono ~100ms；无 ack）。 */
+  sendSttStreamChunk: (deps) => (audio: string): boolean => deps.send(sttStreamChunkCommand(audio)),
+  /** 正常收口（终帧经 stt.stream.final）。 */
+  sendSttStreamFinish: (deps) => (): boolean => deps.send(sttStreamFinishCommand()),
+  /** 中止（不期终帧；面板卸载/废弃流）。 */
+  sendSttStreamStop: (deps) => (): boolean => deps.send(sttStreamStopCommand()),
 
   // ── 语音播报面（语音播报批 V2 TTS）────────────────────
   /** 试听合成（全局命令；回执 voice.synthesize.result 点对点——设置页
@@ -793,9 +809,16 @@ export const LISTEN_SURFACE = {
       (type.startsWith("mcp.") && type.endsWith(".result")),
   },
   /** 订阅 stt 族帧（语音输入批 V1：stt.transcribe.result 点对点回执 +
-   *  connection.error——Composer 转写在途态判定，单飞门控消费）。 */
+   *  connection.error——Composer 转写在途态判定，单飞门控消费；V3b-1 扩
+   *  stt.stream 三帧——started/interim/final（useStewardVoice 流式面消费，
+   *  Composer 对流式帧零感知）。 */
   subscribeSttFrames: {
-    match: (type) => type === "stt.transcribe.result" || type === "connection.error",
+    match: (type) =>
+      type === "stt.transcribe.result" ||
+      type === "stt.stream.started" ||
+      type === "stt.stream.interim" ||
+      type === "stt.stream.final" ||
+      type === "connection.error",
   },
   /** 订阅 voice 族帧（语音播报批 V2 TTS：voice.broadcast 广播 +
    *  voice.synthesize.result 点对点回执 + connection.error——useVoiceBroadcast

@@ -32,6 +32,8 @@ let phase: StewardVoicePhase = "idle";
 let level = 0;
 let speaking = false;
 let voiceError: string | null = null;
+let interim: string | null = null;
+let streamDegraded = false;
 
 vi.mock("../model/useStewardVoice", () => ({
   useStewardVoice: (): UseStewardVoice =>
@@ -52,6 +54,8 @@ vi.mock("../model/useStewardVoice", () => ({
       },
       phase,
       level,
+      interim,
+      streamDegraded,
       speaking,
       voiceError,
       voiceDraft: null,
@@ -77,6 +81,8 @@ function renderPanel() {
 
 describe("StewardPanel 语音模式面（V3a）", () => {
   beforeEach(() => {
+    interim = null;
+    streamDegraded = false;
     mode = "voice";
     phase = "idle";
     level = 0;
@@ -174,5 +180,63 @@ describe("StewardPanel 语音模式面（V3a）", () => {
     voiceError = 'provider "dashscope" 未录入 API key';
     renderPanel();
     await waitFor(() => expect(screen.getByTestId("steward-voice-err").textContent).toContain("API key"));
+  });
+});
+
+// ── V3b-1 流式面渲染：interim 浮字 + 降级提示 ────────────────────
+
+describe("StewardPanel 流式转写面（V3b-1）", () => {
+  const startListening2 = startListening;
+  const stopListening2 = stopListening;
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    interim = null;
+    streamDegraded = false;
+    phase = "idle";
+  });
+
+  it("listening 态 interim 非空 → 浮字呈现（steward-interim）；idle 态不渲染", async () => {
+    phase = "listening";
+    interim = "帮我把Paraformer";
+    render(
+      <I18nProvider>
+        <StewardPanel onClose={() => undefined} />
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId("steward-interim").textContent).toBe("帮我把Paraformer");
+    cleanup();
+    phase = "idle";
+    interim = "残留文本";
+    render(
+      <I18nProvider>
+        <StewardPanel onClose={() => undefined} />
+      </I18nProvider>,
+    );
+    expect(screen.queryByTestId("steward-interim")).toBeNull(); // 非 listening/transcribing 不渲染
+  });
+
+  it("transcribing 态 interim 短暂保留（final 转正前闪现）", async () => {
+    phase = "transcribing";
+    interim = "终帧前的最后浮字";
+    render(
+      <I18nProvider>
+        <StewardPanel onClose={() => undefined} />
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId("steward-interim").textContent).toBe("终帧前的最后浮字");
+  });
+
+  it("streamDegraded + listening → 不显眼降级提示一行（不弹错误卡）", async () => {
+    phase = "listening";
+    streamDegraded = true;
+    render(
+      <I18nProvider>
+        <StewardPanel onClose={() => undefined} />
+      </I18nProvider>,
+    );
+    const hint = screen.getByTestId("steward-stream-degraded");
+    expect(hint.textContent).toContain("整段转写");
   });
 });

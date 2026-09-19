@@ -109,7 +109,7 @@ import {
 } from "./handlers/kg";
 import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet, handleAgentSkillCreate } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
-import { handleSttTranscribe } from "./handlers/stt";
+import { handleSttStreamChunk, handleSttStreamFinish, handleSttStreamStart, handleSttStreamStop, handleSttTranscribe } from "./handlers/stt";
 import { handleVoiceSubscribe, handleVoiceSynthesize, handleVoiceUnsubscribe } from "./handlers/voice";
 import {
   handleStewardAsk,
@@ -279,7 +279,12 @@ export class WsServerAdapter {
 
   private onClose(ws: ServerWebSocket<ConnState>): void {
     this.handshakeQueues.delete(ws); // 窗口内断连：丢弃排队帧（回放面另有 readyState 守卫）
-    if (ws.data.sender) this.deps.events.detach(ws.data.sender);
+    if (ws.data.sender) {
+      this.deps.events.detach(ws.data.sender);
+      // 流式转写批（V3b-1）：连接级单流随断连清理（abort 上游——voice.subscribe
+      // 断连清位同构；money 纪律：不留孤儿上游 WS）
+      this.deps.stt?.stream?.service.closeSender(ws.data.sender);
+    }
   }
 
   private onMessage(ws: ServerWebSocket<ConnState>, data: string | Buffer): void {
@@ -590,6 +595,20 @@ export class WsServerAdapter {
         return this.deps.stt === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleSttTranscribe(this.contexts.sttContext(ws, type, payload, envelope));
+      // ── stt.stream 批（V3b-1 流式转写；stream 面未装配 → unimplemented，stt 先例）──
+      case "stt.stream.start":
+      case "stt.stream.chunk":
+      case "stt.stream.finish":
+      case "stt.stream.stop": {
+        if (this.deps.stt === undefined || this.deps.stt.stream === undefined) {
+          return this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`);
+        }
+        const streamCtx = this.contexts.sttContext(ws, type, payload, envelope);
+        if (type === "stt.stream.start") return handleSttStreamStart(streamCtx);
+        if (type === "stt.stream.chunk") return handleSttStreamChunk(streamCtx);
+        if (type === "stt.stream.finish") return handleSttStreamFinish(streamCtx);
+        return handleSttStreamStop(streamCtx);
+      }
       // ── voice 批（语音播报 V2 TTS；全局命令先例 = stt 批）──
       case "voice.synthesize":
         return this.deps.voice === undefined

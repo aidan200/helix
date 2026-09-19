@@ -232,6 +232,15 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "stt.transcribe.result":
       // 语音输入批（V1 云转写）：两判别窄化（ok 文本 / error 原因）
       return `stt-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.text}` : event.payload.reason}`;
+    case "stt.stream.started":
+      // 流式转写批（V3b-1）：开流回执两判别窄化（ok streamId / error 原因）
+      return `stt-stream-started:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.streamId}` : event.payload.reason}`;
+    case "stt.stream.interim":
+      // 流式转写批（V3b-1）：中间帧四字段窄化（streamId/prior/text/stash）
+      return `stt-stream-interim:${event.payload.streamId}:${event.payload.prior}:${event.payload.text}:${event.payload.stash}`;
+    case "stt.stream.final":
+      // 流式转写批（V3b-1）：终帧两判别窄化（ok 全文 / error 原因）
+      return `stt-stream-final:${event.payload.status}:${event.payload.streamId}:${event.payload.status === "ok" ? event.payload.text : event.payload.reason}`;
     case "voice.broadcast":
       // 语音播报批（V2 TTS）：广播帧窄化（kind/text/seq）
       return `voice-broadcast:${event.payload.kind}:${event.payload.agentId}:${event.payload.seq}`;
@@ -433,6 +442,16 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "stt.transcribe":
       // 语音输入批（V1 云转写）：音频 data URL 载荷窄化守护
       return `stt-transcribe:${cmd.payload.audio.slice(0, 8)}:${cmd.payload.durationMs ?? "-"}:${cmd.payload.language ?? "auto"}`;
+    case "stt.stream.start":
+      // 流式转写批（V3b-1）：开流命令窄化（language/provider 可选位）
+      return `stt-stream-start:${cmd.payload.language ?? "auto"}:${cmd.payload.provider ?? "auto"}`;
+    case "stt.stream.chunk":
+      // 流式转写批（V3b-1）：音频块命令窄化（base64 PCM 载荷）
+      return `stt-stream-chunk:${cmd.payload.audio.slice(0, 5)}`;
+    case "stt.stream.finish":
+      return "stt-stream-finish";
+    case "stt.stream.stop":
+      return "stt-stream-stop";
     case "voice.synthesize":
       // 语音播报批（V2 TTS）：试听合成命令窄化（text/voice）
       return `voice-synthesize:${cmd.payload.text}:${cmd.payload.voice ?? "-"}`;

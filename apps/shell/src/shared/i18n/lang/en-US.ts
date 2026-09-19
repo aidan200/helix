@@ -1094,6 +1094,7 @@ export const enUS = {
       phaseAsking: "Thinking…",
       phaseSpeaking: "Reading aloud…",
       micUnavailable: "Recording is not supported in this environment; switched back to text input",
+      streamDegraded: "Live transcription unavailable; using full-clip fallback",
     },
   },
 } satisfies Translations;

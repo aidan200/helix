@@ -104,6 +104,10 @@ import type {
   McpServersUpdateCommand,
   McpToolsListCommand,
   WebStatusCommand,
+  SttStreamChunkCommand,
+  SttStreamFinishCommand,
+  SttStreamStartCommand,
+  SttStreamStopCommand,
   SttTranscribeCommand,
   StewardAskCommand,
   StewardConfirmCommand,
@@ -409,6 +413,36 @@ export function sttTranscribeCommand(
     ...(sessionId !== undefined ? { sessionId } : {}),
     payload: { audio, ...(opts?.language !== undefined ? { language: opts.language } : {}), ...(opts?.provider !== undefined ? { provider: opts.provider } : {}) },
   };
+}
+
+// ── stt.stream 族命令（V3b-1 流式转写）：开流/音频块上行/收口/中止 ──
+// 回执/帧 = stt.stream.started / .interim / .final 点对点（streamId 门控）。
+
+/** stt.stream.start：开流（语言提示可选；provider 缺省 = daemon 自动选择）。 */
+export function sttStreamStartCommand(opts?: { language?: string; provider?: string }): SttStreamStartCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "stt.stream.start",
+    payload: {
+      ...(opts?.language !== undefined ? { language: opts.language } : {}),
+      ...(opts?.provider !== undefined ? { provider: opts.provider } : {}),
+    },
+  };
+}
+
+/** stt.stream.chunk：音频块上行（base64 PCM 16k mono ~100ms；无 ack）。 */
+export function sttStreamChunkCommand(audio: string): SttStreamChunkCommand {
+  return { v: PROTOCOL_VERSION, type: "stt.stream.chunk", payload: { audio } };
+}
+
+/** stt.stream.finish：正常收口（终帧经 stt.stream.final）。 */
+export function sttStreamFinishCommand(): SttStreamFinishCommand {
+  return { v: PROTOCOL_VERSION, type: "stt.stream.finish", payload: {} };
+}
+
+/** stt.stream.stop：中止（不期终帧；面板卸载/废弃流）。 */
+export function sttStreamStopCommand(): SttStreamStopCommand {
+  return { v: PROTOCOL_VERSION, type: "stt.stream.stop", payload: {} };
 }
 
 // ── voice 族命令（语音播报批 V2 TTS）：试听合成 + 连接级订阅闸门 ────

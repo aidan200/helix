@@ -409,3 +409,202 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     restore();
   });
 });
+
+// ── V3b-1 流式扩展面：deferred 收口 + PCM 泵 + 单飞门控扩展 ─────────
+
+describe("useVoiceInput（V3b-1：deferredTranscribe 流式收口面）", () => {
+  const origMediaDevices = navigator.mediaDevices;
+  const origRecorder = (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    frameListener = null;
+    FakeMediaRecorder.instances = [];
+    Object.defineProperty(navigator, "mediaDevices", { value: origMediaDevices, configurable: true });
+    if (origRecorder === undefined) delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+    else (globalThis as { MediaRecorder?: unknown }).MediaRecorder = origRecorder;
+  });
+
+  /** 走到 deferred 停录点（强停 + 过最短窗；返回 hook result）。 */
+  async function recordAndStopDeferred(onDeferredHold: () => void) {
+    const restore = installRecorder();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const { result } = renderHook(
+      () =>
+        useVoiceInput(vi.fn(), {
+          ...deps,
+          deferredTranscribe: true,
+          onDeferredHold,
+          createMeter: () => Promise.resolve(makeFakeMeter()),
+        }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    nowMs += 500; // 过最短录音窗
+    await tick();
+    act(() => {
+      result.current.stop();
+    });
+    spy.mockRestore();
+    restore();
+    return result;
+  }
+
+  it("deferred 停录：持 blob 停留 transcribing（零上传）+ onDeferredHold 恰一次", async () => {
+    const onDeferredHold = vi.fn();
+    const result = await recordAndStopDeferred(onDeferredHold);
+    expect(result.current.state).toBe("transcribing");
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    expect(onDeferredHold).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolveStreaming(text)：非空 → idle + onTranscript；空 → idle 零回调（静音丢弃）", async () => {
+    const onTranscript = vi.fn();
+    const restore = installRecorder();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const { result } = renderHook(
+      () => useVoiceInput(onTranscript, { ...deps, deferredTranscribe: true, createMeter: () => Promise.resolve(makeFakeMeter()) }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    nowMs += 500;
+    await tick();
+    act(() => {
+      result.current.stop();
+    });
+    let resolved = false;
+    act(() => {
+      resolved = result.current.resolveStreaming("帮我把 Paraformer 接入");
+    });
+    expect(resolved).toBe(true);
+    expect(result.current.state).toBe("idle");
+    expect(onTranscript).toHaveBeenCalledTimes(1);
+    expect(onTranscript).toHaveBeenCalledWith("帮我把 Paraformer 接入");
+    // 空文本轮：丢弃回 idle 零回调（fake clock 继续推进过最短窗）
+    await act(async () => {
+      await result.current.start();
+    });
+    nowMs += 500;
+    await tick();
+    act(() => {
+      result.current.stop();
+    });
+    let resolvedEmpty = false;
+    act(() => {
+      resolvedEmpty = result.current.resolveStreaming("");
+    });
+    expect(resolvedEmpty).toBe(true);
+    expect(result.current.state).toBe("idle");
+    expect(onTranscript).toHaveBeenCalledTimes(1); // 未新增
+    // 非 deferred 态 no-op
+    let stale = true;
+    act(() => {
+      stale = result.current.resolveStreaming("x");
+    });
+    expect(stale).toBe(false);
+    spy.mockRestore();
+    restore();
+  });
+
+  it("transcribeNow：回落非流式——blob 上传链照旧（data URL + language zh）", async () => {
+    const result = await recordAndStopDeferred(() => undefined);
+    act(() => {
+      result.current.transcribeNow();
+    });
+    await waitFor(() => {
+      expect(sendSttTranscribe).toHaveBeenCalledTimes(1);
+    }, { timeout: 2000 });
+    const [audioArg, optsArg] = sendSttTranscribe.mock.calls[0] as unknown as [string, { language?: string }];
+    expect(audioArg.startsWith("data:audio/webm;codecs=opus;base64,")).toBe(true);
+    expect(optsArg.language).toBe("zh");
+    expect(result.current.state).toBe("transcribing"); // 等回执
+  });
+
+  it("单飞门控（V3b-1 扩展）：deferred 等终帧期间外来回执不消费；transcribeNow 后消费", async () => {
+    const result = await recordAndStopDeferred(() => undefined);
+    act(() => {
+      frameListener?.({
+        v: "0.13",
+        sessionId: "__system__",
+        channel: "stt",
+        type: "stt.transcribe.result",
+        payload: { status: "ok", text: "他面的结果", provider: "dashscope" },
+      } as unknown as EventEnvelope);
+    });
+    expect(result.current.state).toBe("transcribing"); // 未被外来回执收口
+    act(() => {
+      result.current.transcribeNow();
+    });
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    act(() => {
+      frameListener?.({
+        v: "0.13",
+        sessionId: "__system__",
+        channel: "stt",
+        type: "stt.transcribe.result",
+        payload: { status: "ok", text: "回落转写文本", provider: "dashscope" },
+      } as unknown as EventEnvelope);
+    });
+    expect(result.current.state).toBe("idle");
+  });
+
+  it("onPcmFrame：pump 挂载 + 录音中帧转发 + 停录后关闭零转发", async () => {
+    const restore = installRecorder();
+    const onPcmFrame = vi.fn();
+    let pumpCb: ((frame: ArrayBuffer) => void) | null = null;
+    const pump = {
+      onFrame: (cb: (frame: ArrayBuffer) => void) => {
+        pumpCb = cb;
+      },
+      close: vi.fn(),
+    };
+    const createPump = vi.fn(() => Promise.resolve(pump));
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(makeFakeMeter()), onPcmFrame, createPump }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    expect(createPump).toHaveBeenCalledTimes(1); // 挂载
+    const frame = new ArrayBuffer(3200);
+    act(() => {
+      pumpCb?.(frame);
+    });
+    expect(onPcmFrame).toHaveBeenCalledTimes(1);
+    expect(onPcmFrame).toHaveBeenCalledWith(frame);
+    act(() => {
+      result.current.stop();
+    });
+    expect(pump.close).toHaveBeenCalledTimes(1);
+    act(() => {
+      pumpCb?.(new ArrayBuffer(3200));
+    });
+    expect(onPcmFrame).toHaveBeenCalledTimes(1); // 停录后零转发
+    restore();
+  });
+
+  it("不传 onPcmFrame：pump 工厂零调用（V3a 行为零感知——Composer 先例）", async () => {
+    const restore = installRecorder();
+    const createPump = vi.fn(() => Promise.resolve(null));
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(makeFakeMeter()), createPump }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(createPump).not.toHaveBeenCalled();
+    restore();
+  });
+});

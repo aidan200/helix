@@ -117,6 +117,12 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // Composer useVoiceInput（SessionContext 转发层 subscribeSttFrames——
   // trace.query.result 先例）
   "stt.transcribe.result",
+  // 流式转写批 V3b-1：stt.stream 三帧 = 连接私有（started/interim/final
+  // 点对点），真消费归 useStewardVoice 流式面（subscribeSttFrames 扩帧——
+  // Composer 对流式帧零感知）
+  "stt.stream.started",
+  "stt.stream.interim",
+  "stt.stream.final",
   // 语音播报批 V2 TTS：voice.broadcast 广播帧（仅已订阅连接收）+ 语音合成
   // 回执 = 连接私有，真消费归 useVoiceBroadcast 播放与设置页试听
   //（SessionContext 转发层 subscribeVoiceFrames——stt 先例同构）
