@@ -21,7 +21,7 @@ import {
   type SessionState,
 } from "@/entities/session/model/session-reducer";
 import type { EventEnvelope } from "@helix/protocol";
-import type { VoiceInput, VoiceState } from "../model/useVoiceInput";
+import type { VoiceInput, VoiceState } from "@/shared/lib/useVoiceInput";
 
 const start = vi.fn(async () => undefined);
 const stop = vi.fn();
@@ -42,7 +42,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     }),
   };
 });
-vi.mock("../model/useVoiceInput", () => ({
+vi.mock("@/shared/lib/useVoiceInput", () => ({
   useVoiceInput: (): VoiceInput => ({ state: voiceState, level: voiceLevel, error: null, start, stop }),
 }));
 

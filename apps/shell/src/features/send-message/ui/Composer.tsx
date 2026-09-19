@@ -20,7 +20,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { selectCanSend, selectIsGenerating, useSession } from "@/entities/session/SessionContext";
 import { selectActiveRunState } from "@/entities/session/model/topology";
-import { useVoiceInput } from "../model/useVoiceInput";
+import { useVoiceInput } from "@/shared/lib/useVoiceInput";
 import { cn } from "@/shared/lib/cn";
 
 /** textarea 自动增高上限（px；≈7 行），超出后 overflow-y 内滚。 */
@@ -85,7 +85,8 @@ export interface ComposerHandle {
 const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ footEnd }, ref) {
   const { t } = useI18n();
   const toast = useToast();
-  const { state, setDraft, submit, abort, attachImages, removeAttachment } = useSession();
+  const { state, setDraft, submit, abort, attachImages, removeAttachment, sendSttTranscribe, subscribeSttFrames } =
+    useSession();
   const canSend = selectCanSend(state);
   const generating = selectIsGenerating(state);
   // 停止钮可用判据：main session 正在生成（subagent_running = main 空闲，
@@ -95,10 +96,11 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
   const fileRef = useRef<HTMLInputElement>(null);
   // M52：聚焦出口（pages 层经 ref 调起；替代跨层 getElementById 直达）
   useImperativeHandle(ref, () => ({ focus: () => taRef.current?.focus() }), []);
-  // 语音输入（V1）：转写文本回填草稿（末尾拼接——保留已输入内容）；失败 toast
+  // 语音输入（V1；V3a useVoiceInput 下移 shared——session 面 DI 注入）：转写
+  // 文本回填草稿（末尾拼接——保留已输入内容）；失败 toast
   const voice = useVoiceInput((text) => {
     setDraft(state.draft === "" ? text : `${state.draft}${text}`);
-  });
+  }, { sendSttTranscribe, subscribeSttFrames });
   useEffect(() => {
     if (voice.error !== null) toast.push("err", voice.error);
   }, [toast, voice.error]);

@@ -19,9 +19,9 @@ const css = readFileSync(
   "utf8",
 );
 
-/** 截取 stp 段（管家弹层段注释 → 段尾标记行）。 */
+/** 截取 stp 段（管家弹层段注释 → 段尾标记行；V3a 语音面块纳入守护面）。 */
 const SEG_START = css.indexOf("/* ── 管家全局弹层");
-const SEG_END = css.indexOf(".stp-send:active");
+const SEG_END = css.indexOf(".stp-wave-bar { transition: none; }");
 expect(SEG_START).toBeGreaterThan(0);
 expect(SEG_END).toBeGreaterThan(SEG_START);
 const seg = css.slice(SEG_START, SEG_END);

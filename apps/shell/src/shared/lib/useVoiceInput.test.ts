@@ -13,7 +13,8 @@
  * - 过短录音（<VOICE_MIN_DURATION_MS）不发送（防误触计费）；
  * - 转写中互斥：transcribing 态 start() no-op（不二次 getUserMedia）；
  * - level 暴露：meter 帧驱动（loud 帧 ≥ 阈值抬升、静音帧衰减）；
- * - 回执 ok → onTranscript；回执 error → error 态；send false → idle + error。
+ * - 回执 ok → onTranscript；回执 error → error 态；send false → idle + error；
+ * - 单飞门控（V3a）：idle 态吞外来回执（两消费面并存防串台）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, act, waitFor } from "@testing-library/react";
@@ -29,9 +30,8 @@ const subscribeSttFrames = vi.fn((cb: (e: EventEnvelope) => void) => {
   };
 });
 
-vi.mock("@/entities/session/SessionContext", () => ({
-  useSession: () => ({ sendSttTranscribe, subscribeSttFrames }),
-}));
+/** DI 面（V3a 下移 shared：session 命令/订阅注入——与消费方 Composer/StewardDock 同形）。 */
+const deps = { sendSttTranscribe, subscribeSttFrames };
 
 vi.mock("@/shared/lib/stt-provider-pref", () => ({
   readSttProviderPref: () => undefined,
@@ -136,7 +136,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
   it("unsupported：无 mediaDevices → 初始态 unsupported、start() no-op 不抛错", async () => {
     Object.defineProperty(navigator, "mediaDevices", { value: undefined, configurable: true });
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput(onTranscript), { wrapper: I18nProvider });
+    const { result } = renderHook(() => useVoiceInput(onTranscript, deps), { wrapper: I18nProvider });
     expect(result.current.state).toBe("unsupported");
     await act(async () => {
       await result.current.start();
@@ -149,7 +149,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const restore = installRecorder();
     const meter = makeFakeMeter();
     const factory = vi.fn(() => Promise.resolve(meter));
-    const { result } = renderHook(() => useVoiceInput(vi.fn(), { createMeter: factory }), {
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), { ...deps, createMeter: factory }), {
       wrapper: I18nProvider,
     });
     expect(result.current.state).toBe("idle");
@@ -170,7 +170,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     clockRestore = clock.restore;
     const meter = makeFakeMeter();
     const { result } = renderHook(
-      () => useVoiceInput(vi.fn(), { createMeter: () => Promise.resolve(meter) }),
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
       { wrapper: I18nProvider },
     );
     await act(async () => {
@@ -206,7 +206,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     clockRestore = clock.restore;
     const meter = makeFakeMeter();
     const { result } = renderHook(
-      () => useVoiceInput(vi.fn(), { createMeter: () => Promise.resolve(meter) }),
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
       { wrapper: I18nProvider },
     );
     await act(async () => {
@@ -235,7 +235,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const meter = makeFakeMeter();
     const onTranscript = vi.fn();
     const { result } = renderHook(
-      () => useVoiceInput(onTranscript, { createMeter: () => Promise.resolve(meter) }),
+      () => useVoiceInput(onTranscript, { ...deps, createMeter: () => Promise.resolve(meter) }),
       { wrapper: I18nProvider },
     );
     await act(async () => {
@@ -275,7 +275,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const restore = installRecorder();
     const clock = useFakeClock();
     clockRestore = clock.restore;
-    const { result } = renderHook(() => useVoiceInput(vi.fn()), { wrapper: I18nProvider });
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), deps), { wrapper: I18nProvider });
     await act(async () => {
       await result.current.start();
     });
@@ -291,7 +291,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const restore = installRecorder();
     const clock = useFakeClock();
     clockRestore = clock.restore;
-    const { result } = renderHook(() => useVoiceInput(vi.fn()), { wrapper: I18nProvider });
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), deps), { wrapper: I18nProvider });
     await act(async () => {
       await result.current.start();
     });
@@ -315,7 +315,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const restore = installRecorder();
     const meter = makeFakeMeter();
     const { result } = renderHook(
-      () => useVoiceInput(vi.fn(), { createMeter: () => Promise.resolve(meter) }),
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
       { wrapper: I18nProvider },
     );
     await act(async () => {
@@ -340,7 +340,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const restore = installRecorder();
     const clock = useFakeClock();
     clockRestore = clock.restore;
-    const { result } = renderHook(() => useVoiceInput(vi.fn()), { wrapper: I18nProvider });
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), deps), { wrapper: I18nProvider });
     await act(async () => {
       await result.current.start();
     });
@@ -367,7 +367,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     const restore = installRecorder();
     const clock = useFakeClock();
     clockRestore = clock.restore;
-    const { result } = renderHook(() => useVoiceInput(vi.fn()), { wrapper: I18nProvider });
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), deps), { wrapper: I18nProvider });
     await act(async () => {
       await result.current.start();
     });
@@ -379,6 +379,33 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
     expect(result.current.state).toBe("idle");
     expect(result.current.error).not.toBeNull(); // sendFail 词条
+    restore();
+  });
+
+  it("单飞门控（V3a）：idle 态吞外来回执——他消费面（管家语音）的转写结果不回填不报错", async () => {
+    const restore = installRecorder();
+    const onTranscript = vi.fn();
+    const { result } = renderHook(() => useVoiceInput(onTranscript, deps), { wrapper: I18nProvider });
+    // 本钩子 idle（未在转写在途）；外来 ok 回执到达
+    act(() => {
+      frameListener!({
+        v: "0.13",
+        type: "stt.transcribe.result",
+        payload: { status: "ok", text: "他消费面的转写", provider: "dashscope" },
+      } as EventEnvelope);
+    });
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(result.current.state).toBe("idle");
+    expect(result.current.error).toBeNull();
+    // 外来 error 回执同理吞（不污染本面 error）
+    act(() => {
+      frameListener!({
+        v: "0.13",
+        type: "stt.transcribe.result",
+        payload: { status: "error", reason: "他面错误" },
+      } as EventEnvelope);
+    });
+    expect(result.current.error).toBeNull();
     restore();
   });
 });

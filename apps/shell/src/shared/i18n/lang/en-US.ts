@@ -344,6 +344,10 @@ export const enUS = {
         enable: "Enable steward",
         enableOn: "Turn on",
         enableHint: "Free while off; when on, billed by the usage of the selected model.",
+        // ── Voice-mode read-aloud switch (V3a: only applies in panel voice mode; text mode never speaks) ──
+        speakReply: "Read replies aloud in voice mode",
+        speakReplyOn: "On",
+        speakReplyHint: "When on, spoken questions get spoken replies; replies to typed questions are never read aloud.",
         groupModel: "Answer model",
         model: "Answer model",
         modelHint: "A lightweight model is recommended: faster replies, lower cost. Only models from configured providers are listed; configure them in the Models section.",
@@ -1075,6 +1079,22 @@ export const enUS = {
     confirmBody: "Message",
     confirmYes: "Confirm",
     confirmNo: "Dismiss",
+    // ── Voice mode (V3a: dual-mode switch + talk loop panel face; text mode never speaks) ──
+    voice: {
+      modeLabel: "Input mode",
+      modeVoice: "Voice",
+      modeText: "Text",
+      micStart: "Start talking",
+      micStop: "Finish talking",
+      speakStop: "Stop reading",
+      phaseIdle: "Tap the mic to talk to the steward",
+      phaseIdleHint: "Auto-sends after about 1.8s of silence; tap again to finish early",
+      phaseListening: "Listening…",
+      phaseTranscribing: "Transcribing…",
+      phaseAsking: "Thinking…",
+      phaseSpeaking: "Reading aloud…",
+      micUnavailable: "Recording is not supported in this environment; switched back to text input",
+    },
   },
 } satisfies Translations;
 

@@ -346,6 +346,10 @@ export const zhCN = {
         enable: "启用管家",
         enableOn: "开启",
         enableHint: "关闭时完全免费；开启后按所选模型用量计费。",
+        // ── 语音模式朗读开关（V3a：仅面板语音模式内生效；文本模式零发声）──
+        speakReply: "语音模式下朗读回复",
+        speakReplyOn: "开启",
+        speakReplyHint: "开启后，语音提问的回答会自动读出来；文字输入的回答不会发声。",
         groupModel: "回答模型",
         model: "回答模型",
         modelHint: "建议选择轻快的模型，回答更快、费用更低。仅显示已配置厂商的模型，未配置的请到「模型」分区配置。",
@@ -1082,6 +1086,22 @@ export const zhCN = {
     confirmBody: "内容",
     confirmYes: "确认执行",
     confirmNo: "放弃",
+    // ── 语音模式（V3a：双模切换 + 说话闭环面板面；文本模式零发声）──
+    voice: {
+      modeLabel: "输入方式",
+      modeVoice: "语音",
+      modeText: "文本",
+      micStart: "开始说话",
+      micStop: "结束说话",
+      speakStop: "停止朗读",
+      phaseIdle: "点击麦克风，跟管家说话",
+      phaseIdleHint: "说完停顿约 1.8 秒自动发送，也可以点击提前结束",
+      phaseListening: "聆听中…",
+      phaseTranscribing: "转写中…",
+      phaseAsking: "思考中…",
+      phaseSpeaking: "朗读中…",
+      micUnavailable: "当前环境不支持录音，已切回文本输入",
+    },
   },
 };
 

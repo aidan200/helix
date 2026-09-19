@@ -292,4 +292,25 @@ describe("StewardSettingsSection 管家设置段（V2.5 收官批）", () => {
       "openai/gpt-5.2-mini",
     ]);
   });
+
+  // ── 语音朗读开关（V3a：本地偏好——默认开，写关落键；daemon 零命令）──
+  it("朗读开关：默认勾选；取消勾 → 偏好落键 + 勾选态翻转；零 sendStewardSetConfig", async () => {
+    localStorage.clear();
+    rig();
+    act(() => {
+      frameListener?.(frame({ enabled: true, model: "deepseek/deepseek-v4-flash" }));
+    });
+    const cb = (await waitFor(() => screen.getByTestId("steward-speak-reply-toggle"))) as HTMLInputElement;
+    expect(cb.checked).toBe(true); // 默认开（brief 口径）
+    expect(localStorage.getItem("helix.steward.speakReply")).toBeNull(); // 缺省即开：写关才落键
+    const callsBefore = sendStewardSetConfig.mock.calls.length;
+    fireEvent.click(cb);
+    expect(cb.checked).toBe(false);
+    expect(localStorage.getItem("helix.steward.speakReply")).toBe("0");
+    expect(sendStewardSetConfig.mock.calls.length).toBe(callsBefore); // 本地偏好零 daemon 命令
+    fireEvent.click(cb);
+    expect(cb.checked).toBe(true);
+    expect(localStorage.getItem("helix.steward.speakReply")).toBeNull(); // 开 = 键清除
+    localStorage.clear();
+  });
 });

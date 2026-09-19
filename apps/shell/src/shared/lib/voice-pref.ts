@@ -80,3 +80,30 @@ export function writeVoiceVolumePref(volume: number): void {
     // 静默兜底
   }
 }
+
+// ── 管家语音模式朗读偏好（V3a 管家语音模式；设置页管家分区写入 /
+// useStewardVoice 朗读闸读取）──────────────────────
+
+/** 管家朗读开关存储键（"0"=关；缺省/其它 = 开——用户视角默认「管家会读出来」，
+ *  与全局播报默认关不同向：本开关只作用于管家面板语音模式内，且仅 answer
+ *  终态合成一次——设置页可随时关）。 */
+export const STEWARD_SPEAK_REPLY_PREF_KEY = "helix.steward.speakReply";
+
+/** 读管家朗读开关（默认开；仅语音模式生效——文本模式零发声是硬约束）。 */
+export function readStewardSpeakReplyPref(): boolean {
+  try {
+    return localStorage.getItem(STEWARD_SPEAK_REPLY_PREF_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/** 写管家朗读开关。 */
+export function writeStewardSpeakReplyPref(on: boolean): void {
+  try {
+    if (on) localStorage.removeItem(STEWARD_SPEAK_REPLY_PREF_KEY); // 缺省即开：写关才落键
+    else localStorage.setItem(STEWARD_SPEAK_REPLY_PREF_KEY, "0");
+  } catch {
+    // 静默兜底（等价默认开）
+  }
+}

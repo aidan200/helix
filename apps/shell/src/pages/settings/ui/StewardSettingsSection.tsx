@@ -31,6 +31,7 @@ import { useSession } from "@/entities/session/SessionContext";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
+import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
 /** 管家设置现态（steward.config.result 载荷同构）。 */
@@ -46,6 +47,9 @@ const StewardSettingsSection = function StewardSettingsSection() {
     useSession();
   // null = 未收到 config.result（现态到达前开关段按默认关展示）
   const [config, setConfig] = useState<StewardConfig | null>(null);
+  // 语音朗读开关（V3a）：本地偏好（localStorage，默认开）——朗读闸在
+  // useStewardVoice 逐次读，写后下一轮即生效；仅面板语音模式内作用
+  const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
 
   // 进入分区拉取（幂等读；命令面 ref 恒定——mount 单发，无自激面）+ auth.list
   // （V2.5 补丁：configured 过滤数据源，每次进入刷新——P-3/P-4/AgentPage 同口径）
@@ -69,6 +73,11 @@ const StewardSettingsSection = function StewardSettingsSection() {
     const ok = sendStewardSetConfig({ enabled: on });
     if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast")); // TR-168 严格判
     // 本地态等回执帧（不乐观）
+  };
+
+  const onToggleSpeakReply = (on: boolean) => {
+    setSpeakReply(on);
+    writeStewardSpeakReplyPref(on);
   };
 
   const onPickModel = (model: string) => {
@@ -118,6 +127,20 @@ const StewardSettingsSection = function StewardSettingsSection() {
           </label>
         </div>
         <span className="ag-note">{t("chat.settings.steward.enableHint")}</span>
+        {/* 语音朗读开关（V3a）：同卡追加一项（不重排）；偏好本地生效 */}
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.steward.speakReply")}</span>
+          <label className="set-check" data-steward-speak-reply>
+            <input
+              type="checkbox"
+              data-testid="steward-speak-reply-toggle"
+              checked={speakReply}
+              onChange={(e) => onToggleSpeakReply(e.target.checked)}
+            />
+            {t("chat.settings.steward.speakReplyOn")}
+          </label>
+        </div>
+        <span className="ag-note">{t("chat.settings.steward.speakReplyHint")}</span>
       </div>
 
       <h3 className="section-label gen-group-label">{t("chat.settings.steward.groupModel")}</h3>

@@ -1310,3 +1310,83 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 }
 .stp-send:hover { background: rgb(var(--accent-rgb) / 0.24); }
 .stp-send:active { transform: translateY(1px); }
+
+/* ── 双模输入区（V3a 语音模式）：modebar 切换排 + 静音钮 + 语音面 ──
+   token 单源（accent/edge 通道变量）；动效仅 transform/opacity；
+   reduced-motion 全段尊重（波形脉冲退静态）── */
+.stp-modebar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 0; border-top: 1px solid rgb(var(--accent-rgb) / 0.08);
+}
+.stp-mode {
+  display: inline-flex; padding: 1px; gap: 2px; border-radius: 6px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14);
+  background: rgb(var(--void-rgb) / 0.35);
+}
+.stp-mode-btn {
+  padding: 3px 10px; cursor: pointer; border: none; border-radius: 5px;
+  font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: 0.08em;
+  color: var(--text-dim); background: none;
+  transition: color 0.15s, background 0.15s;
+}
+.stp-mode-btn:hover { color: var(--text); }
+.stp-mode-btn.on {
+  color: var(--accent); background: rgb(var(--accent-rgb) / 0.14);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35); padding: 2px 9px; /* 抵 1px 边防跳动 */
+}
+.stp-mute {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; cursor: pointer; border-radius: 6px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4);
+  background: rgb(var(--violet-rgb) / 0.12);
+  font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: 0.08em;
+  color: var(--violet);
+  transition: background 0.15s, transform 0.15s;
+}
+.stp-mute:hover { background: rgb(var(--violet-rgb) / 0.2); }
+.stp-mute:active { transform: translateY(1px); }
+.stp-voice {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; min-height: 58px;
+}
+.stp-mic {
+  flex: 0 0 auto; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; border-radius: 999px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.5);
+  background: rgb(var(--accent-rgb) / 0.14); color: var(--accent);
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.stp-mic:hover:not(:disabled) { background: rgb(var(--accent-rgb) / 0.22); }
+.stp-mic:active:not(:disabled) { transform: translateY(1px); }
+.stp-mic:disabled { opacity: 0.45; cursor: not-allowed; }
+.stp-mic.listening {
+  background: rgb(var(--accent-rgb) / 0.24); box-shadow: var(--glow-cyan);
+}
+/* 电平波形：7 条 scaleY 阵列（level 数据源在组件端；transform 过渡平滑） */
+.stp-wave { flex: 0 0 auto; display: flex; align-items: center; gap: 3px; height: 26px; }
+.stp-wave-bar {
+  width: 3px; height: 100%; border-radius: 2px; transform: scaleY(0.12);
+  background: rgb(var(--accent-rgb) / 0.55);
+  transition: transform 0.1s ease-out;
+}
+/* 在途态（transcribing/asking/speaking）：波形阵列功能性脉冲（非装饰——
+   阶段在途指示；reduced-motion 退静态） */
+.stp-voice[data-phase="transcribing"] .stp-wave,
+.stp-voice[data-phase="asking"] .stp-wave,
+.stp-voice[data-phase="speaking"] .stp-wave { animation: stp-wave-pulse 1.6s ease-in-out infinite; }
+.stp-voice[data-phase="transcribing"] .stp-wave-bar,
+.stp-voice[data-phase="asking"] .stp-wave-bar,
+.stp-voice[data-phase="speaking"] .stp-wave-bar {
+  transform: scaleY(0.45); background: rgb(var(--accent-rgb) / 0.7);
+}
+@keyframes stp-wave-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.stp-voice-status { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.stp-voice-phase { font-size: var(--text-cap); color: var(--text); }
+.stp-voice-hint { font-size: var(--text-micro); color: var(--text-faint); line-height: 1.5; }
+.stp-voice-err {
+  font-size: var(--text-micro); color: var(--error); line-height: 1.5; overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stp-voice[data-phase] .stp-wave { animation: none; }
+  .stp-wave-bar { transition: none; }
+}
