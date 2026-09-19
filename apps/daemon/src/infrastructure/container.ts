@@ -50,6 +50,9 @@ import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { DashScopeTtsAdapter, DASHSCOPE_PROVIDER_ID as DASHSCOPE_TTS_PROVIDER_ID } from "../adapters/driven/tts/dashscope";
 import { BroadcastService } from "../application/voice/BroadcastService";
+import { StewardService, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
+import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
+import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/steward/PiStewardLlmAdapter";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
@@ -191,6 +194,11 @@ export interface AssembleDaemonDeps {
    * 缺省 = DashScopeTtsAdapter 真体）。
    */
   readonly voiceTtsOverride?: TtsPort;
+  /**
+   * 管家 LLM 面覆盖（V2.5 文本管家批：测试注入 fake StewardLlmPort 驱动全链；
+   * 缺省 = PiStewardLlmAdapter 真体）。
+   */
+  readonly stewardLlmOverride?: StewardLlmPort;
   /**
    * findings 落账管道覆盖（F3.0，T4.1 测试注入替身；缺省 = kg 栈真体：
    * KgWriteService 唯一写入口 + workspace 项目扫描）。
@@ -624,6 +632,28 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
   });
 
+  // ── 文本管家批（V2.5）：StewardService（fanout 目标 steward-feed-bridge
+  //    的服务体 + steward.* 命令族回口）。LLM 面复用 provider 体系：
+  //    模型目录 = modelStack 合并目录（modelsView），key = auth.json getter
+  //    （每次调用重读，换 key 自动跟随）；模型槽位独立配置（RuntimeConfig
+  //    steward.model KV，未设置 = flash 级默认）。money gate：开关关 =
+  //    steward.ask 直接拒答零 LLM 调用（服务内单点，服务端权威）──
+  const stewardLlm = deps.stewardLlmOverride ?? new PiStewardLlmAdapter({
+    models: modelStack.catalog.modelsView(),
+    modelSlot: () => persistence.runtimeConfig.get(STEWARD_MODEL_KEY),
+    defaultModel: STEWARD_DEFAULT_MODEL,
+    getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+  });
+  const stewardService = new StewardService({
+    llm: stewardLlm,
+    orchestration: scheduler, // status 只读 + send 写注入（agent_send 等价 steer 通道）
+    tasks: taskStack.query, // 任务清单只读面（TaskQueryService.listTasks）
+    config: persistence.runtimeConfig, // steward.enabled / steward.model KV 持久化
+    feedGate: eventStream, // hasStewardSubscribers 窄接口（连接级订阅闸门）
+    emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
+    logger,
+  });
+
   // U2 观测态晚绑闭合：trace 面板 main displayState 的会话运行态读口
   // 接 registry（此前冷会话 idle 兑底）
   traceSessionRunOf.of = (sessionId) => registry.sessionRunStateOf(sessionId);
@@ -740,6 +770,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     coordination: sessionStack.coordination,
     // 语音播报批（V2 TTS）：终态三事件 → 粗筛/模板/合成/广播桥
     voice: voiceBroadcast,
+    // 文本管家批（V2.5）：生命周期事件 → 粗筛/模板文本行/feed 帧桥
+    steward: stewardService,
   });
 
   // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环
@@ -859,6 +891,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 语音播报批 V2：voice 族三命令回口（TTS 与 BroadcastService 同源 adapter）
     voice: {
       tts: voiceTts,
+      stream: eventStream,
+    },
+    // 文本管家批 V2.5：steward 族六命令回口（StewardService + feed 订阅面）
+    steward: {
+      service: stewardService,
       stream: eventStream,
     },
     // mcp 批：mcp 族六命令依赖面——registry 单例 + 配置窄写面闭包

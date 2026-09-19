@@ -42,6 +42,7 @@ import type { ResourceConfigPort } from "../../../../application/ports/inbound/R
 import type { BrowserPort } from "../../../../application/ports/outbound/BrowserPort";
 import type { SttPort } from "../../../../application/ports/outbound/SttPort";
 import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
+import type { StewardService } from "../../../../application/steward/StewardService";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
@@ -508,6 +509,37 @@ export interface VoiceCommandContext {
   readonly payload: Record<string, unknown>;
   /** TTS 合成面 + key 读面 + EventStream 订阅面（只转发不决策）。 */
   readonly voice: VoiceCommandDeps;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/** steward 族命令回口（V2.5 文本管家批：StewardService + EventStream 连接级
+ * steward 订阅面——只转发不决策，决策收口 application 层）。 */
+export interface StewardCommandDeps {
+  /** 管家服务体（ask/confirm LLM 循环 + 确认闸 + 设置面）。 */
+  readonly service: StewardService;
+  /** EventStream 连接级 steward 订阅面（steward.subscribe/unsubscribe 登记）。 */
+  readonly stream: Pick<EventStream, "subscribeSteward" | "unsubscribeSteward">;
+}
+
+/**
+ * steward 族命令处理上下文（V2.5 文本管家批）：StewardCommandDeps + 共享
+ * 辅助（VoiceCommandContext 同构）。全局命令（信封 sessionId 不消费）——
+ * 管家是 daemon 级服务，无会话维。
+ */
+export interface StewardCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 管家服务体 + EventStream 订阅面（只转发不决策）。 */
+  readonly steward: StewardCommandDeps;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

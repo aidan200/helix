@@ -140,6 +140,12 @@ import type {
 import type { AskResolvedEvent, AskStartedEvent } from "./interaction";
 import type { SttTranscribeResultEvent } from "./stt";
 import type { VoiceBroadcastEvent, VoiceSynthesizeResultEvent } from "./voice";
+import type {
+  StewardAskResultEvent,
+  StewardConfirmResultEvent,
+  StewardFeedEvent,
+  StewardConfigResultEvent,
+} from "./steward";
 
 export * from "./notification";
 export * from "./session";
@@ -159,6 +165,7 @@ export * from "./mcp";
 export * from "./interaction";
 export * from "./stt";
 export * from "./voice";
+export * from "./steward";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -260,6 +267,10 @@ export type EventEnvelope =
   | SttTranscribeResultEvent
   | VoiceBroadcastEvent
   | VoiceSynthesizeResultEvent
+  | StewardAskResultEvent
+  | StewardConfirmResultEvent
+  | StewardFeedEvent
+  | StewardConfigResultEvent
   | AskStartedEvent
   | AskResolvedEvent;
 
@@ -365,6 +376,11 @@ export const EVENT_TYPES = [
   "stt.transcribe.result",
   "voice.broadcast",
   "voice.synthesize.result",
+  // 文本管家批（V2.5 steward 族）：对话回执/确认回执/feed 文本行/设置回执
+  "steward.ask.result",
+  "steward.confirm.result",
+  "steward.feed",
+  "steward.config.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -476,4 +492,8 @@ export const EVENT_CHANNELS = {
   "stt.transcribe.result": "stt",
   "voice.broadcast": "voice",
   "voice.synthesize.result": "voice",
+  "steward.ask.result": "steward",
+  "steward.confirm.result": "steward",
+  "steward.feed": "steward",
+  "steward.config.result": "steward",
 } as const satisfies Record<EventType, Channel>;

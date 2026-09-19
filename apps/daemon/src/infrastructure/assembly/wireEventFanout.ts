@@ -110,6 +110,8 @@ export interface WireEventFanoutDeps {
   readonly coordination?: { onDomainEvent(event: DomainEvent): void };
   /** 语音播报批（V2 TTS，可选——纯调度测试形态不注入）：终态三事件 → 粗筛/模板/合成/广播的 fanout 入口。 */
   readonly voice?: { onDomainEvent(event: DomainEvent): void };
+  /** 文本管家批（V2.5，可选——纯调度测试形态不注入）：agent 生命周期事件 → 粗筛/模板文本行/feed 帧的 fanout 入口。 */
+  readonly steward?: { onDomainEvent(event: DomainEvent): void };
 }
 
 /**
@@ -205,6 +207,18 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       name: "voice-broadcast-bridge",
       target: {
         publish: (event) => voice.onDomainEvent(event),
+        publishDelta: () => undefined,
+      },
+    });
+  }
+  // 文本管家桥（V2.5）：agent.* 生命周期事件流入 StewardService feed 面（粗筛
+  // 在 service 内单点；只产出协议帧零领域事件——防自激，voice 桥同构末位）。
+  if (deps.steward !== undefined) {
+    const steward = deps.steward;
+    publisher.add({
+      name: "steward-feed-bridge",
+      target: {
+        publish: (event) => steward.onDomainEvent(event),
         publishDelta: () => undefined,
       },
     });

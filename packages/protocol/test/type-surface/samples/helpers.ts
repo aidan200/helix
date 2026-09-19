@@ -238,6 +238,21 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "voice.synthesize.result":
       // 语音播报批（V2 TTS）：两判别窄化（ok 音频 / error 原因）
       return `voice-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.audio.length}` : event.payload.reason}`;
+    case "steward.ask.result":
+      // 文本管家批（V2.5）：三判别窄化（answer 文本 / confirm_required 确认闸 / error 原因）
+      if (event.payload.status === "answer") return `steward-answer:${event.payload.text}`;
+      if (event.payload.status === "confirm_required")
+        return `steward-confirm-required:${event.payload.actionId}:${event.payload.agentId}:${event.payload.message}`;
+      return `steward-error:${event.payload.reason}`;
+    case "steward.confirm.result":
+      // 文本管家批（V2.5）：确认闸回执两判别窄化（ok 含注入回执 detail / error 原因）
+      return `steward-confirm-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.agentId}:${event.payload.detail}` : event.payload.reason}`;
+    case "steward.feed":
+      // 文本管家批（V2.5）：feed 文本行窄化（kind/agentId/seq）
+      return `steward-feed:${event.payload.kind}:${event.payload.agentId}:${event.payload.seq}`;
+    case "steward.config.result":
+      // 文本管家批（V2.5）：设置回执窄化（enabled/model）
+      return `steward-config:${event.payload.enabled}:${event.payload.model}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
@@ -422,6 +437,19 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `voice-subscribe:${cmd.payload.voice ?? "-"}`;
     case "voice.unsubscribe":
       return "voice-unsubscribe";
+    case "steward.ask":
+      // 文本管家批（V2.5）：对话命令窄化（text）
+      return `steward-ask:${cmd.payload.text}`;
+    case "steward.confirm":
+      return `steward-confirm:${cmd.payload.actionId}`;
+    case "steward.subscribe":
+      return "steward-subscribe";
+    case "steward.unsubscribe":
+      return "steward-unsubscribe";
+    case "steward.get_config":
+      return "steward-get_config";
+    case "steward.set_config":
+      return `steward-set_config:${String(cmd.payload.enabled)}:${cmd.payload.model ?? "-"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
@@ -490,6 +518,11 @@ export function familyOf(event: EventEnvelope): string {
       // 语音播报批（V2 TTS）：voice 新族窄化（广播帧 + 点对点结果帧）
       const t: TypeOfChannel<"voice"> = event.type;
       return `voice/${t}`;
+    }
+    case "steward": {
+      // 文本管家批（V2.5）：steward 新族窄化（对话/确认回执 + feed 广播 + 设置回执）
+      const t: TypeOfChannel<"steward"> = event.type;
+      return `steward/${t}`;
     }
     default:
       // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）

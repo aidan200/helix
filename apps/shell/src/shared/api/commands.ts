@@ -105,6 +105,12 @@ import type {
   McpToolsListCommand,
   WebStatusCommand,
   SttTranscribeCommand,
+  StewardAskCommand,
+  StewardConfirmCommand,
+  StewardGetConfigCommand,
+  StewardSetConfigCommand,
+  StewardSubscribeCommand,
+  StewardUnsubscribeCommand,
   VoiceSubscribeCommand,
   VoiceSynthesizeCommand,
   VoiceUnsubscribeCommand,
@@ -430,6 +436,44 @@ export function voiceSubscribeCommand(voice?: string): VoiceSubscribeCommand {
 /** voice.unsubscribe：播报退订（断连自动等效；全局命令）。 */
 export function voiceUnsubscribeCommand(): VoiceUnsubscribeCommand {
   return { v: PROTOCOL_VERSION, type: "voice.unsubscribe", payload: {} };
+}
+
+// ── steward 族命令（V2.5 文本管家）：对话 + 确认闸 + feed 订阅 + 设置面 ──
+// 回执 = steward.ask.result / confirm.result / config.result 点对点；
+// feed 文本行经 steward.feed 广播（仅已订阅连接收）。
+
+/** steward.ask：对话一轮（全局命令；三判别回执 answer/confirm_required/error）。 */
+export function stewardAskCommand(text: string): StewardAskCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.ask", payload: { text } };
+}
+
+/** steward.confirm：确认闸放行（actionId 单次消费；全局命令）。 */
+export function stewardConfirmCommand(actionId: string): StewardConfirmCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.confirm", payload: { actionId } };
+}
+
+/** steward.subscribe：事件 feed 连接级订阅登记（全局命令）。 */
+export function stewardSubscribeCommand(): StewardSubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.subscribe", payload: {} };
+}
+
+/** steward.unsubscribe：feed 退订（断连自动等效；全局命令）。 */
+export function stewardUnsubscribeCommand(): StewardUnsubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.unsubscribe", payload: {} };
+}
+
+/** steward.get_config：设置读面（全局命令；回执 steward.config.result）。 */
+export function stewardGetConfigCommand(): StewardGetConfigCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.get_config", payload: {} };
+}
+
+/** steward.set_config：设置写面（enabled/model 两槽位可选；全局命令）。 */
+export function stewardSetConfigCommand(patch: { enabled?: boolean; model?: string }): StewardSetConfigCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.set_config",
+    payload: { ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}), ...(patch.model !== undefined ? { model: patch.model } : {}) },
+  };
 }
 
 // ── mcp 族命令（mcp 批：MCP server 标准接入；六命令全全局命令）────

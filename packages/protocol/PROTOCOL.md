@@ -1,4 +1,4 @@
-# Helix WS 协议 v0.12
+# Helix WS 协议 v0.13
 
 > **版本位单源** = `src/envelope.ts` 的 `PROTOCOL_VERSION`（本标题行由
 > sot-consistency 断言①守护对齐）。本文档 = **行为契约导览**：传输、
@@ -33,23 +33,23 @@
 ```
 客户端                                        daemon (ws-server)
   │ ── WS connect ws://127.0.0.1:port ─────→ │  TCP / HTTP 升级
-  │ ── { v:"0.12", type:"hello",              │  校验 token（与 ~/.helix/dev-token 比对）
-  │      payload:{ token,                     │  校验 protocolVersion = "0.12"
-  │             protocolVersion:"0.12" } } ───→ │
+  │ ── { v:"0.13", type:"hello",              │  校验 token（与 ~/.helix/dev-token 比对）
+  │      payload:{ token,                     │  校验 protocolVersion = "0.13"
+  │             protocolVersion:"0.13" } } ───→ │
   │                                           │
-  │ ←─ { v:"0.12", type:"connection.welcome", │  通过：sessionId / model / agentState
+  │ ←─ { v:"0.13", type:"connection.welcome", │  通过：sessionId / model / agentState
   │      payload:{ sessionId, model,          │
   │               agentState } } ────────────│
-  │ ←─ { v:"0.12", type:"session.snapshot",   │  随后立即推全量快照
+  │ ←─ { v:"0.13", type:"session.snapshot",   │  随后立即推全量快照
   │      payload:{ snapshot: SessionSnapshotDto } } │
   │                                           │
-  │ ←─ { v:"0.12", type:"connection.error",   │  拒绝：先发 error 帧再 close
+  │ ←─ { v:"0.13", type:"connection.error",   │  拒绝：先发 error 帧再 close
   │      payload:{ code, message } } ────────│
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
 - **草稿握手分支（T4，§14.1）**：当前会话为零条目内存草稿时 welcome 携带 `draft:true`，不 attach 不推快照；真实会话握手维持上图时序。
-- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.12"`（含信封 `v ≠ "0.12"`）→ `protocol.version_unsupported`。
+- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.13"`（含信封 `v ≠ "0.13"`）→ `protocol.version_unsupported`。
 - 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
 ## 3. 统一信封
@@ -57,15 +57,15 @@
 ```ts
 // 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
-/** 协议版本位。v0.12 帧 `v` 恒为 "0.12"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.12" as const;
+/** 协议版本位。v0.13 帧 `v` 恒为 "0.13"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.13" as const;
 
 /**
- * 帧版本位取值域："0.12" = 当前批（v0.12）帧；`0` = v0/v0.1 历史帧（v0.1 未
+ * 帧版本位取值域："0.13" = 当前批（v0.13）帧；`0` = v0/v0.1 历史帧（v0.1 未
  * bump 版本位，全部历史帧与既有测试/剧本字面量为 0——信封兼容读的类型面）。
- * v0.11→v0.12 为单仓同发一步替换（Q-1c：版本位是批次集合标记非协商位），
- * 仓内无 v0.11 帧存量。
- * handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.12" 单值）。
+ * v0.12→v0.13 为单仓同发一步替换（Q-1c：版本位是批次集合标记非协商位），
+ * 仓内无 v0.12 帧存量。
+ * handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.13" 单值）。
  */
 export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 
@@ -76,7 +76,7 @@ export interface WorkspaceRoute {
 
 /** C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并实例化 `payload`。 */
 export interface CommandFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.12"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.13"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
@@ -92,7 +92,7 @@ export interface CommandFrame<T = unknown> {
 
 /** S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。 */
 export interface EventFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.12"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.13"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
   sessionId?: string;
@@ -188,7 +188,7 @@ JSDoc（协议文档收口批起不在本文档复述代码块）；wire 边界�
 
 ## 8. 版本与演进
 
-- 版本位内建（AD-9）：`v: "0.12"`（当前）；协议不兼容变更时 bump
+- 版本位内建（AD-9）：`v: "0.13"`（当前）；协议不兼容变更时 bump
   `PROTOCOL_VERSION` 并同步本包类型与本文档，旧版本以
   `protocol.version_unsupported` 拒绝。
 - 演进登记：v0.1 additive（§10，未 bump 版本位）；v0.2 一次 bump、版本位转
@@ -212,8 +212,10 @@ JSDoc（协议文档收口批起不在本文档复述代码块）；wire 边界�
   `chat.send`/`connection.welcome`/`session.snapshot` 三处可选 mode 字段
   additive——零新增命令/事件，版本位不 bump，§14 微批同构先例）。
 v0.12（CHANGELOG §17.12：
-  占用协调批 U5/U6——版本位 `"0.11" → "0.12"`，`FrameVersion = 0 | "0.12"`，
-  单仓同发一步替换）；**协议文档收口批**（CHANGELOG §39：PROTOCOL.md §15/§16
+  占用协调批 U5/U6——版本位 `"0.11" → "0.12"`，单仓同发一步替换）；
+v0.13（CHANGELOG changelog/v0.13.md §17.13：文本管家批 V2.5——steward 族
+  六命令 + 四事件 additive（新 Channel 值 "steward"），版本位 `"0.12" → "0.13"`，
+  `FrameVersion = 0 | "0.13"`，单仓同发一步替换）；**协议文档收口批**（CHANGELOG §39：PROTOCOL.md §15/§16
   退役、SoT 收敛至类型 + JSDoc、sot-consistency 断言族重构——零协议形状变更，
   版本位不 bump）；
 - v0 语义边界：workspace 路由**仅类型预留**（§3）；`session.subscribe` /

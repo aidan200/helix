@@ -100,6 +100,14 @@ import type {
   VoiceSynthesizeCommand,
   VoiceUnsubscribeCommand,
 } from "./voice";
+import type {
+  StewardAskCommand,
+  StewardConfirmCommand,
+  StewardSubscribeCommand,
+  StewardUnsubscribeCommand,
+  StewardGetConfigCommand,
+  StewardSetConfigCommand,
+} from "./steward";
 
 export type CommandEnvelope =
   | ChatSendCommand
@@ -182,6 +190,12 @@ export type CommandEnvelope =
   | VoiceSynthesizeCommand
   | VoiceSubscribeCommand
   | VoiceUnsubscribeCommand
+  | StewardAskCommand
+  | StewardConfirmCommand
+  | StewardSubscribeCommand
+  | StewardUnsubscribeCommand
+  | StewardGetConfigCommand
+  | StewardSetConfigCommand
   | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -196,6 +210,13 @@ export const COMMAND_TYPES = [
   "voice.synthesize",
   "voice.subscribe",
   "voice.unsubscribe",
+  // 文本管家批（V2.5）：对话（LLM 循环）+ 确认闸 + feed 订阅 + 设置面
+  "steward.ask",
+  "steward.confirm",
+  "steward.subscribe",
+  "steward.unsubscribe",
+  "steward.get_config",
+  "steward.set_config",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",

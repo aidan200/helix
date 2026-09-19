@@ -41,6 +41,12 @@ import type {
 import {
   agentBasePromptGetCommand,
   sttTranscribeCommand,
+  stewardAskCommand,
+  stewardConfirmCommand,
+  stewardGetConfigCommand,
+  stewardSetConfigCommand,
+  stewardSubscribeCommand,
+  stewardUnsubscribeCommand,
   voiceSubscribeCommand,
   voiceSynthesizeCommand,
   voiceUnsubscribeCommand,
@@ -219,6 +225,27 @@ export const COMMAND_SURFACE = {
   /** 播报退订（开关关时发送；断连自动等效）。 */
   sendVoiceUnsubscribe: (deps) =>
     (): boolean => deps.send(voiceUnsubscribeCommand()),
+
+  // ── 文本管家面（V2.5 steward）────────────────────────────
+  /** 管家对话一轮（全局命令；回执 steward.ask.result 三判别经
+   * subscribeStewardFrames 点对点消费；返回 false = 未连接）。 */
+  sendStewardAsk: (deps) =>
+    (text: string): boolean => deps.send(stewardAskCommand(text)),
+  /** 确认闸放行（actionId 单次消费；回执 steward.confirm.result）。 */
+  sendStewardConfirm: (deps) =>
+    (actionId: string): boolean => deps.send(stewardConfirmCommand(actionId)),
+  /** feed 订阅（连接级闸门登记；面板开时发送，重连重放由 useSteward 驱动）。 */
+  sendStewardSubscribe: (deps) =>
+    (): boolean => deps.send(stewardSubscribeCommand()),
+  /** feed 退订（面板关时发送；断连自动等效）。 */
+  sendStewardUnsubscribe: (deps) =>
+    (): boolean => deps.send(stewardUnsubscribeCommand()),
+  /** 设置读面（回执 steward.config.result）。 */
+  sendStewardGetConfig: (deps) =>
+    (): boolean => deps.send(stewardGetConfigCommand()),
+  /** 设置写面（两槽位可选；回执 steward.config.result 新态）。 */
+  sendStewardSetConfig: (deps) =>
+    (patch: { enabled?: boolean; model?: string }): boolean => deps.send(stewardSetConfigCommand(patch)),
 
   // ── 连接 / 会话生命周期面 ─────────────────────────────────
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
@@ -777,6 +804,16 @@ export const LISTEN_SURFACE = {
     match: (type) =>
       type === "voice.broadcast" ||
       type === "voice.synthesize.result" ||
+      type === "connection.error",
+  },
+  /** 订阅 steward 族帧（V2.5 文本管家：ask/confirm/config 三点对点回执 +
+   *  feed 广播 + connection.error——面板与设置页两消费面；TR-89 双登记纪律）。 */
+  subscribeStewardFrames: {
+    match: (type) =>
+      type === "steward.ask.result" ||
+      type === "steward.confirm.result" ||
+      type === "steward.feed" ||
+      type === "steward.config.result" ||
       type === "connection.error",
   },
 } satisfies Record<string, ListenDomainSpec>;

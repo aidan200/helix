@@ -148,6 +148,9 @@ describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/suba
       // mcp 批：mcp/ 是 driven 域工具族（mcp-tool 适配器消费 pi-agent-core
       // 工具工厂形状——与 tools 同构，TR-AD-7 语义不变，白名单第四个 driven 根）
       path.join("adapters", "driven", "mcp"),
+      // 文本管家批 V2.5：steward/ 是 driven 域 LLM 适配器（PiStewardLlmAdapter
+      // 消费 pi-ai streamSimple——TTS/STT adapter 同构的 provider 防腐墙）
+      path.join("adapters", "driven", "steward"),
     ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));

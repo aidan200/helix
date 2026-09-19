@@ -125,7 +125,7 @@ describe("useVoiceInput（语音输入批 V1）", () => {
     // 回执 ok → idle + onTranscript(text)
     act(() => {
       frameListener!({
-        v: "0.12",
+        v: "0.13",
         type: "stt.transcribe.result",
         payload: { status: "ok", text: "把 useEffect 修一下", provider: "dashscope" },
       } as EventEnvelope);
@@ -155,7 +155,7 @@ describe("useVoiceInput（语音输入批 V1）", () => {
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
     act(() => {
       frameListener!({
-        v: "0.12",
+        v: "0.13",
         type: "stt.transcribe.result",
         payload: { status: "error", reason: 'provider "dashscope" 未录入 API key' },
       } as EventEnvelope);

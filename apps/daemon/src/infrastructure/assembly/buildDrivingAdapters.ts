@@ -28,6 +28,7 @@ import { CliAdapter, StdoutEventPublisher } from "../../adapters/driving/cli/Cli
 import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-server/WsServerAdapter";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { VoiceCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
+import type { StewardCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
 import { StaticServe } from "../../adapters/driven/static-serve/StaticServe";
 import type { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
@@ -190,6 +191,12 @@ export interface WsDrivingDeps {
    */
   readonly voice?: VoiceCommandDeps;
   /**
+   * 文本管家面（V2.5）：steward 族六命令回口（StewardService + EventStream
+   * 连接级 steward 订阅面）。可选：未注入 → 六命令回 command.unimplemented
+   *（voice 先例；stub rig 兼容）。
+   */
+  readonly steward?: StewardCommandDeps;
+  /**
    * mcp 族命令依赖面（mcp 批）：McpServerPort + 配置窄写面（组合根闭包）。
    * 可选：未注入 → mcp 六命令回 command.unimplemented（stub rig 兼容）。
    */
@@ -325,6 +332,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // 语音播报批 V2：voice 族三命令回口（TTS 与 BroadcastService 同源 adapter；
     // key 读面同 stt 先例——每次调用重读 auth.json，换 key 自动跟随）
     ...(deps.voice !== undefined ? { voice: deps.voice } : {}),
+    // 文本管家批 V2.5：steward 族六命令回口（StewardService + feed 订阅面）
+    ...(deps.steward !== undefined ? { steward: deps.steward } : {}),
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）
     ...(deps.mcp !== undefined ? { mcp: deps.mcp } : {}),
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验
