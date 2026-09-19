@@ -12,13 +12,16 @@ import {
 } from "../../src/adapters/driven/pi-engine/network-retry";
 
 /**
- * P2 ⑦ 引擎级网络重试单测（裁决修订 2026-09-08：仅传输层错误重试）：
+ * P2 ⑦ 引擎级网络重试单测（裁决修订 2026-09-08：仅传输层错误重试；
+ * 用户裁决 2026-09-19：5xx 子句翻转 transient-fast）：
  * - classifyLlmError 纯函数分类面：传输层库常量/errno → 瞬时；
- *   LLM 接口返回（含 HTTP 状态码，429/5xx/配额/鉴权一律）→ 永久快速失败；
+ *   LLM 接口返回按状态码拆分——4xx（429 限流/配额/鉴权/参数）→ 永久
+ *   快速失败（2026-09-08 裁决维持）；5xx → 瞬时快速档（5s 单次，用户裁决
+ *   2026-09-19 翻转：kimi provider 500 打死主会话一轮实证）；
  *   未知形态 fail-fast 缺省；
  * - withNetworkRetry：失败 2 次后成功（假时钟断言退避序列消费）、
  *   持续瞬时失败恰 4 次尝试（1+3）后退避耗尽走既有失败路径、
- *   永久类 1 次即失败、abort 打断等待、中途断流不重试。
+ *   永久类 1 次即失败、abort 打断等待、中途断流不重试、5xx 快速档。
  */
 
 const fakeModel = {
@@ -152,14 +155,15 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "Stream ended without finish_reason\n{\"error\":{}}")).toBe("transient-fast");
   });
 
-  test("流中断文案携带 HTTP 状态码 → 状态码优先判永久（接口返回证据压过文案）", () => {
-    // 机械判据优先序保持：拿到过接口响应（消息含 4xx/5xx）一律快速失败——
-    // 「Stream ended」字样不能给带状态码的接口错误开后门
-    expect(classifyLlmError("error", "503: Stream ended without finish_reason")).toBe("permanent");
+  test("流中断文案携带 HTTP 状态码 → 状态码优先拆分：5xx 快速档 / 4xx 永久", () => {
+    // 机械判据优先序保持：状态码先于文案判（拿到过接口响应的证据压过文案）。
+    // 2026-09-19 裁决后 5xx 翻转 transient-fast（与流中断同快速档，语义同向）；
+    // 4xx（如 429 限流）保持永久——「Stream ended」字样不能给 4xx 开后门
+    expect(classifyLlmError("error", "503: Stream ended without finish_reason")).toBe("transient-fast");
     expect(classifyLlmError("error", "Stream ended 429 rate limited")).toBe("permanent");
   });
 
-  test("LLM 接口返回（消息含 HTTP 状态码）→ 一律永久快速失败（裁决 2026-09-08）", () => {
+  test("LLM 接口返回 4xx（429 限流/配额/鉴权/参数）→ 永久快速失败（2026-09-08 裁决对 4xx 维持）", () => {
     // GLM 429+code 1308（5 小时限额）真实事故形态——不再吃 10/30/60 退避
     expect(
       classifyLlmError("error", '429: {"code":"1308","message":"已达到 5 小时的使用上限。您的限额将在 2026-09-08 14:21:26 重置。"}'),
@@ -170,12 +174,8 @@ describe("classifyLlmError", () => {
     expect(
       classifyLlmError("error", "429 insufficient_quota: You exceeded your current quota, please check your plan and billing details"),
     ).toBe("permanent");
-    // 5xx / 408 / 529 同为接口响应——provider 活着，重试决策归人
-    expect(classifyLlmError("error", "503 Service Unavailable")).toBe("permanent");
-    expect(classifyLlmError("error", "anthropic (500): Internal Server Error")).toBe("permanent");
-    expect(classifyLlmError("error", "HTTP 502 Bad Gateway")).toBe("permanent");
+    // 408 同为 4xx 接口响应——provider 活着且明确拒绝，重试决策归人
     expect(classifyLlmError("error", "408 Request Timeout")).toBe("permanent");
-    expect(classifyLlmError("error", "529 overloaded_error")).toBe("permanent");
     // 鉴权/参数/余额类 4xx（原永久，语义保持）
     expect(classifyLlmError("error", "401 authentication_error")).toBe("permanent");
     expect(classifyLlmError("error", "403: permission denied")).toBe("permanent");
@@ -183,6 +183,19 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "404 model not found")).toBe("permanent");
     expect(classifyLlmError("error", "422 Unprocessable Entity")).toBe("permanent");
     expect(classifyLlmError("error", "402 Payment Required")).toBe("permanent");
+  });
+
+  test("LLM 接口返回 5xx → 瞬时快速档（用户裁决 2026-09-19 翻转 5xx 子句）", () => {
+    // 2026-09-19 16:25 kimi provider 500 打死主会话一轮（用户发消息才救活）——
+    // 5xx 是 provider 侧故障/过载，大概率一次快速重试即可自愈；错判代价上限
+    // = 一次 5s 等待（快速档），不回 10s→30s→60s 全序列（GLM 429 白等 100s
+    // 的教训不重演——那是 4xx 限流，仍保持永久）
+    expect(classifyLlmError("error", "500 Internal Server Error")).toBe("transient-fast");
+    expect(classifyLlmError("error", "kimi (500): Internal Server Error")).toBe("transient-fast");
+    expect(classifyLlmError("error", "HTTP 502 Bad Gateway")).toBe("transient-fast");
+    expect(classifyLlmError("error", "503 Service Unavailable")).toBe("transient-fast");
+    expect(classifyLlmError("error", "anthropic (500): Internal Server Error")).toBe("transient-fast");
+    expect(classifyLlmError("error", "529 overloaded_error")).toBe("transient-fast");
   });
 
   test("裸 timeout 字样（非库常量形态）→ 永久（code-review 低危：末尾裸 |timeout 兜底已剔除）", () => {
@@ -405,6 +418,59 @@ describe("withNetworkRetry", () => {
     expect(clock.slept).toEqual([5_000]);
     expect(retries.map((r) => r.totalAttempts)).toEqual([1]); // 快速档总量 = 1（状态卡面第 1/1 次）
     expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "done"]);
+  });
+
+  test("零事件 5xx 接口错误（kimi 500 事故形态，2026-09-19）：transient-fast 快速档 5s 单次重试，二次失败即收口", async () => {
+    const clock = fakeClock();
+    const retries: LlmRetryInfo[] = [];
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "kimi (500): Internal Server Error" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    // 5xx 走流中断同款快速档：恰 1 次重试（非 10s→30s→60s 全序列），
+    // 二次失败退避耗尽原样转发既有失败帧
+    expect(callCount()).toBe(2);
+    expect(clock.slept).toEqual([LLM_STREAM_RETRY_BACKOFF_MS[0]!]);
+    expect(retries).toEqual([
+      { attempt: 1, totalAttempts: 1, waitMs: 5_000, message: "kimi (500): Internal Server Error" },
+    ]);
+    expect(events.map((e) => e.type)).toEqual(["error"]);
+    const terminal = events[0] as Extract<AssistantMessageEvent, { type: "error" }>;
+    expect(terminal.error.errorMessage).toBe("kimi (500): Internal Server Error");
+  });
+
+  test("零事件 5xx 重试后成功：一次 5s 快速重试自愈，消费者只见成功流", async () => {
+    const clock = fakeClock();
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "503 Service Unavailable" },
+      { kind: "ok", text: "recovered-5xx" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    expect(callCount()).toBe(2);
+    expect(clock.slept).toEqual([5_000]);
+    expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "done"]);
+  });
+
+  test("中途断流（5xx 文案）：已转发事件后 error 不重试——中途门不因 5xx 翻转放开", async () => {
+    const clock = fakeClock();
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "midstream", message: "kimi (500): mid-stream failure" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    // 守卫不动：5xx 分类翻转只影响零事件前导的请求期失败；已转发任何
+    // 事件（partial 已进 context.messages）仍直通不重试（重复风险不变）
+    expect(callCount()).toBe(1);
+    expect(clock.slept).toEqual([]);
+    expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "error"]);
   });
 
   test("混合类退避消费：流中断（5s）后续传输层失败按其序列第 attemptIndex 项等待", async () => {

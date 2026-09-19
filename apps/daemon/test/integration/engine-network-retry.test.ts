@@ -19,7 +19,9 @@ import type { AgentEngineEvent } from "../../src/application/ports/outbound/Agen
  * - 永久类（401）：零 engine_retrying，直接既有 engine_error 路径；
  * - LLM 接口返回（429 配额 insufficient_quota）：恰 1 次调用零重试零退避，
  *   直接既有 engine_error 路径（provider 原文直达用户，服务人工切账号；
- *   裁决 2026-09-08：含 HTTP 状态码的接口响应一律快速失败）。
+ *   裁决 2026-09-08：4xx 快速失败维持）；
+ * - LLM 接口返回 5xx（kimi 500 事故形态）：transient-fast 快速档 1 次
+ *   重试（用户裁决 2026-09-19 翻转；默认 streamBackoffMs=5s）后自愈。
  */
 
 const fakeModel = {
@@ -205,5 +207,36 @@ describe("PiAgentEngineAdapter 网络重试装配（engine_retrying 可观测）
     // 既有失败语义：message_end(assistant, stopReason=error) + agent_end 收口
     expect(events.some((e) => e.type === "message_end" && e.role === "assistant" && e.stopReason === "error")).toBe(true);
     expect(events.some((e) => e.type === "agent_end")).toBe(true);
+  });
+
+  test("LLM 接口返回 5xx（kimi 500 事故形态）：transient-fast 快速档 1 次重试（默认 5s）后自愈，无 engine_error", async () => {
+    // 用户裁决 2026-09-19：5xx 翻转 transient-fast（实证：kimi provider 500
+    // 于 16:25 打死主会话一轮）。装配面验证：未注入 streamBackoffMs 时缺省
+    // LLM_STREAM_RETRY_BACKOFF_MS = [5000] 生效——engine_retrying 面板/状态卡
+    // 数据源逐字段断言
+    const slept: number[] = [];
+    const { streamFn, calls } = scriptedStreamFn([
+      { err: "kimi (500): Internal Server Error" },
+      { text: "重试后的回答" },
+    ]);
+    const engine = new PiAgentEngineAdapter({
+      profile: retryProfile,
+      model: fakeModel,
+      apiKeys: { anthropic: "explicit-key" },
+      streamFnOverride: streamFn,
+      retry: { backoffMs: [10, 30, 60], sleep: fakeSleep(slept) },
+    });
+
+    const events: AgentEngineEvent[] = [];
+    await engine.start("你好", (e) => events.push(e));
+
+    expect(calls).toEqual(["err:kimi (500): Internal Server Error", "ok:重试后的回答"]); // 1 首发 + 1 快速重试
+    expect(slept).toEqual([5_000]); // 快速档缺省 5s（非 backoffMs 序列首项 10）
+    const retrying = events.filter((e) => e.type === "engine_retrying");
+    expect(retrying).toEqual([
+      { type: "engine_retrying", attempt: 1, totalAttempts: 1, waitMs: 5_000, message: "kimi (500): Internal Server Error" },
+    ]);
+    expect(events.some((e) => e.type === "engine_error")).toBe(false);
+    expect(events.some((e) => e.type === "message_end" && e.role === "assistant" && e.stopReason === "stop")).toBe(true);
   });
 });
