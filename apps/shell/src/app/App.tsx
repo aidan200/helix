@@ -48,6 +48,7 @@ import {
 import { useAppRoute } from "./useAppRoute";
 import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
+import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 
 /** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
@@ -90,6 +91,9 @@ function AppRoutes() {
   // 组件，内联箭头每次渲染新建 props 引用
   const onToggleTheme = useCallback(() => setTheme(theme === "dark" ? "light" : "dark"), [theme, setTheme]);
   const onWorkbench = route === ROUTE_WORKBENCH;
+  // 语音播报批 V2：全局播放钩子（连接就绪 + 偏好开 → voice.subscribe；
+  // voice.broadcast → seq 去重保序 Audio 播放）——App 根单份，与会话无关
+  useVoiceBroadcast();
   return (
     <>
       <div className="app-shell">

@@ -105,6 +105,9 @@ import type {
   McpToolsListCommand,
   WebStatusCommand,
   SttTranscribeCommand,
+  VoiceSubscribeCommand,
+  VoiceSynthesizeCommand,
+  VoiceUnsubscribeCommand,
   WebStopCommand,
   WorkspaceGetCommand,
   WorkspaceOpenCommand,
@@ -400,6 +403,33 @@ export function sttTranscribeCommand(
     ...(sessionId !== undefined ? { sessionId } : {}),
     payload: { audio, ...(opts?.language !== undefined ? { language: opts.language } : {}), ...(opts?.provider !== undefined ? { provider: opts.provider } : {}) },
   };
+}
+
+// ── voice 族命令（语音播报批 V2 TTS）：试听合成 + 连接级订阅闸门 ────
+// 回执 = voice.synthesize.result 点对点；广播经 voice.broadcast
+//（仅已订阅连接收）。偏好存 localStorage（voice-pref.ts，V1 STT 同构）。
+
+/** voice.synthesize：一次性合成（设置页试听；全局命令）。 */
+export function voiceSynthesizeCommand(text: string, opts?: { voice?: string; language?: string }): VoiceSynthesizeCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "voice.synthesize",
+    payload: { text, ...(opts?.voice !== undefined ? { voice: opts.voice } : {}), ...(opts?.language !== undefined ? { language: opts.language } : {}) },
+  };
+}
+
+/** voice.subscribe：播报订阅（音色偏好随命令携带；全局命令）。 */
+export function voiceSubscribeCommand(voice?: string): VoiceSubscribeCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "voice.subscribe",
+    payload: { ...(voice !== undefined ? { voice } : {}) },
+  };
+}
+
+/** voice.unsubscribe：播报退订（断连自动等效；全局命令）。 */
+export function voiceUnsubscribeCommand(): VoiceUnsubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "voice.unsubscribe", payload: {} };
 }
 
 // ── mcp 族命令（mcp 批：MCP server 标准接入；六命令全全局命令）────

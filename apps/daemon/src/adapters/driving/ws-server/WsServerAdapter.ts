@@ -110,6 +110,7 @@ import {
 import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet, handleAgentSkillCreate } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import { handleSttTranscribe } from "./handlers/stt";
+import { handleVoiceSubscribe, handleVoiceSynthesize, handleVoiceUnsubscribe } from "./handlers/voice";
 import {
   handleMcpServersAdd,
   handleMcpServersList,
@@ -576,6 +577,19 @@ export class WsServerAdapter {
         return this.deps.stt === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleSttTranscribe(this.contexts.sttContext(ws, type, payload, envelope));
+      // ── voice 批（语音播报 V2 TTS；全局命令先例 = stt 批）──
+      case "voice.synthesize":
+        return this.deps.voice === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleVoiceSynthesize(this.contexts.voiceContext(ws, type, payload));
+      case "voice.subscribe":
+        return this.deps.voice === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleVoiceSubscribe(this.contexts.voiceContext(ws, type, payload));
+      case "voice.unsubscribe":
+        return this.deps.voice === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleVoiceUnsubscribe(this.contexts.voiceContext(ws, type, payload));
       // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
       case "mcp.servers.list":
         return this.deps.mcp === undefined

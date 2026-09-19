@@ -36,6 +36,8 @@ import type {
   ThinkingStreamDeltaEvent,
   McpStatusChangedEvent,
   McpStatusChangedPayload,
+  VoiceBroadcastEvent,
+  VoiceBroadcastPayload,
   WebStatusChangedEvent,
   WebStatusPayload,
   WorkspaceChangedEvent,
@@ -79,6 +81,10 @@ interface ConnProjection {
   readonly taskJobs: Set<string>;
   /** 无 jobId 订阅全部任务变更（通配档；断连清表随 detach）。 */
   taskAll: boolean;
+  /** 语音播报批（V2 TTS）：播报订阅位（连接级闸门——true 时该连接收 voice.broadcast；断连随 detach 清位）。 */
+  voiceSubscribed: boolean;
+  /** 播报音色偏好（voice.subscribe 携带；缺省 = adapter 默认音色）。 */
+  voicePref: string | undefined;
 }
 
 /** 订阅档位（契约 v0.3 §2.1，Q-2b②）：full = 全量（缺省既有语义）；monitor = 白名单 3 事件。 */
@@ -113,7 +119,7 @@ export class EventStream implements EventPublisherPort {
   attach(sender: FrameSender, sessionId?: string): void {
     const sessionTiers = new Map<string, SubscriptionTier>();
     if (sessionId !== undefined) sessionTiers.set(sessionId, "full"); // 握手默认档 = full（既有语义不变）
-    this.connections.set(sender, { sessionTiers, instances: new Set(), taskJobs: new Set(), taskAll: false });
+    this.connections.set(sender, { sessionTiers, instances: new Set(), taskJobs: new Set(), taskAll: false, voiceSubscribed: false, voicePref: undefined });
   }
 
   /** 连接关闭/断开后注销（tier 表随连接销毁即丢——daemon 不持跨连接状态，TR-AD-23③）。 */
@@ -169,6 +175,39 @@ export class EventStream implements EventPublisherPort {
       conn.taskAll = false;
       conn.taskJobs.clear();
     } else conn.taskJobs.delete(jobId);
+  }
+
+  // ── 语音播报批（V2 TTS）：连接级 voice 订阅闸门（task.subscribe 同构；断连随 detach 清位） ──
+
+  /** voice.subscribe：登记播报订阅位 + 音色偏好（重复 subscribe 幂等覆盖）。 */
+  subscribeVoice(sender: FrameSender, voice?: string): void {
+    const conn = this.connections.get(sender);
+    if (conn === undefined) return;
+    conn.voiceSubscribed = true;
+    conn.voicePref = voice;
+  }
+
+  /** voice.unsubscribe：清订阅位与偏好（对称语义）。 */
+  unsubscribeVoice(sender: FrameSender): void {
+    const conn = this.connections.get(sender);
+    if (conn === undefined) return;
+    conn.voiceSubscribed = false;
+    conn.voicePref = undefined;
+  }
+
+  /** 闸门读面①：是否存在已订阅连接（BroadcastService money gate——零订阅 = 零合成）。 */
+  hasVoiceSubscribers(): boolean {
+    for (const conn of this.connections.values()) if (conn.voiceSubscribed) return true;
+    return false;
+  }
+
+  /** 闸门读面②：当前音色偏好（最近一次 attach 的订阅连接携带；无偏好 = undefined）。 */
+  voicePreference(): string | undefined {
+    let pref: string | undefined;
+    for (const conn of this.connections.values()) {
+      if (conn.voiceSubscribed) pref = conn.voicePref;
+    }
+    return pref;
   }
 
   /** 观测面：某连接已登记订阅的实例 id 集（测试/诊断）。 */
@@ -351,6 +390,31 @@ export class EventStream implements EventPublisherPort {
     };
     for (const [sender, conn] of this.connections) {
       if (!conn.taskAll && !conn.taskJobs.has(payload.jobId)) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /**
+   * voice.broadcast 广播（语音播报批 V2 TTS）：daemon 级全局帧（信封
+   * sessionId = SYSTEM_SESSION_ID、channel = voice），但投递按连接级 voice
+   * 订阅位过滤（voice.subscribe 登记才收）——task.changed 路由先例同构，
+   * 不经 push 的会话订阅路由。单连接异常不扩散（push 同口径）。触发面 =
+   * BroadcastService 合成完成（fanout voice-broadcast-bridge 链末端）。
+   */
+  broadcastVoice(payload: VoiceBroadcastPayload): void {
+    const frame: VoiceBroadcastEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "voice",
+      type: "voice.broadcast",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.voiceSubscribed) continue;
       try {
         sender(frame);
       } catch {

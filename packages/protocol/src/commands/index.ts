@@ -25,4 +25,5 @@ export * from "./kg";
 export * from "./task";
 export * from "./mcp";
 export * from "./stt";
+export * from "./voice";
 export * from "./catalog";

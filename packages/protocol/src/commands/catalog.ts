@@ -95,6 +95,11 @@ import type {
   McpToolsListCommand,
 } from "./mcp";
 import type { SttTranscribeCommand } from "./stt";
+import type {
+  VoiceSubscribeCommand,
+  VoiceSynthesizeCommand,
+  VoiceUnsubscribeCommand,
+} from "./voice";
 
 export type CommandEnvelope =
   | ChatSendCommand
@@ -174,6 +179,9 @@ export type CommandEnvelope =
   | McpServersTestCommand
   | McpToolsListCommand
   | SttTranscribeCommand
+  | VoiceSynthesizeCommand
+  | VoiceSubscribeCommand
+  | VoiceUnsubscribeCommand
   | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -184,6 +192,10 @@ export const COMMAND_TYPES = [
   "ask.answer",
   // 语音输入批（V1 云转写）：一次性音频转写（点对点回执）
   "stt.transcribe",
+  // 语音播报批（V2 TTS）：一次性合成（试听）+ 连接级订阅闸门
+  "voice.synthesize",
+  "voice.subscribe",
+  "voice.unsubscribe",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",

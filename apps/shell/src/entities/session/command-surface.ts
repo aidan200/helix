@@ -41,6 +41,9 @@ import type {
 import {
   agentBasePromptGetCommand,
   sttTranscribeCommand,
+  voiceSubscribeCommand,
+  voiceSynthesizeCommand,
+  voiceUnsubscribeCommand,
   agentKillCommand,
   agentSkillContentGetCommand,
   agentSkillCreateCommand,
@@ -202,6 +205,20 @@ export const COMMAND_SURFACE = {
       const { sessionId } = deps.getTopology().active;
       return deps.send(sttTranscribeCommand(audio, opts, sessionId ?? undefined));
     },
+
+  // ── 语音播报面（语音播报批 V2 TTS）────────────────────
+  /** 试听合成（全局命令；回执 voice.synthesize.result 点对点——设置页
+   * 试听按钮消费；返回 false = 未连接）。 */
+  sendVoiceSynthesize: (deps) =>
+    (text: string, opts?: { voice?: string; language?: string }): boolean =>
+      deps.send(voiceSynthesizeCommand(text, opts)),
+  /** 播报订阅（连接级闸门登记 + 音色偏好上报；重连重放由 useVoiceBroadcast
+   * 连接态 effect 驱动——daemon 不持跨连接订阅状态）。 */
+  sendVoiceSubscribe: (deps) =>
+    (voice?: string): boolean => deps.send(voiceSubscribeCommand(voice)),
+  /** 播报退订（开关关时发送；断连自动等效）。 */
+  sendVoiceUnsubscribe: (deps) =>
+    (): boolean => deps.send(voiceUnsubscribeCommand()),
 
   // ── 连接 / 会话生命周期面 ─────────────────────────────────
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
@@ -752,6 +769,15 @@ export const LISTEN_SURFACE = {
    *  connection.error——Composer 转写在途态判定，单飞门控消费）。 */
   subscribeSttFrames: {
     match: (type) => type === "stt.transcribe.result" || type === "connection.error",
+  },
+  /** 订阅 voice 族帧（语音播报批 V2 TTS：voice.broadcast 广播 +
+   *  voice.synthesize.result 点对点回执 + connection.error——useVoiceBroadcast
+   *  播放与设置页试听两消费面；TR-89 双登记纪律）。 */
+  subscribeVoiceFrames: {
+    match: (type) =>
+      type === "voice.broadcast" ||
+      type === "voice.synthesize.result" ||
+      type === "connection.error",
   },
 } satisfies Record<string, ListenDomainSpec>;
 
