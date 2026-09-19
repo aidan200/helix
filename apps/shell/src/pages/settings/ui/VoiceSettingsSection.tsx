@@ -56,7 +56,7 @@ interface SynthResultPayload {
 const VoiceSettingsSection = function VoiceSettingsSection() {
   const { t } = useI18n();
   const toast = useToast();
-  const { topology, requestAuthList, setProviderKey, sendVoiceSynthesize, subscribeVoiceFrames } = useSession();
+  const { topology, requestAuthList, setProviderKey, sendVoiceSynthesize, sendVoiceSubscribe, sendVoiceUnsubscribe, subscribeVoiceFrames } = useSession();
   const [provider, setProvider] = useState<string>(() => readSttProviderPref() ?? "auto");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // ── TTS 偏好态（初值 localStorage；写 = 偏好 + 立即生效面由 useVoiceBroadcast 消费）──
@@ -109,11 +109,17 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
   const onToggleBroadcast = (on: boolean) => {
     setBroadcastOn(on);
     writeVoiceBroadcastPref(on);
+    // 即时生效：订阅是连接级闸门，useVoiceBroadcast 的重放 effect 仅依赖 conn——
+    // 开关切换必须当场补发，否则要等下次重连（V2 缺陷修复）
+    if (on) sendVoiceSubscribe(readTtsVoicePref());
+    else sendVoiceUnsubscribe();
   };
 
   const onPickVoice = (id: string) => {
     setVoice(id);
     writeTtsVoicePref(id);
+    // 音色偏好随订阅上报——订阅态下切换音色即时生效（否则下一帧仍是旧音色）
+    sendVoiceSubscribe(id);
   };
 
   const onVolume = (v: number) => {
