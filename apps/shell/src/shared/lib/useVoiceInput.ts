@@ -1,6 +1,17 @@
 /**
- * useVoiceInput —— Composer 语音输入状态机（V2：点击开始 / VAD 静音自动
- * 停 / 点击强制停）。
+ * useVoiceInput —— 录音 + 转写状态机（V2：点击开始 / VAD 静音自动停 /
+ * 点击强制停；V3a 自 features/send-message/model 下移 shared——管家语音
+ * 模式跨 feature 复用，AG-15 FSD 同层禁互引，MarkdownMessage 下移先例
+ * 同构 git mv 保历史）。
+ *
+ * 归属变化的两点适配（语义零变）：
+ * - DI 注入面：shared 层禁引 entities（AG-15）——sendSttTranscribe /
+ *   subscribeSttFrames 由消费方从各自 SessionContext 取出注入
+ *   （Composer 与 StewardDock 两消费面）；
+ * - 单飞门控落地：stt.transcribe.result / connection.error 仅
+ *   transcribing 态消费（docblock 原始声明「单飞门控」补齐实现——两消费
+ *   面并存后，idle 态吞外来回执防串台：管家语音的转写结果不得回填
+ *   Composer 草稿，反向同然）。
  *
  * 链路（设计 §4 + V2 改造）：点击开始 → getUserMedia({audio}) →
  * MediaRecorder（mime 序 audio/webm;codecs=opus → audio/webm → audio/mp4，
@@ -8,8 +19,8 @@
  * rms-meter.ts）→ 电平帧驱动 VAD 门：开口帧（≥ VOICE_RMS_THRESHOLD）刷新
  * lastLoud，自 max(开始+LEAD_IN, lastLoud) 起连续静音 ≥ VOICE_SILENCE_STOP_MS
  * → 自动停。录音中点击 = 强制停（显式意图，不看 spoke）。停 → blob →
- * base64 data URL → sendSttTranscribe → 回执经 subscribeSttFrames →
- * onResult 回调（Composer 回填草稿——最后一道人工闸）。
+ * base64 data URL → sendSttTranscribe（注入面）→ 回执经 subscribeSttFrames
+ * （注入面）→ onResult 回调（消费方各自的最后一道闸）。
  *
  * VAD 丢弃：自动停且全程未开口 → 直接回 idle 零转写零计费（静音片不值得
  * 一次 ASR 调用）；强制停不看 spoke（用户显式收口，宁可转写不丢话）。
@@ -24,7 +35,6 @@
  * → VAD 降级关闭，保留点击手动停（录音功能不因计量缺失而不可用）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import { createWorkletRmsMeter, type RmsMeterFactory } from "./rms-meter";
@@ -63,10 +73,14 @@ function pickMimeType(): string | undefined {
   return undefined;
 }
 
-/** useVoiceInput 注入面（测试 fake meter / 默认 worklet meter）。 */
+/** useVoiceInput 注入面（shared 零 entities 依赖——SessionContext 命令/订阅面由消费方注入；测试注入 fake meter 驱动 VAD 帧）。 */
 export interface UseVoiceInputOptions {
+  /** stt.transcribe 发送面（SessionContext COMMAND_SURFACE；缺省不发——防御测试形态）。 */
+  readonly sendSttTranscribe?: (audio: string, opts?: { language?: string; provider?: string }) => boolean;
+  /** stt 帧订阅面（SessionContext LISTEN_SURFACE；缺省不订阅）。 */
+  readonly subscribeSttFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   /** RMS meter 工厂（缺省 createWorkletRmsMeter；测试注入 fake 驱动 VAD 帧）。 */
-  createMeter?: RmsMeterFactory;
+  readonly createMeter?: RmsMeterFactory;
 }
 
 export interface VoiceInput {
@@ -83,7 +97,8 @@ export interface VoiceInput {
 
 export function useVoiceInput(onTranscript: (text: string) => void, options?: UseVoiceInputOptions): VoiceInput {
   const { t } = useI18n();
-  const { sendSttTranscribe, subscribeSttFrames } = useSession();
+  const sendSttTranscribe = options?.sendSttTranscribe;
+  const subscribeSttFrames = options?.subscribeSttFrames;
   const [state, setState] = useState<VoiceState>(() =>
     typeof navigator !== "undefined" && navigator.mediaDevices !== undefined && typeof MediaRecorder !== "undefined"
       ? "idle"
@@ -119,11 +134,13 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     }
   }, []);
 
-  // 回执消费（单飞门控：仅 transcribing 态消费；daemon 业务失败走 error 判别，
+  // 回执消费（单飞门控：仅 transcribing 态消费——两消费面并存（Composer /
+  // 管家语音）后，idle 态吞外来回执防串台；daemon 业务失败走 error 判别，
   // 协议面错误走 connection.error——两者都收口回 idle + error 交代）
   useEffect(() => {
     if (subscribeSttFrames === undefined) return;
     return subscribeSttFrames((event: EventEnvelope) => {
+      if (stateRef.current !== "transcribing") return; // 非在途：外来回执（他消费面的转写结果）不消费
       if (event.type === "stt.transcribe.result") {
         if (event.payload.status === "ok") {
           setError(null);
@@ -190,6 +207,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
         }
         const reader = new FileReader();
         reader.onload = () => {
+          if (sendSttTranscribe === undefined) {
+            setStateSafe("idle");
+            return;
+          }
           // 设置页 provider 偏好随命令携带（缺省 auto = 不带，daemon 装配序自动选择）
           const provider = readSttProviderPref();
           const sent = sendSttTranscribe(String(reader.result), { language: "zh", ...(provider !== undefined ? { provider } : {}) });
