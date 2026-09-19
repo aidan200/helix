@@ -65,14 +65,17 @@ export interface DiffFileDto {
 
 /** diff.get.result 载荷。 */
 export interface DiffGetResultPayload {
-  /** 文件行清单（路径升序）。 */
+  /** 文件行清单（路径升序；空态回执 = []）。 */
   files: readonly DiffFileDto[];
-  /** 轮级统计汇总。 */
+  /** 轮级统计汇总（空态回执 = 0/0）。 */
   summary: { adds: number; dels: number };
-  /** 回执归属轮次 id（v0.3.1 §27：rehydrate 面消费——轮次守卫防降级覆盖）。 */
-  turnId: string;
-  /** 回执轮相位（v0.3.1 §27：active=进行中轮实时 / frozen=冻结轮；chip 灰态判定）。 */
-  phase: "active" | "frozen";
+  /** 回执归属轮次 id（v0.3.1 §27：rehydrate 面消费——轮次守卫防降级覆盖）；
+   *  空态回执（phase="empty"）缺省——无归属轮次。 */
+  turnId?: string;
+  /** 回执轮相位（v0.3.1 §27：active=进行中轮实时 / frozen=冻结轮；chip 灰态判定）。
+   *  v0.12 §43 增补 empty=空态优雅回执（冷会话/turnId 未命中的预期态，
+   *  非错误——旧 daemon 回 command.invalid_payload 错误帧的噪声源）。 */
+  phase: "active" | "frozen" | "empty";
 }
 
 // ── 信封（点对点回执窄化接口——不入 EVENT_TYPES 目录，task 族先例） ──

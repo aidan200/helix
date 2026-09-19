@@ -13,7 +13,9 @@
  *   LISTEN_SURFACE 转发归 DiffOverlay 私有 reducer，AG-15 不进本切片）。
  *
  * daemon 侧内存态（重启丢失、快照不携带）——初始态 null = 无记录如实
- * 呈现；会话切换/重建 store 归零由 chip 组件 rehydrate 补拉。
+ * 呈现；会话切换/重建 store 归零由 chip 组件 rehydrate 补拉。空态回执
+ * （v0.12 §43 phase="empty"：冷会话/turnId 未命中的预期态）不落切片——
+ * diff 保持 null（chip 隐藏、无错误面；重拉门控仅随 conn/sid 变化重试）。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import type { DiffChangedPayload, DiffGetResultPayload, EventEnvelope } from "@helix/protocol";
@@ -34,6 +36,10 @@ export function applyDiffEvent(s: SessionState, event: EventEnvelope, _ts?: numb
   // 私有 reducer（AG-15 两链平行）；联合外宽松判别（DiffOverlay/TasksPage 先例同构）
   if ((event.type as string) === "diff.get.result") {
     const p = event.payload as DiffGetResultPayload;
+    // 空态回执（v0.12 §43）：冷会话/turnId 未命中 = 预期态——不落切片
+    // （diff 保持 null，chip 隐藏；在途轮数据不被零值覆盖）；turnId 缺省
+    // 帧（协议上仅空态回执省略）防御同判
+    if (p.phase === "empty" || p.turnId === undefined) return s;
     // 轮次守卫：空态或同 turnId 才落（在途回执不降级覆盖新轮数据）
     if (s.diff !== null && s.diff.turnId !== p.turnId) return s;
     return {

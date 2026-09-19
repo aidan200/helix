@@ -97,6 +97,43 @@ describe("applyDiffEvent 回执真消费（diff.get.result；§29 rehydrate）",
     expect(s1.diff).toEqual({ turnId: "t-1", phase: "frozen", adds: 12, dels: 4, fileCount: 3 });
   });
 
+  it("空态回执变体（v0.12 §43 phase=\"empty\"，turnId 缺省）→ 不落切片：diff 保持 null（冷会话预期态——chip 隐藏、无错误面）", () => {
+    const s0 = createInitialSessionState();
+    const emptyFrame = {
+      v: 0,
+      type: "diff.get.result",
+      sessionId: "s1",
+      payload: { files: [], summary: { adds: 0, dels: 0 }, phase: "empty" },
+    } as unknown as EventEnvelope;
+    expect(applyDiffEvent(s0, emptyFrame)).toBe(s0); // 引用不变（零状态变更）
+    expect(s0.diff).toBeNull();
+  });
+
+  it("空态回执变体不抹在途轮数据（stale 空态帧晚到防护：daemon 重启后旧会话 chip 数据保留）", () => {
+    const s0 = {
+      ...createInitialSessionState(),
+      diff: { turnId: "t-1", phase: "frozen" as const, adds: 12, dels: 4, fileCount: 3 },
+    };
+    const emptyFrame = {
+      v: 0,
+      type: "diff.get.result",
+      sessionId: "s1",
+      payload: { files: [], summary: { adds: 0, dels: 0 }, phase: "empty" },
+    } as unknown as EventEnvelope;
+    expect(applyDiffEvent(s0, emptyFrame)).toBe(s0); // 原状态引用返回（在途轮不被零值覆盖）
+  });
+
+  it("turnId 缺省帧防御同空态（非 empty 相位但无归属轮次——协议上仅空态回执省略）", () => {
+    const s0 = createInitialSessionState();
+    const malformed = {
+      v: 0,
+      type: "diff.get.result",
+      sessionId: "s1",
+      payload: { files: [], summary: { adds: 0, dels: 0 }, phase: "frozen" },
+    } as unknown as EventEnvelope;
+    expect(applyDiffEvent(s0, malformed)).toBe(s0);
+  });
+
   it("轮次守卫：已有不同 turnId 数据时旧轮回执不降级覆盖（在途竞态防护）", () => {
     const s0 = { ...createInitialSessionState(), diff: { turnId: "t-2", phase: "active" as const, adds: 5, dels: 1, fileCount: 1 } };
     const s1 = applyDiffEvent(s0, resultFrame("t-1", 12, 4, 3));

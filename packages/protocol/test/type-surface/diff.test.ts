@@ -122,4 +122,26 @@ describe("diff 批：diff.get.result 点对点回执（窄化接口，不入 EVE
     expect(f2.diff).toBeUndefined();
     expect(f2.note).toBeUndefined();
   });
+
+  // v0.12 §43 空态回执变体（additive）：冷会话/turnId 未命中的预期态非错误
+  test("空态回执变体（phase=\"empty\"）：files=[] + summary 0/0 + turnId 缺省（可选化）", () => {
+    const payload: DiffGetResultPayload = {
+      files: [],
+      summary: { adds: 0, dels: 0 },
+      phase: "empty",
+    };
+    const frame: DiffGetResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: "sess-1",
+      channel: "session",
+      type: "diff.get.result",
+      payload,
+    };
+    expect(frame.payload.phase).toBe("empty");
+    expect(frame.payload.files).toHaveLength(0);
+    expect(frame.payload.turnId).toBeUndefined(); // 空态无归属轮次（可选化语义）
+    // 回执相位三值联合：active / frozen / empty（§43）
+    const phases: readonly DiffGetResultPayload["phase"][] = ["active", "frozen", "empty"];
+    expect(phases).toHaveLength(3);
+  });
 });
