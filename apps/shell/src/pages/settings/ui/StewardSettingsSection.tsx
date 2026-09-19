@@ -8,9 +8,11 @@
  * - 启用开关（radio 关/开，语音 TTS 播报开关同构）：切换 →
  *   steward.set_config {enabled}；回执 config.result 新态同步本地选中
  *   （不乐观翻转）；send false（未连接）→ err toast；
- * - 模型槽位（select，选项 = 目录全 id「provider/model-id」；现值不在
- *   目录（如 daemon 默认 flash 模型）时补为额外选项——select 不说谎）：
- *   换值 → steward.set_config {model}；回执帧同步 select 值。
+ * - 模型槽位（select，选项 = 可用性过滤后目录 id「provider/model-id」——
+ *   V2.5 补丁：与 P-3 菜单 / AgentPage S3a / 语音区同口径，仅显示已配置
+ *   （configured）provider 的模型；现值兑底（provider 未 configured /
+ *   不在目录仍保留——select 不说谎））：换值 → steward.set_config {model}；
+ *   回执帧同步 select 值；
  *
  * 与面板互不干扰：本分区不复用 useSteward（其订阅闸门效应
  * [conn,open,enabled] 与面板开合态纠缠——两处独立实例的 subscribe/
@@ -23,6 +25,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ConciergeBell } from "lucide-react";
 import { useSession } from "@/entities/session/SessionContext";
+import { filterAvailableModels } from "@/features/model-switch/model/available-models";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
@@ -37,16 +40,18 @@ interface StewardConfig {
 const StewardSettingsSection = function StewardSettingsSection() {
   const { t } = useI18n();
   const toast = useToast();
-  const { topology, requestModelConfig, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames } =
+  const { topology, requestModelConfig, requestAuthList, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames } =
     useSession();
   // null = 未收到 config.result（现态到达前开关段按默认关展示）
   const [config, setConfig] = useState<StewardConfig | null>(null);
 
-  // 进入分区拉取（幂等读；命令面 ref 恒定——mount 单发，无自激面）
+  // 进入分区拉取（幂等读；命令面 ref 恒定——mount 单发，无自激面）+ auth.list
+  // （V2.5 补丁：configured 过滤数据源，每次进入刷新——P-3/P-4/AgentPage 同口径）
   useEffect(() => {
     sendStewardGetConfig();
     requestModelConfig();
-  }, [sendStewardGetConfig, requestModelConfig]);
+    requestAuthList();
+  }, [sendStewardGetConfig, requestModelConfig, requestAuthList]);
 
   // config 回执消费（本分区写面 + 面板/他处写面同帧广播——单一状态源）
   useEffect(() => {
@@ -69,13 +74,26 @@ const StewardSettingsSection = function StewardSettingsSection() {
     if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
   };
 
-  // 目录全 id 选项；现值不在目录（daemon 默认/自定义）补额外选项（select 不说谎）
-  const models = useMemo(() => topology.modelConfig.catalog?.models ?? [], [topology.modelConfig.catalog]);
+  const mc = topology.modelConfig;
+  const models = useMemo(() => mc.catalog?.models ?? [], [mc.catalog]);
+  // 可用性过滤后选项（V2.5 补丁，canonical = features/model-switch 的
+  // filterAvailableModels，P-3 菜单 / AgentPage ProfileCard 同源）：
+  // authLoaded=true 时仅保留 provider configured 的模型（verifyStatus 不
+  // 参与）；现值兑底（provider 未 configured 也保留，防 select 找不到现值）；
+  // authLoaded=false 不过滤（防加载期空态）。现值不在目录（daemon 默认/
+  // 自定义）再补额外选项——select 不说谎
   const options = useMemo(() => {
-    const ids = models.map((m) => m.id);
+    const visible = filterAvailableModels({
+      models,
+      auth: mc.auth,
+      authLoaded: mc.authLoaded,
+      currentModel: config?.model,
+      query: "",
+    });
+    const ids = visible.map((m) => m.id);
     const current = config?.model ?? "";
     return current !== "" && !ids.includes(current) ? [current, ...ids] : ids;
-  }, [models, config?.model]);
+  }, [models, mc.auth, mc.authLoaded, config?.model]);
 
   const enabled = config?.enabled === true;
 
@@ -123,8 +141,8 @@ const StewardSettingsSection = function StewardSettingsSection() {
             style={{ flex: 1 }}
             onChange={(e) => onPickModel(e.target.value)}
           >
-            {/* 现态未到达的过渡态占位（hidden；避免受控 value 无匹配项） */}
-            {config === null && <option value="" hidden />}
+            {/* 现态未到达的过渡态占位 / 零可用空占位（hidden；避免受控 value 无匹配项） */}
+            {(config === null || options.length === 0) && <option value="" hidden />}
             {options.map((id) => (
               <option key={id} value={id}>
                 {id}
