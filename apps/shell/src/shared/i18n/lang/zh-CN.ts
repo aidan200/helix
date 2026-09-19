@@ -288,6 +288,7 @@ export const zhCN = {
         mcp: "MCP 服务",
         skills: "技能管理",
         voice: "语音输入",
+        steward: "管家",
       },
       voice: {
         title: "语音输入",
@@ -324,6 +325,18 @@ export const zhCN = {
         auditionFail: "试听失败",
         auditionSendFail: "试听未发出：与 daemon 的连接不可用",
         auditionBlocked: "试听播放被浏览器策略拒绝（请先与页面交互）",
+      },
+      // ── 管家段（V2.5 收官批：启用开关 + 模型槽位；面板词条在顶层
+      //    steward.* 族（面板本体批）──
+      steward: {
+        title: "文本管家",
+        note: "侧栏问答管家：问询全局运行状态、接收事件递话，写动作经确认卡放行。入口在工作台顶栏铃铛钮；面板可在未开启时打开并指引回本页。",
+        enable: "启用管家",
+        "enable.off": "关（默认）",
+        "enable.on": "开",
+        enableHint: "关 = 管家问答拒答（服务端零 LLM 调用，不产生费用）；开 = 可在面板问询全局状态",
+        model: "模型槽位",
+        modelHint: "“厂商/模型 id” 形态，flash 级快模型为宜；未单独设置时沿用 daemon 默认 flash 模型",
       },
       skills: {
         title: "用户技能",
@@ -1040,7 +1053,7 @@ export const zhCN = {
     title: "文本管家",
     close: "关闭",
     disabledTitle: "管家未开启",
-    disabledHint: "开关默认关闭；开启后可在这里问询全局状态，写动作需经确认。",
+    disabledHint: "管家开关默认关闭；到「设置 → 管家」开启后可在这里问询全局状态，写动作需经确认。",
     feedTitle: "事件流",
     feedEmpty: "暂无事件",
     thinking: "思考中…",
