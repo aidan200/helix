@@ -139,6 +139,7 @@ import type {
 } from "./mcp";
 import type { AskResolvedEvent, AskStartedEvent } from "./interaction";
 import type { SttTranscribeResultEvent } from "./stt";
+import type { VoiceBroadcastEvent, VoiceSynthesizeResultEvent } from "./voice";
 
 export * from "./notification";
 export * from "./session";
@@ -157,6 +158,7 @@ export * from "./coord";
 export * from "./mcp";
 export * from "./interaction";
 export * from "./stt";
+export * from "./voice";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -256,6 +258,8 @@ export type EventEnvelope =
   | McpToolsListResultEvent
   | McpStatusChangedEvent
   | SttTranscribeResultEvent
+  | VoiceBroadcastEvent
+  | VoiceSynthesizeResultEvent
   | AskStartedEvent
   | AskResolvedEvent;
 
@@ -359,6 +363,8 @@ export const EVENT_TYPES = [
   "ask.started",
   "ask.resolved",
   "stt.transcribe.result",
+  "voice.broadcast",
+  "voice.synthesize.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -468,4 +474,6 @@ export const EVENT_CHANNELS = {
   "ask.started": "interaction",
   "ask.resolved": "interaction",
   "stt.transcribe.result": "stt",
+  "voice.broadcast": "voice",
+  "voice.synthesize.result": "voice",
 } as const satisfies Record<EventType, Channel>;

@@ -232,6 +232,12 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "stt.transcribe.result":
       // 语音输入批（V1 云转写）：两判别窄化（ok 文本 / error 原因）
       return `stt-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.text}` : event.payload.reason}`;
+    case "voice.broadcast":
+      // 语音播报批（V2 TTS）：广播帧窄化（kind/text/seq）
+      return `voice-broadcast:${event.payload.kind}:${event.payload.agentId}:${event.payload.seq}`;
+    case "voice.synthesize.result":
+      // 语音播报批（V2 TTS）：两判别窄化（ok 音频 / error 原因）
+      return `voice-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.audio.length}` : event.payload.reason}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
@@ -409,6 +415,13 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "stt.transcribe":
       // 语音输入批（V1 云转写）：音频 data URL 载荷窄化守护
       return `stt-transcribe:${cmd.payload.audio.slice(0, 8)}:${cmd.payload.durationMs ?? "-"}:${cmd.payload.language ?? "auto"}`;
+    case "voice.synthesize":
+      // 语音播报批（V2 TTS）：试听合成命令窄化（text/voice）
+      return `voice-synthesize:${cmd.payload.text}:${cmd.payload.voice ?? "-"}`;
+    case "voice.subscribe":
+      return `voice-subscribe:${cmd.payload.voice ?? "-"}`;
+    case "voice.unsubscribe":
+      return "voice-unsubscribe";
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
@@ -472,6 +485,11 @@ export function familyOf(event: EventEnvelope): string {
       // 语音输入批（V1 云转写）：stt 新族窄化（点对点结果帧）
       const t: TypeOfChannel<"stt"> = event.type;
       return `stt/${t}`;
+    }
+    case "voice": {
+      // 语音播报批（V2 TTS）：voice 新族窄化（广播帧 + 点对点结果帧）
+      const t: TypeOfChannel<"voice"> = event.type;
+      return `voice/${t}`;
     }
     default:
       // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）
