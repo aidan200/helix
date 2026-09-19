@@ -75,6 +75,7 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
           toastPending,
           sessionId: null,
           model: event.payload.model,
+          daemonFreshness: event.payload.daemonFreshness ?? null,
           // P1 T4：草稿态 welcome 不带 mode——本地所选保持（重连不丢草稿选择）
           view: "ready",
         };
@@ -97,6 +98,7 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
           hasConnected: true,
           pendingManualRetry: false,
           toastPending,
+          daemonFreshness: event.payload.daemonFreshness ?? null,
         };
       }
       return {
@@ -107,6 +109,7 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         toastPending,
         sessionId: event.payload.sessionId,
         model: event.payload.model,
+        daemonFreshness: event.payload.daemonFreshness ?? null,
         // P1 T4 welcome mode 回带（已建会话 = session.mode 定格值）；缺省 =
         // default 兜底（旧 daemon 兼容）
         mode: event.payload.mode ?? DEFAULT_MODE_ID,

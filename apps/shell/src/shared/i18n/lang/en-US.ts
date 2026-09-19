@@ -19,6 +19,10 @@ export const enUS = {
       connecting: "Connecting",
       disconnected: "Disconnected",
       error: "Failed",
+      // stale-indicator 批（§17.15）：daemon 源码新鲜度警示（welcome.daemonFreshness.stale）
+      staleChip: "Daemon code updated — restart recommended",
+      staleChipTitle: "Daemon started at {time}; code merged after that is not live. Click to copy restart hint",
+      staleChipCopy: "Daemon code updated: press Ctrl+C to stop the current daemon, then run bun run dev again",
     },
     banner: {
       reconnecting: "Connection lost · reconnecting",
@@ -427,6 +431,10 @@ export const enUS = {
         portNote: "Applies on next start; current run port unchanged",
         portArgvOverride: "Current run overridden by --port to {port}; stored value does not affect this run",
         groupSandbox: "Command sandbox",
+        // stale-indicator 批（§17.15）：关于 daemon（连接信息区）
+        groupAbout: "About daemon",
+        daemonStartedAt: "Daemon started at",
+        daemonStartedUnknown: "Not connected (shown after handshake)",
         sandbox: "Sandbox switch",
         sandboxOn: "On",
         sandboxOff: "Off",

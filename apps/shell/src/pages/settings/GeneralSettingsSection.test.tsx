@@ -25,6 +25,8 @@ const requestSandboxConfig = vi.fn();
 const setSandboxConfig = vi.fn();
 /** 沙箱开关状态（结果帧驱动回填用可变位）。 */
 let mockSandbox: { enabled: boolean; extraRoots: string[] } | null = null;
+/** stale-indicator 批：daemonFreshness 可变位（welcome 承接面——设置页人话时间数据源）。 */
+let mockDaemonFreshness: { startedAt: number; stale: boolean } | null = null;
 const setPortConfig = vi.fn();
 /** M44/M46：压缩参数结果帧可变位（结果帧驱动回填 / 「已保存」对账）。 */
 let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null = null;
@@ -37,7 +39,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      state: { agentState: "idle", instances: [] },
+      state: { agentState: "idle", instances: [], daemonFreshness: mockDaemonFreshness },
       topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
@@ -82,6 +84,7 @@ afterEach(() => {
   cleanup();
   mockCompaction = null;
   mockSandbox = null;
+  mockDaemonFreshness = null;
   configListeners = [];
   vi.clearAllMocks();
 });
@@ -394,5 +397,24 @@ describe("code-review 族A：沙箱开关 daemon 拒绝交代（connection.error
     fireEvent.click(container.querySelector<HTMLElement>('[data-sandbox-option="on"]')!);
     feedConnError("端口配置非法（命令 config.set_port）");
     expect(container.querySelector("[data-sandbox-save-error]")).toBeNull();
+  });
+});
+
+describe("stale-indicator 批：关于 daemon 卡（daemon 启动时间人话显示）", () => {
+  it("daemonFreshness 在场 → daemon 启动时间人话显示（data-daemon-started-at）", () => {
+    mockDaemonFreshness = { startedAt: 1_760_000_000_000, stale: true };
+    const { container } = ui();
+    const row = container.querySelector("[data-daemon-started-at]");
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain(new Date(1_760_000_000_000).toLocaleString());
+  });
+
+  it("daemonFreshness 缺席（旧 daemon / 未握手）→ 兜底文案，不显示时间", () => {
+    mockDaemonFreshness = null;
+    const { container } = ui();
+    const row = container.querySelector("[data-daemon-started-at]");
+    expect(row).not.toBeNull();
+    expect(row!.textContent).not.toContain("1975");
+    expect(row!.textContent).toContain("未连接");
   });
 });

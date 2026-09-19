@@ -29,6 +29,7 @@ import type {
 import type {
   AgentStateDto,
   ConnectionErrorEvent,
+  DaemonFreshnessDto,
   ErrorCode,
   EventEnvelope,
   SessionSnapshotEvent,
@@ -232,6 +233,14 @@ export interface WsServerAdapterDeps {
    * EventStream 层接线，O-7）；未装配 → command.unimplemented。
    */
   readonly taskEngine?: TaskEnginePort;
+  /**
+   * daemon 新鲜度读面（stale-indicator 批，§17.15）：welcome 携带的源码
+   * 新鲜度现拍（组合根经 driven freshness/SourceFreshness 装配注入——
+   * driving 不 import driven，AG-02③）。可选：未注入（stub rig）→
+   * welcome 不携带 daemonFreshness（additive 缺省语义）。返回 undefined
+   * = 打包态源码目录缺失（恒 fresh，缺省字段）。
+   */
+  readonly freshness?: () => DaemonFreshnessDto | undefined;
   /**
    * T3 diff 查询面（diff.get 命令回口）：热会话 diff 状态读面
    * （registry.peek().diff）+ TurnDiffService 查询操作面；未装配 →

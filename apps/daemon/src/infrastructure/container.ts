@@ -930,6 +930,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     unsubscribeBrowserStatus,
     ...(mcpShutdown !== undefined ? { stopMcp: mcpShutdown } : {}),
     port: resolvedPort, // 完整解析链（argv > KV > 7333）已定格
+    // stale-indicator 批：welcome daemonFreshness 比对基准（进程启动时刻单源）
+    daemonStartedAtMs: bootedAtMs,
     staticDir: deps.staticDir,
     tailSize: deps.tailSize,
   });

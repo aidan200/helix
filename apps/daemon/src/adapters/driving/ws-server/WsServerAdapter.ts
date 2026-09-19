@@ -382,6 +382,10 @@ export class WsServerAdapter {
 
     const agentState = status.agentState as AgentStateDto;
     const model = status.model ?? "";
+    // stale-indicator 批（§17.15）：握手时现拍源码新鲜度（每连接一次——
+    // welcome 每连接恰一帧；未注入/打包态 → undefined 不携带，additive）。
+    // E-54 纪律不动：帧序与既有字段语义零改（只拼装 payload 尾部新字段）。
+    const daemonFreshness = this.deps.freshness?.();
     // P1 T3：welcome 回带 mode = 当前会话定格值（非草稿分支；与快照同源
     // view——提前组装共享，零额外成本。快照组装失败降级不携带，welcome
     // 必达语义不变，读侧按 default 兜底；草稿态不携带（草稿模式纯前端态，
@@ -405,6 +409,7 @@ export class WsServerAdapter {
         agentState,
         ...(isDraft ? { draft: true } : {}),
         ...(view?.session.mode !== undefined ? { mode: view.session.mode } : {}),
+        ...(daemonFreshness !== undefined ? { daemonFreshness } : {}),
       },
     };
     this.sendNow(sender, welcome);

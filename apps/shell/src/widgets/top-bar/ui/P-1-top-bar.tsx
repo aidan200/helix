@@ -42,6 +42,33 @@ function dotClass(conn: ConnState): string {
   }
 }
 
+/**
+ * daemon 陈旧警示 chip（stale-indicator 批，§17.15）：welcome.daemonFreshness.
+ * stale=true 时渲染在连接状态区（琥珀警告色 hud-chip 语言）。hover 显示 daemon
+ * 启动时间；点击复制重启提示（Ctrl+C 后 bun run dev）。无轮询——状态随
+ * 握手定格，daemon 重启重连即消警。
+ */
+function DaemonStaleChip({ startedAt }: { startedAt: number }) {
+  const { t } = useI18n();
+  const started = new Date(startedAt).toLocaleString();
+  const copyHint = t("chat.conn.staleChipCopy");
+  return (
+    <button
+      type="button"
+      className="hud-chip stale-chip"
+      data-testid="daemon-stale-chip"
+      title={t("chat.conn.staleChipTitle", { time: started })}
+      aria-label={`${t("chat.conn.staleChip")}（${started}）`}
+      onClick={() => {
+        void navigator.clipboard?.writeText(copyHint);
+      }}
+    >
+      <span className="hud-dot hud-dot-warn" aria-hidden="true" />
+      {t("chat.conn.staleChip")}
+    </button>
+  );
+}
+
 /** 模式显示名（P1 T4）：注册表内 id → chat.mode.<id> 词条；未知 id（wire
  *  防御）原样透显（不落词条 fallback 避免渲染 key 本身）。 */
 function modeLabelOf(t: (key: string) => string, mode: string): string {
@@ -270,6 +297,9 @@ export const TopBarActions = function TopBarActions({
         <span className={dotClass(state.conn)} />
         <span>{connLabel}</span>
       </span>
+      {state.daemonFreshness?.stale === true && (
+        <DaemonStaleChip startedAt={state.daemonFreshness.startedAt} />
+      )}
     </>
   );
 };

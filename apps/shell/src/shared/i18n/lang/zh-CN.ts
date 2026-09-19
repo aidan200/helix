@@ -24,6 +24,10 @@ export const zhCN = {
       connecting: "连接中",
       disconnected: "已断开",
       error: "连接失败",
+      // stale-indicator 批（§17.15）：daemon 源码新鲜度警示（welcome.daemonFreshness.stale）
+      staleChip: "daemon 代码已更新，建议重启",
+      staleChipTitle: "daemon 启动于 {time}——之后合入的代码未生效（正在跑旧代码）。点击复制重启提示",
+      staleChipCopy: "daemon 代码已更新：请 Ctrl+C 停止当前 daemon，然后重新运行 bun run dev",
     },
     banner: {
       reconnecting: "连接中断 · 自动重连中",
@@ -437,6 +441,10 @@ export const zhCN = {
         portNote: "修改后下次启动生效；本次运行端口不变",
         portArgvOverride: "本次运行由 --port 参数覆盖为 {port}，修改存储值不影响本次",
         groupSandbox: "命令沙箱",
+        // stale-indicator 批（§17.15）：关于 daemon（连接信息区）
+        groupAbout: "关于 daemon",
+        daemonStartedAt: "daemon 启动时间",
+        daemonStartedUnknown: "未连接（握手后显示）",
         sandbox: "沙箱开关",
         sandboxOn: "开启",
         sandboxOff: "关闭",

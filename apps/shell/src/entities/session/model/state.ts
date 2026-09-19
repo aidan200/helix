@@ -11,6 +11,7 @@ import type {
   AgentStateDto,
   CatalogModel,
   ClosureDto,
+  DaemonFreshnessDto,
   DiffChangedPayload,
   EntryDto,
   EventEnvelope,
@@ -437,6 +438,13 @@ export interface SessionState {
   connAttempts: number;
   /** error 态失败卡数据（gave-up 时由客户端填入真实错误信息） */
   connError: { message: string; attempts: number } | null;
+  /**
+   * daemon 新鲜度（stale-indicator 批，§17.15）：welcome 携带的 daemon
+   * 进程启动时刻 + 源码新鲜度自检（连接级字段——切换/新建草稿保留，
+   * 同一 WS 不重握手）。null = 未携带（旧 daemon / 打包态，按新鲜处理）。
+   * stale=true → 顶栏连接状态区琥珀 chip「daemon 代码已更新，建议重启」。
+   */
+  daemonFreshness: DaemonFreshnessDto | null;
   /** 引擎/模型调用失败（终验热修：engine.error 帧 → 聊天流错误卡片；
    *  瞬态不落盘——新轮开始即清；持久事实在 daemon 日志与领域事件流） */
   engineError: { message: string } | null;
@@ -645,6 +653,7 @@ export function createInitialSessionState(): SessionState {
     conn: "connecting",
     connAttempts: 1,
     connError: null,
+    daemonFreshness: null,
     engineError: null,
     pendingAsk: null,
     engineRetrying: null,

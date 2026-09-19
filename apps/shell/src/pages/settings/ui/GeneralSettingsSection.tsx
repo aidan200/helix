@@ -38,7 +38,7 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
 
 const GeneralSettingsSection = function GeneralSettingsSection() {
   const { t, lang, setLang } = useI18n();
-  const { topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -420,6 +420,20 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         )}
         <span className="ag-note">{t("chat.settings.general.sandboxExtraRootsNote")}</span>
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
+      </div>
+
+      {/* 关于 daemon（stale-indicator 批，§17.15）：连接信息区——welcome
+          daemonFreshness.startedAt 人话时间（未握手/旧 daemon 兑底文案） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupAbout")}</h3>
+      <div className="hud-card" data-daemon-info>
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.daemonStartedAt")}</span>
+          <span className="ag-note" data-daemon-started-at>
+            {state.daemonFreshness !== null
+              ? new Date(state.daemonFreshness.startedAt).toLocaleString()
+              : t("chat.settings.general.daemonStartedUnknown")}
+          </span>
+        </div>
       </div>
     </div>
   );
