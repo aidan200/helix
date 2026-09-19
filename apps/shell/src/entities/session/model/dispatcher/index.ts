@@ -113,6 +113,10 @@ register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // 守护绿（主 reducer 原状态返回 = 未注册 default 语义）。新增连接私有回执/
 // 广播帧时在此追加一行即完成登记（守护测试直接核查本清单，见 dispatcher.test.ts）。
 export const PASSTHROUGH_EVENT_TYPES = [
+  // 语音输入批 V1：stt.transcribe.result = 连接私有回执（点对点），真消费归
+  // Composer useVoiceInput（SessionContext 转发层 subscribeSttFrames——
+  // trace.query.result 先例）
+  "stt.transcribe.result",
   // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
   // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
   // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api

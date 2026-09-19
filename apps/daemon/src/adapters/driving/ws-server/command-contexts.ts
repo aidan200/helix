@@ -55,6 +55,8 @@ import type {
   McpCommandContext,
   ResourceCommandContext,
   SessionCommandContext,
+  SttCommandContext,
+  SttCommandDeps,
   TaskCommandContext,
   TraceCommandContext,
   WebCommandContext,
@@ -112,6 +114,12 @@ export interface WsServerAdapterDeps {
    * 六命令回 command.unimplemented（workspace 先例；stub rig 兼容）。
    */
   readonly mcp?: McpCommandDeps;
+  /**
+   * STT 转写面（语音输入批 V1）：stt.transcribe 命令回口（SttPort 装配
+   * 清单 + key 读面；只转发不决策）。可选：未注入 → 回 command.unimplemented
+   *（mcp 先例；stub rig 兼容）。
+   */
+  readonly stt?: SttCommandDeps;
   /**
    * 合并目录校验面：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -547,6 +555,30 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     };
   };
 
+  /**
+   * stt 族命令处理上下文（语音输入批 V1）：SttCommandDeps + 会话目录
+   *（P1 会话源读面 + 归属自查）+ 共享辅助（mcpContext 同构；信封 sessionId
+   * 消费）。未装配（deps.stt undefined）在 routeCommand 已拒，此处非空断言安全。
+   */
+  const sttContext = (
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+    envelope: { sessionId?: unknown },
+  ): SttCommandContext => {
+    return {
+      ws,
+      type,
+      payload,
+      envelope,
+      directory: deps.directory,
+      stt: deps.stt!,
+      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      rawSender: () => helpers.rawSender(ws),
+      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+    };
+  };
+
   return {
     commandContext,
     chatContext,
@@ -560,5 +592,6 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     diffContext,
     webContext,
     mcpContext,
+    sttContext,
   };
 }

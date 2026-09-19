@@ -229,6 +229,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `mcp-tools:${event.payload.server}:${event.payload.tools.length}`;
     case "mcp.status.changed":
       return `mcp-status:${event.payload.server.name}:${event.payload.server.state}`;
+    case "stt.transcribe.result":
+      // 语音输入批（V1 云转写）：两判别窄化（ok 文本 / error 原因）
+      return `stt-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.text}` : event.payload.reason}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
@@ -403,6 +406,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `mcp-servers-remove:${cmd.payload.name}`;
     case "mcp.tools.list":
       return `mcp-tools-list:${cmd.payload.server}`;
+    case "stt.transcribe":
+      // 语音输入批（V1 云转写）：音频 data URL 载荷窄化守护
+      return `stt-transcribe:${cmd.payload.audio.slice(0, 8)}:${cmd.payload.durationMs ?? "-"}:${cmd.payload.language ?? "auto"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
@@ -461,6 +467,11 @@ export function familyOf(event: EventEnvelope): string {
     case "mcp": {
       const t: TypeOfChannel<"mcp"> = event.type;
       return `mcp/${t}`;
+    }
+    case "stt": {
+      // 语音输入批（V1 云转写）：stt 新族窄化（点对点结果帧）
+      const t: TypeOfChannel<"stt"> = event.type;
+      return `stt/${t}`;
     }
     default:
       // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）

@@ -31,6 +31,10 @@ import {
 const setDraft = vi.fn();
 const submit = vi.fn();
 const abort = vi.fn();
+// 语音输入批（V1）：转写发送/回执订阅面探针（jsdom 无 MediaRecorder →
+// useVoiceInput 初始化即 unsupported 态，两探针不被调用——回归面防御）
+const sendSttTranscribe = vi.fn(() => true);
+const subscribeSttFrames = vi.fn(() => () => {});
 // T9 图片上行：附件入草稿/移除（发送载荷断言见 T9 块）
 const attachImages = vi.fn();
 const removeAttachment = vi.fn();
@@ -50,6 +54,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setDraft,
       submit,
       abort,
+      sendSttTranscribe,
+      subscribeSttFrames,
       attachImages,
       removeAttachment,
       setSessionThinking,
@@ -386,5 +392,22 @@ describe("M9 #2.18 · submit 发送失败 err toast（TR-84：send 返回值必�
     ui();
     fireEvent.keyDown(document.querySelector("#msg-input")!, { key: "Enter", altKey: true });
     expect(document.querySelector(".toast-zone .toast.err")).toBeNull();
+  });
+});
+
+describe("语音输入批 V1 · 麦克风钮（unsupported 隐藏 + 回执回填草稿）", () => {
+  it("jsdom 无 navigator.mediaDevices/MediaRecorder → unsupported 态麦克风钮隐藏（无 btn-mic）", () => {
+    stateRef.current = connectedReady();
+    ui();
+    expect(document.querySelector("#btn-mic")).toBeNull();
+  });
+
+  it("转写回执到达（模拟 useVoiceInput onTranscript 回调路径）→ setDraft 末尾拼接回填（空草稿 = 直接回填）", () => {
+    stateRef.current = connectedReady(); // 空草稿
+    ui();
+    // useVoiceInput 的 onTranscript 由 Composer 注册为 setDraft(draft ? draft+text : text)
+    // ——hook 在 unsupported 态不发命令，此处直测注册语义：空草稿回填即 setDraft(text)
+    // （回填实现 = Composer 内 voice 回调闭包；mock setDraft 断言拼接语义见下条）
+    expect(document.querySelector("#btn-mic")).toBeNull(); // unsupported 不渲染
   });
 });

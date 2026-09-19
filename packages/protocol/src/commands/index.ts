@@ -24,4 +24,5 @@ export * from "./resource";
 export * from "./kg";
 export * from "./task";
 export * from "./mcp";
+export * from "./stt";
 export * from "./catalog";

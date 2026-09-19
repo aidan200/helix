@@ -40,6 +40,7 @@ import type {
 } from "@helix/protocol";
 import {
   agentBasePromptGetCommand,
+  sttTranscribeCommand,
   agentKillCommand,
   agentSkillContentGetCommand,
   agentSkillCreateCommand,
@@ -191,6 +192,16 @@ export const COMMAND_SURFACE = {
   /** 移除第 index 张附件（T9；chips 移除钮） */
   removeAttachment: ({ dispatch }) =>
     (index: number) => dispatch({ type: "ui/remove-attachment", index }),
+
+  /** 语音转写发送（语音输入批 V1）：音频 base64 data URL → stt.transcribe
+   *  （信封 sessionId = 活跃会话——daemon P1 会话词汇表源；草稿态省略 =
+   *  裸转写）。回执经 subscribeSttFrames 点对点消费；返回 false = 未连接
+   *  （submit 同语义，零静默丢消息）。 */
+  sendSttTranscribe: (deps) =>
+    (audio: string, opts?: { language?: string; provider?: string }): boolean => {
+      const { sessionId } = deps.getTopology().active;
+      return deps.send(sttTranscribeCommand(audio, opts, sessionId ?? undefined));
+    },
 
   // ── 连接 / 会话生命周期面 ─────────────────────────────────
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
@@ -736,6 +747,11 @@ export const LISTEN_SURFACE = {
       type === "mcp.status.changed" ||
       type === "connection.error" ||
       (type.startsWith("mcp.") && type.endsWith(".result")),
+  },
+  /** 订阅 stt 族帧（语音输入批 V1：stt.transcribe.result 点对点回执 +
+   *  connection.error——Composer 转写在途态判定，单飞门控消费）。 */
+  subscribeSttFrames: {
+    match: (type) => type === "stt.transcribe.result" || type === "connection.error",
   },
 } satisfies Record<string, ListenDomainSpec>;
 

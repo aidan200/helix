@@ -215,6 +215,11 @@ type _TypeSurface = [
   protocol.ModeSpec,
   protocol.StageSpec,
   protocol.ModeId,
+  // 语音输入批（V1 云转写；stt 域命令 + 结果帧）
+  protocol.SttTranscribePayload,
+  protocol.SttTranscribeCommand,
+  protocol.SttTranscribeResultPayload,
+  protocol.SttTranscribeResultEvent,
   // 错误模型（契约 §7；v0.2 +command.unimplemented）
   protocol.ErrorCode,
 ];
@@ -261,11 +266,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（config 瘦身批 + diff 批 + mcp 批：命令 73 / 事件 91；v0.11 版本位保持）", () => {
+  test("② 常量语义值 + 目录计数（config 瘦身批 + diff 批 + mcp 批 + 语音输入批：命令 78 / 事件 98；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.12"); // v0.12 批次版本位（coord 批；契约 = PROTOCOL-CHANGELOG.md §17.12）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(77); // 越权申请批 +1（ask.answer）
-    expect(protocol.EVENT_TYPES.length).toBe(97); // 越权申请批 +2（ask.started/ask.resolved）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(97); // 登记目录恰等（越权申请批 +2）
+    expect(protocol.COMMAND_TYPES.length).toBe(78); // 语音输入批 +1（stt.transcribe）
+    expect(protocol.EVENT_TYPES.length).toBe(98); // 语音输入批 +1（stt.transcribe.result）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(98); // 登记目录恰等（语音输入批 +1）
   });
 });

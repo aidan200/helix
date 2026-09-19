@@ -102,6 +102,14 @@ export interface ModelServiceDeps {
   readonly onModelChanged: (payload: { sessionId: string; model: string; previous: string; effective: "next-turn" }) => void;
   /** thinking.changed 广播出海（thinking 批①；容器接 EventStream；channel=thinking）。 */
   readonly onThinkingChanged: (payload: { sessionId: string; override: string | null; effective: string | null }) => void;
+  /**
+   * STT provider id 扩展集（语音输入批 V1）：非 LLM 目录成员但可经
+   * auth.set_key 录入 key 的 provider（"dashscope" / "siliconflow"——ASR
+   * 专用）。authList 并入显示；authSetKey/authDeleteKey 放行；authVerify
+   * 不走 LLM 连通验证（回明确说明——排查引导「直接试一次语音输入」）。
+   * 可选：缺省空——零行为差（测试 rig 不受影响）。
+   */
+  readonly sttProviderIds?: readonly string[];
 }
 
 export class ModelService implements ModelPort {
@@ -187,6 +195,18 @@ export class ModelService implements ModelPort {
         ...(status.keyMasked !== undefined ? { keyMasked: status.keyMasked } : {}),
       });
     }
+    // 语音输入批 V1：STT provider 并入清单（设置页语音输入区配置状态数据源；
+    // 目录成员去重防御——目录未来收录 ASR provider 时不双列）
+    const catalogIds = new Set(this.deps.catalog.providerIds());
+    for (const providerId of this.deps.sttProviderIds ?? []) {
+      if (catalogIds.has(providerId)) continue;
+      const status = this.deps.auth.statusOf(providerId);
+      out.push({
+        providerId,
+        configured: status.configured,
+        ...(status.keyMasked !== undefined ? { keyMasked: status.keyMasked } : {}),
+      });
+    }
     return out;
   }
 
@@ -205,10 +225,21 @@ export class ModelService implements ModelPort {
 
   async authVerify(providerId: string): Promise<AuthVerifyOutcome> {
     this.assertProvider(providerId);
+    // 语音输入批 V1：STT provider 不走 LLM 连通验证（无目录模型可 streamSimple
+    // ——回明确说明引导直接试一次语音输入，语义诚实优于报错）
+    if ((this.deps.sttProviderIds ?? []).includes(providerId)) {
+      return {
+        status: "fail",
+        reason: `provider "${providerId}" 为语音转写专用（无 LLM 连通验证）——录入 key 后直接试一次语音输入即可验证`,
+      };
+    }
     return this.deps.catalog.verify(providerId, this.deps.auth.apiKeyOf(providerId));
   }
 
   private assertProvider(providerId: string): void {
+    // 语音输入批 V1：STT provider 扩展集放行（非 LLM 目录成员——auth.json
+    // 凭据体系全 provider 通用，仅目录枚举面原先按 LLM catalog 收口）
+    if ((this.deps.sttProviderIds ?? []).includes(providerId)) return;
     if (!this.deps.catalog.providerIds().includes(providerId)) throw new ProviderNotFoundError(providerId);
   }
 }

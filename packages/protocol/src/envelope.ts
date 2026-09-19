@@ -44,7 +44,8 @@ export const SYSTEM_SESSION_ID = "__system__" as const;
  * 标准接入：mcp.servers.* 与 mcp.tools.* 回执 + mcp.status.changed 状态
  * 广播）；interaction 为占位族（仅类型定义，
  * 无事件挂靠）；notification 承载会话无关系统事件（connection.*，
- * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events/ 目录
+ * sessionId = SYSTEM_SESSION_ID）；stt 为语音输入批新增族（V1 云转写：
+ * stt.transcribe.result 点对点结果帧）。每事件所属 channel 在 events/ 目录
  * 以判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）；
  * 通道归属例外（type 前缀 ≠ channel）：auth.* 与 config.* 结果帧挂 model
  * 通道、task.changed 挂 notification 通道——均以 EVENT_CHANNELS 登记为准
@@ -65,7 +66,8 @@ export type Channel =
   | "workspace"
   | "interaction"
   | "notification"
-  | "mcp";
+  | "mcp"
+  | "stt";
 
 /**
  * workspace 路由（AD-7 预留）。

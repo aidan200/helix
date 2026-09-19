@@ -8,14 +8,18 @@
  * - 停止钮 #btn-abort（T8）：中断 main 生成（chat.abort）；恒渲染不按态卸载
  *   （焦点守恒，沿 T7 web 双钮先例），仅 runState === "streaming" 可用——
  *   subagent_running（main 空闲）/ idle 禁用（abort 只中断 main 生成）；
+ * - 停止钮 #btn-mic（语音输入批 V1）：按住说话（pointerdown 开始 /
+ *   pointerup 停止）——录音态红点 + 转写中 spinner；回填草稿（转写结果是
+ *   草稿而非直接发送，最后一道人工闸）；unsupported（裸跑无授权）隐藏；
  * - 脚注 kbd 键帽提示（[[x]] 标记渲染）。
  */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
-import { ImagePlus, Square, X } from "lucide-react";
+import { ImagePlus, Loader2, Mic, Square, X } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { selectCanSend, selectIsGenerating, useSession } from "@/entities/session/SessionContext";
 import { selectActiveRunState } from "@/entities/session/model/topology";
+import { useVoiceInput } from "../model/useVoiceInput";
 import { cn } from "@/shared/lib/cn";
 
 /** textarea 自动增高上限（px；≈7 行），超出后 overflow-y 内滚。 */
@@ -77,6 +81,13 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
   const fileRef = useRef<HTMLInputElement>(null);
   // M52：聚焦出口（pages 层经 ref 调起；替代跨层 getElementById 直达）
   useImperativeHandle(ref, () => ({ focus: () => taRef.current?.focus() }), []);
+  // 语音输入（V1）：转写文本回填草稿（末尾拼接——保留已输入内容）；失败 toast
+  const voice = useVoiceInput((text) => {
+    setDraft(state.draft === "" ? text : `${state.draft}${text}`);
+  });
+  useEffect(() => {
+    if (voice.error !== null) toast.push("err", voice.error);
+  }, [toast, voice.error]);
   // 附件超限提示（T9：第 5 张选择预检拦截；移除/成功 attach 后消隐）
   const [limitTip, setLimitTip] = useState(false);
   // M53：附件读取失败临时提示（FileReader 错误；3s 自动消隐）
@@ -208,6 +219,33 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
             hidden
             onChange={onPick}
           />
+          {/* 语音输入钮（V1）：按住说话——pointerdown 开始 / pointerup·leave·cancel 停止；
+              录音态红点脉冲、转写中 spinner；unsupported（tauri dev 裸跑无授权）隐藏 */}
+          {voice.state !== "unsupported" && (
+            <button
+              className={cn("hud-btn", "mic-btn", voice.state === "recording" && "recording")}
+              id="btn-mic"
+              type="button"
+              aria-label={voice.state === "recording" ? t("chat.voice.recording") : voice.state === "transcribing" ? t("chat.voice.transcribing") : t("chat.voice.button")}
+              title={t("chat.voice.button")}
+              disabled={!canSend || voice.state === "transcribing"}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                void voice.start();
+              }}
+              onPointerUp={voice.stop}
+              onPointerLeave={voice.stop}
+              onPointerCancel={voice.stop}
+            >
+              {voice.state === "recording" ? (
+                <span className="rec-dot" aria-hidden />
+              ) : voice.state === "transcribing" ? (
+                <Loader2 size={12} aria-hidden className="spin" />
+              ) : (
+                <Mic size={12} aria-hidden />
+              )}
+            </button>
+          )}
           <textarea
             id="msg-input"
             ref={taRef}

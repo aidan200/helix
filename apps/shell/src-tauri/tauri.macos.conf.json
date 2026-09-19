@@ -3,6 +3,11 @@
     "resources": {
       "resources/bin/rg": "bin/rg",
       "resources/codegraph": "codegraph"
+    },
+    "macOS": {
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "helix 需要访问麦克风用于语音输入（按住说话转写为文字草稿）。首次使用时系统会请求一次授权。"
+      }
     }
   }
 }
