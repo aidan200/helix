@@ -68,7 +68,7 @@ type _ChatSendNoThinking = Expect<
 >;
 
 // 版本位单值（批次集合标记）
-type _ProtocolVersionV011 = Expect<Equal<typeof PROTOCOL_VERSION, "0.12">>;
+type _ProtocolVersionV011 = Expect<Equal<typeof PROTOCOL_VERSION, "0.13">>;
 
 describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
   test("目录登记：thinking.set ∈ COMMAND_TYPES；thinking.changed ∈ EVENT_TYPES/EVENT_CHANNELS（thinking 族）", () => {
@@ -76,9 +76,9 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(EVENT_TYPES).toContain("thinking.changed");
     expect(EVENT_CHANNELS["thinking.changed"]).toBe("thinking");
     // 计数：27 → 28 命令 / 47 → 48 事件（thinking 批历史口径；当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1、kg-bootstrap 批 +5/+5、kg 维护批 +2/+2 → 52/65）
-    expect(COMMAND_TYPES.length).toBe(81); // 语音播报批 +3 后当前值
-    expect(EVENT_TYPES.length).toBe(100); // 语音播报批 +2 后当前值
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(100); // 语音播报批 +2 后当前值
+    expect(COMMAND_TYPES.length).toBe(87); // 文本管家批 +6 后当前值
+    expect(EVENT_TYPES.length).toBe(104); // 文本管家批 +4 后当前值
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(104); // 文本管家批 +4 后当前值
   });
 
   test("thinking.set：信封 sessionId 必填（per-session），payload level 字符串透传", () => {
@@ -117,9 +117,9 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
   });
 
   test("版本位 0.10 → 0.11（envelope 单点；批次集合标记非协商位）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.12");
-    expect(thinkingSet.v).toBe("0.12");
-    expect(thinkingChanged.v).toBe("0.12");
+    expect(PROTOCOL_VERSION).toBe("0.13");
+    expect(thinkingSet.v).toBe("0.13");
+    expect(thinkingChanged.v).toBe("0.13");
   });
 
   // ── v0.11 sot 断言（T3.1 补）：envelope 单点 ↔ CHANGELOG §17.11 批次登记一致性（protocol-split 批：批次备案迁 CHANGELOG，断言随迁；CHANGELOG §40 目录化：节随版本域迁 changelog/v0.5-v0.11.md，断言再随迁）──
@@ -146,8 +146,8 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     // 当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1 → 45/58）
     expect(section).toContain("27 → 28");
     expect(section).toContain("47 → 48");
-    expect(COMMAND_TYPES.length).toBe(81); // 语音播报批 +3 后当前值
-    expect(EVENT_TYPES.length).toBe(100); // 语音播报批 +2 后当前值
+    expect(COMMAND_TYPES.length).toBe(87); // 文本管家批 +6 后当前值
+    expect(EVENT_TYPES.length).toBe(104); // 文本管家批 +4 后当前值
     // ④ chat.send 零字段负断言在批次节有登记（NFR-2① 红线文档面）
     expect(section).toContain("chat.send` **零字段**");
   });

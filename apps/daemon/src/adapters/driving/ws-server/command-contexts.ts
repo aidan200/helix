@@ -57,6 +57,8 @@ import type {
   SessionCommandContext,
   SttCommandContext,
   SttCommandDeps,
+  StewardCommandContext,
+  StewardCommandDeps,
   TaskCommandContext,
   TraceCommandContext,
   VoiceCommandContext,
@@ -128,6 +130,12 @@ export interface WsServerAdapterDeps {
    * 回 command.unimplemented（stt 先例；stub rig 兼容）。
    */
   readonly voice?: VoiceCommandDeps;
+  /**
+   * 文本管家面（V2.5）：steward 族六命令回口（StewardService + EventStream
+   * 连接级 steward 订阅面；只转发不决策）。可选：未注入 → 回
+   * command.unimplemented（voice 先例；stub rig 兼容）。
+   */
+  readonly steward?: StewardCommandDeps;
   /**
    * 合并目录校验面：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -608,6 +616,27 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     };
   };
 
+  /**
+   * steward 族命令处理上下文（V2.5 文本管家批）：StewardCommandDeps +
+   * 共享辅助（voiceContext 同构；全局命令不消费信封 sessionId）。未装配
+   *（deps.steward undefined）在 routeCommand 已拒，此处非空断言安全。
+   */
+  const stewardContext = (
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): StewardCommandContext => {
+    return {
+      ws,
+      type,
+      payload,
+      steward: deps.steward!,
+      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      rawSender: () => helpers.rawSender(ws),
+      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+    };
+  };
+
   return {
     commandContext,
     chatContext,
@@ -623,5 +652,6 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     mcpContext,
     sttContext,
     voiceContext,
+    stewardContext,
   };
 }

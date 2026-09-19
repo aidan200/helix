@@ -31,6 +31,8 @@ import type {
   SessionListChangedEvent,
   SessionPlanChangedEvent,
   SessionPlanChangedPayload,
+  StewardFeedEvent,
+  StewardFeedPayload,
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
@@ -85,6 +87,8 @@ interface ConnProjection {
   voiceSubscribed: boolean;
   /** 播报音色偏好（voice.subscribe 携带；缺省 = adapter 默认音色）。 */
   voicePref: string | undefined;
+  /** 文本管家批（V2.5）：feed 订阅位（连接级闸门——true 时该连接收 steward.feed；断连随 detach 清位）。 */
+  stewardSubscribed: boolean;
 }
 
 /** 订阅档位（契约 v0.3 §2.1，Q-2b②）：full = 全量（缺省既有语义）；monitor = 白名单 3 事件。 */
@@ -119,7 +123,7 @@ export class EventStream implements EventPublisherPort {
   attach(sender: FrameSender, sessionId?: string): void {
     const sessionTiers = new Map<string, SubscriptionTier>();
     if (sessionId !== undefined) sessionTiers.set(sessionId, "full"); // 握手默认档 = full（既有语义不变）
-    this.connections.set(sender, { sessionTiers, instances: new Set(), taskJobs: new Set(), taskAll: false, voiceSubscribed: false, voicePref: undefined });
+    this.connections.set(sender, { sessionTiers, instances: new Set(), taskJobs: new Set(), taskAll: false, voiceSubscribed: false, voicePref: undefined, stewardSubscribed: false });
   }
 
   /** 连接关闭/断开后注销（tier 表随连接销毁即丢——daemon 不持跨连接状态，TR-AD-23③）。 */
@@ -208,6 +212,30 @@ export class EventStream implements EventPublisherPort {
       if (conn.voiceSubscribed) pref = conn.voicePref;
     }
     return pref;
+  }
+
+  // ── 文本管家批（V2.5）：连接级 steward feed 订阅闸门（voice.subscribe 同构；断连随 detach 清位） ──
+
+  /** steward.subscribe：feed 订阅位登记（幂等覆盖）。 */
+  subscribeSteward(sender: FrameSender | null): void {
+    if (sender === null) return;
+    const conn = this.connections.get(sender);
+    if (conn === undefined) return;
+    conn.stewardSubscribed = true;
+  }
+
+  /** steward.unsubscribe：清订阅位（对称语义）。 */
+  unsubscribeSteward(sender: FrameSender | null): void {
+    if (sender === null) return;
+    const conn = this.connections.get(sender);
+    if (conn === undefined) return;
+    conn.stewardSubscribed = false;
+  }
+
+  /** 闸门读面：是否存在已订阅连接（StewardService feed 闸门——零订阅 = 零推送）。 */
+  hasStewardSubscribers(): boolean {
+    for (const conn of this.connections.values()) if (conn.stewardSubscribed) return true;
+    return false;
   }
 
   /** 观测面：某连接已登记订阅的实例 id 集（测试/诊断）。 */
@@ -415,6 +443,32 @@ export class EventStream implements EventPublisherPort {
     };
     for (const [sender, conn] of this.connections) {
       if (!conn.voiceSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /**
+   * steward.feed 广播（文本管家批 V2.5）：daemon 级全局帧（信封 sessionId =
+   * SYSTEM_SESSION_ID、channel = steward），但投递按连接级 steward 订阅位
+   * 过滤（steward.subscribe 登记才收）——broadcastVoice 路由先例同构，
+   * 不经 push 的会话订阅路由。单连接异常不扩散（push 同口径）。触发面 =
+   * StewardService.onDomainEvent（fanout steward-feed-bridge 链末端，模板
+   * 直出不进 LLM——设计 §5.3 ①②层）。
+   */
+  broadcastStewardFeed(payload: StewardFeedPayload): void {
+    const frame: StewardFeedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.feed",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
       try {
         sender(frame);
       } catch {

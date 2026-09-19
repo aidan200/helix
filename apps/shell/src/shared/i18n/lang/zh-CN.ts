@@ -1036,6 +1036,22 @@ export const zhCN = {
       busyNote: "存在运行中的会话/智能体，请先等待收尾或中止后再切换工作空间。",
     },
   },
+  steward: {
+    title: "文本管家",
+    close: "关闭",
+    disabledTitle: "管家未开启",
+    disabledHint: "开关默认关闭；开启后可在这里问询全局状态，写动作需经确认。",
+    feedTitle: "事件流",
+    feedEmpty: "暂无事件",
+    thinking: "思考中…",
+    inputPlaceholder: "问管家：现在有什么在跑？",
+    send: "发送",
+    confirmTitle: "写动作待确认",
+    confirmTarget: "目标",
+    confirmBody: "内容",
+    confirmYes: "确认执行",
+    confirmNo: "放弃",
+  },
 };
 
 /** 词条结构即 i18n 类型单一事实源（T1.1：消手写接口 types.ts）。 */

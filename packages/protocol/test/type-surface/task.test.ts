@@ -54,7 +54,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     const first = COMMAND_TYPES.indexOf(TASK_COMMANDS[0]!);
     expect(COMMAND_TYPES.slice(first, first + TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]); // 连续登记（diff/mcp 批后不再尾段）
-    expect(COMMAND_TYPES.length).toBe(81); // 语音播报批 +3 后当前值
+    expect(COMMAND_TYPES.length).toBe(87); // 文本管家批 +6 后当前值
   });
 
   test("零干预断言（AD-2）：task.* 命令清单恰为十命令，无 steer/内容编辑/批次重试语义命令", () => {
@@ -72,8 +72,8 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
-    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("voice.synthesize.result"); // 语音播报批为目录尾段（stt/ask 批其后）
-    expect(EVENT_TYPES.length).toBe(100); // 语音播报批 +2 后当前值
+    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("steward.config.result"); // 文本管家批为目录尾段（voice/ask 批其后）
+    expect(EVENT_TYPES.length).toBe(104); // 文本管家批 +4 后当前值
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -82,7 +82,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(100); // 语音播报批 +2 后当前值
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(104); // 文本管家批 +4 后当前值
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {
@@ -96,15 +96,15 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   });
 
   test("信封判别：task 命令/事件帧可窄化（编译期）+ 判别字段运行时校验", () => {
-    const list: CommandEnvelope = { v: "0.12", type: "task.list", payload: { status: "running" } };
+    const list: CommandEnvelope = { v: "0.13", type: "task.list", payload: { status: "running" } };
     expect(list.type).toBe("task.list");
     if (list.type === "task.list") expect(list.payload.status).toBe("running");
 
-    const pause: CommandEnvelope = { v: "0.12", type: "task.pause", payload: { jobId: "j-1" } };
+    const pause: CommandEnvelope = { v: "0.13", type: "task.pause", payload: { jobId: "j-1" } };
     if (pause.type === "task.pause") expect(pause.payload.jobId).toBe("j-1");
 
     const changed: EventEnvelope = {
-      v: "0.12",
+      v: "0.13",
       sessionId: "__system__",
       channel: "notification",
       type: "task.changed",
@@ -118,7 +118,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
     // 点对点结果帧窄化（编译期守护；不入 EVENT_TYPES 目录——契约 §0 计数纪律）
     const listResult: TaskListResultEvent = {
-      v: "0.12",
+      v: "0.13",
       sessionId: "__system__",
       channel: "notification",
       type: "task.list.result",
@@ -126,7 +126,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     };
     expect(listResult.type).toBe("task.list.result");
     const pauseResult: TaskPauseResultEvent = {
-      v: "0.12",
+      v: "0.13",
       sessionId: "__system__",
       channel: "notification",
       type: "task.pause.result",

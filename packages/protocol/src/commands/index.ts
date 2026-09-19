@@ -26,4 +26,5 @@ export * from "./task";
 export * from "./mcp";
 export * from "./stt";
 export * from "./voice";
+export * from "./steward";
 export * from "./catalog";

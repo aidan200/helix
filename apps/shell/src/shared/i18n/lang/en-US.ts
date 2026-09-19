@@ -1024,5 +1024,21 @@ export const enUS = {
       busyNote: "Sessions/agents are running. Wait for them to finish or abort before switching the workspace.",
     },
   },
+  steward: {
+    title: "Text Steward",
+    close: "Close",
+    disabledTitle: "Steward is off",
+    disabledHint: "Off by default; once enabled, ask about global state here. Write actions need confirmation.",
+    feedTitle: "Event feed",
+    feedEmpty: "No events yet",
+    thinking: "Thinking…",
+    inputPlaceholder: "Ask the steward: what is running now?",
+    send: "Send",
+    confirmTitle: "Write action needs confirmation",
+    confirmTarget: "Target",
+    confirmBody: "Message",
+    confirmYes: "Confirm",
+    confirmNo: "Dismiss",
+  },
 } satisfies Translations;
 

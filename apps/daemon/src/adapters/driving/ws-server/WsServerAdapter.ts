@@ -112,6 +112,14 @@ import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import { handleSttTranscribe } from "./handlers/stt";
 import { handleVoiceSubscribe, handleVoiceSynthesize, handleVoiceUnsubscribe } from "./handlers/voice";
 import {
+  handleStewardAsk,
+  handleStewardConfirm,
+  handleStewardGetConfig,
+  handleStewardSetConfig,
+  handleStewardSubscribe,
+  handleStewardUnsubscribe,
+} from "./handlers/steward";
+import {
   handleMcpServersAdd,
   handleMcpServersList,
   handleMcpServersRemove,
@@ -590,6 +598,31 @@ export class WsServerAdapter {
         return this.deps.voice === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleVoiceUnsubscribe(this.contexts.voiceContext(ws, type, payload));
+      // ── steward 批（V2.5 文本管家；全局命令先例 = voice 批）──
+      case "steward.ask":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardAsk(this.contexts.stewardContext(ws, type, payload));
+      case "steward.confirm":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardConfirm(this.contexts.stewardContext(ws, type, payload));
+      case "steward.subscribe":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardSubscribe(this.contexts.stewardContext(ws, type, payload));
+      case "steward.unsubscribe":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardUnsubscribe(this.contexts.stewardContext(ws, type, payload));
+      case "steward.get_config":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardGetConfig(this.contexts.stewardContext(ws, type, payload));
+      case "steward.set_config":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardSetConfig(this.contexts.stewardContext(ws, type, payload));
       // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
       case "mcp.servers.list":
         return this.deps.mcp === undefined

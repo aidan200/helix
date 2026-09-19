@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 81 个 type（… + 越权申请批 ask 1 + 语音输入批 stt 1 + 语音播报批 voice 3）", () => {
+  test("命令目录恰为 87 个 type（… + 语音播报批 voice 3 + 文本管家批 steward 6）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -224,6 +224,12 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.loadHistory",
         "session.subscribe",
         "session.unsubscribe",
+        "steward.ask",
+        "steward.confirm",
+        "steward.get_config",
+        "steward.set_config",
+        "steward.subscribe",
+        "steward.unsubscribe",
         "stt.transcribe",
         "task.artifacts",
         "task.cancel",
@@ -249,7 +255,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 100 个 type（… + 越权申请批 ask 2 + 语音输入批 stt 1 + 语音播报批 voice 2）", () => {
+  test("事件目录恰为 104 个 type（… + 语音播报批 voice 2 + 文本管家批 steward 4）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -334,6 +340,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.snapshot",
         "steer.drained",
         "steer.queued",
+        "steward.ask.result",
+        "steward.config.result",
+        "steward.confirm.result",
+        "steward.feed",
         "stt.transcribe.result",
         "task.changed",
         "thinking.changed",
@@ -588,11 +598,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（语音播报批后）：EVENT_TYPES 100 / EVENT_CHANNELS 100 键 / COMMAND_TYPES 81", () => {
-    expect(EVENT_TYPES.length).toBe(100); // 语音播报批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(100); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(100); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(81); // 语音播报批 +3
+  test("目录计数（文本管家批后）：EVENT_TYPES 104 / EVENT_CHANNELS 104 键 / COMMAND_TYPES 87", () => {
+    expect(EVENT_TYPES.length).toBe(104); // 文本管家批 +4 // 语音播报批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(104); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(104); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(87); // 文本管家批 +6 // 语音播报批 +3
   });
 
 });
