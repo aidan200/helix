@@ -13,7 +13,7 @@
  *   采样；平级挂靠 .page-area（position:relative）与 AppLayout 根同坐标
  *   系，top/right 定位零偏移；z-index 45/46 > .app-layout z:2）。
  */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import SessionSidebar from "@/widgets/session-sidebar/ui/P-2-session-sidebar";
@@ -21,6 +21,7 @@ import DrawerRail from "@/widgets/subagent-drawer/ui/P-1-drawer-rail";
 import { TopBarActions, TopBarInfo } from "@/widgets/top-bar/ui/P-1-top-bar";
 import { UsagePopover } from "@/widgets/top-bar/ui/SessionStats";
 import ModelSwitchMenu from "@/features/model-switch/ui/P-3-model-switch";
+import StewardPanel from "@/features/steward/ui/StewardPanel";
 
 export interface WorkbenchProps {
   /** 主区内容（.app 列：横幅/消息流/composer） */
@@ -38,6 +39,12 @@ const Workbench = function Workbench({ children, onOpenInstance, onFocusInput, o
   // header 槽开合状态（受控注入 TopBarActions；popover 渲染在本层）
   const [statsOpen, setStatsOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  // 管家面板开合（V2.5 收官批；stats/model 受控同构）：面板本体由本层
+  // 渲染在 .wb-main 内 .app 兄弟位（stp 300px 右缘列）；Esc/× 关闭由
+  // 面板自有链回 onClose。toggle 提取 useCallback（App.tsx stopWeb 同规：
+  // 常驻壳上受控钮内联箭头每渲染新引用）。
+  const [stewardOpen, setStewardOpen] = useState(false);
+  const toggleSteward = useCallback(() => setStewardOpen((v) => !v), []);
 
   return (
     <>
@@ -47,14 +54,19 @@ const Workbench = function Workbench({ children, onOpenInstance, onFocusInput, o
           <TopBarActions
             statsOpen={statsOpen}
             modelMenuOpen={modelMenuOpen}
+            stewardOpen={stewardOpen}
             onToggleStats={() => setStatsOpen((v) => !v)}
             onToggleModelMenu={() => setModelMenuOpen((v) => !v)}
+            onToggleSteward={toggleSteward}
           />
         }
         sidebar={<SessionSidebar onFocusInput={onFocusInput} />}
       >
-        <div className="wb-main">
+        <div className="wb-main" data-steward={stewardOpen ? "on" : undefined}>
           {children}
+          {/* V2.5 收官批：管家面板右缘列（.stp 300px；data-steward 门控
+              DrawerRail 让位——见 workbench.css） */}
+          {stewardOpen && <StewardPanel onClose={() => setStewardOpen(false)} />}
           <DrawerRail onOpen={onOpenInstance} />
         </div>
       </AppLayout>

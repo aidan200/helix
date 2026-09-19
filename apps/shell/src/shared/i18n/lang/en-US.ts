@@ -281,6 +281,7 @@ export const enUS = {
         mcp: "MCP Servers",
         skills: "Skills",
         voice: "Voice Input",
+        steward: "Steward",
       },
       voice: {
         title: "Voice Input",
@@ -317,6 +318,18 @@ export const enUS = {
         auditionFail: "Audition failed",
         auditionSendFail: "Audition not sent: daemon connection unavailable",
         auditionBlocked: "Playback blocked by browser policy (interact with the page first)",
+      },
+      // ── Steward section (V2.5 finale batch: enable switch + model slot;
+      //    panel strings live in the top-level steward.* family) ──
+      steward: {
+        title: "Text Steward",
+        note: "Sidebar Q&A steward: ask about global run state, receive event relays; write actions pass through a confirmation card. Entry is the bell button in the workbench top bar; the panel can be opened while disabled and points back to this page.",
+        enable: "Enable steward",
+        "enable.off": "Off (default)",
+        "enable.on": "On",
+        enableHint: "Off = steward questions are refused server-side with zero LLM calls (no cost); on = ask about global state in the panel",
+        model: "Model slot",
+        modelHint: "\"provider/model-id\" form; a fast flash-tier model is recommended. Falls back to the daemon default flash model until set",
       },
       skills: {
         title: "User skills",
@@ -1028,7 +1041,7 @@ export const enUS = {
     title: "Text Steward",
     close: "Close",
     disabledTitle: "Steward is off",
-    disabledHint: "Off by default; once enabled, ask about global state here. Write actions need confirmation.",
+    disabledHint: "The steward switch is off by default; enable it in Settings → Steward to ask about global state here. Write actions need confirmation.",
     feedTitle: "Event feed",
     feedEmpty: "No events yet",
     thinking: "Thinking…",

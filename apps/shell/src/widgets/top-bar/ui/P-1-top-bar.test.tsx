@@ -121,8 +121,10 @@ function ui() {
         <TopBarActions
           statsOpen={false}
           modelMenuOpen={menuOpen}
+          stewardOpen={false}
           onToggleStats={() => {}}
           onToggleModelMenu={() => setMenuOpen((v) => !v)}
+          onToggleSteward={() => {}}
         />
         {menuOpen && <ModelSwitchMenu onClose={() => setMenuOpen(false)} />}
       </>
