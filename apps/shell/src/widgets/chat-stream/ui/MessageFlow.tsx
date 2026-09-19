@@ -26,7 +26,7 @@
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, Fragment, type ReactNode } from "react";
-import type { EntryDto, UsageDto } from "@helix/protocol";
+import type { EntryDto, ErrorEntryDto, UsageDto } from "@helix/protocol";
 import { isMainChannel } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import type { InstanceCardState } from "@/entities/session/model/session-reducer";
@@ -39,7 +39,7 @@ import SessionEmpty from "./SessionEmpty";
 import DraftEmpty from "./P-1-draft-empty";
 import LoadEarlier from "./P-1s-load-earlier";
 import CompactionBar from "./CompactionBar";
-import EngineErrorCard, { ErrorEntryBar } from "./EngineErrorCard";
+import EngineErrorCard, { TurnErrorGroup } from "./EngineErrorCard";
 import AskCard from "./AskCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
@@ -88,8 +88,9 @@ function EntryView({
     case "compaction":
       return <CompactionBar entry={entry} />;
     case "error":
-      // error entry 批：错误条目时间轴原位红条（复用 EngineErrorCard 红系视觉）
-      return <ErrorEntryBar entry={entry} />;
+      // 引擎错误体验批：error 条目改由 TurnErrorGroup 按 turnId 归组渲染
+      //（MessageFlow 前置拦截，不进本分发；分支保留穷尽性检查）
+      return null;
     default: {
       const exhaustive: never = entry;
       return exhaustive;
@@ -254,6 +255,45 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
 
   const empty = selectIsEmpty(state);
 
+  // ── 错误条目轮次折叠（引擎错误体验批）：error entries 按 turnId 归组挂轮末 ──
+  // 组锚 = 组内末条 error 原位（错误天然收轮：组渲染在轮尾，不迁位置）；
+  // 非锚 error 条目零渲染（同轮合并不重复占位）。默认展开面 = 最后一轮错误组
+  //（实时链：error.entry 落盘即当前轮；快照恢复：最后一轮——两链同规则）；
+  // 历史轮默认折叠成徽标行，用户点击可覆盖。落盘/快照协议零改动（纯渲染层）。
+  const { errorGroups, lastErrorTurnId } = useMemo(() => {
+    const groups = new Map<string, ErrorEntryDto[]>();
+    let lastTurn: string | null = null;
+    for (const e of state.entries) {
+      if (e.kind !== "error") continue;
+      const list = groups.get(e.turnId) ?? [];
+      list.push(e);
+      groups.set(e.turnId, list);
+      lastTurn = e.turnId;
+    }
+    return { errorGroups: groups, lastErrorTurnId: lastTurn };
+  }, [state.entries]);
+  // 用户展开覆盖（turnId → 强制态；缺省 = 默认规则）；会话切换重置（turnId 跨会话碰撞防御）
+  const [errorExpandOverrides, setErrorExpandOverrides] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setErrorExpandOverrides({});
+  }, [state.sessionId]);
+  const renderErrorGroup = (entry: ErrorEntryDto) => {
+    const group = errorGroups.get(entry.turnId);
+    if (group === undefined) return null; // 防御：无组不渲染（不可达——组由同一 entries 构建）
+    if (group[group.length - 1] !== entry) return null; // 非组锚：同轮前序 error 零渲染
+    const expanded = errorExpandOverrides[entry.turnId] ?? entry.turnId === lastErrorTurnId;
+    return (
+      <TurnErrorGroup
+        turnId={entry.turnId}
+        errors={group}
+        expanded={expanded}
+        onToggle={() =>
+          setErrorExpandOverrides((prev) => ({ ...prev, [entry.turnId]: !expanded }))
+        }
+      />
+    );
+  };
+
   // ── CL-1 v0.3 时间轴内联：按 DTO spawn 锚点把卡片交织进 entries 序列 ──
   // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；
   // 锚 entry ∉ 当前装载窗口（尾窗截断/翻页出窗）→ 不进任何桶，卡片不渲染。
@@ -295,7 +335,11 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
           {headCards.map(renderCard)}
           {state.entries.map((entry) => (
             <Fragment key={entry.id}>
-              <EntryView entry={entry} mainInstanceId={state.mainInstanceId} turnUsage={state.turnUsage} />
+              {entry.kind === "error" ? (
+                renderErrorGroup(entry)
+              ) : (
+                <EntryView entry={entry} mainInstanceId={state.mainInstanceId} turnUsage={state.turnUsage} />
+              )}
               {byAnchor.get(entry.id)?.map(renderCard)}
             </Fragment>
           ))}

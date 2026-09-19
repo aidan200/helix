@@ -824,6 +824,26 @@ html.light .bubble code.inline { color: var(--accent); }
 }
 .ee-hint { font-size: var(--text-small); color: var(--text-faint); }
 
+/* 轮次错误组（引擎错误体验批）：历史轮折叠徽标 + 展开态逐条红条 */
+.ee-group {
+  margin: 8px 0; max-width: 72%; margin-left: auto;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.ee-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid rgb(var(--error-rgb) / 0.3); border-radius: 6px;
+  background: rgb(var(--error-rgb) / 0.05); color: var(--error);
+  font-size: var(--text-small); padding: 3px 10px; cursor: pointer;
+  max-width: 100%;
+}
+.ee-badge:hover { background: rgb(var(--error-rgb) / 0.12); }
+.ee-badge-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 44ch; font-family: var(--font-mono, monospace);
+}
+.ee-warn { flex: none; }
+.ee-caret { flex: none; font-size: 10px; opacity: 0.7; }
+
 /* ═══ 网络重试状态卡（P2 ⑦：engine.retrying 帧 → 退避等待可见反馈）═══ */
 .network-retry-card {
   margin: 8px 0; border: 1px solid rgb(var(--warning-rgb) / 0.3); border-radius: 10px;

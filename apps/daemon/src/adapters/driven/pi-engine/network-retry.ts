@@ -7,7 +7,8 @@
  * 由此主会话（engineFor）与 SubAgent 子进程（ChildMain）同源生效
  * ——包装在 PiAgentEngineAdapter 装配面，全局非 SubAgent 独有。
  *
- * 重试语义（裁决 2026-09-08，取代 P2 ⑦ 状态码裁决与 P8 配额特判）：
+ * 重试语义（裁决 2026-09-08，取代 P2 ⑦ 状态码裁决与 P8 配额特判；
+ * 引擎错误体验批 2026-09-19 增流中断快速档）：
  * - 只重试「传输层错误」= 没拿到 LLM 接口响应的请求期失败（连接拒绝/
  *   重置/超时/socket 断开——undici/Node fetch/node:http 库常量文案与
  *   errno 族，有限可枚举，非 provider 散文）；
@@ -17,13 +18,18 @@
  *   4 个 agent 各白等 100s 退避；而错判 fail-fast 的代价只是用户发
  *   一次「继续」（会话可续），成本严重不对称 → 偏向 fail-fast；
  * - 退避序列固定 10s→30s→60s 三次（LLM_RETRY_BACKOFF_MS 常量注入，
- *   测试可换假时钟）；退避耗尽 → 原样转发最后一次 error 终帧，
+ *   测试可换假时钟）；流中断类（transient-fast）走快速档 5s 单次
+ *   （LLM_STREAM_RETRY_BACKOFF_MS，引擎错误体验批 2026-09-19——错判
+ *   代价对齐 100s 白等论）；退避耗尽 → 原样转发最后一次 error 终帧，
  *   closure/错误语义与无重试时逐事件一致；
  * - 仅重试「零事件前导的请求期失败」（pi-ai 的 start 帧在 HTTP 响应
  *   到达后才发——连接失败/超时均为纯 error 单帧）。已转发任何事件
  *   （中途断流）后不再重试：agentLoop 在 start 帧会把 partial push 进
  *   context.messages，重试会造成重复消息（见 agent-loop
- *   streamAssistantResponse）——中途失败保持既有直通路径；
+ *   streamAssistantResponse）——中途失败保持既有直通路径。注：pi-ai 的
+ *   start 帧实际在响应头到达即推送（先于 chunk 解析）→「Stream ended
+ *   without finish_reason」恒为中途形态，当前受此门拦截（分类面已收编，
+ *   见 STREAM_INTERRUPTION_MESSAGE_PATTERNS 注与批次报告的中途可行性结论）；
  * - abort（kill/SIGTERM）经 options.signal 感知：等待期 abort 立即
  *   以 aborted 终帧收口，不再重试；abort 终帧永不重试；
  * - 未知形态 → permanent（fail-fast 安全缺省）。
@@ -38,8 +44,19 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 /** 退避序列（裁决：10s→30s→60s，三次失败后走既有 failed 路径）。 */
 export const LLM_RETRY_BACKOFF_MS: readonly number[] = [10_000, 30_000, 60_000];
 
-/** 错误分类：瞬时（可重试）/ 永久（直接走既有失败路径）。 */
-export type LlmErrorClass = "transient" | "permanent";
+/**
+ * 流中断快速档退避（5s 单次；引擎错误体验批 2026-09-19）：流中断类
+ * （transient-fast）错判代价对齐 TR-149 的 100s 白等论——一次 5s 重试的
+ * 代价上限可接受，不吃 10s→30s→60s 全序列。与 LLM_RETRY_BACKOFF_MS
+ * 同层常量（测试假时钟面可注入替换，见 NetworkRetryOptions.streamBackoffMs）。
+ */
+export const LLM_STREAM_RETRY_BACKOFF_MS: readonly number[] = [5_000];
+
+/**
+ * 错误分类：瞬时（传输层，全序列退避）/ 瞬时快速（流中断，短退避单次）/
+ * 永久（直接走既有失败路径）。
+ */
+export type LlmErrorClass = "transient" | "transient-fast" | "permanent";
 
 /**
  * 传输层错误文案（重试的唯一依据；裁决 2026-09-08）：undici/Node fetch/
@@ -62,6 +79,24 @@ const TRANSPORT_MESSAGE_PATTERNS: readonly RegExp[] = [
 // Timeout Error / request timed out 族），裸字样无独立库常量来源。）
 
 /**
+ * 流中断文案（transient-fast 快速档的唯一依据；引擎错误体验批 2026-09-19）：
+ * pi-ai 库常量（非 provider 散文）——openai-completions.js 在 SSE 流结束而
+ * 无 finish_reason chunk 时自抛该文案（kimi 17:50/18:35 双事故形态），
+ * 「Connection error.」收编先例（库常量判据）的自然延伸。
+ *
+ * 中途断流缺口（可行性探明结论，2026-09-19）：pi-ai 的 start 帧在 HTTP
+ * 响应头到达即推送（先于任何 chunk 解析）→ 该文案在包装层恒为「已转发
+ * 事件」的中途形态，受 !forwarded 门拦截不重试（重复风险实证：agentLoop
+ * 在 start 帧即把 partial push 进 context.messages，透明重试会残留 stale
+ * partial；daemon 侧 delta 追加语义会重复流式文本/thinking 条目）。分类面
+ * 先行收编：上游提供中途重试支持（或 pi-ai 出现零事件形态）时本档即生效。
+ * 证据链与上游 issue 草稿见 docs/temp/engine-error-ux-report.md。
+ */
+const STREAM_INTERRUPTION_MESSAGE_PATTERNS: readonly RegExp[] = [
+  /stream ended without finish_reason/i, // pi-ai openai-completions 流结束无终因常量
+];
+
+/**
  * 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态）。
  * 否定后顾排除 host:port（"connect ECONNREFUSED 127.0.0.1:443" 的 443）
  * 与 IP 段误伤——端口数字不是状态码，传输层错误消息常携带。
@@ -69,12 +104,15 @@ const TRANSPORT_MESSAGE_PATTERNS: readonly RegExp[] = [
 const HTTP_STATUS_RE = /(?<![:.\d])([45]\d{2})\b/;
 
 /**
- * LLM 调用错误分类（纯函数，单测面；裁决 2026-09-08：仅传输层错误瞬时）。
+ * LLM 调用错误分类（纯函数，单测面；裁决 2026-09-08：仅传输层错误瞬时；
+ * 引擎错误体验批 2026-09-19：流中断库常量收编为瞬时快速档）。
  *
  * - stopReason 非 "error"（含 "aborted"/"stop" 等）→ 永久：重试只针对
  *   请求失败的 error 终帧，用户 abort 永不重试；
  * - 消息含 HTTP 状态码（4xx/5xx）→ 永久：LLM 接口返回了响应，provider
  *   活着且明确拒绝（429 限流/配额、5xx、401/403/400/402 等一律快速失败）；
+ * - 无状态码 + 流中断库常量命中（STREAM_INTERRUPTION_MESSAGE_PATTERNS）
+ *   → 瞬时快速（transient-fast：5s 单次短退避，见 LLM_STREAM_RETRY_BACKOFF_MS）；
  * - 无状态码 + 传输层库常量命中（TRANSPORT_MESSAGE_PATTERNS）→ 瞬时；
  * - 未知形态 → 永久（fail-fast 安全缺省：错判代价 = 用户发一次「继续」）。
  */
@@ -84,6 +122,7 @@ export function classifyLlmError(stopReason: string, errorMessage: string | unde
   if (message.trim() === "") return "permanent";
   // LLM 接口返回了响应 → 快速失败（状态码是「拿到响应」的机械判据）
   if (HTTP_STATUS_RE.test(message)) return "permanent";
+  if (STREAM_INTERRUPTION_MESSAGE_PATTERNS.some((re) => re.test(message))) return "transient-fast";
   return TRANSPORT_MESSAGE_PATTERNS.some((re) => re.test(message)) ? "transient" : "permanent";
 }
 
@@ -155,6 +194,8 @@ function syntheticMessage(
 export interface NetworkRetryOptions {
   /** 退避序列（缺省 LLM_RETRY_BACKOFF_MS）。 */
   readonly backoffMs?: readonly number[];
+  /** 流中断快速档退避序列（缺省 LLM_STREAM_RETRY_BACKOFF_MS；引擎错误体验批）。 */
+  readonly streamBackoffMs?: readonly number[];
   /** 等待函数（缺省 abortableSleep；测试注入假时钟）。 */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** 每次进入重试等待前回调（可观测：chat 反馈/日志数据源）。 */
@@ -172,11 +213,12 @@ export interface NetworkRetryOptions {
  */
 export function withNetworkRetry(streamFn: StreamFn, opts: NetworkRetryOptions = {}): StreamFn {
   const backoffMs = opts.backoffMs ?? LLM_RETRY_BACKOFF_MS;
+  const streamBackoffMs = opts.streamBackoffMs ?? LLM_STREAM_RETRY_BACKOFF_MS;
   const sleep = opts.sleep ?? abortableSleep;
   return (model, context, options): ReturnType<StreamFn> => {
     const out = createAssistantMessageEventStream();
     void (async () => {
-      // 第 i 轮调用（0 起）；i < backoffMs.length 时失败仍可退避重试
+      // 第 i 轮调用（0 起）；i < 当前失败类序列长度时失败仍可退避重试
       for (let attemptIndex = 0; ; attemptIndex++) {
         let stream: Awaited<ReturnType<StreamFn>>;
         try {
@@ -195,7 +237,12 @@ export function withNetworkRetry(streamFn: StreamFn, opts: NetworkRetryOptions =
             if (event.type === "error") {
               const errorEvent: Extract<AssistantMessageEvent, { type: "error" }> = event;
               const cls = classifyLlmError(errorEvent.error.stopReason, errorEvent.error.errorMessage);
-              const canRetry = !forwarded && cls === "transient" && attemptIndex < backoffMs.length;
+              // 快速档序列选择（引擎错误体验批）：流中断类（transient-fast）走
+              // 5s 单次短退避，传输层类走全序列。attemptIndex 全局计数（fail-fast
+              // 偏向：类序列更短者先耗尽），每次失败按自身类序列第 attemptIndex
+              // 项等待——同类序列纯失败时与既有 10/30/60 行为逐字节一致
+              const seq = cls === "transient-fast" ? streamBackoffMs : backoffMs;
+              const canRetry = !forwarded && cls !== "permanent" && attemptIndex < seq.length;
               if (!canRetry) {
                 out.push(errorEvent); // 原样转发：既有失败路径零改动
                 out.end();
@@ -203,8 +250,8 @@ export function withNetworkRetry(streamFn: StreamFn, opts: NetworkRetryOptions =
               }
               const info: LlmRetryInfo = {
                 attempt: attemptIndex + 1,
-                totalAttempts: backoffMs.length,
-                waitMs: backoffMs[attemptIndex]!,
+                totalAttempts: seq.length,
+                waitMs: seq[attemptIndex]!,
                 message: errorEvent.error.errorMessage ?? "",
               };
               opts.onRetry?.(info);
