@@ -6,8 +6,9 @@
  * 覆盖：
  * - 合法链：hello → stt.transcribe（信封 sessionId 携带）→
  *   stt.transcribe.result ok 帧（channel=stt / text / provider）；
- * - P1 会话源：directory.getSessionView 消息文本 → 前置 input_text 消息
+ * - P1 会话源：directory.getSessionView 消息文本 → system 前置消息
  *   （上下文增强通道）+ parameters.vocabulary（即时热词通道）fetch 层断言；
+ *   音频经 OSS 三步上传后以 {audio: "oss://…"} 引用（fix/stt-oss-upload）；
  * - provider 选择：dashscope 无 key + siliconflow 有 key → 自动兜底；
  *   payload.provider 显式；全部未配 → error 判别回执（引导文案）；
  * - 防御面：payload.audio 非 data URL → commandError；adapter 抛错 →
@@ -86,11 +87,33 @@ async function until(cond: () => boolean, timeoutMs: number, what: string): Prom
   }
 }
 
-/** fetch 层捕获 mock（DashScope 真体注入——协议链与注入形态双断言）。 */
+/** fetch 层捕获 mock（DashScope 真体注入——协议链与注入形态双断言；三步路由：policy/上传/生成）。 */
 function dashscopeFetchCapture(): { calls: { url: string; body: Record<string, unknown> }[]; fetchFn: typeof fetch } {
   const calls: { url: string; body: Record<string, unknown> }[] = [];
-  const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(_url), body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
+  const fetchFn = (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u.startsWith("https://dashscope.aliyuncs.com/api/v1/uploads")) {
+      calls.push({ url: u, body: {} });
+      return new Response(
+        JSON.stringify({
+          data: {
+            policy: "POLICY",
+            signature: "SIG",
+            upload_dir: "dashscope-instant/it/2026-09-19",
+            upload_host: "https://fake-oss.example.com",
+            oss_access_key_id: "LTAI",
+            x_oss_object_acl: "private",
+            x_oss_forbid_overwrite: "true",
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (u.startsWith("https://fake-oss.example.com")) {
+      calls.push({ url: u, body: {} });
+      return new Response("", { status: 200 });
+    }
+    calls.push({ url: u, body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
     return new Response(JSON.stringify({ output: { text: "把 useEffect 修一下" } }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -219,7 +242,7 @@ describe("stt.transcribe 协议级集成（语音输入批 V1）", () => {
     await until(() => client.frames.some((f) => f.type === "connection.welcome"), 3000, "握手 welcome");
   }
 
-  test("合法链 + P1 会话源注入：DashScope 真体 fetch mock——vocabulary 热词 + input_text 前置消息", async () => {
+  test("合法链 + P1 会话源注入：DashScope 真体 fetch mock——三步上传 + vocabulary 热词 + system 前置消息", async () => {
     const fetchCap = dashscopeFetchCapture();
     const events = new EventStream();
     const deps = stubAdapterDeps(events, [
@@ -240,18 +263,24 @@ describe("stt.transcribe 协议级集成（语音输入批 V1）", () => {
     expect(res.result.text).toBe("把 useEffect 修一下");
     expect(res.result.provider).toBe("dashscope");
 
-    // fetch 层注入形态断言（双通道）
-    expect(fetchCap.calls.length).toBe(1);
-    const body = fetchCap.calls[0]!.body as {
-      input: { messages: { role: string; content: { type: string; text?: string }[] }[] };
+    // fetch 层注入形态断言（三步链 + 双通道）
+    expect(fetchCap.calls.length).toBe(3);
+    expect(fetchCap.calls[0]!.url).toContain("action=getPolicy");
+    expect(fetchCap.calls[1]!.url).toContain("fake-oss.example.com"); // multipart 上传
+    const gen = fetchCap.calls[2]!.body as {
+      input: { messages: { role: string; content: { text?: string; audio?: string }[] }[] };
       parameters: { vocabulary: Record<string, number> };
     };
-    const hintText = body.input.messages[0]!.content[0]!.text ?? "";
-    expect(body.input.messages[0]!.content[0]!.type).toBe("input_text");
+    // system 前置上下文消息（fix/stt-oss-upload：上下文增强走 system 消息）
+    const hintText = gen.input.messages[0]!.content[0]!.text ?? "";
+    expect(gen.input.messages[0]!.role).toBe("system");
     expect(hintText).toContain("useEffect"); // P1 会话源 token 入选
     expect(hintText).toContain("Tauri");
-    expect(body.parameters.vocabulary["useEffect"]).toBeGreaterThanOrEqual(1); // 即时热词通道
-    expect(body.parameters.vocabulary["git"]).toBe(1); // P3 基础词表入选（weight ×1）
+    // 音频引用形态：{audio: "oss://…"}（data URL 直传已证伪）
+    const lastMsg = gen.input.messages[gen.input.messages.length - 1]!;
+    expect((lastMsg.content[0]!.audio ?? "").startsWith("oss://dashscope-instant/")).toBe(true);
+    expect(gen.parameters.vocabulary["useEffect"]).toBeGreaterThanOrEqual(1); // 即时热词通道
+    expect(gen.parameters.vocabulary["git"]).toBe(1); // P3 基础词表入选（weight ×1）
   });
 
   test("provider 自动兜底：dashscope 无 key + siliconflow 有 key → siliconflow 执行", async () => {

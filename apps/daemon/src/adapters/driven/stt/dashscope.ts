@@ -4,22 +4,37 @@
  * 模型 qwen-audio-3.0-asr-flash（Phase 0 查证主选：即时热词 ≤2000 词内联
  * + 上下文增强 ≤400 字符/轮双通道叠加、免费热词；计费 0.00022 元/秒）。
  *
- * 请求形态（官方 demo `recognize_speech_qwen-audio_3.0_asr_flash/python/run.py`
- * 精确对齐，本地取证 docs/temp/spike-dashscope/demo/qwen3_asr_flash_http.py）：
- * - 前置 user 消息 `content:[{type:"input_text",text}]` 承载上下文词表
- *   （≤400 字符静默截断——VocabularyBuilder 350 预算即为此设计）；
- * - 末位 user 消息 `content:[{type:"input_audio",input_audio:{data}}]` 承载
- *   音频（data URL 形态，与 qwen-vl 图片 base64 先例同构）；
- * - 即时热词 `parameters.vocabulary = {词: weight}`（weight [1,5]，免费、
- *   纯请求期内联——契合「不落地不常驻」）。
+ * 音频传递形态（fix/stt-oss-upload 实测修正——data URL 直传已被证伪）：
+ * - data URL 直传 input_audio.data 实测挂死：服务端把 `data:` 当下载 URL 拉取，
+ *   两种端点均超时（主会话冒烟结论）；
+ * - 正确链路 = OSS 三步上传 + oss:// 引用（dashscope Python SDK 1.27.6
+ *   oss_utils.upload 同构，全链路 SDK + 裸 HTTP 复刻双验证）：
+ *   ① GET /api/v1/uploads?action=getPolicy&model=<asr> → {data:{policy,
+ *      signature, upload_dir, upload_host, oss_access_key_id,
+ *      x_oss_object_acl, x_oss_forbid_overwrite}}；
+ *   ② multipart POST upload_host，字段序（file 必须最后）：
+ *      OSSAccessKeyId（带 d）/Signature/policy/key=<upload_dir>/<filename>/
+ *      x-oss-object-acl/x-oss-forbid-overwrite/success_action_status=200/
+ *      x-oss-content-type/<file>——policy conditions 强制要求 acl 与
+ *      forbid-overwrite 字段（缺省 403）；success_action_status=200 把
+ *      OSS 默认 204 改成 200 便于判错；
+ *   ③ 生成请求引用 "oss://" + upload_dir + "/" + filename（SDK 铁证形态，
+ *      不是 https 域名），且 content 元素形态必须是 {audio:"oss://…"}
+ *      并携带 X-DashScope-OssResourceResolve: enable 头——实测矩阵
+ *      （docs/temp/stt-oss-fix/matrix-run.log）：
+ *      · {audio:oss://} 无 resolve 头 → FILE_DOWNLOAD_FAILED exit code 1
+ *        （服务端把 oss:// 当普通 URL 下载，private 对象拉不到——主会话
+ *        「未解之坑」的根因）；
+ *      · {input_audio:{url:oss://}} 带/不带头 → DecodePost resample 500
+ *        （该形态仅配公网 https URL）。
+ *
+ * 上下文注入：system 前置消息 content:[{text}]（≤400 字符——VocabularyBuilder
+ * 350 预算即为此设计）；即时热词 parameters.vocabulary = {词: weight}
+ * （weight [1,5]，免费、纯请求期内联——契合「不落地不常驻」）。
  *
  * key：组合根 getter（auth.json provider id "dashscope"，对齐
  * model-provider.ts explicitGetApiKey 先例——换 key 后自动跟随）；缺 key
  * fail-fast 抛中文错误（指向设置页 auth.set_key 录入路径）。
- *
- * 端点：通用域名 dashscope.aliyuncs.com（文档称仍可用；workspace 专属域名
- * 为文档推荐形态——通用域名可用性属真实冒烟待验项，见批次收口报告
- * deferred 清单）。
  */
 import type { SttPort, SttRequest, SttResult } from "../../../application/ports/outbound/SttPort";
 
@@ -27,19 +42,45 @@ import type { SttPort, SttRequest, SttResult } from "../../../application/ports/
 const DASHSCOPE_MULTIMODAL_ENDPOINT =
   "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
 
+/** DashScope 上传 policy 端点（GET action=getPolicy）。 */
+const DASHSCOPE_UPLOADS_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/uploads";
+
 /** V1 主选 ASR 模型（qwen-audio-3.0-asr-flash：即时热词 + 上下文双通道）。 */
 export const DASHSCOPE_ASR_MODEL = "qwen-audio-3.0-asr-flash";
 
 /** auth.json provider id（设置页 key 录入的 provider 位）。 */
 export const DASHSCOPE_PROVIDER_ID = "dashscope";
 
-/** data URL mime → DashScope parameters.format（容器格式声明）。 */
+/** data URL mime → DashScope parameters.format（容器格式声明；兼作上传文件扩展名）。 */
 function formatOfMime(mime: string): string {
   if (mime.startsWith("audio/webm")) return "webm";
   if (mime.startsWith("audio/mp4") || mime.startsWith("audio/m4a")) return "mp4";
   if (mime.startsWith("audio/wav")) return "wav";
   if (mime.startsWith("audio/mp3")) return "mp3";
   return "webm"; // 兜底（MediaRecorder 首选 webm/opus——spike 实测支持面）
+}
+
+/** base64 data URL → {bytes, mime}（与 siliconflow decodeDataUrl 同构的本地副本——adapter 间不互相 import）。 */
+function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
+  const head = /^data:([^;,]+)/.exec(dataUrl);
+  const payload = /;base64,([\s\S]+)$/.exec(dataUrl);
+  if (head === null || payload === null) {
+    throw new Error("音频载荷应为 base64 data URL（data:audio/…;base64,…）");
+  }
+  const mime = head[1] ?? "application/octet-stream";
+  const bytes = Uint8Array.from(atob(payload[1] ?? ""), (c) => c.charCodeAt(0));
+  return { bytes, mime };
+}
+
+/** getPolicy 响应 data 体（OSS PostObject 上传凭证；expire_in_seconds 实测 300s）。 */
+interface UploadPolicy {
+  policy: string;
+  signature: string;
+  upload_dir: string;
+  upload_host: string;
+  oss_access_key_id: string;
+  x_oss_object_acl?: string;
+  x_oss_forbid_overwrite?: string;
 }
 
 /** DashScope 错误体（HTTP 非 2xx 时 body 携带；request_id 供排查）。 */
@@ -53,6 +94,7 @@ interface DashScopeErrorBody {
 interface DashScopeOkBody {
   output?: {
     text?: string;
+    sentence?: { text?: string };
     choices?: { message?: { content?: { text?: string }[] } }[];
   };
   code?: string;
@@ -84,18 +126,20 @@ export class DashScopeSttAdapter implements SttPort {
       );
     }
 
-    const mime = request.audio.slice(5, request.audio.indexOf(";"));
-    // 双通道注入（设计 §5.6）：前置 input_text 消息（上下文增强）+ 即时热词
+    const { bytes, mime } = decodeDataUrl(request.audio);
+    const ossUrl = await this.uploadToOss(apiKey, bytes, mime);
+
+    // 双通道注入（设计 §5.6）：system 前置消息（上下文增强）+ 即时热词
     const messages: unknown[] = [];
     if (request.context.hint !== "") {
       messages.push({
-        role: "user",
-        content: [{ type: "input_text", text: request.context.hint }],
+        role: "system",
+        content: [{ text: request.context.hint }],
       });
     }
     messages.push({
       role: "user",
-      content: [{ type: "input_audio", input_audio: { data: request.audio } }],
+      content: [{ audio: ossUrl }],
     });
     const vocabulary: Record<string, number> = {};
     for (const t of request.context.terms) vocabulary[t.term] = t.weight;
@@ -104,6 +148,7 @@ export class DashScopeSttAdapter implements SttPort {
       input: { messages },
       parameters: {
         format: formatOfMime(mime),
+        timestamp_granularities: [],
         ...(Object.keys(vocabulary).length > 0 ? { vocabulary } : {}),
         ...(request.language !== undefined ? { language: request.language } : {}),
       },
@@ -115,6 +160,8 @@ export class DashScopeSttAdapter implements SttPort {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "X-DashScope-SSE": "disable",
+        // oss:// 引用必须携带：无此头服务端把 oss:// 当普通 URL 下载（private 拉不到→FILE_DOWNLOAD_FAILED）
+        "X-DashScope-OssResourceResolve": "enable",
       },
       body: JSON.stringify(body),
     });
@@ -128,14 +175,69 @@ export class DashScopeSttAdapter implements SttPort {
       // 200 + 业务错误码形态（DashScope 部分错误走 200 体）
       throw new Error(`DashScope 转写失败（${parsed.code}）：${parsed.message ?? "未知错误"}`);
     }
-    // 双轨文本提取（demo extract_text 同构：output.text 优先，多模态 choices 兜底）
+    // 双轨文本提取（demo extract_text 同构：output.text 优先，sentence/多模态 choices 兜底）
     const text =
       parsed.output?.text ??
+      parsed.output?.sentence?.text ??
       parsed.output?.choices?.[0]?.message?.content?.[0]?.text ??
       "";
     if (text === "") {
       throw new Error("DashScope 转写返回空文本（音频过短或无法识别）");
     }
     return { text, ...(request.language !== undefined ? { language: request.language } : {}) };
+  }
+
+  /**
+   * OSS 三步上传（SDK oss_utils.upload 同构）：
+   * ① GET getPolicy（Bearer 鉴权）→ ② multipart POST upload_host（file 字段必须最后）
+   * → 返回 "oss://" + upload_dir + "/" + filename 引用。
+   */
+  private async uploadToOss(apiKey: string, bytes: Uint8Array, mime: string): Promise<string> {
+    const policyRes = await this.fetchFn(
+      `${DASHSCOPE_UPLOADS_ENDPOINT}?action=getPolicy&model=${DASHSCOPE_ASR_MODEL}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      },
+    );
+    const policyParsed = (await policyRes.json().catch(() => ({}))) as {
+      data?: UploadPolicy;
+    } & DashScopeErrorBody;
+    if (!policyRes.ok || policyParsed.data === undefined) {
+      throw new Error(
+        `DashScope 上传凭证获取失败（HTTP ${policyRes.status}${policyParsed.code !== undefined ? ` ${policyParsed.code}` : ""}）：${policyParsed.message ?? "响应不可解析"}`,
+      );
+    }
+    const p = policyParsed.data;
+
+    // 文件名：stt-<时间戳>-<随机>.<扩展>（x-oss-forbid-overwrite=true 要求 key 唯一）
+    const ext = formatOfMime(mime);
+    const filename = `stt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const key = `${p.upload_dir}/${filename}`;
+
+    // 字段序对齐 SDK（file 必须最后）；policy conditions 强制 acl/forbid-overwrite 字段
+    const form = new FormData();
+    form.append("OSSAccessKeyId", p.oss_access_key_id);
+    form.append("Signature", p.signature);
+    form.append("policy", p.policy);
+    form.append("key", key);
+    form.append("x-oss-object-acl", p.x_oss_object_acl ?? "private");
+    form.append("x-oss-forbid-overwrite", p.x_oss_forbid_overwrite ?? "true");
+    form.append("success_action_status", "200");
+    form.append("x-oss-content-type", mime);
+    form.append("file", new Blob([bytes], { type: mime }), filename);
+
+    const upRes = await this.fetchFn(p.upload_host, {
+      method: "POST",
+      headers: { Accept: "application/json", Date: new Date().toUTCString() },
+      body: form,
+    });
+    if (!upRes.ok) {
+      const detail = await upRes.text().catch(() => "");
+      throw new Error(
+        `DashScope 音频上传失败（HTTP ${upRes.status}）：${detail.slice(0, 200) || "响应不可解析"}`,
+      );
+    }
+    return `oss://${key}`;
   }
 }
