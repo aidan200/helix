@@ -6,6 +6,7 @@ import {
   abortableSleep,
   classifyLlmError,
   LLM_RETRY_BACKOFF_MS,
+  LLM_STREAM_RETRY_BACKOFF_MS,
   withNetworkRetry,
   type LlmRetryInfo,
 } from "../../src/adapters/driven/pi-engine/network-retry";
@@ -135,6 +136,27 @@ describe("classifyLlmError", () => {
     // 可重试瞬时类，此前未入枚举被 fail-fast 缺省吞掉
     expect(classifyLlmError("error", "Connection error.")).toBe("transient");
     expect(classifyLlmError("error", "Connection error")).toBe("transient");
+  });
+
+  test("pi-ai 流中断常量文案（Stream ended without finish_reason，2026-09-19 kimi 双事故）→ 瞬时快速档", () => {
+    // pi-ai openai-completions.js 库常量（非 provider 散文，有限可枚举）：
+    // SSE 流结束而无 finish_reason chunk 时库自抛——同 "Connection error."
+    // 收编先例（库常量文案判据的自然延伸）。分类为 transient-fast：
+    // 流中断类走短退避单次重试（错判代价对齐 TR-149 100s 白等论）。
+    // 注意：pi-ai 的 start 帧在 HTTP 响应头到达即推送（先于 chunk 解析），
+    // 该文案在当前包装语义下恒为中途断流形态（零事件前导不可能出现）——
+    // 分类面先行收编，中途重试缺口见模块头「中途断流」注与批次报告
+    expect(classifyLlmError("error", "Stream ended without finish_reason")).toBe("transient-fast");
+    // 子串容忍：formatProviderError 前缀/raw metadata 附加形态
+    expect(classifyLlmError("error", "kimi (200): Stream ended without finish_reason")).toBe("transient-fast");
+    expect(classifyLlmError("error", "Stream ended without finish_reason\n{\"error\":{}}")).toBe("transient-fast");
+  });
+
+  test("流中断文案携带 HTTP 状态码 → 状态码优先判永久（接口返回证据压过文案）", () => {
+    // 机械判据优先序保持：拿到过接口响应（消息含 4xx/5xx）一律快速失败——
+    // 「Stream ended」字样不能给带状态码的接口错误开后门
+    expect(classifyLlmError("error", "503: Stream ended without finish_reason")).toBe("permanent");
+    expect(classifyLlmError("error", "Stream ended 429 rate limited")).toBe("permanent");
   });
 
   test("LLM 接口返回（消息含 HTTP 状态码）→ 一律永久快速失败（裁决 2026-09-08）", () => {
@@ -328,7 +350,83 @@ describe("withNetworkRetry", () => {
     expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "error"]);
   });
 
-  test("默认退避常量 = 裁决序列 10s/30s/60s", () => {
+  test("中途断流（Stream ended 文案）：同样不重试——当前中途缺口（见模块头），事件原样透传", async () => {
+    const clock = fakeClock();
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "midstream", message: "Stream ended without finish_reason" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    // pi-ai start 帧在 HTTP 响应头到达即推送 → 该文案恒为中途形态：
+    // 分类面已收编（transient-fast），但中途门（forwarded）保持直通——
+    // 不硬改（重复风险实证见批次报告）；上游支持后此门才开
+    expect(callCount()).toBe(1);
+    expect(clock.slept).toEqual([]);
+    expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "error"]);
+    const terminal = events[2] as Extract<AssistantMessageEvent, { type: "error" }>;
+    expect(terminal.error.errorMessage).toBe("Stream ended without finish_reason");
+  });
+
+  test("零事件流中断（transient-fast）：短退避 5s 单次重试，二次失败即收口", async () => {
+    const clock = fakeClock();
+    const retries: LlmRetryInfo[] = [];
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "Stream ended without finish_reason" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    // 快速档：恰 1 次重试（非 10s→30s→60s 全序列），二次失败退避耗尽原样转发
+    expect(callCount()).toBe(2);
+    expect(clock.slept).toEqual([5_000]);
+    expect(retries).toEqual([
+      { attempt: 1, totalAttempts: 1, waitMs: 5_000, message: "Stream ended without finish_reason" },
+    ]);
+    expect(events.map((e) => e.type)).toEqual(["error"]);
+    const terminal = events[0] as Extract<AssistantMessageEvent, { type: "error" }>;
+    expect(terminal.error.errorMessage).toBe("Stream ended without finish_reason");
+  });
+
+  test("零事件流中断重试后成功：消费者只见成功流，短退避 5s 单次", async () => {
+    const clock = fakeClock();
+    const retries: LlmRetryInfo[] = [];
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "Stream ended without finish_reason" },
+      { kind: "ok", text: "recovered-stream" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    expect(callCount()).toBe(2);
+    expect(clock.slept).toEqual([5_000]);
+    expect(retries.map((r) => r.totalAttempts)).toEqual([1]); // 快速档总量 = 1（状态卡面第 1/1 次）
+    expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "done"]);
+  });
+
+  test("混合类退避消费：流中断（5s）后续传输层失败按其序列第 attemptIndex 项等待", async () => {
+    const clock = fakeClock();
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "Stream ended without finish_reason" },
+      { kind: "error", message: "ECONNRESET" },
+      { kind: "error", message: "ECONNRESET" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
+
+    await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    // attemptIndex 全局计数，每次失败按自身类序列取第 attemptIndex 项：
+    // ①stream[0]=5s → ②transport[1]=30s → ③transport[2]=60s → ④
+    // attemptIndex=3 耗尽 → 末次失败原样转发（共 4 次调用 = 1 首发 + 3 重试）
+    expect(callCount()).toBe(4);
+    expect(clock.slept).toEqual([5_000, 30_000, 60_000]);
+  });
+
+  test("默认退避常量 = 裁决序列 10s/30s/60s；流中断快速档 = 5s 单次", () => {
     expect(LLM_RETRY_BACKOFF_MS).toEqual([10_000, 30_000, 60_000]);
+    expect(LLM_STREAM_RETRY_BACKOFF_MS).toEqual([5_000]);
   });
 });

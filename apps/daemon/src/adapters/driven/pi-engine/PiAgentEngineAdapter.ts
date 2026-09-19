@@ -73,10 +73,12 @@ export interface PiEngineOptions {
    * 网络重试配置（P2 ⑦，引擎级全局生效：主会话/子进程编排器同源包装）：
    * backoffMs/sleep 注入 = 测试假时钟面；缺省 10/30/60s 退避 + 真等待
    * （abort 感知）。重试进入等待时经监听器发 engine_retrying 事件
-   * （chat 可见反馈/日志数据源）。
+   * （chat 可见反馈/日志数据源）。streamBackoffMs = 流中断快速档
+   * （transient-fast，引擎错误体验批 2026-09-19：5s 单次）。
    */
   readonly retry?: {
     readonly backoffMs?: readonly number[];
+    readonly streamBackoffMs?: readonly number[];
     readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   };
 }
@@ -121,6 +123,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     // 行为零变化。重试回调经监听器发 engine_retrying（等待期可观测）
     const streamFn = withNetworkRetry(thinkingStreamFn, {
       ...(options.retry?.backoffMs !== undefined ? { backoffMs: options.retry.backoffMs } : {}),
+      ...(options.retry?.streamBackoffMs !== undefined ? { streamBackoffMs: options.retry.streamBackoffMs } : {}),
       ...(options.retry?.sleep !== undefined ? { sleep: options.retry.sleep } : {}),
       onRetry: (info) =>
         this.listener?.({
