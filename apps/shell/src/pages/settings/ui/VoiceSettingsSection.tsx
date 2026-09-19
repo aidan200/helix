@@ -1,14 +1,20 @@
 /**
- * 语音设置分区（语音输入批 V1 STT + 语音播报批 V2 TTS）。
+ * 语音设置分区（语音输入批 V1 STT + 语音播报批 V2 TTS + 设置页 UX 重排批）。
+ *
+ * 结构（UX 重排批）：General 分区同构——pg-title + section-label 组标签 +
+ * hud-card 卡（fld/hud-label/hud-btn），开关一律 checkbox（set-check 类，
+ * MCP 表单 mcp-enabled 同构）；radio 假开关与零样式私有类（set-card、
+ * set-card-label、pg-note、voice-provider 系、voice-key 系）随批退役。
  *
  * STT（V1）：
- * - provider 选择：偏好存 localStorage（helix.stt.provider；缺省 auto =
+ * - 识别服务偏好：偏好存 localStorage（helix.stt.provider；缺省 auto =
  *   daemon 装配序自动选首个已配 key 的——dashscope 主选、siliconflow 兜底）；
  *   Composer 转写命令随偏好携带 payload.provider（auto 不带）；
- * - key 录入：复用 auth.set_key 通道（setProviderKey——dashscope 作为新
- *   provider id 经 daemon ModelService sttProviderIds 放行）；状态显示自
- *   auth.list（进入分区拉取 requestAuthList；dashscope/siliconflow 在
- *   daemon authList 并入清单）。
+ * - 服务状态引用卡（UX 重排批）：key 录入入口整体移除——key 管理统一归
+ *   「模型」分区（dashscope/siliconflow 在其 provider 全集内，auth.set_key
+ *   通道复用）；本区只读引用 auth.list 状态（configured → 尾 4 位脱敏，
+ *   模型分区 key-chip 同构；未配置 → 指路「模型」分区文案）。数据复用
+ *   进入分区即发的 requestAuthList，无新拉取。
  *
  * TTS（V2 播报）：
  * - 播报开关：默认 **off**（helix.voice.broadcast；不偷偷发音频花钱）——
@@ -21,12 +27,12 @@
  * 纯展示 + 命令转发（TR-AD-8）：数据零权威，全部结果帧驱动。
  */
 import { useEffect, useRef, useState } from "react";
-import { KeyRound, Volume2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
-import { readSttProviderPref, writeSttProviderPref, STT_PROVIDER_PREF_KEY } from "@/shared/lib/stt-provider-pref";
+import { readSttProviderPref, writeSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import {
   DEFAULT_TTS_VOICE,
   TTS_VOICE_OPTIONS,
@@ -38,8 +44,6 @@ import {
   writeVoiceVolumePref,
 } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
-
-export { STT_PROVIDER_PREF_KEY }; // re-export (storage single source lives in shared/lib)
 
 const STT_PROVIDERS = ["dashscope", "siliconflow"] as const;
 
@@ -56,9 +60,8 @@ interface SynthResultPayload {
 const VoiceSettingsSection = function VoiceSettingsSection() {
   const { t } = useI18n();
   const toast = useToast();
-  const { topology, requestAuthList, setProviderKey, sendVoiceSynthesize, sendVoiceSubscribe, sendVoiceUnsubscribe, subscribeVoiceFrames } = useSession();
+  const { topology, requestAuthList, sendVoiceSynthesize, sendVoiceSubscribe, sendVoiceUnsubscribe, subscribeVoiceFrames } = useSession();
   const [provider, setProvider] = useState<string>(() => readSttProviderPref() ?? "auto");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   // ── TTS 偏好态（初值 localStorage；写 = 偏好 + 立即生效面由 useVoiceBroadcast 消费）──
   const [broadcastOn, setBroadcastOn] = useState<boolean>(() => readVoiceBroadcastPref());
   const [voice, setVoice] = useState<string>(() => readTtsVoicePref());
@@ -99,13 +102,6 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
     writeSttProviderPref(id);
   };
 
-  const onSaveKey = (pid: string) => {
-    const key = (drafts[pid] ?? "").trim();
-    if (key === "") return;
-    if (!setProviderKey(pid, key)) toast.push("err", t("chat.settings.voice.keySendFail"));
-    setDrafts((d) => ({ ...d, [pid]: "" }));
-  };
-
   const onToggleBroadcast = (on: boolean) => {
     setBroadcastOn(on);
     writeVoiceBroadcastPref(on);
@@ -143,118 +139,118 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
   return (
     <div className="pg" data-voice-settings>
       <h2 className="pg-title">{t("chat.settings.voice.title")}</h2>
-      <p className="pg-note">{t("chat.settings.voice.note")}</p>
 
-      <div className="set-card" data-voice-provider>
-        <div className="set-card-label">{t("chat.settings.voice.provider")}</div>
-        <div className="voice-provider-row" role="radiogroup" aria-label={t("chat.settings.voice.provider")}>
-          {(["auto", ...STT_PROVIDERS] as const).map((id) => (
-            <label key={id} className={cn("voice-provider-opt", provider === id && "on")}>
-              <input
-                type="radio"
-                name="stt-provider"
-                checked={provider === id}
-                onChange={() => onPickProvider(id)}
-              />
-              {t(`chat.settings.voice.provider.${id}`)}
-            </label>
-          ))}
+      <h3 className="section-label gen-group-label first">{t("chat.settings.voice.groupService")}</h3>
+      <div className="hud-card" data-voice-provider>
+        <p className="ag-note">{t("chat.settings.voice.note")}</p>
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.voice.provider")}</span>
+          <div className="lang-switch" role="group" aria-label={t("chat.settings.voice.provider")}>
+            {(["auto", ...STT_PROVIDERS] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={cn("hud-btn sm", provider === id ? "hud-btn-cyan" : "hud-btn-ghost")}
+                data-stt-option={id}
+                aria-pressed={provider === id}
+                onClick={() => onPickProvider(id)}
+              >
+                {t(`chat.settings.voice.providerOpt.${id}`)}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="pg-note">{t("chat.settings.voice.providerHint")}</div>
+        <span className="ag-note">{t("chat.settings.voice.providerHint")}</span>
       </div>
 
-      {STT_PROVIDERS.map((pid) => {
-        const entry = auth[pid];
-        return (
-          <div className="set-card" key={pid} data-voice-key-row={pid}>
-            <div className="set-card-label">
-              <KeyRound size={12} aria-hidden /> {pid}
-              {entry?.configured ? (
-                <span className="voice-key-mask">{entry.keyMasked ?? "****"}</span>
+      {/* 服务状态引用卡（UX 重排批）：key 录入归「模型」分区，本区只读引用 */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.voice.groupKeys")}</h3>
+      <div className="hud-card" data-voice-keys>
+        {STT_PROVIDERS.map((pid) => {
+          const entry = auth[pid];
+          return (
+            <div className="voice-svc-row" key={pid} data-voice-svc={pid}>
+              <span className="voice-svc-name">{t(`chat.settings.voice.svc.${pid}`)}</span>
+              <span className="hud-chip">{t(`chat.settings.voice.svcBadge.${pid}`)}</span>
+              <span className="ag-note">{t(`chat.settings.voice.svcNote.${pid}`)}</span>
+              {entry?.configured && entry.keyMasked !== undefined ? (
+                <span className="key-chip">
+                  key ····<span className="k4">{entry.keyMasked.slice(-4)}</span>
+                </span>
               ) : (
-                <span className="voice-key-unset">{t("chat.settings.voice.unset")}</span>
+                <span className="key-none">{t("chat.settings.voice.unset")}</span>
               )}
             </div>
-            <div className="voice-key-input">
-              <input
-                type="password"
-                value={drafts[pid] ?? ""}
-                placeholder={t("chat.settings.voice.keyPlaceholder")}
-                onChange={(e) => setDrafts((d) => ({ ...d, [pid]: e.target.value }))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onSaveKey(pid);
-                }}
-              />
-              <button
-                type="button"
-                className="hud-btn hud-btn-cyan"
-                disabled={(drafts[pid] ?? "").trim() === ""}
-                onClick={() => onSaveKey(pid)}
-              >
-                {t("chat.settings.voice.save")}
-              </button>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+        <span className="ag-note">{t("chat.settings.voice.keyStatusHint")}</span>
+      </div>
 
       {/* ── TTS 播报段（语音播报批 V2）────────────────────── */}
-      <h2 className="pg-title" style={{ marginTop: 24 }}>
-        <Volume2 size={14} aria-hidden /> {t("chat.settings.voiceTts.title")}
-      </h2>
-      <p className="pg-note">{t("chat.settings.voiceTts.note")}</p>
+      <h2 className="pg-title pg-subtitle">{t("chat.settings.voiceTts.title")}</h2>
 
-      <div className="set-card" data-tts-broadcast>
-        <div className="set-card-label">{t("chat.settings.voiceTts.broadcast")}</div>
-        <div className="voice-provider-row" role="radiogroup" aria-label={t("chat.settings.voiceTts.broadcast")}>
-          <label className={cn("voice-provider-opt", !broadcastOn && "on")}>
-            <input type="radio" name="tts-broadcast" value="off" checked={!broadcastOn} onChange={() => onToggleBroadcast(false)} />
-            {t("chat.settings.voiceTts.broadcast.off")}
-          </label>
-          <label className={cn("voice-provider-opt", broadcastOn && "on")}>
-            <input type="radio" name="tts-broadcast" value="on" checked={broadcastOn} onChange={() => onToggleBroadcast(true)} />
-            {t("chat.settings.voiceTts.broadcast.on")}
-          </label>
-        </div>
-        <div className="pg-note">{t("chat.settings.voiceTts.broadcastHint")}</div>
-      </div>
-
-      <div className="set-card" data-tts-voice>
-        <div className="set-card-label">{t("chat.settings.voiceTts.voice")}</div>
-        <div className="voice-key-input">
-          <select
-            aria-label={t("chat.settings.voiceTts.voice")}
-            value={voice === "" ? DEFAULT_TTS_VOICE : voice}
-            onChange={(e) => onPickVoice(e.target.value)}
-            style={{ flex: 1 }}
-          >
-            {TTS_VOICE_OPTIONS.map((id) => (
-              <option key={id} value={id}>
-                {t(`chat.settings.voiceTts.voiceOpt.${id}`)}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="hud-btn hud-btn-cyan" disabled={auditioning} onClick={onAudition}>
-            {auditioning ? t("chat.settings.voiceTts.auditioning") : t("chat.settings.voiceTts.audition")}
-          </button>
-        </div>
-        <div className="pg-note">{t("chat.settings.voiceTts.voiceHint")}</div>
-      </div>
-
-      <div className="set-card" data-tts-volume>
-        <div className="set-card-label">{t("chat.settings.voiceTts.volume")}</div>
-        <div className="voice-key-input">
+      <h3 className="section-label gen-group-label first">{t("chat.settings.voiceTts.groupSwitch")}</h3>
+      <div className="hud-card" data-tts-broadcast>
+        <p className="ag-note">{t("chat.settings.voiceTts.note")}</p>
+        <label className="set-check" data-tts-enabled>
           <input
-            type="range"
-            min={0}
-            max={100}
-            value={volume}
-            aria-label={t("chat.settings.voiceTts.volume")}
-            onChange={(e) => onVolume(Number(e.target.value))}
-            style={{ flex: 1 }}
+            type="checkbox"
+            checked={broadcastOn}
+            onChange={(e) => onToggleBroadcast(e.target.checked)}
           />
-          <span className="voice-key-mask">{volume}</span>
+          {t("chat.settings.voiceTts.broadcastOn")}
+        </label>
+        <span className="ag-note">{t("chat.settings.voiceTts.broadcastHint")}</span>
+      </div>
+
+      <h3 className="section-label gen-group-label">{t("chat.settings.voiceTts.groupVoice")}</h3>
+      <div className="hud-card" data-tts-voice>
+        <div className="fld">
+          <label className="hud-label" htmlFor="tts-voice">
+            {t("chat.settings.voiceTts.voice")}
+          </label>
+          <div className="set-inline">
+            <div className="sel-wrap">
+              <select
+                id="tts-voice"
+                className="hud-input"
+                value={voice === "" ? DEFAULT_TTS_VOICE : voice}
+                onChange={(e) => onPickVoice(e.target.value)}
+              >
+                {TTS_VOICE_OPTIONS.map((id) => (
+                  <option key={id} value={id}>
+                    {t(`chat.settings.voiceTts.voiceOpt.${id}`)}
+                  </option>
+                ))}
+              </select>
+              <span className="sel-chev">
+                <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+              </span>
+            </div>
+            <button type="button" className="hud-btn hud-btn-cyan" disabled={auditioning} onClick={onAudition}>
+              {auditioning ? t("chat.settings.voiceTts.auditioning") : t("chat.settings.voiceTts.audition")}
+            </button>
+          </div>
         </div>
+        <div className="fld">
+          <label className="hud-label" htmlFor="tts-volume">
+            {t("chat.settings.voiceTts.volume")}
+          </label>
+          <div className="set-inline">
+            <input
+              id="tts-volume"
+              type="range"
+              min={0}
+              max={100}
+              value={volume}
+              onChange={(e) => onVolume(Number(e.target.value))}
+            />
+            <span className="hud-chip" data-tts-volume-value>
+              {volume}
+            </span>
+          </div>
+        </div>
+        <span className="ag-note">{t("chat.settings.voiceTts.voiceHint")}</span>
       </div>
     </div>
   );

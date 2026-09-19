@@ -6,8 +6,11 @@
  * - mount → sendStewardGetConfig（幂等读）+ requestModelConfig（目录）+
  *   requestAuthList（configured 过滤数据源，V2.5 补丁）；
  *   steward.config.result 帧 → 本地态（开关/select 值）；
- * - 开关切换（radio off/on，语音 TTS 播报开关同构）→ sendStewardSetConfig
- *   {enabled}；回执 config.result 新态同步本地选中；
+ * - mount → sendStewardGetConfig（幂等读）+ requestModelConfig（目录）+
+ *   requestAuthList（configured 过滤数据源，V2.5 补丁）；
+ *   steward.config.result 帧 → 本地态（开关/select 值）；
+ * - 开关切换（checkbox 形态，UX 重排批：语音 TTS 播报开关同构）→
+ *   sendStewardSetConfig {enabled}；回执 config.result 新态同步本地勾选；
  * - 模型选择（select，过滤后目录 provider/model 全 id）→ sendStewardSetConfig
  *   {model}；回执帧同步 select 值；
  * - configured 过滤（V2.5 补丁）：authLoaded=true 时仅 configured provider 的
@@ -136,10 +139,10 @@ describe("StewardSettingsSection 管家设置段（V2.5 收官批）", () => {
     expect(sendStewardGetConfig).toHaveBeenCalled();
     expect(requestModelConfig).toHaveBeenCalled();
     expect(requestAuthList).toHaveBeenCalled();
-    // 现态到达前：开关段渲染（默认关选中），select 未定态
-    const off = document.querySelector('input[name="steward-enabled"][value="off"]') as HTMLInputElement;
+    // 现态到达前：开关段渲染（默认关未勾），select 未定态
+    const off = document.querySelector("[data-steward-enabled] input") as HTMLInputElement;
     expect(off).not.toBeNull();
-    expect(off.checked).toBe(true);
+    expect(off.checked).toBe(false);
     act(() => {
       frameListener?.(frame({ enabled: false, model: "deepseek/deepseek-v4-flash" }));
     });
@@ -148,23 +151,23 @@ describe("StewardSettingsSection 管家设置段（V2.5 收官批）", () => {
     });
   });
 
-  it("开关切换：radio on → sendStewardSetConfig({enabled:true})；回执新态同步本地选中", async () => {
+  it("开关切换：勾选 → sendStewardSetConfig({enabled:true})；回执新态同步本地勾选；取消勾 → {enabled:false}", async () => {
     rig();
     act(() => {
       frameListener?.(frame({ enabled: false, model: "deepseek/deepseek-v4-flash" }));
     });
-    const on = document.querySelector('input[name="steward-enabled"][value="on"]') as HTMLInputElement;
-    fireEvent.click(on);
+    const cb = document.querySelector("[data-steward-enabled] input") as HTMLInputElement;
+    fireEvent.click(cb);
     expect(sendStewardSetConfig).toHaveBeenCalledWith({ enabled: true });
     // 回执驱动本地态（不乐观）
     act(() => {
       frameListener?.(frame({ enabled: true, model: "deepseek/deepseek-v4-flash" }));
     });
     await waitFor(() => {
-      expect((document.querySelector('input[name="steward-enabled"][value="on"]') as HTMLInputElement).checked).toBe(true);
+      expect((document.querySelector("[data-steward-enabled] input") as HTMLInputElement).checked).toBe(true);
     });
-    // 关回去
-    fireEvent.click(document.querySelector('input[name="steward-enabled"][value="off"]') as HTMLInputElement);
+    // 关回去（checkbox 取消勾选）
+    fireEvent.click(document.querySelector("[data-steward-enabled] input") as HTMLInputElement);
     expect(sendStewardSetConfig).toHaveBeenCalledWith({ enabled: false });
   });
 
@@ -206,12 +209,12 @@ describe("StewardSettingsSection 管家设置段（V2.5 收官批）", () => {
       frameListener?.(frame({ enabled: false, model: "deepseek/deepseek-v4-flash" }));
     });
     const on = (await waitFor(() =>
-      document.querySelector('input[name="steward-enabled"][value="on"]'),
+      document.querySelector("[data-steward-enabled] input"),
     )) as HTMLInputElement;
     fireEvent.click(on);
     expect(sendStewardSetConfig).toHaveBeenCalledWith({ enabled: true });
-    // 无回执：本地仍 off（结果帧驱动，TR-84 禁乐观假反馈）
-    expect((document.querySelector('input[name="steward-enabled"][value="on"]') as HTMLInputElement).checked).toBe(false);
+    // 无回执：本地仍未勾（结果帧驱动，TR-84 禁乐观假反馈）
+    expect((document.querySelector("[data-steward-enabled] input") as HTMLInputElement).checked).toBe(false);
     await waitFor(() => {
       expect(r.container.textContent).toContain("未连接");
     });

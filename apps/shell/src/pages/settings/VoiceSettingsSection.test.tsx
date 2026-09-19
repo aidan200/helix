@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 /**
- * 语音设置分区 TTS 段测试（语音播报批 V2）：
- * - 播报开关默认关（localStorage 空 → off 态选中）；
- * - 开关切换写 localStorage（helix.voice.broadcast）；
+ * 语音设置分区测试（语音输入批 V1 + 语音播报批 V2 + 设置页 UX 重排批）：
+ * - 识别服务偏好（lang-switch 三选按钮）：默认 auto；点击写 localStorage
+ *   （helix.stt.provider）+ aria-pressed 翻转；
+ * - 服务状态引用卡（UX 重排批：key 录入归「模型」分区，本区只读引用）：
+ *   configured → key-chip 尾 4 位脱敏；未配置 → 「未配置」+ 指路「模型」
+ *   分区；密码输入框零残留（不做第二录入入口）；
+ * - 播报开关（checkbox 形态）：默认关；切换写 localStorage
+ *   （helix.voice.broadcast）+ 即时订阅/退订；
  * - 音色选择写 localStorage（helix.voice.ttsVoice）+ 默认 Cherry 选中；
  * - 试听按钮 → sendVoiceSynthesize(固定短句, {voice, language:"zh"})；
  *   回执 ok → Audio 播放；回执 error → toast err；回执未 pending 不消费
@@ -15,9 +20,9 @@ import { cleanup, fireEvent, render, screen, act, waitFor } from "@testing-libra
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
+import type { AuthProviderEntry } from "@/entities/session/model/state";
 
 const requestAuthList = vi.fn();
-const setProviderKey = vi.fn(() => true);
 const sendVoiceSynthesize = vi.fn(() => true);
 const sendVoiceSubscribe = vi.fn(() => true);
 const sendVoiceUnsubscribe = vi.fn(() => true);
@@ -28,12 +33,13 @@ const subscribeVoiceFrames = vi.fn((cb: (e: EventEnvelope) => void) => {
     frameListener = null;
   };
 });
+// 服务状态引用卡数据注入口（per-test 变更；工厂闭包渲染时求值，无 TDZ）
+let mockAuth: Record<string, AuthProviderEntry> = {};
 
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
-    topology: { modelConfig: { auth: {} }, active: { conn: "connected" } },
+    topology: { modelConfig: { auth: mockAuth }, active: { conn: "connected" } },
     requestAuthList,
-    setProviderKey,
     sendVoiceSynthesize,
     sendVoiceSubscribe,
     sendVoiceUnsubscribe,
@@ -74,9 +80,17 @@ const AUDITION_ERR: EventEnvelope = {
   payload: { status: "error", reason: "无 key" },
 } as unknown as EventEnvelope;
 
-describe("VoiceSettingsSection TTS 段（语音播报批 V2）", () => {
+/** auth.list 行（服务状态引用卡数据面）。 */
+function authEntry(providerId: string, configured: boolean, keyMasked?: string): AuthProviderEntry {
+  return { providerId, configured, verifyStatus: configured ? "ok" : "unverified", ...(keyMasked !== undefined ? { keyMasked } : {}) };
+}
+
+describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
   beforeEach(() => {
     localStorage.clear();
+    // jsdom navigator.language 默认 en-US：钉 zh-CN（AG-14 白名单键；clear 后重钉）
+    localStorage.setItem("helix-lang", "zh-CN");
+    mockAuth = {};
     FakeAudio.instances = [];
     (globalThis as { Audio?: unknown }).Audio = FakeAudio;
   });
@@ -96,32 +110,99 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2）", () => {
       </I18nProvider>,
     );
 
-  const broadcastRadio = (r: ReturnType<typeof rig>, value: "on" | "off"): HTMLInputElement =>
-    r.container.querySelector(`input[name="tts-broadcast"][value="${value}"]`) as HTMLInputElement;
-
-  it("播报开关默认关（localStorage 空 → off 选中）；切换开写偏好", () => {
+  it("识别服务偏好：默认自动（推荐）选中；点「只用 DashScope」写偏好 + aria-pressed 翻转", () => {
     const r = rig();
-    expect(broadcastRadio(r, "off").checked).toBe(true);
-    expect(broadcastRadio(r, "on").checked).toBe(false);
+    const auto = r.container.querySelector('[data-stt-option="auto"]') as HTMLButtonElement;
+    // 嵌套对象键解析（UX 重排批修复：旧点分字面量键经 t() 逐段下钻不解析，
+    // 选项标签曾渲染裸 key）
+    expect(auto.textContent).toBe("自动（推荐）");
+    expect(auto.getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("helix.stt.provider")).toBeNull();
+
+    fireEvent.click(r.container.querySelector('[data-stt-option="dashscope"]') as HTMLButtonElement);
+    expect(localStorage.getItem("helix.stt.provider")).toBe("dashscope");
+    expect(auto.getAttribute("aria-pressed")).toBe("false");
+    expect((r.container.querySelector('[data-stt-option="dashscope"]') as HTMLButtonElement).getAttribute("aria-pressed")).toBe("true");
+
+    // 切回自动 = 移除偏好
+    fireEvent.click(auto);
+    expect(localStorage.getItem("helix.stt.provider")).toBeNull();
+  });
+
+  it("服务状态引用卡：configured → 尾 4 位脱敏 + 推荐/备选徽标；hint 指路「模型」分区", () => {
+    mockAuth = {
+      dashscope: authEntry("dashscope", true, "sk-abcd1234"),
+      siliconflow: authEntry("siliconflow", false),
+    };
+    const r = rig();
+    const ds = r.container.querySelector('[data-voice-svc="dashscope"]') as HTMLElement;
+    const sf = r.container.querySelector('[data-voice-svc="siliconflow"]') as HTMLElement;
+    // 脱敏对齐模型分区：key ···· + 尾 4 位
+    expect(ds.textContent).toContain("1234");
+    expect(ds.textContent).toContain("推荐");
+    expect(sf.textContent).toContain("未配置");
+    expect(sf.textContent).toContain("备选");
+    // 用户最需要的一句答案 + 指路（key 管理归模型分区）
+    expect(r.container.textContent).toContain("任选其一");
+    expect(r.container.textContent).toContain("模型");
+  });
+
+  it("key 录入入口零残留：无密码输入框（key 管理归「模型」分区，不做第二入口）", () => {
+    const r = rig();
+    expect(r.container.querySelectorAll('input[type="password"]')).toHaveLength(0);
+    expect(r.container.querySelectorAll("button").length).toBe(4); // 3 偏好按钮 + 1 试听
+  });
+});
+
+describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    mockAuth = {};
+    FakeAudio.instances = [];
+    (globalThis as { Audio?: unknown }).Audio = FakeAudio;
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    frameListener = null;
+  });
+
+  const rig = () =>
+    render(
+      <I18nProvider>
+        <ToastProvider>
+          <VoiceSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+
+  const broadcastCheckbox = (r: ReturnType<typeof rig>): HTMLInputElement =>
+    r.container.querySelector("[data-tts-enabled] input") as HTMLInputElement;
+
+  it("播报开关默认关（checkbox 未勾）；勾选写偏好、取消移除", () => {
+    const r = rig();
+    expect(broadcastCheckbox(r).checked).toBe(false);
     expect(localStorage.getItem("helix.voice.broadcast")).toBeNull();
 
-    fireEvent.click(broadcastRadio(r, "on"));
+    fireEvent.click(broadcastCheckbox(r));
     expect(localStorage.getItem("helix.voice.broadcast")).toBe("1");
-    fireEvent.click(broadcastRadio(r, "off"));
+    fireEvent.click(broadcastCheckbox(r));
     expect(localStorage.getItem("helix.voice.broadcast")).toBeNull();
   });
 
-  it("偏好已开时进入分区 → on 态选中（localStorage 读面）", () => {
+  it("偏好已开时进入分区 → checkbox 勾选（localStorage 读面）", () => {
     localStorage.setItem("helix.voice.broadcast", "1");
     const r = rig();
-    expect(broadcastRadio(r, "on").checked).toBe(true);
+    expect(broadcastCheckbox(r).checked).toBe(true);
   });
 
-  it("播报开关切换即时订阅：开 → sendVoiceSubscribe(当前音色)；关 → sendVoiceUnsubscribe（V2 缺陷修复：不再等重连）", () => {
+  it("播报开关切换即时订阅：勾 → sendVoiceSubscribe(当前音色)；取消 → sendVoiceUnsubscribe（V2 缺陷修复：不再等重连）", () => {
     const r = rig();
-    fireEvent.click(broadcastRadio(r, "on"));
+    fireEvent.click(broadcastCheckbox(r));
     expect(sendVoiceSubscribe).toHaveBeenCalledWith("Cherry"); // 默认音色随订阅上报
-    fireEvent.click(broadcastRadio(r, "off"));
+    fireEvent.click(broadcastCheckbox(r));
     expect(sendVoiceUnsubscribe).toHaveBeenCalledTimes(1);
   });
 
@@ -132,10 +213,11 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2）", () => {
     expect(sendVoiceSubscribe).toHaveBeenCalledWith("Ethan");
   });
 
-  it("音色选择：默认 Cherry 选中；切换写 helix.voice.ttsVoice", () => {
+  it("音色选择：默认 Cherry 选中；选项标签渲染真文案（非裸 key）；切换写 helix.voice.ttsVoice", () => {
     rig();
     const select = screen.getByLabelText(/播报音色|Voice/) as HTMLSelectElement;
     expect(select.value).toBe("Cherry");
+    expect((select.options[0] as HTMLOptionElement).textContent).toContain("芊悦");
     fireEvent.change(select, { target: { value: "Ethan" } });
     expect(localStorage.getItem("helix.voice.ttsVoice")).toBe("Ethan");
   });

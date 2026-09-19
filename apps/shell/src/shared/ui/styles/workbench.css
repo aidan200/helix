@@ -299,15 +299,25 @@
   font-size: var(--text-title); font-weight: 600; color: var(--text);
   margin: 0 0 14px;
 }
+/* 页内二级分区标题（同页两个功能域的分隔，如语音输入/语音播报；间距对齐
+   .gen-group-label 组标签节奏——UX 重排批） */
+.pg-subtitle { margin-top: 36px; }
 
 /* 通用配置分区：配置项分组小标题（复用 .section-label 视觉，组间加大留白） */
 .gen-group-label { margin-top: 36px; margin-bottom: 16px; }
 .gen-group-label.first { margin-top: 8px; }
 
+/* 分区内联控件行（label 行内横排：sel-wrap 下拉 + 按钮 / 滑杆 + 读数；
+   UX 重排批：语音/管家分区收敛用） */
+.set-inline { display: flex; align-items: center; gap: 8px; }
+.set-inline > .sel-wrap { flex: 1; min-width: 0; }
+.set-inline > input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+
 /* ── MCP 分区（mcp 批：server 配置面——列表行/表单/五态徽标）── */
 .mcp-form { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); margin-top: 12px; }
 .mcp-form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.mcp-enabled { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-body); color: var(--text); cursor: pointer; }
+.mcp-enabled, .set-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-body); color: var(--text); cursor: pointer; }
+.set-check input { accent-color: var(--accent); }
 .mcp-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .mcp-row:last-child { border-bottom: none; }
 .mcp-row-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -479,9 +489,9 @@
   border: none; background: transparent; font-family: var(--font-mono); text-align: left;
 }
 .prov-name { font-size: var(--text-main); font-weight: 600; color: var(--text); min-width: 86px; }
-.prov .key-chip { font-size: var(--text-cap); color: var(--text-muted); }
-.prov .key-chip .k4 { color: var(--accent); }
-.prov .key-none { font-size: var(--text-cap); color: var(--text-faint); }
+.prov .key-chip, .voice-svc-row .key-chip { font-size: var(--text-cap); color: var(--text-muted); }
+.prov .key-chip .k4, .voice-svc-row .key-chip .k4 { color: var(--accent); }
+.prov .key-none, .voice-svc-row .key-none { font-size: var(--text-cap); color: var(--text-faint); }
 .prov-head .conn { margin-left: auto; }
 .prov-head .pc-chev { color: var(--text-dim); display: inline-flex; transition: transform 0.15s; }
 .prov.open .pc-chev { transform: rotate(90deg); }
