@@ -979,20 +979,37 @@ html.light .bubble code.inline { color: var(--accent); }
 .attach-btn:hover:not(:disabled) { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); }
 .attach-limit { font-size: var(--text-cap); color: var(--warning); }
 
-/* ══ 语音输入钮（V1 按住说话：录音态红点脉冲 / 转写中 spinner）══ */
-.mic-btn { padding: 0 10px; border: 1px solid rgb(var(--edge-rgb) / 0.15); background: none; color: var(--text-dim); user-select: none; touch-action: none; }
+/* ══ 语音输入钮（V2 点击交互：待录 Mic / 录音中电平条 / 转写中 spinner）
+   录音态色 = error 语义色（token 通道变量，旧版 #ff5555 散落 hex 随本批合规化）══ */
+.mic-btn { padding: 0 10px; border: 1px solid rgb(var(--edge-rgb) / 0.15); background: none; color: var(--text-dim); user-select: none; }
 .mic-btn:hover:not(:disabled) { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); }
-.mic-btn.recording { color: var(--danger, #ff5555); border-color: rgb(255 85 85 / 0.55); }
-.mic-btn .rec-dot {
-  width: 9px; height: 9px; border-radius: 50%; background: var(--danger, #ff5555);
-  animation: mic-pulse 1s ease-in-out infinite;
+.mic-btn.recording {
+  color: var(--error);
+  border-color: rgb(var(--error-rgb) / 0.55);
+  background: rgb(var(--error-rgb) / 0.08);
 }
-@keyframes mic-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.35; transform: scale(0.7); }
+/* 电平条（5 杆，scaleY 由 --lv<n> 驱动——JS 预计算，零 calc()；只动 transform） */
+.mic-level {
+  display: inline-flex; align-items: flex-end; gap: 2px;
+  width: 14px; height: 12px;
 }
+.mic-level i {
+  flex: 1 1 0; height: 100%; border-radius: 1px;
+  background: currentColor;
+  transform-origin: center bottom;
+  transform: scaleY(var(--lv1, 0.2));
+  transition: transform 0.09s linear;
+}
+.mic-level i:nth-child(1) { transform: scaleY(var(--lv1, 0.2)); }
+.mic-level i:nth-child(2) { transform: scaleY(var(--lv2, 0.2)); }
+.mic-level i:nth-child(3) { transform: scaleY(var(--lv3, 0.2)); }
+.mic-level i:nth-child(4) { transform: scaleY(var(--lv4, 0.2)); }
+.mic-level i:nth-child(5) { transform: scaleY(var(--lv5, 0.2)); }
 .mic-btn .spin { animation: mic-rotate 0.9s linear infinite; }
 @keyframes mic-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mic-level i { transition: none; } /* 电平数据即时呈现（关过渡非关信息） */
+}
 
 /* ═══ T9 图片缩略图行 + lightbox（user 气泡 / 工具卡共用 ImageStrip）═══ */
 .img-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
@@ -1159,44 +1176,78 @@ html.light .bubble code.inline { color: var(--accent); }
   background: rgb(var(--void-rgb) / 0.5); border: 1px solid rgb(var(--edge-rgb) / 0.2); color: var(--text);
 }
 
-/* ── 文本管家侧栏面板（V2.5 steward：stp-* 语义族；token 单源，零散 hex 零容忍）── */
-.stp {
-  display: flex; flex-direction: column; min-width: 0; width: 300px;
+/* ── 管家全局弹层（管家全局化批：stp-* 语义族重做——chat 右缘列退役，
+   rail 右缘 fixed 浮动面板；hud-popover 弹层语义：tokens.md §02
+   popover-fill 0.8 档 / §07 blur 14px·亮色降 10px / §10 shadow-pop；
+   token 单源，零散 hex 零容忍；动效仅 transform/opacity）── */
+.stp-dock {
+  position: fixed; left: 64px; top: 12px; bottom: 12px; z-index: 60;
+  width: 344px; max-width: calc(100vw - 76px); min-width: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 10px;
   background: var(--popover-fill);
-  border-left: 1px solid var(--border);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+  box-shadow: var(--shadow-pop);
   animation: stp-in 0.16s ease-out;
 }
+html.light .stp-dock {
+  backdrop-filter: blur(10px) saturate(115%); -webkit-backdrop-filter: blur(10px) saturate(115%);
+}
 @keyframes stp-in {
-  from { opacity: 0; transform: translateX(6px); }
+  from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stp { animation: none; }
+  .stp-dock { animation: none; }
+  .stp-status.on .stp-status-dot { animation: none; }
 }
+/* 面板内芯（零位置知识——位置/层级/弹层皮全在 .stp-dock 壳） */
+.stp { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
 .stp-head {
   flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; border-bottom: 1px solid rgb(var(--accent-rgb) / 0.12);
 }
-.stp-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.stp-title { font-size: var(--text-title); font-weight: 600; color: var(--text); }
+/* 在线状态 chip（功能态指示：enabled = success 心跳点；非装饰） */
+.stp-status {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+  padding: 1px 8px; border-radius: 999px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14);
+  font-size: var(--text-micro); letter-spacing: 0.08em; color: var(--text-faint);
+}
+.stp-status.on {
+  color: var(--success);
+  border-color: rgb(var(--success-rgb) / 0.4);
+  background: rgb(var(--success-rgb) / 0.08);
+}
+.stp-status-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; }
+.stp-status.on .stp-status-dot { animation: stp-breathe 2.4s ease-in-out infinite; }
+@keyframes stp-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .stp-close {
-  margin-left: auto; background: none; border: none; cursor: pointer;
-  color: var(--text-faint); font-size: 16px; line-height: 1; padding: 4px 8px; border-radius: 6px;
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: var(--text-faint); font-size: var(--text-head); line-height: 1; padding: 2px 8px; border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
 }
 .stp-close:hover { background: rgb(var(--accent-rgb) / 0.1); color: var(--text); }
 .stp-disabled {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 30px 20px; text-align: center;
 }
-.stp-disabled-title { font-size: 13px; color: var(--text-dim); }
-.stp-disabled-hint { font-size: var(--text-cap); color: var(--text-faint); max-width: 220px; }
+.stp-disabled-title { font-size: var(--text-main); color: var(--text-dim); }
+.stp-disabled-hint { font-size: var(--text-cap); color: var(--text-faint); max-width: 240px; line-height: 1.6; }
 .stp-feed {
-  flex: 0 0 auto; max-height: 132px; overflow-y: auto; padding: 8px 12px;
+  flex: 0 0 auto; max-height: 132px; overflow-y: auto; padding: 8px 14px;
   border-bottom: 1px solid rgb(var(--accent-rgb) / 0.08);
+}
+.stp-feed-label {
+  display: block; margin-bottom: 4px;
+  font-size: var(--text-micro); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.18em; color: var(--text-faint);
 }
 .stp-feed-empty { font-size: var(--text-cap); color: var(--text-faint); }
 .stp-feed-line { font-size: var(--text-cap); color: var(--text-dim); line-height: 1.7; }
 .stp-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.stp-msg { font-size: 12.5px; padding: 6px 10px; border-radius: 8px; max-width: 92%; overflow-wrap: anywhere; }
+.stp-msg { font-size: var(--text-body); padding: 6px 10px; border-radius: 8px; max-width: 92%; overflow-wrap: anywhere; }
 .stp-msg-user {
   align-self: flex-end; text-align: left;
   background: rgb(var(--accent-rgb) / 0.14); border: 1px solid rgb(var(--accent-rgb) / 0.25); color: var(--text);
@@ -1205,8 +1256,8 @@ html.light .bubble code.inline { color: var(--accent); }
   align-self: flex-start;
   background: var(--bg-panel); border: 1px solid rgb(var(--edge-rgb) / 0.2); color: var(--text);
 }
-/* steward 气泡 md 元素（V2.5 体验批——MarkdownMessage 复用：.bubble 同款
-   作用域下移；.md-code 卡为顶级规则不重复） */
+/* steward 气泡 md 元素（MarkdownMessage 复用：.bubble 同款作用域下移；
+   .md-code 卡为顶级规则不重复） */
 .stp-msg-steward p + p { margin-top: 6px; }
 .stp-msg-steward strong { font-weight: 600; color: var(--text); }
 .stp-msg-steward code.inline {
@@ -1220,7 +1271,7 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 .stp-msg-steward ul li::marker { color: var(--violet); }
 .stp-msg-steward ol { padding-left: 20px; display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .stp-msg-steward a { color: var(--accent); }
-.stp-msg-steward .md-code { font-size: 11.5px; }
+.stp-msg-steward .md-code { font-size: var(--text-cap); }
 .stp-msg-streaming { border-style: dashed; } /* 流式在途态视觉区分（终态换实线正式气泡） */
 .stp-inflight { font-size: var(--text-cap); color: var(--text-faint); align-self: flex-start; }
 .stp-confirm {
@@ -1228,7 +1279,7 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
   border: 1px solid rgb(var(--warning-rgb) / 0.45); border-radius: 8px;
   background: rgb(var(--void-rgb) / 0.4);
 }
-.stp-confirm-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.stp-confirm-title { font-size: var(--text-main); font-weight: 600; color: var(--text); }
 .stp-confirm-row { display: flex; gap: 8px; font-size: var(--text-cap); min-width: 0; }
 .stp-confirm-k { flex: 0 0 auto; color: var(--text-faint); }
 .stp-confirm-v { flex: 1 1 auto; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
@@ -1237,6 +1288,7 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
   flex: 1; padding: 5px 10px; cursor: pointer; font-size: var(--text-cap);
   border: 1px solid rgb(var(--accent-rgb) / 0.5); border-radius: 6px;
   background: rgb(var(--accent-rgb) / 0.16); color: var(--accent);
+  transition: background 0.15s, transform 0.15s;
 }
 .stp-confirm-yes:hover { background: rgb(var(--accent-rgb) / 0.24); }
 .stp-confirm-yes:active { transform: translateY(1px); }
@@ -1244,12 +1296,15 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
   flex: 0 0 auto; padding: 5px 10px; cursor: pointer; font-size: var(--text-cap);
   border: 1px solid rgb(var(--edge-rgb) / 0.2); border-radius: 6px;
   background: none; color: var(--text-dim);
+  transition: color 0.15s, border-color 0.15s;
 }
 .stp-confirm-no:hover { color: var(--text); border-color: var(--border); }
 .stp-composer { flex: 0 0 auto; display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid rgb(var(--accent-rgb) / 0.08); }
 .stp-input {
-  flex: 1; min-width: 0; padding: 6px 10px; font-size: 12.5px; font-family: inherit;
+  flex: 1; min-width: 0; padding: 6px 10px; font-size: var(--text-body);
+  font-family: var(--font-mono);
   background: rgb(var(--void-rgb) / 0.5); border: 1px solid rgb(var(--edge-rgb) / 0.2); border-radius: 6px; color: var(--text);
+  transition: border-color 0.15s;
 }
 .stp-input:focus { outline: none; border-color: rgb(var(--accent-rgb) / 0.5); }
 .stp-input:disabled, .stp-send:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1257,6 +1312,7 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
   flex: 0 0 auto; padding: 6px 14px; cursor: pointer; font-size: var(--text-cap);
   border: 1px solid rgb(var(--accent-rgb) / 0.5); border-radius: 6px;
   background: rgb(var(--accent-rgb) / 0.16); color: var(--accent);
+  transition: background 0.15s, transform 0.15s;
 }
 .stp-send:hover { background: rgb(var(--accent-rgb) / 0.24); }
 .stp-send:active { transform: translateY(1px); }

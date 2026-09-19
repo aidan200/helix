@@ -36,7 +36,7 @@ const CONNECTED: WebStatusPayload = {
   ],
 };
 
-function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => boolean; onStartWeb?: () => boolean } = {}) {
+function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => boolean; onStartWeb?: () => boolean; stewardOpen?: boolean; onToggleSteward?: () => void } = {}) {
   // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
   localStorage.setItem("helix-lang", "zh-CN");
   return render(
@@ -50,6 +50,8 @@ function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webSt
         webStatus={props.webStatus ?? null}
         onStopWeb={props.onStopWeb ?? (() => true)}
         onStartWeb={props.onStartWeb ?? (() => true)}
+        stewardOpen={props.stewardOpen ?? false}
+        onToggleSteward={props.onToggleSteward ?? (() => {})}
       />
     </I18nProvider>,
   );
@@ -61,6 +63,29 @@ afterEach(() => {
 });
 
 describe("S1 IconRail 契约", () => {
+  it("管家全局位（管家全局化批）：底部能力簇首位 + aria-pressed 反映开合 + 点击 toggle", () => {
+    const onToggleSteward = vi.fn();
+    ui({ onToggleSteward });
+    const btn = document.querySelector(".rail-steward-btn") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    expect(btn.getAttribute("title")).toBe("文本管家");
+    // DOM 序：管家钮在 rail-nav 之后、联网钮（.rail-web）之前（底部能力簇首位）
+    const rail = document.querySelector(".icon-rail")!;
+    const seq = Array.from(rail.children).map((c) => c.className);
+    expect(seq.indexOf("rail-steward")).toBeGreaterThan(seq.indexOf("rail-nav"));
+    expect(seq.indexOf("rail-steward")).toBeLessThan(seq.indexOf("rail-web"));
+    fireEvent.click(btn);
+    expect(onToggleSteward).toHaveBeenCalledTimes(1);
+  });
+
+  it("管家位开态：aria-pressed=true + on 类（能力钮激活态三件套复用 rail-btn.on）", () => {
+    ui({ stewardOpen: true });
+    const btn = document.querySelector(".rail-steward-btn") as HTMLButtonElement;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    expect(btn.className).toContain("on");
+  });
+
   it("rail-logo = HelixLogo 图标（logo.png 像素稿试装，HX 文字退役，40px 发光外框保留）", () => {
     ui();
     const logo = document.querySelector(".rail-logo")!;

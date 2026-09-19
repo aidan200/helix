@@ -1,25 +1,26 @@
 /**
- * StewardPanel —— V2.5 文本管家侧栏面板（features/steward 消费端 UI；设计
- * docs/temp/helix-voice-agent-design.md §2/§5.2「侧栏/面板形态」）。
+ * StewardPanel —— 管家对话面板（features/steward 消费端 UI；全局化批重做：
+ * 由 chat 右缘 300px 列改 rail 右缘全局弹层内芯——位置/层级归 StewardDock
+ * 壳，本组件零位置知识）。
  *
- * 形态：右缘常驻侧栏（aside）——头部标题 + 关闭钮，主体三段：
- * 事件流区（steward.feed 文本行滚动窗，面板轻量态）/ 对话区（user/steward
- * 两方气泡 + ask 在途态）/ 确认卡（confirm_required 全文过目——agentId +
- * 递话全文，确认/放弃两键；§5.2 防火墙客户端面：未点确认零发送）。
+ * 结构：头部（标题 + 在线状态 chip + 关闭钮）三段主体：
+ * 事件流区（steward.feed 文本行滚动窗，带可见分区标签）/ 对话区
+ * （user/steward 两方气泡 + ask 在途态）/ 确认卡（confirm_required 全文
+ * 过目——agentId + 递话全文，确认/放弃两键；§5.2 防火墙客户端面：未点
+ * 确认零发送）+ 底部输入条。
  *
  * 状态面（useSteward 单点）：config null 或 enabled=false → 关闭引导占位
- * （不渲染输入面——daemon money gate 客户端同构）；enabled → 输入框 +
- * 发送钮（Enter 同义），ask 在途禁用输入面防双发。
+ * （不渲染输入面——daemon money gate 客户端同构，头部状态 chip 同步
+ * 「未开启」）；enabled → 输入框 + 发送钮（Enter 同义），ask 在途禁用输入
+ * 面防双发。
  *
- * Markdown 渲染（V2.5 体验批）：steward 气泡复用主聊天 MarkdownMessage
- * （react-markdown + gfm + breaks——代码块/行内 code/列表/加粗）；user 气泡
- * 保持纯文本（与主聊天 user 气泡同口径）。流式期间（askInFlight +
- * streamingText 非空）显示流式气泡（md 渲染）而非「思考中」占位；终态
- * result 权威覆盖（流式气泡换正式气泡）。
+ * Markdown 渲染：steward 气泡复用主聊天 MarkdownMessage（react-markdown +
+ * gfm + breaks）；user 气泡纯文本（主聊天同口径）。流式期间（askInFlight +
+ * streamingText 非空）显示流式气泡（dashed 边在途态）而非「思考中」占位；
+ * 终态 result 权威覆盖。
  *
- * 关闭路径：Esc / 头部 ×（DiffOverlay 先例；onClose ref 定格防重绑）。
- * 未挂载说明：V2.5 收尾批仅交付组件本体 + 测试（挂载位/设置面接线归
- * 后续批——dispatcher 注册注释「真消费归 StewardPanel 与设置页」同口径）。
+ * 关闭路径：Esc / 头部 ×（DiffOverlay 先例；onClose ref 定格防重绑——
+ * 点外关闭归 StewardDock 壳）。
  */
 import { useEffect, useRef, useState } from "react";
 import { useSteward } from "../model/useSteward";
@@ -63,6 +64,10 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
     <aside className="stp" data-testid="steward-panel" role="complementary" aria-label={t("steward.title")}>
       <header className="stp-head">
         <span className="stp-title">{t("steward.title")}</span>
+        <span className={enabled ? "stp-status on" : "stp-status"} data-testid="steward-status">
+          <i className="stp-status-dot" aria-hidden="true" />
+          {enabled ? t("steward.stateOn") : t("steward.stateOff")}
+        </span>
         <button type="button" className="stp-close" aria-label={t("steward.close")} onClick={onClose}>
           ×
         </button>
@@ -74,7 +79,8 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
         </div>
       ) : (
         <>
-          <div className="stp-feed" data-testid="steward-feed" aria-label={t("steward.feedTitle")}>
+          <div className="stp-feed" data-testid="steward-feed">
+            <span className="stp-feed-label">{t("steward.feedTitle")}</span>
             {feed.length === 0 ? (
               <span className="stp-feed-empty">{t("steward.feedEmpty")}</span>
             ) : (
@@ -95,8 +101,8 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
                 {m.role === "steward" ? <MarkdownMessage text={m.text} /> : m.text}
               </div>
             ))}
-            {/* 流式气泡（V2.5 体验批）：delta 聚合文本 md 渲染；终态 result 到达
-                即由正式气泡接管（streamingText 清空 → 本槽退场） */}
+            {/* 流式气泡：delta 聚合文本 md 渲染；终态 result 到达即由正式
+                气泡接管（streamingText 清空 → 本槽退场） */}
             {askInFlight && streamingText !== null && streamingText !== "" ? (
               <div className="stp-msg stp-msg-steward stp-msg-streaming" data-testid="steward-msg-streaming">
                 <MarkdownMessage text={streamingText} />

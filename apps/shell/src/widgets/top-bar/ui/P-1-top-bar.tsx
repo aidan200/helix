@@ -5,9 +5,9 @@
  *
  * - TopBarInfo（headerLeft 槽）= 会话标题（随切换同步；草稿态取词条）+
  *   main-session/~/.helix chip；
- * - TopBarActions（headerRight 槽，受控开合）= 管家入口（V2.5 收官批：
- *   steward 面板开合，aria-pressed 反映）+ 统计徽标（F3.3）+ 模型徽标位
+ * - TopBarActions（headerRight 槽，受控开合）= 统计徽标（F3.3）+ 模型徽标位
  *   （P-3 入口——渲染 topology 面 model 态）+ 连接状态徽标（F(7).4 四态）。
+ *   管家入口已随全局化批退役（IconRail 管家位接管——app 壳级常驻能力）。
  *   popover（UsagePopover/ModelSwitchMenu）由装配层（Workbench）渲染在
  *   AppLayout 平级——backdrop-filter 包含块约束：.app-header 带 blur，
  *   popover 若入 header 会丢失毛玻璃采样（S1 布局契约 docblock）。
@@ -17,7 +17,7 @@
  * 单钮）、设置齿轮及 onOpenSettings prop 链全部退役。
  */
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ConciergeBell } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { MODES } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { useSession, type ConnState } from "@/entities/session/SessionContext";
@@ -213,22 +213,16 @@ export interface TopBarActionsProps {
   statsOpen: boolean;
   /** 模型菜单开合（受控——popover 由装配层渲染）。 */
   modelMenuOpen: boolean;
-  /** 管家面板开合（V2.5 收官批；受控——StewardPanel 由装配层渲染）。 */
-  stewardOpen: boolean;
   onToggleStats: () => void;
   onToggleModelMenu: () => void;
-  /** 管家面板开合 toggle（stats/model 受控同构）。 */
-  onToggleSteward: () => void;
 }
 
-/** headerRight 槽内容：管家入口 + StatsBadge + 模型徽标 + 连接状态（受控开合）。 */
+/** headerRight 槽内容：StatsBadge + 模型徽标 + 连接状态（受控开合）。 */
 export const TopBarActions = function TopBarActions({
   statsOpen,
   modelMenuOpen,
-  stewardOpen,
   onToggleStats,
   onToggleModelMenu,
-  onToggleSteward,
 }: TopBarActionsProps) {
   const { t } = useI18n();
   const { state, topology, requestModelConfig } = useSession();
@@ -257,22 +251,6 @@ export const TopBarActions = function TopBarActions({
 
   return (
     <>
-      {/* 管家面板入口（V2.5 收官批）：icon-btn 图标钮（aria-pressed 反映
-          开合）；面板本体由 Workbench 渲染在 .wb-main 右缘列 */}
-      <button
-        className="icon-btn steward-toggle"
-        type="button"
-        data-testid="steward-toggle"
-        aria-pressed={stewardOpen}
-        title={t("steward.title")}
-        aria-label={t("steward.title")}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleSteward();
-        }}
-      >
-        <ConciergeBell size={15} strokeWidth={1.75} aria-hidden="true" />
-      </button>
       <StatsBadge open={statsOpen} onToggle={onToggleStats} />
       {badgeModel && (
         <button

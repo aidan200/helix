@@ -1,0 +1,35 @@
+/**
+ * StewardDock —— 管家全局弹层壳（管家全局化批：chat 页 top-bar 挂件退役，
+ * 管家升格 app 壳级常驻能力）。
+ *
+ * 形态：IconRail（app 生命周期唯一常驻壳）右侧 fixed 浮动面板（hud-popover
+ * 族：popover-fill 0.8 档 + blur + shadow-pop——tokens.md §07 弹层语义）；
+ * 入口 = IconRail 管家位（.rail-steward-btn，WebStatus 能力钮先例同构，
+ * props 注入纯展示），开合态由 app 层（AppRoutes）持有。
+ *
+ * 关闭路径：点外（exempt = dock 本体 + rail 入口钮——入口钮开合归自身
+ * toggle，pointerdown 关闭与 click toggle 叠加会抵消成「关了又开」）/
+ * Esc（面板自有窗口监听与 dismiss hook 双路径幂等）/ 面板头部 ×。
+ *
+ * 面板本体（StewardPanel）零位置知识——位置/层级/弹层皮全在本壳。
+ */
+import StewardPanel from "./StewardPanel";
+import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
+
+export interface StewardDockProps {
+  /** 弹层开合（app 层受控）。 */
+  open: boolean;
+  onClose: () => void;
+}
+
+const StewardDock = function StewardDock({ open, onClose }: StewardDockProps) {
+  useDismissOnOutside(open, ".stp-dock, .rail-steward-btn", onClose, { event: "pointerdown" });
+  if (!open) return null;
+  return (
+    <div className="stp-dock" data-testid="steward-dock">
+      <StewardPanel onClose={onClose} />
+    </div>
+  );
+};
+
+export default StewardDock;

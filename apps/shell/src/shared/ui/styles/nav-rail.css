@@ -70,7 +70,12 @@ html.light .icon-rail {
 .rail-theme-btn { margin-top: 16px; }
 
 /* ═══ T4 联网状态钮（契约 v0.7 web 族）：主题钮上方，三态 + popover ═══ */
-.rail-web { position: relative; margin-top: auto; }
+/* 管家全局位（管家全局化批）：底部能力簇首位接管 margin-top:auto 锚底，
+   WebStatus 钮随簇内 8px 节奏排列 */
+.rail-steward { position: relative; margin-top: auto; }
+.rail-steward-btn { color: var(--text-dim); }
+.rail-steward-btn.on { color: var(--accent); }
+.rail-web { position: relative; margin-top: 8px; }
 .rail-web-btn { color: var(--text-dim); }
 /* 状态点（右上角小圆点：灰 idle/connecting → 绿 connected 呼吸 → 红 error） */
 .web-dot {

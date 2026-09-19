@@ -44,10 +44,8 @@ function renderActions() {
       <TopBarActions
         statsOpen={false}
         modelMenuOpen={false}
-        stewardOpen={false}
         onToggleStats={() => undefined}
         onToggleModelMenu={() => undefined}
-        onToggleSteward={() => undefined}
       />
     </I18nProvider>,
   );
