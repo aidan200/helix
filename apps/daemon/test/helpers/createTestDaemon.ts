@@ -56,6 +56,8 @@ export interface TestDaemonOptions {
   readonly builtinSkillsDir?: string;
   /** SubAgent runner 覆盖（integration 注入 fake runner 驱动收口时序）。 */
   readonly subagentRunner?: InstanceRunner;
+  /** TTS 合成面覆盖（语音播报批 V2 集成：注入 fake TTSPort 驱动全链广播断言；缺省 = DashScope 真体）。 */
+  readonly voiceTts?: Parameters<typeof assembleDaemon>[0]["voiceTtsOverride"];
   /** findings 落账管道覆盖（F3.0，T4.1：注入替身真 KgWriteService/故障注入；缺省 = kg 栈真体）。 */
   readonly findingsSink?: Parameters<typeof assembleDaemon>[0]["findingsSinkOverride"];
   /** 编排会话 LLM 覆盖（T4.1 E 层：fake 剧本 streamFn 驱动编排批次循环；缺省生产形态）。 */
@@ -115,6 +117,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     legacy: loaded.legacy,
     browserPort: options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() }),
     subagentRunnerOverride: options.subagentRunner,
+    voiceTtsOverride: options.voiceTts,
     findingsSinkOverride: options.findingsSink,
     orchestratorLlmOverride: options.orchestratorLlmOverride,
     mainSessionLlmOverride: options.mainSessionLlmOverride,

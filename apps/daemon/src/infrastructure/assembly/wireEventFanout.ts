@@ -108,6 +108,8 @@ export interface WireEventFanoutDeps {
   readonly stdoutPublisher: StdoutEventPublisher;
   /** U4 占用协调（可选——纯调度测试形态不注入）：轮末对账 + 实例终态摘除的 fanout 入口。 */
   readonly coordination?: { onDomainEvent(event: DomainEvent): void };
+  /** 语音播报批（V2 TTS，可选——纯调度测试形态不注入）：终态三事件 → 粗筛/模板/合成/广播的 fanout 入口。 */
+  readonly voice?: { onDomainEvent(event: DomainEvent): void };
 }
 
 /**
@@ -115,7 +117,7 @@ export interface WireEventFanoutDeps {
  * → 任务停桥（task-park-bridge）→ 写队列持久化（事件行，行级
  * session_id 分仓路由）→ 会话投影路由（**先事件行后状态行**，同会话仓内 FIFO 保序）
  * → 清单运行态桥（活动标记 + state_changed）→ 占用协调桥（coord-bridge，U4
- * 增强面末位——序位不阻断既有目标语义）。
+ * 增强面）→ 语音播报桥（voice-broadcast-bridge，V2 TTS 旁路增强面末位）。
  * SubAgent 实例事件（instanceId ≠ main）落行 agent_kind=subagent（四维可查口径）。
  */
 export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanoutDeps): void {
@@ -191,6 +193,18 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       name: "coord-bridge",
       target: {
         publish: (event) => coordination.onDomainEvent(event),
+        publishDelta: () => undefined,
+      },
+    });
+  }
+  // 语音播报桥（V2 TTS）：agent.* 终态三事件流入 BroadcastService（粗筛在
+  // service 内单点）。序位末尾：播报是旁路增强面，不阻断既有目标语义。
+  if (deps.voice !== undefined) {
+    const voice = deps.voice;
+    publisher.add({
+      name: "voice-broadcast-bridge",
+      target: {
+        publish: (event) => voice.onDomainEvent(event),
         publishDelta: () => undefined,
       },
     });

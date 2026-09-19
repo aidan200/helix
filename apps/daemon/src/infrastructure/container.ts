@@ -48,6 +48,9 @@ import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort"
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
+import { DashScopeTtsAdapter, DASHSCOPE_PROVIDER_ID as DASHSCOPE_TTS_PROVIDER_ID } from "../adapters/driven/tts/dashscope";
+import { BroadcastService } from "../application/voice/BroadcastService";
+import type { TtsPort } from "../application/ports/outbound/TtsPort";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
 import { createWorkspaceFs } from "../adapters/driven/workspace-fs";
@@ -183,6 +186,11 @@ export interface AssembleDaemonDeps {
   readonly browserPort: BrowserPort;
   /** SubAgent runner 覆盖（测试注入 fake runner 驱动收口时序；缺省真体/占位降级）。 */
   readonly subagentRunnerOverride?: InstanceRunner;
+  /**
+   * TTS 合成面覆盖（语音播报批 V2：测试注入 fake TTSPort 驱动全链广播；
+   * 缺省 = DashScopeTtsAdapter 真体）。
+   */
+  readonly voiceTtsOverride?: TtsPort;
   /**
    * findings 落账管道覆盖（F3.0，T4.1 测试注入替身；缺省 = kg 栈真体：
    * KgWriteService 唯一写入口 + workspace 项目扫描）。
@@ -603,6 +611,19 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly, orchestratorMcpTools } = sessionStack;
 
+  // ── 语音播报批（V2 TTS）：TTS adapter + BroadcastService（fanout 目标
+  //    voice-broadcast-bridge 的服务体；闸门读面 = eventStream 连接级 voice
+  //    订阅表——零订阅连接 = 零合成零花费，播报开关默认 off 的落地面）──
+  const voiceTts = deps.voiceTtsOverride ?? new DashScopeTtsAdapter({
+    getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID),
+  });
+  const voiceBroadcast = new BroadcastService({
+    tts: voiceTts,
+    gate: eventStream, // hasVoiceSubscribers/voicePreference 窄接口（EventStream 实现 BroadcastGate）
+    emit: (payload) => eventStream.broadcastVoice(payload),
+    logger,
+  });
+
   // U2 观测态晚绑闭合：trace 面板 main displayState 的会话运行态读口
   // 接 registry（此前冷会话 idle 兑底）
   traceSessionRunOf.of = (sessionId) => registry.sessionRunStateOf(sessionId);
@@ -717,6 +738,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     stdoutPublisher,
     // U4：占用协调桥（turn 轮末对账 + 实例终态摘除）
     coordination: sessionStack.coordination,
+    // 语音播报批（V2 TTS）：终态三事件 → 粗筛/模板/合成/广播桥
+    voice: voiceBroadcast,
   });
 
   // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环
@@ -833,6 +856,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     subagentLauncher,
     eventStream,
     browserPort,
+    // 语音播报批 V2：voice 族三命令回口（TTS 与 BroadcastService 同源 adapter）
+    voice: {
+      tts: voiceTts,
+      stream: eventStream,
+    },
     // mcp 批：mcp 族六命令依赖面——registry 单例 + 配置窄写面闭包
     //（整段替换 config.mcpServers → writeConfig 全字段序列化；readonly →
     //  可变规范化在此单点，handler 面零类型噪音。config 对象是启动

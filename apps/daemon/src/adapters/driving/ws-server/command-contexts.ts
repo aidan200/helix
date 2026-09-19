@@ -59,6 +59,8 @@ import type {
   SttCommandDeps,
   TaskCommandContext,
   TraceCommandContext,
+  VoiceCommandContext,
+  VoiceCommandDeps,
   WebCommandContext,
   WorkspaceCommandContext,
   WsCommandContext,
@@ -120,6 +122,12 @@ export interface WsServerAdapterDeps {
    *（mcp 先例；stub rig 兼容）。
    */
   readonly stt?: SttCommandDeps;
+  /**
+   * 语音播报面（V2 TTS）：voice 族三命令回口（TtsPort + key 读面 +
+   * EventStream 连接级 voice 订阅面；只转发不决策）。可选：未注入 →
+   * 回 command.unimplemented（stt 先例；stub rig 兼容）。
+   */
+  readonly voice?: VoiceCommandDeps;
   /**
    * 合并目录校验面：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -579,6 +587,27 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     };
   };
 
+  /**
+   * voice 族命令处理上下文（语音播报批 V2 TTS）：VoiceCommandDeps + 共享
+   * 辅助（sttContext 同构；全局命令不消费信封 sessionId）。未装配
+   *（deps.voice undefined）在 routeCommand 已拒，此处非空断言安全。
+   */
+  const voiceContext = (
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): VoiceCommandContext => {
+    return {
+      ws,
+      type,
+      payload,
+      voice: deps.voice!,
+      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      rawSender: () => helpers.rawSender(ws),
+      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+    };
+  };
+
   return {
     commandContext,
     chatContext,
@@ -593,5 +622,6 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     webContext,
     mcpContext,
     sttContext,
+    voiceContext,
   };
 }
