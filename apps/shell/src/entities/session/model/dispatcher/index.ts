@@ -117,6 +117,11 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // Composer useVoiceInput（SessionContext 转发层 subscribeSttFrames——
   // trace.query.result 先例）
   "stt.transcribe.result",
+  // 语音播报批 V2 TTS：voice.broadcast 广播帧（仅已订阅连接收）+ 语音合成
+  // 回执 = 连接私有，真消费归 useVoiceBroadcast 播放与设置页试听
+  //（SessionContext 转发层 subscribeVoiceFrames——stt 先例同构）
+  "voice.broadcast",
+  "voice.synthesize.result",
   // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
   // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
   // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api
