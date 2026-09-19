@@ -8,7 +8,10 @@
  * - connection.welcome / connection.error 两帧事件：帧驱动 → 经 dispatcher
  *   注册表路由（types 登记见 CONN_EVENT_TYPES），conn 语义归本块承接——
  *   welcome 落 connected + toast 悬置判定（首连/重连/手动重试三分支）；
- *   error 不投影（错误收口归 WS 客户端 gave-up，重放幂等友好）。
+ *   会话面采纳分两支：无本地活跃（首连/草稿/冷启动）采纳 welcome 会话；
+ *   本地已有活跃会话保持不采纳（重连视图劫持防线，对账归快照——见
+ *   applyConnEvent 非 draft 分支）；error 不投影（错误收口归 WS 客户端
+ *   gave-up，重放幂等友好）。
  *
  * 连接态切换从不清空投影与草稿（SM 规则 4/5）。
  */
@@ -74,6 +77,26 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
           model: event.payload.model,
           // P1 T4：草稿态 welcome 不带 mode——本地所选保持（重连不丢草稿选择）
           view: "ready",
+        };
+      }
+      // 本地活跃会话优先（症状B修复方案1）：本地已持有活跃会话（sessionId
+      // 非 null = 用户打开的会话，非草稿新建态）时不采纳 welcome 的会话面
+      // 字段——welcome 的 sessionId/model/mode/agentState 是 daemon 当前会话
+      // （全局最近活跃投影）的描述，多会话/后台任务更新别会话时与用户所在
+      // 视图恒错位；保持本地视图（entries/投影随活跃位保留，SM 规则 4/5），
+      // 重连对账由 replay 的 subscribe(活跃会话) 回推快照权威重建（onSnapshot
+      // 活跃重建 → dispatch → snapshot 消费者整体替换）。与 ledger.
+      // learnAttached「已有活跃位不覆盖——用户当前选择优先」对称收口：store
+      // /簿记两面对「活跃」的认知不再分叉（分叉即视图劫持根因）。view 不越权
+      // 改写（两阶段协议：仅 session.snapshot 解除 loading）；连接面字段照常。
+      // 无本地活跃（首连/草稿态/冷启动）→ 照旧采纳（行为不变）。
+      if (s.sessionId !== null) {
+        return {
+          ...s,
+          conn: "connected",
+          hasConnected: true,
+          pendingManualRetry: false,
+          toastPending,
         };
       }
       return {
