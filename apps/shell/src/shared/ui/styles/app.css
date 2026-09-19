@@ -94,6 +94,20 @@ button.ws-chip {
 button.ws-chip:hover:not(:disabled) { border-color: rgb(var(--accent-rgb) / 0.5); color: var(--accent); }
 button.ws-chip:disabled { opacity: 0.5; cursor: default; }
 
+/* ── stale-indicator 批（§17.15）：daemon 陈旧警示 chip——ws-chip 同款按钮
+   形态，警告色（琥珀）变体：warn dot + 警示描边/底色，hover 加深。 ── */
+button.stale-chip {
+  cursor: pointer; background: rgb(var(--warning-rgb) / 0.08); font-family: inherit;
+  color: var(--warning);
+  border-color: rgb(var(--warning-rgb) / 0.45);
+  transition: border-color 0.15s, background 0.15s;
+}
+button.stale-chip:hover {
+  border-color: rgb(var(--warning-rgb) / 0.8);
+  background: rgb(var(--warning-rgb) / 0.14);
+}
+button.stale-chip .hud-dot { width: 6px; height: 6px; }
+
 /* ═══ P1 T4 header 模式 chip 选择器（草稿态可切；hud-chip 语言延伸）═══
    小下拉随 chip 定位（mm-item 视觉同构）；不用 backdrop-filter——
    .app-header 是 blur 包含块，入内会丢毛玻璃采样（S1 布局契约），

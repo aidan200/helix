@@ -81,6 +81,7 @@ function freshLoadingActive(prev: SessionState, target: string): SessionState {
     connAttempts: prev.connAttempts,
     connError: prev.connError,
     hasConnected: prev.hasConnected,
+    daemonFreshness: prev.daemonFreshness, // 连接级事实（同一 WS 不重握手，stale-indicator 批）
     sessionId: target,
   };
 }
@@ -94,6 +95,7 @@ function freshDraftActive(prev: SessionState): SessionState {
     connAttempts: prev.connAttempts,
     connError: prev.connError,
     hasConnected: prev.hasConnected,
+    daemonFreshness: prev.daemonFreshness, // 连接级事实（同一 WS 不重握手，stale-indicator 批）
     view: "ready",
   };
 }
