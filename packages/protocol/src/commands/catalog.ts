@@ -94,6 +94,7 @@ import type {
   McpServersTestCommand,
   McpToolsListCommand,
 } from "./mcp";
+import type { SttTranscribeCommand } from "./stt";
 
 export type CommandEnvelope =
   | ChatSendCommand
@@ -172,6 +173,7 @@ export type CommandEnvelope =
   | McpServersRemoveCommand
   | McpServersTestCommand
   | McpToolsListCommand
+  | SttTranscribeCommand
   | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -180,6 +182,8 @@ export const COMMAND_TYPES = [
   "chat.steer",
   "chat.abort",
   "ask.answer",
+  // 语音输入批（V1 云转写）：一次性音频转写（点对点回执）
+  "stt.transcribe",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",

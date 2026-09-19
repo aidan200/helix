@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 77 个 type（… + 越权申请批 ask 1）", () => {
+  test("命令目录恰为 78 个 type（… + 越权申请批 ask 1 + 语音输入批 stt 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -224,6 +224,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.loadHistory",
         "session.subscribe",
         "session.unsubscribe",
+        "stt.transcribe",
         "task.artifacts",
         "task.cancel",
         "task.delete",
@@ -245,7 +246,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 94 个 type（… + 越权申请批 ask 2）", () => {
+  test("事件目录恰为 98 个 type（… + 越权申请批 ask 2 + 语音输入批 stt 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -330,6 +331,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.snapshot",
         "steer.drained",
         "steer.queued",
+        "stt.transcribe.result",
         "task.changed",
         "thinking.changed",
         "thinking.completed",
@@ -550,6 +552,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome", "coord.changed", "task.changed"]); // task 批：+task.changed（挂既有 notification 通道，不新增 Channel 值）
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
+    expect(roster("stt")).toEqual(["stt.transcribe.result"]); // 语音输入批新族（V1 云转写：点对点结果帧）
     expect(roster("kg")).toEqual([
       // kg 批新族（iter-20260825-11fo T5.3）：六命令点对点回执，O-6 零推送事件
       // code-review v1.5：code.review.create.result 挂既有 kg 通道（不新增 Channel 值）
@@ -579,11 +582,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（coord 批后）：EVENT_TYPES 95 / EVENT_CHANNELS 95 键 / COMMAND_TYPES 76", () => {
-    expect(EVENT_TYPES.length).toBe(97); // 越权申请批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(97); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(97); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(77); // 越权申请批 +1
+  test("目录计数（语音输入批后）：EVENT_TYPES 98 / EVENT_CHANNELS 98 键 / COMMAND_TYPES 78", () => {
+    expect(EVENT_TYPES.length).toBe(98); // 语音输入批 +1
+    expect(new Set(EVENT_TYPES).size).toBe(98); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(98); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(78); // 语音输入批 +1
   });
 
 });
