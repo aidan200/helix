@@ -8,17 +8,21 @@
  * ——包装在 PiAgentEngineAdapter 装配面，全局非 SubAgent 独有。
  *
  * 重试语义（裁决 2026-09-08，取代 P2 ⑦ 状态码裁决与 P8 配额特判；
- * 引擎错误体验批 2026-09-19 增流中断快速档）：
+ * 引擎错误体验批 2026-09-19 增流中断快速档；用户裁决 2026-09-19
+ * 翻转 5xx 子句）：
  * - 只重试「传输层错误」= 没拿到 LLM 接口响应的请求期失败（连接拒绝/
  *   重置/超时/socket 断开——undici/Node fetch/node:http 库常量文案与
  *   errno 族，有限可枚举，非 provider 散文）；
- * - LLM 接口返回了响应（errorMessage 含 HTTP 状态码 4xx/5xx）一律快速
- *   失败：provider 活着且明确拒绝——429（限流与配额同码）/5xx/鉴权/
- *   参数均不再自动重试。证据：GLM 429+code 1308（5 小时限额）事故，
- *   4 个 agent 各白等 100s 退避；而错判 fail-fast 的代价只是用户发
- *   一次「继续」（会话可续），成本严重不对称 → 偏向 fail-fast；
+ * - LLM 接口返回了响应（errorMessage 含 HTTP 状态码）按首位提取的状态码
+ *   拆分（用户裁决 2026-09-19，推翻 2026-09-08 的 4xx/5xx 一律快速失败）：
+ *   · 5xx → transient-fast 快速档（5s 单次）——provider 侧故障/过载，
+ *     大概率一次重试自愈。实证：kimi provider 500 于 2026-09-19 16:25
+ *     打死主会话一轮（当时判 permanent，用户发消息才救活）；错判代价
+ *     上限 = 一次 5s 等待，不回全序列（GLM 429 白等 100s 教训不重演）；
+ *   · 4xx → permanent 快速失败——429（限流与配额同码、机械不可分）、
+ *   鉴权、参数类不再自动重试（provider 活着且明确拒绝，重试决策归人）；
  * - 退避序列固定 10s→30s→60s 三次（LLM_RETRY_BACKOFF_MS 常量注入，
- *   测试可换假时钟）；流中断类（transient-fast）走快速档 5s 单次
+ *   测试可换假时钟）；流中断与 5xx（transient-fast）走快速档 5s 单次
  *   （LLM_STREAM_RETRY_BACKOFF_MS，引擎错误体验批 2026-09-19——错判
  *   代价对齐 100s 白等论）；退避耗尽 → 原样转发最后一次 error 终帧，
  *   closure/错误语义与无重试时逐事件一致；
@@ -45,9 +49,9 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 export const LLM_RETRY_BACKOFF_MS: readonly number[] = [10_000, 30_000, 60_000];
 
 /**
- * 流中断快速档退避（5s 单次；引擎错误体验批 2026-09-19）：流中断类
- * （transient-fast）错判代价对齐 TR-149 的 100s 白等论——一次 5s 重试的
- * 代价上限可接受，不吃 10s→30s→60s 全序列。与 LLM_RETRY_BACKOFF_MS
+ * 快速档退避（5s 单次；引擎错误体验批 2026-09-19）：流中断类与 5xx 接口
+ * 错误（transient-fast）错判代价对齐 TR-149 的 100s 白等论——一次 5s 重试
+ * 的代价上限可接受，不吃 10s→30s→60s 全序列。与 LLM_RETRY_BACKOFF_MS
  * 同层常量（测试假时钟面可注入替换，见 NetworkRetryOptions.streamBackoffMs）。
  */
 export const LLM_STREAM_RETRY_BACKOFF_MS: readonly number[] = [5_000];
@@ -62,7 +66,7 @@ export type LlmErrorClass = "transient" | "transient-fast" | "permanent";
  * 传输层错误文案（重试的唯一依据；裁决 2026-09-08）：undici/Node fetch/
  * node:http 的库常量文案与 errno 族——有限可枚举的库实现细节，非
  * provider 散文，无文案打地鼠面。LLM 接口返回的响应（消息含 HTTP
- * 状态码）先于本表判永久，不与本表竞争。
+ * 状态码）先于本表按码拆分（5xx 快速档 / 4xx 永久），不与本表竞争。
  */
 const TRANSPORT_MESSAGE_PATTERNS: readonly RegExp[] = [
   /fetch failed|failed to fetch/i, // Node fetch TypeError
@@ -97,22 +101,26 @@ const STREAM_INTERRUPTION_MESSAGE_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态）。
- * 否定后顾排除 host:port（"connect ECONNREFUSED 127.0.0.1:443" 的 443）
- * 与 IP 段误伤——端口数字不是状态码，传输层错误消息常携带。
+ * 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态；
+ * 多码时首位命中即判）。否定后顾排除 host:port（"connect ECONNREFUSED
+ * 127.0.0.1:443" 的 443）与 IP 段误伤——端口数字不是状态码，传输层错误
+ * 消息常携带。
  */
 const HTTP_STATUS_RE = /(?<![:.\d])([45]\d{2})\b/;
 
 /**
  * LLM 调用错误分类（纯函数，单测面；裁决 2026-09-08：仅传输层错误瞬时；
- * 引擎错误体验批 2026-09-19：流中断库常量收编为瞬时快速档）。
+ * 引擎错误体验批 2026-09-19：流中断库常量收编为瞬时快速档；用户裁决
+ * 2026-09-19：5xx 翻转快速档）。
  *
  * - stopReason 非 "error"（含 "aborted"/"stop" 等）→ 永久：重试只针对
  *   请求失败的 error 终帧，用户 abort 永不重试；
- * - 消息含 HTTP 状态码（4xx/5xx）→ 永久：LLM 接口返回了响应，provider
- *   活着且明确拒绝（429 限流/配额、5xx、401/403/400/402 等一律快速失败）；
+ * - 消息含 HTTP 状态码 → 按首位提取码拆分（拿到响应的机械判据）：
+ *   · 5xx → 瞬时快速（transient-fast：provider 侧故障/过载，5s 单次短
+ *     退避，见 LLM_STREAM_RETRY_BACKOFF_MS；kimi 500 事故实证翻转）；
+ *   · 4xx → 永久（429 限流/配额、鉴权、参数类一律快速失败，重试决策归人）；
  * - 无状态码 + 流中断库常量命中（STREAM_INTERRUPTION_MESSAGE_PATTERNS）
- *   → 瞬时快速（transient-fast：5s 单次短退避，见 LLM_STREAM_RETRY_BACKOFF_MS）；
+ *   → 瞬时快速；
  * - 无状态码 + 传输层库常量命中（TRANSPORT_MESSAGE_PATTERNS）→ 瞬时；
  * - 未知形态 → 永久（fail-fast 安全缺省：错判代价 = 用户发一次「继续」）。
  */
@@ -120,8 +128,10 @@ export function classifyLlmError(stopReason: string, errorMessage: string | unde
   if (stopReason !== "error") return "permanent";
   const message = errorMessage ?? "";
   if (message.trim() === "") return "permanent";
-  // LLM 接口返回了响应 → 快速失败（状态码是「拿到响应」的机械判据）
-  if (HTTP_STATUS_RE.test(message)) return "permanent";
+  // LLM 接口返回了响应 → 按状态码拆分（首位提取码裁决，否定后顾已排除端口）：
+  // 5xx = provider 侧故障/过载 → 快速档重试；4xx = provider 明确拒绝 → 快速失败
+  const status = HTTP_STATUS_RE.exec(message)?.[1];
+  if (status) return status.startsWith("5") ? "transient-fast" : "permanent";
   if (STREAM_INTERRUPTION_MESSAGE_PATTERNS.some((re) => re.test(message))) return "transient-fast";
   return TRANSPORT_MESSAGE_PATTERNS.some((re) => re.test(message)) ? "transient" : "permanent";
 }
@@ -237,10 +247,11 @@ export function withNetworkRetry(streamFn: StreamFn, opts: NetworkRetryOptions =
             if (event.type === "error") {
               const errorEvent: Extract<AssistantMessageEvent, { type: "error" }> = event;
               const cls = classifyLlmError(errorEvent.error.stopReason, errorEvent.error.errorMessage);
-              // 快速档序列选择（引擎错误体验批）：流中断类（transient-fast）走
-              // 5s 单次短退避，传输层类走全序列。attemptIndex 全局计数（fail-fast
-              // 偏向：类序列更短者先耗尽），每次失败按自身类序列第 attemptIndex
-              // 项等待——同类序列纯失败时与既有 10/30/60 行为逐字节一致
+              // 快速档序列选择（引擎错误体验批 + 5xx 翻转 2026-09-19）：
+              // 流中断类与 5xx（transient-fast）走 5s 单次短退避，传输层类走
+              // 全序列。attemptIndex 全局计数（fail-fast 偏向：类序列更短者
+              // 先耗尽），每次失败按自身类序列第 attemptIndex 项等待——同类
+              // 序列纯失败时与既有 10/30/60 行为逐字节一致
               const seq = cls === "transient-fast" ? streamBackoffMs : backoffMs;
               const canRetry = !forwarded && cls !== "permanent" && attemptIndex < seq.length;
               if (!canRetry) {
