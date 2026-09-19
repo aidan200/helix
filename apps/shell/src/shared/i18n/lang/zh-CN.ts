@@ -336,7 +336,7 @@ export const zhCN = {
         "enable.on": "开",
         enableHint: "关 = 管家问答拒答（服务端零 LLM 调用，不产生费用）；开 = 可在面板问询全局状态",
         model: "模型槽位",
-        modelHint: "“厂商/模型 id” 形态，flash 级快模型为宜；未单独设置时沿用 daemon 默认 flash 模型",
+        modelHint: "仅显示已配置 provider 的模型；未配置的厂商请到「模型」分区配置。未单独设置时沿用 daemon 默认 flash 模型",
       },
       skills: {
         title: "用户技能",

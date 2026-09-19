@@ -329,7 +329,7 @@ export const enUS = {
         "enable.on": "On",
         enableHint: "Off = steward questions are refused server-side with zero LLM calls (no cost); on = ask about global state in the panel",
         model: "Model slot",
-        modelHint: "\"provider/model-id\" form; a fast flash-tier model is recommended. Falls back to the daemon default flash model until set",
+        modelHint: "Only models from configured providers are listed; set up missing providers in the Models section. Falls back to the daemon default flash model until set",
       },
       skills: {
         title: "User skills",
