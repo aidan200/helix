@@ -56,6 +56,35 @@ function fakeLlm(script: readonly StewardLlmResponse[]): StewardLlmPort & { call
   };
 }
 
+/** 流式剧本轮（V2.5 体验批）：响应 + 可选增量 chunk 序列（text 生成段）。 */
+interface ScriptedTurn {
+  readonly response: StewardLlmResponse;
+  /** 逐 chunk 调 onDelta 的序列（工具轮缺省 = 静默零 delta）。 */
+  readonly chunks?: readonly string[];
+  /** chunks 后抛错（模拟中途失败）。 */
+  readonly failAfterChunks?: boolean;
+}
+
+/** 流式 fake LLM：complete(request, onDelta) 双参面——逐 chunk 回调后出队响应。 */
+function streamingLlm(script: readonly ScriptedTurn[]): StewardLlmPort & { calls: (LlmCall & { onDelta?: (chunk: string) => void })[] } {
+  const calls: (LlmCall & { onDelta?: (chunk: string) => void })[] = [];
+  return {
+    modelId: "deepseek/deepseek-v4-flash",
+    calls,
+    async complete(request: StewardLlmRequest, onDelta?: (chunk: string) => void): Promise<StewardLlmResponse> {
+      const round = calls.length;
+      calls.push({ request, round, onDelta });
+      const next = script[round];
+      if (next === undefined) throw new Error("fake LLM 剧本耗尽");
+      if (onDelta !== undefined && next.chunks !== undefined) {
+        for (const c of next.chunks) onDelta(c);
+      }
+      if (next.failAfterChunks === true) throw new Error("模拟模型中断");
+      return next.response;
+    },
+  };
+}
+
 function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort & { kv: Map<string, string> } {
   const kv = new Map(Object.entries(initial));
   return {
@@ -326,5 +355,58 @@ describe("⑦ 成本护栏", () => {
     const result = await svc.ask("  ");
     expect(result.status).toBe("error");
     expect(llm.calls.length).toBe(0);
+  });
+});
+
+describe("⑧ 流式体验批（V2.5——steward.ask.delta 语义）", () => {
+  test("文本生成段逐 chunk 透传 onDelta（多 chunk 按序）+ 终态 answer 权威文本", async () => {
+    const llm = streamingLlm([
+      { response: { kind: "text", text: "当前 2 个实例运行中：agent-1、agent-2。" }, chunks: ["当前 ", "2 个", "实例运行中"] },
+    ]);
+    const { svc } = makeService({ llm });
+    const deltas: string[] = [];
+    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    expect(deltas).toEqual(["当前 ", "2 个", "实例运行中"]);
+    expect(result.status).toBe("answer");
+    if (result.status !== "answer") throw new Error("unreachable");
+    expect(result.text).toBe("当前 2 个实例运行中：agent-1、agent-2。"); // 终态权威（非 chunks 拼接）
+  });
+
+  test("工具循环：工具段零 delta（静默），后续文本轮 delta 按序", async () => {
+    const llm = streamingLlm([
+      { response: toolCall("list_instances", {}) }, // 工具轮：无 chunks —— 静默
+      { response: { kind: "text", text: "1 个运行中" }, chunks: ["1 个", "运行中"] },
+    ]);
+    const { svc } = makeService({ llm });
+    const deltas: string[] = [];
+    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    expect(deltas).toEqual(["1 个", "运行中"]);
+    expect(result.status).toBe("answer");
+    expect(llm.calls[0]!.onDelta).toBeDefined(); // 回调面两轮均传递（工具轮天然零 text delta）
+  });
+
+  test("money gate 关闭 → 零 LLM 调用零 delta（闸门前置）", async () => {
+    const llm = streamingLlm([
+      { response: { kind: "text", text: "不该被调用" }, chunks: ["不该"] },
+    ]);
+    const { svc } = makeService({ llm, config: fakeConfig({}) });
+    const deltas: string[] = [];
+    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    expect(result.status).toBe("error");
+    expect(deltas.length).toBe(0);
+    expect(llm.calls.length).toBe(0);
+  });
+
+  test("LLM 中途抛错 → 已发 delta 保留在回调流，终态 error 判别（前端清流缓冲）", async () => {
+    const llm = streamingLlm([
+      { response: { kind: "text", text: "不该到达" }, chunks: ["部分", "输出"], failAfterChunks: true },
+    ]);
+    const { svc } = makeService({ llm });
+    const deltas: string[] = [];
+    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    expect(deltas).toEqual(["部分", "输出"]);
+    expect(result.status).toBe("error");
+    if (result.status !== "error") throw new Error("unreachable");
+    expect(result.reason).toContain("模型调用失败");
   });
 });

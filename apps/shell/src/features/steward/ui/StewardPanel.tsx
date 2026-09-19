@@ -11,12 +11,19 @@
  * （不渲染输入面——daemon money gate 客户端同构）；enabled → 输入框 +
  * 发送钮（Enter 同义），ask 在途禁用输入面防双发。
  *
+ * Markdown 渲染（V2.5 体验批）：steward 气泡复用主聊天 MarkdownMessage
+ * （react-markdown + gfm + breaks——代码块/行内 code/列表/加粗）；user 气泡
+ * 保持纯文本（与主聊天 user 气泡同口径）。流式期间（askInFlight +
+ * streamingText 非空）显示流式气泡（md 渲染）而非「思考中」占位；终态
+ * result 权威覆盖（流式气泡换正式气泡）。
+ *
  * 关闭路径：Esc / 头部 ×（DiffOverlay 先例；onClose ref 定格防重绑）。
  * 未挂载说明：V2.5 收尾批仅交付组件本体 + 测试（挂载位/设置面接线归
  * 后续批——dispatcher 注册注释「真消费归 StewardPanel 与设置页」同口径）。
  */
 import { useEffect, useRef, useState } from "react";
 import { useSteward } from "../model/useSteward";
+import MarkdownMessage from "@/shared/ui/MarkdownMessage";
 import { useI18n } from "@/shared/i18n";
 
 interface StewardPanelProps {
@@ -25,7 +32,7 @@ interface StewardPanelProps {
 
 const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
   const { t } = useI18n();
-  const { messages, pending, feed, askInFlight, config, ask, confirmPending, dismissPending } = useSteward(true);
+  const { messages, streamingText, pending, feed, askInFlight, config, ask, confirmPending, dismissPending } = useSteward(true);
   const [draft, setDraft] = useState("");
 
   // onClose ref 定格（DiffOverlay 先例）：调用方内联箭头每渲染新引用，
@@ -85,10 +92,22 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
                 className={`stp-msg ${m.role === "user" ? "stp-msg-user" : "stp-msg-steward"}`}
                 data-testid={m.role === "user" ? "steward-msg-user" : "steward-msg-steward"}
               >
-                {m.text}
+                {m.role === "steward" ? <MarkdownMessage text={m.text} /> : m.text}
               </div>
             ))}
-            {askInFlight && <div className="stp-inflight">{t("steward.thinking")}</div>}
+            {/* 流式气泡（V2.5 体验批）：delta 聚合文本 md 渲染；终态 result 到达
+                即由正式气泡接管（streamingText 清空 → 本槽退场） */}
+            {askInFlight && streamingText !== null && streamingText !== "" ? (
+              <div className="stp-msg stp-msg-steward stp-msg-streaming" data-testid="steward-msg-streaming">
+                <MarkdownMessage text={streamingText} />
+              </div>
+            ) : (
+              askInFlight && (
+                <div className="stp-inflight" data-testid="steward-inflight">
+                  {t("steward.thinking")}
+                </div>
+              )
+            )}
           </div>
           {pending !== null && (
             <div className="stp-confirm" data-testid="steward-confirm-card">

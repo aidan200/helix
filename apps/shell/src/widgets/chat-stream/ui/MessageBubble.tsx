@@ -11,7 +11,7 @@ import type { MessageEntryDto, UsageDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { formatTs, fmtTokens } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
-import MarkdownMessage from "./MarkdownMessage";
+import MarkdownMessage from "@/shared/ui/MarkdownMessage";
 import ImageStrip from "@/shared/ui/ImageStrip";
 
 /** steer 徽标：queued = violet 脉冲点；drained = success「已注入」（SM-3 两态）。 */

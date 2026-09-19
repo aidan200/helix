@@ -5,7 +5,9 @@
  * - 配置读面：mount → sendStewardGetConfig；config.result → config 态更新；
  * - 订阅闸门：面板开 + conn=connected + enabled → sendStewardSubscribe；
  *   面板关/未启用 → sendStewardUnsubscribe（连接级闸门对齐 daemon money gate）；
- * - 对话面：ask 发送 → in-flight；ask.result(answer) → 追加 steward 消息；
+ * - 对话面：ask 发送 → in-flight；steward.ask.delta → streamingText 增量
+ *   聚合（流式不落盘——messages 不追加，V2.5 体验批）；ask.result(answer) →
+ *   追加 steward 消息并清 streamingText（终态权威覆盖）；
  *   ask.result(confirm_required) → pending 态携带 actionId/agentId/message；
  *   ask.result(error) → 追加错误行；
  * - 确认闸：sendStewardConfirm(actionId)；confirm.result(ok) → 清 pending +
@@ -112,6 +114,50 @@ describe("useSteward（V2.5 文本管家）", () => {
     await waitFor(() => expect(result.current.askInFlight).toBe(false));
     expect(result.current.messages.some((m) => m.role === "user" && m.text.includes("在跑"))).toBe(true);
     expect(result.current.messages.some((m) => m.role === "steward" && m.text.includes("实例"))).toBe(true);
+  });
+
+  it("流式：多 delta → streamingText 增量累积（messages 不追加）；result → 清空并落权威消息（V2.5 体验批）", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("在跑什么？");
+    });
+    act(() => {
+      frameListener?.(frame("steward.ask.delta", { delta: "当前 ", seq: 1 }));
+      frameListener?.(frame("steward.ask.delta", { delta: "**2 个**", seq: 2 }));
+      frameListener?.(frame("steward.ask.delta", { delta: "实例", seq: 3 }));
+    });
+    await waitFor(() => expect(result.current.streamingText).toBe("当前 **2 个**实例"));
+    // 流式不落盘：messages 不追加（在途消息只有 user 问句）
+    expect(result.current.messages.length).toBe(1);
+    expect(result.current.askInFlight).toBe(true); // 终态未到仍在途
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "answer", text: "当前 2 个实例运行中。" }));
+    });
+    await waitFor(() => {
+      expect(result.current.streamingText).toBeNull(); // 终态清缓冲
+      expect(result.current.askInFlight).toBe(false);
+    });
+    // 权威文本覆盖（result.text，非 delta 拼接）
+    expect(result.current.messages.some((m) => m.role === "steward" && m.text === "当前 2 个实例运行中。")).toBe(true);
+  });
+
+  it("流式：error 终态同样清 streamingText（中途失败零残留）", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("在跑什么？");
+    });
+    act(() => {
+      frameListener?.(frame("steward.ask.delta", { delta: "部分输出", seq: 1 }));
+    });
+    await waitFor(() => expect(result.current.streamingText).toBe("部分输出"));
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "error", reason: "模型调用失败" }));
+    });
+    await waitFor(() => {
+      expect(result.current.streamingText).toBeNull();
+      expect(result.current.askInFlight).toBe(false);
+    });
+    expect(result.current.messages.some((m) => m.role === "steward" && m.text.includes("模型调用失败"))).toBe(true);
   });
 
   it("confirm_required 回执 → pending 携带 actionId/agentId/message", async () => {

@@ -124,8 +124,10 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "voice.synthesize.result",
   // 文本管家批 V2.5：steward 族四帧 = 连接私有（ask/confirm/config 点对点
   // 回执 + feed 广播仅已订阅连接收），真消费归 StewardPanel 与设置页
-  //（SessionContext 转发层 subscribeStewardFrames——voice 先例同构）
+  //（SessionContext 转发层 subscribeStewardFrames——voice 先例同构）；
+  // 流式体验批 +steward.ask.delta（增量帧，useSteward streamingText 聚合）
   "steward.ask.result",
+  "steward.ask.delta",
   "steward.confirm.result",
   "steward.feed",
   "steward.config.result",
