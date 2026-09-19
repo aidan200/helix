@@ -18,8 +18,7 @@
 /* 主区包裹容器（S1：DrawerRail 右缘叠放定位上下文 + .app 拉伸载体；
    height:100% 钉满 main 视高——.app 内 msg-flow 高度链约束，消息流
    内滚不回退 + composer 贴底） */
-.wb-main { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; display: flex; }
-/* 主区：版心径向微光（原型 .chat-area；.app 直系子序保持既有断言面） */
+.wb-main { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; display: flex; }/* 主区：版心径向微光（原型 .chat-area；.app 直系子序保持既有断言面） */
 .app {
   flex: 1 1 auto; min-width: 0;
   background: radial-gradient(ellipse at 50% 0%, rgb(var(--accent-rgb) / 0.05), transparent 55%);
@@ -52,10 +51,6 @@
 }
 .icon-btn:hover { color: var(--text); border-color: rgb(var(--accent-rgb) / 0.3); background: var(--bg-hover); }
 .icon-btn:active { transform: translateY(1px); }
-/* 管家面板入口开态（V2.5 收官批；TopBarActions 图标钮） */
-.steward-toggle[aria-pressed="true"] {
-  color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.3); background: var(--bg-selected);
-}
 
 /* ── 通用按钮变体（原型 hud-btn 族：danger/ghost——确认条/取消用）── */
 .hud-btn-danger { border: 1px solid rgb(var(--error-rgb) / 0.3); background: rgb(var(--error-rgb) / 0.06); color: var(--error); }
@@ -218,9 +213,6 @@
   width: 26px; align-items: center; gap: 10px; padding: 14px 0 0;
 }
 .drawer-rail[data-rail-state="expanded"] { width: 224px; gap: 8px; padding: 10px; }
-/* 管家面板开时活跃事件条让位（V2.5 收官批）：.stp 右缘列 300px 占位，
-   rail 右锚同步左移——避免 rail 压盖面板 composer 角 */
-.wb-main[data-steward="on"] .drawer-rail { right: 300px; }
 .rail-toggle {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; flex-shrink: 0;

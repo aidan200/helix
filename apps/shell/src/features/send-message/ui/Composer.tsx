@@ -8,12 +8,13 @@
  * - 停止钮 #btn-abort（T8）：中断 main 生成（chat.abort）；恒渲染不按态卸载
  *   （焦点守恒，沿 T7 web 双钮先例），仅 runState === "streaming" 可用——
  *   subagent_running（main 空闲）/ idle 禁用（abort 只中断 main 生成）；
- * - 停止钮 #btn-mic（语音输入批 V1）：按住说话（pointerdown 开始 /
- *   pointerup 停止）——录音态红点 + 转写中 spinner；回填草稿（转写结果是
- *   草稿而非直接发送，最后一道人工闸）；unsupported（裸跑无授权）隐藏；
+ * - 停止钮 #btn-mic（语音输入 V2：点击交互）：点击开始 → 录音中（电平条
+ *   实时反馈，VAD 静音自动停）→ 点击强制停；转写中 spinner + 禁用（三态
+ *   互斥）；回填草稿（转写结果是草稿而非直接发送，最后一道人工闸）；
+ *   unsupported（裸跑无授权）隐藏；
  * - 脚注 kbd 键帽提示（[[x]] 标记渲染）。
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { ImagePlus, Loader2, Mic, Square, X } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -24,6 +25,19 @@ import { cn } from "@/shared/lib/cn";
 
 /** textarea 自动增高上限（px；≈7 行），超出后 overflow-y 内滚。 */
 const TA_MAX_HEIGHT = 160;
+
+/** 电平条 per-bar 缩放因子（JS 预计算 scaleY——WKWebView 无 calc() 乘法约束，
+ *  §7 WebView 兼容；中条最高、两侧渐低）。 */
+const MIC_BAR_FACTORS = [0.55, 0.8, 1, 0.82, 0.6] as const;
+
+/** level → per-bar CSS 变量表（--lv<n>：0.2 底高 + 电平×因子，封顶 1）。 */
+function micLevelVars(level: number): Record<string, string> {
+  const vars: Record<string, string> = {};
+  MIC_BAR_FACTORS.forEach((factor, i) => {
+    vars[`--lv${i + 1}`] = Math.min(1, 0.2 + level * factor).toFixed(3);
+  });
+  return vars;
+}
 
 /** 图片附件上限（T9，契约 v0.10：chat.send images ≤4 张）。 */
 const ATTACH_MAX = 4;
@@ -219,8 +233,9 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
             hidden
             onChange={onPick}
           />
-          {/* 语音输入钮（V1）：按住说话——pointerdown 开始 / pointerup·leave·cancel 停止；
-              录音态红点脉冲、转写中 spinner；unsupported（tauri dev 裸跑无授权）隐藏 */}
+          {/* 语音输入钮（V2：点击交互）：待录 Mic / 录音中电平条（level 驱动
+              per-bar scaleY）/ 转写中 spinner；点击开始、录音中点击强制停；
+              unsupported（tauri dev 裸跑无授权）隐藏 */}
           {voice.state !== "unsupported" && (
             <button
               className={cn("hud-btn", "mic-btn", voice.state === "recording" && "recording")}
@@ -229,16 +244,19 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
               aria-label={voice.state === "recording" ? t("chat.voice.recording") : voice.state === "transcribing" ? t("chat.voice.transcribing") : t("chat.voice.button")}
               title={t("chat.voice.button")}
               disabled={!canSend || voice.state === "transcribing"}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                void voice.start();
+              onClick={() => {
+                if (voice.state === "idle") void voice.start();
+                else if (voice.state === "recording") voice.stop();
               }}
-              onPointerUp={voice.stop}
-              onPointerLeave={voice.stop}
-              onPointerCancel={voice.stop}
             >
               {voice.state === "recording" ? (
-                <span className="rec-dot" aria-hidden />
+                <span className="mic-level" style={micLevelVars(voice.level) as CSSProperties} aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
               ) : voice.state === "transcribing" ? (
                 <Loader2 size={12} aria-hidden className="spin" />
               ) : (

@@ -112,8 +112,8 @@ export const enUS = {
       imageAlt: "Image {n}",
     },
     voice: {
-      button: "Hold to talk",
-      recording: "Recording, release to finish",
+      button: "Click to talk",
+      recording: "Recording · ends on silence, click to force stop",
       transcribing: "Transcribing…",
       sendFail: "Voice send failed: daemon connection unavailable",
       readFail: "Audio read failed, please retry",
@@ -328,7 +328,7 @@ export const enUS = {
       //    panel strings live in the top-level steward.* family) ──
       steward: {
         title: "Text Steward",
-        note: "Sidebar Q&A steward: ask about global run state, receive event relays; write actions pass through a confirmation card. Entry is the bell button in the workbench top bar; the panel can be opened while disabled and points back to this page.",
+        note: "Global Q&A steward: ask about global run state, receive event relays; write actions pass through a confirmation card. Entry is the bell button in the left nav rail (always available on any page); the panel can be opened while disabled and points back to this page.",
         enable: "Enable steward",
         "enable.off": "Off (default)",
         "enable.on": "On",
@@ -1049,6 +1049,8 @@ export const enUS = {
   steward: {
     title: "Text Steward",
     close: "Close",
+    stateOn: "Active",
+    stateOff: "Off",
     disabledTitle: "Steward is off",
     disabledHint: "The steward switch is off by default; enable it in Settings → Steward to ask about global state here. Write actions need confirmation.",
     feedTitle: "Event feed",

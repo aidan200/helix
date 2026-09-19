@@ -19,10 +19,14 @@
  * 导航回调/主题态/联网状态/启动与停止回调全部由 app 层经 props 注入，不读会话
  * store、不读 ThemeContext、不感知 URL 机制（popover 开合为组件本地 UI
  * 态，与外部数据面零耦合）。
+ *
+ * 管家全局位（管家全局化批）：rail 底部能力钮族新增管家钮（WebStatus 钮
+ * 上方，ConciergeBell）；开合态由 app 层持有（StewardDock 弹层同层装配）
+ * ——aria-pressed 反映，本钮零面板知识。
  */
 import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Globe, Moon, Sun } from "lucide-react";
+import { ConciergeBell, Globe, Moon, Sun } from "lucide-react";
 import type { WebStatusPayload } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
@@ -59,6 +63,10 @@ export interface IconRailProps<T extends string = string> {
   /** 显式启动回调（T7，纯 props 注入；app 层发 web.start 命令帧）。返回
    *  boolean（同 onStopWeb，TR-168 send 返回值经装配层收口）。 */
   onStartWeb: () => boolean;
+  /** 管家弹层开合（管家全局化批；受控——StewardDock 由装配层渲染）。 */
+  stewardOpen: boolean;
+  /** 管家弹层开合 toggle（纯 props 注入；stats/model 受控同构）。 */
+  onToggleSteward: () => void;
 }
 
 const IconRail = function IconRail<T extends string>({
@@ -70,6 +78,8 @@ const IconRail = function IconRail<T extends string>({
   webStatus,
   onStopWeb,
   onStartWeb,
+  stewardOpen,
+  onToggleSteward,
 }: IconRailProps<T>) {
   const { t } = useI18n();
   return (
@@ -98,6 +108,22 @@ const IconRail = function IconRail<T extends string>({
             </button>
           );
         })}
+      </div>
+      {/* 管家全局位（管家全局化批）：WebStatus 钮上方能力钮（底部能力簇首
+          位——margin-top:auto 锚底）；开合归 app 层，StewardDock 弹层与 rail
+          同坐标系 */}
+      <div className="rail-steward">
+        <button
+          className={cn("rail-btn", "rail-steward-btn", stewardOpen && "on")}
+          type="button"
+          data-testid="rail-steward-btn"
+          aria-pressed={stewardOpen}
+          title={t("steward.title")}
+          aria-label={t("steward.title")}
+          onClick={onToggleSteward}
+        >
+          <ConciergeBell size={18} strokeWidth={1.75} aria-hidden="true" />
+        </button>
       </div>
       {/* 联网状态钮（T4：主题钮上方；三态 + popover 详情/清单/启动/停止） */}
       <WebStatusButton webStatus={webStatus} onStopWeb={onStopWeb} onStartWeb={onStartWeb} />

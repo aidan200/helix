@@ -119,8 +119,8 @@ export const zhCN = {
       imageAlt: "图片 {n}",
     },
     voice: {
-      button: "按住说话",
-      recording: "正在录音，松开结束",
+      button: "点击说话",
+      recording: "录音中 · 静音后自动结束，点击强制结束",
       transcribing: "转写中…",
       sendFail: "语音发送失败：与 daemon 的连接不可用",
       readFail: "音频读取失败，请重试",
@@ -335,7 +335,7 @@ export const zhCN = {
       //    steward.* 族（面板本体批）──
       steward: {
         title: "文本管家",
-        note: "侧栏问答管家：问询全局运行状态、接收事件递话，写动作经确认卡放行。入口在工作台顶栏铃铛钮；面板可在未开启时打开并指引回本页。",
+        note: "全局问答管家：问询全局运行状态、接收事件递话，写动作经确认卡放行。入口在左侧导航栏铃铛钮（全局常驻，任意页面可开）；面板可在未开启时打开并指引回本页。",
         enable: "启用管家",
         "enable.off": "关（默认）",
         "enable.on": "开",
@@ -1061,6 +1061,8 @@ export const zhCN = {
   steward: {
     title: "文本管家",
     close: "关闭",
+    stateOn: "在线",
+    stateOff: "未开启",
     disabledTitle: "管家未开启",
     disabledHint: "管家开关默认关闭；到「设置 → 管家」开启后可在这里问询全局状态，写动作需经确认。",
     feedTitle: "事件流",

@@ -49,6 +49,7 @@ import { useAppRoute } from "./useAppRoute";
 import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
+import StewardDock from "@/features/steward/ui/StewardDock";
 
 /** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
@@ -60,11 +61,21 @@ const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
   { id: "settings", route: ROUTE_SETTINGS, labelKey: "chat.nav.pages.settings.label", icon: Settings },
 ];
 
-function AppRoutes() {
+/**
+ * 主壳路由域（导出供 App 级测试消费——App.gate-hold / App.steward-global
+ * 先例；页面桩 + useSession/useWorkspace mock 口径见同名测试）。
+ */
+export function AppRoutes() {
   const { route, navigate } = useAppRoute();
   const { theme, setTheme } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
+  // 管家全局弹层开合（管家全局化批：app 壳级能力——开合态在 app 层，
+  // 入口 IconRail 管家位 / 弹层 StewardDock 均本层装配；toggle/close 提取
+  // useCallback（stopWeb 同规：常驻壳上受控钮内联箭头每渲染新引用）
+  const [stewardOpen, setStewardOpen] = useState(false);
+  const toggleSteward = useCallback(() => setStewardOpen((v) => !v), []);
+  const closeSteward = useCallback(() => setStewardOpen(false), []);
   // 页内指路出口（T3.1/T3.2）：P-2 任务页 → /project；P-1 bootstrap 入口卡与
   // 产出分组 → /tasks（页面间闭环流转，review.md §页面间闭环）
   const goProject = useCallback(() => navigate(ROUTE_PROJECT), [navigate]);
@@ -106,6 +117,8 @@ function AppRoutes() {
           webStatus={topology.webStatus}
           onStopWeb={stopWeb}
           onStartWeb={startWeb}
+          stewardOpen={stewardOpen}
+          onToggleSteward={toggleSteward}
         />
         <div className="page-area">
           {/* 工作台常驻 DOM：非工作台路由 display:none（状态/WS 全保留） */}
@@ -119,6 +132,9 @@ function AppRoutes() {
           {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}
         </div>
       </div>
+      {/* 管家全局弹层（管家全局化批）：rail 右缘 fixed 浮动面板，页面域之外
+          ——路由切换不卸载（app 生命周期态） */}
+      <StewardDock open={stewardOpen} onClose={closeSteward} />
       {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；各页历史副本已随 AppLayout 迁移全数清理） */}
       <div className="scanline-overlay" aria-hidden="true" />
       {/* W2-D kg sync 提示全局 toast（task.changed 随行 syncHint 直渲；页面无关常驻） */}
