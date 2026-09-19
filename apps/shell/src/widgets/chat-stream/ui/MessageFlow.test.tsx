@@ -627,7 +627,7 @@ describe("MessageFlow 错误条目原位红条（error entry 批）", () => {
   const play = (events: EventEnvelope[]): SessionState =>
     events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
 
-  it("快照 entries 含 error 条目 → 原位渲染红色错误条（ee-head/ee-body 族；刷新后原位可见）", () => {
+  it("快照 entries 含 error 条目 → 归组渲染：最后一轮展开红条（ee-head/ee-body 族）+ 徽标行（刷新后原位可见）", () => {
     stateRef.current = play([
       welcome,
       {
@@ -651,11 +651,12 @@ describe("MessageFlow 错误条目原位红条（error entry 批）", () => {
     const bar = document.querySelector(".engine-error-card");
     expect(bar).not.toBeNull();
     expect(bar!.querySelector(".ee-head")).not.toBeNull();
-    expect(screen.getByText("429: 限额已满")).not.toBeNull();
-    // 原位：错误条在 m1 之后（ entries 序列序）
+    expect(bar!.querySelector(".ee-body")!.textContent).toBe("429: 限额已满"); // 红条原文透传
+    expect(document.querySelector(".ee-badge")!.textContent).toContain("429: 限额已满"); // 徽标行同现（兼展开切换钮）
+    // 原位：错误组在 m1 之后（ entries 序列序）
     const kids = Array.from(document.querySelector(".session-active")!.children);
     const msgIdx = kids.findIndex((k) => k.contains(screen.getByText("问一句")));
-    const errIdx = kids.findIndex((k) => k === bar || k.contains(bar!));
+    const errIdx = kids.findIndex((k) => k.contains(bar!));
     expect(msgIdx).toBeGreaterThanOrEqual(0);
     expect(errIdx).toBeGreaterThan(msgIdx);
   });
@@ -669,6 +670,148 @@ describe("MessageFlow 错误条目原位红条（error entry 批）", () => {
     ui(<MessageFlow />);
     // 原位红条唯一呈现面（瞬态卡已随 error.entry 帧清除）
     expect(document.querySelectorAll(".engine-error-card")).toHaveLength(1);
+  });
+});
+
+// ── error entry 批：错误条目轮次折叠（引擎错误体验批）──
+
+describe("MessageFlow 错误条目轮次折叠（引擎错误体验批）", () => {
+  const welcome: EventEnvelope = {
+    v: 0,
+    type: "connection.welcome",
+    payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+  };
+  const errorEntry = (id: string, message: string, turnId: string): ErrorEntryDto => ({
+    kind: "error",
+    id,
+    instanceId: "main",
+    message,
+    turnId,
+    createdAt: "2026-09-19T00:00:01.000Z",
+  });
+  const msgEntry = (id: string, content: string): EntryDto =>
+    ({ kind: "message", id, role: "assistant", content, ts: 1 }) as EntryDto;
+  const snapshotWith = (entries: EntryDto[]): EventEnvelope => ({
+    v: 0,
+    type: "session.snapshot",
+    payload: { snapshot: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle", revision: 2, entries } },
+  });
+  const play = (events: EventEnvelope[]): SessionState =>
+    events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
+  const badgeOf = (turnId: string) => document.querySelector(`.ee-badge[data-turn-id="${turnId}"]`)!;
+  const groupBars = (turnId: string) =>
+    document.querySelectorAll(`.ee-group[data-turn-id="${turnId}"] .engine-error-card`);
+
+  it("多轮多错误归组：历史轮折叠成一行徽标（无红条），当前轮（最后一轮）默认展开全量", () => {
+    stateRef.current = play([
+      welcome,
+      snapshotWith([
+        msgEntry("m1", "第一轮回复"),
+        errorEntry("e1", "Stream ended without finish_reason", "t1"),
+        msgEntry("m2", "用户救活后第二轮"),
+        errorEntry("e2", "429: 限额已满", "t2"),
+      ]),
+    ]);
+    ui(<MessageFlow />);
+    // 两组徽标行各一（t1 历史 / t2 当前）
+    expect(document.querySelectorAll(".ee-badge")).toHaveLength(2);
+    // 历史轮 t1：仅徽标行，零红条（不在主流独立占位）
+    expect(groupBars("t1")).toHaveLength(0);
+    // 当前轮 t2：默认展开全量红条
+    expect(groupBars("t2")).toHaveLength(1);
+  });
+
+  it("同轮多条合并计数：徽标 ×N + 展开全量；当前轮多错误全量可见", () => {
+    stateRef.current = play([
+      welcome,
+      snapshotWith([
+        msgEntry("m1", "第一轮回复"),
+        errorEntry("e1", "fetch failed", "t1"),
+        errorEntry("e2", "Stream ended without finish_reason", "t1"),
+        errorEntry("e3", "ECONNRESET", "t1"),
+      ]),
+    ]);
+    ui(<MessageFlow />);
+    // 单一徽标（同轮合并不重复占位），计数 ×3，首条消息摘要
+    expect(document.querySelectorAll(".ee-badge")).toHaveLength(1);
+    expect(badgeOf("t1").textContent).toContain("×3");
+    expect(badgeOf("t1").textContent).toContain("fetch failed");
+    // 当前轮展开全量：3 条红条
+    expect(groupBars("t1")).toHaveLength(3);
+  });
+
+  it("message 截断 40 字符：长消息徽标摘要截断（省略号结尾）", () => {
+    const long = "a".repeat(60);
+    stateRef.current = play([
+      welcome,
+      snapshotWith([msgEntry("m1", "m"), errorEntry("e1", long, "t1")]),
+    ]);
+    ui(<MessageFlow />);
+    const text = badgeOf("t1").querySelector(".ee-badge-text")!.textContent!;
+    expect(text).toBe("a".repeat(40) + "…");
+    // 展开后全量消息不截断（红条原文透传）
+    expect(groupBars("t1")[0]!.textContent).toContain(long);
+  });
+
+  it("徽标可点开历史轮展开 / 再点收起（aria-expanded 两态）", () => {
+    stateRef.current = play([
+      welcome,
+      snapshotWith([
+        msgEntry("m1", "m"),
+        errorEntry("e1", "历史轮错误", "t1"),
+        msgEntry("m2", "m2"),
+        errorEntry("e2", "当前轮错误", "t2"),
+      ]),
+    ]);
+    ui(<MessageFlow />);
+    expect(badgeOf("t1").getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(badgeOf("t1"));
+    expect(badgeOf("t1").getAttribute("aria-expanded")).toBe("true");
+    expect(groupBars("t1")).toHaveLength(1); // 展开可见
+    fireEvent.click(badgeOf("t1"));
+    expect(badgeOf("t1").getAttribute("aria-expanded")).toBe("false");
+    expect(groupBars("t1")).toHaveLength(0); // 收起回徽标
+  });
+
+  it("实时链：新轮错误条目到达 → 新组成为当前轮展开，旧轮收起（不叠加展开）", () => {
+    stateRef.current = play([
+      welcome,
+      { v: 0, type: "error.entry", payload: { entry: errorEntry("e1", "第一轮断流", "t1") } },
+    ]);
+    ui(<MessageFlow />);
+    expect(groupBars("t1")).toHaveLength(1); // 唯一轮 = 当前轮展开
+    // 用户收起 t1（override=collapsed）后新轮错误到达：新轮展开，t1 保持折叠
+    fireEvent.click(badgeOf("t1"));
+    cleanup();
+    stateRef.current = play([
+      welcome,
+      { v: 0, type: "error.entry", payload: { entry: errorEntry("e1", "第一轮断流", "t1") } },
+      { v: 0, type: "chat.message.completed", payload: { entry: { kind: "message", id: "m-continue", role: "user", content: "继续", ts: 2 } } },
+      { v: 0, type: "error.entry", payload: { entry: errorEntry("e2", "第二轮断流", "t2") } },
+    ]);
+    ui(<MessageFlow />);
+    expect(groupBars("t2")).toHaveLength(1); // 新当前轮默认展开
+    expect(groupBars("t1")).toHaveLength(0); // 旧轮归折叠（历史轮语义）
+  });
+
+  it("组位 = 所属轮末条 error 原位：错误条仍排在轮内其它条目之后（归组不迁移位置）", () => {
+    stateRef.current = play([
+      welcome,
+      snapshotWith([
+        msgEntry("m1", "轮内消息"),
+        errorEntry("e1", "断流甲", "t1"),
+        errorEntry("e2", "断流乙", "t1"),
+        msgEntry("m2", "下一轮消息"),
+      ]),
+    ]);
+    ui(<MessageFlow />);
+    const kids = Array.from(document.querySelector(".session-active")!.children);
+    const idxOf = (el: Element | null) => kids.findIndex((k) => k === el || k.contains(el!));
+    const groupIdx = idxOf(document.querySelector(".ee-group"));
+    expect(groupIdx).toBeGreaterThan(idxOf(screen.getByText("轮内消息").closest(".msg"))); // 徽标在轮内消息后
+    expect(groupIdx).toBeLessThan(idxOf(screen.getByText("下一轮消息").closest(".msg"))); // 不逃出轮外
+    // 合并后仅一个组容器（e1 位置不留独立占位）
+    expect(document.querySelectorAll(".ee-group")).toHaveLength(1);
   });
 });
 

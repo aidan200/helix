@@ -64,6 +64,7 @@ export const enUS = {
     engineError: {
       title: "Generation failed",
       hint: "You can retry later; details are in the daemon log",
+      toggle: "Expand/collapse errors in this turn",
     },
     ask: {
       title: "Permission request",

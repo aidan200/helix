@@ -71,6 +71,7 @@ export const zhCN = {
     engineError: {
       title: "生成失败",
       hint: "可稍后重试发送；错误详情可在 daemon 日志查看",
+      toggle: "展开/收起本轮错误",
     },
     ask: {
       title: "权限申请",
