@@ -104,6 +104,7 @@ import type {
   McpServersUpdateCommand,
   McpToolsListCommand,
   WebStatusCommand,
+  SttTranscribeCommand,
   WebStopCommand,
   WorkspaceGetCommand,
   WorkspaceOpenCommand,
@@ -381,6 +382,24 @@ export function webStopCommand(): WebStopCommand {
  *  点对点 applied/skipped + 状态回流经 web.status.changed 全局广播）。 */
 export function webStartCommand(): WebStartCommand {
   return { v: PROTOCOL_VERSION, type: "web.start", payload: {} };
+}
+
+/**
+ * stt.transcribe：一次性音频转写（语音输入批 V1；回执 =
+ * stt.transcribe.result 点对点两判别）。会话作用域可选：信封 sessionId
+ * 携带时 daemon 组装会话词汇表（P1 源）+ 归属自查；省略 = 裸转写。
+ */
+export function sttTranscribeCommand(
+  audio: string,
+  opts?: { language?: string; provider?: string },
+  sessionId?: string,
+): SttTranscribeCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "stt.transcribe",
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    payload: { audio, ...(opts?.language !== undefined ? { language: opts.language } : {}), ...(opts?.provider !== undefined ? { provider: opts.provider } : {}) },
+  };
 }
 
 // ── mcp 族命令（mcp 批：MCP server 标准接入；六命令全全局命令）────

@@ -945,6 +945,21 @@ html.light .bubble code.inline { color: var(--accent); }
 .attach-btn:hover:not(:disabled) { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); }
 .attach-limit { font-size: var(--text-cap); color: var(--warning); }
 
+/* ══ 语音输入钮（V1 按住说话：录音态红点脉冲 / 转写中 spinner）══ */
+.mic-btn { padding: 0 10px; border: 1px solid rgb(var(--edge-rgb) / 0.15); background: none; color: var(--text-dim); user-select: none; touch-action: none; }
+.mic-btn:hover:not(:disabled) { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); }
+.mic-btn.recording { color: var(--danger, #ff5555); border-color: rgb(255 85 85 / 0.55); }
+.mic-btn .rec-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--danger, #ff5555);
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.7); }
+}
+.mic-btn .spin { animation: mic-rotate 0.9s linear infinite; }
+@keyframes mic-rotate { to { transform: rotate(360deg); } }
+
 /* ═══ T9 图片缩略图行 + lightbox（user 气泡 / 工具卡共用 ImageStrip）═══ */
 .img-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .img-thumb {
@@ -1093,3 +1108,19 @@ html.light .bubble code.inline { color: var(--accent); }
 .diff-view .dl-del { display: block; color: var(--error); background: rgb(var(--error-rgb) / 0.09); box-shadow: inset 2px 0 0 var(--error); padding-left: 14px; }
 .diff-view .dl-hunk { display: block; color: var(--accent); opacity: 0.8; padding-left: 14px; }
 .diff-view .dl-ctx { display: block; color: var(--text-dim); padding-left: 14px; }
+
+/* ══ 语音输入设置分区（V1：provider 单选 + key 录入行）══ */
+.voice-provider-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.voice-provider-opt {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer;
+  border: 1px solid rgb(var(--edge-rgb) / 0.2); border-radius: 4px; font-size: var(--text-cap); color: var(--text-dim);
+}
+.voice-provider-opt.on { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.5); }
+.voice-provider-opt input { accent-color: var(--accent); }
+.voice-key-mask { color: var(--accent); margin-left: 8px; }
+.voice-key-unset { color: var(--text-dim); margin-left: 8px; }
+.voice-key-input { display: flex; gap: 8px; margin-top: 8px; }
+.voice-key-input input {
+  flex: 1; min-width: 0; padding: 6px 10px; font-size: var(--text-cap);
+  background: rgb(var(--void-rgb) / 0.5); border: 1px solid rgb(var(--edge-rgb) / 0.2); color: var(--text);
+}

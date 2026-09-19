@@ -96,8 +96,9 @@ describe("S2 设置页实页化", () => {
     // W4：追加「工作空间」分区 + config 批：追加「通用」分区（有实内容才入列表）
     // 后裁决：工作空间撤项并入通用（单配置独占一页浪费）→ 两分区；
     // mcp 批：追加「MCP 服务」分区（server 配置面）→ 三分区；
-    // skills 批：追加「技能管理」分区（用户级技能单源管理面）→ 四分区
-    expect(nav.querySelectorAll(".set-nav-item")).toHaveLength(4);
+    // skills 批：追加「技能管理」分区（用户级技能单源管理面）→ 四分区；
+    // 语音输入批：追加「语音输入」分区（provider/key）→ 五分区
+    expect(nav.querySelectorAll(".set-nav-item")).toHaveLength(5);
     expect(nav.querySelector('[data-section="general"]')!.textContent).toBe("通用设置");
     expect(nav.querySelector('[data-section="mcp"]')!.textContent).toBe("MCP 服务");
     expect(nav.querySelector('[data-section="skills"]')!.textContent).toBe("技能管理");
