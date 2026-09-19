@@ -23,6 +23,26 @@ export interface ConnectionWelcomePayload {
    * "default" 兜底）。
    */
   mode?: string;
+  /**
+   * daemon 新鲜度自检（stale-indicator 批，additive；PROTOCOL-CHANGELOG.md
+   * §17.15）：握手时 daemon 自报进程启动时刻与源码新鲜度——stale = true
+   * 表示 daemon 源码 mtime 晚于进程启动（daemon 在跑旧代码，前端连接状态区
+   * 显示「建议重启」琥珀 chip）。缺省 = 未携带（旧 daemon / 打包态源码目录
+   * 不存在——读侧按新鲜处理，行为不变）。
+   */
+  daemonFreshness?: DaemonFreshnessDto;
+}
+
+/**
+ * daemon 源码新鲜度（stale-indicator 批，additive；connection.welcome 携带）：
+ * daemon 握手时对 apps/daemon/src + packages/protocol/src 的 mtime 自检结论。
+ * 扫描只在握手时同步算一次（几百文件 stat 量级）；不做 watch / 轮询。
+ */
+export interface DaemonFreshnessDto {
+  /** daemon 进程启动时刻（epoch ms；前端设置页人话时间显示源） */
+  startedAt: number;
+  /** true = 源码 mtime 晚于进程启动（daemon 代码已更新，建议重启） */
+  stale: boolean;
 }
 
 /** connection.error：握手拒绝 / 命令错误回执（notification 通道） */
