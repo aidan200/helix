@@ -12,7 +12,7 @@
  * 本文件是 pi-ai import 的合法执行点之一（architecture.md §8.3 红线；
  * application 层只见 StewardLlmPort 窄面——pi-ai 类型不越墙）。
  */
-import type { Models, Model, Context, Message, Tool } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Models, Model, Context, Message, Tool } from "@earendil-works/pi-ai";
 import { resolveModel } from "../pi-engine/model-provider";
 import type {
   StewardLlmPort,
@@ -46,7 +46,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     return this.deps.modelSlot() ?? this.deps.defaultModel;
   }
 
-  async complete(request: StewardLlmRequest): Promise<StewardLlmResponse> {
+  async complete(request: StewardLlmRequest, onDelta?: (chunk: string) => void): Promise<StewardLlmResponse> {
     const modelStr = this.modelId;
     let model: Model<any>;
     try {
@@ -61,9 +61,35 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
       );
     }
     const context = this.toContext(request, model);
-    const assistant = await this.deps.models
-      .streamSimple(model, context, { apiKey })
-      .result();
+    const stream = this.deps.models.streamSimple(model, context, { apiKey });
+    if (onDelta === undefined) {
+      const assistant = await stream.result();
+      return this.toResponse(assistant);
+    }
+    // 流式透传（V2.5 体验批）：pi-ai EventStream 队列单消费者——本 for-await
+    // 是唯一迭代器，result() 只等 final promise（不消费队列），两者并存安全；
+    // 仅透传 text_delta（工具段静默），回调异常不阻断流。await 迭代完成后再
+    // 返回：保证全部 onDelta 先于 complete resolve（否则终态帧可早于末尾
+    // delta 下发，前端清缓冲后迟到 delta 残留）。
+    const consume = (async () => {
+      for await (const ev of stream) {
+        if (ev.type === "text_delta") {
+          try {
+            onDelta(ev.delta);
+          } catch {
+            /* 消费者异常不阻断流 */
+          }
+        }
+      }
+    })().catch(() => {
+      /* 迭代异常由 result() 主路径收口（stopReason=error → throw） */
+    });
+    const [assistant] = await Promise.all([stream.result(), consume]);
+    return this.toResponse(assistant);
+  }
+
+  /** 终态消息 → port 响应判别（text 直答 / 首个 toolCall；错误统一 throw）。 */
+  private toResponse(assistant: AssistantMessage): StewardLlmResponse {
     if (assistant.stopReason === "error") {
       throw new Error(assistant.errorMessage ?? "管家模型返回错误（无错误详情）");
     }

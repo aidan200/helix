@@ -7,9 +7,11 @@
  * - 订阅闸门：面板开 + conn=connected + enabled → steward.subscribe（daemon
  *   连接级 feed 闸门登记；断连自动清位，重连由 conn 依赖重放——
  *   useVoiceBroadcast 先例同构）；面板关/未启用 → unsubscribe；
- * - 对话面：ask(text) → steward.ask → steward.ask.result 三判别
- *   （answer 直答入消息流 / confirm_required 入 pending 确认闸 /
- *   error 入消息流——零静默失败）；
+ * - 对话面：ask(text) → steward.ask → steward.ask.delta 流式增量帧（
+ *   streamingText 增量聚合——流式不落盘：messages 不追加，与主聊天 streaming
+ *   槽同语义；终态权威覆盖）→ steward.ask.result 三判别
+ *   （answer 直答入消息流并清 streamingText / confirm_required 入 pending
+ *   确认闸 / error 入消息流并清 streamingText——零静默失败）；
  * - 确认闸（§5.2 防火墙客户端面）：pending 携带 actionId + 递话全文，
  *   confirmPending() → steward.confirm（actionId 单次消费——daemon 侧
  *   权威）；confirm.result ok/error 均入消息流；
@@ -54,6 +56,9 @@ interface StewardConfig {
 export interface UseSteward {
   /** 对话消息流（user/steward 两方）。 */
   readonly messages: readonly StewardMessage[];
+  /** 在途流式文本（null = 无流；增量聚合——终态 result 权威覆盖后清空，
+   *  V2.5 体验批；不落盘不持久化，与主聊天 streaming 槽同语义）。 */
+  readonly streamingText: string | null;
   /** 待确认写动作（null = 无）。 */
   readonly pending: StewardPendingAction | null;
   /** feed 文本行（新序，截尾保最新）。 */
@@ -93,6 +98,7 @@ export function useSteward(open: boolean): UseSteward {
   };
 
   const [messages, setMessages] = useState<readonly StewardMessage[]>([]);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const [pending, setPending] = useState<StewardPendingAction | null>(null);
   const [feed, setFeed] = useState<readonly FeedLine[]>([]);
   const [askInFlight, setAskInFlight] = useState(false);
@@ -106,7 +112,12 @@ export function useSteward(open: boolean): UseSteward {
   }, []);
 
   // ── 配置读面：mount / 重连 → steward.get_config（幂等读，daemon 回现态）──
+  // ── 断连即弃流式缓冲（V2.5 体验批）：daemon 不持 delta 状态，重连不重放——
+  // 与主聊天 streaming 槽同语义（切走/断连即弃，终态权威面另行到达）──
   const conn = topology?.active?.conn;
+  useEffect(() => {
+    if (conn !== "connected") setStreamingText(null);
+  }, [conn]);
   const getConfigSentFor = useRef<string | null>(null);
   useEffect(() => {
     if (conn !== "connected") return;
@@ -138,11 +149,21 @@ export function useSteward(open: boolean): UseSteward {
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return;
     return subscribeStewardFrames((event: EventEnvelope) => {
+      if (event.type === "steward.ask.delta") {
+        // 流式增量聚合（V2.5 体验批）：不落盘（messages 不动）——终态 result
+        // 到达时清空并落权威消息；非在途（迟到 delta）忽略防脏写
+        const payload = event.payload as { delta?: unknown };
+        if (typeof payload.delta !== "string" || payload.delta === "") return;
+        if (!askInFlightRef.current) return;
+        setStreamingText((prev) => (prev ?? "") + payload.delta);
+        return;
+      }
       if (event.type === "steward.ask.result") {
         const payload = event.payload as
           | { status: "answer"; text: string }
           | { status: "confirm_required"; actionId: string; agentId: string; message: string }
           | { status: "error"; reason: string };
+        setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error/confirm 同口径）
         if (payload.status === "answer") {
           pushMessage({ role: "steward", text: payload.text });
         } else if (payload.status === "confirm_required") {
@@ -191,6 +212,7 @@ export function useSteward(open: boolean): UseSteward {
       if (typeof sendStewardAsk !== "function") return false;
       const ok = sendStewardAsk(trimmed);
       if (ok === false) return false; // 未连接：零静默丢消息（TR-168 严格判）
+      setStreamingText(null); // 新一轮复位（防御：上轮断连残留）
       pushMessage({ role: "user", text: trimmed });
       markAskInFlight(true);
       return true;
@@ -208,5 +230,5 @@ export function useSteward(open: boolean): UseSteward {
 
   const dismissPending = useCallback(() => setPending(null), []);
 
-  return { messages, pending, feed, askInFlight, config, ask, confirmPending, dismissPending };
+  return { messages, streamingText, pending, feed, askInFlight, config, ask, confirmPending, dismissPending };
 }

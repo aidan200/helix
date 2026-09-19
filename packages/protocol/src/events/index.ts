@@ -142,6 +142,7 @@ import type { SttTranscribeResultEvent } from "./stt";
 import type { VoiceBroadcastEvent, VoiceSynthesizeResultEvent } from "./voice";
 import type {
   StewardAskResultEvent,
+  StewardAskDeltaEvent,
   StewardConfirmResultEvent,
   StewardFeedEvent,
   StewardConfigResultEvent,
@@ -268,6 +269,7 @@ export type EventEnvelope =
   | VoiceBroadcastEvent
   | VoiceSynthesizeResultEvent
   | StewardAskResultEvent
+  | StewardAskDeltaEvent
   | StewardConfirmResultEvent
   | StewardFeedEvent
   | StewardConfigResultEvent
@@ -376,8 +378,10 @@ export const EVENT_TYPES = [
   "stt.transcribe.result",
   "voice.broadcast",
   "voice.synthesize.result",
-  // 文本管家批（V2.5 steward 族）：对话回执/确认回执/feed 文本行/设置回执
+  // 文本管家批（V2.5 steward 族）：对话回执/确认回执/feed 文本行/设置回执；
+  // 流式体验批 +steward.ask.delta（增量帧——终态 ask.result 权威覆盖）
   "steward.ask.result",
+  "steward.ask.delta",
   "steward.confirm.result",
   "steward.feed",
   "steward.config.result",
@@ -493,6 +497,7 @@ export const EVENT_CHANNELS = {
   "voice.broadcast": "voice",
   "voice.synthesize.result": "voice",
   "steward.ask.result": "steward",
+  "steward.ask.delta": "steward",
   "steward.confirm.result": "steward",
   "steward.feed": "steward",
   "steward.config.result": "steward",

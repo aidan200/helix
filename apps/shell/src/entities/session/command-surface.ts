@@ -807,10 +807,12 @@ export const LISTEN_SURFACE = {
       type === "connection.error",
   },
   /** 订阅 steward 族帧（V2.5 文本管家：ask/confirm/config 三点对点回执 +
-   *  feed 广播 + connection.error——面板与设置页两消费面；TR-89 双登记纪律）。 */
+   *  ask.delta 流式增量帧（体验批）+ feed 广播 + connection.error——
+   *  面板与设置页两消费面；TR-89 双登记纪律）。 */
   subscribeStewardFrames: {
     match: (type) =>
       type === "steward.ask.result" ||
+      type === "steward.ask.delta" ||
       type === "steward.confirm.result" ||
       type === "steward.feed" ||
       type === "steward.config.result" ||

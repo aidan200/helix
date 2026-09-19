@@ -19,9 +19,24 @@ interface StreamCall {
   readonly options: Record<string, unknown>;
 }
 
+/** 可迭代 fake 事件流（V2.5 流式体验批）：逐事件推给迭代器 + result() 终态。 */
+function iterableStream(events: unknown[], reply: AssistantMessage): AssistantMessageEventStream {
+  const queue = [...events];
+  const final = { ...reply };
+  return {
+    result: async () => final,
+    [Symbol.asyncIterator]: async function* () {
+      while (queue.length > 0) {
+        yield queue.shift();
+      }
+    },
+  } as unknown as AssistantMessageEventStream;
+}
+
 function fakeModels(opts: {
   resolveFail?: boolean;
   reply?: AssistantMessage;
+  events?: unknown[];
 }): Models & { calls: StreamCall[] } {
   const calls: StreamCall[] = [];
   const model: Model<any> = {
@@ -40,9 +55,9 @@ function fakeModels(opts: {
       usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0 } },
       stopReason: "stop",
     } as unknown as AssistantMessage);
-  const stream = {
+  const stream = (opts.events !== undefined ? iterableStream(opts.events, reply) : ({
     result: async () => reply,
-  } as unknown as AssistantMessageEventStream;
+  } as unknown as AssistantMessageEventStream));
   return {
     calls,
     getModel: (provider: string, id: string) =>
@@ -121,5 +136,40 @@ describe("PiStewardLlmAdapter（driven 面）", () => {
     const models = fakeModels({ resolveFail: true });
     const adapter = makeAdapter(models, undefined);
     expect(adapter.complete(REQ)).rejects.toThrow("管家模型解析失败");
+  });
+
+  test("流式：onDelta 透传 text_delta chunk（按序），toolcall_delta 不透传（工具段静默）", async () => {
+    const models = fakeModels({
+      reply: {
+        role: "assistant",
+        content: [{ type: "text", text: "当前 2 个" }],
+        api: "openai-completions",
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0 } },
+        stopReason: "stop",
+      } as unknown as AssistantMessage,
+      events: [
+        { type: "start", partial: null },
+        { type: "text_start", contentIndex: 0, partial: null },
+        { type: "text_delta", contentIndex: 0, delta: "当前 ", partial: null },
+        { type: "toolcall_delta", contentIndex: 1, delta: "{\"x\":1}", partial: null },
+        { type: "text_delta", contentIndex: 0, delta: "2 个", partial: null },
+      ],
+    });
+    const adapter = makeAdapter(models, undefined);
+    const chunks: string[] = [];
+    const res = await adapter.complete(REQ, (c) => chunks.push(c));
+    expect(chunks).toEqual(["当前 ", "2 个"]); // 仅 text_delta，按序
+    expect(res).toEqual({ kind: "text", text: "当前 2 个" }); // 终态仍由 result() 权威聚合
+  });
+
+  test("流式：无 onDelta（旧调用面）不碰迭代器——纯 result() 路径不变", async () => {
+    const models = fakeModels({
+      events: [{ type: "text_delta", contentIndex: 0, delta: "x", partial: null }],
+    });
+    const adapter = makeAdapter(models, undefined);
+    const res = await adapter.complete(REQ);
+    expect(res).toEqual({ kind: "text", text: "答" });
   });
 });

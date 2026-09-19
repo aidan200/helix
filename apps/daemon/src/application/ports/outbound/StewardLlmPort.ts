@@ -1,5 +1,4 @@
-/**
- * 管家 LLM 出站端口（outbound，V2.5 文本管家批）。
+/** 出站端口（outbound，V2.5 文本管家批；流式回调面 = V2.5 体验批）。
  *
  * StewardService（application 层）的 LLM 面抽象：单轮补全（消息 + 工具面 →
  * 文本或首个工具调用）。实现体 = adapters/driven/steward/PiStewardLlmAdapter
@@ -9,6 +8,10 @@
  * 端口面收敛为「首个工具调用」单步语义（服务层驱动循环——工具轮上限在
  * service 单点，adapter 无循环）；消息形状为 port 自有窄面（pi-ai 类型不越
  * 墙进 application 层，AG-01/AG-13 同构纪律）。
+ *
+ * 流式面（V2.5 体验批 additive）：complete 可选 onDelta 回调——文本生成段
+ * 逐 chunk 调用（仅 text 增量；工具调用段静默不回调）；终态响应仍由返回值
+ * 权威承载（onDelta 只作显示增量，不参与响应聚合）。消息形状与工具面不动。
  */
 
 /** 工具声明（LLM function calling 面；parameters = JSON Schema 对象）。 */
@@ -53,6 +56,8 @@ export type StewardLlmResponse =
 export interface StewardLlmPort {
   /** 模型槽位现值（"provider/model-id"；设置页显示/诊断面）。 */
   readonly modelId: string;
-  /** 单轮补全（fail-fast：key 缺失/模型未配/网络错误抛中文错误）。 */
-  complete(request: StewardLlmRequest): Promise<StewardLlmResponse>;
+  /** 单轮补全（fail-fast：key 缺失/模型未配/网络错误抛中文错误）；可选
+   *  onDelta = 文本生成段增量回调（仅 text chunk，工具段静默；终态以返回值
+   *  为权威——onDelta 只作显示增量，V2.5 体验批）。 */
+  complete(request: StewardLlmRequest, onDelta?: (chunk: string) => void): Promise<StewardLlmResponse>;
 }

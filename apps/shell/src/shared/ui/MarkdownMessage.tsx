@@ -2,6 +2,10 @@
  * Markdown 渲染（desk MarkdownRenderer 按 P-1 原型重织，F(7).1）：
  * 段落 / 加粗 / 行内 code chip（.bubble code.inline）/ 无序列表（violet
  * marker，CSS ::marker）/ 代码块（hud-code：语言标签行 + 5px 圆角 + pre 换行）。
+ *
+ * 归属 shared/ui（V2.5 体验批自 widgets/chat-stream/ui 下移——通用 md 原语
+ * 多层复用（chat MessageBubble + steward 面板）；FSD 守护 AG-15 禁 features
+ * →widgets 向上引，下移为唯一既复用又合规路径）。
  */
 import { memo, isValidElement, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";

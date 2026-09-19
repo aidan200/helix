@@ -5,6 +5,8 @@
  *   订阅 + 设置面）；
  * - steward.ask.result 三判别（answer 直答 / confirm_required 确认闸请求——
  *   携 actionId + agentId + message 全文 / error 业务失败）；
+ * - steward.ask.delta 流式增量帧（V2.5 体验批：delta 增量 + seq 单调——
+ *   前端聚合，终态 ask.result 权威覆盖；工具段静默）；
  * - steward.confirm.result 两判别（ok 含注入通道回执 detail / error）；
  * - steward.feed 文本行广播帧（kind/agentId/text/seq）；
  * - steward.config.result 设置回执（enabled + model）；
@@ -14,6 +16,8 @@ import { describe, expect, test } from "bun:test";
 import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES, PROTOCOL_VERSION } from "../../src/index";
 import type {
   StewardAskCommand,
+  StewardAskDeltaEvent,
+  StewardAskDeltaPayload,
   StewardAskResultEvent,
   StewardAskResultPayload,
   StewardConfirmCommand,
@@ -52,6 +56,10 @@ type _ConfirmBranchMessage = Expect<
 >;
 type _AskErrorBranch = Expect<Equal<Extract<StewardAskResultPayload, { status: "error" }>["reason"], string>>;
 
+// ask.delta 流式增量帧（V2.5 体验批 additive：delta 增量 + seq 单调）
+type _DeltaText = Expect<Equal<StewardAskDeltaPayload["delta"], string>>;
+type _DeltaSeq = Expect<Equal<StewardAskDeltaPayload["seq"], number>>;
+
 // feed payload 必填字段
 type _FeedKind = Expect<
   Equal<
@@ -65,7 +73,7 @@ type _FeedSeq = Expect<Equal<StewardFeedPayload["seq"], number>>;
 type _StewardFamily = Expect<
   Equal<
     TypeOfChannel<"steward">,
-    "steward.ask.result" | "steward.confirm.result" | "steward.feed" | "steward.config.result"
+    "steward.ask.result" | "steward.ask.delta" | "steward.confirm.result" | "steward.feed" | "steward.config.result"
   >
 >;
 
@@ -134,6 +142,14 @@ const askError: StewardAskResultEvent = {
   payload: { status: "error", reason: "管家未开启（设置页 → 文本管家 → 开启开关）" },
 };
 
+const askDelta: StewardAskDeltaEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.ask.delta",
+  payload: { delta: "当前有 ", seq: 1 },
+};
+
 const confirmOk: StewardConfirmResultEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -172,6 +188,7 @@ describe("文本管家批（V2.5）：steward 族 additive", () => {
     }
     for (const t of [
       "steward.ask.result",
+      "steward.ask.delta",
       "steward.confirm.result",
       "steward.feed",
       "steward.config.result",
@@ -206,8 +223,15 @@ describe("文本管家批（V2.5）：steward 族 additive", () => {
     expect(configResult.payload.enabled).toBe(false);
   });
 
+  test("ask.delta 流式增量帧窄化：delta/seq 字段可达 + 目录登记（V2.5 体验批）", () => {
+    expect(summarizeEvent(askDelta)).toBe("steward-ask-delta:当前有 :1");
+    expect(askDelta.payload.seq).toBe(1);
+    expect(askDelta.payload.delta).toBe("当前有 ");
+  });
+
   test("familyOf 分族窄化：channel=steward → 'steward/<type>'", () => {
     expect(familyOf(askAnswer)).toBe("steward/steward.ask.result");
     expect(familyOf(feedFrame)).toBe("steward/steward.feed");
+    expect(familyOf(askDelta)).toBe("steward/steward.ask.delta");
   });
 });

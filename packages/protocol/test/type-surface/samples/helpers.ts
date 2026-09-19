@@ -244,6 +244,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       if (event.payload.status === "confirm_required")
         return `steward-confirm-required:${event.payload.actionId}:${event.payload.agentId}:${event.payload.message}`;
       return `steward-error:${event.payload.reason}`;
+    case "steward.ask.delta":
+      // 管家流式体验批（V2.5）：增量帧窄化（delta 增量 + seq 单调）
+      return `steward-ask-delta:${event.payload.delta}:${event.payload.seq}`;
     case "steward.confirm.result":
       // 文本管家批（V2.5）：确认闸回执两判别窄化（ok 含注入回执 detail / error 原因）
       return `steward-confirm-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.agentId}:${event.payload.detail}` : event.payload.reason}`;

@@ -2,7 +2,8 @@
  * steward 族命令处理（V2.5 文本管家批；handlers/ 落位 = handlers/voice.ts
  * 点对点结果帧先例——只转发不决策，决策收口 StewardService application 层）。
  *
- * - steward.ask → StewardService.ask（LLM 循环）→ steward.ask.result 点对点
+ * - steward.ask → StewardService.ask（LLM 循环）→ 流式 steward.ask.delta
+ *   增量帧（文本生成段逐 chunk，V2.5 体验批）+ steward.ask.result 点对点
  *   回执（answer / confirm_required / error 三判别——业务失败不回
  *   connection.error，结果帧 error 判别含引导，voice.synthesize 先例同构）；
  *   payload 校验：text 非空 string（≤2000 字符防御上限）；
@@ -14,6 +15,7 @@
  *   steward.config.result 点对点回执。
  */
 import type {
+  StewardAskDeltaEvent,
   StewardAskResultEvent,
   StewardConfigResultEvent,
   StewardConfirmResultEvent,
@@ -24,7 +26,7 @@ import type { StewardCommandContext } from "./context";
 /** ask 文本防御上限（管家对话单轮；超长引导拆分）。 */
 const ASK_TEXT_MAX = 2000;
 
-/** steward.ask（全局命令）：对话一轮 + 点对点回执（三判别）。 */
+/** steward.ask（全局命令）：对话一轮 + 流式增量帧 + 点对点回执（三判别）。 */
 export function handleStewardAsk(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const text = ctx.payload.text;
@@ -34,8 +36,23 @@ export function handleStewardAsk(ctx: StewardCommandContext): void {
   if (text.length > ASK_TEXT_MAX) {
     return ctx.commandError(ctx.type, "command.invalid_payload", `payload.text 超长（≤${ASK_TEXT_MAX} 字符）`);
   }
+  // 流式增量帧（V2.5 体验批）：文本生成段逐 chunk 点对点下发（seq 单 ask 内
+  // 1 起单调）；终态 result 权威覆盖——前端以 result 文本替换聚合缓冲。
+  let deltaSeq = 0;
+  const onDelta = (chunk: string): void => {
+    if (chunk === "") return;
+    deltaSeq += 1;
+    const frame: StewardAskDeltaEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.ask.delta",
+      payload: { delta: chunk, seq: deltaSeq },
+    };
+    ctx.sendNow(sender, frame);
+  };
   void ctx.steward.service
-    .ask(text)
+    .ask(text, onDelta)
     .then((payload) => {
       const frame: StewardAskResultEvent = {
         v: PROTOCOL_VERSION,

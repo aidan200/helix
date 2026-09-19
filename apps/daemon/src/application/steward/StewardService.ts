@@ -201,10 +201,11 @@ export class StewardService {
   }
 
   /**
-   * 管家对话一轮（steward.ask 回执）。
-   * money gate：开关关 → error 判别零 LLM 调用。
+   * 管家对话一轮（steward.ask 回执；可选 onDelta = 文本生成段增量回调，
+   * V2.5 体验批——工具执行段静默不回调，终态以返回值为权威）。
+   * money gate：开关关 → error 判别零 LLM 调用零 delta。
    */
-  async ask(text: string): Promise<StewardAskResultPayload> {
+  async ask(text: string, onDelta?: (chunk: string) => void): Promise<StewardAskResultPayload> {
     if (typeof text !== "string" || text.trim() === "") {
       return { status: "error", reason: "payload.text 应为非空 string" };
     }
@@ -218,11 +219,14 @@ export class StewardService {
     for (let round = 0; round < STEWARD_MAX_TOOL_ROUNDS; round += 1) {
       let response;
       try {
-        response = await this.deps.llm.complete({
-          systemPrompt: STEWARD_SYSTEM_PROMPT,
-          messages: [...this.history],
-          tools: STEWARD_TOOLS,
-        });
+        response = await this.deps.llm.complete(
+          {
+            systemPrompt: STEWARD_SYSTEM_PROMPT,
+            messages: [...this.history],
+            tools: STEWARD_TOOLS,
+          },
+          onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
+        );
       } catch (err) {
         this.deps.logger?.warn(`管家 LLM 调用失败：${(err as Error).message}`);
         return { status: "error", reason: `管家模型调用失败：${(err as Error).message}` };
