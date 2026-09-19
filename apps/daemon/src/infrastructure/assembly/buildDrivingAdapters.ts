@@ -26,6 +26,7 @@ import type { WorkspaceService } from "../../application/services/workspace/Work
 import { ModelService } from "../../application/services/ModelService";
 import { CliAdapter, StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-server/WsServerAdapter";
+import { createDaemonFreshnessProvider } from "../../adapters/driven/freshness/SourceFreshness";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { VoiceCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
 import type { StewardCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
@@ -212,6 +213,11 @@ export interface WsDrivingDeps {
   readonly stopMcp?: () => void;
   /** WS 监听端口（组合根解析链 argv --port > KV daemon_port > 7333 的定格产物；0 = 随机）。 */
   readonly port?: number;
+  /**
+   * daemon 进程启动时刻（epoch ms；stale-indicator 批）：组装根 bootedAtMs
+   * 单源透传——welcome daemonFreshness 的比对基准。
+   */
+  readonly daemonStartedAtMs?: number;
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
   /** 主时间轴尾窗大小覆盖（G-1 注入面；缺省 WsServerAdapter 内建缺省）。 */
@@ -378,6 +384,11 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     codeReview: deps.kgResolvers.codeReviewResolver,
     events: eventStream,
     token,
+    // stale-indicator 批：握手 freshness 读面（驱 driven 计算体；未传
+    // startedAt → 不装配，welcome 缺省字段——stub 测试形态兼容）
+    ...(deps.daemonStartedAtMs !== undefined
+      ? { freshness: createDaemonFreshnessProvider({ startedAt: deps.daemonStartedAtMs }) }
+      : {}),
     port: deps.port ?? DEFAULT_PORT, // deps.port = 组合根已解析端口（argv > KV > 7333 链定格产物）
     staticHandler: (req) => staticServe.handle(req),
     tailSize: deps.tailSize,
