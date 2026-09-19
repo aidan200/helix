@@ -10,6 +10,11 @@
  * 会话作用域命令（信封 sessionId 必填，AD-4 路由位）：结果帧信封 sessionId
  * = 目标会话、channel = "session"，仅发发起连接（点对点，不经广播）。
  * external 条目 note = 外部变更粗估说明（人读文案直渲——task.syncHint 同规）。
+ *
+ * v0.12 §43：无 diff 数据（冷会话/turnId 未命中）= 预期空态非错误——
+ * TurnDiffState 全内存零持久化（daemon 重启即空），冷会话重连后 chip
+ * rehydrate 补拉必然走到；旧版回 command.invalid_payload 错误帧会以 toast
+ * 噪声暴露给用户（症状A），改回空态结果帧 phase="empty"（additive）。
  */
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { DiffFileDto, DiffGetResultEvent, ErrorCode, EventEnvelope } from "@helix/protocol";
@@ -90,7 +95,17 @@ export function handleDiffGet(ctx: DiffCommandContext): void {
     .getTurnView(state, { ...(turnId !== undefined ? { turnId } : {}), ...(live !== undefined ? { live } : {}) })
     .then((view) => {
       if (view === null) {
-        return fail(ctx, "command.invalid_payload", "无轮次 diff 数据（冷会话或 turnId 未命中）");
+        // 预期空态（冷会话重启丢内存/turnId 未命中）→ 优雅空态回执（v0.12
+        // §43 phase="empty"，turnId 缺省）：旧版在此误报
+        // command.invalid_payload（症状A根因——错误帧以 toast 噪声暴露）
+        const empty: DiffGetResultEvent = {
+          v: PROTOCOL_VERSION,
+          sessionId: sid,
+          channel: "session",
+          type: "diff.get.result",
+          payload: { files: [], summary: { adds: 0, dels: 0 }, phase: "empty" },
+        };
+        return reply(ctx, empty);
       }
       const frame: DiffGetResultEvent = {
         v: PROTOCOL_VERSION,

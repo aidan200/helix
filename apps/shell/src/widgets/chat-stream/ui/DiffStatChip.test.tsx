@@ -168,6 +168,28 @@ describe("DiffStatChip rehydrate（v0.3.1 §29：会话切回补拉）", () => {
     expect(sendDiffGet).not.toHaveBeenCalled();
   });
 
+  // v0.12 §43 空态回执容错（会话复水双修复）：daemon 重启后冷会话回
+  // phase="empty"（consumers/diff 不落切片）→ diff 保持 null、chip 隐藏；
+  // 重拉门控仅随 conn/sid 变化重试（无轮询风暴、无错误面）
+  it("空态回执（phase=empty 不落切片）→ chip 隐藏 + 不重拉（deps 未变零重发）", () => {
+    // 连接就绪 + 会话确立：发一次补拉（daemon 冷会话——回执不落切片，store diff 仍 null）
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", conn: "connected" };
+    const { rerender, container } = render(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="diff-stat-chips"]')).toBeNull(); // 空态不渲染
+    // 同 deps 重渲染（空态回执后 diff 仍 null）→ 不重复发（无轮询风暴）
+    rerender(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).toHaveBeenCalledTimes(1);
+  });
+
   // code-review 低危组9 / TR-168：send 返回值必消费——false 一次性失败态，
   // conn 腿变化清标记重试（不重复发、不静默吞）
   it("sendDiffGet 返回 false（断线窗口）→ 一次性失败态停拉；conn 变化重试", async () => {
