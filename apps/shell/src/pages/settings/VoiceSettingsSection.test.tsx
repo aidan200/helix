@@ -19,6 +19,8 @@ import type { EventEnvelope } from "@helix/protocol";
 const requestAuthList = vi.fn();
 const setProviderKey = vi.fn(() => true);
 const sendVoiceSynthesize = vi.fn(() => true);
+const sendVoiceSubscribe = vi.fn(() => true);
+const sendVoiceUnsubscribe = vi.fn(() => true);
 let frameListener: ((e: EventEnvelope) => void) | null = null;
 const subscribeVoiceFrames = vi.fn((cb: (e: EventEnvelope) => void) => {
   frameListener = cb;
@@ -33,6 +35,8 @@ vi.mock("@/entities/session/SessionContext", () => ({
     requestAuthList,
     setProviderKey,
     sendVoiceSynthesize,
+    sendVoiceSubscribe,
+    sendVoiceUnsubscribe,
     subscribeVoiceFrames,
   }),
 }));
@@ -111,6 +115,21 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2）", () => {
     localStorage.setItem("helix.voice.broadcast", "1");
     const r = rig();
     expect(broadcastRadio(r, "on").checked).toBe(true);
+  });
+
+  it("播报开关切换即时订阅：开 → sendVoiceSubscribe(当前音色)；关 → sendVoiceUnsubscribe（V2 缺陷修复：不再等重连）", () => {
+    const r = rig();
+    fireEvent.click(broadcastRadio(r, "on"));
+    expect(sendVoiceSubscribe).toHaveBeenCalledWith("Cherry"); // 默认音色随订阅上报
+    fireEvent.click(broadcastRadio(r, "off"));
+    expect(sendVoiceUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("订阅态下切音色 → sendVoiceSubscribe(新音色) 即时重报（音色随订阅上报）", () => {
+    rig();
+    const select = screen.getByLabelText(/播报音色|Voice/) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "Ethan" } });
+    expect(sendVoiceSubscribe).toHaveBeenCalledWith("Ethan");
   });
 
   it("音色选择：默认 Cherry 选中；切换写 helix.voice.ttsVoice", () => {
