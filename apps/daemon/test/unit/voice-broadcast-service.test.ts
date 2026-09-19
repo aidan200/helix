@@ -15,11 +15,14 @@
 import { describe, expect, test } from "bun:test";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { TtsPort, TtsRequest, TtsResult } from "../../src/application/ports/outbound/TtsPort";
+import type { VoiceSummarizerPort } from "../../src/application/ports/outbound/VoiceSummarizerPort";
 import {
   BroadcastService,
   buildBroadcastText,
+  buildSummaryUserPrompt,
   isBroadcastEligible,
   SUMMARY_MAX_CHARS,
+  SUMMARY_TIMEOUT_MS,
 } from "../../src/application/voice/BroadcastService";
 import type { VoiceBroadcastPayload } from "@helix/protocol";
 
@@ -50,7 +53,9 @@ function fakeTts(): TtsPort & { calls: TtsRequest[]; fail: boolean } {
   } as TtsPort & { calls: TtsRequest[]; fail: boolean };
 }
 
-function makeService(opts?: { subscribers?: number; voice?: string }) {
+function makeService(
+  opts?: { subscribers?: number; voice?: string; summarizer?: VoiceSummarizerPort; summaryTimeoutMs?: number },
+) {
   const tts = fakeTts();
   const frames: VoiceBroadcastPayload[] = [];
   const warns: string[] = [];
@@ -63,8 +68,29 @@ function makeService(opts?: { subscribers?: number; voice?: string }) {
     gate,
     emit: (payload) => frames.push(payload),
     logger: { warn: (m: string) => warns.push(m) },
+    ...(opts?.summarizer !== undefined ? { summarizer: opts.summarizer } : {}),
+    ...(opts?.summaryTimeoutMs !== undefined ? { summaryTimeoutMs: opts.summaryTimeoutMs } : {}),
   });
   return { svc, tts, frames, warns };
+}
+
+/** fake 摘要 port（③层测试面）：记录调用 prompt；可控行为（文本/抛错/延迟/不可用）。 */
+function fakeSummarizer(
+  behavior?: { text?: string; error?: Error; delayMs?: number; available?: boolean },
+): VoiceSummarizerPort & { calls: { systemPrompt: string; userPrompt: string }[] } {
+  const calls: { systemPrompt: string; userPrompt: string }[] = [];
+  return {
+    calls,
+    isAvailable: () => behavior?.available !== false,
+    async complete(prompt) {
+      calls.push({ systemPrompt: prompt.systemPrompt, userPrompt: prompt.userPrompt });
+      if ((behavior?.delayMs ?? 0) > 0) {
+        await new Promise((r) => setTimeout(r, behavior!.delayMs));
+      }
+      if (behavior?.error !== undefined) throw behavior.error;
+      return behavior?.text ?? "（fake 摘要播报稿）";
+    },
+  };
 }
 
 describe("规则粗筛（①层）：isBroadcastEligible + buildBroadcastText", () => {
@@ -168,5 +194,123 @@ describe("BroadcastService：闸门/模板/队列/串行（②层）", () => {
     expect(frames[0]!.agentId).toBe("agent-y");
     expect(warns.length).toBe(1);
     expect(warns[0]).toContain("agent-x");
+  });
+});
+
+describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", () => {
+  test("摘要全链：LLM 白话摘要替代模板文本进队列合成广播", async () => {
+    const summarizer = fakeSummarizer({ text: "任务搞定了，登录超时的问题已经修好。" });
+    const { svc, tts, frames } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
+    await svc.drain();
+    expect(summarizer.calls.length).toBe(1);
+    expect(tts.calls[0]!.text).toBe("任务搞定了，登录超时的问题已经修好。");
+    expect(frames[0]!.text).toBe("任务搞定了，登录超时的问题已经修好。");
+    expect(frames[0]!.kind).toBe("agent.completed");
+  });
+
+  test("prompt 要点：systemPrompt 含长度/口语化指令；userPrompt 含 agentId 与 closure 摘要原文（不截断）", async () => {
+    const long = "细节".repeat(120); // 240 字符 > ②层截断上限 80
+    const summarizer = fakeSummarizer();
+    const { svc } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure(long) }));
+    await svc.drain();
+    const { systemPrompt, userPrompt } = summarizer.calls[0]!;
+    // 长度指令 + 口语化指令（面向人类听众的播报稿约束）
+    expect(systemPrompt).toContain("不超过");
+    expect(systemPrompt).toContain("口语");
+    // closure 摘要全文进 prompt（LLM 看全貌才能摘要——与②层 80 字符截断不同面）
+    expect(userPrompt).toContain("agent-2");
+    expect(userPrompt).toContain(long);
+  });
+
+  test("failed 事件：userPrompt 含错误信息原文（失败原因人话化的输入面）", async () => {
+    const summarizer = fakeSummarizer();
+    const { svc } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "ECONNRESET: socket hang up", closure: closure("") }));
+    await svc.drain();
+    expect(summarizer.calls[0]!.userPrompt).toContain("ECONNRESET: socket hang up");
+    expect(summarizer.calls[0]!.userPrompt).toContain("失败");
+  });
+
+  test("money gate 前移：零订阅连接 → 零 LLM 调用零合成零发", async () => {
+    const summarizer = fakeSummarizer();
+    const { svc, tts, frames } = makeService({ subscribers: 0, summarizer });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
+    await svc.drain();
+    expect(summarizer.calls.length).toBe(0); // 摘要也花钱：gate 覆盖 LLM 层
+    expect(tts.calls.length).toBe(0);
+    expect(frames.length).toBe(0);
+  });
+
+  test("摘要面不可用（isAvailable=false，如管家未启用/模型未配置）→ 零 LLM 调用 + ②层模板直出", async () => {
+    const summarizer = fakeSummarizer({ available: false });
+    const { svc, tts, frames } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
+    await svc.drain();
+    expect(summarizer.calls.length).toBe(0);
+    expect(tts.calls[0]!.text).toBe("agent-2 已完成：修复登录超时");
+    expect(frames[0]!.text).toBe("agent-2 已完成：修复登录超时");
+  });
+
+  test("LLM 抛错 → 回退②层模板文本（播报不哑）+ warn 观测", async () => {
+    const summarizer = fakeSummarizer({ error: new Error("模型调用失败模拟") });
+    const { svc, tts, frames, warns } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "网络超时", closure: closure("") }));
+    await svc.drain();
+    expect(tts.calls[0]!.text).toBe("agent-3 失败：网络超时");
+    expect(frames[0]!.text).toBe("agent-3 失败：网络超时");
+    expect(warns.length).toBe(1);
+    expect(warns[0]).toContain("回退");
+  });
+
+  test("LLM 超时（timeoutMs 注入面）→ 回退②层模板文本 + warn 含超时", async () => {
+    const summarizer = fakeSummarizer({ delayMs: 200 });
+    const { svc, tts, frames, warns } = makeService({ summarizer, summaryTimeoutMs: 20 });
+    svc.onDomainEvent(agentEvent("agent.killed", { agentId: "agent-4", closure: closure("用户手动停止") }));
+    await svc.drain();
+    expect(tts.calls[0]!.text).toBe("agent-4 已终止：用户手动停止");
+    expect(frames[0]!.text).toBe("agent-4 已终止：用户手动停止");
+    expect(warns.length).toBe(1);
+    expect(warns[0]).toContain("超时");
+  });
+
+  test("摘要耗时不均不乱序：后到快摘要不得先播（串行链按事件到达序）", async () => {
+    let calls = 0;
+    const summarizer: VoiceSummarizerPort = {
+      isAvailable: () => true,
+      async complete() {
+        calls += 1;
+        await new Promise((r) => setTimeout(r, calls === 1 ? 40 : 1)); // 第一条慢、第二条快
+        return `第${calls}条白话摘要`;
+      },
+    };
+    const { svc, frames } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-a", closure: closure("一") }));
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b", closure: closure("二") }));
+    await svc.drain();
+    expect(frames.map((f) => f.agentId)).toEqual(["agent-a", "agent-b"]);
+    expect(frames.map((f) => f.text)).toEqual(["第1条白话摘要", "第2条白话摘要"]);
+    expect(frames.map((f) => f.seq)).toEqual([1, 2]);
+  });
+});
+
+describe("buildSummaryUserPrompt（纯函数）：终态三形态", () => {
+  test("默认超时 8s（deps 注入面缺省值）", () => {
+    expect(SUMMARY_TIMEOUT_MS).toBe(8000);
+  });
+
+  test("三形态：完成/失败（含 error）/被杀各含对应字段", () => {
+    const completed = buildSummaryUserPrompt(agentEvent("agent.completed", { agentId: "a1", closure: closure("任务完成摘要") }))!;
+    expect(completed).toContain("完成");
+    expect(completed).toContain("a1");
+    expect(completed).toContain("任务完成摘要");
+    const failed = buildSummaryUserPrompt(agentEvent("agent.failed", { agentId: "a2", error: "boom", closure: closure("") }))!;
+    expect(failed).toContain("失败");
+    expect(failed).toContain("boom");
+    const killed = buildSummaryUserPrompt(agentEvent("agent.killed", { agentId: "a3", closure: closure("被停了") }))!;
+    expect(killed).toContain("终止");
+    expect(killed).toContain("被停了");
+    expect(buildSummaryUserPrompt(agentEvent("agent.spawned", { agentId: "a4", task: "t" }))).toBeUndefined();
   });
 });

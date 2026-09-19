@@ -50,9 +50,11 @@ import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { DashScopeTtsAdapter, DASHSCOPE_PROVIDER_ID as DASHSCOPE_TTS_PROVIDER_ID } from "../adapters/driven/tts/dashscope";
 import { BroadcastService } from "../application/voice/BroadcastService";
-import { StewardService, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
+import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
 import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
 import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/steward/PiStewardLlmAdapter";
+import { StewardVoiceSummarizerAdapter } from "../adapters/driven/voice/StewardVoiceSummarizerAdapter";
+import type { VoiceSummarizerPort } from "../application/ports/outbound/VoiceSummarizerPort";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
@@ -194,6 +196,12 @@ export interface AssembleDaemonDeps {
    * 缺省 = DashScopeTtsAdapter 真体）。
    */
   readonly voiceTtsOverride?: TtsPort;
+  /**
+   * ③层 LLM 摘要面覆盖（语音播报批：测试注入 fake VoiceSummarizerPort 驱动
+   * 摘要/回退路径；缺省 = StewardVoiceSummarizerAdapter 真体——复用管家 LLM
+   * 面与配置槽位）。
+   */
+  readonly voiceSummarizerOverride?: VoiceSummarizerPort;
   /**
    * 管家 LLM 面覆盖（V2.5 文本管家批：测试注入 fake StewardLlmPort 驱动全链；
    * 缺省 = PiStewardLlmAdapter 真体）。
@@ -619,17 +627,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly, orchestratorMcpTools } = sessionStack;
 
-  // ── 语音播报批（V2 TTS）：TTS adapter + BroadcastService（fanout 目标
-  //    voice-broadcast-bridge 的服务体；闸门读面 = eventStream 连接级 voice
-  //    订阅表——零订阅连接 = 零合成零花费，播报开关默认 off 的落地面）──
+  // ── 语音播报批（V2 TTS + ③层 LLM 摘要）：TTS adapter + BroadcastService
+  //    （fanout 目标 voice-broadcast-bridge 的服务体；闸门读面 = eventStream
+  //    连接级 voice 订阅表——零订阅连接 = 零 LLM 零合成零花费，播报开关
+  //    默认 off 的落地面）──
   const voiceTts = deps.voiceTtsOverride ?? new DashScopeTtsAdapter({
     getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID),
-  });
-  const voiceBroadcast = new BroadcastService({
-    tts: voiceTts,
-    gate: eventStream, // hasVoiceSubscribers/voicePreference 窄接口（EventStream 实现 BroadcastGate）
-    emit: (payload) => eventStream.broadcastVoice(payload),
-    logger,
   });
 
   // ── 文本管家批（V2.5）：StewardService（fanout 目标 steward-feed-bridge
@@ -643,6 +646,22 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     modelSlot: () => persistence.runtimeConfig.get(STEWARD_MODEL_KEY),
     defaultModel: STEWARD_DEFAULT_MODEL,
     getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+  });
+
+  // ③层播报摘要面：复用管家 LLM 真体（模型槽位/key 同源 steward 配置面
+  // ——换模型换 key 自动跟随）；可用性 = 管家开关开 ∧ 模型槽位非空
+  // （管家未启用/未配置模型 → isAvailable=false → BroadcastService 回退
+  // ②层模板直出，零 LLM 调用）。
+  const voiceSummarizer = deps.voiceSummarizerOverride ?? new StewardVoiceSummarizerAdapter({
+    llm: stewardLlm,
+    enabled: () => persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1",
+  });
+  const voiceBroadcast = new BroadcastService({
+    tts: voiceTts,
+    gate: eventStream, // hasVoiceSubscribers/voicePreference 窄接口（EventStream 实现 BroadcastGate）
+    emit: (payload) => eventStream.broadcastVoice(payload),
+    summarizer: voiceSummarizer,
+    logger,
   });
   const stewardService = new StewardService({
     llm: stewardLlm,
