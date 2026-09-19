@@ -226,9 +226,22 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
                 <span className="stp-voice-phase" data-testid="steward-voice-phase">
                   {phaseCaption[phase]}
                 </span>
+                {/* V3b-1 流式 interim 浮字：淡色斜体，波形下方实时上屏（listening
+                    态随帧刷新；transcribing 态短暂保留至 final 转正）；final 到达
+                    由 ask 气泡接管 */}
+                {(listening || phase === "transcribing") && sv.interim !== null && sv.interim !== "" && (
+                  <span className="stp-interim" data-testid="steward-interim" aria-live="polite">
+                    {sv.interim}
+                  </span>
+                )}
                 {phase === "idle" && (
                   <span className="stp-voice-hint" data-testid="steward-voice-hint">
                     {t("steward.voice.phaseIdleHint")}
+                  </span>
+                )}
+                {sv.streamDegraded && (listening || phase === "transcribing") && (
+                  <span className="stp-stream-degraded" data-testid="steward-stream-degraded">
+                    {t("steward.voice.streamDegraded")}
                   </span>
                 )}
                 {sv.voiceError !== null && (

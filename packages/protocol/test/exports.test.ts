@@ -277,11 +277,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（+ 管家流式体验批 steward.ask.delta：命令 87 / 事件 105；v0.13 微批）", () => {
+  test("② 常量语义值 + 目录计数（+ 流式转写批 stt.stream：命令 91 / 事件 108；v0.13 微批）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.13"); // v0.13 批次版本位（steward 批；契约 = PROTOCOL-CHANGELOG.md changelog/v0.13.md；流式体验批 = 版本位不动微批，§17.14）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(87); // 文本管家批 +6（steward 六命令）
-    expect(protocol.EVENT_TYPES.length).toBe(105); // 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(105); // 登记目录恰等（+ steward.ask.delta）
+    expect(protocol.COMMAND_TYPES.length).toBe(91); // 流式转写批 +4（stt.stream 四命令）// 文本管家批 +6（steward 六命令）
+    expect(protocol.EVENT_TYPES.length).toBe(108); // 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(108); // 登记目录恰等（+ stt.stream 三事件）
   });
 });

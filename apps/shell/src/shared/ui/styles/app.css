@@ -1390,3 +1390,11 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
   .stp-voice[data-phase] .stp-wave { animation: none; }
   .stp-wave-bar { transition: none; }
 }
+
+/* V3b-1 流式转写面：interim 浮字（淡色斜体——与已转正文本视觉区分，
+   帧驱动高频刷新不重排版：单行省略）；降级提示（不显眼一行） */
+.stp-interim {
+  font-size: var(--text-cap); color: var(--text-dim); font-style: italic;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stp-stream-degraded { font-size: var(--text-cap); color: var(--text-dim); }

@@ -94,7 +94,7 @@ import type {
   McpServersTestCommand,
   McpToolsListCommand,
 } from "./mcp";
-import type { SttTranscribeCommand } from "./stt";
+import type { SttStreamChunkCommand, SttStreamFinishCommand, SttStreamStartCommand, SttStreamStopCommand, SttTranscribeCommand } from "./stt";
 import type {
   VoiceSubscribeCommand,
   VoiceSynthesizeCommand,
@@ -187,6 +187,10 @@ export type CommandEnvelope =
   | McpServersTestCommand
   | McpToolsListCommand
   | SttTranscribeCommand
+  | SttStreamStartCommand
+  | SttStreamChunkCommand
+  | SttStreamFinishCommand
+  | SttStreamStopCommand
   | VoiceSynthesizeCommand
   | VoiceSubscribeCommand
   | VoiceUnsubscribeCommand
@@ -206,6 +210,11 @@ export const COMMAND_TYPES = [
   "ask.answer",
   // 语音输入批（V1 云转写）：一次性音频转写（点对点回执）
   "stt.transcribe",
+  // 流式转写批（V3b-1）：边说边转写（开流/音频块上行/正常收口/中止）
+  "stt.stream.start",
+  "stt.stream.chunk",
+  "stt.stream.finish",
+  "stt.stream.stop",
   // 语音播报批（V2 TTS）：一次性合成（试听）+ 连接级订阅闸门
   "voice.synthesize",
   "voice.subscribe",

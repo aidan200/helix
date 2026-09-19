@@ -40,6 +40,8 @@ import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/pro
 import { ensureDevToken } from "../dev-token";
 import { DashScopeSttAdapter, DASHSCOPE_PROVIDER_ID } from "../../adapters/driven/stt/dashscope";
 import { SiliconFlowSttAdapter, SILICONFLOW_PROVIDER_ID } from "../../adapters/driven/stt/siliconflow";
+import { DashScopeRealtimeSttAdapter } from "../../adapters/driven/stt/realtime";
+import { SttStreamService } from "../../application/stt/SttStreamService";
 import type { SingletonLock } from "../lifecycle";
 import type { HelixPaths } from "../paths";
 import type { DaemonConfig } from "../config";
@@ -328,12 +330,21 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     ...(deps.askService !== undefined ? { askService: deps.askService } : {}), // ask.answer 命令回口（提权申请批）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
-    // 语音输入批 V1：stt.transcribe 命令回口（SttPort 装配优先序 = dashscope 主选、
-    // siliconflow 兜底；key 读面对齐 model-provider AuthStore getter 先例——每次
-    // 调用重读 auth.json，换 key 后自动跟随）
+    // 语音输入批 V1 + 流式转写批 V3b-1：stt 命令族回口（SttPort 装配优先序 =
+    // dashscope 主选、siliconflow 兜底；流式面 = SttStreamService 连接级单流
+    // 生命周期 + DashScope realtime adapter——冒烟证据 docs/temp/stt-streaming/
+    // DECISION.md：qwen3-asr-flash-realtime + corpus 偏置单转写架构；key 读面
+    // 对齐 model-provider AuthStore getter 先例——每次调用重读 auth.json，
+    // 换 key 后自动跟随）
     stt: {
       providers: [new DashScopeSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID) }), new SiliconFlowSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(SILICONFLOW_PROVIDER_ID) })],
       apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
+      stream: {
+        service: new SttStreamService({
+          adapters: [new DashScopeRealtimeSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID) })],
+          apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
+        }),
+      },
     },
     // 语音播报批 V2：voice 族三命令回口（TTS 与 BroadcastService 同源 adapter；
     // key 读面同 stt 先例——每次调用重读 auth.json，换 key 自动跟随）

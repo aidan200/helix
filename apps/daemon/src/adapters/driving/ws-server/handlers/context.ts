@@ -41,6 +41,7 @@ import type { SessionStateView } from "../../../../application/ports/inbound/Ses
 import type { ResourceConfigPort } from "../../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../../application/ports/outbound/BrowserPort";
 import type { SttPort } from "../../../../application/ports/outbound/SttPort";
+import type { SttStreamService } from "../../../../application/stt/SttStreamService";
 import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
 import type { StewardService } from "../../../../application/steward/StewardService";
 import type { EventStream, FrameSender } from "../EventStream";
@@ -298,12 +299,19 @@ export interface WebCommandContext {
   sendNow(sender: FrameSender, frame: EventEnvelope): void;
 }
 
-/** stt 族命令回口（语音输入批 V1：SttPort 装配清单 + key 读面——只转发不决策）。 */
+/** stt 族命令回口（语音输入批 V1 + V3b-1 流式批）：SttPort 装配清单 +
+ *  key 读面 + 流式会话面（只转发不决策）。 */
 export interface SttCommandDeps {
   /** 已装配 STT provider 端口（装配优先序：dashscope 在前、siliconflow 兜底）。 */
   readonly providers: readonly SttPort[];
   /** key 读面（组合根注入 authStore.apiKeyOf——provider 自动选择判据；每次调用重读）。 */
   readonly apiKeyOf: (providerId: string) => string | undefined;
+  /**
+   * 流式转写面（V3b-1）：连接级单流生命周期服务（stt.stream 四命令回口 +
+   * 断连清理）。可选：未注入 → stt.stream.* 回 command.unimplemented
+   *（stt 先例；stub rig 兼容）。
+   */
+  readonly stream?: { readonly service: SttStreamService };
 }
 
 /**

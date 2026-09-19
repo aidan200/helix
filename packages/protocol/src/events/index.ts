@@ -138,7 +138,7 @@ import type {
   McpStatusChangedEvent,
 } from "./mcp";
 import type { AskResolvedEvent, AskStartedEvent } from "./interaction";
-import type { SttTranscribeResultEvent } from "./stt";
+import type { SttStreamFinalEvent, SttStreamInterimEvent, SttStreamStartedEvent, SttTranscribeResultEvent } from "./stt";
 import type { VoiceBroadcastEvent, VoiceSynthesizeResultEvent } from "./voice";
 import type {
   StewardAskResultEvent,
@@ -266,6 +266,9 @@ export type EventEnvelope =
   | McpToolsListResultEvent
   | McpStatusChangedEvent
   | SttTranscribeResultEvent
+  | SttStreamStartedEvent
+  | SttStreamInterimEvent
+  | SttStreamFinalEvent
   | VoiceBroadcastEvent
   | VoiceSynthesizeResultEvent
   | StewardAskResultEvent
@@ -385,6 +388,10 @@ export const EVENT_TYPES = [
   "steward.confirm.result",
   "steward.feed",
   "steward.config.result",
+  // 流式转写批（V3b-1）：开流回执/实时中间帧/终帧（点对点；streamId 门控）
+  "stt.stream.started",
+  "stt.stream.interim",
+  "stt.stream.final",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -494,6 +501,9 @@ export const EVENT_CHANNELS = {
   "ask.started": "interaction",
   "ask.resolved": "interaction",
   "stt.transcribe.result": "stt",
+  "stt.stream.started": "stt",
+  "stt.stream.interim": "stt",
+  "stt.stream.final": "stt",
   "voice.broadcast": "voice",
   "voice.synthesize.result": "voice",
   "steward.ask.result": "steward",

@@ -38,6 +38,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import { createWorkletRmsMeter, type RmsMeterFactory } from "./rms-meter";
+import { createWorkletPcmPump, type PcmPumpFactory } from "./pcm-pump";
 import type { EventEnvelope } from "@helix/protocol";
 
 export type VoiceState = "unsupported" | "idle" | "recording" | "transcribing";
@@ -73,7 +74,7 @@ function pickMimeType(): string | undefined {
   return undefined;
 }
 
-/** useVoiceInput 注入面（shared 零 entities 依赖——SessionContext 命令/订阅面由消费方注入；测试注入 fake meter 驱动 VAD 帧）。 */
+/** useVoiceInput 注入面（shared 零 entities 依赖——SessionContext 命令/订阅面由消费方注入；测试注入 fake meter/pump 驱动 VAD 帧）。 */
 export interface UseVoiceInputOptions {
   /** stt.transcribe 发送面（SessionContext COMMAND_SURFACE；缺省不发——防御测试形态）。 */
   readonly sendSttTranscribe?: (audio: string, opts?: { language?: string; provider?: string }) => boolean;
@@ -81,6 +82,23 @@ export interface UseVoiceInputOptions {
   readonly subscribeSttFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   /** RMS meter 工厂（缺省 createWorkletRmsMeter；测试注入 fake 驱动 VAD 帧）。 */
   readonly createMeter?: RmsMeterFactory;
+  /**
+   * PCM 帧回调（V3b-1 流式面）：传入即挂 pcm-pump worklet（与 meter 同流
+   * 共存），每 ~100ms 回调 Int16 PCM 16k mono ArrayBuffer。不传 = V3a
+   * 行为零感知（Composer 非流式链路不挂泵）。
+   */
+  readonly onPcmFrame?: (frame: ArrayBuffer) => void;
+  /** PCM 泵工厂（缺省 createWorkletPcmPump；测试注入 fake）。 */
+  readonly createPump?: PcmPumpFactory;
+  /**
+   * 停录不自动上传（V3b-1 流式收口面）：stop 后停留 transcribing 态持
+   * blob，经 resolveStreaming(text)（流式终帧收口）或 transcribeNow()
+   *（回落非流式）出态；onDeferredHold 在 blob 就位后回调（消费方在此
+   * 判流式在途与否决定 finish/回落）。缺省 false = V3a 行为（停即上传）。
+   */
+  readonly deferredTranscribe?: boolean;
+  /** deferred 态 blob 就位回调（每轮 stop 恰一次；消费方读自家流式 refs 决策）。 */
+  readonly onDeferredHold?: () => void;
 }
 
 export interface VoiceInput {
@@ -93,12 +111,25 @@ export interface VoiceInput {
   start: () => Promise<void>;
   /** 停止录音并发起转写（录音中点击 = 强制停；VAD 自动停走内部路径）。 */
   stop: () => void;
+  /**
+   * 流式终帧收口（V3b-1；仅 deferred 态生效）：text 非空 → onTranscript(text)
+   * 收口回 idle；空/空白 → 丢弃回 idle（零转写零计费同构——全程静音语义）。
+   * 他态 no-op（返回 false）。
+   */
+  resolveStreaming(text: string): boolean;
+  /**
+   * 回落非流式（V3b-1；仅 deferred 态生效）：把持有 blob 走既有上传转写
+   * 链（回执消费照旧）。他态 no-op。
+   */
+  transcribeNow(): void;
 }
 
 export function useVoiceInput(onTranscript: (text: string) => void, options?: UseVoiceInputOptions): VoiceInput {
   const { t } = useI18n();
   const sendSttTranscribe = options?.sendSttTranscribe;
   const subscribeSttFrames = options?.subscribeSttFrames;
+  const deferredTranscribe = options?.deferredTranscribe === true;
+  const onPcmFrame = options?.onPcmFrame;
   const [state, setState] = useState<VoiceState>(() =>
     typeof navigator !== "undefined" && navigator.mediaDevices !== undefined && typeof MediaRecorder !== "undefined"
       ? "idle"
@@ -111,6 +142,12 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef<number>(0);
   const meterRef = useRef<ReturnType<RmsMeterFactory> extends Promise<infer T> ? T : never>(null);
+  const pumpRef = useRef<ReturnType<PcmPumpFactory> extends Promise<infer T> ? T : never>(null);
+  /** deferred 态持有的 blob（resolveStreaming/transcribeNow 消费）。 */
+  const pendingBlobRef = useRef<Blob | null>(null);
+  /** 回执单飞门控位（V3b-1）：仅自己发起的上传在途才消费 stt.transcribe.result——
+   *  deferred 等终帧期间的外来回执（他面上传结果）不串台。 */
+  const uploadInFlightRef = useRef(false);
   const spokeRef = useRef(false);
   const lastLoudAtRef = useRef(0);
   const levelRef = useRef(0);
@@ -120,6 +157,13 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   const createMeter = options?.createMeter ?? createWorkletRmsMeter;
   const createMeterRef = useRef(createMeter);
   createMeterRef.current = createMeter;
+  const createPump = options?.createPump ?? createWorkletPcmPump;
+  const createPumpRef = useRef(createPump);
+  createPumpRef.current = createPump;
+  const onPcmFrameRef = useRef(onPcmFrame);
+  onPcmFrameRef.current = onPcmFrame;
+  const onDeferredHoldRef = useRef(options?.onDeferredHold);
+  onDeferredHoldRef.current = options?.onDeferredHold;
 
   // 状态 ref 镜像（meter 帧回调闭包不随渲染刷新——帧回调读实时态；
   //  读画封装为函数：tsc 对 ref.current 的直线窄化不因跨函数调用重置，
@@ -134,14 +178,16 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     }
   }, []);
 
-  // 回执消费（单飞门控：仅 transcribing 态消费——两消费面并存（Composer /
-  // 管家语音）后，idle 态吞外来回执防串台；daemon 业务失败走 error 判别，
-  // 协议面错误走 connection.error——两者都收口回 idle + error 交代）
+  // 回执消费（单飞门控：仅自己发起的上传在途才消费——两消费面并存
+  //（Composer / 管家语音）后，idle/deferred 态吞外来回执防串台；daemon 业务
+  // 失败走 error 判别，协议面错误走 connection.error——两者都收口回 idle +
+  // error 交代）
   useEffect(() => {
     if (subscribeSttFrames === undefined) return;
     return subscribeSttFrames((event: EventEnvelope) => {
-      if (stateRef.current !== "transcribing") return; // 非在途：外来回执（他消费面的转写结果）不消费
+      if (stateRef.current !== "transcribing" || !uploadInFlightRef.current) return; // 非在途/非己发：外来回执不消费
       if (event.type === "stt.transcribe.result") {
+        uploadInFlightRef.current = false;
         if (event.payload.status === "ok") {
           setError(null);
           setStateSafe("idle");
@@ -151,6 +197,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
           setStateSafe("idle");
         }
       } else if (event.type === "connection.error") {
+        uploadInFlightRef.current = false;
         setError(String((event.payload as { message?: string }).message ?? t("chat.voice.transcribeFail")));
         setStateSafe("idle");
       }
@@ -170,12 +217,44 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     meter?.close();
   }, []);
 
+  const closePump = useCallback(() => {
+    const pump = pumpRef.current;
+    pumpRef.current = null;
+    pump?.close();
+  }, []);
+
   useEffect(
     () => () => {
       closeMeter();
+      closePump();
       cleanupMedia();
     },
-    [closeMeter, cleanupMedia],
+    [closeMeter, closePump, cleanupMedia],
+  );
+
+  /** 既有上传转写链（V3a 路径；deferred 回落 transcribeNow 复用同体）。 */
+  const uploadBlob = useCallback(
+    (blob: Blob) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (sendSttTranscribe === undefined) {
+          setStateSafe("idle");
+          return;
+        }
+        // 设置页 provider 偏好随命令携带（缺省 auto = 不带，daemon 装配序自动选择）
+        const provider = readSttProviderPref();
+        const sent = sendSttTranscribe(String(reader.result), { language: "zh", ...(provider !== undefined ? { provider } : {}) });
+        uploadInFlightRef.current = sent;
+        setStateSafe(sent ? "transcribing" : "idle");
+        if (!sent) setError(t("chat.voice.sendFail"));
+      };
+      reader.onerror = () => {
+        setStateSafe("idle");
+        setError(t("chat.voice.readFail"));
+      };
+      reader.readAsDataURL(blob);
+    },
+    [sendSttTranscribe, setStateSafe, t],
   );
 
   // ── 停止收口（双路径：点击强制停 fromVad=false / VAD 自动停 fromVad=true）──
@@ -191,6 +270,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       const spoke = spokeRef.current;
       const durationMs = Date.now() - startedAtRef.current;
       closeMeter();
+      closePump();
       recorder.onstop = () => {
         const chunks = chunksRef.current;
         cleanupMedia();
@@ -205,28 +285,20 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
           setStateSafe("idle");
           return;
         }
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (sendSttTranscribe === undefined) {
-            setStateSafe("idle");
-            return;
-          }
-          // 设置页 provider 偏好随命令携带（缺省 auto = 不带，daemon 装配序自动选择）
-          const provider = readSttProviderPref();
-          const sent = sendSttTranscribe(String(reader.result), { language: "zh", ...(provider !== undefined ? { provider } : {}) });
-          setStateSafe(sent ? "transcribing" : "idle");
-          if (!sent) setError(t("chat.voice.sendFail"));
-        };
-        reader.onerror = () => {
-          setStateSafe("idle");
-          setError(t("chat.voice.readFail"));
-        };
-        reader.readAsDataURL(blob);
+        if (deferredTranscribe) {
+          // V3b-1 流式收口面：持 blob 停留 transcribing，交消费方
+          //（resolveStreaming/transcribeNow）出态
+          pendingBlobRef.current = blob;
+          setStateSafe("transcribing");
+          onDeferredHoldRef.current?.();
+          return;
+        }
+        uploadBlob(blob);
       };
       setStateSafe("transcribing"); // stop->onstop async gap placeholder (UI-invisible)
       recorder.stop();
     },
-    [cleanupMedia, closeMeter, sendSttTranscribe, setStateSafe, t],
+    [cleanupMedia, closeMeter, closePump, deferredTranscribe, uploadBlob, setStateSafe],
   );
 
   const start = useCallback(async () => {
@@ -253,31 +325,51 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       recorder.start(250); // 250ms slices: tail chunk safe before stop
       setStateSafe("recording");
 
-      // RMS meter 挂载（VAD 帧驱动；工厂失败/环境缺失 → VAD 降级关闭不阻断录音）
+      // RMS meter 挂载（VAD 帧驱动；工厂失败/环境缺失 → VAD 降级关闭不阻断录音；
+      // 降级不早退——pump 挂载在后，录音/流式不受 meter 缺席影响）
       try {
         const meter = await createMeterRef.current(stream);
-        if (meter === null || !isRecording()) {
-          meter?.close();
-          return;
+        if (meter !== null && isRecording()) {
+          meterRef.current = meter;
+          meter.onLevel((rms) => {
+            if (!isRecording()) return;
+            // 电平显示平滑（loud 抬升/静音衰减——电平条数据源）
+            const shown = Math.min(1, Math.max(rms * VOICE_LEVEL_GAIN, levelRef.current * VOICE_LEVEL_DECAY));
+            levelRef.current = shown;
+            setLevel(shown);
+            // VAD 门：开口帧刷新 lastLoud；静音时钟自 max(开始+LEAD_IN, lastLoud) 起算
+            const now = Date.now();
+            if (rms >= VOICE_RMS_THRESHOLD) {
+              spokeRef.current = true;
+              lastLoudAtRef.current = now;
+            }
+            const silenceSince = Math.max(startedAtRef.current + VOICE_LEAD_IN_MS, lastLoudAtRef.current);
+            if (now - silenceSince >= VOICE_SILENCE_STOP_MS) stop(true);
+          });
+        } else {
+          meter?.close(); // 环境不支持/窗口已过：VAD 降级（不早退——pump 仍挂）
         }
-        meterRef.current = meter;
-        meter.onLevel((rms) => {
-          if (!isRecording()) return;
-          // 电平显示平滑（loud 抬升/静音衰减——电平条数据源）
-          const shown = Math.min(1, Math.max(rms * VOICE_LEVEL_GAIN, levelRef.current * VOICE_LEVEL_DECAY));
-          levelRef.current = shown;
-          setLevel(shown);
-          // VAD 门：开口帧刷新 lastLoud；静音时钟自 max(开始+LEAD_IN, lastLoud) 起算
-          const now = Date.now();
-          if (rms >= VOICE_RMS_THRESHOLD) {
-            spokeRef.current = true;
-            lastLoudAtRef.current = now;
-          }
-          const silenceSince = Math.max(startedAtRef.current + VOICE_LEAD_IN_MS, lastLoudAtRef.current);
-          if (now - silenceSince >= VOICE_SILENCE_STOP_MS) stop(true);
-        });
       } catch {
         // meter 挂载失败（如 getUserMedia 流被判无效）：降级无 VAD——点击停路径仍可用
+      }
+
+      // PCM 泵挂载（V3b-1 流式面：onPcmFrame 传入才挂；与 meter 同流共存；
+      // 工厂失败/环境缺失 → 流式降级不阻断录音——VAD/点击停路径不受影响）
+      if (onPcmFrameRef.current !== undefined) {
+        try {
+          const pump = await createPumpRef.current(stream);
+          if (pump === null || !isRecording()) {
+            pump?.close();
+            return;
+          }
+          pumpRef.current = pump;
+          pump.onFrame((frame) => {
+            if (!isRecording()) return;
+            onPcmFrameRef.current?.(frame);
+          });
+        } catch {
+          // 泵挂载失败：流式降级（消费方 stop 后回落非流式链路）
+        }
       }
     } catch (err) {
       cleanupMedia();
@@ -286,5 +378,27 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     }
   }, [cleanupMedia, setStateSafe, t]);
 
-  return { state, level, error, start, stop };
+  /** 流式终帧收口（V3b-1；仅 deferred 态生效）：非空 → onTranscript；空 → 丢弃回 idle。 */
+  const resolveStreaming = useCallback(
+    (text: string): boolean => {
+      if (stateRef.current !== "transcribing" || pendingBlobRef.current === null) return false;
+      pendingBlobRef.current = null;
+      uploadInFlightRef.current = false;
+      setError(null);
+      setStateSafe("idle");
+      if (text.trim() !== "") onTranscriptRef.current(text);
+      return true;
+    },
+    [setStateSafe],
+  );
+
+  /** 回落非流式（V3b-1；仅 deferred 态生效）：持 blob 走既有上传转写链。 */
+  const transcribeNow = useCallback((): void => {
+    if (stateRef.current !== "transcribing" || pendingBlobRef.current === null) return;
+    const blob = pendingBlobRef.current;
+    pendingBlobRef.current = null;
+    uploadBlob(blob);
+  }, [uploadBlob]);
+
+  return { state, level, error, start, stop, resolveStreaming, transcribeNow };
 }

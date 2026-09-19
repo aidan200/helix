@@ -43,7 +43,16 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   };
 });
 vi.mock("@/shared/lib/useVoiceInput", () => ({
-  useVoiceInput: (): VoiceInput => ({ state: voiceState, level: voiceLevel, error: null, start, stop }),
+  useVoiceInput: (): VoiceInput => ({
+    state: voiceState,
+    level: voiceLevel,
+    error: null,
+    start,
+    stop,
+    // V3b-1 additive 面：Composer 不消费——stub 保持接口完整
+    resolveStreaming: () => false,
+    transcribeNow: () => undefined,
+  }),
 }));
 
 import Composer from "./Composer";
