@@ -35,6 +35,8 @@ import { MainSessionProfile } from "../../adapters/driven/pi-engine/runtime/prof
 import { SubAgentProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 import { ensureDevToken } from "../dev-token";
+import { DashScopeSttAdapter, DASHSCOPE_PROVIDER_ID } from "../../adapters/driven/stt/dashscope";
+import { SiliconFlowSttAdapter, SILICONFLOW_PROVIDER_ID } from "../../adapters/driven/stt/siliconflow";
 import type { SingletonLock } from "../lifecycle";
 import type { HelixPaths } from "../paths";
 import type { DaemonConfig } from "../config";
@@ -289,6 +291,9 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     onModelChanged: (payload) => eventStream.broadcastModelChanged(payload),
     // thinking 批①：thinking.changed 广播出海（channel=thinking，订阅路由同 model.changed）
     onThinkingChanged: (payload) => eventStream.broadcastThinkingChanged(payload),
+    // 语音输入批 V1：STT provider 扩展集（auth.set_key/authList 放行——非
+    // LLM 目录成员；authVerify 回明确说明不走 LLM 验证）
+    sttProviderIds: [DASHSCOPE_PROVIDER_ID, SILICONFLOW_PROVIDER_ID],
   });
   const ws = new WsServerAdapter({
     chat: deps.chat,
@@ -303,6 +308,13 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     ...(deps.askService !== undefined ? { askService: deps.askService } : {}), // ask.answer 命令回口（提权申请批）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
+    // 语音输入批 V1：stt.transcribe 命令回口（SttPort 装配优先序 = dashscope 主选、
+    // siliconflow 兜底；key 读面对齐 model-provider AuthStore getter 先例——每次
+    // 调用重读 auth.json，换 key 后自动跟随）
+    stt: {
+      providers: [new DashScopeSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID) }), new SiliconFlowSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(SILICONFLOW_PROVIDER_ID) })],
+      apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
+    },
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）
     ...(deps.mcp !== undefined ? { mcp: deps.mcp } : {}),
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验

@@ -78,6 +78,13 @@ describe("语音输入批（V1 云转写）：stt.transcribe additive", () => {
 
   test("命令信封可构造且 dispatch 窄化消费 audio/durationMs/language 独有字段", () => {
     expect(dispatchCommand(sttCommand)).toBe(`stt-transcribe:${TINY_AUDIO_DATA_URL.slice(0, 8)}:4200:zh`);
+    // provider 可选位：携带时随命令传入（设置页用户偏好）
+    const withProvider: SttTranscribeCommand = {
+      v: PROTOCOL_VERSION,
+      type: "stt.transcribe",
+      payload: { audio: TINY_AUDIO_DATA_URL, provider: "dashscope" },
+    };
+    expect(withProvider.payload.provider).toBe("dashscope");
     // 最小载荷（仅 audio 必填）：可选位缺省仍合法
     const minimal: SttTranscribeCommand = {
       v: PROTOCOL_VERSION,

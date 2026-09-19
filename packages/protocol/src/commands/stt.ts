@@ -23,6 +23,12 @@ export interface SttTranscribePayload {
   durationMs?: number;
   /** 语言提示（ISO 639-1，如 "zh"/"en"；缺省 = provider 自动检测）。 */
   language?: string;
+  /**
+   * STT provider 选择（"dashscope" / "siliconflow"；设置页用户偏好随命令
+   * 传入）。缺省 = daemon 自动选择：优先序内首个已配 key 的 provider；全部
+   * 未配 → error 回执（含设置页录入引导）。
+   */
+  provider?: string;
 }
 
 /**

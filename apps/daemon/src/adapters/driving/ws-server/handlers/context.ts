@@ -40,6 +40,7 @@ import type { AgentOrchestrationPort } from "../../../../application/ports/inbou
 import type { SessionStateView } from "../../../../application/ports/inbound/SessionPort";
 import type { ResourceConfigPort } from "../../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../../application/ports/outbound/BrowserPort";
+import type { SttPort } from "../../../../application/ports/outbound/SttPort";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
@@ -287,6 +288,39 @@ export interface WebCommandContext {
   readonly type: string;
   /** 浏览器连接面（getStatus/listTabs/stop；只转发不决策）。 */
   readonly browser: BrowserPort;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/** stt 族命令回口（语音输入批 V1：SttPort 装配清单 + key 读面——只转发不决策）。 */
+export interface SttCommandDeps {
+  /** 已装配 STT provider 端口（装配优先序：dashscope 在前、siliconflow 兜底）。 */
+  readonly providers: readonly SttPort[];
+  /** key 读面（组合根注入 authStore.apiKeyOf——provider 自动选择判据；每次调用重读）。 */
+  readonly apiKeyOf: (providerId: string) => string | undefined;
+}
+
+/**
+ * stt 族命令处理上下文（语音输入批 V1）：SttCommandDeps + 会话目录
+ *（P1 会话源读面 + sessionId 归属自查）+ 共享辅助（webContext 同构）。
+ */
+export interface SttCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 命令信封（会话作用域可选命令的 sessionId 路由位；省略 = 无会话裸转写）。 */
+  readonly envelope: { sessionId?: unknown };
+  /** 会话目录（resolveTarget 归属自查 + getSessionView P1 会话源）。 */
+  readonly directory: SessionDirectoryPort;
+  /** STT provider 装配清单 + key 读面（只转发不决策）。 */
+  readonly stt: SttCommandDeps;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

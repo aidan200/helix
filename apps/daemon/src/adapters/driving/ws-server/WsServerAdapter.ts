@@ -109,6 +109,7 @@ import {
 } from "./handlers/kg";
 import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet, handleAgentSkillCreate } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
+import { handleSttTranscribe } from "./handlers/stt";
 import {
   handleMcpServersAdd,
   handleMcpServersList,
@@ -570,6 +571,11 @@ export class WsServerAdapter {
         return handleWebStop(this.contexts.webContext(ws, type));
       case "web.start":
         return handleWebStart(this.contexts.webContext(ws, type));
+      // ── stt 批（语音输入 V1；会话作用域可选命令——信封 sessionId 缺省 = 裸转写）──
+      case "stt.transcribe":
+        return this.deps.stt === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleSttTranscribe(this.contexts.sttContext(ws, type, payload, envelope));
       // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
       case "mcp.servers.list":
         return this.deps.mcp === undefined
