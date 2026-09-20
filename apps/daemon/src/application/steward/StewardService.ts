@@ -70,6 +70,24 @@ export const FEED_SUMMARY_MAX_CHARS = 80;
  *  常量保留供历史注释面参照，不再参与裁剪）。 */
 export const HISTORY_WINDOW = 24;
 
+/** 工具结果送 LLM 前的体量上限（A1-hotfix；生产实证单条 list_instances
+ *  toolResult 可达 537,026 字符 ≈ 27 万 token = 16k 预算的 17 倍——病理体量
+ *  直达上下文会挤掉全部对话并触发裁剪而毒孤儿）。 */
+export const TOOL_RESULT_MAX_CHARS = 4000;
+
+/** 截断标记（用户可见面：完整结果体积看过程帧摘要）。 */
+export const TOOL_RESULT_TRUNCATION_MARK = "…（已截断，完整结果见过程帧）";
+
+/** list_instances 紧凑投影：active 实例 task/summary 截断上限。 */
+export const INSTANCE_TASK_MAX_CHARS = 120;
+
+/** list_instances 紧凑投影：非 active 实例 summary 截断上限。 */
+export const INSTANCE_SUMMARY_MAX_CHARS = 80;
+
+/** 合成 toolResult 文本（A1-hotfix：assistant 含 toolCall 但结果缺席——
+ *  窗口裁剪切掉结果/确认闸挂起无结果，OpenAI 兼容 API 同样 400 拒）。 */
+export const STEWARD_MISSING_TOOL_RESULT_TEXT = "（工作记忆窗口裁剪致结果缺失）";
+
 /** 管家开关 KV 键（RuntimeConfigPort；"1" = 开，其余 = 关——默认关）。 */
 export const STEWARD_ENABLED_KEY = "steward.enabled";
 
@@ -153,6 +171,83 @@ function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
 /** 过程帧摘要（防御性截断）。 */
 function summarizeForFrame(text: string): string {
   return text.length <= PROCESS_SUMMARY_MAX_CHARS ? text : `${text.slice(0, PROCESS_SUMMARY_MAX_CHARS)}…`;
+}
+
+/** 字段级截断（紧凑投影用；超限截断加省略号）。 */
+function capChars(text: string, maxChars: number): string {
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
+}
+
+/** 工具结果送 LLM 前体量护栏（A1-hotfix 纯函数，导出供单测）：超
+ *  TOOL_RESULT_MAX_CHARS 截断 + 标记（防任何工具的病理体量直达上下文；
+ *  过程帧摘要面 summarizeForFrame 独立，不受影响）。 */
+export function capToolResultText(text: string): string {
+  return text.length <= TOOL_RESULT_MAX_CHARS ? text : `${text.slice(0, TOOL_RESULT_MAX_CHARS)}${TOOL_RESULT_TRUNCATION_MARK}`;
+}
+
+/** list_instances 结果紧凑投影（A1-hotfix 纯函数，导出供单测）：根因实证
+ *  orchestration.status() 全量携带完整 task brief 文本与全部历史实例。瘦身：
+ *  active 保 id/state/task(≤INSTANCE_TASK_MAX_CHARS)/summary；非 active
+ *  （done/failed/killed 等）仅 id/state/summary(≤INSTANCE_SUMMARY_MAX_CHARS)
+ *  ——displayState 与终态实例的 task 无决策价值，弃。取舍：专用投影而非
+ *  通用 JSON 字段级截断——哪些字段对管家 LLM 有用是领域知识，专用更准；
+ *  任意工具的体积上限由 capToolResultText 4000 兑底。 */
+export function compactInstanceRows(
+  statuses: readonly {
+    agentId: string;
+    state: string;
+    displayState?: string;
+    task?: string | null;
+    summary?: string | null;
+  }[],
+): Record<string, string>[] {
+  return statuses.map((s) => {
+    if (s.state === "running") {
+      return {
+        agentId: s.agentId,
+        state: s.state,
+        ...(s.task ? { task: capChars(s.task, INSTANCE_TASK_MAX_CHARS) } : {}),
+        ...(s.summary ? { summary: capChars(s.summary, INSTANCE_TASK_MAX_CHARS) } : {}),
+      };
+    }
+    return {
+      agentId: s.agentId,
+      state: s.state,
+      ...(s.summary ? { summary: capChars(s.summary, INSTANCE_SUMMARY_MAX_CHARS) } : {}),
+    };
+  });
+}
+
+/** 工作记忆记录 → LLM 消息窗口（A1-hotfix 配对防御，纯函数导出供单测）：
+ *  ① 孤儿 toolResult（配对 assistant toolCall 不在窗内——脏 KV/裁剪残留）
+ *    丢弃；② assistant toolCall 无后续结果 → 追加合成 toolResult 占位
+ *    （STEWARD_MISSING_TOOL_RESULT_TEXT）紧随其后。仅作用于送 LLM 的窗口，
+ *    不改 KV 存储与 history 回放读面（UI 显示照旧）。 */
+export function buildLlmWindow(records: readonly StewardHistoryRecord[]): StewardLlmMessage[] {
+  const callIds = new Set<string>();
+  const resultIds = new Set<string>();
+  for (const r of records) {
+    if (r.kind === "assistant" && r.toolCall !== undefined) callIds.add(r.toolCall.id);
+    else if (r.kind === "toolResult") resultIds.add(r.toolCallId);
+  }
+  const messages: StewardLlmMessage[] = [];
+  for (const r of records) {
+    if (r.kind === "toolResult") {
+      if (!callIds.has(r.toolCallId)) continue; // 孤儿：丢弃（自愈脏 KV，零迁移）
+      messages.push(recordToMessage(r));
+      continue;
+    }
+    messages.push(recordToMessage(r));
+    if (r.kind === "assistant" && r.toolCall !== undefined && !resultIds.has(r.toolCall.id)) {
+      messages.push({
+        role: "toolResult",
+        toolCallId: r.toolCall.id,
+        name: r.toolCall.name,
+        text: STEWARD_MISSING_TOOL_RESULT_TEXT,
+      });
+    }
+  }
+  return messages;
 }
 
 /** ask 过程事件面（A1 批：工具/thinking 过程对屏幕通道可见；由 handler 层
@@ -382,9 +477,11 @@ export class StewardService {
 
   // ── 内部 ────────────────────────────────────────────────
 
-  /** 工作记忆镜像 → LLM 消息窗口（同源：UI 回放显示的 = LLM 记得的）。 */
+  /** 工作记忆镜像 → LLM 消息窗口（同源：UI 回放显示的 = LLM 记得的；
+   *  A1-hotfix：经 buildLlmWindow 配对防御——孤儿 toolResult 丢弃/缺结果
+   *  toolCall 补合成结果；KV 存储与 history 回放读面不动）。 */
   private dialogSnapshotMessages(): StewardLlmMessage[] {
-    return this.dialog.snapshot().map(recordToMessage);
+    return buildLlmWindow(this.dialog.snapshot());
   }
 
   /** 完整记录追加（工作记忆 KV——预算闸在 memory 内部）。 */
@@ -404,15 +501,12 @@ export class StewardService {
   ): Promise<StewardAskResultPayload | undefined> {
     const argsSummary = summarizeForFrame(JSON.stringify(args));
     if (name === "list_instances" || name === "list_tasks") {
+      // A1-hotfix：list_instances 走紧凑投影（根因实证：status() 全量含完整
+      //  task brief 文本与全部历史实例，单条 toolResult 可达 537KB）；一切
+      //  工具结果再过 capToolResultText 4000 体量护栏。
       const rows =
         name === "list_instances"
-          ? this.deps.orchestration.status().map((s) => ({
-              agentId: s.agentId,
-              state: s.state,
-              displayState: s.displayState,
-              task: s.task ?? null,
-              summary: s.summary ?? null,
-            }))
+          ? compactInstanceRows(this.deps.orchestration.status())
           : this.deps.tasks.listTasks({}).map((t) => ({
               jobId: t.jobId,
               title: t.title,
@@ -423,7 +517,7 @@ export class StewardService {
                   : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
               error: t.error,
             }));
-      const resultText = JSON.stringify(rows);
+      const resultText = capToolResultText(JSON.stringify(rows));
       events.onToolStart?.(name, argsSummary);
       await this.pushRecord({
         kind: "assistant",
@@ -450,7 +544,7 @@ export class StewardService {
           kind: "toolResult",
           toolCallId: callId,
           name,
-          text: "参数缺失：agentId 与 message 必填",
+          text: capToolResultText("参数缺失：agentId 与 message 必填"),
           at: this.now(),
         });
         events.onToolEnd?.(name, "参数缺失：agentId 与 message 必填");
@@ -482,7 +576,7 @@ export class StewardService {
       toolCall: { id: callId, name, args },
       at: this.now(),
     });
-    await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: `未知工具 ${name}`, at: this.now() });
+    await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: capToolResultText(`未知工具 ${name}`), at: this.now() });
     events.onToolEnd?.(name, `未知工具 ${name}`);
     return undefined;
   }
