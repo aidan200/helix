@@ -19,6 +19,7 @@ import { truncateToolResult } from "./transport/wire";
 import type { ChildOutboundLine, ToolResponseLine, BashFactLineItem } from "./transport/wire";
 import { scopedBrowserCall } from "./ScopedBrowserProxy";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
+import { sanitizeDeprecatedToolNames } from "../tools/deprecated-tool-names";
 
 /** T2 turn diff：子进程 file-write 行的父侧回调载荷（→ TurnDiffService.recordExternal）。 */
 export interface SubagentFileWriteMeta {
@@ -341,9 +342,14 @@ export class SubagentLauncher implements InstanceRunner {
 
   private doLaunch(instance: AgentInstance, task: string, toolCwdOverride?: string): void {
     const id = instance.instanceId;
+    // 幽灵工具名防扩散层（复发修复批）：task 文本是会话内容载体（MainAgent 组
+    // brief 可照搬含已废弃工具名的历史文本）——消毒后再进 --task argv，模型
+    // 看到的第一手文本即新名（裸旧名照搬率归零）。消毒在 brief 校验前（子进程
+    // 实收文本即被校验文本）。
+    const safeTask = sanitizeDeprecatedToolNames(task);
     // O-10：派发前 brief 机械校验（validateBrief，TR-AD-58 消费方补接）——
     // violation 只记日志不拒绝（已裁决：机械兜底恢复设计承诺，不阻塞流程）
-    for (const v of validateBrief(task)) {
+    for (const v of validateBrief(safeTask)) {
       this.deps.logger?.warn(`[subagent] brief 结构违例（${v.rule}，实例 ${id}）：${v.message}`);
     }
     // AD-3：两级解析单点（profile 槽位 > 全局兜底 getter；T12 砍 spawn 会话快照级）；
@@ -377,7 +383,7 @@ export class SubagentLauncher implements InstanceRunner {
     let transport: ChildProcessTransport;
     try {
       const proc = Bun.spawn({
-      cmd: [process.execPath, DAEMON_ENTRY_PATH, "--child-main", "--task", task],
+      cmd: [process.execPath, DAEMON_ENTRY_PATH, "--child-main", "--task", safeTask],
       env: {
         ...process.env,
         HELIX_INSTANCE_ID: id,

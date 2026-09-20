@@ -24,6 +24,7 @@ import type { AgentOrchestrationPort } from "../../../application/ports/inbound/
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
 import { createPermissionRequestTool, type PermissionRequestToolDeps } from "./permission-request/PermissionRequestTool";
+import { DEPRECATED_TOOL_NAMES } from "./deprecated-tool-names";
 import { createEditTool, type EditToolDeps } from "./edit/EditTool";
 import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
@@ -414,22 +415,104 @@ export class CoreToolExecutor implements ToolExecutorPort {
 
   /** profile 声明的工具集 → AgentRuntime 装配用 AgentTool 清单（组合根接线）。 */
   resolveTools(names: readonly string[]): AgentTool<any>[] {
+    return this.resolveNames(names, { lenient: false });
+  }
+
+  /**
+   * 弹性装配面（幽灵工具名复发修复批）：子进程（ChildMain）专用——与
+   * resolveTools 同一解析链，差异仅在未注册名分支：**永不抛错**，改返
+   * 「未知工具+可用清单」错误占位工具（执行时返回引导文本让模型自纠）。
+   *
+   * 为什么子进程面要弹性：profile.tools 来自父进程 spawn 快照 env
+   * （HELIX_TOOLS_JSON，父进程内存态定格）——父进程 stale 时可携带子
+   * 进程注册表不认识的名（版本斜差：工具改名后旧父进程仍发旧名），
+   * resolveTools 抛错 = 子进程整崩（实证：四实例「工具 "sandbox_request"
+   * 不在注册表」崩溃收口）。主会话面（engineFor）仍走 resolveTools
+   * fail-fast（装配名来自本进程目录，无斜差向量，fail-fast 保留接线
+   * 错误的即时间可见性）。
+   */
+  resolveToolsResilient(names: readonly string[]): AgentTool<any>[] {
+    return this.resolveNames(names, { lenient: true });
+  }
+
+  /** 共享解析循环（resolveTools / resolveToolsResilient 单点）：lenient
+   *  仅分叉未注册名分支（throw vs 占位）；已废弃名别名分支两者共享。 */
+  private resolveNames(names: readonly string[], opts: { lenient: boolean }): AgentTool<any>[] {
     const resolved: AgentTool<any>[] = [];
     for (const name of names) {
       const tool = this.registry.get(name);
-      if (!tool) {
-        // permission_request（提权申请批）：「声明恒在、注册面门控」特例——沙箱
-        // off 时 executor 未注入该槽，本名单点容忍跳过（其余名维持硬校验防
-        // 吊名；装配面 effectiveMainToolNames/ChildMain 剔除是生效集观测面，
-        // 与本容忍互补不冲突）
-        if (name === "permission_request") continue;
-        throw new Error(
-          `工具 "${name}" 不在注册表（已注册：${[...this.registry.keys()].join(", ")}）——检查 profile 的 tools 声明`,
-        );
+      if (tool !== undefined) {
+        resolved.push(bindToolContext(tool, this.context));
+        continue;
       }
-      resolved.push(bindToolContext(tool, this.context));
+      // permission_request（提权申请批）：「声明恒在、注册面门控」特例——沙箱
+      // off 时 executor 未注入该槽，本名单点容忍跳过（其余名维持硬校验防
+      // 吊名；装配面 effectiveMainToolNames/ChildMain 剔除是生效集观测面，
+      // 与本容忍互补不冲突）
+      if (name === "permission_request") continue;
+      // 已废弃工具名（幽灵工具名复发修复批）：映射目标在注册表 → 委派别名
+      // （工具名保留声明名与声明面一致，执行自动改写到新名 + 结果首行改写
+      // 注记——版本斜差的旧名不再整崩）；映射目标缺席（如沙箱 off 未注册）
+      // → 落入未注册名分支（lenient ? 占位 : throw）。
+      const deprecatedTo = DEPRECATED_TOOL_NAMES.get(name);
+      if (deprecatedTo !== undefined) {
+        const target = this.registry.get(deprecatedTo);
+        if (target !== undefined) {
+          resolved.push(this.deprecatedAliasTool(name, target, deprecatedTo));
+          continue;
+        }
+      }
+      if (opts.lenient) {
+        resolved.push(this.unknownToolStub(name)); // 占位兜底：绝不崩进程
+        continue;
+      }
+      throw new Error(
+        `工具 "${name}" 不在注册表（已注册：${[...this.registry.keys()].join(", ")})——检查 profile 的 tools 声明`,
+      );
     }
     return resolved;
+  }
+
+  /**
+   * 已废弃名 → 新名委派别名：名字面保留声明名（provider 工具清单与声明面
+   * 一致），parameters/description 承自新名（模型按新名 schema 出参），
+   * execute 全参透传新名实现，结果首行前插改写注记（调用方可观测改写事实）。
+   */
+  private deprecatedAliasTool(
+    deprecatedName: string,
+    target: AgentHarnessTool<ExecutionToolContext, any, any>,
+    newName: string,
+  ): AgentTool<any> {
+    const note = `（已自动改写：${deprecatedName} → ${newName}）`;
+    const alias: AgentHarnessTool<ExecutionToolContext, any, any> = {
+      ...target,
+      name: deprecatedName,
+      execute: async (toolCallId, params, onUpdate, context, invocation, ctx) => {
+        const result = await target.execute(toolCallId, params, onUpdate, context, invocation, ctx);
+        const blocks = result.content.length > 0 ? [...result.content] : [{ type: "text", text: "" } as TextContent];
+        return { ...result, content: [{ type: "text", text: note } as TextContent, ...blocks] };
+      },
+    };
+    return bindToolContext(alias, this.context);
+  }
+
+  /** 未注册名错误占位（lenient 装配面专用）：执行返回「未知工具+可用清单」
+   *  引导文本——模型收到后可自纠（改用可用工具）；注册零动作零副作用。 */
+  private unknownToolStub(name: string): AgentTool<any> {
+    const text =
+      `未知工具 "${name}"（可用：${[...this.registry.keys()].join(", ")}）——` +
+      `该名字不在本实例注册表（可能是任务描述引用了已改名/不存在的工具名）；请改用可用工具重试。`;
+    const stub: AgentHarnessTool<ExecutionToolContext, any, any> = {
+      name,
+      label: name,
+      description: text,
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+      execute: async (): Promise<{ content: TextContent[]; details: undefined }> => ({
+        content: [{ type: "text", text }],
+        details: undefined,
+      }),
+    };
+    return bindToolContext(stub, this.context);
   }
 
   async execute(request: ToolCallRequest): Promise<ToolExecutionResult> {

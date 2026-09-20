@@ -262,3 +262,65 @@ describe("驾驶舱：EventStream.broadcastStewardNavigate", () => {
     expect(otherFrames.length).toBe(0); // 未订阅连接零投递
   });
 });
+
+// ── 5. 路由纠偏（管家拒绝走 deliver_to_session 修复批） ──────
+
+describe("管家路由纠偏：会话投递主通道化（prompt 契约 + 行为锁）", () => {
+  /** 意图路由段子串（段内序断言的锚定窗口——prompt 全文其他段（职责三分法）
+   *  也提及两工具名，序断言必须锚在路由段内才有效）。 */
+  const routingSection = STEWARD_SYSTEM_PROMPT.slice(STEWARD_SYSTEM_PROMPT.indexOf("意图路由"));
+
+  test("路由段内 deliver_to_session 条目排在 propose_send 之前（用户意图主通道在前）", () => {
+    const deliver = routingSection.indexOf("deliver_to_session");
+    const send = routingSection.indexOf("propose_send");
+    expect(deliver).toBeGreaterThanOrEqual(0);
+    expect(send).toBeGreaterThanOrEqual(0);
+    expect(deliver).toBeLessThan(send);
+  });
+
+  test("路由判据 = 目标语义：对会话/继续话题/发到会话 → deliver_to_session，且明示无论目标会话是否空闲", () => {
+    expect(routingSection).toContain("对会话说");
+    expect(routingSection).toContain("无论目标会话是否空闲");
+    expect(routingSection).toContain("继续那个话题");
+  });
+
+  test("propose_send 收窄为 SubAgent 补充通道：须明确指向运行中的 agent 实例", () => {
+    expect(routingSection).toContain("propose_send");
+    expect(routingSection).toContain("补充通道");
+    expect(routingSection).toContain("运行中的 agent");
+  });
+
+  test("反判例行：不得以『没有运行中的 agent 实例』为由拒绝会话投递；空闲投递自动开新轮次是正常路径", () => {
+    expect(STEWARD_SYSTEM_PROMPT).toContain("没有运行中的 agent 实例");
+    expect(STEWARD_SYSTEM_PROMPT).toContain("空闲会话投递会自动开新轮次");
+    expect(STEWARD_SYSTEM_PROMPT).toContain("正常路径");
+  });
+
+  test("工作记忆治理：历史自述冲突时以本规则为准（热修历史判例路径依赖）", () => {
+    expect(STEWARD_SYSTEM_PROMPT).toContain("以本规则为准");
+  });
+
+  test("行为锁（目标会话空闲）：LLM 提案 deliver_to_session → confirm_required（不因无运行中实例被拒）", async () => {
+    const llm = fakeLlm([
+      toolCall("call-1", "deliver_to_session", { sessionId: "sess-idle", text: "继续调研语音链路" }),
+    ]);
+    const sessions = fakeCockpitSessions({ existing: ["sess-idle"] });
+    // 空闲形态：orchestration 零运行中实例（fakeOrchestration status() 恒空）
+    const { svc } = makeService({ llm, sessions });
+    const res = await svc.ask("发到那个会话");
+    expect(res.status).toBe("confirm_required"); // 服务面无 agentId 前置——空闲会话照样成案
+    expect(sessions.deliveries.length).toBe(0); // 未确认零执行不变
+  });
+
+  test("行为锁（目标会话 running）：同一提案通道——deliver_to_session 不被劫持到 propose_send", async () => {
+    const llm = fakeLlm([
+      toolCall("call-1", "deliver_to_session", { sessionId: "sess-running", text: "把结论写进报告" }),
+    ]);
+    const sessions = fakeCockpitSessions({ existing: ["sess-running"] });
+    const { svc } = makeService({ llm, sessions });
+    const res = await svc.ask("发到那个会话");
+    expect(res.status).toBe("confirm_required");
+    if (res.status !== "confirm_required") throw new Error("unreachable");
+    expect(res.agentId).toBe("sess-running"); // 提案形态 = session 投递（非 agentId 递话）
+  });
+});

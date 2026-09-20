@@ -63,6 +63,7 @@ import { accessSync, constants as fsConstants } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { sanitizeDeprecatedToolNames } from "../../tools/deprecated-tool-names";
 import { CodegraphEngineAdapter } from "../../codegraph-engine/CodegraphEngineAdapter";
 import { resolveCodegraphPath } from "../../codegraph-engine/resolve-codegraph";
 
@@ -333,7 +334,11 @@ export function spawnOverridesFromEnv(
   const systemPrompt = env["HELIX_SYSTEM_PROMPT"];
   const toolsJson = env["HELIX_TOOLS_JSON"];
   return {
-    ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+    // 幽灵工具名防扩散层（复发修复批）：systemPrompt 是父进程组装文本（含
+    // 工具清单段）——stale 父进程可携带改名前旧名；消毒后模型看到的第一手
+    // 文本即新名（tools 清单名不经文本改写——版本斜差的崩溃面由
+    // resolveToolsResilient 别名/占位分支承接，见下方装配点）。
+    ...(systemPrompt !== undefined ? { systemPrompt: sanitizeDeprecatedToolNames(systemPrompt) } : {}),
     ...(toolsJson !== undefined ? { tools: JSON.parse(toolsJson) as string[] } : {}),
   };
 }
@@ -709,7 +714,11 @@ async function main(): Promise<void> {
     ...(thinkingLevel !== undefined
       ? { resolveThinking: (m: Model<any>) => (supportsThinkingLevel(m, thinkingLevel) ? thinkingLevel : undefined) }
       : {}),
-    resolveTools: (names) => executor.resolveTools(names),
+    // 幽灵工具名复发修复批：子进程装配面切弹性解析（resolveToolsResilient）
+    // ——未注册名（版本斜差旧名/未来改名残留）不再抛错整崩：已废弃名映射
+    // 委派别名（调用自动改写新名 + 注记），真未知名返回错误占位工具（模型
+    // 自纠）。主会话面仍走 resolveTools fail-fast（见 CoreToolExecutor 注释）。
+    resolveTools: (names) => executor.resolveToolsResilient(names),
     // ⑤ park/resume 批：挂起硬拦截入链（R12 预留位首个实例）。
     // deferred 批：McpDeferredHooks 追加（discover 物化后同 turn 生效——
     // 子进程与主进程同构；位序在 ParkGuard 之后无干扰）。
