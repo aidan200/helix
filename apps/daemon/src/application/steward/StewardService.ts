@@ -47,6 +47,7 @@ import type {
   StewardConfirmResultPayload,
   StewardFeedPayload,
   StewardHistoryRecord,
+  StewardNavigatePayload,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 
@@ -127,8 +128,14 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 ② 递话：用户想向运行中的 agent 实例传达消息时——调用 propose_send 工具提案；系统会向用户请求确认（确认按钮），用户确认后才执行。每次只提案一条递话。
 ③ 拒绝越权：
 - 不代答工作上下文问题（如「就按刚才聊的改」）——工作上下文留在各会话/agent，请建议用户把话递给持有该上下文的 agent（可提议 propose_send）。
-- 不执行未过闸的写操作：唯一写原语 = propose_send，且必须等用户在面板确认后才执行。
+- 不执行未过闸的写操作：唯一写原语 = propose_send / deliver_to_session / create_session / spawn_review_task，且必须等用户在面板确认后才执行。
 - 不伪装用户身份、不代替用户做决策。
+
+意图路由（每次用户输入先分类再行动）：
+- 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数）。
+- 开新会话：用户想开新 session/新话题（可带标题）→ create_session 提案；建成后界面会自动切到新会话。
+- 对会话说：用户想向某个会话（最近的或指定的）传达指令/补充 → 不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId），再调用 deliver_to_session 提案；投递成功后界面会自动切到该会话。
+- 向运行中的 agent 实例（SubAgent）递话仍用 propose_send——两通道分流：agentId = SubAgent 实例，sessionId = 主会话。
 
 你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。`;
 
@@ -404,6 +411,14 @@ export interface StewardSessionsSource {
    *  （对照事故：startDraftSession(title) 把 title 当首条用户消息发送，
    *  触发完整幽灵 agent run）。 */
   createTitledSession(title: string): Promise<{ sessionId: string }>;
+  /** 会话存在性（驾驶舱批：deliver_to_session 提案前引导式校验——不存在
+   *  即拒绝提案，引导 LLM 用 query_recent_work 重查）。 */
+  sessionExists(sessionId: string): Promise<boolean>;
+  /** session 级投递执行面（驾驶舱批；确认闸后调用）：把用户输入投进目标
+   *  会话——复用主会话 steer 机制（运行中 → steer 队列；空闲 → 新轮次，
+   *  与用户在该会话页直接输入同语义）。delivered=false = 拒绝（detail 含
+   *  引导）；成功后由调用方广播 steward.navigate 切页。 */
+  deliverToSession(sessionId: string, text: string): Promise<{ delivered: boolean; detail: string }>;
 }
 
 /** A2：kg 项目解析面（KgProjectService 同款窄接口——spawn_review_task
@@ -431,6 +446,10 @@ export interface StewardServiceDeps {
   readonly feedGate: { hasStewardSubscribers(): boolean };
   /** feed 帧出口（组合根接 EventStream.broadcastStewardFeed）。 */
   readonly emitFeed: (payload: StewardFeedPayload) => void;
+  /** 页面切换指令帧出口（驾驶舱批；组合根接 EventStream.broadcastStewardNavigate
+   *  ——deliver_to_session 投递成功 / create_session 建成后广播，shell 切页）。
+   *  缺席 = 无切页指令（语义面零降级，仅行为缺席）。 */
+  readonly emitNavigate?: (payload: StewardNavigatePayload) => void;
   /** A2：L1 感知面（快照 + query_recent_work + create_session 执行面）。
    *  缺席 = 无快照段/query_recent_work 降级提示/create_session 引导式不可用
    *  ——感知查询绝不能挡住对话主链路（缺席零抛错）。 */
@@ -455,11 +474,11 @@ export interface StewardServiceDeps {
 }
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
- *  spawnReview = 动作标识——见各分支注释）。 */
+ *  spawnReview = 动作标识；deliverSession = 递话目标会话——见各分支注释）。 */
 interface PendingAction {
-  readonly kind: "send" | "createSession" | "spawnReview";
+  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession";
   /** 面板确认卡「目标」行显示值（send = agentId；createSession = "新会话"；
-   *  spawnReview = "<reviewType>@<project>"）。 */
+   *  spawnReview = "<reviewType>@<project>"；deliverSession = sessionId）。 */
   readonly displayTarget: string;
   /** 面板确认卡「内容」行显示值（动作摘要全文）。 */
   readonly message: string;
@@ -469,6 +488,8 @@ interface PendingAction {
   readonly send?: { agentId: string; message: string };
   /** createSession 形态载荷。 */
   readonly createSession?: { title: string };
+  /** deliverSession 形态载荷（驾驶舱批：session 级 steer 投递）。 */
+  readonly deliverSession?: { sessionId: string; text: string };
   /** spawnReview 形态载荷。 */
   readonly spawnReview?: {
     reviewType: "code-review" | "kg-review";
@@ -553,11 +574,27 @@ const TOOL_SPAWN_REVIEW_TASK: StewardLlmTool = {
   },
 };
 
+const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
+  name: "deliver_to_session",
+  description:
+    "提案向指定会话投递用户输入（写操作——仅提案，系统会请求用户确认后才执行；投递成功后界面自动切到该会话）。sessionId 可先用 query_recent_work 查询（结果含 sessionId）。",
+  parameters: {
+    type: "object",
+    properties: {
+      sessionId: { type: "string", description: "目标会话 id（query_recent_work 结果中的 sessionId）" },
+      text: { type: "string", description: "投递内容（将向用户全文展示以供确认）" },
+    },
+    required: ["sessionId", "text"],
+    additionalProperties: false,
+  },
+};
+
 const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_LIST_INSTANCES,
   TOOL_LIST_TASKS,
   TOOL_QUERY_RECENT_WORK,
   TOOL_PROPOSE_SEND,
+  TOOL_DELIVER_TO_SESSION,
   TOOL_CREATE_SESSION,
   TOOL_SPAWN_REVIEW_TASK,
 ];
@@ -672,7 +709,8 @@ export class StewardService {
   }
 
   /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的
-   *  回执文本）。 */
+   *  回执文本）。驾驶舱批：deliverSession 投递成功 / createSession 建成后
+   *  广播 steward.navigate（切页指令——仅成功路径）。 */
   private async executePending(action: PendingAction): Promise<{ ok: boolean; detail: string }> {
     if (action.kind === "send") {
       const outcome = this.deps.orchestration.send(action.send!.agentId, action.send!.message);
@@ -688,9 +726,25 @@ export class StewardService {
         // 修复批①：专用入口 createTitledSession（同轨不同入口）——title 不再
         // 被当首条用户消息发送，零引擎调用零幽灵 run；确认闸/回灌闭环不变。
         const created = await this.deps.sessions.createTitledSession(action.createSession!.title);
+        this.deps.emitNavigate?.({ sessionId: created.sessionId }); // 建完即切（用户语义）
         return { ok: true, detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」` };
       } catch (err) {
         return { ok: false, detail: `会话创建失败：${(err as Error).message}` };
+      }
+    }
+    if (action.kind === "deliverSession") {
+      if (this.deps.sessions === undefined) {
+        return { ok: false, detail: "会话投递面未装配（daemon 装配缺 sessions 源）" };
+      }
+      try {
+        const outcome = await this.deps.sessions.deliverToSession(action.deliverSession!.sessionId, action.deliverSession!.text);
+        if (!outcome.delivered) {
+          return { ok: false, detail: `投递未送达：${outcome.detail}` };
+        }
+        this.deps.emitNavigate?.({ sessionId: action.deliverSession!.sessionId }); // 投递成功 → 切页
+        return { ok: true, detail: outcome.detail };
+      } catch (err) {
+        return { ok: false, detail: `投递执行失败：${(err as Error).message}` };
       }
     }
     // spawnReview：paramsSchema 校验在引擎（TaskError message 原样透传）
@@ -876,6 +930,10 @@ export class StewardService {
       const outcome = await this.proposeCreateSession(callId, name, args, thinking, events, argsSummary);
       return outcome;
     }
+    if (name === "deliver_to_session") {
+      const outcome = await this.proposeDeliverToSession(callId, name, args, thinking, events, argsSummary);
+      return outcome;
+    }
     if (name === "spawn_review_task") {
       const outcome = await this.proposeSpawnReview(callId, name, args, thinking, events, argsSummary);
       return outcome;
@@ -1024,6 +1082,59 @@ export class StewardService {
       at: this.now(),
     });
     return { status: "confirm_required", actionId, agentId: "新会话", message: `将创建会话「${title}」` };
+  }
+
+  /** deliver_to_session 提案（驾驶舱批；确认闸）：前置校验 session 存在性
+   *  （不存在 → 引导式 toolResult 回灌——提示 query_recent_work 重查，循环
+   *  继续不终断）；过闸后 confirm 执行 deliverToSession + 成功即广播
+   *  steward.navigate。确认卡全文透明：displayTarget = sessionId、message =
+ *  投递原文。 */
+  private async proposeDeliverToSession(
+    callId: string,
+    name: string,
+    args: Record<string, unknown>,
+    thinking: StewardLlmThinking | undefined,
+    events: StewardAskEvents,
+    argsSummary: string,
+  ): Promise<StewardAskResultPayload | undefined> {
+    const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"].trim() : "";
+    const text = typeof args["text"] === "string" ? args["text"] : "";
+    if (sessionId === "" || text.trim() === "") {
+      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "参数缺失：sessionId 与 text 必填（sessionId 可先用 query_recent_work 查询）");
+    }
+    if (this.deps.sessions === undefined) {
+      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "会话投递面未装配——无法投递（请让用户在目标会话页直接输入）");
+    }
+    let exists: boolean;
+    try {
+      exists = await this.deps.sessions.sessionExists(sessionId);
+    } catch (err) {
+      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, `会话存在性校验失败：${(err as Error).message}`);
+    }
+    if (!exists) {
+      return this.toolErrorResult(
+        callId, name, args, thinking, events, argsSummary,
+        `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`,
+      );
+    }
+    this.actionSeq += 1;
+    const actionId = `steward-action-${this.actionSeq}`;
+    this.pending.set(actionId, {
+      kind: "deliverSession",
+      displayTarget: sessionId,
+      message: text,
+      toolCall: { id: callId, name },
+      deliverSession: { sessionId, text },
+    });
+    events.onToolStart?.(name, argsSummary);
+    await this.pushRecord({
+      kind: "assistant",
+      ...(thinking !== undefined ? { thinking } : {}),
+      toolCall: { id: callId, name, args },
+      at: this.now(),
+    });
+    // 确认闸：不执行、不入工具结果（同 propose_send——confirm 后执行结果回灌工作记忆）
+    return { status: "confirm_required", actionId, agentId: sessionId, message: text };
   }
 
   /** spawn_review_task 提案（前置校验 + 确认闸）：项目存在性 / git 仓 /

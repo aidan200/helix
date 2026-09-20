@@ -277,11 +277,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（+ 管家工作记忆批：命令 92 / 事件 111；v0.14）", () => {
+  test("② 常量语义值 + 目录计数（+ 管家驾驶舱批：命令 92 / 事件 112；v0.14）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.14"); // v0.14 批次版本位（管家工作记忆批；契约 = changelog/v0.14.md §17.17）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(92); // 管家工作记忆批 +1（steward.history）// 流式转写批 +4（stt.stream 四命令）// 文本管家批 +6（steward 六命令）
-    expect(protocol.EVENT_TYPES.length).toBe(111); // 管家工作记忆批 +3（history.result/tool/thinking）// 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(111); // 登记目录恰等（+ 管家工作记忆批三事件）
+    expect(protocol.EVENT_TYPES.length).toBe(112); // 管家驾驶舱批 +1（steward.navigate）// 管家工作记忆批 +3（history.result/tool/thinking）// 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(112); // 登记目录恰等（+ 管家驾驶舱批 steward.navigate）
   });
 });

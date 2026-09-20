@@ -133,7 +133,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   //（SessionContext 转发层 subscribeStewardFrames——voice 先例同构）；
   // 流式体验批 +steward.ask.delta（增量帧，useSteward streamingText 聚合）；
   // A1 工作记忆批 +history.result/tool/thinking（回放回执 + 过程帧——
-  // useSteward items 同源重建与过程行追加）
+  // useSteward items 同源重建与过程行追加）；
+  // 驾驶舱批 +steward.navigate（页面切换指令帧——真消费归 useStewardNavigate
+  // 切页钩子，App 装配层接线 navigate+switchSession）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
@@ -142,6 +144,7 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.history.result",
   "steward.tool",
   "steward.thinking",
+  "steward.navigate",
   // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
   // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
   // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api

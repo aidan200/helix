@@ -671,6 +671,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     config: persistence.runtimeConfig, // steward.enabled / steward.model KV 持久化
     feedGate: eventStream, // hasStewardSubscribers 窄接口（连接级订阅闸门）
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
+    // 驾驶舱批：页面切换指令帧出口（投递成功/建会话即切——仅已订阅 steward 连接收）
+    emitNavigate: (payload) => eventStream.broadcastStewardNavigate(payload),
     // A2：L1 感知面（快照 + query_recent_work 读面 + create_session 执行面
     // ——与 shell 新建会话同一 startDraftSession 服务路径；entryCount additive）。
     sessions: {
@@ -686,6 +688,27 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // 修复批① 死锁链：createSession 执行体改调同轨专用入口——零消息零引擎，
       // 显式建立即 INSERT（title 进 meta 列）
       createTitledSession: (title) => registry.createTitledSession(title),
+      // 驾驶舱批：session 存在性 + session 级投递执行面——投递走目标会话
+      // ChatService.sendMessage（内部自动分流：运行中 → steer 队列（复用主
+      // 会话 steer 机制）、空闲 → 新轮次——与用户在该会话页直接输入同语义）。
+      // 冷会话经 registry.get 懒加载（不存在抛 SessionNotFoundError → 引导式
+      // detail）；chatRouter 不在此处接（构建序在其后，且 registry 即同一路由源）。
+      sessionExists: (sessionId) => registry.sessionExists(sessionId),
+      deliverToSession: async (sessionId, text) => {
+        try {
+          const runtime = registry.peek(sessionId) ?? (await registry.get(sessionId));
+          const outcome = await runtime.chatService.sendMessage(text);
+          return {
+            delivered: true,
+            detail:
+              outcome.mode === "steered"
+                ? `已注入会话 ${sessionId} 的 steer 队列（turn 边界生效）`
+                : `已送达会话 ${sessionId}（空闲会话——作为新轮次开启）`,
+          };
+        } catch (err) {
+          return { delivered: false, detail: (err as Error).message };
+        }
+      },
     },
     // A2：kg 项目解析面（workspace 持有者读现值——重绑跟随新栈；未绑定 →
     //  resolve undefined / hasIndex false，引导式引导用户先绑 workspace）。

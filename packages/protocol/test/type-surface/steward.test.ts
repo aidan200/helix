@@ -32,6 +32,8 @@ import type {
   StewardHistoryCommand,
   StewardHistoryRecord,
   StewardHistoryResultEvent,
+  StewardNavigateEvent,
+  StewardNavigatePayload,
   StewardToolEvent,
   StewardToolPayload,
   StewardThinkingEvent,
@@ -76,7 +78,8 @@ type _FeedKind = Expect<
 >;
 type _FeedSeq = Expect<Equal<StewardFeedPayload["seq"], number>>;
 
-// channel = "steward" 新族窄化（familyOf case 存在 + TypeOfChannel 收窄）
+// channel = "steward" 新族窄化（familyOf case 存在 + TypeOfChannel 收窄；
+// 管家驾驶舱批 +steward.navigate——投递/建会话成功后的页面切换指令帧）
 type _StewardFamily = Expect<
   Equal<
     TypeOfChannel<"steward">,
@@ -88,8 +91,12 @@ type _StewardFamily = Expect<
       | "steward.history.result"
       | "steward.tool"
       | "steward.thinking"
+      | "steward.navigate"
   >
 >;
+
+// 管家驾驶舱批：navigate 载荷必填字段（sessionId = shell 切页目标）
+type _NavigateSessionId = Expect<Equal<StewardNavigatePayload["sessionId"], string>>;
 
 // A1 工作记忆批：history 载荷 clear 可选；records 全形态判别字段
  type _HistoryClear = Expect<Equal<StewardHistoryCommand["payload"]["clear"], boolean | undefined>>;
@@ -265,6 +272,15 @@ const thinkingFrame: StewardThinkingEvent = {
   payload: { text: "用户问任务状态，需要先取任务清单再决定是否查实例。", seq: 1 },
 };
 
+// 管家驾驶舱批：页面切换指令帧（daemon 广播——仅已订阅 steward 的连接收）
+const navigateFrame: StewardNavigateEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.navigate",
+  payload: { sessionId: "sess-abc123" },
+};
+
 describe("文本管家批（V2.5）：steward 族 additive", () => {
   test("命令/事件/通道目录登记（COMMAND_TYPES / EVENT_TYPES / EVENT_CHANNELS）", () => {
     for (const t of [
@@ -365,5 +381,18 @@ describe("管家工作记忆批（A1）：steward.history + 过程帧 additive",
     expect(familyOf(toolStart)).toBe("steward/steward.tool");
     expect(familyOf(thinkingFrame)).toBe("steward/steward.thinking");
     expect(familyOf(historyResult)).toBe("steward/steward.history.result");
+  });
+});
+
+describe("管家驾驶舱批：steward.navigate 页面切换帧 additive", () => {
+  test("目录登记（EVENT_TYPES / EVENT_CHANNELS 挂 steward 族）", () => {
+    expect(EVENT_TYPES).toContain("steward.navigate");
+    expect(EVENT_CHANNELS["steward.navigate"]).toBe("steward");
+  });
+
+  test("payload 窄化：sessionId 字段可达 + summarizeEvent/familyOf 分发", () => {
+    expect(navigateFrame.payload.sessionId).toBe("sess-abc123");
+    expect(summarizeEvent(navigateFrame)).toBe("steward-navigate:sess-abc123");
+    expect(familyOf(navigateFrame)).toBe("steward/steward.navigate");
   });
 });

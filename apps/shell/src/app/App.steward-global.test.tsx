@@ -13,7 +13,7 @@
  * ChatPage/SettingsPage 桩）+ useAppRoute mock（路由变量注入驱动）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, fireEvent } from "@testing-library/react";
+import { cleanup, render, fireEvent, act } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
@@ -27,6 +27,9 @@ vi.mock("./useAppRoute", () => ({
   useAppRoute: () => ({ route, navigate }),
 }));
 
+// 驾驶舱批：switchSession 切页断言面 + steward 帧听众捕获（navigate 帧驱动）
+const switchSession = vi.fn();
+const stewardListeners = new Set<(e: unknown) => void>();
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
     state: { conn: "connected", connAttempts: 1 },
@@ -37,7 +40,13 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendStewardGetConfig: () => true,
     sendStewardSubscribe: () => true,
     sendStewardUnsubscribe: () => true,
-    subscribeStewardFrames: () => () => {},
+    switchSession,
+    subscribeStewardFrames: (cb: (e: unknown) => void) => {
+      stewardListeners.add(cb);
+      return () => {
+        stewardListeners.delete(cb);
+      };
+    },
   }),
 }));
 
@@ -72,6 +81,7 @@ describe("管家全局常驻（app 壳级能力）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     route = "/settings";
+    stewardListeners.clear();
     // jsdom navigator.language 默认 en-US：钉 zh-CN（AG-14 白名单键）
     localStorage.setItem("helix-lang", "zh-CN");
   });
@@ -113,5 +123,29 @@ describe("管家全局常驻（app 壳级能力）", () => {
     route = "/";
     fireEvent.click(document.querySelector('[data-page="chat"]')!);
     expect(document.querySelector(".stp-dock")).not.toBeNull(); // 常驻不卸载
+  });
+
+  it("驾驶舱切页（steward.navigate）：非工作台路由 → 先切回工作台 + switchSession(sessionId)（侧栏同路径）", () => {
+    ui();
+    expect(stewardListeners.size).toBeGreaterThan(0);
+    act(() => {
+      for (const l of stewardListeners) {
+        l({ type: "steward.navigate", payload: { sessionId: "sess-target" } });
+      }
+    });
+    expect(navigate).toHaveBeenCalledWith("/"); // ROUTE_WORKBENCH
+    expect(switchSession).toHaveBeenCalledWith("sess-target");
+  });
+
+  it("驾驶舱切页：已在工作台路由 → 零路由导航，仅 switchSession", () => {
+    route = "/";
+    ui();
+    act(() => {
+      for (const l of stewardListeners) {
+        l({ type: "steward.navigate", payload: { sessionId: "sess-2" } });
+      }
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(switchSession).toHaveBeenCalledWith("sess-2");
   });
 });
