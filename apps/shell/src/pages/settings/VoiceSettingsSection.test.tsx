@@ -65,7 +65,7 @@ class FakeAudio {
 }
 
 const AUDITION_OK: EventEnvelope = {
-  v: "0.13",
+  v: "0.14",
   sessionId: "__system__",
   channel: "voice",
   type: "voice.synthesize.result",
@@ -73,7 +73,7 @@ const AUDITION_OK: EventEnvelope = {
 } as unknown as EventEnvelope;
 
 const AUDITION_ERR: EventEnvelope = {
-  v: "0.13",
+  v: "0.14",
   sessionId: "__system__",
   channel: "voice",
   type: "voice.synthesize.result",

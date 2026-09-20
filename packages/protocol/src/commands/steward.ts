@@ -67,3 +67,16 @@ export interface StewardSetConfigCommand extends CommandFrame<StewardSetConfigPa
 export interface StewardGetConfigCommand extends CommandFrame<Record<string, never>> {
   type: "steward.get_config";
 }
+
+/** steward.history 载荷（A1 工作记忆批，additive）。 */
+export interface StewardHistoryPayload {
+  /** true = 清空工作记忆（「新对话」：KV + daemon LLM 窗口 + 前端三处同清；
+   *  缺省 false = 只读回放）。 */
+  clear?: boolean;
+}
+
+/** steward.history：工作记忆读/清（点对点回执 steward.history.result——
+ *  回放链路：面板打开 → 读 KV → UI 渲染与 LLM 窗口同源重建）。 */
+export interface StewardHistoryCommand extends CommandFrame<StewardHistoryPayload> {
+  type: "steward.history";
+}

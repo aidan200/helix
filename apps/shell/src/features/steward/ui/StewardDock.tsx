@@ -1,6 +1,6 @@
 /**
  * StewardDock —— 管家全局弹层壳（管家全局化批：chat 页 top-bar 挂件退役，
- * 管家升格 app 壳级常驻能力）。
+ * 管家升格 app 壳级常驻能力；A1 工作记忆批：关闭 = 隐藏不卸载）。
  *
  * 形态：IconRail（app 生命周期唯一常驻壳）右侧 fixed 浮动面板（hud-popover
  * 族：popover-fill 0.8 档 + blur + shadow-pop——tokens.md §07 弹层语义）；
@@ -10,6 +10,11 @@
  * 关闭路径：点外（exempt = dock 本体 + rail 入口钮——入口钮开合归自身
  * toggle，pointerdown 关闭与 click toggle 叠加会抵消成「关了又开」）/
  * Esc（面板自有窗口监听与 dismiss hook 双路径幂等）/ 面板头部 ×。
+ *
+ * A1 关闭语义：open=false 时**隐藏不卸载**（display 层收起，组件树保留）——
+ * useSteward/useStewardVoice 状态与订阅面跨开关保留（回放同源数据驻留，
+ * 重开零重拉闪烁）；useDismissOnOutside 点外关闭行为保留（DOM 仍在文档
+ * 流，selector 匹配面不变）。
  *
  * 面板本体（StewardPanel）零位置知识——位置/层级/弹层皮全在本壳。
  */
@@ -24,10 +29,9 @@ export interface StewardDockProps {
 
 const StewardDock = function StewardDock({ open, onClose }: StewardDockProps) {
   useDismissOnOutside(open, ".stp-dock, .rail-steward-btn", onClose, { event: "pointerdown" });
-  if (!open) return null;
   return (
-    <div className="stp-dock" data-testid="steward-dock">
-      <StewardPanel onClose={onClose} />
+    <div className={open ? "stp-dock" : "stp-dock stp-dock-hidden"} data-testid="steward-dock" aria-hidden={!open}>
+      <StewardPanel onClose={onClose} active={open} />
     </div>
   );
 };

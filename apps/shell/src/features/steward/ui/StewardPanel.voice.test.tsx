@@ -38,7 +38,7 @@ let streamDegraded = false;
 vi.mock("../model/useStewardVoice", () => ({
   useStewardVoice: (): UseStewardVoice =>
     ({
-      messages: [],
+      items: [],
       streamingText: null,
       pending: null,
       feed: [],

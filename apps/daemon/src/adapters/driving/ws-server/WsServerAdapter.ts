@@ -115,6 +115,7 @@ import {
   handleStewardAsk,
   handleStewardConfirm,
   handleStewardGetConfig,
+  handleStewardHistory,
   handleStewardSetConfig,
   handleStewardSubscribe,
   handleStewardUnsubscribe,
@@ -647,6 +648,10 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardSetConfig(this.contexts.stewardContext(ws, type, payload));
+      case "steward.history":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardHistory(this.contexts.stewardContext(ws, type, payload));
       // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
       case "mcp.servers.list":
         return this.deps.mcp === undefined

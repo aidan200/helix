@@ -126,3 +126,98 @@ export interface StewardConfigResultEvent extends EventFrame<StewardConfigResult
   channel?: "steward";
   type: "steward.config.result";
 }
+
+/**
+ * 管家工作记忆记录（A1 工作记忆批，additive）——完整记录形态：
+ * thinking / toolCall / toolResult / user / assistant 全形态（用户裁决：
+ * 全精度进 LLM 上下文与工作记忆；屏幕完整显示，耳朵只听 assistant 结论）。
+ *
+ * 同源链路：KV steward_dialog（daemon）↔ steward.history.result 回执 ↔
+ * 面板 UI 渲染 ↔ LLM 窗口重建——UI 显示的 = LLM 记得的（消灭撒谎错位）。
+ * - assistant.thinking 携 signature（provider 不透明回传凭据——Anthropic 式
+ *   最严约束：多轮 thinking 块须携签名回传）；
+ * - toolCall/toolResult 按 id 配对（UI 工具行 pending → ✓ 两态）。
+ */
+export type StewardHistoryRecord =
+  | {
+      kind: "user";
+      /** 用户输入全文。 */
+      text: string;
+      /** 落笔时间戳（ms；TTL/排序面）。 */
+      at: number;
+    }
+  | {
+      kind: "assistant";
+      /** 回答文本（可缺席——纯工具轮/纯思考轮）。 */
+      text?: string;
+      /** 本轮 thinking 块（全精度；signature = provider 回传凭据）。 */
+      thinking?: { text: string; signature?: string };
+      /** 本轮工具调用（可缺席——纯文本轮）。 */
+      toolCall?: { id: string; name: string; args: Record<string, unknown> };
+      at: number;
+    }
+  | {
+      kind: "toolResult";
+      /** 配对工具调用 id。 */
+      toolCallId: string;
+      /** 工具名（回显面）。 */
+      name: string;
+      /** 工具结果文本（LLM 回灌原文）。 */
+      text: string;
+      at: number;
+    };
+
+/** steward.history.result payload：工作记忆回放（records 全形态数组；
+ *  clear 后回空数组）。 */
+export interface StewardHistoryResultPayload {
+  /** 完整记录（时序；daemon KV 同源镜像）。 */
+  records: readonly StewardHistoryRecord[];
+}
+
+/** steward.history.result：工作记忆读/清回执（channel = "steward"；点对点）。 */
+export interface StewardHistoryResultEvent extends EventFrame<StewardHistoryResultPayload> {
+  channel?: "steward";
+  type: "steward.history.result";
+}
+
+/** steward.tool payload（A1 过程可见批，additive）：工具执行两相帧——
+ *  start（name + 参数摘要）/ end（结果摘要）；单次 ask 内 seq 单调（1 起）
+ *  与 ask.delta 同口径，仅发发起 ask 的连接（点对点）。 */
+export type StewardToolPayload =
+  | {
+      phase: "start";
+      /** 工具名（如 list_tasks）。 */
+      name: string;
+      /** 参数摘要（JSON 短串；防御性截断）。 */
+      argsSummary: string;
+      seq: number;
+    }
+  | {
+      phase: "end";
+      /** 工具名（与 start 帧配对）。 */
+      name: string;
+      /** 结果摘要（截断短串——展开详情的摘要面）。 */
+      resultSummary: string;
+      seq: number;
+    };
+
+/** steward.tool：工具过程帧（channel = "steward"；点对点——屏幕通道）。 */
+export interface StewardToolEvent extends EventFrame<StewardToolPayload> {
+  channel?: "steward";
+  type: "steward.tool";
+}
+
+/** steward.thinking payload（A1 过程可见批，additive）：thinking 段级帧——
+ *  一个完成态 thinking 块一帧（探明定案：折叠显示用段级粒度，token 级
+ *  delta 高频帧无增益）；仅发发起 ask 的连接（点对点）。 */
+export interface StewardThinkingPayload {
+  /** 完整 thinking 块文本（段级全量——非增量）。 */
+  text: string;
+  seq: number;
+}
+
+/** steward.thinking：thinking 过程帧（channel = "steward"；点对点——屏幕通道）。 */
+export interface StewardThinkingEvent extends EventFrame<StewardThinkingPayload> {
+  channel?: "steward";
+  type: "steward.thinking";
+}

@@ -131,12 +131,17 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // 文本管家批 V2.5：steward 族四帧 = 连接私有（ask/confirm/config 点对点
   // 回执 + feed 广播仅已订阅连接收），真消费归 StewardPanel 与设置页
   //（SessionContext 转发层 subscribeStewardFrames——voice 先例同构）；
-  // 流式体验批 +steward.ask.delta（增量帧，useSteward streamingText 聚合）
+  // 流式体验批 +steward.ask.delta（增量帧，useSteward streamingText 聚合）；
+  // A1 工作记忆批 +history.result/tool/thinking（回放回执 + 过程帧——
+  // useSteward items 同源重建与过程行追加）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
   "steward.feed",
   "steward.config.result",
+  "steward.history.result",
+  "steward.tool",
+  "steward.thinking",
   // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
   // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
   // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api

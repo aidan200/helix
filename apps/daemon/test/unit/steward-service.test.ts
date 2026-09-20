@@ -32,6 +32,11 @@ import {
   STEWARD_FEED_EVENT_TYPES,
   STEWARD_MAX_TOOL_ROUNDS,
 } from "../../src/application/steward/StewardService";
+import {
+  StewardDialogMemory,
+  trimToBudget,
+  isExpired,
+} from "../../src/application/steward/StewardDialogMemory";
 
 // ── fakes ─────────────────────────────────────────────────
 
@@ -40,17 +45,25 @@ interface LlmCall {
   readonly round: number;
 }
 
-/** 剧本化 fake LLM：按调用序出队响应；断言面记录全部调用。 */
+/** 剧本化 fake LLM：按调用序出队响应；断言面记录全部调用（A1 扩：
+ *  响应携 thinking 时先回调 onThinking 段级——模拟 adapter 块终态回调序）。 */
 function fakeLlm(script: readonly StewardLlmResponse[]): StewardLlmPort & { calls: LlmCall[] } {
   const calls: LlmCall[] = [];
   return {
     modelId: "deepseek/deepseek-v4-flash",
     calls,
-    async complete(request: StewardLlmRequest): Promise<StewardLlmResponse> {
+    async complete(
+      request: StewardLlmRequest,
+      _onDelta?: (chunk: string) => void,
+      onThinking?: (block: string) => void,
+    ): Promise<StewardLlmResponse> {
       const round = calls.length;
       calls.push({ request, round });
       const next = script[round];
       if (next === undefined) throw new Error("fake LLM 剧本耗尽");
+      if (onThinking !== undefined && next.thinking !== undefined && next.thinking.text !== "") {
+        onThinking(next.thinking.text);
+      }
       return next;
     },
   };
@@ -365,7 +378,7 @@ describe("⑧ 流式体验批（V2.5——steward.ask.delta 语义）", () => {
     ]);
     const { svc } = makeService({ llm });
     const deltas: string[] = [];
-    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    const result = await svc.ask("在跑什么？", { onDelta: (chunk) => deltas.push(chunk) });
     expect(deltas).toEqual(["当前 ", "2 个", "实例运行中"]);
     expect(result.status).toBe("answer");
     if (result.status !== "answer") throw new Error("unreachable");
@@ -379,7 +392,7 @@ describe("⑧ 流式体验批（V2.5——steward.ask.delta 语义）", () => {
     ]);
     const { svc } = makeService({ llm });
     const deltas: string[] = [];
-    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    const result = await svc.ask("在跑什么？", { onDelta: (chunk) => deltas.push(chunk) });
     expect(deltas).toEqual(["1 个", "运行中"]);
     expect(result.status).toBe("answer");
     expect(llm.calls[0]!.onDelta).toBeDefined(); // 回调面两轮均传递（工具轮天然零 text delta）
@@ -391,7 +404,7 @@ describe("⑧ 流式体验批（V2.5——steward.ask.delta 语义）", () => {
     ]);
     const { svc } = makeService({ llm, config: fakeConfig({}) });
     const deltas: string[] = [];
-    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    const result = await svc.ask("在跑什么？", { onDelta: (chunk) => deltas.push(chunk) });
     expect(result.status).toBe("error");
     expect(deltas.length).toBe(0);
     expect(llm.calls.length).toBe(0);
@@ -403,10 +416,277 @@ describe("⑧ 流式体验批（V2.5——steward.ask.delta 语义）", () => {
     ]);
     const { svc } = makeService({ llm });
     const deltas: string[] = [];
-    const result = await svc.ask("在跑什么？", (chunk) => deltas.push(chunk));
+    const result = await svc.ask("在跑什么？", { onDelta: (chunk) => deltas.push(chunk) });
     expect(deltas).toEqual(["部分", "输出"]);
     expect(result.status).toBe("error");
     if (result.status !== "error") throw new Error("unreachable");
     expect(result.reason).toContain("模型调用失败");
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// A1 工作记忆批：thinking 回传 / KV 三闸 / 回放同源 / 过程事件
+// ══════════════════════════════════════════════════════════
+
+/** thinking 剧本轮：响应携 thinking 块（A1 批 fake 面扩展）。 */
+function thinkingTurn(script: readonly (StewardLlmResponse & { thinking?: { text: string; signature?: string } })[]) {
+  return script;
+}
+
+describe("⑨ A1：thinking 回传——多轮工具链上下文含 thinking 形态", () => {
+  test("thinking 随 assistant 记录入 KV；下一轮 LLM 请求窗口含 thinking 形态（text+signature）", async () => {
+    const llm = fakeLlm(
+      thinkingTurn([
+        {
+          kind: "toolCall",
+          id: "call-0",
+          name: "list_instances",
+          args: {},
+          thinking: { text: "用户问全局状态，先查实例清单。", signature: "sig-opaque-1" },
+        },
+        {
+          kind: "text",
+          text: "agent-1 运行中。",
+          thinking: { text: "工具结果只有一条，直接回答。", signature: "sig-opaque-2" },
+        },
+      ]),
+    );
+    const { svc, config } = makeService({ llm });
+    const result = await svc.ask("在跑什么？");
+    expect(result.status).toBe("answer");
+
+    // 第二轮请求窗口（多轮回传断言）：assistant 工具轮记录含 thinking 块
+    const secondRound = llm.calls[1]!.request.messages;
+    const toolTurn = secondRound.find(
+      (m): m is Extract<typeof m, { role: "assistant" }> => m.role === "assistant" && m.toolCall !== undefined,
+    );
+    expect(toolTurn).toBeDefined();
+    expect(toolTurn!.thinking).toEqual({ text: "用户问全局状态，先查实例清单。", signature: "sig-opaque-1" });
+    expect(toolTurn!.toolCall!.name).toBe("list_instances");
+
+    // KV 记录含 thinking（assistant 文本轮 + 工具轮）
+    const kv = JSON.parse((config as unknown as { kv: Map<string, string> }).kv.get("steward_dialog")!) as {
+      records: { kind: string; thinking?: unknown }[];
+    };
+    const withThinking = kv.records.filter((r) => r.thinking !== undefined);
+    expect(withThinking.length).toBe(2);
+  });
+
+  test("无 thinking 响应（不支持思考的模型）→ 记录无 thinking 位，窗口形态不变", async () => {
+    const llm = fakeLlm([{ kind: "text", text: "直答" }]);
+    const { svc } = makeService({ llm });
+    await svc.ask("问");
+    const window = llm.calls[0]!.request.messages;
+    expect(window[0]).toEqual({ role: "user", text: "问" });
+    const assistant = window.filter((m) => m.role === "assistant");
+    expect(assistant.every((m) => (m as { thinking?: unknown }).thinking === undefined)).toBe(true);
+  });
+});
+
+describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一致", () => {
+  test("预算闸：append 超预算丢最老记录（保序保留最新）", async () => {
+    const kv = fakeConfig({ "steward.enabled": "1" });
+    const dialog = new StewardDialogMemory(kv, {
+      budgetTokens: 40, // 极小预算：两三条即裁
+      now: () => 1_000,
+    });
+    const svc = new StewardService({
+      llm: fakeLlm([{ kind: "text", text: "答一" }, { kind: "text", text: "答二" }]),
+      orchestration: fakeOrchestration([]),
+      tasks: { listTasks: () => [] },
+      config: kv,
+      dialog,
+      clock: () => 1_000,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    await svc.ask("第一问（长长长长长长长长长长长长长长长长长长长长长长长长）");
+    await svc.ask("第二问（长长长长长长长长长长长长长长长长长长长长长长长长）");
+    const records = await svc.getHistory();
+    expect(records.length).toBeLessThan(4); // 预算闸已裁（user+assistant×2 全记为 4）
+    expect(records.length).toBeGreaterThanOrEqual(1); // 至少保最新一条
+    // 纯函数直测：预算裁剪语义
+    const trimmed = trimToBudget(
+      [
+        { kind: "user", text: "a".repeat(200), at: 1 },
+        { kind: "assistant", text: "b".repeat(10), at: 2 },
+      ],
+      20,
+    );
+    expect(trimmed.length).toBe(1);
+    expect(trimmed[0]!.kind).toBe("assistant"); // 老记录先弃
+  });
+
+  test("TTL 闸：72h 无活动 → 懒加载时整 key 清空（daemon 重启恢复为空窗口）", async () => {
+    let now = 1_000_000;
+    const kv = fakeConfig({ "steward.enabled": "1" });
+    const dialogA = new StewardDialogMemory(kv, { now: () => now });
+    const svcA = new StewardService({
+      llm: fakeLlm([{ kind: "text", text: "答" }]),
+      orchestration: fakeOrchestration([]),
+      tasks: { listTasks: () => [] },
+      config: kv,
+      dialog: dialogA,
+      clock: () => now,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    await svcA.ask("留下的对话");
+    expect((await svcA.getHistory()).length).toBe(2);
+
+    now += 73 * 60 * 60 * 1000; // 73h 后重启（新实例同 KV）
+    const dialogB = new StewardDialogMemory(kv, { now: () => now });
+    const svcB = new StewardService({
+      llm: fakeLlm([{ kind: "text", text: "新答" }]),
+      orchestration: fakeOrchestration([]),
+      tasks: { listTasks: () => [] },
+      config: kv,
+      dialog: dialogB,
+      clock: () => now,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    expect((await svcB.getHistory()).length).toBe(0); // TTL 清空
+    // 纯函数直测：TTL 边界（72h 恰等 = 未过期；超 1ms = 过期）
+    expect(isExpired(0, 72 * 60 * 60 * 1000, 72 * 60 * 60 * 1000)).toBe(false);
+    expect(isExpired(0, 72 * 60 * 60 * 1000 + 1, 72 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  test("新对话闸：clearHistory 三处一致——KV 清空 + LLM 窗口清空 + pending 作废", async () => {
+    const kv = fakeConfig({ "steward.enabled": "1" });
+    const llm = fakeLlm([
+      { kind: "toolCall", id: "call-0", name: "propose_send", args: { agentId: "agent-1", message: "递话" } },
+      { kind: "text", text: "清空后的新答" },
+    ]);
+    const orchestration = fakeOrchestration([
+      { agentId: "agent-1", state: "running", displayState: "active", profileKind: "subagent-worker", task: "t" },
+    ]);
+    const svc = new StewardService({
+      llm,
+      orchestration,
+      tasks: { listTasks: () => [] },
+      config: kv,
+      clock: () => 2_000,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    // 一轮产生确认卡 + 记录
+    const r1 = await svc.ask("帮我递话给 agent-1");
+    expect(r1.status).toBe("confirm_required");
+    expect((await svc.getHistory()).length).toBe(2);
+
+    await svc.clearHistory();
+    // ① KV 清空
+    expect(await svc.getHistory()).toEqual([]);
+    // ② LLM 窗口清空（下一轮请求窗口零历史——回执为证）
+    const r2 = await svc.ask("新对话第一问");
+    expect(r2.status).toBe("answer");
+    expect(llm.calls[1]!.request.messages.length).toBe(1); // 仅本轮 user
+    // ③ pending 作废：旧 actionId confirm → error（单次消费 + 清空作废）
+    const confirmResult = await svc.confirm("steward-action-1");
+    expect(confirmResult.status).toBe("error");
+  });
+});
+
+describe("⑪ A1：回放同源——重启恢复后 UI 与 LLM 窗口一致（同源数据）", () => {
+  test("daemon 重启（新 service 同 KV）→ getHistory 回放完整记录 + 下一轮 LLM 窗口 = KV 记录映射", async () => {
+    const kv = fakeConfig({ "steward.enabled": "1" });
+    const svcA = new StewardService({
+      llm: fakeLlm([
+        {
+          kind: "toolCall",
+          id: "call-0",
+          name: "list_tasks",
+          args: {},
+          thinking: { text: "查任务清单。", signature: "sig-a" },
+        },
+        { kind: "text", text: "1 个任务在跑。", thinking: { text: "汇总回答。", signature: "sig-b" } },
+      ]),
+      orchestration: fakeOrchestration([]),
+      tasks: {
+        listTasks: () => [
+          {
+            jobId: "job-1",
+            title: "修复",
+            status: "running",
+            progress: { stageName: null, batchesDone: 1, batchesTotal: 2, percent: 50 },
+            error: null,
+          },
+        ],
+      },
+      config: kv,
+      clock: () => 5_000,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    await svcA.ask("任务状态？");
+
+    // 重启：新实例（LLM 窗口重建自 KV 懒加载）
+    const llm2 = fakeLlm([{ kind: "text", text: "重启后的回答" }]);
+    const svcB = new StewardService({
+      llm: llm2,
+      orchestration: fakeOrchestration([]),
+      tasks: { listTasks: () => [] },
+      config: kv,
+      clock: () => 6_000,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    const replay = await svcB.getHistory();
+    expect(replay.map((r) => r.kind)).toEqual(["user", "assistant", "toolResult", "assistant"]);
+    const thinkingRound = replay.find((r) => r.kind === "assistant" && r.thinking !== undefined);
+    expect(thinkingRound).toBeDefined();
+
+    // 同源断言：重启后 LLM 请求窗口 = 回放记录的同构映射（UI 显示的 = LLM 记得的）
+    await svcB.ask("继续问");
+    const window = llm2.calls[0]!.request.messages;
+    expect(window.length).toBe(replay.length + 1);
+    expect(window[0]).toEqual({ role: "user", text: "任务状态？" });
+    const replayToolTurn = replay[1] as Extract<(typeof replay)[number], { kind: "assistant" }>;
+    const windowToolTurn = window[1] as Extract<(typeof window)[number], { role: "assistant" }>;
+    expect(windowToolTurn.thinking).toEqual(replayToolTurn.thinking);
+    expect(windowToolTurn.toolCall).toEqual(replayToolTurn.toolCall);
+  });
+});
+
+describe("⑫ A1：过程事件 shape——工具两相帧 + thinking 段级帧", () => {
+  test("工具轮：onToolStart(name, argsSummary) → 执行 → onToolEnd(name, resultSummary)；顺序正确", async () => {
+    const llm = fakeLlm([
+      { kind: "toolCall", id: "call-0", name: "list_instances", args: {} },
+      { kind: "text", text: "回答" },
+    ]);
+    const { svc } = makeService({ llm });
+    const events: string[] = [];
+    await svc.ask("在跑什么？", {
+      onToolStart: (name, argsSummary) => events.push(`start:${name}:${argsSummary}`),
+      onToolEnd: (name, resultSummary) => events.push(`end:${name}:${resultSummary.slice(0, 10)}`),
+    });
+    expect(events.length).toBe(2);
+    expect(events[0]).toBe("start:list_instances:{}");
+    expect(events[1]!.startsWith("end:list_instances:")).toBe(true);
+  });
+
+  test("thinking 段级：onThinking(block) 逐完成块回调（工具轮与文本轮的 thinking 均达）", async () => {
+    const llm = fakeLlm(
+      thinkingTurn([
+        { kind: "toolCall", id: "call-0", name: "list_tasks", args: {}, thinking: { text: "先查清单。" } },
+        { kind: "text", text: "答", thinking: { text: "直接答。" } },
+      ]),
+    );
+    const { svc } = makeService({ llm });
+    const blocks: string[] = [];
+    await svc.ask("问", { onThinking: (block) => blocks.push(block) });
+    expect(blocks).toEqual(["先查清单。", "直接答。"]);
+  });
+
+  test("money gate 关 → 零过程事件（thinking/tool 零回调）", async () => {
+    const llm = fakeLlm([{ kind: "text", text: "x", thinking: { text: "不该出现" } }]);
+    const { svc } = makeService({ llm, config: fakeConfig({}) });
+    const events: string[] = [];
+    await svc.ask("问", {
+      onThinking: (b) => events.push(`think:${b}`),
+      onToolStart: (n) => events.push(`start:${n}`),
+    });
+    expect(events).toEqual([]);
   });
 });

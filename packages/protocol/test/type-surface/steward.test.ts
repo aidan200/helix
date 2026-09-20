@@ -29,6 +29,13 @@ import type {
   StewardSetConfigCommand,
   StewardSubscribeCommand,
   StewardUnsubscribeCommand,
+  StewardHistoryCommand,
+  StewardHistoryRecord,
+  StewardHistoryResultEvent,
+  StewardToolEvent,
+  StewardToolPayload,
+  StewardThinkingEvent,
+  StewardThinkingPayload,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -73,9 +80,37 @@ type _FeedSeq = Expect<Equal<StewardFeedPayload["seq"], number>>;
 type _StewardFamily = Expect<
   Equal<
     TypeOfChannel<"steward">,
-    "steward.ask.result" | "steward.ask.delta" | "steward.confirm.result" | "steward.feed" | "steward.config.result"
+    | "steward.ask.result"
+      | "steward.ask.delta"
+      | "steward.confirm.result"
+      | "steward.feed"
+      | "steward.config.result"
+      | "steward.history.result"
+      | "steward.tool"
+      | "steward.thinking"
   >
 >;
+
+// A1 工作记忆批：history 载荷 clear 可选；records 全形态判别字段
+ type _HistoryClear = Expect<Equal<StewardHistoryCommand["payload"]["clear"], boolean | undefined>>;
+type _RecordUser = Expect<Equal<Extract<StewardHistoryRecord, { kind: "user" }>["text"], string>>;
+type _RecordAssistantThinking = Expect<
+  Equal<Extract<StewardHistoryRecord, { kind: "assistant" }>["thinking"], { text: string; signature?: string } | undefined>
+>;
+type _RecordAssistantToolCall = Expect<
+  Equal<
+    Extract<StewardHistoryRecord, { kind: "assistant" }>["toolCall"],
+    { id: string; name: string; args: Record<string, unknown> } | undefined
+  >
+>;
+type _RecordToolResult = Expect<Equal<Extract<StewardHistoryRecord, { kind: "toolResult" }>["toolCallId"], string>>;
+type _RecordAt = Expect<Equal<Extract<StewardHistoryRecord, { kind: "user" }>["at"], number>>;
+
+// A1 过程帧：tool 两相 / thinking 段级
+type _ToolStart = Expect<Equal<Extract<StewardToolPayload, { phase: "start" }>["argsSummary"], string>>;
+type _ToolEnd = Expect<Equal<Extract<StewardToolPayload, { phase: "end" }>["resultSummary"], string>>;
+type _ThinkingText = Expect<Equal<StewardThinkingPayload["text"], string>>;
+type _ThinkingSeq = Expect<Equal<StewardThinkingPayload["seq"], number>>;
 
 const askCommand: StewardAskCommand = {
   v: PROTOCOL_VERSION,
@@ -174,6 +209,62 @@ const configResult: StewardConfigResultEvent = {
   payload: { enabled: false, model: "deepseek/deepseek-v4-flash" },
 };
 
+const historyCommand: StewardHistoryCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.history",
+  payload: {},
+};
+
+const historyClearCommand: StewardHistoryCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.history",
+  payload: { clear: true },
+};
+
+const historyResult: StewardHistoryResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.history.result",
+  payload: {
+    records: [
+      { kind: "user", text: "现在有什么在跑？", at: 1760000000000 },
+      {
+        kind: "assistant",
+        thinking: { text: "用户问全局状态，先查实例清单", signature: "sig-opaque" },
+        toolCall: { id: "call-0", name: "list_instances", args: {} },
+        at: 1760000000123,
+      },
+      { kind: "toolResult", toolCallId: "call-0", name: "list_instances", text: "[]", at: 1760000000456 },
+      { kind: "assistant", text: "当前无运行中实例。", at: 1760000000789 },
+    ],
+  },
+};
+
+const toolStart: StewardToolEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.tool",
+  payload: { phase: "start", name: "list_tasks", argsSummary: "{}", seq: 1 },
+};
+
+const toolEnd: StewardToolEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.tool",
+  payload: { phase: "end", name: "list_tasks", resultSummary: "2 个任务（1 运行中）", seq: 2 },
+};
+
+const thinkingFrame: StewardThinkingEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.thinking",
+  payload: { text: "用户问任务状态，需要先取任务清单再决定是否查实例。", seq: 1 },
+};
+
 describe("文本管家批（V2.5）：steward 族 additive", () => {
   test("命令/事件/通道目录登记（COMMAND_TYPES / EVENT_TYPES / EVENT_CHANNELS）", () => {
     for (const t of [
@@ -233,5 +324,46 @@ describe("文本管家批（V2.5）：steward 族 additive", () => {
     expect(familyOf(askAnswer)).toBe("steward/steward.ask.result");
     expect(familyOf(feedFrame)).toBe("steward/steward.feed");
     expect(familyOf(askDelta)).toBe("steward/steward.ask.delta");
+  });
+});
+
+describe("管家工作记忆批（A1）：steward.history + 过程帧 additive", () => {
+  test("目录登记：命令 +1 / 事件 +3 / 通道挂 steward 族", () => {
+    expect(COMMAND_TYPES).toContain("steward.history");
+    for (const t of ["steward.history.result", "steward.tool", "steward.thinking"] as const) {
+      expect(EVENT_TYPES).toContain(t);
+      expect(EVENT_CHANNELS[t as "steward.feed"]).toBe("steward");
+    }
+  });
+
+  test("history 命令读/清双形态可构造且 dispatch 窄化", () => {
+    expect(dispatchCommand(historyCommand)).toBe("steward-history:false");
+    expect(dispatchCommand(historyClearCommand)).toBe("steward-history:true");
+  });
+
+  test("history.result 回放回执：records 全形态窄化（user/assistant 含 thinking+toolCall/toolResult）", () => {
+    expect(summarizeEvent(historyResult)).toBe("steward-history-result:4:user");
+    const [user, assistantTool, toolResult, assistantText] = historyResult.payload.records;
+    expect(user?.kind).toBe("user");
+    if (assistantTool?.kind === "assistant") {
+      expect(assistantTool.thinking?.signature).toBe("sig-opaque");
+      expect(assistantTool.toolCall?.name).toBe("list_instances");
+      expect(assistantTool.toolCall?.id).toBe("call-0");
+    } else {
+      throw new Error("assistant 工具轮记录窄化失败");
+    }
+    expect(toolResult?.kind).toBe("toolResult");
+    if (toolResult?.kind === "toolResult") expect(toolResult.toolCallId).toBe("call-0");
+    expect(assistantText?.kind).toBe("assistant");
+    if (assistantText?.kind === "assistant") expect(assistantText.text).toBe("当前无运行中实例。");
+  });
+
+  test("tool 两相帧 + thinking 段级帧窄化", () => {
+    expect(summarizeEvent(toolStart)).toBe("steward-tool-start:list_tasks:{}:1");
+    expect(summarizeEvent(toolEnd)).toBe("steward-tool-end:list_tasks:2 个任务（1 运行中）:2");
+    expect(summarizeEvent(thinkingFrame)).toBe("steward-thinking:用户问任务状态，需要先取任务清单再决定是否查实例。:1");
+    expect(familyOf(toolStart)).toBe("steward/steward.tool");
+    expect(familyOf(thinkingFrame)).toBe("steward/steward.thinking");
+    expect(familyOf(historyResult)).toBe("steward/steward.history.result");
   });
 });

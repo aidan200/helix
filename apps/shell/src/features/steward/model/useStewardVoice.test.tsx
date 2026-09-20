@@ -122,7 +122,7 @@ class FakeAudio {
 }
 
 function frame(type: string, payload: unknown, channel: string, sessionId = "__system__"): EventEnvelope {
-  return { v: "0.13", sessionId, channel, type, payload } as EventEnvelope;
+  return { v: "0.14", sessionId, channel, type, payload } as EventEnvelope;
 }
 
 /** 安装录音 + Audio 环境，返回还原函数。 */

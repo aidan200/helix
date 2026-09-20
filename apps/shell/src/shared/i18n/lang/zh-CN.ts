@@ -352,7 +352,7 @@ export const zhCN = {
         speakReplyHint: "开启后，语音提问的回答会自动读出来；文字输入的回答不会发声。",
         groupModel: "回答模型",
         model: "回答模型",
-        modelHint: "建议选择轻快的模型，回答更快、费用更低。仅显示已配置厂商的模型，未配置的请到「模型」分区配置。",
+        modelHint: "建议配置最强模型：管家承担全局监控与递话决策，思考能力越强越可靠（思考默认开启）。仅显示已配置厂商的模型，未配置的请到「模型」分区配置。",
       },
       skills: {
         title: "用户技能",
@@ -1079,6 +1079,10 @@ export const zhCN = {
     feedTitle: "事件流",
     feedEmpty: "暂无事件",
     thinking: "思考中…",
+    // ── A1 工作记忆批：过程可见面（thinking 折叠 / 工具行 / 新对话）──
+    thinkingLabel: "思考过程",
+    newChat: "新对话",
+    newChatTitle: "清空当前对话（管家记忆与显示同步清空）",
     inputPlaceholder: "问管家：现在有什么在跑？",
     send: "发送",
     confirmTitle: "写动作待确认",

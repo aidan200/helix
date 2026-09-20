@@ -1268,6 +1268,56 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 .stp-msg-steward .md-code { font-size: var(--text-cap); }
 .stp-msg-streaming { border-style: dashed; } /* 流式在途态视觉区分（终态换实线正式气泡） */
 .stp-inflight { font-size: var(--text-cap); color: var(--text-faint); align-self: flex-start; }
+/* A1 工作记忆批：Dock 关闭 = 隐藏不卸载（display 层收起，组件树保留——
+   状态与订阅面跨开关驻留；动画面不重放入场帧） */
+.stp-dock-hidden { display: none; }
+/* A1：新对话钮（头部——三处同清入口；次级按钮密度不挤标题） */
+.stp-newchat {
+  background: none; border: 1px solid rgb(var(--edge-rgb) / 0.2); cursor: pointer; flex-shrink: 0;
+  color: var(--text-faint); font-size: var(--text-micro); letter-spacing: 0.04em;
+  padding: 2px 8px; border-radius: 6px; transition: color 0.15s, border-color 0.15s;
+}
+.stp-newchat:hover { color: var(--text); border-color: rgb(var(--accent-rgb) / 0.4); }
+/* A1：thinking 折叠条目（对齐主会话 thinking 条目密度但更紧凑） */
+.stp-think {
+  align-self: stretch; max-width: 100%; padding: 2px 4px;
+  border-left: 2px solid rgb(var(--accent-rgb) / 0.25);
+}
+.stp-think-toggle {
+  display: inline-flex; align-items: center; gap: 4px; background: none; border: none;
+  cursor: pointer; padding: 1px 2px; color: var(--text-faint);
+  font-size: var(--text-micro); letter-spacing: 0.06em; transition: color 0.15s;
+}
+.stp-think-toggle:hover { color: var(--text-dim); }
+.stp-think-body {
+  margin-top: 3px; padding: 4px 8px; border-radius: 6px;
+  background: rgb(var(--edge-rgb) / 0.08); color: var(--text-dim);
+  font-size: var(--text-cap); line-height: 1.55; overflow-wrap: anywhere;
+  max-height: 220px; overflow-y: auto;
+}
+/* A1：工具过程行（✓ 完成态 / … 在途态；可展开参数与结果摘要） */
+.stp-tool {
+  align-self: stretch; max-width: 100%; padding: 2px 4px;
+  border-left: 2px solid rgb(var(--edge-rgb) / 0.3);
+}
+.stp-tool.done { border-left-color: rgb(var(--success-rgb) / 0.5); }
+.stp-tool-toggle {
+  display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
+  cursor: pointer; padding: 1px 2px; color: var(--text-faint);
+  font-size: var(--text-micro); transition: color 0.15s;
+}
+.stp-tool-toggle:hover { color: var(--text-dim); }
+.stp-tool-name { color: var(--text-dim); font-weight: 600; letter-spacing: 0.02em; }
+.stp-tool-state { color: var(--text-faint); }
+.stp-tool.done .stp-tool-state { color: var(--success); }
+.stp-tool-body {
+  margin-top: 3px; padding: 4px 8px; border-radius: 6px;
+  background: rgb(var(--edge-rgb) / 0.08);
+  font-size: var(--text-cap); line-height: 1.5; overflow-wrap: anywhere;
+  max-height: 180px; overflow-y: auto;
+}
+.stp-tool-args { color: var(--text-faint); margin-bottom: 2px; }
+.stp-tool-result { color: var(--text-dim); white-space: pre-wrap; }
 .stp-confirm {
   flex: 0 0 auto; margin: 0 12px 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid rgb(var(--warning-rgb) / 0.45); border-radius: 8px;

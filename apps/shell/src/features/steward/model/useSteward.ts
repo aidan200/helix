@@ -1,5 +1,6 @@
 /**
- * useSteward —— V2.5 文本管家面板状态钩子（设计 §2/§5.2/§5.3 消费端）。
+ * useSteward —— 管家面板状态钩子（V2.5 设计 §2/§5.2/§5.3 消费端；A1 工作记忆
+ * 批改造：完整过程条目模型 + 回放同源 + 新对话三清）。
  *
  * 链路：
  * - 配置面：mount → steward.get_config → config.result（enabled/model 态；
@@ -7,14 +8,19 @@
  * - 订阅闸门：面板开 + conn=connected + enabled → steward.subscribe（daemon
  *   连接级 feed 闸门登记；断连自动清位，重连由 conn 依赖重放——
  *   useVoiceBroadcast 先例同构）；面板关/未启用 → unsubscribe；
- * - 对话面：ask(text) → steward.ask → steward.ask.delta 流式增量帧（
- *   streamingText 增量聚合——流式不落盘：messages 不追加，与主聊天 streaming
- *   槽同语义；终态权威覆盖）→ steward.ask.result 三判别
- *   （answer 直答入消息流并清 streamingText / confirm_required 入 pending
- *   确认闸 / error 入消息流并清 streamingText——零静默失败）；
+ * - 对话面：ask(text) → steward.ask → steward.ask.delta 流式增量帧
+ *   （streamingText 增量聚合；终态权威覆盖）+ steward.thinking 段级 /
+ *   steward.tool 两相过程帧（A1：工具/thinking 过程屏幕可见——条目追加，
+ *   TTS 播报链路零接入：useStewardVoice 只听 ask.result answer 文本）→
+ *   steward.ask.result 三判别（answer 直答入条目流并清 streamingText /
+ *   confirm_required 入 pending 确认闸 / error 入条目流——零静默失败）；
+ * - 回放面（A1）：conn=connected → steward.history → history.result →
+ *   items 从记录数组同源重建（UI 显示的 = LLM 记得的——daemon KV 单源）；
+ * - 新对话（A1）：newDialog() → steward.history {clear:true}（daemon 清 KV
+ *   + LLM 窗口）+ 本地 items 清空（回执空数组幂等覆盖）——三处同步清；
  * - 确认闸（§5.2 防火墙客户端面）：pending 携带 actionId + 递话全文，
  *   confirmPending() → steward.confirm（actionId 单次消费——daemon 侧
- *   权威）；confirm.result ok/error 均入消息流；
+ *   权威）；confirm.result ok/error 均入条目流；
  * - feed 面：steward.feed 文本行 → 滚动窗口（上限截尾保最新）。
  *
  * 防自激纪律（TR-169）：订阅 effect 只按 [conn, open, enabled] 离散依赖
@@ -23,16 +29,26 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
-import type { EventEnvelope } from "@helix/protocol";
+import type { EventEnvelope, StewardHistoryRecord } from "@helix/protocol";
 
 /** feed 滚动窗口上限（截尾保最新；面板轻量态不落 store）。 */
 export const STEWARD_FEED_MAX_LINES = 50;
 
-/** 面板消息行（会话内——不持久化，与 daemon 侧滚动窗口同语义）。 */
-export interface StewardMessage {
-  readonly role: "user" | "steward";
-  readonly text: string;
-}
+/**
+ * 面板过程条目（A1：完整记录形态的 UI 投影——thinking 折叠条目 / 工具
+ * 过程行 / 对话气泡；由回放记录与实时过程帧同构映射）。
+ */
+export type StewardPanelItem =
+  | { readonly kind: "user"; readonly text: string }
+  | { readonly kind: "assistant"; readonly text: string }
+  | { readonly kind: "thinking"; readonly text: string }
+  | {
+      readonly kind: "tool";
+      readonly toolCallId: string;
+      readonly name: string;
+      readonly argsSummary: string;
+      readonly resultSummary: string | null;
+    };
 
 /** 待确认写动作（确认闸面板态；执行权威在 daemon——actionId 单次消费）。 */
 export interface StewardPendingAction {
@@ -54,10 +70,10 @@ interface StewardConfig {
 }
 
 export interface UseSteward {
-  /** 对话消息流（user/steward 两方）。 */
-  readonly messages: readonly StewardMessage[];
-  /** 在途流式文本（null = 无流；增量聚合——终态 result 权威覆盖后清空，
-   *  V2.5 体验批；不落盘不持久化，与主聊天 streaming 槽同语义）。 */
+  /** 对话过程条目流（user/assistant 气泡 + thinking 折叠 + 工具行；A1）。 */
+  readonly items: readonly StewardPanelItem[];
+  /** 在途流式文本（null = 无流；增量聚合——终态 result 权威覆盖后清空；
+   *  不落盘不持久化，与主聊天 streaming 槽同语义）。 */
   readonly streamingText: string | null;
   /** 待确认写动作（null = 无）。 */
   readonly pending: StewardPendingAction | null;
@@ -73,10 +89,62 @@ export interface UseSteward {
   confirmPending(): boolean;
   /** 放弃当前待确认动作（仅本地清卡——daemon 侧动作过期自然失效）。 */
   dismissPending(): void;
+  /** 新对话（A1：三处同步清——本地条目 + daemon KV + LLM 窗口）。 */
+  newDialog(): boolean;
 }
 
-/** 消息滚动窗口上限（与 daemon HISTORY_WINDOW 同量级；防无界增长）。 */
-const MESSAGE_WINDOW = 60;
+/** 条目滚动窗口上限（防无界；回放源在 daemon KV——超窗可再拉）。 */
+const ITEM_WINDOW = 200;
+
+/** 工具参数摘要截断（行内密度面）。 */
+const ARGS_SUMMARY_MAX = 80;
+
+function summarizeArgs(args: Record<string, unknown>): string {
+  const s = JSON.stringify(args) ?? "{}";
+  return s.length <= ARGS_SUMMARY_MAX ? s : `${s.slice(0, ARGS_SUMMARY_MAX)}…`;
+}
+
+/** 回放记录 → 面板条目（同源映射：一条 assistant 记录可投影多个条目——
+ *  thinking → 折叠条目、toolCall → 工具行；toolResult 按 toolCallId 配对
+ *  回填结果摘要）。 */
+export function recordsToItems(records: readonly StewardHistoryRecord[]): StewardPanelItem[] {
+  const items: StewardPanelItem[] = [];
+  for (const r of records) {
+    if (r.kind === "user") {
+      items.push({ kind: "user", text: r.text });
+      continue;
+    }
+    if (r.kind === "toolResult") {
+      // 配对回填（找不到配对行 = 防御态：独立成行不丢信息）
+      const target = [...items].reverse().find((i) => i.kind === "tool" && i.toolCallId === r.toolCallId);
+      if (target !== undefined && target.kind === "tool") {
+        const idx = items.indexOf(target);
+        items[idx] = { ...target, resultSummary: r.text.slice(0, ARGS_SUMMARY_MAX) };
+      } else {
+        items.push({
+          kind: "tool",
+          toolCallId: r.toolCallId,
+          name: r.name,
+          argsSummary: "",
+          resultSummary: r.text.slice(0, ARGS_SUMMARY_MAX),
+        });
+      }
+      continue;
+    }
+    if (r.thinking !== undefined && r.thinking.text !== "") items.push({ kind: "thinking", text: r.thinking.text });
+    if (r.toolCall !== undefined) {
+      items.push({
+        kind: "tool",
+        toolCallId: r.toolCall.id,
+        name: r.toolCall.name,
+        argsSummary: summarizeArgs(r.toolCall.args),
+        resultSummary: null,
+      });
+    }
+    if (r.text !== undefined && r.text !== "") items.push({ kind: "assistant", text: r.text });
+  }
+  return items;
+}
 
 export function useSteward(open: boolean): UseSteward {
   const {
@@ -86,6 +154,7 @@ export function useSteward(open: boolean): UseSteward {
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
+    sendStewardHistory,
     subscribeStewardFrames,
   } = useSession() as {
     topology?: { active?: { conn?: string } };
@@ -94,20 +163,21 @@ export function useSteward(open: boolean): UseSteward {
     sendStewardSubscribe?: () => boolean;
     sendStewardUnsubscribe?: () => boolean;
     sendStewardGetConfig?: () => boolean;
+    sendStewardHistory?: (clear?: boolean) => boolean;
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
 
-  const [messages, setMessages] = useState<readonly StewardMessage[]>([]);
+  const [items, setItems] = useState<readonly StewardPanelItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [pending, setPending] = useState<StewardPendingAction | null>(null);
   const [feed, setFeed] = useState<readonly FeedLine[]>([]);
   const [askInFlight, setAskInFlight] = useState(false);
   const [config, setConfig] = useState<StewardConfig | null>(null);
 
-  const pushMessage = useCallback((message: StewardMessage) => {
-    setMessages((prev) => {
-      const next = [...prev, message];
-      return next.length > MESSAGE_WINDOW ? next.slice(-MESSAGE_WINDOW) : next;
+  const pushItem = useCallback((item: StewardPanelItem) => {
+    setItems((prev) => {
+      const next = [...prev, item];
+      return next.length > ITEM_WINDOW ? next.slice(-ITEM_WINDOW) : next;
     });
   }, []);
 
@@ -127,6 +197,17 @@ export function useSteward(open: boolean): UseSteward {
     sendStewardGetConfig();
   }, [conn, sendStewardGetConfig]);
 
+  // ── 回放面（A1）：conn=connected → steward.history → 同源重建 items。
+  // 守卫 ref 复位只在离散事件（连接变更由 conn 依赖驱动重设）——TR-169。──
+  const historySentFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (conn !== "connected") return;
+    if (typeof sendStewardHistory !== "function") return;
+    if (historySentFor.current === conn) return; // 同连接幂等
+    historySentFor.current = conn;
+    sendStewardHistory();
+  }, [conn, sendStewardHistory]);
+
   // ── 订阅闸门：面板开 + connected + enabled → subscribe；否则 unsubscribe ──
   // （依赖均为离散态（conn/open/config.enabled），无数据流回写——不自激）
   const enabled = config?.enabled === true;
@@ -139,8 +220,7 @@ export function useSteward(open: boolean): UseSteward {
     }
   }, [conn, open, enabled, sendStewardSubscribe, sendStewardUnsubscribe]);
 
-  // ── 帧消费：ask/confirm/config 三回执 + feed 广播（单 listener 单点分发）──
-  const inFlightRef = useRef(false);
+  // ── 帧消费：ask/confirm/config/history 回执 + tool/thinking 过程帧 + feed ──
   const askInFlightRef = useRef(false);
   const markAskInFlight = (v: boolean) => {
     askInFlightRef.current = v;
@@ -150,12 +230,52 @@ export function useSteward(open: boolean): UseSteward {
     if (subscribeStewardFrames === undefined) return;
     return subscribeStewardFrames((event: EventEnvelope) => {
       if (event.type === "steward.ask.delta") {
-        // 流式增量聚合（V2.5 体验批）：不落盘（messages 不动）——终态 result
+        // 流式增量聚合（V2.5 体验批）：不落盘（items 不动）——终态 result
         // 到达时清空并落权威消息；非在途（迟到 delta）忽略防脏写
         const payload = event.payload as { delta?: unknown };
         if (typeof payload.delta !== "string" || payload.delta === "") return;
         if (!askInFlightRef.current) return;
         setStreamingText((prev) => (prev ?? "") + payload.delta);
+        return;
+      }
+      if (event.type === "steward.thinking") {
+        // thinking 段级（A1）：一完成块一条目（屏幕折叠显示）
+        const payload = event.payload as { text?: unknown };
+        if (typeof payload.text !== "string" || payload.text === "") return;
+        pushItem({ kind: "thinking", text: payload.text });
+        return;
+      }
+      if (event.type === "steward.tool") {
+        // 工具两相（A1）：start 开行（结果待配对）；end 回填最近同名待配对行
+        const payload = event.payload as
+          | { phase: "start"; name?: unknown; argsSummary?: unknown }
+          | { phase: "end"; name?: unknown; resultSummary?: unknown };
+        if (payload.phase === "start") {
+          if (typeof payload.name !== "string") return;
+          const argsSummary = typeof payload.argsSummary === "string" ? payload.argsSummary : "{}";
+          pushItem({ kind: "tool", toolCallId: `live-${Date.now()}`, name: payload.name, argsSummary, resultSummary: null });
+          return;
+        }
+        if (typeof payload.name !== "string") return;
+        const resultSummary = typeof payload.resultSummary === "string" ? payload.resultSummary : "";
+        setItems((prev) => {
+          for (let i = prev.length - 1; i >= 0; i -= 1) {
+            const it = prev[i]!;
+            if (it.kind === "tool" && it.name === payload.name && it.resultSummary === null) {
+              const next = [...prev];
+              next[i] = { ...it, resultSummary };
+              return next;
+            }
+          }
+          return prev;
+        });
+        return;
+      }
+      if (event.type === "steward.history.result") {
+        // 回放同源（A1）：daemon KV 记录数组 → items 整体替换（权威面）
+        const payload = event.payload as { records?: unknown };
+        if (!Array.isArray(payload.records)) return;
+        setItems(recordsToItems(payload.records as StewardHistoryRecord[]));
         return;
       }
       if (event.type === "steward.ask.result") {
@@ -165,11 +285,11 @@ export function useSteward(open: boolean): UseSteward {
           | { status: "error"; reason: string };
         setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error/confirm 同口径）
         if (payload.status === "answer") {
-          pushMessage({ role: "steward", text: payload.text });
+          pushItem({ kind: "assistant", text: payload.text });
         } else if (payload.status === "confirm_required") {
           setPending({ actionId: payload.actionId, agentId: payload.agentId, message: payload.message });
         } else {
-          pushMessage({ role: "steward", text: payload.reason });
+          pushItem({ kind: "assistant", text: payload.reason });
         }
         markAskInFlight(false);
         return;
@@ -180,9 +300,9 @@ export function useSteward(open: boolean): UseSteward {
           | { status: "error"; reason: string };
         setPending(null);
         if (payload.status === "ok") {
-          pushMessage({ role: "steward", text: `${payload.agentId}：${payload.detail}` });
+          pushItem({ kind: "assistant", text: `${payload.agentId}：${payload.detail}` });
         } else {
-          pushMessage({ role: "steward", text: payload.reason });
+          pushItem({ kind: "assistant", text: payload.reason });
         }
         return;
       }
@@ -202,8 +322,7 @@ export function useSteward(open: boolean): UseSteward {
         });
       }
     });
-  }, [subscribeStewardFrames, pushMessage]);
-  void inFlightRef;
+  }, [subscribeStewardFrames, pushItem]);
 
   const ask = useCallback(
     (text: string): boolean => {
@@ -213,11 +332,11 @@ export function useSteward(open: boolean): UseSteward {
       const ok = sendStewardAsk(trimmed);
       if (ok === false) return false; // 未连接：零静默丢消息（TR-168 严格判）
       setStreamingText(null); // 新一轮复位（防御：上轮断连残留）
-      pushMessage({ role: "user", text: trimmed });
+      pushItem({ kind: "user", text: trimmed });
       markAskInFlight(true);
       return true;
     },
-    [sendStewardAsk, pushMessage],
+    [sendStewardAsk, pushItem],
   );
 
   const confirmPending = useCallback((): boolean => {
@@ -230,5 +349,14 @@ export function useSteward(open: boolean): UseSteward {
 
   const dismissPending = useCallback(() => setPending(null), []);
 
-  return { messages, streamingText, pending, feed, askInFlight, config, ask, confirmPending, dismissPending };
+  const newDialog = useCallback((): boolean => {
+    if (typeof sendStewardHistory !== "function") return false;
+    const ok = sendStewardHistory(true);
+    if (ok === false) return false; // 未连接：不清（三处一致以 daemon 为准）
+    setItems([]); // 本地先行清（回执空数组幂等覆盖）
+    setPending(null);
+    return true;
+  }, [sendStewardHistory]);
+
+  return { items, streamingText, pending, feed, askInFlight, config, ask, confirmPending, dismissPending, newDialog };
 }

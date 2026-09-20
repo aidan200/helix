@@ -350,7 +350,7 @@ export const enUS = {
         speakReplyHint: "When on, spoken questions get spoken replies; replies to typed questions are never read aloud.",
         groupModel: "Answer model",
         model: "Answer model",
-        modelHint: "A lightweight model is recommended: faster replies, lower cost. Only models from configured providers are listed; configure them in the Models section.",
+        modelHint: "The strongest model available is recommended: the steward handles global monitoring and message-relay decisions — stronger reasoning means more reliability (thinking is on by default). Only models from configured providers are listed; configure them in the Models section.",
       },
       skills: {
         title: "User skills",
@@ -1072,6 +1072,10 @@ export const enUS = {
     feedTitle: "Event feed",
     feedEmpty: "No events yet",
     thinking: "Thinking…",
+    // ── A1 work-memory batch: process visibility (thinking fold / tool rows / new chat) ──
+    thinkingLabel: "Reasoning",
+    newChat: "New chat",
+    newChatTitle: "Clear the current conversation (steward memory and display reset together)",
     inputPlaceholder: "Ask the steward: what is running now?",
     send: "Send",
     confirmTitle: "Write action needs confirmation",

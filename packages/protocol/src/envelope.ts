@@ -12,7 +12,7 @@
  */
 
 /** 协议版本位。v0.13 帧 `v` 恒为 "0.13"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.13" as const;
+export const PROTOCOL_VERSION = "0.14" as const;
 
 /**
  * 帧版本位取值域："0.13" = 当前批（v0.13）帧；`0` = v0/v0.1 历史帧（v0.1 未

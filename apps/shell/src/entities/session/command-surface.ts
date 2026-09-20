@@ -48,6 +48,7 @@ import {
   stewardAskCommand,
   stewardConfirmCommand,
   stewardGetConfigCommand,
+  stewardHistoryCommand,
   stewardSetConfigCommand,
   stewardSubscribeCommand,
   stewardUnsubscribeCommand,
@@ -262,6 +263,10 @@ export const COMMAND_SURFACE = {
   /** 设置写面（两槽位可选；回执 steward.config.result 新态）。 */
   sendStewardSetConfig: (deps) =>
     (patch: { enabled?: boolean; model?: string }): boolean => deps.send(stewardSetConfigCommand(patch)),
+  /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true
+   *  新对话三处同清）。 */
+  sendStewardHistory: (deps) =>
+    (clear?: boolean): boolean => deps.send(stewardHistoryCommand(clear)),
 
   // ── 连接 / 会话生命周期面 ─────────────────────────────────
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
@@ -830,7 +835,8 @@ export const LISTEN_SURFACE = {
       type === "connection.error",
   },
   /** 订阅 steward 族帧（V2.5 文本管家：ask/confirm/config 三点对点回执 +
-   *  ask.delta 流式增量帧（体验批）+ feed 广播 + connection.error——
+   *  ask.delta 流式增量帧（体验批）+ feed 广播 + A1 工作记忆批三帧
+   *  （history.result 回放 / tool 两相 / thinking 段级）+ connection.error——
    *  面板与设置页两消费面；TR-89 双登记纪律）。 */
   subscribeStewardFrames: {
     match: (type) =>
@@ -839,6 +845,9 @@ export const LISTEN_SURFACE = {
       type === "steward.confirm.result" ||
       type === "steward.feed" ||
       type === "steward.config.result" ||
+      type === "steward.history.result" ||
+      type === "steward.tool" ||
+      type === "steward.thinking" ||
       type === "connection.error",
   },
 } satisfies Record<string, ListenDomainSpec>;

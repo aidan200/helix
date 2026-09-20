@@ -19,9 +19,13 @@ import type {
   StewardAskResultEvent,
   StewardConfigResultEvent,
   StewardConfirmResultEvent,
+  StewardHistoryResultEvent,
+  StewardThinkingEvent,
+  StewardToolEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { StewardCommandContext } from "./context";
+import type { StewardAskEvents } from "../../../../application/steward/StewardService";
 
 /** ask 文本防御上限（管家对话单轮；超长引导拆分）。 */
 const ASK_TEXT_MAX = 2000;
@@ -36,23 +40,59 @@ export function handleStewardAsk(ctx: StewardCommandContext): void {
   if (text.length > ASK_TEXT_MAX) {
     return ctx.commandError(ctx.type, "command.invalid_payload", `payload.text 超长（≤${ASK_TEXT_MAX} 字符）`);
   }
-  // 流式增量帧（V2.5 体验批）：文本生成段逐 chunk 点对点下发（seq 单 ask 内
-  // 1 起单调）；终态 result 权威覆盖——前端以 result 文本替换聚合缓冲。
+  // 过程帧（A1 工作记忆批）：单 ask 内 seq 单调 1 起——ask.delta 与
+  // tool/thinking 共用同一计数器（帧序即到达序，WS 有序传输下前端直接拼接）
   let deltaSeq = 0;
+  const nextSeq = (): number => {
+    deltaSeq += 1;
+    return deltaSeq;
+  };
   const onDelta = (chunk: string): void => {
     if (chunk === "") return;
-    deltaSeq += 1;
     const frame: StewardAskDeltaEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID,
       channel: "steward",
       type: "steward.ask.delta",
-      payload: { delta: chunk, seq: deltaSeq },
+      payload: { delta: chunk, seq: nextSeq() },
     };
     ctx.sendNow(sender, frame);
   };
+  // thinking 段级（一个完成态块一帧——屏幕折叠显示用；TTS 零接入）
+  const onThinking = (block: string): void => {
+    if (block === "") return;
+    const frame: StewardThinkingEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.thinking",
+      payload: { text: block, seq: nextSeq() },
+    };
+    ctx.sendNow(sender, frame);
+  };
+  const onToolStart = (name: string, argsSummary: string): void => {
+    const frame: StewardToolEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.tool",
+      payload: { phase: "start", name, argsSummary, seq: nextSeq() },
+    };
+    ctx.sendNow(sender, frame);
+  };
+  const onToolEnd = (name: string, resultSummary: string): void => {
+    const frame: StewardToolEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.tool",
+      payload: { phase: "end", name, resultSummary, seq: nextSeq() },
+    };
+    ctx.sendNow(sender, frame);
+  };
+  const events: StewardAskEvents = { onDelta, onThinking, onToolStart, onToolEnd };
   void ctx.steward.service
-    .ask(text, onDelta)
+    .ask(text, events)
     .then((payload) => {
       const frame: StewardAskResultEvent = {
         v: PROTOCOL_VERSION,
@@ -117,6 +157,35 @@ export function handleStewardUnsubscribe(ctx: StewardCommandContext): void {
   ctx.steward.stream.unsubscribeSteward(ctx.ws.data.sender);
 }
 
+/** steward.history（全局命令；A1 工作记忆批）：工作记忆读/清 + 点对点
+ *  回执 steward.history.result——回放链路（面板打开 → 读 KV → UI 渲染与
+ *  LLM 窗口同源重建）；clear=true 新对话三处同步清（daemon KV + LLM 窗口
+ *  由服务层收口，前端显示由回执空数组同步）。 */
+export function handleStewardHistory(ctx: StewardCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const clear = ctx.payload.clear;
+  if (clear !== undefined && typeof clear !== "boolean") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.clear 应为 boolean");
+  }
+  const respond = (records: readonly import("@helix/protocol").StewardHistoryRecord[]): void => {
+    const frame: StewardHistoryResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.history.result",
+      payload: { records },
+    };
+    ctx.sendNow(sender, frame);
+  };
+  const job = clear === true ? ctx.steward.service.clearHistory() : ctx.steward.service.getHistory();
+  void job
+    .then((outcome) => {
+      respond(outcome instanceof Array ? outcome : []);
+    })
+    .catch((err) =>
+      ctx.commandError(ctx.type, "command.invalid_payload", `steward.history 执行失败：${(err as Error).message}`),
+    );
+}
 /** steward.get_config（全局命令）：设置读面 + steward.config.result 回执。 */
 export function handleStewardGetConfig(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
