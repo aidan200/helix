@@ -55,14 +55,17 @@ test.describe("T3.2 CL-2 草稿建会话", () => {
     const createLike = after.filter((f) => f.type.startsWith("session.create"));
     expect(createLike).toHaveLength(0);
 
-    // 草稿卡片 + 草稿空态（F(1.2).1）：呼吸文案 + violet 方块光标 + 建会话提示
+    // 草稿卡片 + 草稿空态（空态统一：草稿与真实空会话同构 SessionEmpty——
+    // HX 方标 + 呼吸文案 + 方块光标 + 建议 chip；草稿仅多一行建会话提示）
     const draftCard = page.locator('[data-session-card="draft"]');
     await expect(draftCard).toHaveCount(1);
     await expect(draftCard).toHaveAttribute("data-active", "1");
     await expect(draftCard).toContainText("草稿");
-    await expect(page.locator("[data-draft-empty]")).toBeVisible();
-    await expect(page.locator("[data-draft-empty] .empty-cursor")).toBeVisible();
-    await expect(page.locator("[data-draft-empty]")).toContainText("发送第一条消息后将创建会话");
+    const draftEmpty = page.locator(".session-empty");
+    await expect(draftEmpty).toBeVisible();
+    await expect(draftEmpty.locator(".empty-cursor")).toBeVisible();
+    await expect(draftEmpty.locator(".empty-suggest button")).toHaveCount(3);
+    await expect(draftEmpty.locator(".empty-hint")).toContainText("发送第一条消息后将创建会话");
     // 旧会话内容不渲染（草稿空态互斥）+ 输入可用
     await expect(page.locator(".session-active .msg")).toHaveCount(0);
     await expect(page.locator("#msg-input")).toBeEnabled();
@@ -105,7 +108,7 @@ test.describe("T3.2 CL-2 草稿建会话", () => {
     await expect(newCard.locator(".ses-title")).toHaveText(MULTI_DRAFT_TITLE);
     await expect(page.locator("[data-session-title]")).toHaveText(MULTI_DRAFT_TITLE);
     // 草稿空态消失（会话投影接管）
-    await expect(page.locator("[data-draft-empty]")).toBeHidden();
+    await expect(page.locator(".session-empty")).toBeHidden();
     await expect(page.locator(".session-active .msg")).toHaveCount(2);
     // 旧会话 A 卡片在场（转后台照常执行，F(1.0).5 呈现面归徽标剧本）
     await expect(page.locator(`[data-session-card="${MULTI_SESSION_A}"]`)).toHaveCount(1);

@@ -16,11 +16,13 @@ import { createInitialSessionState, sessionReducer, type SessionState } from "@/
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 /** loadEarlierHistory 探针（H-2：滚动触发退役 / 按钮唯一触发面断言）。 */
 const loadEarlierSpy = vi.fn();
+/** setDraft 探针（空态统一：草稿/真实空会话同构 SessionEmpty，chip 回填断言）。 */
+const setDraftSpy = vi.fn();
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
   return {
     ...orig,
-    useSession: () => ({ state: stateRef.current, loadEarlierHistory: loadEarlierSpy }),
+    useSession: () => ({ state: stateRef.current, loadEarlierHistory: loadEarlierSpy, setDraft: setDraftSpy }),
   };
 });
 
@@ -46,6 +48,57 @@ afterEach(cleanup);
 
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
+
+/** 空态统一（F(1.2).1 修订）：草稿（sessionId=null）与真实空会话（有 id 零
+ *  条目）同构 SessionEmpty——HX 方标 + 呼吸文案 + 三枚建议 chip；草稿仅多
+ *  一行「发送第一条消息后将创建会话」条件提示（消除手动新建 vs 管家建的
+ *  空态不一致，用户裁决）。 */
+describe("MessageFlow 空态统一（草稿/真实空会话同构 SessionEmpty）", () => {
+  /** 草稿空态：手动新建会话（sessionId=null；connected 即 empty 成立）。 */
+  const draftState = (): SessionState => ({
+    ...createInitialSessionState(),
+    sessionId: null,
+    conn: "connected",
+    view: "ready",
+  });
+  /** 真实空会话：管家建的、有 id 零条目。 */
+  const realEmptyState = (): SessionState => ({
+    ...createInitialSessionState(),
+    sessionId: "s1",
+    conn: "connected",
+    view: "ready",
+  });
+
+  it("草稿空态：SessionEmpty 形态——HX 方标 + 三枚建议 chip + 草稿提示行；独立 DraftEmpty 退役", () => {
+    stateRef.current = draftState();
+    ui(<MessageFlow />);
+    const root = document.querySelector(".session-empty")!;
+    expect(root).not.toBeNull();
+    expect(root.querySelector(".empty-logo")!.textContent).toBe("HX");
+    expect(root.querySelectorAll(".empty-suggest button")).toHaveLength(3);
+    expect(root.querySelector(".empty-hint")!.textContent).toContain("发送第一条消息后将创建会话");
+    // P-1-draft-empty 独立容器退役：草稿不再走另一套空态
+    expect(document.querySelector(".draft-empty")).toBeNull();
+  });
+
+  it("真实空会话：同构形态——HX 方标 + 三枚 chip 齐；无草稿提示行", () => {
+    stateRef.current = realEmptyState();
+    ui(<MessageFlow />);
+    const root = document.querySelector(".session-empty")!;
+    expect(root.querySelector(".empty-logo")!.textContent).toBe("HX");
+    expect(root.querySelectorAll(".empty-suggest button")).toHaveLength(3);
+    expect(root.querySelector(".empty-hint")).toBeNull();
+  });
+
+  it("草稿态建议 chip 点击 → 回填草稿 + 聚焦回调（setDraft 草稿态合法）", () => {
+    stateRef.current = draftState();
+    const focusSpy = vi.fn();
+    ui(<MessageFlow onFocusInput={focusSpy} />);
+    fireEvent.click(document.querySelector(".empty-suggest button")!);
+    expect(setDraftSpy).toHaveBeenCalledWith("读一下 packages/protocol 的结构");
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+  });
+});
 
 /**
  * 消息流 SubAgent 卡片时间轴内联（T5.5；task brief §4.2）：卡片按 spawn 锚点

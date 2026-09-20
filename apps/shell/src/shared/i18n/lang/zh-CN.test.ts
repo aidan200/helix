@@ -152,7 +152,6 @@ const REQUIRED_KEYS = [
   "chat.paging.placeholder",
   "chat.paging.loadEarlier",
   "chat.paging.loadedCount",
-  "chat.draftEmpty.title",
   "chat.draftEmpty.hint",
   "chat.rail.label",
   "chat.rail.open",
