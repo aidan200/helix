@@ -47,7 +47,10 @@ type _ErrorBranch = Expect<
 
 // channel = "voice" 新族窄化（familyOf case 存在 + TypeOfChannel 收窄）
 type _VoiceFamily = Expect<
-  Equal<TypeOfChannel<"voice">, "voice.broadcast" | "voice.synthesize.result">
+  Equal<
+    TypeOfChannel<"voice">,
+    "voice.broadcast" | "voice.synthesize.chunk" | "voice.synthesize.done" | "voice.synthesize.error" | "voice.synthesize.result"
+  >
 >;
 
 const synthCommand: VoiceSynthesizeCommand = {

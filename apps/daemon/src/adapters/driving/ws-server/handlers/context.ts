@@ -43,6 +43,7 @@ import type { BrowserPort } from "../../../../application/ports/outbound/Browser
 import type { SttPort } from "../../../../application/ports/outbound/SttPort";
 import type { SttStreamService } from "../../../../application/stt/SttStreamService";
 import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
+import type { TtsStreamService } from "../../../../application/tts/TtsStreamService";
 import type { StewardService } from "../../../../application/steward/StewardService";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
@@ -508,6 +509,8 @@ export interface VoiceCommandDeps {
   readonly tts: TtsPort;
   /** EventStream 连接级 voice 订阅面（voice.subscribe/unsubscribe 登记）。 */
   readonly stream: Pick<EventStream, "subscribeVoice" | "unsubscribeVoice">;
+  /** 流式合成面（V3b-2 voice.synthesize.stream/stop；未装配 → unimplemented）。 */
+  readonly ttsStream?: TtsStreamService;
 }
 
 /**

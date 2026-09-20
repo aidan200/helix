@@ -50,6 +50,8 @@ import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { DashScopeTtsAdapter, DASHSCOPE_PROVIDER_ID as DASHSCOPE_TTS_PROVIDER_ID } from "../adapters/driven/tts/dashscope";
+import { DashScopeStreamingTtsAdapter } from "../adapters/driven/tts/streaming";
+import { TtsStreamService } from "../application/tts/TtsStreamService";
 import { BroadcastService } from "../application/voice/BroadcastService";
 import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
 import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
@@ -636,6 +638,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const voiceTts = deps.voiceTtsOverride ?? new DashScopeTtsAdapter({
     getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID),
   });
+  // 流式 TTS 批（V3b-2）：单句流式合成服务（连接池复用 adapter；key 读面
+  // 与一次性合成同源——每次调用重读 auth.json，换 key 自动跟随）
+  const ttsStream = new TtsStreamService({
+    adapters: [new DashScopeStreamingTtsAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID) })],
+    apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
+  });
 
   // ── 文本管家批（V2.5）：StewardService（fanout 目标 steward-feed-bridge
   //    的服务体 + steward.* 命令族回口）。LLM 面复用 provider 体系：
@@ -975,6 +983,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     voice: {
       tts: voiceTts,
       stream: eventStream,
+      ttsStream,
     },
     // 文本管家批 V2.5：steward 族六命令回口（StewardService + feed 订阅面）
     steward: {

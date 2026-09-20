@@ -140,7 +140,13 @@ import type {
 } from "./mcp";
 import type { AskResolvedEvent, AskStartedEvent } from "./interaction";
 import type { SttStreamFinalEvent, SttStreamInterimEvent, SttStreamStartedEvent, SttTranscribeResultEvent } from "./stt";
-import type { VoiceBroadcastEvent, VoiceSynthesizeResultEvent } from "./voice";
+import type {
+  VoiceBroadcastEvent,
+  VoiceSynthesizeChunkEvent,
+  VoiceSynthesizeDoneEvent,
+  VoiceSynthesizeErrorEvent,
+  VoiceSynthesizeResultEvent,
+} from "./voice";
 import type {
   StewardAskResultEvent,
   StewardAskDeltaEvent,
@@ -295,6 +301,9 @@ export type EventEnvelope =
   | SttStreamInterimEvent
   | SttStreamFinalEvent
   | VoiceBroadcastEvent
+  | VoiceSynthesizeChunkEvent
+  | VoiceSynthesizeDoneEvent
+  | VoiceSynthesizeErrorEvent
   | VoiceSynthesizeResultEvent
   | StewardAskResultEvent
   | StewardAskDeltaEvent
@@ -427,6 +436,9 @@ export const EVENT_TYPES = [
   "ask.resolved",
   "stt.transcribe.result",
   "voice.broadcast",
+  "voice.synthesize.chunk",
+  "voice.synthesize.done",
+  "voice.synthesize.error",
   "voice.synthesize.result",
   // 文本管家批（V2.5 steward 族）：对话回执/确认回执/feed 文本行/设置回执；
   // 流式体验批 +steward.ask.delta（增量帧——终态 ask.result 权威覆盖）；
@@ -582,6 +594,9 @@ export const EVENT_CHANNELS = {
   "stt.stream.interim": "stt",
   "stt.stream.final": "stt",
   "voice.broadcast": "voice",
+  "voice.synthesize.chunk": "voice",
+  "voice.synthesize.done": "voice",
+  "voice.synthesize.error": "voice",
   "voice.synthesize.result": "voice",
   "steward.ask.result": "steward",
   "steward.ask.delta": "steward",

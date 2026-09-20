@@ -113,6 +113,13 @@ register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // 守护绿（主 reducer 原状态返回 = 未注册 default 语义）。新增连接私有回执/
 // 广播帧时在此追加一行即完成登记（守护测试直接核查本清单，见 dispatcher.test.ts）。
 export const PASSTHROUGH_EVENT_TYPES = [
+  // V3b-2 批：voice 合成流式面（chunk/done）——播放队列直接消费帧流
+  // （useVoiceBroadcast/朗读队列侧消费，不经会话 store）
+  "voice.synthesize.chunk",
+  "voice.synthesize.done",
+  "voice.synthesize.stream",
+  "voice.synthesize.error",
+
   // helix-loop L0 批：loop.* 15 型 = loop 域事件协议上收面（L3 替换承重墙）。
   // L0 阶段 shell 无消费面（管家面板走 steward.* 协议命令）；loop 事件当前
   // 仅供 daemon 内部追踪（stewardLoopTraceBridge → domain_events）——登记

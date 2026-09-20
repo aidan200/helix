@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 93 个 type（… + 管家工作记忆批 steward.history + 管家公民权批 agent.steward_profile.get）", () => {
+  test("命令目录恰为 95 个 type（… + 管家公民权批 agent.steward_profile.get + 流式 TTS 批 voice.synthesize.stream/stop）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -251,6 +251,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "trace.query",
         "voice.subscribe",
         "voice.synthesize",
+        "voice.synthesize.stop",
+        "voice.synthesize.stream",
         "voice.unsubscribe",
         "web.start",
         "web.status",
@@ -261,7 +263,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 129 个 type（… + helix-loop L0 批 loop 15 + 管家公民权批 1 + helix-loop L1 批 1）", () => {
+  test("事件目录恰为 132 个 type（… + helix-loop L1 批 1 + 流式 TTS 批 voice.synthesize.chunk/done/error）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -385,6 +387,9 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "trace.query.result",
         "usage.recorded",
         "voice.broadcast",
+        "voice.synthesize.chunk",
+        "voice.synthesize.done",
+        "voice.synthesize.error",
         "voice.synthesize.result",
         "web.start.result",
         "web.status.changed",
@@ -600,7 +605,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome", "coord.changed", "task.changed"]); // task 批：+task.changed（挂既有 notification 通道，不新增 Channel 值）
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
     expect(roster("stt")).toEqual(["stt.stream.final", "stt.stream.interim", "stt.stream.started", "stt.transcribe.result"]); // 语音输入批新族（V1 云转写）+ 流式转写批 +3（V3b-1）
-    expect(roster("voice")).toEqual(["voice.broadcast", "voice.synthesize.result"]); // 语音播报批新族（V2 TTS：广播帧 + 点对点结果帧）
+    expect(roster("voice")).toEqual(["voice.broadcast", "voice.synthesize.chunk", "voice.synthesize.done", "voice.synthesize.error", "voice.synthesize.result"]); // 语音播报批新族（V2 TTS：广播帧 + 点对点结果帧）+ 流式 TTS 批 +3（V3b-2）
     expect(roster("kg")).toEqual([
       // kg 批新族（iter-20260825-11fo T5.3）：六命令点对点回执，O-6 零推送事件
       // code-review v1.5：code.review.create.result 挂既有 kg 通道（不新增 Channel 值）
@@ -630,11 +635,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（helix-loop L1 批后）：EVENT_TYPES 129 / EVENT_CHANNELS 129 键 / COMMAND_TYPES 93", () => {
-    expect(EVENT_TYPES.length).toBe(129); // helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(129); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(129); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(93); // 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
+  test("目录计数（流式 TTS 批后）：EVENT_TYPES 132 / EVENT_CHANNELS 132 键 / COMMAND_TYPES 95", () => {
+    expect(EVENT_TYPES.length).toBe(132); // 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(132); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(132); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(95); // 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });

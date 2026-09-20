@@ -99,6 +99,8 @@ import type { SttStreamChunkCommand, SttStreamFinishCommand, SttStreamStartComma
 import type {
   VoiceSubscribeCommand,
   VoiceSynthesizeCommand,
+  VoiceSynthesizeStreamCommand,
+  VoiceSynthesizeStopCommand,
   VoiceUnsubscribeCommand,
 } from "./voice";
 import type {
@@ -195,6 +197,8 @@ export type CommandEnvelope =
   | SttStreamFinishCommand
   | SttStreamStopCommand
   | VoiceSynthesizeCommand
+  | VoiceSynthesizeStreamCommand
+  | VoiceSynthesizeStopCommand
   | VoiceSubscribeCommand
   | VoiceUnsubscribeCommand
   | StewardAskCommand
@@ -219,8 +223,11 @@ export const COMMAND_TYPES = [
   "stt.stream.chunk",
   "stt.stream.finish",
   "stt.stream.stop",
-  // 语音播报批（V2 TTS）：一次性合成（试听）+ 连接级订阅闸门
+  // 语音播报批（V2 TTS）：一次性合成（试听）+ 连接级订阅闸门；
+  // 流式 TTS 批（V3b-2）：单句流式合成 + 中止（管家回答边出边播）
   "voice.synthesize",
+  "voice.synthesize.stream",
+  "voice.synthesize.stop",
   "voice.subscribe",
   "voice.unsubscribe",
   // 文本管家批（V2.5）：对话（LLM 循环）+ 确认闸 + feed 订阅 + 设置面；

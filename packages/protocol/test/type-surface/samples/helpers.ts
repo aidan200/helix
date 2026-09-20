@@ -321,6 +321,12 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `loop-duplex-wake:${event.payload.source}`;
     case "loop.context.compacted":
       return `loop-context-compacted:${event.payload.runId}:${event.payload.status}:${String(event.payload.tokensAfter ?? "-")}`;
+    case "voice.synthesize.chunk":
+      return `voice-syn-chunk:${event.payload.utterId}:${event.payload.seq}:${event.payload.audio.length}`;
+    case "voice.synthesize.done":
+      return `voice-syn-done:${event.payload.utterId}:${event.payload.provider}:${event.payload.frames}`;
+    case "voice.synthesize.error":
+      return `voice-syn-error:${event.payload.utterId}:${event.payload.reason}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -530,6 +536,10 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.history":
       // 管家工作记忆批（A1）：读/清同命令（clear 缺省 = 回放）
       return `steward-history:${String(cmd.payload.clear ?? false)}`;
+    case "voice.synthesize.stream":
+      return `voice-syn-stream:${cmd.payload.utterId}:${cmd.payload.voice ?? "-"}:${cmd.payload.text}`;
+    case "voice.synthesize.stop":
+      return `voice-syn-stop:${cmd.payload.utterId ?? "-"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

@@ -90,3 +90,54 @@ export function handleVoiceUnsubscribe(ctx: VoiceCommandContext): void {
   const sender = ctx.ws.data.sender;
   if (sender !== undefined && sender !== null) ctx.voice.stream.unsubscribeVoice(sender);
 }
+
+// ── 流式 TTS 批（V3b-2）：voice.synthesize.stream / stop（单句生命周期全在
+//    TtsStreamService；帧点对点回推，无命令回执）──
+
+/** 单句文本防御上限（句级切分产物恒短于一次性 500 上限 + 余量）。 */
+const SYNTHESIZE_STREAM_TEXT_MAX = 600;
+
+/**
+ * voice.synthesize.stream（全局命令）：单句流式合成。payload 校验：
+ * utterId 非空 string / text 非空 string（≤600 防御上限）/ voice 可选
+ * string。音频经 voice.synthesize.chunk/done/error 帧点对点回推
+ * （sendNow 直发发起连接——stt.stream 先例同构）。
+ */
+export function handleVoiceSynthesizeStream(ctx: VoiceCommandContext): void {
+  const service = ctx.voice.ttsStream;
+  if (service === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", `命令未装配：${ctx.type}`);
+  }
+  const utterId = ctx.payload.utterId;
+  if (typeof utterId !== "string" || utterId === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.utterId 应为非空 string");
+  }
+  const text = ctx.payload.text;
+  if (typeof text !== "string" || text.trim() === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.text 应为非空 string");
+  }
+  if (text.length > SYNTHESIZE_STREAM_TEXT_MAX) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", `payload.text 超长（≤${SYNTHESIZE_STREAM_TEXT_MAX} 字符）`);
+  }
+  if (ctx.payload.voice !== undefined && typeof ctx.payload.voice !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.voice 应为 string");
+  }
+  const voice = typeof ctx.payload.voice === "string" && ctx.payload.voice !== "" ? ctx.payload.voice : undefined;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  // 全局命令不消费信封 sessionId（voice 族先例）；帧信封章 SYSTEM_SESSION_ID
+  service.utter(sender, { utterId, text, ...(voice !== undefined ? { voice } : {}), sessionId: SYSTEM_SESSION_ID, emit: (frame) => ctx.sendNow(sender, frame) });
+}
+
+/** voice.synthesize.stop（全局命令）：中止在途句（utterId 定向；省略 = 全量）。 */
+export function handleVoiceSynthesizeStop(ctx: VoiceCommandContext): void {
+  const service = ctx.voice.ttsStream;
+  if (service === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", `命令未装配：${ctx.type}`);
+  }
+  if (ctx.payload.utterId !== undefined && (typeof ctx.payload.utterId !== "string" || ctx.payload.utterId === "")) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.utterId 应为非空 string 或省略");
+  }
+  const utterId = typeof ctx.payload.utterId === "string" && ctx.payload.utterId !== "" ? ctx.payload.utterId : undefined;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  service.stop(sender, utterId);
+}
