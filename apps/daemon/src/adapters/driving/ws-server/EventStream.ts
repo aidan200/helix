@@ -33,6 +33,8 @@ import type {
   SessionPlanChangedPayload,
   StewardFeedEvent,
   StewardFeedPayload,
+  StewardNavigateEvent,
+  StewardNavigatePayload,
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
@@ -465,6 +467,31 @@ export class EventStream implements EventPublisherPort {
       sessionId: SYSTEM_SESSION_ID,
       channel: "steward",
       type: "steward.feed",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /**
+   * steward.navigate 页面切换指令帧广播（管家驾驶舱批）：daemon 级全局帧
+   *（信封 sessionId = SYSTEM_SESSION_ID、channel = steward），投递按连接级
+   * steward 订阅位过滤（broadcastStewardFeed 同闸门同构）。触发面 =
+   * StewardService 确认闸执行体（deliver_to_session 投递成功 /
+   * create_session 建成）——shell 收到后切到目标会话页（与侧栏点击同一路径）。
+   */
+  broadcastStewardNavigate(payload: StewardNavigatePayload): void {
+    const frame: StewardNavigateEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.navigate",
       payload,
     };
     for (const [sender, conn] of this.connections) {

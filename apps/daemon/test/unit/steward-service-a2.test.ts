@@ -76,7 +76,8 @@ function fakeOrchestration(
   };
 }
 
-/** A2 会话源 fake（listSessionMetadata + startDraftSession/createTitledSession 记录调用）。 */
+/** A2 会话源 fake（listSessionMetadata + startDraftSession/createTitledSession 记录调用；
+ *  驾驶舱批新增两成员提供恒真/恒成功缺省——本批用例不触达）。 */
 function fakeSessions(rows: readonly StewardSessionMetaRow[]) {
   const created: { text: string; mode?: string }[] = [];
   const titled: string[] = [];
@@ -95,6 +96,8 @@ function fakeSessions(rows: readonly StewardSessionMetaRow[]) {
       seq += 1;
       return { sessionId: `sess-new-${seq}` };
     },
+    sessionExists: async (_sessionId: string) => true,
+    deliverToSession: async (_sessionId: string, _text: string) => ({ delivered: true, detail: "已投递" }),
   };
 }
 
@@ -223,6 +226,8 @@ describe("A2-1 动态 prompt：context_snapshot 段", () => {
       },
       startDraftSession: async () => ({ sessionId: "x" }),
       createTitledSession: async () => ({ sessionId: "x" }),
+      sessionExists: async () => true,
+      deliverToSession: async () => ({ delivered: true, detail: "x" }),
     };
     const { svc } = makeA2Service({ llm, sessions: broken, now: fixedClock });
     const result = await svc.ask("最近在忙什么？");
