@@ -12,11 +12,15 @@
  * - 不存：feed 事件流（订阅态）、pending 确认卡（过期即失效不跨重启）。
  *
  * 三闸清理：
- * ① 预算闸——append 时 token 估算（chars/2 保守）超预算丢最老记录；
+ * ① 预算闸——append 时 token 估算（chars/2 保守）超预算丢最老记录，且
+ *    配对感知（A1-hotfix）：裁剪不切 toolCall/toolResult 配对——窗口头孤儿
+ *    toolResult 连带丢弃（生产实证：孤儿直达 provider = 400
+ *    "tool_call_id is not found"）；
  * ② TTL 闸——ensureLoaded 时 lastActiveAt 距今超 TTL（72h）整 key 清空；
  * ③ 新对话闸——clear()（steward.history {clear:true} 三处同步清之一）。
  *
- * 纯函数（estimateTokens/trimToBudget/isExpired）导出供单测直测。
+ * 纯函数（estimateTokens/trimToBudget/dropHeadOrphanToolResults/isExpired）
+ * 导出供单测直测。
  */
 import type { StewardHistoryRecord } from "@helix/protocol";
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
@@ -53,21 +57,50 @@ export function estimateTokens(record: StewardHistoryRecord): number {
 }
 
 /** 预算裁剪（老记录先弃；保序）。至少保留最新一条（单条超预算也保留——
- *  记录本身不可截断，宁可窗口缩到一条）。 */
+ *  记录本身不可截断，宁可窗口缩到一条；A1-hotfix 例外：幸存孤儿 toolResult
+ *  允许清空——空窗口优于毒孤儿）。配对感知（A1-hotfix）：切片后从窗口头
+ *  继续丢弃孤儿 toolResult——孤儿直达 LLM 请求 = provider 400
+ *  "tool_call_id is not found"。 */
 export function trimToBudget(
   records: readonly StewardHistoryRecord[],
   budgetTokens: number,
 ): StewardHistoryRecord[] {
   const costs = records.map(estimateTokens);
   const total = costs.reduce((a, b) => a + b, 0);
-  if (total <= budgetTokens) return [...records];
-  let dropUntil = 0;
-  let acc = total;
-  while (dropUntil < records.length - 1 && acc > budgetTokens) {
-    acc -= costs[dropUntil]!;
-    dropUntil += 1;
+  let window: StewardHistoryRecord[];
+  if (total <= budgetTokens) {
+    window = [...records];
+  } else {
+    let dropUntil = 0;
+    let acc = total;
+    while (dropUntil < records.length - 1 && acc > budgetTokens) {
+      acc -= costs[dropUntil]!;
+      dropUntil += 1;
+    }
+    window = records.slice(dropUntil);
   }
-  return records.slice(dropUntil);
+  return dropHeadOrphanToolResults(window);
+}
+
+/** 窗口头孤儿 toolResult 丢弃（A1-hotfix 纯函数，导出供单测）：孤儿 =
+ *  toolCallId 在窗内无 assistant toolCall 配对（toolCall 恒先于 toolResult，
+ *  配对头被切 → 孤儿只在头部连续出现；未触预算的脏 KV 头部孤儿同样清——
+ *  append 路径自愈）。允许清空（空窗口优于毒孤儿）。 */
+export function dropHeadOrphanToolResults(
+  records: readonly StewardHistoryRecord[],
+): StewardHistoryRecord[] {
+  if (records.length === 0) return [];
+  const callIds = new Set<string>();
+  for (const r of records) {
+    if (r.kind === "assistant" && r.toolCall !== undefined) callIds.add(r.toolCall.id);
+  }
+  let head = 0;
+  while (head < records.length) {
+    const r = records[head]!;
+    if (r.kind !== "toolResult" || callIds.has(r.toolCallId)) break;
+    head += 1;
+  }
+  return head === 0 ? [...records] : records.slice(head);
 }
 
 /** TTL 判定（72h 无活动 = 过期）。 */
