@@ -250,6 +250,17 @@ export interface WsServerAdapterDeps {
     readonly stateOf: (sessionId: string) => TurnDiffState | undefined;
     readonly service: TurnDiffService;
   };
+  /**
+   * 握手超时窗口 ms（修复批③：连接建立后未收到合法 hello → auth.timeout
+   * 拒绝帧 + close；缺省 10s；≤ 0 = 禁用——stub rig/特殊形态兼容）。
+   */
+  readonly handshakeTimeoutMs?: number;
+  /**
+   * 连接级诊断日志（修复批⑤）：ws open/hello accepted/hello rejected
+   * (code)/handshake timeout/ws close 一行式；缺省静默（stub rig）。
+   * 生产接组合根 file logger（INFO 级）。
+   */
+  readonly connLog?: { info(message: string): void };
 }
 
 /**

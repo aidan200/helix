@@ -645,3 +645,74 @@ describe("T2.2 分仓（AD-4）：每会话独立仓位按 session_id 路由 + �
     }
   });
 });
+
+// ── 修复批①：session_state.title 列落盘 + 守护式补列（createTitledSession 死锁链）──
+
+describe("修复批①：session_state.title 列", () => {
+  test("titled 状态经 saveState 落盘 title 列；自动命名会话 NULL；同 id 覆写 title 保持", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      // titled 零条目会话（createTitledSession 建立即 INSERT 的形态）
+      const titled = Session.create("s-tq", "2024-01-01T00:00:00.000Z", undefined, "守护式补列验证");
+      await queue.saveState({ session: titled.toSnapshot(), agentState: "idle", toolCalls: [] });
+      // 首条消息后 write-through 覆写（幂等覆盖同形——title 保持）
+      titled.appendUserEntry("首条消息不该成为标题", "2024-01-01T00:00:02.000Z");
+      await queue.saveState({ session: titled.toSnapshot(), agentState: "idle", toolCalls: [] });
+      // 自动命名会话（无 title）→ NULL 落列
+      const auto = Session.create("s-aq", "2024-01-01T00:00:03.000Z");
+      auto.appendUserEntry("自动命名", "2024-01-01T00:00:04.000Z");
+      await queue.saveState({ session: auto.toSnapshot(), agentState: "idle", toolCalls: [] });
+
+      const db = new Database(dbPath, { readonly: true });
+      const t = db.prepare("SELECT title FROM session_state WHERE session_id = 's-tq'").get() as { title: string | null };
+      const a = db.prepare("SELECT title FROM session_state WHERE session_id = 's-aq'").get() as { title: string | null };
+      db.close();
+      expect(t.title).toBe("守护式补列验证"); // 覆写后仍保持（不被首条消息派生覆盖）
+      expect(a.title).toBeNull();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("旧库（title 列前时代建表）→ WriteQueue 打开时守护补列，读写照常", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      // 模拟列前时代旧库：手工建无 title 列的 session_state 并落数据行
+      const legacy = new Database(dbPath);
+      legacy.exec(
+        "CREATE TABLE session_state (" +
+          "session_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, entries TEXT NOT NULL, " +
+          "turns TEXT NOT NULL, updated_at TEXT NOT NULL, main_instance_id TEXT, mode TEXT)",
+      );
+      legacy
+        .prepare("INSERT INTO session_state (session_id, created_at, entries, turns, updated_at, main_instance_id, mode) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run("s-legacy", "2024-01-01T00:00:00.000Z", "[]", "[]", "2024-01-01T00:00:00.000Z", null, null);
+      legacy.close();
+
+      const queue = new WriteQueue(dbPath); // 构造期守护补列（ensureSchemaEvolved）
+      const cols = (() => {
+        const probe = new Database(dbPath, { readonly: true });
+        const rows = probe.prepare("PRAGMA table_info(session_state)").all() as { name: string }[];
+        probe.close();
+        return rows.map((c) => c.name);
+      })();
+      expect(cols).toContain("title"); // 守护式补列生效
+      // 旧行 title NULL 读面兼容 + 新 titled 写照常
+      const db = new Database(dbPath, { readonly: true });
+      const oldRow = db.prepare("SELECT title FROM session_state WHERE session_id = 's-legacy'").get() as { title: string | null };
+      db.close();
+      expect(oldRow.title).toBeNull(); // 旧行 NULL（读侧回落 firstUserText 截断推导）
+      const titled = Session.create("s-new", "2024-01-02T00:00:00.000Z", undefined, "新列写入");
+      await queue.saveState({ session: titled.toSnapshot(), agentState: "idle", toolCalls: [] });
+      const db2 = new Database(dbPath, { readonly: true });
+      const newRow = db2.prepare("SELECT title FROM session_state WHERE session_id = 's-new'").get() as { title: string | null };
+      db2.close();
+      expect(newRow.title).toBe("新列写入");
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});

@@ -134,9 +134,9 @@ export class WriteQueue {
       "INSERT INTO domain_events (session_id, agent_kind, agent_instance_id, type, payload, ts) VALUES (?, ?, ?, ?, ?, ?)",
     );
     this.upsertSession = this.db.prepare(
-      "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at, main_instance_id, mode) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+      "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at, main_instance_id, mode, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
         "ON CONFLICT(session_id) DO UPDATE SET created_at = excluded.created_at, entries = excluded.entries, " +
-        "turns = excluded.turns, updated_at = excluded.updated_at, main_instance_id = excluded.main_instance_id, mode = excluded.mode",
+        "turns = excluded.turns, updated_at = excluded.updated_at, main_instance_id = excluded.main_instance_id, mode = excluded.mode, title = excluded.title",
     );
     this.upsertLifecycle = this.db.prepare(
       "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) VALUES (?, ?, ?, ?) " +
@@ -682,6 +682,7 @@ export class WriteQueue {
         rows.session.updated_at,
         rows.session.main_instance_id,
         rows.session.mode,
+        rows.session.title,
       );
       this.upsertLifecycle.run(
         rows.lifecycle.session_id,

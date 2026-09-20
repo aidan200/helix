@@ -215,6 +215,30 @@ describe("P1 T3：session_state.mode 列 RowMapper 往返", () => {
   });
 });
 
+// ── 修复批①：title 列 RowMapper 往返（createTitledSession 死锁链）──
+
+describe("修复批①：session_state.title 列 RowMapper 往返", () => {
+  test("快照携带 title → 行携列值 → 回读携带；旧行 NULL → 键不携带（读侧回落首条消息截断推导）", () => {
+    // 携带面：createTitledSession 定格（零条目 + title）
+    const titled = Session.create("s-tt", "2024-01-01T00:00:00.000Z", undefined, "调研 pi-engine 事件链");
+    const rows = RowMapper.persistedStateToRows({ session: titled.toSnapshot(), agentState: "idle", toolCalls: [] });
+    expect(rows.session.title).toBe("调研 pi-engine 事件链"); // 写面：快照携带 → 落列
+    const back = RowMapper.rowsToPersistedState(rows.session, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(back.session.title).toBe("调研 pi-engine 事件链"); // 读面：列值回读携带
+
+    // 旧行面：列前时代行 NULL（读取侧键不携带——清单读面回落 firstUserText 截断）
+    const legacyRow = { ...rows.session, session_id: "s-legacy2", title: null };
+    const legacy = RowMapper.rowsToPersistedState(legacyRow, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(legacy.session.title).toBeUndefined();
+
+    // 自动命名会话（无 title）→ null 落列不携带
+    const autoNamed = Session.create("s-auto", "2024-01-01T00:00:00.000Z");
+    autoNamed.appendUserEntry("自动命名的首条", "2024-01-01T00:00:01.000Z");
+    const autoRows = RowMapper.persistedStateToRows({ session: autoNamed.toSnapshot(), agentState: "idle", toolCalls: [] });
+    expect(autoRows.session.title).toBeNull();
+  });
+});
+
 describe("F1.7：instanceId 新列 RowMapper 往返（TR-AD-14）", () => {
   test("① DomainEvent 带 instanceId → 行带 agent_instance_id；缺省 → main（缺省=主实例）", () => {
     const sub: DomainEvent = {

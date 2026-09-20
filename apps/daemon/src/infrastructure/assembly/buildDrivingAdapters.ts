@@ -224,6 +224,8 @@ export interface WsDrivingDeps {
   readonly staticDir?: string;
   /** 主时间轴尾窗大小覆盖（G-1 注入面；缺省 WsServerAdapter 内建缺省）。 */
   readonly tailSize?: number;
+  /** 握手超时窗口 ms 覆盖（修复批③注入口；缺省 10s）。 */
+  readonly wsHandshakeTimeoutMs?: number;
 }
 
 export interface WsDriving {
@@ -403,6 +405,9 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     port: deps.port ?? DEFAULT_PORT, // deps.port = 组合根已解析端口（argv > KV > 7333 链定格产物）
     staticHandler: (req) => staticServe.handle(req),
     tailSize: deps.tailSize,
+    // 修复批③⑤：握手超时自清 + 连接级诊断日志（INFO 一行式——未来死锁连接有轨迹可查）
+    ...(deps.wsHandshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: deps.wsHandshakeTimeoutMs } : {}),
+    connLog: logger,
   });
   wsServer = ws;
   if (!staticServe.active) {

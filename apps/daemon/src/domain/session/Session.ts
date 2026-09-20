@@ -48,11 +48,17 @@ export class Session {
      * import 协议常量）；缺省 = 旧快照/旧快照无值（读侧按 default 解析）。
      */
     readonly mode?: string,
+    /**
+     * 显式会话标题（修复批①）：createTitledSession 定格，此后只读（与
+     * mode 同构的锁定语义）；缺省 = 旧快照/自动命名会话（读侧首条用户
+     * 消息截断推导）。
+     */
+    readonly title?: string,
   ) {}
 
-  static create(id?: string, at?: string, mode?: string): Session {
+  static create(id?: string, at?: string, mode?: string, title?: string): Session {
     // 缺省 now（非 epoch 0）：生产恒传 at/session，兑底误用时避免 createdAt=1970 落盘
-    return new Session(id ?? crypto.randomUUID(), at ?? new Date().toISOString(), newInstanceId(), mode);
+    return new Session(id ?? crypto.randomUUID(), at ?? new Date().toISOString(), newInstanceId(), mode, title);
   }
 
   // ── Entry 追加 ──────────────────────────────────────────────
@@ -336,6 +342,7 @@ export class Session {
       createdAt: this.createdAt,
       mainInstanceId: this.mainInstanceId,
       ...(this.mode !== undefined ? { mode: this.mode } : {}),
+      ...(this.title !== undefined ? { title: this.title } : {}),
       entries: this.entryList(),
       turns: this.turnList(),
       pendingSteer: this.steerQueue.toData(),
@@ -346,7 +353,7 @@ export class Session {
   static restoreFrom(snapshot: SessionSnapshot): Session {
     // 旧快照无 mainInstanceId（列前时代）→ legacy "main"（该会话历史行
     // instance_id="main" 不重写，主实例 id 保持 "main" 与历史数据自闭合）
-    const s = new Session(snapshot.sessionId, snapshot.createdAt, snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID, snapshot.mode);
+    const s = new Session(snapshot.sessionId, snapshot.createdAt, snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID, snapshot.mode, snapshot.title);
     for (const e of snapshot.entries) {
       // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
       // 同精神——fromRow/restore 对旧行数据前向兼容，回填该会话主实例 id）

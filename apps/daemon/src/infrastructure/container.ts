@@ -683,6 +683,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           entryCount: r.entryCount ?? null,
         })),
       startDraftSession: (text, mode) => registry.startDraftSession(text, undefined, undefined, mode),
+      // 修复批① 死锁链：createSession 执行体改调同轨专用入口——零消息零引擎，
+      // 显式建立即 INSERT（title 进 meta 列）
+      createTitledSession: (title) => registry.createTitledSession(title),
     },
     // A2：kg 项目解析面（workspace 持有者读现值——重绑跟随新栈；未绑定 →
     //  resolve undefined / hasIndex false，引导式引导用户先绑 workspace）。

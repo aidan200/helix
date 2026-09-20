@@ -166,6 +166,7 @@ JSDoc（协议文档收口批起不在本文档复述代码块）；wire 边界�
 |---|---|---|
 | `auth.missing_token` | 握手：无 token 字段 | 发 error 帧后 **close** |
 | `auth.invalid_token` | 握手：token 与 dev-token 不符 | 发 error 帧后 **close** |
+| `auth.timeout` | 握手：连接建立后超时窗口内未收到合法 hello（死锁连接自清） | 发 error 帧后 **close** |
 | `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.11"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |

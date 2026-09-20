@@ -9,9 +9,29 @@ import type { AgentStateChangedPayload, MessageCompletedPayload, SteerPayload, T
  * StdoutEventPublisher —— EventPublisherPort 的 CLI 实现（driving 侧实现
  * outbound 的标准形态，architecture.md §3.4）：领域事件 → 终端可读行；
  * 流式 delta → 原样写出（打字机效果）。
+ *
+ * EPIPE 守卫（修复批②，2026-09-20 事故）：daemon sidecar 形态 stdout 消费端
+ * （壳/管道读端）死亡 → process.stdout.write 抛 EPIPE uncaughtException →
+ * daemon 崩溃（事故链上游：崩溃后续发前端重连死锁）。守卫三面：
+ * ① 写前 writable/destroyed 检查（已销毁流直接跳过）；
+ * ② 写同步异常 try/catch（任何情况不向上抛——FanoutPublisher M32 隔离面
+ *    之外的直连调用方同样安全）；
+ * ③ 异步 'error' 事件吸收（无监听时将成为进程级 uncaughtException 的路径）。
+ * broken 后标记降级：后续 publish/publishDelta 静默 no-op（终端可观测性
+ * 让位于 daemon 存活——stdout 消费端已死，写无人读无意义）。
  */
 export class StdoutEventPublisher implements EventPublisherPort {
-  constructor(private readonly output: NodeJS.WritableStream) {}
+  /** 降级标记：流已断（同步抛/异步 error/destroyed），后续写全部静默丢弃。 */
+  private broken = false;
+
+  constructor(private readonly output: NodeJS.WritableStream) {
+    // 异步错误吸收：EPIPE/ECONNRESET 常以 'error' 事件投递（非同步抛），
+    // 无监听时升级为 uncaughtException 崩溃进程——此处吸收并降级（可选链
+    // 防御非 EventEmitter 形态的注入流）。
+    (this.output as { on?: (event: string, listener: (err: Error) => void) => unknown }).on?.("error", () => {
+      this.broken = true;
+    });
+  }
 
   publishDelta(delta: StreamDelta): void {
     // diff 通道：结构化统计推送不进终端打字机流（WS 专用瞬态帧）
@@ -61,8 +81,19 @@ export class StdoutEventPublisher implements EventPublisherPort {
     }
   }
 
+  /** stdout 守卫写面：broken 降级 no-op；writable/destroyed 先行检查；同步异常不向上抛。 */
   private write(text: string): void {
-    this.output.write(text);
+    if (this.broken) return;
+    const stream = this.output as NodeJS.WritableStream & { destroyed?: boolean; writable?: boolean };
+    if (stream.destroyed === true || stream.writable === false) {
+      this.broken = true; // 已销毁/不可写：直接降级（写必失败或无意义）
+      return;
+    }
+    try {
+      this.output.write(text);
+    } catch {
+      this.broken = true; // EPIPE 等同步写失败：降级标记，后续静默 no-op
+    }
   }
 }
 
@@ -89,12 +120,18 @@ export interface CliAdapterDeps {
 export class CliAdapter {
   private readonly output: NodeJS.WritableStream;
   private readonly showPrompt: boolean;
+  /** EPIPE 降级标记（修复批②，StdoutEventPublisher 同构三面守卫）：终端
+   *  消费端死亡（管道读端退出——如 `helix | head`）后提示符/回显不再写。 */
+  private outputBroken = false;
   private agentState = "idle";
   private exitRequested: (() => void) | null = null;
 
   constructor(private readonly deps: CliAdapterDeps) {
     this.output = deps.output ?? process.stdout;
     this.showPrompt = deps.showPrompt ?? true;
+    (this.output as { on?: (event: string, listener: (err: Error) => void) => unknown }).on?.("error", () => {
+      this.outputBroken = true; // 异步 EPIPE 吸收（无监听 = uncaughtException）
+    });
     // 从事件流跟踪 agent 状态（interrupt 分流依据：生成中→abort，空闲→退出）
     deps.session.subscribe((event) => {
       if ("type" in event && event.type === "agent.state.changed") {
@@ -157,10 +194,27 @@ export class CliAdapter {
   }
 
   private prompt(): void {
-    if (this.showPrompt) this.output.write("\nhelix> ");
+    if (this.showPrompt) this.writeGuarded("\nhelix> ");
   }
 
   private writeLine(text: string): void {
-    this.output.write(`${text}\n`);
+    this.writeGuarded(`${text}\n`);
+  }
+
+  /** stdout 守卫写面（StdoutEventPublisher.write 同构）：broken 降级 no-op，
+   *  writable/destroyed 先行检查，同步异常不向上抛（CLI 主循环不因终端
+   *  消费端死亡崩溃）。 */
+  private writeGuarded(text: string): void {
+    if (this.outputBroken) return;
+    const stream = this.output as NodeJS.WritableStream & { destroyed?: boolean; writable?: boolean };
+    if (stream.destroyed === true || stream.writable === false) {
+      this.outputBroken = true;
+      return;
+    }
+    try {
+      this.output.write(text);
+    } catch {
+      this.outputBroken = true;
+    }
   }
 }

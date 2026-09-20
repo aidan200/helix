@@ -42,6 +42,9 @@
  * 默认；旧行 NULL = default 语义，恢复侧 RestoreService 归一，与
  * main_instance_id 同构的守护式补列）。
  *
+ * 列演进补充（修复批①）：session_state.title（显式会话标题，createTitledSession
+ * 定格——可空无默认；旧行 NULL = 首条用户消息截断推导，与 mode 同构）。
+ *
  * 列演进（守护式列级演进，不进迁移框架）：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id，与旧行回填常量同源。
  */
@@ -68,7 +71,8 @@ CREATE TABLE IF NOT EXISTS session_state (
   turns TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   main_instance_id TEXT,
-  mode TEXT
+  mode TEXT,
+  title TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agent_lifecycle (

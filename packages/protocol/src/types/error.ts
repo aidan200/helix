@@ -15,6 +15,10 @@
 export type ErrorCode =
   | "auth.missing_token"
   | "auth.invalid_token"
+  /** 修复批新增（握手超时自清）：连接建立后 N 秒未收到合法 hello——死锁
+   *  连接自清（TCP ESTABLISHED 但 daemon 零帧不应答的事故面）；发 error 帧
+   *  后 close（auth.* 握手期拒绝同处置） */
+  | "auth.timeout"
   | "protocol.version_unsupported"
   | "command.unknown"
   | "command.invalid_payload"

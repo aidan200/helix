@@ -37,6 +37,13 @@ export interface SessionSnapshot {
    * domain 不持协议常量，仅携带原始 string）。
    */
   readonly mode?: string;
+  /**
+   * 显式会话标题（修复批① 管家建会话死锁链）：createTitledSession 显式
+   * 建会话时定格（title 进 meta 列，非首条消息派生），此后无写路径——
+   * 快照只读回带，清单读面优先于 deriveTitle（首条消息不覆盖）。可选——
+   * 列前时代旧行无值 → 键不携带（读侧回落首条用户消息截断推导）。
+   */
+  readonly title?: string;
   /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction/error 混排，每条挂 instanceId，AD-3）。 */
   readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */
