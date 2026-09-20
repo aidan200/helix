@@ -12,6 +12,8 @@ import { HelixWsClient, type Transport, type TransportFactory, type TransportHan
 interface FakeTransport extends Transport {
   url: string;
   sent: string[];
+  /** close() 被调用过（修复批④：welcome 超时主动断开的观测面）。 */
+  closed: boolean;
   open(): void;
   receive(frame: EventEnvelope): void;
   netClose(): void;
@@ -22,11 +24,14 @@ function fakeTransportFactory(created: FakeTransport[]): TransportFactory {
     const t: FakeTransport = {
       url,
       sent: [],
+      closed: false,
       connect: () => {},
       send(data: string) {
         t.sent.push(data);
       },
-      close: () => {},
+      close: () => {
+        t.closed = true;
+      },
       open() {
         handlers.onOpen();
       },
@@ -223,5 +228,91 @@ describe("HelixWsClient", () => {
     // 停止再次 connecting；修复后零重连零 gave-up（仅首次 connecting）
     expect(transports).toHaveLength(0);
     expect(conn.map((c) => c.kind)).toEqual(["connecting"]);
+  });
+});
+
+// ── 修复批④（管家建会话死锁链）：前端握手超时——connecting 态永不冻结 ──
+
+describe("HelixWsClient 握手超时（修复批④）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** 固定握手超时的 setup（缺省 500ms；welcome 永不到达的用例直接不 receive）。 */
+  async function setupTimeout(opts: { handshakeTimeoutMs?: number; getToken?: (port: number, signal?: AbortSignal) => Promise<string> } = {}) {
+    const transports: FakeTransport[] = [];
+    const conn: { kind: string; attempt?: number; message?: string; attempts?: number }[] = [];
+    const client = new HelixWsClient({
+      port: 7333,
+      getToken: opts.getToken ?? (async () => "dev-token"),
+      transportFactory: fakeTransportFactory(transports),
+      backoff: { baseMs: 100, maxMs: 1_000, maxAttempts: 3 },
+      handshakeTimeoutMs: opts.handshakeTimeoutMs ?? 500,
+    });
+    client.onConn((c) => conn.push(c));
+    client.start();
+    await vi.advanceTimersByTimeAsync(0);
+    return { client, transports, conn };
+  }
+
+  it("welcome 永不到达 → 超时计一次失败（transport 主动断开）→ 退避重试 → 耗尽 gave-up（message 含 handshake timeout）", async () => {
+    const { transports, conn } = await setupTimeout();
+    // attempt 1：open 后发送 hello，daemon 永不回 welcome（死锁连接现场）
+    transports[0]!.open();
+    await vi.advanceTimersByTimeAsync(500); // 握手超时窗到
+    expect(transports[0]!.closed).toBe(true); // 超时主动断开（不再冻结在 connecting）
+    await vi.advanceTimersByTimeAsync(100); // 退避后 attempt 2
+    transports[1]!.open();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(transports[1]!.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(200); // 退避后 attempt 3
+    transports[2]!.open();
+    await vi.advanceTimersByTimeAsync(500 + 400); // 超时 + 末次退避 → 耗尽
+    const gaveUp = conn.find((c) => c.kind === "gave-up");
+    expect(gaveUp).toMatchObject({ kind: "gave-up", attempts: 3 });
+    expect(gaveUp?.message).toContain("handshake timeout");
+  });
+
+  it("welcome 及时到达 → 超时窗过后零副作用（连接存活、可发命令、无失败计数）", async () => {
+    const { client, transports, conn } = await setupTimeout();
+    transports[0]!.open();
+    transports[0]!.receive(welcome());
+    await vi.advanceTimersByTimeAsync(2_000); // 远超超时窗
+    expect(client.isConnected()).toBe(true);
+    expect(transports[0]!.closed).toBe(false); // 未被误断
+    expect(conn.filter((c) => c.kind === "disconnected" || c.kind === "gave-up")).toHaveLength(0);
+    expect(client.send({ v: 0, type: "chat.send", payload: { text: "hi" } } as never)).toBe(true);
+  });
+
+  it("token fetch 阶段也纳入超时（AbortController）：挂起的 getToken 超时后 abort + 计失败 + 重试继续", async () => {
+    let lastSignal: AbortSignal | undefined;
+    let calls = 0;
+    const { transports, conn } = await setupTimeout({
+      getToken: (_port, signal) => {
+        lastSignal = signal;
+        calls += 1;
+        return calls === 1 ? new Promise<string>(() => {}) : Promise.resolve("dev-token"); // 首次挂起（daemon 死锁现场），后续立即返回
+      },
+    });
+    await vi.advanceTimersByTimeAsync(500); // token 阶段超时
+    expect(lastSignal?.aborted).toBe(true); // AbortController 触发
+    await vi.advanceTimersByTimeAsync(100); // 退避 → attempt 2（token 立即返回）
+    expect(transports).toHaveLength(1); // 第二次尝试已建 transport
+    transports[0]!.open();
+    transports[0]!.receive(welcome());
+    await vi.advanceTimersByTimeAsync(100);
+    expect(conn.filter((c) => c.kind === "gave-up")).toHaveLength(0); // 未被超时误杀后续尝试
+  });
+
+  it("stop() 清握手计时器：超时窗过后零事件（用户主动关闭）", async () => {
+    const { client, transports, conn } = await setupTimeout();
+    transports[0]!.open();
+    client.stop();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(transports[0]!.closed).toBe(true); // stop 关闭（用户语义，非超时）
+    expect(conn.filter((c) => c.kind === "disconnected" || c.kind === "gave-up")).toHaveLength(0);
   });
 });
