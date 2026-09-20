@@ -12,13 +12,20 @@
  * 干涉——默认选中任务会话时数据面照常加载，仅清单停留在会话 tab）。
  * 各分区独立内滚（flex + min-height:0）。
  *
+ * 管家合成入口（fix/trace-steward-entry）：「会话」tab 列表顶部固定条目
+ * 「管家 · 常驻」——合成入口非会话（不可删、无 id 尾巴、不进会话计数），
+ * 点击 = onSelectSession(SYSTEM_SESSION_ID)（__system__ 事件直查，查询流
+ * 与普通会话完全同构）；图标 ConciergeBell 与 IconRail 管家位同款。
+ *
  * 纯展示（TR-AD-8）：数据全由 TracePage 注入，不读 store（tab 本地状态
  * 除外）。壳样式复用 chat 侧栏 `.sidebar`（264px + 右缘分隔，与 chat 侧栏
  * 布局语言一致）；tab/条目样式归 trace.css（tsb-* / inst-panel）。空态：
  * 会话 tab 无会话 / 下分区未选会话时轻量文案。
  */
 import { useState } from "react";
+import { ConciergeBell } from "lucide-react";
 import type { SessionMeta, TraceInstanceRecord } from "@helix/protocol";
+import { SYSTEM_SESSION_ID } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 import InstancePanel from "./P-1-instance-panel";
@@ -127,18 +134,36 @@ const TraceSidebar = function TraceSidebar({
                 onSelectSession={onSelectSession}
               />
             ))
-          ) : sessions.length === 0 ? (
-            <p className="tsb-empty">{t("trace.sidebar.sessionsEmpty")}</p>
           ) : (
-            /* 会话 tab（默认）：chat 会话（点击换会话 = session 域查询；选中 cyan 激活态） */
-            sessions.map((s) => (
-              <SessionItem
-                key={s.sessionId}
-                meta={s}
-                active={s.sessionId === sessionId}
-                onSelectSession={onSelectSession}
-              />
-            ))
+            <>
+              {/* 管家合成入口（fix/trace-steward-entry）：固定条目非会话——
+                  无 id 尾巴、不进计数；点击 = __system__ 直查（查询流同构） */}
+              <button
+                type="button"
+                className={cn("tsb-ses", sessionId === SYSTEM_SESSION_ID && "on")}
+                data-steward-entry
+                aria-pressed={sessionId === SYSTEM_SESSION_ID}
+                onClick={() => onSelectSession(SYSTEM_SESSION_ID)}
+              >
+                <span className="tsb-name">
+                  <ConciergeBell size={14} strokeWidth={1.75} aria-hidden="true" />
+                  {t("trace.sidebar.stewardEntry")}
+                </span>
+              </button>
+              {sessions.length === 0 ? (
+                <p className="tsb-empty">{t("trace.sidebar.sessionsEmpty")}</p>
+              ) : (
+                /* 会话 tab（默认）：chat 会话（点击换会话 = session 域查询；选中 cyan 激活态） */
+                sessions.map((s) => (
+                  <SessionItem
+                    key={s.sessionId}
+                    meta={s}
+                    active={s.sessionId === sessionId}
+                    onSelectSession={onSelectSession}
+                  />
+                ))
+              )}
+            </>
           )}
         </div>
       </section>

@@ -28,6 +28,7 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { EventEnvelope, SessionMeta, TaskSummaryDto, TraceQueryResultPayload } from "@helix/protocol";
+import { SYSTEM_SESSION_ID } from "@helix/protocol";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
@@ -175,6 +176,9 @@ const TracePage = function TracePage({ path }: { path: string }) {
   );
   const resolvedSessionId = useMemo(() => {
     const cur = state.filter.sessionId;
+    // 管家合成入口（fix/trace-steward-entry）：__system__ 固定合法——不参与
+    // 清单校验与默认回落（否则选中管家后 effect 回落重选真实会话，覆盖用户选择）
+    if (cur === SYSTEM_SESSION_ID) return cur;
     if (cur !== "" && mergedSessions.some((s) => s.sessionId === cur)) return cur;
     const active = session.sessionId;
     if (active !== null && topology.list.some((s) => s.sessionId === active)) return active;
@@ -355,6 +359,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
               openId={state.openId}
               detail={detail}
               mainName={t("trace.panel.mainName")}
+              stewardName={t("trace.panel.stewardName")}
               onToggleRow={(id) => dispatch({ type: "toggle-row", id })}
               onLoadMore={onLoadMore}
             />

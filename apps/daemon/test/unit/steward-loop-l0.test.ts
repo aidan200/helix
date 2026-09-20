@@ -270,7 +270,14 @@ describe("事件出口（emitLoopEvent）与追踪桥", () => {
     bridge({ type: "loop.tool.finished", runId: "r1", toolCallId: "c1", toolName: "list_tasks", isError: false, resultSummary: "3 条" });
     bridge({ type: "loop.run.paused", runId: "r1", pauseToken: "p1", toolCallId: "c1", toolName: "propose_send", argsSummary: "{}" });
     bridge({ type: "loop.duplex.wake", source: "vad" }); // L2 占位型（不落库）
-    expect(published.map((e) => e.type)).toEqual(["loop.run.started", "loop.tool.finished", "loop.run.paused"]);
+    // 首条里程碑前合成档案行 agent.instantiated（fix/trace-steward-entry：幂等恰一次）
+    expect(published.map((e) => e.type)).toEqual([
+      "agent.instantiated",
+      "loop.run.started",
+      "loop.tool.finished",
+      "loop.run.paused",
+    ]);
+    expect((published[0] as { payload: { profileKind: string } }).payload.profileKind).toBe("steward");
     for (const e of published) {
       expect(e.sessionId).toBe("__system__");
       expect(e.instanceId).toBe(STEWARD_INSTANCE_ID);

@@ -10,7 +10,12 @@
  *   agent_kind 由 event-row-persistence 按注册表判别（非主实例 → subagent）；
  * - 防自激（TR-169/TR-173）：本桥只投领域事件进 fanout——loop.* 不在
  *   STEWARD_FEED_EVENT_TYPES 粗筛集合且 EnvelopeMapper default→null，
- *   管家不订阅广播流（零反馈边，结构上无环）。
+ *   管家不订阅广播流（零反馈边，结构上无环）；
+ * - 档案行合成（fix/trace-steward-entry）：首条里程碑事件落库前合成一条
+ *   agent.instantiated（payload.profileKind="steward"）——assembleInstancePanel
+ *   fold 出的管家行有 profileKind 档案（复用既有事件类型，零表结构/新类型）。
+ *   幂等：桥闭包内状态位，单进程生命周期只发一次；重启后历史行已在
+ *   domain_events（面板 fold 取首条 instantiated），重复合成无害。
  */
 import type { DomainEvent } from "../../domain/events/DomainEvent";
 import type { LoopEvent } from "../../domain/loop";
@@ -54,11 +59,22 @@ function payloadOf(event: LoopEvent): unknown {
   }
 }
 
-/** 装配：LoopEvent → DomainEvent（里程碑子集）→ 发布面。 */
+/** 装配：LoopEvent → DomainEvent（里程碑子集）→ 发布面；首条里程碑前合成档案行。 */
 export function stewardLoopTraceBridge(deps: StewardLoopTraceBridgeDeps): (event: LoopEvent) => void {
+  let instantiated = false; // 进程内幂等位（重启后历史行已在——重复合成无害）
   return (event) => {
     const payload = payloadOf(event);
     if (payload === undefined) return;
+    if (!instantiated) {
+      instantiated = true;
+      deps.publish({
+        type: "agent.instantiated",
+        sessionId: SYSTEM_SESSION_ID,
+        instanceId: STEWARD_INSTANCE_ID,
+        payload: { profileKind: "steward" },
+        occurredAt: deps.nowIso(),
+      });
+    }
     deps.publish({
       type: event.type as DomainEvent["type"],
       sessionId: SYSTEM_SESSION_ID,

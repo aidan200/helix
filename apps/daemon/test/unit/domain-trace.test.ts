@@ -276,3 +276,41 @@ describe("③ assembleInstancePanel displayState（U2）", () => {
     expect(panel.find((r) => r.instanceId === "agent-1")!.displayState).toBe("done");
   });
 });
+
+// ── 管家入口批（fix/trace-steward-entry）：steward 档案行 fold ──
+
+describe("③ assembleInstancePanel steward 档案（instantiated 合成事件）", () => {
+  test("instantiated(profileKind=steward，无快照) → 档案 profileKind + running/active 常驻语义", () => {
+    const panel = assembleInstancePanel(
+      [
+        {
+          instanceId: "steward",
+          agentKind: "subagent",
+          firstTs: "2026-09-21T10:00:01.000Z",
+          lastTs: "2026-09-21T10:05:00.000Z",
+          eventCount: 9,
+        },
+      ],
+      [
+        row({
+          id: 1,
+          type: "agent.instantiated",
+          instanceId: "steward",
+          agentKind: "subagent",
+          ts: "2026-09-21T10:00:01.000Z",
+          payload: { profileKind: "steward" },
+        }),
+      ],
+    );
+    expect(panel[0]).toMatchObject({
+      instanceId: "steward",
+      agentKind: "subagent",
+      profileKind: "steward", // 合成 instantiated 档案（不再退缺省 subagent-worker）
+      status: "running", // 无终态事件——常驻语义正确
+      displayState: "active", // subagent+running 直译：不落 queued/parked 异常分支
+      startedAt: "2026-09-21T10:00:01.000Z",
+      snapshotMissing: true, // 无 profileSnapshot——降级标注
+    });
+    expect(panel[0]!.endedAt).toBeUndefined();
+  });
+});

@@ -578,6 +578,7 @@ export const zhCN = {
       sessions: "会话",
       sessionsEmpty: "暂无会话",
       pickSession: "选择会话后列出实例",
+      stewardEntry: "管家 · 常驻",
     },
     panel: {
       ariaLabel: "实例面板",
@@ -588,6 +589,7 @@ export const zhCN = {
       eventCount: "{n} 条",
       empty: "该会话暂无实例记录",
       mainName: "主实例",
+      stewardName: "管家",
       statusRunning: "运行中",
       statusCompleted: "已完成",
       statusFailed: "失败",

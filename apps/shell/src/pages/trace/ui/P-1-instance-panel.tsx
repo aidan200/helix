@@ -117,7 +117,7 @@ const InstancePanel = function InstancePanel({
                 <span className="ii-top">
                   <span className="ii-dot" aria-hidden="true" />
                   <span className="ii-name">
-                    {instanceDisplayName(rec, t("trace.panel.mainName"))}
+                    {instanceDisplayName(rec, t("trace.panel.mainName"), t("trace.panel.stewardName"))}
                   </span>
                   <span className="ii-status">{t(displayKeyOf(rec))}</span>
                 </span>
