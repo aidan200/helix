@@ -276,6 +276,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.thinking":
       // 管家工作记忆批（A1）：thinking 段级帧窄化（text 全量 + seq）
       return `steward-thinking:${event.payload.text}:${event.payload.seq}`;
+    case "steward.navigate":
+      // 管家驾驶舱批：页面切换指令帧窄化（sessionId = shell 切页目标）
+      return `steward-navigate:${event.payload.sessionId}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":

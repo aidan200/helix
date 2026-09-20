@@ -221,3 +221,18 @@ export interface StewardThinkingEvent extends EventFrame<StewardThinkingPayload>
   channel?: "steward";
   type: "steward.thinking";
 }
+
+/** steward.navigate payload（管家驾驶舱批，additive）：页面切换指令——
+ *  daemon 在 deliver_to_session 确认投递成功 / create_session 建成后广播，
+ *  shell 收到后切到目标会话页（与侧栏点击同一路径）。 */
+export interface StewardNavigatePayload {
+  /** 切换目标会话 id。 */
+  sessionId: string;
+}
+
+/** steward.navigate：页面切换指令帧（channel = "steward"；广播——仅发
+ *  已订阅 steward 的连接，与 steward.feed 同闸门）。 */
+export interface StewardNavigateEvent extends EventFrame<StewardNavigatePayload> {
+  channel?: "steward";
+  type: "steward.navigate";
+}

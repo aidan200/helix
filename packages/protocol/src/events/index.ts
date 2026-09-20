@@ -149,6 +149,7 @@ import type {
   StewardHistoryResultEvent,
   StewardToolEvent,
   StewardThinkingEvent,
+  StewardNavigateEvent,
 } from "./steward";
 
 export * from "./notification";
@@ -282,6 +283,7 @@ export type EventEnvelope =
   | StewardHistoryResultEvent
   | StewardToolEvent
   | StewardThinkingEvent
+  | StewardNavigateEvent
   | AskStartedEvent
   | AskResolvedEvent;
 
@@ -389,7 +391,8 @@ export const EVENT_TYPES = [
   "voice.synthesize.result",
   // 文本管家批（V2.5 steward 族）：对话回执/确认回执/feed 文本行/设置回执；
   // 流式体验批 +steward.ask.delta（增量帧——终态 ask.result 权威覆盖）；
-  // A1 工作记忆批 +steward.history.result/tool/thinking（回放 + 过程可见）
+  // A1 工作记忆批 +steward.history.result/tool/thinking（回放 + 过程可见）；
+  // 管家驾驶舱批 +steward.navigate（投递/建会话成功后的页面切换指令帧）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
@@ -398,6 +401,7 @@ export const EVENT_TYPES = [
   "steward.history.result",
   "steward.tool",
   "steward.thinking",
+  "steward.navigate",
   // 流式转写批（V3b-1）：开流回执/实时中间帧/终帧（点对点；streamId 门控）
   "stt.stream.started",
   "stt.stream.interim",
@@ -524,4 +528,5 @@ export const EVENT_CHANNELS = {
   "steward.history.result": "steward",
   "steward.tool": "steward",
   "steward.thinking": "steward",
+  "steward.navigate": "steward",
 } as const satisfies Record<EventType, Channel>;
