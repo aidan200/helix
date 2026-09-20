@@ -53,6 +53,7 @@ import type {
   AgentBasePromptGetResultEvent,
   AgentSkillContentGetResultEvent,
   AgentSkillCreateResultEvent,
+  AgentStewardProfileGetResultEvent,
   AgentFailedEvent,
   AgentInstantiatedEvent,
   AgentKilledEvent,
@@ -252,6 +253,7 @@ export type EventEnvelope =
   | AgentBasePromptGetResultEvent
   | AgentSkillContentGetResultEvent
   | AgentSkillCreateResultEvent
+  | AgentStewardProfileGetResultEvent
   | WebStatusResultEvent
   | WebStopResultEvent
   | WebStatusChangedEvent
@@ -382,6 +384,8 @@ export const EVENT_TYPES = [
   "agent.base_prompt.get.result",
   "agent.skill_content.get.result",
   "agent.skill.create.result",
+  // 管家公民权批：管家只读档案回执（点对点）
+  "agent.steward_profile.get.result",
   "web.status.result",
   "web.stop.result",
   "web.status.changed",
@@ -530,6 +534,7 @@ export const EVENT_CHANNELS = {
   "agent.base_prompt.get.result": "agent",
   "agent.skill_content.get.result": "agent",
   "agent.skill.create.result": "agent",
+  "agent.steward_profile.get.result": "agent",
   "web.status.result": "web",
   "web.stop.result": "web",
   "web.status.changed": "web",

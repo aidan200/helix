@@ -399,3 +399,37 @@ export interface AgentSkillCreateResultEvent extends EventFrame<AgentSkillCreate
   channel?: "agent";
   type: "agent.skill.create.result";
 }
+
+// ── 管家公民权批：agent.steward_profile.get.result（管家只读档案回执）──
+
+/**
+ * agent.steward_profile.get.result 工具行：注册面工具清单（八工具——七
+ * LLM 可见 + steward_confirm 面板原语；description 自述非 LLM 工具）。
+ */
+export interface AgentStewardProfileToolRow {
+  /** 工具名（daemon ToolRegistry 注册面单源透传）。 */
+  name: string;
+  /** 一句话描述（工具声明元数据同源）。 */
+  description: string;
+}
+
+/**
+ * agent.steward_profile.get.result 载荷：管家只读档案回执（点对点）。纯
+ * 导出面——零新状态（prompt 常量 / 注册面工具表 / KV 模型槽位三现有源）。
+ */
+export interface AgentStewardProfileGetResultPayload {
+  /** 静态人格段全文（STEWARD_SYSTEM_PROMPT 单源；动态情景快照段运行期拼入不在本面）。 */
+  systemPrompt: string;
+  /** 注册面工具清单（含 hidden 面板原语——观测透明度 = 真实工具面）。 */
+  tools: ReadonlyArray<AgentStewardProfileToolRow>;
+  /** 模型槽位现值（KV steward.model；未设 = null——适配器默认，修改走设置页语音管家段）。 */
+  model: string | null;
+  /** 档案 kind 标识（恒 "steward"——内嵌常驻服务，非 SubAgent profile kind）。 */
+  kindLabel: "steward";
+}
+
+/** agent.steward_profile.get.result：管家只读档案回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export interface AgentStewardProfileGetResultEvent extends EventFrame<AgentStewardProfileGetResultPayload> {
+  channel?: "agent";
+  type: "agent.steward_profile.get.result";
+}

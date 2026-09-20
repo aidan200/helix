@@ -213,6 +213,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `skill-content:${event.payload.name}:${event.payload.content.length}`;
     case "agent.skill.create.result":
       return `skill-create:${event.payload.status}:${event.payload.name ?? event.payload.reason ?? "-"}`;
+    case "agent.steward_profile.get.result":
+      // 管家公民权批：只读档案回执（工具数 + 模型槽位 + kindLabel）
+      return `steward-profile:${event.payload.tools.length}:${event.payload.model ?? "-"}:${event.payload.kindLabel}`;
     case "session.plan.changed":
       return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
     case "diff.changed":
@@ -472,6 +475,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `skill-content-get:${cmd.payload.name}`;
     case "agent.skill.create":
       return `skill-create:${cmd.payload.content.length}`;
+    case "agent.steward_profile.get":
+      // 管家公民权批：管家只读档案读面（零载荷）
+      return `agent-steward-profile-get`;
     case "diff.get":
       return `diff-get:${cmd.sessionId ?? "-"}:${cmd.payload.turnId ?? "latest"}:${cmd.payload.live ? "live" : "frozen"}`;
     case "mcp.servers.list":

@@ -48,6 +48,7 @@ import type {
   AgentBasePromptGetCommand,
   AgentSkillContentGetCommand,
   AgentSkillCreateCommand,
+  AgentStewardProfileGetCommand,
   WebStatusCommand,
   WebStopCommand,
   WebStartCommand,
@@ -147,6 +148,7 @@ export type CommandEnvelope =
   | AgentBasePromptGetCommand
   | AgentSkillContentGetCommand
   | AgentSkillCreateCommand
+  | AgentStewardProfileGetCommand
   | WebStatusCommand
   | WebStopCommand
   | WebStartCommand
@@ -263,6 +265,8 @@ export const COMMAND_TYPES = [
   "agent.base_prompt.get",
   "agent.skill_content.get",
   "agent.skill.create",
+  // 管家公民权批：管家只读档案读面（独立命令——不进 agent.config.list 五 kind 语义）
+  "agent.steward_profile.get",
   "web.status",
   "web.stop",
   "web.start",

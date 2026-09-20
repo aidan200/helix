@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 92 个 type（… + 语音播报批 voice 3 + 文本管家批 steward 6 + 流式转写批 stt.stream 4 + 管家工作记忆批 steward.history）", () => {
+  test("命令目录恰为 93 个 type（… + 管家工作记忆批 steward.history + 管家公民权批 agent.steward_profile.get）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -170,6 +170,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.kill",
         "agent.skill.create",
         "agent.skill_content.get",
+        "agent.steward_profile.get",
         "agent.subscribe",
         "agent.unsubscribe",
         "ask.answer",
@@ -260,7 +261,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 127 个 type（… + 管家驾驶舱批 1 + helix-loop L0 批 loop 15）", () => {
+  test("事件目录恰为 128 个 type（… + helix-loop L0 批 loop 15 + 管家公民权批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -281,6 +282,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.stalled",
         "agent.started",
         "agent.state.changed",
+        "agent.steward_profile.get.result",
         "ask.resolved",
         "ask.started",
         "auth.delete_key.result",
@@ -558,6 +560,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "agent.spawned",
       "agent.stalled",
       "agent.started",
+      "agent.steward_profile.get.result",
     ]);
     expect(roster("thinking")).toEqual(["thinking.changed", "thinking.completed", "thinking.stream.delta"]); // v0.11：+thinking.changed（thinking 批①）
     expect(roster("usage")).toEqual(["usage.recorded"]);
@@ -626,11 +629,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（helix-loop L0 批后）：EVENT_TYPES 127 / EVENT_CHANNELS 127 键 / COMMAND_TYPES 92", () => {
-    expect(EVENT_TYPES.length).toBe(127); // helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(127); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(127); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(92); // 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
+  test("目录计数（管家公民权批后）：EVENT_TYPES 128 / EVENT_CHANNELS 128 键 / COMMAND_TYPES 93", () => {
+    expect(EVENT_TYPES.length).toBe(128); // 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(128); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(128); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(93); // 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });
