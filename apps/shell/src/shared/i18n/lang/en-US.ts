@@ -573,6 +573,7 @@ export const enUS = {
       sessions: "Sessions",
       sessionsEmpty: "No sessions yet",
       pickSession: "Select a session to list instances",
+      stewardEntry: "Steward · resident",
     },
     panel: {
       ariaLabel: "Instance panel",
@@ -583,6 +584,7 @@ export const enUS = {
       eventCount: "{n} events",
       empty: "No instance records in this session",
       mainName: "Main instance",
+      stewardName: "Steward",
       statusRunning: "Running",
       statusCompleted: "Completed",
       statusFailed: "Failed",

@@ -428,3 +428,91 @@ describe("6. 实例面板 fold（名称 / 起止 / 类目）", () => {
     });
   });
 });
+
+describe("7. 管家入口批（loop.* 类目归类 / 摘要 / steward 实例显示名）", () => {
+  const LOOP_TYPES = [
+    "loop.run.started",
+    "loop.run.finished",
+    "loop.run.error",
+    "loop.run.paused",
+    "loop.run.resumed",
+    "loop.run.interrupted",
+    "loop.turn.started",
+    "loop.turn.finished",
+    "loop.tool.started",
+    "loop.tool.finished",
+  ] as const;
+
+  it("categoryOfType：loop.* 前缀族落 lifecycle 桶（run/turn/tool 全型不落 unknown）", () => {
+    for (const type of LOOP_TYPES) {
+      expect(categoryOfType(type)).toBe("lifecycle");
+    }
+  });
+
+  it("TRACE_TYPE_CATEGORIES：lifecycle 类目覆盖 loop.* 全集（chip 过滤下推不丢管家事件）", () => {
+    const lifecycle = TRACE_TYPE_CATEGORIES.find((c) => c.key === "lifecycle");
+    expect(lifecycle).toBeDefined();
+    for (const type of LOOP_TYPES) {
+      expect(lifecycle!.types).toContain(type);
+    }
+    expect(ALL_TRACE_TYPES).toContain("loop.run.started");
+  });
+
+  it("summarizeTraceEvent：loop.* 载荷可读摘要（runId / toolName / turn 类字段）", () => {
+    expect(
+      summarizeTraceEvent(mkRow(1, { type: "loop.run.started", payload: { runId: "r1", promptSummary: "在忙什么" } })),
+    ).toBe("run · r1 · 在忙什么");
+    expect(
+      summarizeTraceEvent(mkRow(2, { type: "loop.run.finished", payload: { runId: "r1", resolution: "answer" } })),
+    ).toBe("run · r1 · answer");
+    expect(
+      summarizeTraceEvent(mkRow(3, { type: "loop.run.error", payload: { runId: "r1", message: "boom" } })),
+    ).toBe("run · r1 · boom");
+    expect(
+      summarizeTraceEvent(
+        mkRow(4, { type: "loop.run.paused", payload: { runId: "r1", toolCallId: "c1", toolName: "bash", argsSummary: "ls" } }),
+      ),
+    ).toBe("pause · bash");
+    expect(
+      summarizeTraceEvent(
+        mkRow(5, { type: "loop.run.resumed", payload: { runId: "r1", pauseToken: "p", decision: "approved" } }),
+      ),
+    ).toBe("resume · r1 · approved");
+    expect(
+      summarizeTraceEvent(mkRow(6, { type: "loop.run.interrupted", payload: { runId: "r1", reason: "user" } })),
+    ).toBe("interrupt · user");
+    expect(
+      summarizeTraceEvent(mkRow(7, { type: "loop.turn.started", payload: { runId: "r1", turn: 2 } })),
+    ).toBe("turn 2 · r1");
+    expect(
+      summarizeTraceEvent(
+        mkRow(8, { type: "loop.turn.finished", payload: { runId: "r1", turn: 2, stopReason: "end", tools: [] } }),
+      ),
+    ).toBe("turn 2 · end");
+    expect(
+      summarizeTraceEvent(
+        mkRow(9, { type: "loop.tool.started", payload: { runId: "r1", toolCallId: "c1", toolName: "list_tasks", argsSummary: "{}" } }),
+      ),
+    ).toBe("call · list_tasks");
+    expect(
+      summarizeTraceEvent(
+        mkRow(10, {
+          type: "loop.tool.finished",
+          payload: { runId: "r1", toolCallId: "c1", toolName: "list_tasks", isError: true, resultSummary: "err" },
+        }),
+      ),
+    ).toBe("result · list_tasks · error");
+    // 载荷缺字段防御：退类型名不 throw
+    expect(summarizeTraceEvent(mkRow(11, { type: "loop.run.started", payload: {} }))).toBe("loop.run.started");
+  });
+
+  it("instanceDisplayName：steward 实例 → 注入 stewardName（管家）；未注入 / 非 steward 不受影响", () => {
+    const steward = mkInstance({ instanceId: "steward", agentKind: "subagent", profileKind: "steward", model: undefined });
+    expect(instanceDisplayName(steward, "MAIN", "管家")).toBe("管家");
+    expect(instanceDisplayName(steward, "MAIN")).toBe("steward"); // 旧调用面（未注入）退化 id 原样
+    const sub = mkInstance({ instanceId: "agt_B", agentKind: "subagent", profileKind: "subagent-worker" });
+    expect(instanceDisplayName(sub, "MAIN", "管家")).toBe("agt_B");
+    const tasked = mkInstance({ instanceId: "agt_T", agentKind: "subagent", profileKind: "steward", task: "任务 X" });
+    expect(instanceDisplayName(tasked, "MAIN", "管家")).toBe("管家"); // steward 名优先于 task 退化链
+  });
+});

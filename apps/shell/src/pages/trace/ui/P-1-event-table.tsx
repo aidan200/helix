@@ -51,6 +51,8 @@ export interface EventTableProps {
   /** true = 实例详情三列视图（实例列省略）。 */
   detail: boolean;
   mainName: string;
+  /** 管家实例显示名（stewardName 注入；fix/trace-steward-entry）。 */
+  stewardName?: string;
   onToggleRow: (id: number) => void;
   onLoadMore: () => void;
 }
@@ -65,6 +67,7 @@ const EventTable = function EventTable({
   openId,
   detail,
   mainName,
+  stewardName,
   onToggleRow,
   onLoadMore,
 }: EventTableProps) {
@@ -107,7 +110,7 @@ const EventTable = function EventTable({
           const rec = instById.get(row.instanceId);
           const isMain = rec === undefined ? row.agentKind === "main" : rec.agentKind === "main";
           const instName =
-            rec !== undefined ? instanceDisplayName(rec, mainName) : row.instanceId;
+            rec !== undefined ? instanceDisplayName(rec, mainName, stewardName) : row.instanceId;
           return (
             <div key={row.id} className={cn("p1-entry", open && "open", isErr && "err-row")}>
               <button

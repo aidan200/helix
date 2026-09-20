@@ -219,15 +219,22 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     const { container } = ui();
     // S3b：壳 = AppLayout（header 页名 / sidebar 槽）
     expect(document.querySelector(".app-header .p1-title")!.textContent).toBe("事件追溯");
-    // sidebar 上分区：会话清单（清单注入）+ 当前会话 cyan 激活态
+    // sidebar 上分区：会话清单（清单注入）+ 当前会话 cyan 激活态；顶部固定
+    // 管家合成入口（fix/trace-steward-entry——无 data-session-id，不计会话序）
     const sb = container.querySelector("[data-trace-sidebar]") as HTMLElement;
     expect(sb).toBeTruthy();
     const sesList = sb.querySelector(".tsb-list") as HTMLElement;
     const sesItems = within(sesList).getAllByRole("button");
-    expect(sesItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual(["ses_a", "ses_b"]);
-    expect(sesItems[0]!.textContent).toContain("M4 收口");
-    expect(sesItems[0]!.getAttribute("aria-pressed")).toBe("true");
-    expect(sesItems[1]!.getAttribute("aria-pressed")).toBe("false");
+    expect(sesItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual([
+      undefined,
+      "ses_a",
+      "ses_b",
+    ]);
+    expect(sesItems[0]!.textContent).toContain("管家 · 常驻");
+    expect(sesItems[1]!.textContent).toContain("M4 收口");
+    expect(sesItems[0]!.getAttribute("aria-pressed")).toBe("false");
+    expect(sesItems[1]!.getAttribute("aria-pressed")).toBe("true");
+    expect(sesItems[2]!.getAttribute("aria-pressed")).toBe("false");
     // 控制条：session 下拉退役（会话选择由 sidebar 承担）+ 时间范围四档 + 类型 chips 八枚
     expect(document.querySelector("#p1-sel-session")).toBeNull();
     const rangeSel = screen.getByLabelText("时间范围") as HTMLSelectElement;
@@ -267,8 +274,9 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     expect(mock.sentQueries[1]!.instanceIds).toBeUndefined(); // 切会话筛选归零
     expect(mock.sentQueries[1]!.types).toBeUndefined();
     const items = document.querySelectorAll(".tsb-ses");
-    expect(items[0]!.getAttribute("aria-pressed")).toBe("false");
-    expect(items[1]!.getAttribute("aria-pressed")).toBe("true"); // 激活态随查询即时切换
+    // items[0] = 管家合成条目（fix/trace-steward-entry：不在选中比对面）
+    expect(items[1]!.getAttribute("aria-pressed")).toBe("false");
+    expect(items[2]!.getAttribute("aria-pressed")).toBe("true"); // 激活态随查询即时切换
   });
 
   it("任务会话切 tab（B）：默认会话 tab 不混任务；切任务 tab 见任务条目 + 类型徽章 + 点击发起 task 会话查询", () => {
@@ -527,5 +535,70 @@ describe("code-review 族B：会话清单 effect 仅转换发 sendTaskList（B3�
       </I18nProvider>,
     );
     expect(mock.taskListSent).toBe(1); // ← 缺陷：effect 重跑无条件 sendTaskList → 2
+  });
+});
+
+// ── 管家合成入口批（fix/trace-steward-entry）──────────────────
+
+const STEW_RECORD: TraceInstanceRecord = {
+  instanceId: "steward",
+  agentKind: "subagent",
+  profileKind: "steward",
+  status: "running",
+  displayState: "active",
+  startedAt: new Date(TS0).toISOString(),
+  eventCount: 8,
+  snapshotMissing: true,
+};
+
+describe("P-1 TracePage 管家合成入口（sessionId=__system__ 直查）", () => {
+  it("点击管家条目 → trace.query payload.sessionId === SYSTEM_SESSION_ID（payload 形态不变）", () => {
+    ui();
+    const before = mock.sentQueries.length;
+    fireEvent.click(document.querySelector("[data-steward-entry]")!);
+    expect(mock.sentQueries.length).toBe(before + 1);
+    const sent = mock.sentQueries[mock.sentQueries.length - 1]!;
+    expect(sent.sessionId).toBe("__system__");
+    expect(sent.page?.limit).toBe(TRACE_PAGE_SIZE); // 查询流完全同构
+  });
+
+  it("已选管家：清单变化触发 effect 重跑不回落覆盖（不自动改查别的会话）", () => {
+    const view = ui();
+    fireEvent.click(document.querySelector("[data-steward-entry]")!);
+    const afterClick = mock.sentQueries.length;
+    expect(mock.sentQueries[afterClick - 1]!.sessionId).toBe("__system__");
+    // 清单变化（effect deps topology.list.length 变化）触发重跑：__system__ 固定合法
+    act(() => {
+      mock.list = [...SESSIONS, { ...SESSIONS[0]!, sessionId: "ses_extra" }];
+    });
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <TracePage path="/trace" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(mock.sentQueries.length).toBe(afterClick); // 无新自动查询（不回落重选）
+  });
+
+  it("管家回执 → 事件表 loop.* 行（可读摘要）+ 实例面板 steward 行（管家名 + 活跃态）", () => {
+    ui();
+    fireEvent.click(document.querySelector("[data-steward-entry]")!);
+    act(() =>
+      feedResult({
+      instances: [STEW_RECORD],
+      events: [
+        mkRow(21, { sessionId: "__system__", instanceId: "steward", agentKind: "subagent", type: "loop.tool.started", payload: { runId: "r1", toolCallId: "c1", toolName: "list_tasks", argsSummary: "{}" } }),
+        mkRow(20, { sessionId: "__system__", instanceId: "steward", agentKind: "subagent", type: "loop.run.started", payload: { runId: "r1", promptSummary: "在忙什么" } }),
+      ],
+      page: { loaded: 2, total: 2, hasMore: false },
+      }),
+    );
+    // 实例面板：steward 行显示管家名（stewardName 注入）+ 活跃态
+    expect(screen.getAllByText("管家").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("活跃")).toBeTruthy();
+    // 事件表 loop.* 行摘要可读
+    expect(screen.getByText("call · list_tasks")).toBeTruthy();
+    expect(screen.getByText("run · r1 · 在忙什么")).toBeTruthy();
   });
 });

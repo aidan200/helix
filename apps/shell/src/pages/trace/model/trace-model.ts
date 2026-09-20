@@ -85,6 +85,18 @@ export const TRACE_TYPE_CATEGORIES: readonly TraceTypeCategory[] = [
       "agent.failed",
       "agent.killed",
       "agent.instantiated",
+      // loop.* 管家循环族（fix/trace-steward-entry：run/turn 生命周期 +
+      // tool 里程碑——归 lifecycle 桶零新 chip/i18n，chip 过滤下推不丢管家事件）
+      "loop.run.started",
+      "loop.run.finished",
+      "loop.run.error",
+      "loop.run.paused",
+      "loop.run.resumed",
+      "loop.run.interrupted",
+      "loop.turn.started",
+      "loop.turn.finished",
+      "loop.tool.started",
+      "loop.tool.finished",
     ],
   },
   { key: "engine.error", types: ["engine.error"] },
@@ -205,9 +217,10 @@ export type TraceCategoryKey =
   | "unknown";
 
 /** 事件类型 → 展示类目（tt 徽标着色 / chip 词汇同源）。default 分支按
- *  前缀分派（agent./turn./steer. 生命周期族——新增生命周期事件类型零漂移
- *  落 lifecycle）；其余未知类型 → unknown（不混入 lifecycle 徽标，新事件
- *  类型可见可发现；code-review 低危）。 */
+ *  前缀分派（agent./turn./steer./loop. 生命周期族——新增生命周期事件类型零
+ *  漂移落 lifecycle；loop.* = 管家循环族，同桶 fix/trace-steward-entry）；
+ *  其余未知类型 → unknown（不混入 lifecycle 徽标，新事件类型可见可发现；
+ *  code-review 低危）。 */
 export function categoryOfType(type: string): TraceCategoryKey {
   switch (type) {
     case "message.completed":
@@ -226,7 +239,12 @@ export function categoryOfType(type: string): TraceCategoryKey {
     case "agent.model.changed":
       return "model";
     default:
-      if (type.startsWith("agent.") || type.startsWith("turn.") || type.startsWith("steer.")) {
+      if (
+        type.startsWith("agent.") ||
+        type.startsWith("turn.") ||
+        type.startsWith("steer.") ||
+        type.startsWith("loop.")
+      ) {
         return "lifecycle";
       }
       return "unknown";
@@ -312,6 +330,59 @@ export function summarizeTraceEvent(row: TraceEventRow): string {
       const st = asStr(p.state);
       return st !== null ? `agent.state → ${st}` : row.type;
     }
+    // loop.* 管家循环族（fix/trace-steward-entry）：runId/toolName/turn 类字段可读摘要
+    case "loop.run.started": {
+      const runId = asStr(p.runId);
+      const summary = asStr(p.promptSummary);
+      return runId !== null && summary !== null
+        ? `run · ${runId} · ${truncateText(summary, 48)}`
+        : runId !== null
+          ? `run · ${runId}`
+          : row.type;
+    }
+    case "loop.run.finished": {
+      const runId = asStr(p.runId);
+      const resolution = asStr(p.resolution);
+      return runId !== null && resolution !== null ? `run · ${runId} · ${resolution}` : row.type;
+    }
+    case "loop.run.error": {
+      const runId = asStr(p.runId);
+      const message = asStr(p.message);
+      return runId !== null && message !== null
+        ? `run · ${runId} · ${truncateText(message, 48)}`
+        : row.type;
+    }
+    case "loop.run.paused": {
+      const toolName = asStr(p.toolName);
+      return toolName !== null ? `pause · ${toolName}` : row.type;
+    }
+    case "loop.run.resumed": {
+      const runId = asStr(p.runId);
+      const decision = asStr(p.decision);
+      return runId !== null && decision !== null ? `resume · ${runId} · ${decision}` : row.type;
+    }
+    case "loop.run.interrupted": {
+      const reason = asStr(p.reason);
+      return reason !== null ? `interrupt · ${truncateText(reason, 48)}` : row.type;
+    }
+    case "loop.turn.started": {
+      const runId = asStr(p.runId);
+      const turn = asNum(p.turn);
+      return runId !== null && turn !== null ? `turn ${turn} · ${runId}` : row.type;
+    }
+    case "loop.turn.finished": {
+      const turn = asNum(p.turn);
+      const stopReason = asStr(p.stopReason);
+      return turn !== null && stopReason !== null ? `turn ${turn} · ${stopReason}` : row.type;
+    }
+    case "loop.tool.started": {
+      const toolName = asStr(p.toolName);
+      return toolName !== null ? `call · ${toolName}` : row.type;
+    }
+    case "loop.tool.finished": {
+      const toolName = asStr(p.toolName);
+      return toolName !== null ? `result · ${toolName}${p.isError === true ? " · error" : ""}` : row.type;
+    }
     default:
       return row.type;
   }
@@ -364,9 +435,16 @@ export function buildTimelineRows(
 
 // ── 实例面板 fold ──────────────────────────────────────────
 
-/** 实例显示名：主 = 本地化 mainName；Sub = task 截断（24 字符）；无 task 退化 id。 */
-export function instanceDisplayName(rec: TraceInstanceRecord, mainName: string): string {
+/** 实例显示名：主 = 本地化 mainName；steward 实例（profileKind=steward）=
+ * 注入 stewardName（i18n 管家）；Sub = task 截断（24 字符）；无 task 退化 id。
+ * stewardName 未注入（旧调用面）→ 退化 id 原样（fix/trace-steward-entry）。 */
+export function instanceDisplayName(
+  rec: TraceInstanceRecord,
+  mainName: string,
+  stewardName?: string,
+): string {
   if (rec.agentKind === "main") return mainName;
+  if (rec.profileKind === "steward" && stewardName !== undefined) return stewardName;
   if (typeof rec.task === "string" && rec.task !== "") {
     return rec.task.length > 24 ? `${rec.task.slice(0, 24)}…` : rec.task;
   }

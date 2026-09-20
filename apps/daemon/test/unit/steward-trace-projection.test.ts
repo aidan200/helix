@@ -58,14 +58,18 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
         "loop.tool.started",
         "loop.turn.started",
         "loop.run.started",
+        "agent.instantiated", // 首条里程碑前合成档案行（fix/trace-steward-entry）
       ]); // id DESC 序
-      expect(result.total).toBe(6);
+      expect(result.total).toBe(7);
       // 四维落位
       for (const row of result.rows) {
         expect(row.sessionId).toBe(SYSTEM_SESSION_ID);
         expect(row.instanceId).toBe(STEWARD_INSTANCE_ID);
         expect(row.agentKind).toBe("subagent");
       }
+      // 档案行载荷：profileKind=steward
+      const instantiated = result.rows.find((r) => r.type === "agent.instantiated");
+      expect((instantiated?.payload as { profileKind?: string })?.profileKind).toBe("steward");
       // 载荷面：run.started 携 promptSummary（行为历史检索）
       const started = result.rows.find((r) => r.type === "loop.run.started");
       expect((started?.payload as { promptSummary?: string })?.promptSummary).toBe("在忙什么");
@@ -76,10 +80,11 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       const panel = result.instances[0]!;
       expect(panel.instanceId).toBe("steward");
       expect(panel.agentKind).toBe("subagent");
-      expect(panel.profileKind).toBe("subagent-worker"); // 无 instantiated/spawned → 缺省
-      expect(panel.eventCount).toBe(6);
+      expect(panel.profileKind).toBe("steward"); // 合成 instantiated 档案（fix/trace-steward-entry；原无档案退缺省 subagent-worker）
+      expect(panel.eventCount).toBe(7);
       expect(panel.startedAt).toBe("2026-09-21T10:00:00.000Z");
       expect(panel.snapshotMissing).toBe(true); // 无 profile 快照——降级标注语义
+      expect(panel.displayState).toBe("active"); // 常驻：subagent+running 直译
 
       await queue.flush();
       queue.close();
@@ -114,6 +119,64 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       expect(types).toContain("loop.run.resumed");
       const resumed = result.rows.find((r) => r.type === "loop.run.resumed");
       expect((resumed?.payload as { decision?: string })?.decision).toBe("resolve");
+      await queue.flush();
+      queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
+// ── 管家入口批（fix/trace-steward-entry）：合成 agent.instantiated 档案 ──
+
+describe("stewardLoopTraceBridge 合成 instantiated（幂等档案行）", () => {
+  test("首条里程碑事件前合成 agent.instantiated 恰一次：四维 + 先序 + loop 照常（进程内幂等）", () => {
+    const published: DomainEvent[] = [];
+    const bridge = stewardLoopTraceBridge({
+      publish: (event) => {
+        published.push(event);
+      },
+      nowIso: () => "2026-09-21T10:00:00.000Z",
+    });
+    // 流式中间态不落库（不触发合成——档案只随真实行为历史诞生）
+    bridge({ type: "loop.message.delta", runId: "r1", turn: 1, delta: "段" } as LoopEvent);
+    expect(published).toHaveLength(0);
+    for (const event of fullRunEvents()) bridge(event);
+    const instantiated = published.filter((e) => e.type === "agent.instantiated");
+    expect(instantiated).toHaveLength(1); // 恰一次（幂等位）
+    expect(instantiated[0]).toMatchObject({
+      type: "agent.instantiated",
+      sessionId: SYSTEM_SESSION_ID,
+      instanceId: STEWARD_INSTANCE_ID,
+      payload: { profileKind: "steward" },
+      occurredAt: "2026-09-21T10:00:00.000Z",
+    });
+    expect(published[0]!.type).toBe("agent.instantiated"); // 先于首条 loop 事件（fold 取首条）
+    expect(published.filter((e) => e.type.startsWith("loop."))).toHaveLength(6); // loop 照常发布
+  });
+
+  test("重启语义：新桥实例重复合成无害——端到端面板 fold 取首条 instantiated（显示不破坏）", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const trace = new SqliteTraceQueryAdapter(queue);
+      const mkBridge = () =>
+        stewardLoopTraceBridge({
+          publish: (event) => {
+            void queue.appendEvent(event, "subagent");
+          },
+          nowIso: () => "2026-09-21T10:00:00.000Z",
+        });
+      for (const event of fullRunEvents()) mkBridge()(event); // 「进程 1」
+      await queue.flush();
+      for (const event of fullRunEvents()) mkBridge()(event); // 「进程 2」（重启：重复合成）
+      await queue.flush();
+      const result = trace.queryTrace({ sessionId: SYSTEM_SESSION_ID });
+      expect(result.instances).toHaveLength(1); // 单 steward 行
+      const panel = result.instances[0]!;
+      expect(panel.profileKind).toBe("steward"); // 档案不破坏
+      expect(panel.status).toBe("running");
+      expect(panel.displayState).toBe("active");
       await queue.flush();
       queue.close();
     } finally {
