@@ -389,7 +389,7 @@ export interface StewardTasksSource {
 }
 
 /** A2：会话元数据行（session_state 轻量读面——SessionRepositoryPort
- *  .listSessionMetadata 同形，additive entryCount 消息量级）。 */
+ *  .listSessionMetadata 同形，additive entryCount 消息量级 + title 显式标题列）。 */
 export interface StewardSessionMetaRow {
   readonly sessionId: string;
   readonly createdAt: string;
@@ -398,6 +398,9 @@ export interface StewardSessionMetaRow {
   readonly firstUserText: string | null;
   /** 消息条目量级（json_array_length(entries)；查询面不可得 = null）。 */
   readonly entryCount: number | null;
+  /** 显式会话标题（L1 投影修复批：createTitledSession 定格的显式列，
+  *  投影优先于 firstUserText 推导；additive——旧数据源缺省不携带）。 */
+  readonly title?: string;
 }
 
 /** A2：L1 感知面（情景快照 + query_recent_work 数据源；快照降级容忍缺席）。 */
@@ -531,7 +534,7 @@ const TOOL_PROPOSE_SEND: StewardLlmTool = {
 const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
   name: "query_recent_work",
   description:
-    "按时间范围查询近期工作（会话清单 + 任务清单；可按项目过滤任务）。回答「最近在忙什么/今天做了什么」类问题时先用本工具取数。",
+    "按时间范围查询近期工作（会话清单 + 任务清单；可按项目过滤任务、按标题关键词过滤会话）。会话行携完整 sessionId——可直接用作 deliver_to_session 的 sessionId 参数（不要让用户去界面查 id）。回答「最近在忙什么/今天做了什么/找到某个会话」类问题时先用本工具取数。",
   parameters: {
     type: "object",
     properties: {
@@ -541,6 +544,10 @@ const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
         description: "时间范围（缺省 this_week）",
       },
       project: { type: "string", description: "项目过滤（可选——仅过滤任务清单）" },
+      title_contains: {
+        type: "string",
+        description: "会话标题关键词过滤（可选——仅过滤会话清单；按显示标题包含匹配，不区分大小写；显示标题 = 显式标题或首条用户消息）",
+      },
     },
     additionalProperties: false,
   },
@@ -991,6 +998,8 @@ export class StewardService {
         ? rangeRaw
         : "this_week";
     const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
+    const titleContains =
+      typeof args["title_contains"] === "string" && args["title_contains"] !== "" ? args["title_contains"] : undefined;
     const win = timeRangeWindow(range, this.now());
     const inWindow = (iso: string): boolean => {
       const t = Date.parse(iso);
@@ -998,17 +1007,34 @@ export class StewardService {
     };
     const sessionLines: string[] = [];
     let sessionTotal = 0;
+    let sessionTotalAll = 0; // 窗口内全部会话数（未过 title_contains）——「无记录」短路判据
     if (this.deps.sessions !== undefined) {
       try {
-        const rows = (await this.deps.sessions.listSessionMetadata()).filter((r) => inWindow(r.updatedAt));
+        const rowsAll = (await this.deps.sessions.listSessionMetadata()).filter((r) => inWindow(r.updatedAt));
+        // 显示标题口径（与快照/会话页同语义）：显式标题列优先，旧行 NULL
+        // 回落首条用户消息截断推导（repo 层注释的消费侧兑现——L1 投影修复批）。
+        const displayTitle = (r: StewardSessionMetaRow): string => r.title ?? r.firstUserText ?? "（无主题）";
+        // title_contains 过滤在投影前（计数同口径：段头【会话·N】= 过滤后
+        // 剩余数；大小写不敏感包含匹配，判据 = 显示标题）。
+        const rows =
+          titleContains === undefined
+            ? rowsAll
+            : rowsAll.filter((r) => displayTitle(r).toLowerCase().includes(titleContains.toLowerCase()));
         sessionTotal = rows.length;
+        sessionTotalAll = rowsAll.length;
         for (const r of rows.slice(0, RECENT_WORK_LINES_MAX)) {
-          const title = capChars(r.firstUserText ?? "（无主题）", RECENT_WORK_TITLE_MAX_CHARS);
+          const title = capChars(displayTitle(r), RECENT_WORK_TITLE_MAX_CHARS);
           const scale = r.entryCount === null ? "" : ` · 约${r.entryCount}条消息`;
-          sessionLines.push(`「${title}」${fmtWhen(r.createdAt)}~${fmtWhen(r.updatedAt)}${scale}`);
+          // sid 完整不截断（deliver_to_session 参数源——prompt 路由行承诺
+          // 「结果含 sessionId」由本行兑现；截断的 id 不可复制即不可用）。
+          sessionLines.push(`「${title}」(sid: ${r.sessionId}) ${fmtWhen(r.createdAt)}~${fmtWhen(r.updatedAt)}${scale}`);
         }
         if (rows.length > RECENT_WORK_LINES_MAX) {
           sessionLines.push(`…另有 ${rows.length - RECENT_WORK_LINES_MAX} 个会话未列出`);
+        }
+        // 未命中可区分：有会话但无一匹配关键词时明说（不落入「无记录」误导）。
+        if (titleContains !== undefined && rows.length === 0 && rowsAll.length > 0) {
+          sessionLines.push(`（${rowsAll.length} 个会话均不含关键词「${titleContains}」）`);
         }
       } catch (err) {
         this.deps.logger?.warn(`query_recent_work 会话读面失败：${(err as Error).message}`);
@@ -1030,7 +1056,7 @@ export class StewardService {
     if (taskRows.length > RECENT_WORK_LINES_MAX) {
       taskLines.push(`…另有 ${taskRows.length - RECENT_WORK_LINES_MAX} 个任务未列出`);
     }
-    if (sessionTotal === 0 && taskRows.length === 0) {
+    if (sessionTotalAll === 0 && taskRows.length === 0) {
       return `${win.zhLabel}（${win.label}）范围内无记录——没有会话与任务活动`;
     }
     const parts: string[] = [`【会话·${sessionTotal}】`];
