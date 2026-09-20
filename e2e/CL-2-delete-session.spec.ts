@@ -62,9 +62,10 @@ test.describe("T3.2 CL-2 删除会话", () => {
       .toBe(2);
     const dels = (await mock.clientFrames()).filter((f) => f.type === "session.delete");
     expect(dels.map((f) => f.sessionId)).toEqual([MULTI_SESSION_B, MULTI_SESSION_A]);
-    // 删活跃 → 草稿空态（原型 F(1.2).4：视图即转，不等事件）
+    // 删活跃 → 草稿空态（原型 F(1.2).4：视图即转，不等事件；空态统一后草稿
+    // 走 SessionEmpty，提示行在场即草稿形态佐证）
     await expect(page.locator('[data-session-card="draft"]')).toHaveCount(1);
-    await expect(page.locator("[data-draft-empty]")).toBeVisible();
+    await expect(page.locator(".session-empty .empty-hint")).toBeVisible();
     await expect(page.locator("#msg-input")).toBeEnabled();
     // toast 交代（命令受理反馈；两次删除各一条，取含目标文案的首条在场即可）
     await expect(page.locator(".toast").filter({ hasText: "会话已删除" }).first()).toBeVisible();

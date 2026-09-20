@@ -153,10 +153,9 @@
   padding: 20px 28px 24px; overflow: hidden;
 }
 .app[data-view="loading"][data-conn="connected"] .restore-skeleton { display: flex; }
-/* 互斥：loading 期不渲染 success 内容（含 empty 引导面） */
+/* loading 互斥门控中，.session-empty 已覆盖空态（空态统一：.draft-empty 退役） */
 .app[data-view="loading"][data-conn="connected"] .session-active { display: none; }
 .app[data-view="loading"][data-conn="connected"] .session-empty { display: none; }
-.app[data-view="loading"][data-conn="connected"] .draft-empty { display: none; }
 .app[data-view="loading"] .chat-inputbar { opacity: 0.55; }
 
 .rs-status {
@@ -193,14 +192,6 @@
 .load-earlier[disabled] { opacity: 0.55; cursor: default; }
 .hist-loading { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; width: 100%; }
 .hist-loading .skel { height: 12px; }
-
-/* ── P-1 草稿空态（F(1.2).1：呼吸文案 + violet 方块光标 + 建会话提示）── */
-.draft-empty {
-  display: none; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 110px 0; color: var(--text-dim); font-size: var(--text-main);
-}
-.app[data-session="empty"][data-conn="connected"] .draft-empty { display: flex; }
-.empty-hint { font-size: var(--text-cap); color: var(--text-dim); font-family: var(--font-sans); }
 
 /* ── P-1 活跃事件条（T5.5 重设计：右侧折叠 26px 竖条 ↔ 展开简介列表；
    类型着色槽位 data-color，本期 subagent=violet；无活跃事件不渲染）── */

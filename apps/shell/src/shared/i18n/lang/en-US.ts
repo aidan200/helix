@@ -267,7 +267,6 @@ export const enUS = {
       loadedCount: "{n} / {m} loaded",
     },
     draftEmpty: {
-      title: "Awaiting first input",
       hint: "Draft session · a session is created on first message",
     },
     rail: {

@@ -274,7 +274,6 @@ export const zhCN = {
       loadedCount: "已载 {n} / {m}",
     },
     draftEmpty: {
-      title: "等待第一条输入",
       hint: "草稿会话 · 发送第一条消息后将创建会话",
     },
     rail: {

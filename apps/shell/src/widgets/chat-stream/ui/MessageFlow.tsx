@@ -20,8 +20,10 @@
  * 占位、无补偿 UI）。
  * 同一事实单一呈现面——closure 注入文本不占消息位。
  *
- * v0.2（T3.2）：sessionId === null 的空态 = 草稿空态（P-1 draft-empty，呼吸
- * 文案 + 建会话提示）；有会话上下文的空态 = 既有 SessionEmpty 引导面。
+ * v0.2（T3.2）→ 空态统一（用户裁决）：空态单一路径 SessionEmpty——草稿
+ *（sessionId === null）与真实空会话（有 id 零条目）同构（HX 方标 + 呼吸
+ * 文案 + 建议 chip；草稿仅多一行建会话提示，判别在 SessionEmpty 内部）；
+ * P-1-draft-empty 独立草稿空态组件退役。
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
@@ -36,7 +38,6 @@ import ToolCard from "@/shared/ui/ToolCard";
 import DirectedSteer from "@/shared/ui/DirectedSteer";
 import SystemInjectBar from "@/shared/ui/SystemInjectBar";
 import SessionEmpty from "./SessionEmpty";
-import DraftEmpty from "./P-1-draft-empty";
 import LoadEarlier from "./P-1s-load-earlier";
 import CompactionBar from "./CompactionBar";
 import EngineErrorCard, { TurnErrorGroup } from "./EngineErrorCard";
@@ -371,7 +372,8 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
           {/* permission_request 批：提权执行申请问答卡（瞬态；resolved 帧/快照收口） */}
           <AskCard />
         </div>
-        {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty onFocusInput={onFocusInput} />)}
+        {/* 空态统一：草稿/真实空会话同构 SessionEmpty（草稿差异行组件内部判） */}
+        {empty && <SessionEmpty onFocusInput={onFocusInput} />}
       </div>
       {children /* conn-overlay 等浮层（pages 层组装） */}
       </main>
