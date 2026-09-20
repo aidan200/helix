@@ -50,6 +50,7 @@ import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 import StewardDock from "@/features/steward/ui/StewardDock";
+import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
 
 /** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
@@ -105,6 +106,19 @@ export function AppRoutes() {
   // 语音播报批 V2：全局播放钩子（连接就绪 + 偏好开 → voice.subscribe；
   // voice.broadcast → seq 去重保序 Audio 播放）——App 根单份，与会话无关
   useVoiceBroadcast();
+  // 管家驾驶舱批：steward.navigate 页面切换指令（投递成功/建会话即切）——
+  // 不在工作台路由先切回工作台，再 switchSession（与侧栏点击同一路径）；
+  // 帧仅在管家面板开且已订阅时到达（daemon 侧订阅闸门），无自激面。
+  const { switchSession } = useSession();
+  useStewardNavigate(
+    useCallback(
+      (sessionId: string) => {
+        if (route !== ROUTE_WORKBENCH) navigate(ROUTE_WORKBENCH);
+        switchSession(sessionId);
+      },
+      [route, navigate, switchSession],
+    ),
+  );
   return (
     <>
       <div className="app-shell">

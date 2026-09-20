@@ -30,9 +30,10 @@
  * 点外关闭归 StewardDock 壳）；active=false（Dock 隐藏期）时 Esc 监听卸载
  * （A1：隐藏不卸载但全局监听归活跃态）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Mic, Square, Wrench } from "lucide-react";
 import { useStewardVoice } from "../model/useStewardVoice";
+import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
 import type { StewardVoicePhase } from "../model/steward-voice-machine";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
@@ -120,6 +121,10 @@ const StewardPanel = function StewardPanel({ onClose, active = true }: StewardPa
   const sv = useStewardVoice(true);
   const [draft, setDraft] = useState("");
 
+  // 历史锚底（驾驶舱批①：chat 页 MessageFlow 滚动语义同构）：吸附态新内容
+  // 贴底；上滚脱附不拽回；回底 1s 驻留恢复吸附；打开面板强制贴底。
+  const sticky = useStickyBottom();
+
   // onClose ref 定格（DiffOverlay 先例）：调用方内联箭头每渲染新引用，
   // Esc 监听不随调用方重渲染反复解绑/重挂
   const onCloseRef = useRef(onClose);
@@ -149,6 +154,17 @@ const StewardPanel = function StewardPanel({ onClose, active = true }: StewardPa
 
   const enabled = sv.config?.enabled === true;
   const { mode, phase, level } = sv;
+
+  // 内容增长贴底（仅吸附态）：条目流/流式文本/确认卡出入/输入面可用性变化。
+  useLayoutEffect(() => {
+    sticky.stickIfAttached();
+  }, [sticky, sv.items, sv.streamingText, sv.askInFlight, sv.pending]);
+
+  // 打开面板（active 升起）→ 强制贴底 + 吸附复位（面板隐藏不卸载——重开
+  // 应回到最新消息，不吃隐藏期残留滚动位置）。
+  useEffect(() => {
+    if (active) sticky.stick();
+  }, [active, sticky]);
 
   const submit = () => {
     if (draft.trim() === "" || sv.askInFlight) return;
@@ -208,7 +224,7 @@ const StewardPanel = function StewardPanel({ onClose, active = true }: StewardPa
               ))
             )}
           </div>
-          <div className="stp-msgs">
+          <div className="stp-msgs" ref={sticky.ref} onScroll={sticky.onScroll} data-testid="steward-msgs">
             {sv.items.map((item, i) => (
               <PanelItemRow key={i} item={item} />
             ))}
