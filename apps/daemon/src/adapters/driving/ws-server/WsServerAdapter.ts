@@ -117,7 +117,13 @@ import {
 import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet, handleAgentSkillCreate } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import { handleSttStreamChunk, handleSttStreamFinish, handleSttStreamStart, handleSttStreamStop, handleSttTranscribe } from "./handlers/stt";
-import { handleVoiceSubscribe, handleVoiceSynthesize, handleVoiceUnsubscribe } from "./handlers/voice";
+import {
+  handleVoiceSubscribe,
+  handleVoiceSynthesize,
+  handleVoiceSynthesizeStream,
+  handleVoiceSynthesizeStop,
+  handleVoiceUnsubscribe,
+} from "./handlers/voice";
 import {
   handleAgentStewardProfileGet,
   handleStewardAsk,
@@ -335,6 +341,8 @@ export class WsServerAdapter {
       // 流式转写批（V3b-1）：连接级单流随断连清理（abort 上游——voice.subscribe
       // 断连清位同构；money 纪律：不留孤儿上游 WS）
       this.deps.stt?.stream?.service.closeSender(ws.data.sender);
+      // 流式 TTS 批（V3b-2）：连接级在途句 abort 清位（money 纪律零孤儿任务）
+      this.deps.voice?.ttsStream?.closeSender(ws.data.sender);
     }
   }
 
@@ -690,6 +698,15 @@ export class WsServerAdapter {
         return this.deps.voice === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleVoiceUnsubscribe(this.contexts.voiceContext(ws, type, payload));
+      // ── 流式 TTS 批（V3b-2；stream 面未装配 → unimplemented，voice 先例）──
+      case "voice.synthesize.stream":
+        return this.deps.voice === undefined || this.deps.voice.ttsStream === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleVoiceSynthesizeStream(this.contexts.voiceContext(ws, type, payload));
+      case "voice.synthesize.stop":
+        return this.deps.voice === undefined || this.deps.voice.ttsStream === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleVoiceSynthesizeStop(this.contexts.voiceContext(ws, type, payload));
       // ── steward 批（V2.5 文本管家；全局命令先例 = voice 批）──
       case "steward.ask":
         return this.deps.steward === undefined

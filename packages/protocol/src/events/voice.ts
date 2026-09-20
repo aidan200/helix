@@ -64,3 +64,51 @@ export interface VoiceSynthesizeResultEvent extends EventFrame<VoiceSynthesizeRe
   channel?: "voice";
   type: "voice.synthesize.result";
 }
+
+// ── 流式 TTS 批（V3b-2）：单句流式合成三帧（点对点，仅发发起连接）──
+
+/** voice.synthesize.chunk payload：增量音频帧（PCM 16bit mono 24kHz，base64）。 */
+export interface VoiceSynthesizeChunkPayload {
+  /** 句标识（voice.synthesize.stream 对账）。 */
+  utterId: string;
+  /** 句内单调顺序号（1 起；丢帧/乱序可检测面）。 */
+  seq: number;
+  /** 增量音频（base64 PCM 16bit mono 24kHz；连续拼按时长即总时长）。 */
+  audio: string;
+}
+
+/** voice.synthesize.chunk：流式音频增量帧（channel = "voice"；高频）。 */
+export interface VoiceSynthesizeChunkEvent extends EventFrame<VoiceSynthesizeChunkPayload> {
+  channel?: "voice";
+  type: "voice.synthesize.chunk";
+}
+
+/** voice.synthesize.done payload：句合成正常终态（音频已全量下发）。 */
+export interface VoiceSynthesizeDonePayload {
+  /** 句标识。 */
+  utterId: string;
+  /** 实际执行 provider id（如 "dashscope"——排查面）。 */
+  provider: string;
+  /** 本句总帧数（末帧对账面；与最大 seq 恰等）。 */
+  frames: number;
+}
+
+/** voice.synthesize.done：句正常收口帧（channel = "voice"）。 */
+export interface VoiceSynthesizeDoneEvent extends EventFrame<VoiceSynthesizeDonePayload> {
+  channel?: "voice";
+  type: "voice.synthesize.done";
+}
+
+/** voice.synthesize.error payload：句失败（上游断/拒；shell 走回退链）。 */
+export interface VoiceSynthesizeErrorPayload {
+  /** 句标识。 */
+  utterId: string;
+  /** 失败原因（含引导；回退链消费后不再上锄）。 */
+  reason: string;
+}
+
+/** voice.synthesize.error：句失败终态帧（channel = "voice"；已发 chunk 后仍可到达——shell 按句丢弃已排音频）。 */
+export interface VoiceSynthesizeErrorEvent extends EventFrame<VoiceSynthesizeErrorPayload> {
+  channel?: "voice";
+  type: "voice.synthesize.error";
+}
