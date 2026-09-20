@@ -48,6 +48,9 @@ import type { ServerWebSocket } from "bun";
  *  缓冲无监测可无限堆积（内存注入面）；超阈值断开（客户端重连经快照收敛现值）。 */
 export const WS_BUFFER_LIMIT_BYTES = 8 * 1024 * 1024;
 
+/** 握手超时窗口缺省（修复批③：10s 内未收到合法 hello → auth.timeout 自清）。 */
+export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
+
 /** 原始发送面工厂（code-review M 背压守护，单测缝）：缓冲超阈值 → 断连慢客户端
  * （4000 = 应用自定义关闭码），不发送不堆积；onDrop 供观测（adapter 接 console.warn）。 */
 export function createRawSender(
@@ -182,6 +185,10 @@ export class WsServerAdapter {
   /** 十一族命令 context 构造器（依赖面组装在 command-contexts.ts；连接绑定回调经闭包注回）。 */
   private readonly contexts: ReturnType<typeof createCommandContexts>;
   private readonly server: Bun.Server<ConnState>;
+  /** 握手超时窗口 ms（修复批③：缺省 10s；测试注入口）。 */
+  private readonly handshakeTimeoutMs: number;
+  /** 握手超时定时器表（修复批③：连接建立起计时，hello 完成/连接关闭清理）。 */
+  private readonly handshakeTimers = new Map<ServerWebSocket<ConnState>, ReturnType<typeof setTimeout>>();
   /**
    * 握手进行中的命令帧排队表（F2 握手竞态修复）：hello 通过校验后
    * handleHandshake 有 await 窗口（probeCurrentDraft/getSessionView），窗口内
@@ -193,6 +200,7 @@ export class WsServerAdapter {
 
   constructor(deps: WsServerAdapterDeps) {
     this.deps = deps;
+    this.handshakeTimeoutMs = deps.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.contexts = createCommandContexts(deps, {
       // 连接面回调留守本类（握手/事件流共用），闭包注回 context 构造器
       commandError: (ws, type, code, message) => this.commandError(ws, type, code, message),
@@ -276,10 +284,41 @@ export class WsServerAdapter {
   private onOpen(ws: ServerWebSocket<ConnState>): void {
     ws.data.authed = false;
     ws.data.sender = null;
+    this.logConn(ws, "ws open");
+    // 修复批③：握手超时自清——连接建立起计时，超时窗口内未完成握手（合法
+    // hello 到达且 welcome/快照发出）→ auth.timeout 拒绝帧 + close。事故面：
+    // TCP ESTABLISHED 但 daemon 零帧不应答的死锁连接永不清理（对新连接
+    // 正常）——定时器在握手完成（onMessage finally）/连接关闭（onClose）
+    // 双清理点满除，无泄漏。超时定时器禁用（handshakeTimeoutMs ≤ 0）时跳过
+    //（测试/特殊形态兼容）。
+    if (this.handshakeTimeoutMs > 0) {
+      const timer = setTimeout(() => {
+        this.handshakeTimers.delete(ws);
+        this.logConn(ws, "handshake timeout");
+        this.sendNow(this.rawSender(ws), {
+          v: PROTOCOL_VERSION,
+          sessionId: SYSTEM_SESSION_ID,
+          channel: "notification",
+          type: "connection.error",
+          payload: {
+            code: "auth.timeout",
+            message: `握手超时（${this.handshakeTimeoutMs}ms 内未收到合法 hello）——连接已关闭，请重连`,
+          },
+        });
+        ws.close(); // 先发帧再 close（E-54 拒绝路径同处置）
+      }, this.handshakeTimeoutMs);
+      this.handshakeTimers.set(ws, timer);
+    }
   }
 
   private onClose(ws: ServerWebSocket<ConnState>): void {
+    const timer = this.handshakeTimers.get(ws);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.handshakeTimers.delete(ws); // 定时器清理点①：连接关闭（含拒绝后 close/客户端主动断）
+    }
     this.handshakeQueues.delete(ws); // 窗口内断连：丢弃排队帧（回放面另有 readyState 守卫）
+    this.logConn(ws, "ws close");
     if (ws.data.sender) {
       this.deps.events.detach(ws.data.sender);
       // 流式转写批（V3b-1）：连接级单流随断连清理（abort 上游——voice.subscribe
@@ -316,6 +355,12 @@ export class WsServerAdapter {
     if (!ws.data.authed) {
       this.handshakeQueues.set(ws, []);
       void this.handleHandshake(ws, frame).finally(() => {
+        // 定时器清理点②：握手完成（含拒绝路径——连接已 close，onClose 亦会清）
+        const timer = this.handshakeTimers.get(ws);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          this.handshakeTimers.delete(ws);
+        }
         const queued = this.handshakeQueues.get(ws) ?? [];
         this.handshakeQueues.delete(ws);
         // 握手拒绝（连接已 close）或窗口内断连：丢弃排队帧不回放
@@ -334,6 +379,7 @@ export class WsServerAdapter {
     envelope: RawCommandFrame,
   ): Promise<void> {
     const reject = (code: ConnectionErrorEvent["payload"]["code"], message: string): void => {
+      this.logConn(ws, `hello rejected (${code})`);
       this.sendNow(this.rawSender(ws), {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -377,6 +423,7 @@ export class WsServerAdapter {
     ws.data.authed = true;
     const sender = this.rawSender(ws);
     ws.data.sender = sender;
+    this.logConn(ws, "hello accepted");
     const isDraft = (await this.deps.directory.probeCurrentDraft?.()) ?? false;
     const status = this.deps.system.getStatus();
     if (isDraft) {
@@ -757,5 +804,13 @@ export class WsServerAdapter {
 
   private sendNow(sender: FrameSender, frame: EventEnvelope): void {
     sender(frame);
+  }
+
+  /** 连接级一行式诊断日志（修复批⑤）：ws open/hello accepted/hello rejected
+   * (code)/handshake timeout/ws close——未来再出现死锁连接时有轨迹可查。
+   * 别刷屏：仅连接级事件，不含逐帧；deps.connLog 缺省（stub rig）静默。 */
+  private logConn(ws: ServerWebSocket<ConnState>, event: string): void {
+    const remote = ws.remoteAddress ?? "unknown";
+    this.deps.connLog?.info(`[ws] ${event} remote=${remote}`);
   }
 }
