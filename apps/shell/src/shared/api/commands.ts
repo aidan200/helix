@@ -112,6 +112,7 @@ import type {
   StewardAskCommand,
   StewardConfirmCommand,
   StewardGetConfigCommand,
+  StewardHistoryCommand,
   StewardSetConfigCommand,
   StewardSubscribeCommand,
   StewardUnsubscribeCommand,
@@ -507,6 +508,16 @@ export function stewardSetConfigCommand(patch: { enabled?: boolean; model?: stri
     v: PROTOCOL_VERSION,
     type: "steward.set_config",
     payload: { ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}), ...(patch.model !== undefined ? { model: patch.model } : {}) },
+  };
+}
+
+/** steward.history：工作记忆读/清（A1 批；clear=true 新对话三处同清；
+ *  回执 steward.history.result 携完整记录数组——回放同源）。 */
+export function stewardHistoryCommand(clear?: boolean): StewardHistoryCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.history",
+    payload: clear === true ? { clear: true } : {},
   };
 }
 

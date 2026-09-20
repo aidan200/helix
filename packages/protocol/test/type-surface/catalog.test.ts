@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 91 个 type（… + 语音播报批 voice 3 + 文本管家批 steward 6 + 流式转写批 stt.stream 4）", () => {
+  test("命令目录恰为 92 个 type（… + 语音播报批 voice 3 + 文本管家批 steward 6 + 流式转写批 stt.stream 4 + 管家工作记忆批 steward.history）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -227,6 +227,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "steward.ask",
         "steward.confirm",
         "steward.get_config",
+        "steward.history",
         "steward.set_config",
         "steward.subscribe",
         "steward.unsubscribe",
@@ -259,7 +260,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 108 个 type（… + 语音播报批 voice 2 + 文本管家批 steward 4 + 管家流式体验批 steward.ask.delta + 流式转写批 stt.stream 3）", () => {
+  test("事件目录恰为 111 个 type（… + 语音播报批 voice 2 + 文本管家批 steward 4 + 管家流式体验批 steward.ask.delta + 流式转写批 stt.stream 3 + 管家工作记忆批 3）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -349,6 +350,9 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "steward.config.result",
         "steward.confirm.result",
         "steward.feed",
+        "steward.history.result",
+        "steward.thinking",
+        "steward.tool",
         "stt.stream.final",
         "stt.stream.interim",
         "stt.stream.started",
@@ -606,11 +610,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（流式转写批后）：EVENT_TYPES 108 / EVENT_CHANNELS 108 键 / COMMAND_TYPES 91", () => {
-    expect(EVENT_TYPES.length).toBe(108); // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(108); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(108); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(91); // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
+  test("目录计数（管家工作记忆批后）：EVENT_TYPES 111 / EVENT_CHANNELS 111 键 / COMMAND_TYPES 92", () => {
+    expect(EVENT_TYPES.length).toBe(111); // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(111); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(111); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(92); // 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });

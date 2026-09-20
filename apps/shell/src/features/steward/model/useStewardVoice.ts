@@ -42,7 +42,7 @@ import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import { readTtsVoicePref, readVoiceVolumePref, readStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
-import { useSteward, type StewardMessage, type StewardPendingAction } from "./useSteward";
+import { useSteward, type StewardPanelItem, type StewardPendingAction } from "./useSteward";
 import {
   deriveStewardVoicePhase,
   shouldSpeakReply,
@@ -66,8 +66,8 @@ export interface UseStewardVoiceOptions {
 }
 
 export interface UseStewardVoice {
-  // ── useSteward 整面透传（面板数据面不二开）──
-  readonly messages: readonly StewardMessage[];
+  // ── useSteward 整面透传（面板数据面不二开；A1：messages → items 过程条目）──
+  readonly items: readonly StewardPanelItem[];
   readonly streamingText: string | null;
   readonly pending: StewardPendingAction | null;
   readonly feed: ReturnType<typeof useSteward>["feed"];
@@ -76,6 +76,7 @@ export interface UseStewardVoice {
   ask(text: string): boolean;
   confirmPending(): boolean;
   dismissPending(): void;
+  newDialog(): boolean;
   // ── 双模（互斥；打开默认 voice）──
   readonly mode: StewardInputMode;
   setMode(mode: StewardInputMode): void;

@@ -260,7 +260,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     // 回执 ok → idle + 回填
     act(() => {
       frameListener!({
-        v: "0.13",
+        v: "0.14",
         type: "stt.transcribe.result",
         payload: { status: "ok", text: "把 useEffect 修一下", provider: "dashscope" },
       } as EventEnvelope);
@@ -352,7 +352,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
     act(() => {
       frameListener!({
-        v: "0.13",
+        v: "0.14",
         type: "stt.transcribe.result",
         payload: { status: "error", reason: 'provider "dashscope" 未录入 API key' },
       } as EventEnvelope);
@@ -389,7 +389,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     // 本钩子 idle（未在转写在途）；外来 ok 回执到达
     act(() => {
       frameListener!({
-        v: "0.13",
+        v: "0.14",
         type: "stt.transcribe.result",
         payload: { status: "ok", text: "他消费面的转写", provider: "dashscope" },
       } as EventEnvelope);
@@ -400,7 +400,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     // 外来 error 回执同理吞（不污染本面 error）
     act(() => {
       frameListener!({
-        v: "0.13",
+        v: "0.14",
         type: "stt.transcribe.result",
         payload: { status: "error", reason: "他面错误" },
       } as EventEnvelope);
@@ -531,7 +531,7 @@ describe("useVoiceInput（V3b-1：deferredTranscribe 流式收口面）", () => 
     const result = await recordAndStopDeferred(() => undefined);
     act(() => {
       frameListener?.({
-        v: "0.13",
+        v: "0.14",
         sessionId: "__system__",
         channel: "stt",
         type: "stt.transcribe.result",
@@ -545,7 +545,7 @@ describe("useVoiceInput（V3b-1：deferredTranscribe 流式收口面）", () => 
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
     act(() => {
       frameListener?.({
-        v: "0.13",
+        v: "0.14",
         sessionId: "__system__",
         channel: "stt",
         type: "stt.transcribe.result",

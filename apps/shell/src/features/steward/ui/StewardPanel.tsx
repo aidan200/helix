@@ -27,23 +27,95 @@
  * 终态 result 权威覆盖。
  *
  * 关闭路径：Esc / 头部 ×（DiffOverlay 先例；onClose ref 定格防重绑——
- * 点外关闭归 StewardDock 壳）。
+ * 点外关闭归 StewardDock 壳）；active=false（Dock 隐藏期）时 Esc 监听卸载
+ * （A1：隐藏不卸载但全局监听归活跃态）。
  */
 import { useEffect, useRef, useState } from "react";
-import { Mic, Square } from "lucide-react";
+import { ChevronDown, ChevronRight, Mic, Square, Wrench } from "lucide-react";
 import { useStewardVoice } from "../model/useStewardVoice";
+import type { StewardPanelItem } from "../model/useSteward";
 import type { StewardVoicePhase } from "../model/steward-voice-machine";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
 import { useI18n } from "@/shared/i18n";
 
 interface StewardPanelProps {
   onClose: () => void;
+  /** 面板活跃（可见）态；false = Dock 隐藏期（组件树驻留但不可见）——
+ *  Esc 窗口监听挂载归活跃态（隐藏期零全局监听，A1）。 */
+  readonly active?: boolean;
 }
 
 /** 波形条高型（7 条对称阵列；listening 态 = level × 型值，他态贴底）。 */
 const WAVE_PATTERN = [0.45, 0.75, 1, 0.6, 1, 0.75, 0.45] as const;
 
-const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
+/** thinking 折叠条目（默认折叠可展开——屏幕通道完整显示，样式对齐主会话
+ *  thinking 条目密度但更紧凑；A1 批）。 */
+function ThinkingRow({ text }: { readonly text: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="stp-think" data-testid="steward-thinking-item">
+      <button type="button" className="stp-think-toggle" data-testid="steward-thinking-toggle" onClick={() => setOpen((v) => !v)}>
+        {open ? <ChevronDown size={12} strokeWidth={1.75} /> : <ChevronRight size={12} strokeWidth={1.75} />}
+        <span className="stp-think-label">{t("steward.thinkingLabel")}</span>
+      </button>
+      {open && (
+        <div className="stp-think-body" data-testid="steward-thinking-body">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 工具过程行（「✓ 查询任务列表」可展开结果摘要；A1 批——过程可见）。 */
+function ToolRow({ name, argsSummary, resultSummary }: {
+  readonly name: string;
+  readonly argsSummary: string;
+  readonly resultSummary: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const done = resultSummary !== null;
+  return (
+    <div className={`stp-tool${done ? " done" : ""}`} data-testid="steward-tool-item">
+      <button type="button" className="stp-tool-toggle" data-testid="steward-tool-toggle" onClick={() => setOpen((v) => !v)}>
+        <Wrench size={11} strokeWidth={1.75} />
+        <span className="stp-tool-name">{name}</span>
+        <span className="stp-tool-state" data-testid="steward-tool-state">{done ? "✓" : "…"}</span>
+      </button>
+      {open && (
+        <div className="stp-tool-body" data-testid="steward-tool-body">
+          {argsSummary !== "" && (
+            <div className="stp-tool-args">{argsSummary}</div>
+          )}
+          <div className="stp-tool-result">{resultSummary ?? ""}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 过程条目渲染分发（A1：user/assistant 气泡 + thinking 折叠 + 工具行）。 */
+function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
+  if (item.kind === "user") {
+    return (
+      <div className="stp-msg stp-msg-user" data-testid="steward-msg-user">
+        {item.text}
+      </div>
+    );
+  }
+  if (item.kind === "assistant") {
+    return (
+      <div className="stp-msg stp-msg-steward" data-testid="steward-msg-steward">
+        <MarkdownMessage text={item.text} />
+      </div>
+    );
+  }
+  if (item.kind === "thinking") return <ThinkingRow text={item.text} />;
+  return <ToolRow name={item.name} argsSummary={item.argsSummary} resultSummary={item.resultSummary} />;
+}
+
+const StewardPanel = function StewardPanel({ onClose, active = true }: StewardPanelProps) {
   const { t } = useI18n();
   const sv = useStewardVoice(true);
   const [draft, setDraft] = useState("");
@@ -56,12 +128,13 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
   }, [onClose]);
 
   useEffect(() => {
+    if (!active) return; // 隐藏期零全局监听（A1：隐藏不卸载但监听归活跃态）
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [active]);
 
   // ask 发送失败的转写文本采纳：回填草稿 + 切文本态（可重试，零静默丢话）
   const voiceDraft = sv.voiceDraft;
@@ -103,6 +176,15 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
           <i className="stp-status-dot" aria-hidden="true" />
           {enabled ? t("steward.stateOn") : t("steward.stateOff")}
         </span>
+        <button
+          type="button"
+          className="stp-newchat"
+          data-testid="steward-new-chat"
+          title={t("steward.newChatTitle")}
+          onClick={() => sv.newDialog()}
+        >
+          {t("steward.newChat")}
+        </button>
         <button type="button" className="stp-close" aria-label={t("steward.close")} onClick={onClose}>
           ×
         </button>
@@ -127,14 +209,8 @@ const StewardPanel = function StewardPanel({ onClose }: StewardPanelProps) {
             )}
           </div>
           <div className="stp-msgs">
-            {sv.messages.map((m, i) => (
-              <div
-                key={i}
-                className={`stp-msg ${m.role === "user" ? "stp-msg-user" : "stp-msg-steward"}`}
-                data-testid={m.role === "user" ? "steward-msg-user" : "steward-msg-steward"}
-              >
-                {m.role === "steward" ? <MarkdownMessage text={m.text} /> : m.text}
-              </div>
+            {sv.items.map((item, i) => (
+              <PanelItemRow key={i} item={item} />
             ))}
             {/* 流式气泡：delta 聚合文本 md 渲染；终态 result 到达即由正式
                 气泡接管（streamingText 清空 → 本槽退场） */}

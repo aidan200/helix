@@ -59,7 +59,7 @@ vi.mock("@/shared/lib/voice-pref", () => ({
 import { useVoiceBroadcast } from "./useVoiceBroadcast";
 
 const broadcastFrame = (seq: number, audio = `data:audio/wav;base64,S${seq}`): EventEnvelope =>
-  ({ v: "0.13", sessionId: "__system__", channel: "voice", type: "voice.broadcast", payload: { kind: "agent.completed", agentId: "agent-1", text: "t", audio, provider: "dashscope", seq } }) as unknown as EventEnvelope;
+  ({ v: "0.14", sessionId: "__system__", channel: "voice", type: "voice.broadcast", payload: { kind: "agent.completed", agentId: "agent-1", text: "t", audio, provider: "dashscope", seq } }) as unknown as EventEnvelope;
 
 describe("useVoiceBroadcast（语音播报批 V2）", () => {
   beforeEach(() => {

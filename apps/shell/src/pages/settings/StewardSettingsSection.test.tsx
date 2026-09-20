@@ -102,7 +102,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
 import StewardSettingsSection from "./ui/StewardSettingsSection";
 
 function frame(payload: unknown): EventEnvelope {
-  return { v: "0.13", sessionId: "__system__", channel: "steward", type: "steward.config.result", payload } as EventEnvelope;
+  return { v: "0.14", sessionId: "__system__", channel: "steward", type: "steward.config.result", payload } as EventEnvelope;
 }
 
 /** auth.list 行（configured 过滤测试面；verifyStatus 不参与过滤口径）。 */

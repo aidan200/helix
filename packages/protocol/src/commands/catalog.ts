@@ -107,6 +107,7 @@ import type {
   StewardUnsubscribeCommand,
   StewardGetConfigCommand,
   StewardSetConfigCommand,
+  StewardHistoryCommand,
 } from "./steward";
 
 export type CommandEnvelope =
@@ -200,6 +201,7 @@ export type CommandEnvelope =
   | StewardUnsubscribeCommand
   | StewardGetConfigCommand
   | StewardSetConfigCommand
+  | StewardHistoryCommand
   | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -219,13 +221,15 @@ export const COMMAND_TYPES = [
   "voice.synthesize",
   "voice.subscribe",
   "voice.unsubscribe",
-  // 文本管家批（V2.5）：对话（LLM 循环）+ 确认闸 + feed 订阅 + 设置面
+  // 文本管家批（V2.5）：对话（LLM 循环）+ 确认闸 + feed 订阅 + 设置面；
+  // A1 工作记忆批 +steward.history（读/清同命令，回放链路）
   "steward.ask",
   "steward.confirm",
   "steward.subscribe",
   "steward.unsubscribe",
   "steward.get_config",
   "steward.set_config",
+  "steward.history",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",

@@ -18,6 +18,9 @@ import type { EventEnvelope } from "@helix/protocol";
 const sendStewardGetConfig = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
+const sendStewardHistory = vi.fn(() => true);
+const sendStewardAsk = vi.fn(() => true);
+const sendStewardConfirm = vi.fn(() => true);
 const subscribeStewardFrames = vi.fn(() => () => {});
 
 vi.mock("@/entities/session/SessionContext", () => ({
@@ -26,6 +29,9 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendStewardGetConfig,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
+    sendStewardHistory,
+    sendStewardAsk,
+    sendStewardConfirm,
     subscribeStewardFrames,
   }),
 }));
@@ -41,6 +47,19 @@ function ui(open: boolean, onClose = vi.fn()) {
   return onClose;
 }
 
+/** 同实例重渲（A1 状态保持断言用——隐藏期不卸载，跨开合重渲同一组件树）。 */
+function renderStewardDock(open: boolean) {
+  const view = render(stewardDockElement(open));
+  return { ...view, rerender: (nextOpen: boolean) => view.rerender(stewardDockElement(nextOpen)) };
+}
+function stewardDockElement(open: boolean) {
+  return (
+    <I18nProvider>
+      <StewardDock open={open} onClose={vi.fn()} />
+    </I18nProvider>
+  );
+}
+
 // jsdom navigator.language 默认 en-US：钉 zh-CN（AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
 
@@ -50,14 +69,33 @@ describe("StewardDock（管家全局弹层壳）", () => {
   });
   afterEach(() => cleanup());
 
-  it("open=true → dock 壳 + 内部 StewardPanel；open=false → 零渲染", () => {
+  it("open=true → dock 壳 + 内部 StewardPanel；open=false → 隐藏不卸载（display 层，组件树保留——A1）", () => {
     ui(true);
-    expect(document.querySelector('[data-testid="steward-dock"]')).not.toBeNull();
+    const dock = document.querySelector('[data-testid="steward-dock"]')!;
+    expect(dock).not.toBeNull();
+    expect(dock.className).not.toContain("stp-dock-hidden");
     expect(document.querySelector('[data-testid="steward-panel"]')).not.toBeNull();
     cleanup();
     ui(false);
-    expect(document.querySelector('[data-testid="steward-dock"]')).toBeNull();
-    expect(document.querySelector('[data-testid="steward-panel"]')).toBeNull();
+    const hidden = document.querySelector('[data-testid="steward-dock"]')!;
+    expect(hidden).not.toBeNull(); // 组件树保留（不卸载）
+    expect(hidden.className).toContain("stp-dock-hidden"); // display 层收起
+    expect(document.querySelector('[data-testid="steward-panel"]')).not.toBeNull();
+  });
+
+  it("A1：关闭重开 → 状态保持（隐藏期组件树驻留，面板状态零重建）", () => {
+    const view = render(stewardDockElement(true));
+    const rerender = (next: boolean) => view.rerender(stewardDockElement(next));
+    // 展开态输入面在（面板状态活络）
+    expect(document.querySelector('[data-testid="steward-input"], [data-testid="steward-disabled"]')).not.toBeNull();
+    rerender(false);
+    const dock = document.querySelector('[data-testid="steward-dock"]')!;
+    expect(dock.className).toContain("stp-dock-hidden");
+    // 隐藏期内组件仍在树（未卸载——useSteward 状态面驻留的证据面）
+    expect(document.querySelector('[data-testid="steward-panel"]')).not.toBeNull();
+    rerender(true);
+    const reopened = document.querySelector('[data-testid="steward-dock"]')!;
+    expect(reopened.className).not.toContain("stp-dock-hidden");
   });
 
   it("点外关闭：dock 外 pointerdown → onClose；dock 内与 rail 入口钮免误关", () => {
@@ -83,7 +121,7 @@ describe("StewardDock（管家全局弹层壳）", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("open=false 零监听（卸载态不响应点外/Esc——监听挂载归 open 态）", () => {
+  it("open=false 零监听（隐藏态不响应点外/Esc——监听挂载归 open 态；A1：隐藏不卸载但监听仍只归 open 态）", () => {
     const onClose = ui(false);
     fireEvent.pointerDown(document.body);
     fireEvent.keyDown(window, { key: "Escape" });

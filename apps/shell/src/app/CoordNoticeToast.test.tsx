@@ -30,7 +30,7 @@ import CoordNoticeToast from "./CoordNoticeToast";
 
 function coordFrame(kind: string, text: string, escalated?: boolean): EventEnvelope {
   return {
-    v: "0.13",
+    v: "0.14",
     sessionId: "__system__",
     channel: "notification",
     type: "coord.changed",
@@ -75,7 +75,7 @@ describe("CoordNoticeToast（U5 轻通知）", () => {
       </I18nProvider>,
     );
     act(() => {
-      coordListener?.({ v: "0.13", type: "task.changed", payload: {} } as unknown as EventEnvelope);
+      coordListener?.({ v: "0.14", type: "task.changed", payload: {} } as unknown as EventEnvelope);
     });
     expect(document.querySelectorAll(".toast")).toHaveLength(0);
   });

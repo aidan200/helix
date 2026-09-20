@@ -265,6 +265,17 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.config.result":
       // 文本管家批（V2.5）：设置回执窄化（enabled/model）
       return `steward-config:${event.payload.enabled}:${event.payload.model}`;
+    case "steward.history.result":
+      // 管家工作记忆批（A1）：回放回执窄化（records 数量 + 首条 kind 面）
+      return `steward-history-result:${event.payload.records.length}:${event.payload.records[0]?.kind ?? "-"}`;
+    case "steward.tool":
+      // 管家工作记忆批（A1）：工具过程两相帧窄化（start 参数摘要 / end 结果摘要）
+      return event.payload.phase === "start"
+        ? `steward-tool-start:${event.payload.name}:${event.payload.argsSummary}:${event.payload.seq}`
+        : `steward-tool-end:${event.payload.name}:${event.payload.resultSummary}:${event.payload.seq}`;
+    case "steward.thinking":
+      // 管家工作记忆批（A1）：thinking 段级帧窄化（text 全量 + seq）
+      return `steward-thinking:${event.payload.text}:${event.payload.seq}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
@@ -472,6 +483,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return "steward-get_config";
     case "steward.set_config":
       return `steward-set_config:${String(cmd.payload.enabled)}:${cmd.payload.model ?? "-"}`;
+    case "steward.history":
+      // 管家工作记忆批（A1）：读/清同命令（clear 缺省 = 回放）
+      return `steward-history:${String(cmd.payload.clear ?? false)}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

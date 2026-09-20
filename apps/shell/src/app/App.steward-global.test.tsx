@@ -80,27 +80,28 @@ describe("管家全局常驻（app 壳级能力）", () => {
     localStorage.clear();
   });
 
-  it("非 chat 路由：rail 入口可见 + 点击展开 dock（.app-shell 兄弟位，非页面域）", () => {
+  it("非 chat 路由：rail 入口可见 + 点击展开 dock（.app-shell 兄弟位，非页面域；A1：关闭 = 隐藏不卸载）", () => {
     ui();
     const entry = document.querySelector(".rail-steward-btn")! as HTMLButtonElement;
     expect(entry).not.toBeNull();
     expect(entry.getAttribute("aria-pressed")).toBe("false");
     // 非 chat 路由主壳在场（settings 桩）
-    expect(document.querySelector("[data-settings-page]")).not.toBeNull();
-    expect(document.querySelector(".stp-dock")).toBeNull();
+    const closedDock = document.querySelector("[data-testid=\"steward-dock\"]")!;
+    expect(closedDock.className).toContain("stp-dock-hidden"); // A1：隐藏不卸载（组件树保留）
 
     fireEvent.click(entry!);
     expect(entry!.getAttribute("aria-pressed")).toBe("true");
     const dock = document.querySelector('[data-testid="steward-dock"]')!;
     expect(dock).not.toBeNull();
+    expect(dock.className).not.toContain("stp-dock-hidden");
     // 全局位：dock 不在 .page-area（页面域）内——app 壳级弹层
     expect(document.querySelector(".page-area")!.contains(dock)).toBe(false);
     // 内层面板本体在场
     expect(dock.querySelector('[data-testid="steward-panel"]')).not.toBeNull();
 
-    // 再点入口 toggle 关闭
+    // 再点入口 toggle 关闭（隐藏不卸载——A1）
     fireEvent.click(entry!);
-    expect(document.querySelector(".stp-dock")).toBeNull();
+    expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
     expect(entry!.getAttribute("aria-pressed")).toBe("false");
   });
 

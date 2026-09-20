@@ -34,14 +34,21 @@ import type {
   AgentResumedPayload,
   AgentSpawnedPayload,
 } from "../../domain/events/DomainEvent";
-import type { StewardLlmPort, StewardLlmMessage, StewardLlmTool } from "../ports/outbound/StewardLlmPort";
+import type {
+  StewardLlmPort,
+  StewardLlmMessage,
+  StewardLlmTool,
+  StewardLlmThinking,
+} from "../ports/outbound/StewardLlmPort";
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { AgentOrchestrationPort } from "../ports/inbound/AgentOrchestrationPort";
 import type {
   StewardAskResultPayload,
   StewardConfirmResultPayload,
   StewardFeedPayload,
+  StewardHistoryRecord,
 } from "@helix/protocol";
+import { StewardDialogMemory } from "./StewardDialogMemory";
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
 export const STEWARD_FEED_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -59,14 +66,18 @@ export const STEWARD_MAX_TOOL_ROUNDS = 6;
 /** feed 文本行摘要截断上限（~80 字符——BroadcastService 先例同构）。 */
 export const FEED_SUMMARY_MAX_CHARS = 80;
 
-/** 会话内对话滚动窗口（条数；更早消息丢弃——防上下文无界增长）。 */
+/** 会话内对话滚动窗口（旧制；A1 批被工作记忆 KV token 预算闸取代——
+ *  常量保留供历史注释面参照，不再参与裁剪）。 */
 export const HISTORY_WINDOW = 24;
 
 /** 管家开关 KV 键（RuntimeConfigPort；"1" = 开，其余 = 关——默认关）。 */
 export const STEWARD_ENABLED_KEY = "steward.enabled";
 
-/** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认 flash 级）。 */
+/** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认）。 */
 export const STEWARD_MODEL_KEY = "steward.model";
+
+/** 工具/思考过程帧摘要截断上限（steward.tool 帧面——屏幕折叠行密度）。 */
+export const PROCESS_SUMMARY_MAX_CHARS = 200;
 
 /**
  * 系统提示词骨架（§2 三分法 + 拒绝清单——任务 brief 口径）。
@@ -125,6 +136,38 @@ export function buildFeedText(event: DomainEvent): string | undefined {
   }
 }
 
+/** 工作记忆记录 → LLM 消息（同源映射：记录携带 at，LLM 面不含时间戳）。 */
+function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
+  if (record.kind === "user") return { role: "user", text: record.text };
+  if (record.kind === "toolResult") {
+    return { role: "toolResult", toolCallId: record.toolCallId, name: record.name, text: record.text };
+  }
+  return {
+    role: "assistant",
+    ...(record.text !== undefined ? { text: record.text } : {}),
+    ...(record.thinking !== undefined ? { thinking: record.thinking } : {}),
+    ...(record.toolCall !== undefined ? { toolCall: record.toolCall } : {}),
+  };
+}
+
+/** 过程帧摘要（防御性截断）。 */
+function summarizeForFrame(text: string): string {
+  return text.length <= PROCESS_SUMMARY_MAX_CHARS ? text : `${text.slice(0, PROCESS_SUMMARY_MAX_CHARS)}…`;
+}
+
+/** ask 过程事件面（A1 批：工具/thinking 过程对屏幕通道可见；由 handler 层
+ *  接帧——点对点仅发发起连接。TTS 播报链路零接入（耳朵只听 assistant 结论）。 */
+export interface StewardAskEvents {
+  /** 文本生成段增量（V2.5 体验批）。 */
+  readonly onDelta?: (chunk: string) => void;
+  /** thinking 段级（一个完成态块一帧全量文本）。 */
+  readonly onThinking?: (block: string) => void;
+  /** 工具开始（name + 参数摘要）。 */
+  readonly onToolStart?: (name: string, argsSummary: string) => void;
+  /** 工具结束（name + 结果摘要）。 */
+  readonly onToolEnd?: (name: string, resultSummary: string) => void;
+}
+
 /** 任务清单读面窄接口（TaskQueryService.listTasks 注入）。 */
 export interface StewardTasksSource {
   listTasks(filter: { status?: string }): readonly {
@@ -142,8 +185,12 @@ export interface StewardServiceDeps {
   readonly orchestration: Pick<AgentOrchestrationPort, "status" | "send">;
   /** 任务清单只读面（TaskQueryService 注入）。 */
   readonly tasks: StewardTasksSource;
-  /** 运行时配置 KV（开关 + 模型槽位持久化）。 */
+  /** 运行时配置 KV（开关 + 模型槽位持久化；缺省时同时充当工作记忆底座）。 */
   readonly config: RuntimeConfigPort;
+  /** 工作记忆 KV（缺省 = StewardDialogMemory(config)——A1 批完整记录持久化）。 */
+  readonly dialog?: StewardDialogMemory;
+  /** 时钟（记录 at 时间戳；缺省 Date.now）。 */
+  readonly clock?: () => number;
   /** feed 闸门读面（EventStream 连接级 steward 订阅表窄接口）。 */
   readonly feedGate: { hasStewardSubscribers(): boolean };
   /** feed 帧出口（组合根接 EventStream.broadcastStewardFeed）。 */
@@ -189,23 +236,28 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [TOOL_LIST_INSTANCES, TOOL_LIST
 
 export class StewardService {
   private readonly deps: StewardServiceDeps;
-  /** 会话内对话滚动窗口（不持久化）。 */
-  private history: StewardLlmMessage[] = [];
-  /** 待确认写动作（actionId 单次消费）。 */
+  /** 工作记忆 KV（完整记录持久化——thinking/工具/对话全形态；daemon 重启
+   *  后懒加载恢复，A1 批取代裸内存数组）。 */
+  private readonly dialog: StewardDialogMemory;
+  private readonly now: () => number;
+  /** 待确认写动作（actionId 单次消费；不持久化——过期即失效不跨重启）。 */
   private readonly pending = new Map<string, PendingAction>();
   private actionSeq = 0;
   private feedSeq = 0;
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
+    this.dialog = deps.dialog ?? new StewardDialogMemory(deps.config);
+    this.now = deps.clock ?? (() => Date.now());
   }
 
   /**
-   * 管家对话一轮（steward.ask 回执；可选 onDelta = 文本生成段增量回调，
-   * V2.5 体验批——工具执行段静默不回调，终态以返回值为权威）。
-   * money gate：开关关 → error 判别零 LLM 调用零 delta。
+   * 管家对话一轮（steward.ask 回执；events = 过程回调面——文本增量/
+   * thinking 段级/工具开始结束，A1 批工具与 thinking 过程对屏幕通道可见；
+   * 工具执行段无文本增量，终态以返回值为权威）。
+   * money gate：开关关 → error 判别零 LLM 调用零回调。
    */
-  async ask(text: string, onDelta?: (chunk: string) => void): Promise<StewardAskResultPayload> {
+  async ask(text: string, events: StewardAskEvents = {}): Promise<StewardAskResultPayload> {
     if (typeof text !== "string" || text.trim() === "") {
       return { status: "error", reason: "payload.text 应为非空 string" };
     }
@@ -215,17 +267,19 @@ export class StewardService {
         reason: "管家未开启：请在设置页 → 文本管家 区开启开关（开关关 = 零 LLM 调用）",
       };
     }
-    this.pushHistory({ role: "user", text });
+    this.dialog.ensureLoaded();
+    await this.pushRecord({ kind: "user", text, at: this.now() });
     for (let round = 0; round < STEWARD_MAX_TOOL_ROUNDS; round += 1) {
       let response;
       try {
         response = await this.deps.llm.complete(
           {
             systemPrompt: STEWARD_SYSTEM_PROMPT,
-            messages: [...this.history],
+            messages: this.dialogSnapshotMessages(),
             tools: STEWARD_TOOLS,
           },
-          onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
+          events.onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
+          events.onThinking, // thinking 段级（一个完成态块一帧）
         );
       } catch (err) {
         this.deps.logger?.warn(`管家 LLM 调用失败：${(err as Error).message}`);
@@ -233,17 +287,35 @@ export class StewardService {
       }
       if (response.kind === "text") {
         const answer = response.text.trim() === "" ? "（无回答）" : response.text;
-        this.pushHistory({ role: "assistant", text: answer });
+        await this.pushRecord({
+          kind: "assistant",
+          text: answer,
+          ...(response.thinking !== undefined ? { thinking: response.thinking } : {}),
+          at: this.now(),
+        });
         return { status: "answer", text: answer };
       }
-      // 工具轮：assistant 工具调用入史 + 执行只读面/过闸提案
-      const outcome = await this.runTool(response.id, response.name, response.args);
+      // 工具轮：assistant 工具调用（携 thinking）入史 + 执行只读面/过闸提案
+      const outcome = await this.runTool(response.id, response.name, response.args, response.thinking, events);
       if (outcome !== undefined) return outcome;
     }
     return {
       status: "error",
       reason: `工具循环超限（>${STEWARD_MAX_TOOL_ROUNDS} 轮熔断）——请缩小问题范围或重试`,
     };
+  }
+
+  /** 工作记忆读面（steward.history 回放：完整记录数组——UI 渲染与 LLM 窗口
+   *  同源重建；A1 批）。 */
+  async getHistory(): Promise<readonly StewardHistoryRecord[]> {
+    return this.dialog.snapshot();
+  }
+
+  /** 新对话闸（steward.history {clear:true}：KV + daemon LLM 窗口同清——
+   *  前端显示由回执空数组同步；A1 批）。pending 确认卡随之作废（自然过期）。 */
+  async clearHistory(): Promise<void> {
+    this.pending.clear();
+    await this.dialog.clear();
   }
 
   /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行。 */
@@ -310,42 +382,78 @@ export class StewardService {
 
   // ── 内部 ────────────────────────────────────────────────
 
-  /** 执行单轮工具调用；返回非 undefined = 终止循环直出回执（提案/失败）。 */
+  /** 工作记忆镜像 → LLM 消息窗口（同源：UI 回放显示的 = LLM 记得的）。 */
+  private dialogSnapshotMessages(): StewardLlmMessage[] {
+    return this.dialog.snapshot().map(recordToMessage);
+  }
+
+  /** 完整记录追加（工作记忆 KV——预算闸在 memory 内部）。 */
+  private async pushRecord(record: StewardHistoryRecord): Promise<void> {
+    await this.dialog.append(record);
+  }
+
+  /** 执行单轮工具调用；返回非 undefined = 终止循环直出回执（提案/失败）。
+   *  过程可见（A1 批）：onToolStart/onToolEnd 回调携摘要——屏幕通道
+   *  （TTS 播报链路零接入——耳朵只听 assistant 结论）。 */
   private async runTool(
     callId: string,
     name: string,
     args: Record<string, unknown>,
+    thinking: StewardLlmThinking | undefined,
+    events: StewardAskEvents,
   ): Promise<StewardAskResultPayload | undefined> {
-    if (name === "list_instances") {
-      const rows = this.deps.orchestration.status().map((s) => ({
-        agentId: s.agentId,
-        state: s.state,
-        displayState: s.displayState,
-        task: s.task ?? null,
-        summary: s.summary ?? null,
-      }));
-      this.pushHistory({ role: "assistant", toolCall: { id: callId, name, args } });
-      this.pushHistory({ role: "toolResult", toolCallId: callId, name, text: JSON.stringify(rows) });
-      return undefined;
-    }
-    if (name === "list_tasks") {
-      const rows = this.deps.tasks.listTasks({}).map((t) => ({
-        jobId: t.jobId,
-        title: t.title,
-        status: t.status,
-        progress: t.progress === null ? null : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
-        error: t.error,
-      }));
-      this.pushHistory({ role: "assistant", toolCall: { id: callId, name, args } });
-      this.pushHistory({ role: "toolResult", toolCallId: callId, name, text: JSON.stringify(rows) });
+    const argsSummary = summarizeForFrame(JSON.stringify(args));
+    if (name === "list_instances" || name === "list_tasks") {
+      const rows =
+        name === "list_instances"
+          ? this.deps.orchestration.status().map((s) => ({
+              agentId: s.agentId,
+              state: s.state,
+              displayState: s.displayState,
+              task: s.task ?? null,
+              summary: s.summary ?? null,
+            }))
+          : this.deps.tasks.listTasks({}).map((t) => ({
+              jobId: t.jobId,
+              title: t.title,
+              status: t.status,
+              progress:
+                t.progress === null
+                  ? null
+                  : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
+              error: t.error,
+            }));
+      const resultText = JSON.stringify(rows);
+      events.onToolStart?.(name, argsSummary);
+      await this.pushRecord({
+        kind: "assistant",
+        ...(thinking !== undefined ? { thinking } : {}),
+        toolCall: { id: callId, name, args },
+        at: this.now(),
+      });
+      await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: resultText, at: this.now() });
+      events.onToolEnd?.(name, summarizeForFrame(`${rows.length} 条记录：${resultText.slice(0, 80)}`));
       return undefined;
     }
     if (name === "propose_send") {
       const agentId = typeof args.agentId === "string" ? args.agentId : "";
       const message = typeof args.message === "string" ? args.message : "";
       if (agentId === "" || message === "") {
-        this.pushHistory({ role: "assistant", toolCall: { id: callId, name, args } });
-        this.pushHistory({ role: "toolResult", toolCallId: callId, name, text: "参数缺失：agentId 与 message 必填" });
+        events.onToolStart?.(name, argsSummary);
+        await this.pushRecord({
+          kind: "assistant",
+          ...(thinking !== undefined ? { thinking } : {}),
+          toolCall: { id: callId, name, args },
+          at: this.now(),
+        });
+        await this.pushRecord({
+          kind: "toolResult",
+          toolCallId: callId,
+          name,
+          text: "参数缺失：agentId 与 message 必填",
+          at: this.now(),
+        });
+        events.onToolEnd?.(name, "参数缺失：agentId 与 message 必填");
         return undefined;
       }
       // 提案校验：目标须存在且运行中（防火墙前置——终态实例递话必拒）
@@ -356,21 +464,26 @@ export class StewardService {
       this.actionSeq += 1;
       const actionId = `steward-action-${this.actionSeq}`;
       this.pending.set(actionId, { agentId, message });
-      this.pushHistory({ role: "assistant", toolCall: { id: callId, name, args } });
+      events.onToolStart?.(name, argsSummary);
+      await this.pushRecord({
+        kind: "assistant",
+        ...(thinking !== undefined ? { thinking } : {}),
+        toolCall: { id: callId, name, args },
+        at: this.now(),
+      });
       // 确认闸：不执行、不入工具结果（对话挂起待用户裁决——confirm 后用户可继续新 ask）
       return { status: "confirm_required", actionId, agentId, message };
     }
     // 未知工具（wire 防御）：toolResult 报错回灌，循环继续（模型可自纠）
-    this.pushHistory({ role: "assistant", toolCall: { id: callId, name, args } });
-    this.pushHistory({ role: "toolResult", toolCallId: callId, name, text: `未知工具 ${name}` });
+    events.onToolStart?.(name, argsSummary);
+    await this.pushRecord({
+      kind: "assistant",
+      ...(thinking !== undefined ? { thinking } : {}),
+      toolCall: { id: callId, name, args },
+      at: this.now(),
+    });
+    await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: `未知工具 ${name}`, at: this.now() });
+    events.onToolEnd?.(name, `未知工具 ${name}`);
     return undefined;
-  }
-
-  /** 对话历史滚动窗口维护（截尾保窗）。 */
-  private pushHistory(message: StewardLlmMessage): void {
-    this.history.push(message);
-    if (this.history.length > HISTORY_WINDOW) {
-      this.history = this.history.slice(-HISTORY_WINDOW);
-    }
   }
 }

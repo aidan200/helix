@@ -22,6 +22,7 @@ const sendStewardConfirm = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
+const sendStewardHistory = vi.fn(() => true);
 // 多听众扇出（V3a：面板内 useSteward 与朗读闸两订阅者——真实 LISTEN_SURFACE
 // 形态；单 ref 只存末位订阅者会吞帧）
 const stewardListeners = new Set<(e: EventEnvelope) => void>();
@@ -43,6 +44,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
+    sendStewardHistory,
     subscribeStewardFrames,
   }),
 }));
@@ -50,7 +52,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
 import StewardPanel from "../ui/StewardPanel";
 
 function frame(type: string, payload: unknown): EventEnvelope {
-  return { v: "0.13", sessionId: "__system__", channel: "steward", type, payload } as EventEnvelope;
+  return { v: "0.14", sessionId: "__system__", channel: "steward", type, payload } as EventEnvelope;
 }
 
 function renderPanel() {
@@ -199,5 +201,90 @@ describe("StewardPanel（V2.5 管家面板）", () => {
       expect(screen.queryByTestId("steward-msg-streaming")).toBeNull();
       expect(screen.getByTestId("steward-msg-steward").textContent).toContain("实例运行中");
     });
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// A1 工作记忆批：过程行 DOM 渲染（thinking 折叠 / 工具行 / 新对话钮）
+// ══════════════════════════════════════════════════════════
+describe("StewardPanel（A1 过程行渲染——真实 DOM 断言）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => cleanup());
+
+  /** 渲染面板并喂 enabled 配置（挂载后 emit——订阅面就绪）。 */
+  function renderEnabledPanel() {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", { enabled: true, model: "deepseek/deepseek-v4-flash" }));
+    });
+  }
+
+  it("回放记录 → thinking 折叠条目默认收起，点击展开正文；工具行两态可展开结果摘要", async () => {
+    renderEnabledPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    act(() => {
+      emitSteward(
+        frame("steward.history.result", {
+          records: [
+            { kind: "user", text: "任务状态？", at: 1 },
+            {
+              kind: "assistant",
+              thinking: { text: "先查任务清单再回答。", signature: "sig" },
+              toolCall: { id: "call-0", name: "list_tasks", args: {} },
+              at: 2,
+            },
+            { kind: "toolResult", toolCallId: "call-0", name: "list_tasks", text: "1 个任务运行中（50%）", at: 3 },
+            { kind: "assistant", text: "1 个任务在跑。", at: 4 },
+          ],
+        }),
+      );
+    });
+    // 气泡仍在（对话维持）
+    expect(screen.getAllByTestId("steward-msg-user").length).toBe(1);
+    expect(screen.getAllByTestId("steward-msg-steward").length).toBe(1);
+    // thinking 折叠条目：默认收起（正文不在 DOM），展开后可见
+    const thinkToggle = screen.getByTestId("steward-thinking-toggle");
+    expect(screen.queryByTestId("steward-thinking-body")).toBeNull();
+    fireEvent.click(thinkToggle);
+    expect(screen.getByTestId("steward-thinking-body").textContent).toContain("先查任务清单再回答");
+    fireEvent.click(screen.getByTestId("steward-thinking-toggle"));
+    expect(screen.queryByTestId("steward-thinking-body")).toBeNull();
+    // 工具行：完成态（✓）；展开可见结果摘要
+    const toolState = screen.getByTestId("steward-tool-state");
+    expect(toolState.textContent).toBe("✓");
+    fireEvent.click(screen.getByTestId("steward-tool-toggle"));
+    expect(screen.getByTestId("steward-tool-body").textContent).toContain("1 个任务运行中");
+  });
+
+  it("实时过程帧：thinking 段级与工具两相帧渲染（在途 … → 完成 ✓）", async () => {
+    renderEnabledPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("steward-input"), { target: { value: "在跑什么？" } });
+    fireEvent.click(screen.getByTestId("steward-send"));
+    act(() => {
+      emitSteward(frame("steward.thinking", { text: "需要先查实例清单。", seq: 1 }));
+      emitSteward(frame("steward.tool", { phase: "start", name: "list_instances", argsSummary: "{}", seq: 2 }));
+    });
+    await waitFor(() => expect(screen.getByTestId("steward-thinking-item")).toBeTruthy());
+    expect(screen.queryByTestId("steward-thinking-body")).toBeNull(); // 默认折叠
+    await waitFor(() => expect(screen.getByTestId("steward-tool-item").textContent).toContain("list_instances"));
+    expect(screen.getByTestId("steward-tool-state").textContent).toBe("…"); // 在途
+    act(() => {
+      emitSteward(frame("steward.tool", { phase: "end", name: "list_instances", resultSummary: "2 条记录", seq: 3 }));
+    });
+    await waitFor(() => expect(screen.getByTestId("steward-tool-state").textContent).toBe("✓"));
+  });
+
+  it("新对话按钮：点击 → sendStewardHistory(true) + 本地条目清空", async () => {
+    renderEnabledPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("steward-input"), { target: { value: "第一问" } });
+    fireEvent.click(screen.getByTestId("steward-send"));
+    await waitFor(() => expect(screen.getAllByTestId("steward-msg-user").length).toBe(1));
+    fireEvent.click(screen.getByTestId("steward-new-chat"));
+    expect(sendStewardHistory).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(screen.queryAllByTestId("steward-msg-user").length).toBe(0));
   });
 });
