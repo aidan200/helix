@@ -113,6 +113,25 @@ register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // 守护绿（主 reducer 原状态返回 = 未注册 default 语义）。新增连接私有回执/
 // 广播帧时在此追加一行即完成登记（守护测试直接核查本清单，见 dispatcher.test.ts）。
 export const PASSTHROUGH_EVENT_TYPES = [
+  // helix-loop L0 批：loop.* 15 型 = loop 域事件协议上收面（L3 替换承重墙）。
+  // L0 阶段 shell 无消费面（管家面板走 steward.* 协议命令）；loop 事件当前
+  // 仅供 daemon 内部追踪（stewardLoopTraceBridge → domain_events）——登记
+  // 直通满足「协议全部事件被消费」守卫，真消费归 L2 双工/未来 trace 视图
+  "loop.run.started",
+  "loop.run.finished",
+  "loop.run.error",
+  "loop.run.paused",
+  "loop.run.resumed",
+  "loop.run.interrupted",
+  "loop.duplex.wake",
+  "loop.turn.started",
+  "loop.turn.finished",
+  "loop.message.started",
+  "loop.message.delta",
+  "loop.message.finished",
+  "loop.tool.started",
+  "loop.tool.progress",
+  "loop.tool.finished",
   // 语音输入批 V1：stt.transcribe.result = 连接私有回执（点对点），真消费归
   // Composer useVoiceInput（SessionContext 转发层 subscribeSttFrames——
   // trace.query.result 先例）
