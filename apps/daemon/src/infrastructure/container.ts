@@ -681,6 +681,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           sessionId: r.sessionId,
           createdAt: r.createdAt,
           updatedAt: r.updatedAt,
+          // L1 投影修复批：显式标题列透传（此前在此断链——repo 已返回、
+          // 管家投影拿不到，标题会话全部显示「（无主题）」）。
+          ...(r.title != null ? { title: r.title } : {}),
           firstUserText: r.firstUserText,
           entryCount: r.entryCount ?? null,
         })),

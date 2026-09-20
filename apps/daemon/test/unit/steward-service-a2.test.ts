@@ -170,8 +170,11 @@ function sessRow(over: Partial<StewardSessionMetaRow> & { sessionId: string }): 
   return {
     createdAt: over.createdAt ?? "2026-09-19T02:00:00.000Z",
     updatedAt: over.updatedAt ?? "2026-09-19T03:00:00.000Z",
-    firstUserText: over.firstUserText ?? "修复登录超时的问题",
+    // 显式 null（标题会话零消息形态）需可构造——?? 会把 null 回落成缺省，
+    // 故用 !== undefined 判别（L1 投影修复批：title 会话 firstUserText 恒 null）。
+    firstUserText: over.firstUserText !== undefined ? over.firstUserText : "修复登录超时的问题",
     entryCount: over.entryCount ?? 12,
+    ...(over.title !== undefined ? { title: over.title } : {}),
     sessionId: over.sessionId,
   };
 }
@@ -363,6 +366,70 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
     const lw = timeRangeWindow("last_week", NOW);
     expect(new Date(lw.untilMs).getTime()).toBe(tw.sinceMs);
     expect(new Date(lw.sinceMs).getDay()).toBe(1);
+  });
+});
+
+// ── 2b. query_recent_work 投影修复（L1 查询投影批） ─────
+// 双缺陷修复（brief 红绿证据链）：① 标题会话（title 非空 + firstUserText
+// null）不再显示「（无主题）」；② 会话行携完整 sessionId（deliver_to_session
+// 参数源——prompt 路由行承诺「结果含 sessionId」由此兑现）；③ 可选
+// title_contains 按显示标题过滤会话清单（命中/未命中）。
+describe("A2-2b query_recent_work 投影修复（title 优先 + sessionId 完整 + title_contains）", () => {
+  const TITLED_SID = "76cabd4f-3f2a-4c1e-9d21-8a7b6c5e4f01";
+  const rows = [
+    sessRow({ sessionId: TITLED_SID, title: "Godot MCP 调研", firstUserText: null, entryCount: 0, updatedAt: "2026-09-19T06:00:00.000Z", createdAt: "2026-09-19T05:00:00.000Z" }),
+    sessRow({ sessionId: "sess-auto-named", firstUserText: "修复登录超时", updatedAt: "2026-09-19T05:00:00.000Z" }),
+  ];
+
+  async function askRecentWork(args: Record<string, unknown>, rowsOverride?: readonly StewardSessionMetaRow[]): Promise<string> {
+    const llm = fakeLlm([
+      toolCall("query_recent_work", args),
+      { kind: "text", text: "总结" },
+    ]);
+    const sessions = fakeSessions(rowsOverride ?? rows);
+    const { svc } = makeA2Service({ llm, sessions, now: fixedClock });
+    await svc.ask("最近在忙什么？");
+    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    if (tr === undefined || tr.text === undefined) throw new Error("query_recent_work toolResult 缺失");
+    return tr.text;
+  }
+
+  test("红①：标题会话（title 非空 + firstUserText null）显示 title 而非「（无主题）」", async () => {
+    const text = await askRecentWork({ time_range: "this_week" });
+    expect(text).toContain("Godot MCP 调研");
+    expect(text).not.toContain("（无主题）");
+  });
+
+  test("红①b：title 与 firstUserText 并存时显式标题列优先（旧自动会话仍回落首条消息）", async () => {
+    const text = await askRecentWork(
+      { time_range: "this_week" },
+      [sessRow({ sessionId: "sid-both", title: "显式标题", firstUserText: "首条用户消息正文", updatedAt: "2026-09-19T06:00:00.000Z" })],
+    );
+    expect(text).toContain("显式标题");
+    expect(text).not.toContain("首条用户消息正文");
+  });
+
+  test("红②：会话行含完整 sessionId（与构造值全等；无省略号截断）", async () => {
+    const text = await askRecentWork({ time_range: "this_week" });
+    expect(text).toContain(TITLED_SID);
+    expect(text).toContain("sess-auto-named");
+    expect(text).not.toContain(`${TITLED_SID.slice(0, 8)}…`);
+  });
+
+  test("红③：title_contains 命中——仅列显示标题含关键词的会话（计数同口径）", async () => {
+    const text = await askRecentWork({ time_range: "this_week", title_contains: "Godot" });
+    expect(text).toContain("Godot MCP 调研");
+    expect(text).not.toContain("修复登录超时");
+    expect(text).toContain("【会话·1】");
+  });
+
+  test("红③b：title_contains 未命中——会话段为空但与「真无记录」可区分（不吞任务清单段头）", async () => {
+    const text = await askRecentWork({ time_range: "this_week", title_contains: "不存在的关键词" });
+    expect(text).not.toContain("Godot MCP 调研");
+    expect(text).not.toContain("修复登录超时");
+    expect(text).not.toContain("无记录");
+    expect(text).toContain("【会话·0】");
+    expect(text).toContain("均不含关键词");
   });
 });
 
