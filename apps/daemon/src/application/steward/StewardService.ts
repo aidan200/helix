@@ -398,6 +398,12 @@ export interface StewardSessionsSource {
   /** 会话创建（SessionDirectoryPort.startDraftSession 同款窄面——与 shell
    *  新建会话同一条服务路径；text = 首条消息文本兼 title 推导源）。 */
   startDraftSession(text: string, mode?: string): Promise<{ sessionId: string }>;
+  /** 显式建标题会话（修复批① 死锁链）：同轨不同入口——createFresh 同一
+   *  构造路径，但不发送任何消息不点火引擎；零条目即 INSERT 一等可见，
+   *  title 进 meta 列（首条消息派生不覆盖）。createSession 执行体改调本面
+   *  （对照事故：startDraftSession(title) 把 title 当首条用户消息发送，
+   *  触发完整幽灵 agent run）。 */
+  createTitledSession(title: string): Promise<{ sessionId: string }>;
 }
 
 /** A2：kg 项目解析面（KgProjectService 同款窄接口——spawn_review_task
@@ -679,7 +685,9 @@ export class StewardService {
         return { ok: false, detail: "会话创建面未装配（daemon 装配缺 sessions 源）" };
       }
       try {
-        const created = await this.deps.sessions.startDraftSession(action.createSession!.title);
+        // 修复批①：专用入口 createTitledSession（同轨不同入口）——title 不再
+        // 被当首条用户消息发送，零引擎调用零幽灵 run；确认闸/回灌闭环不变。
+        const created = await this.deps.sessions.createTitledSession(action.createSession!.title);
         return { ok: true, detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」` };
       } catch (err) {
         return { ok: false, detail: `会话创建失败：${(err as Error).message}` };

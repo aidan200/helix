@@ -171,7 +171,7 @@ export interface AgentLifecycleRowData {
   readonly updatedAt: string;
 }
 
-/** 会话元数据行（session_state 轻量读面，title = firstUserText 截 20 码点推导）。 */
+/** 会话元数据行（session_state 轻量读面，title = 显式列优先、缺省 firstUserText 截 20 码点推导）。 */
 export interface SessionMetadataRow {
   readonly sessionId: string;
   readonly createdAt: string;
@@ -181,6 +181,9 @@ export interface SessionMetadataRow {
   /** 条目量级（json_array_length；A2 管家 query_recent_work 消息量级，
    *  additive——旧查询面/替身缺省 null）。 */
   readonly entryCount?: number | null;
+  /** 显式会话标题（修复批①：createTitledSession 定格；additive——旧行/
+   *  自动命名会话缺省不携带，读侧回落 firstUserText 截断推导）。 */
+  readonly title?: string | null;
 }
 
 /** 领域事件四维过滤查询（trace 数据面；v0 无对外 API——内部能力 + 测试证明）。 */

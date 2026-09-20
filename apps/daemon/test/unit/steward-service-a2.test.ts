@@ -76,15 +76,22 @@ function fakeOrchestration(
   };
 }
 
-/** A2 会话源 fake（listSessionMetadata + startDraftSession 记录调用）。 */
+/** A2 会话源 fake（listSessionMetadata + startDraftSession/createTitledSession 记录调用）。 */
 function fakeSessions(rows: readonly StewardSessionMetaRow[]) {
   const created: { text: string; mode?: string }[] = [];
+  const titled: string[] = [];
   let seq = 0;
   return {
     created,
+    titled,
     listSessionMetadata: async () => [...rows],
     startDraftSession: async (text: string, mode?: string) => {
       created.push({ text, mode });
+      seq += 1;
+      return { sessionId: `sess-new-${seq}` };
+    },
+    createTitledSession: async (title: string) => {
+      titled.push(title);
       seq += 1;
       return { sessionId: `sess-new-${seq}` };
     },
@@ -210,10 +217,12 @@ describe("A2-1 动态 prompt：context_snapshot 段", () => {
     const llm = fakeLlm([{ kind: "text", text: "好的" }]);
     const broken: ReturnType<typeof fakeSessions> = {
       created: [],
+      titled: [],
       listSessionMetadata: async () => {
         throw new Error("db boom");
       },
       startDraftSession: async () => ({ sessionId: "x" }),
+      createTitledSession: async () => ({ sessionId: "x" }),
     };
     const { svc } = makeA2Service({ llm, sessions: broken, now: fixedClock });
     const result = await svc.ask("最近在忙什么？");
@@ -355,7 +364,7 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
 // ── 3. create_session / spawn_review_task（写操作 → 确认闸） ──
 
 describe("A2-3 create_session（确认闸）", () => {
-  test("提案 → confirm_required（携摘要）→ confirm 后 startDraftSession 恰一次 + 回执带 sessionId", async () => {
+  test("提案 → confirm_required（携摘要）→ confirm 后 createTitledSession 恰一次 + 回执带 sessionId（修复批①：同轨不同入口，title 不再被当首条消息发送）", async () => {
     const llm = fakeLlm([toolCall("create_session", { title: "调度器重构" })]);
     const sessions = fakeSessions([]);
     const { svc } = makeA2Service({ llm, sessions, now: fixedClock });
@@ -363,16 +372,17 @@ describe("A2-3 create_session（确认闸）", () => {
     expect(askResult.status).toBe("confirm_required");
     if (askResult.status !== "confirm_required") throw new Error("unreachable");
     expect(askResult.message).toContain("调度器重构");
-    expect(sessions.created.length).toBe(0); // 未确认零执行
+    expect(sessions.titled.length).toBe(0); // 未确认零执行
+    expect(sessions.created.length).toBe(0); // 旧入口 startDraftSession 零调用（死锁链根因封堵）
     const confirmed = await svc.confirm(askResult.actionId);
     expect(confirmed.status).toBe("ok");
     if (confirmed.status !== "ok") throw new Error("unreachable");
     expect(confirmed.detail).toContain("sess-new-1");
-    expect(sessions.created.length).toBe(1);
-    expect(sessions.created[0]!.text).toContain("调度器重构");
+    expect(sessions.titled).toEqual(["调度器重构"]); // 新入口恰一次，title 原样
+    expect(sessions.created.length).toBe(0);
   });
 
-  test("actionId 单次消费：二次 confirm → error 判别，startDraftSession 仍恰一次", async () => {
+  test("actionId 单次消费：二次 confirm → error 判别，createTitledSession 仍恰一次", async () => {
     const llm = fakeLlm([toolCall("create_session", {})]);
     const sessions = fakeSessions([]);
     const { svc } = makeA2Service({ llm, sessions, now: fixedClock });
@@ -380,7 +390,7 @@ describe("A2-3 create_session（确认闸）", () => {
     await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "");
     const second = await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "");
     expect(second.status).toBe("error");
-    expect(sessions.created.length).toBe(1);
+    expect(sessions.titled.length).toBe(1);
   });
 
   test("title 缺省自动生成（含时间）", async () => {

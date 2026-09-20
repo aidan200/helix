@@ -79,7 +79,8 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     return [...this.store.keys()];
   }
 
-  /** T2.2 元数据读面：title 推导源 = 快照首条 user entry（真实仓 json_extract 对位）。 */
+  /** T2.2 元数据读面：title 推导源 = 快照首条 user entry（真实仓 json_extract 对位）；
+   *  显式标题列优先（修复批①，真实仓 title 列对位）。 */
   async listSessionMetadata(): Promise<readonly SessionMetadataRow[]> {
     const rows: SessionMetadataRow[] = [];
     for (const state of this.store.values()) {
@@ -89,6 +90,7 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
         createdAt: state.session.createdAt,
         updatedAt: state.session.entries.at(-1)?.createdAt ?? state.session.createdAt,
         firstUserText: first?.role === "user" ? ((first as { text: string }).text ?? null) : null,
+        ...(state.session.title !== undefined ? { title: state.session.title } : {}),
       });
     }
     return rows;

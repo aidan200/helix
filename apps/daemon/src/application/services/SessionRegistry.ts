@@ -295,12 +295,19 @@ export class SessionRegistry implements SessionDirectoryPort {
     // 补广播去重（不双发）。提到模型处理之前——异模型路径先转正
     // （promoteDraft）时其 created 补广播经 createdAnnounced 去重，title 仍取
     // 本处显式广播的首条消息截断（转正补广播此刻无条目可推导 title）。
-    this.requireRecord(runtime.sessionId).createdAnnounced = true;
-    this.deps.onListChanged({
-      kind: "created",
-      sessionId: runtime.sessionId,
-      session: this.metaFromRuntime(runtime, deriveTitle(text)),
-    });
+    // 修复批①精化：复用命中显式标题会话（createTitledSession 建、已是一等
+    // 可见会话）不重播 created——title 保持显式值不被首条消息派生覆盖；
+    // createdAnnounced 置位使转正补广播同样静默。
+    const announceRecord = this.requireRecord(runtime.sessionId);
+    const hasExplicitTitle = runtime.chatService.sessionView.title !== undefined;
+    announceRecord.createdAnnounced = true;
+    if (!hasExplicitTitle) {
+      this.deps.onListChanged({
+        kind: "created",
+        sessionId: runtime.sessionId,
+        session: this.metaFromRuntime(runtime, deriveTitle(text)),
+      });
+    }
     // 建会话前用户选定模型（chat.send draft 链透传；引擎不支持等抛错
     // → warn 降级全局默认，不阻断首条消息）
     // （trace e2e 回归两根因）
@@ -326,6 +333,43 @@ export class SessionRegistry implements SessionDirectoryPort {
     // 首个用户条目落聚合时经转正单点恰好一次发布 agent.instantiated。
     void runtime.chatService.sendMessage(text, images).catch((err) => {
       this.deps.logger?.warn(`草稿会话 ${runtime.sessionId} 首条消息发送失败：${(err as Error).message}`);
+    });
+    return { sessionId: runtime.sessionId };
+  }
+
+  /**
+   * 显式建标题会话（修复批① 管家建会话死锁链）：走 createFresh 同一构造
+   * 路径（同轨：SessionRegistry 热登记/buildRuntime 快照恢复全复用），但
+   * **不发送任何消息、不点火引擎**——对照事故：createSession 调
+   * startDraftSession(title) 把 title 当首条用户消息发送，触发完整幽灵
+   * agent run（thinking+搜索工具）。
+   *
+   * 零条目可见性规则精化：现行「零条目热草稿不可见」保护的是自动懒建
+   * 草稿（无标题无用户意图）；显式建标题会话是一等可见会话——**显式
+   * 建立即 INSERT**（title 进 meta 列，非首条消息派生）；用户后续在该
+   * 会话发首条消息走既有转正/promote 链（title 保留不覆盖：注册时
+   * unpromotedDraft=true，首个用户条目回调恰好一次 publishInstantiated；
+   * createdAnnounced=true 使补广播静默）。
+   *
+   * current 不轮换（M6 #2.4 用户交互面纪律）：管家建会话是后台动作，
+   * 用户所在会话不变——切换由用户显式 subscribe。
+   */
+  async createTitledSession(title: string): Promise<{ sessionId: string }> {
+    const trimmed = title.trim();
+    if (trimmed === "") {
+      throw new Error("会话标题不能为空（createTitledSession）");
+    }
+    const runtime = this.createFresh(undefined, { title: trimmed, keepCurrent: true });
+    // 显式建立即落库（write-through save 幂等覆盖同形；后续首条消息的
+    // 里程碑 write-through 会带同一 title 列重写，不丢不裂变）
+    await this.deps.repository.save(runtime.chatService.persistedState);
+    // 建会话广播（created）：title 显式即知；createdAnnounced 登记使转正
+    // 单点补广播去重（不双发）
+    this.requireRecord(runtime.sessionId).createdAnnounced = true;
+    this.deps.onListChanged({
+      kind: "created",
+      sessionId: runtime.sessionId,
+      session: this.metaFromRuntime(runtime, trimmed),
     });
     return { sessionId: runtime.sessionId };
   }
@@ -579,17 +623,23 @@ export class SessionRegistry implements SessionDirectoryPort {
     return runtime;
   }
 
-  /** 新建会话（草稿/首启缺省）：热登记、未落库（首事件 write-through 才 INSERT）；
-   * mode 建会话定格（resolveModeId 归一——session.mode 恒为注册表成员 id）。 */
-  private createFresh(mode?: string): SessionRuntime {
-    const session = Session.create(undefined, this.deps.clock.now(), resolveModeId(mode));
+  /** 新建会话（草稿/首启缺省/显式建标题）：热登记、未落库（首事件
+   * write-through 才 INSERT——titled 形态由 createTitledSession 显式落库）；
+   * mode/title 建会话定格（resolveModeId 归一——session.mode 恒为注册表
+   * 成员 id）；keepCurrent=true 不轮换 current（后台建会话不抢用户会话）。
+   */
+  private createFresh(
+    mode?: string,
+    opts?: { readonly title?: string; readonly keepCurrent?: boolean },
+  ): SessionRuntime {
+    const session = Session.create(undefined, this.deps.clock.now(), resolveModeId(mode), opts?.title);
     const runtime = this.deps.buildRuntime({ session, toolCalls: [], usage: undefined });
     // agent.instantiated 发布点从「会话创建」推迟到「转正」（bug1/bug4 修复）
     // 「转正」（首个用户条目，promoteDraft）——零条目内存草稿不写 domain_events
     //（trace 查询面无幻影）；恢复路径 load() 不调（历史快照经查询面直读；
     // 快照缺省供给时 no-op）。unpromotedDraft=true 收进 register 参数（原独立
     // Set 登记点）。
-    this.register(runtime, true);
+    this.register(runtime, true, opts?.keepCurrent === true);
     return runtime;
   }
 
@@ -636,7 +686,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     return false; // 真实会话被空闲卸载——握手快照经懒加载恢复（现状路径）
   }
 
-  private register(runtime: SessionRuntime, unpromotedDraft = false): void {
+  private register(runtime: SessionRuntime, unpromotedDraft = false, keepCurrent = false): void {
     const prev = this.sessions.get(runtime.sessionId);
     this.sessions.set(runtime.sessionId, {
       runtime,
@@ -647,8 +697,12 @@ export class SessionRegistry implements SessionDirectoryPort {
       createdAnnounced: false,
     });
     // current 轮换的用户交互面（M6 #2.4：touch 不再轮换——建会话/显式触达
-    // 冷会话懒加载在此定格；后台会话事件活动不抢 current）
-    this.current = runtime.sessionId;
+    // 冷会话懒加载在此定格；后台会话事件活动不抢 current）。例外：显式建
+    // 标题会话（createTitledSession keepCurrent）不轮换——管家后台建会话
+    // 不抢用户所在会话，切换由用户显式 subscribe。
+    if (!keepCurrent) {
+      this.current = runtime.sessionId;
+    }
   }
 
   /** 当前会话被删后的轮换：最近活动会话（懒加载）或新建空会话。 */
@@ -707,13 +761,14 @@ export class SessionRegistry implements SessionDirectoryPort {
     this.deps.onListChanged({ kind: "state_changed", sessionId, session: this.metaFromRuntime(record.runtime) });
   }
 
-  /** 热会话元数据（title 从聚合首条用户消息推导；override 供建会话即知场景）。 */
+  /** 热会话元数据（title 优先级：显式建会话即知 override > 会话定格 title
+   *  > 聚合首条用户消息推导；override 供建会话即知场景）。 */
   private metaFromRuntime(runtime: SessionRuntime, titleOverride?: string): SessionMetaView {
     const entries = runtime.chatService.sessionView.entryList();
     const firstUser = entries.find((e): e is (typeof e) & { role?: string; text?: string } => "role" in e && e.role === "user");
     return {
       sessionId: runtime.sessionId,
-      title: titleOverride ?? deriveTitle(firstUser?.text ?? null),
+      title: titleOverride ?? runtime.chatService.sessionView.title ?? deriveTitle(firstUser?.text ?? null),
       lastActivityAt: this.sessions.get(runtime.sessionId)?.lastActivityMs ?? this.deps.clock.nowMs(),
       runState: this.runStateOf(runtime.sessionId),
       loaded: true,
@@ -723,7 +778,9 @@ export class SessionRegistry implements SessionDirectoryPort {
   private metaFromRow(row: SessionMetadataRow): SessionMetaView {
     return {
       sessionId: row.sessionId,
-      title: deriveTitle(row.firstUserText),
+      // 显式标题列优先（修复批①：createTitledSession 定格——首条消息派生
+      // 不覆盖；旧行/自动命名会话无列值回落 firstUserText 截断推导）
+      title: row.title ?? deriveTitle(row.firstUserText),
       lastActivityAt: Date.parse(row.updatedAt),
       runState: this.runStateOf(row.sessionId),
       loaded: this.isHot(row.sessionId),

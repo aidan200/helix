@@ -52,6 +52,11 @@ export function ensureSchemaEvolved(db: Database): void {
   if (!hasColumn(db, "session_state", "mode")) {
     db.exec("ALTER TABLE session_state ADD COLUMN mode TEXT");
   }
+  // 修复批①：session_state.title（显式会话标题，createTitledSession 定格；
+  // 可空无默认——旧行 NULL = 首条用户消息截断推导，与 mode 同构）
+  if (!hasColumn(db, "session_state", "title")) {
+    db.exec("ALTER TABLE session_state ADD COLUMN title TEXT");
+  }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
   if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {
     db.exec("BEGIN IMMEDIATE");
