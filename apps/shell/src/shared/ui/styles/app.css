@@ -748,6 +748,15 @@ html.light .bubble code.inline { color: var(--accent); }
 .sa-foot .go { margin-left: auto; color: var(--accent); letter-spacing: 0.06em; }
 .sa-card:hover .sa-foot .go { text-decoration: underline; }
 .sa-stream { color: var(--text-muted); }
+/* 流式摘要固定槽（行数临界抖动修复）：120 字滑窗悬在换行临界（行数 1↔2 横跳），
+   卡片内联消息流 → 满屏贴底态高度脉动即底部抖动；min+max-height 双锁 2 行 ——
+   高度恒定零抖动，不依赖 line-clamp（新版 Chrome 已将 -webkit-box 旧 flexbox
+   布局行为降级，-webkit-line-clamp 容器失效钳不住）。终态摘要（closure 定稿
+   静态内容）不套此层不钳 */
+.sa-stream-text {
+  overflow: hidden;
+  height: 3.2em; /* 2 × line-height 1.6（无单位继承 .sa-sub）：恒定 2 行槽 */
+}
 
 /* ═══ 连接中覆盖层（F(7).4 重连：投影暂停，恢复 = 快照 + 增量）═══ */
 .conn-overlay {

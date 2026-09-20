@@ -134,9 +134,18 @@ const SubAgentCard = memo(function SubAgentCard({ card, onOpenDrawer }: SubAgent
         </div>
         <span className="sa-state">{stateSlot}</span>
       </div>
+      {/* 流式摘要固定槽：滑窗 120 字悬在换行临界（行数 1↔2 横跳 = 卡片高度脉动 =
+          贴底抖动源），running 态文本包 .sa-stream-text（line-clamp:2 + min-height
+          锁 2 行——高度恒定）；终态摘要为静态定稿内容，不包不钳 */}
       <div className={cn("sa-sub", isRunning && "sa-stream")}>
-        {subText}
-        {isRunning && <span className="stream-cursor" />}
+        {isRunning ? (
+          <div className="sa-stream-text">
+            {subText}
+            <span className="stream-cursor" />
+          </div>
+        ) : (
+          subText
+        )}
         <div className="sa-foot">
           {foot}
           <span className="go">{t("chat.sa.card.openDrawer")}</span>
