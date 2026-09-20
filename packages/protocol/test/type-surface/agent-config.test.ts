@@ -30,6 +30,15 @@ import {
   agentConfigThinkingSet,
 } from "./samples/v06";
 import type { AgentConfigSystemBlock, ErrorCode } from "../../src/index";
+import type {
+  AgentStewardProfileGetCommand,
+  AgentStewardProfileGetResultEvent,
+  AgentStewardProfileGetResultPayload,
+  AgentStewardProfileToolRow,
+} from "../../src/index";
+import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES } from "../../src/index";
+import type { Equal, Expect } from "./samples/helpers";
+import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
 
 // ── 命令 payload 类型级断言（编译期） ───────────────────────
 
@@ -229,5 +238,66 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     void _systemNoSkills;
     void _systemSkillBadRow;
     void _readOnlyCode;
+  });
+});
+
+// ── 管家公民权批：agent.steward_profile.get（管家只读档案——观测透明度对齐
+//    其他 agent kind；不进 profile 注册表，走独立命令避免「可配置」误解）──
+
+// 类型级断言：回执四字段形状（kindLabel 恒 "steward"；model 槽位 null 形态合法）
+type _StewardProfileModel = Expect<Equal<AgentStewardProfileGetResultPayload["model"], string | null>>;
+type _StewardProfileKind = Expect<Equal<AgentStewardProfileGetResultPayload["kindLabel"], "steward">>;
+type _StewardProfilePrompt = Expect<Equal<AgentStewardProfileGetResultPayload["systemPrompt"], string>>;
+type _StewardProfileTools = Expect<
+  Equal<AgentStewardProfileGetResultPayload["tools"], ReadonlyArray<AgentStewardProfileToolRow>>
+>;
+type _StewardProfileToolRow = Expect<Equal<AgentStewardProfileToolRow, { name: string; description: string }>>;
+const _stewardProfileBadKind: AgentStewardProfileGetResultPayload = {
+  systemPrompt: "x",
+  tools: [],
+  model: null,
+  // @ts-expect-error kindLabel 只接受 "steward"（档案标识非自由字符串）
+  kindLabel: "main-session",
+};
+
+const stewardProfileCommand: AgentStewardProfileGetCommand = {
+  v: PROTOCOL_VERSION,
+  type: "agent.steward_profile.get",
+  payload: {},
+};
+
+const stewardProfileResult: AgentStewardProfileGetResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: SYSTEM_SESSION_ID,
+  channel: "agent",
+  type: "agent.steward_profile.get.result",
+  payload: {
+    systemPrompt: "你是 helix 的文本管家（Steward）——常驻的全局监控与对话助手。",
+    tools: [
+      { name: "list_instances", description: "查询全部 agent 实例的状态清单。" },
+      { name: "steward_confirm", description: "确认闸放行（面板确认按钮原语——非 LLM 工具）。" },
+    ],
+    model: "deepseek/deepseek-v4-flash",
+    kindLabel: "steward",
+  },
+};
+
+describe("管家公民权批：agent.steward_profile.get 管家只读档案（additive）", () => {
+  test("目录登记：命令 +1（agent 族）/ 事件 +1（挂 agent 通道）", () => {
+    expect(COMMAND_TYPES).toContain("agent.steward_profile.get");
+    expect(EVENT_TYPES).toContain("agent.steward_profile.get.result");
+    expect(EVENT_CHANNELS["agent.steward_profile.get.result"]).toBe("agent");
+  });
+
+  test("命令可构造且 dispatch 窄化（零载荷全局读面）", () => {
+    expect(dispatchCommand(stewardProfileCommand)).toBe("agent-steward-profile-get");
+  });
+
+  test("回执四字段窄化：prompt 全文 / 工具行 name+description / model 槽位（null 形态合法）/ kindLabel", () => {
+    expect(summarizeEvent(stewardProfileResult)).toBe("steward-profile:2:deepseek/deepseek-v4-flash:steward");
+    expect(familyOf(stewardProfileResult)).toBe("agent/agent.steward_profile.get.result");
+    const unset: AgentStewardProfileGetResultPayload = { ...stewardProfileResult.payload, model: null };
+    expect(unset.model).toBeNull();
+    void _stewardProfileBadKind;
   });
 });

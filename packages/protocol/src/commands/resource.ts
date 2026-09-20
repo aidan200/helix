@@ -124,6 +124,17 @@ export interface AgentSkillCreateCommand extends CommandFrame<AgentSkillCreatePa
   type: "agent.skill.create";
 }
 
+/**
+ * agent.steward_profile.get 载荷：管家只读档案读面（管家公民权批；全局
+ * 命令，信封 sessionId 省略，零载荷）。管家 = daemon 内嵌常驻服务（非
+ * SubAgent profile——不进 agent.config.list 五 kind 语义），档案走独立命令
+ * 避免「可配置」误解。结果帧 = agent.steward_profile.get.result 点对点
+ * 回执（TR-AD-21 模式，agent.base_prompt.get 同构）。
+ */
+export interface AgentStewardProfileGetCommand extends CommandFrame<Record<string, never>> {
+  type: "agent.steward_profile.get";
+}
+
 // ── v0.7 新增：web 族（T4 联网状态图标；daemon BrowserPort 单例 CDP 连接面） ──
 
 /**

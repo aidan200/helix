@@ -58,6 +58,16 @@ export class ToolRegistry {
     return [...this.tools.keys()];
   }
 
+  /** 注册面清单投影（含 hidden——档案/观测面用：真实工具面而非仅 LLM 声明面；
+   *  注册序稳定）。 */
+  manifest(): readonly { name: string; description: string }[] {
+    const out: { name: string; description: string }[] = [];
+    for (const tool of this.tools.values()) {
+      out.push({ name: tool.name, description: tool.description });
+    }
+    return out;
+  }
+
   /** 按名执行（异常归一 isError result 不抛；未知工具 → unknown 判别）。 */
   async dispatch(
     name: string,

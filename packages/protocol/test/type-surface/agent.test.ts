@@ -31,6 +31,8 @@ type _AgentFamily = Expect<
     // skill-content 批（agent 页 skill 正文懒查询回执）
     | "agent.skill_content.get.result"
     | "agent.skill.create.result"
+    // 管家公民权批（agent 页管家只读档案回执）
+    | "agent.steward_profile.get.result"
   >
 >;
 

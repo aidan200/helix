@@ -72,6 +72,7 @@ import {
   chatSendDraftCommand,
   chatSteerCommand,
   codeReviewCreateCommand,
+  agentStewardProfileGetCommand,
   configGetCompactionCommand,
   configSetCompactionCommand,
   configGetSchedulingCommand,
@@ -580,6 +581,11 @@ export const COMMAND_SURFACE = {
  *  同一转发链；applied 后页面重拉 agent.config.list 收口）。 */
   sendAgentSkillCreate: (deps) =>
     (payload: AgentSkillCreatePayload) => deps.send(agentSkillCreateCommand(payload)),
+  /** 发送 agent.steward_profile.get（管家公民权批：agent 页管家只读档案
+   *  读面；零载荷；回执 agent.steward_profile.get.result 点对点，经
+   *  subscribeAgentConfigFrames 同一转发链到页面 reducer）。 */
+  sendAgentStewardProfileGet: (deps) =>
+    () => deps.send(agentStewardProfileGetCommand()),
 
   // ── web 族联网状态面（T4，契约 v0.7；IconRail 联网钮）──
   /** 发送 web.stop（停止并清理；回执 applied + 状态回 idle 经
@@ -765,6 +771,7 @@ export const LISTEN_SURFACE = {
       type === "agent.base_prompt.get.result" ||
       type === "agent.skill_content.get.result" ||
       type === "agent.skill.create.result" ||
+      type === "agent.steward_profile.get.result" ||
       type === "connection.error",
   },
   /** 订阅 kg 族点对点回执（kg.*.result + code.review.create.result——评审回执

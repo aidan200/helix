@@ -31,7 +31,7 @@ function frameOf(type: string, payload: Record<string, unknown>): EventEnvelope 
 }
 
 describe("agent-config 拓扑级消费者（M6 T4 真消费）", () => {
-  it("① 注册面恰为 agent.config 族六 type；判定函数窄化正确", () => {
+  it("① 注册面恰为 agent.config 族七 type；判定函数窄化正确", () => {
     expect([...AGENT_CONFIG_EVENT_TYPES]).toEqual([
       "agent.config.changed",
       "agent.config.list.result",
@@ -39,6 +39,7 @@ describe("agent-config 拓扑级消费者（M6 T4 真消费）", () => {
       "agent.base_prompt.get.result",
       "agent.skill_content.get.result",
       "agent.skill.create.result",
+      "agent.steward_profile.get.result",
     ]);
     for (const type of AGENT_CONFIG_EVENT_TYPES) {
       expect(isAgentConfigEventType(type)).toBe(true);

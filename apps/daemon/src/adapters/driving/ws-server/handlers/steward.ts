@@ -15,6 +15,7 @@
  *   steward.config.result 点对点回执。
  */
 import type {
+  AgentStewardProfileGetResultEvent,
   StewardAskDeltaEvent,
   StewardAskResultEvent,
   StewardConfigResultEvent,
@@ -227,4 +228,23 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     .catch((err) =>
       ctx.commandError(ctx.type, "command.invalid_payload", `steward.set_config 执行失败：${(err as Error).message}`),
     );
+}
+
+/**
+ * agent.steward_profile.get（全局命令；管家公民权批）：管家只读档案读面
+ * 点对点回执 agent.steward_profile.get.result。挂在 steward handler 族但
+ * 回执帧挂 agent 通道（agent 页档案卡消费面同族）——服务层纯导出面
+ * （StewardService.getProfile：prompt 常量/注册面工具表/模型槽位三现有源，
+ * 零新状态；不含凭据类字段）。只转发不决策（本文件先例纪律）。
+ */
+export function handleAgentStewardProfileGet(ctx: StewardCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: AgentStewardProfileGetResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "agent",
+    type: "agent.steward_profile.get.result",
+    payload: ctx.steward.service.getProfile(),
+  };
+  ctx.sendNow(sender, frame);
 }
