@@ -71,7 +71,7 @@ function fakeLlm(script: readonly StewardLlmResponse[]): StewardLlmPort & { call
       calls.push({ request, round });
       const next = script[round];
       if (next === undefined) throw new Error("fake LLM 剧本耗尽");
-      if (onThinking !== undefined && next.thinking !== undefined && next.thinking.text !== "") {
+      if (onThinking !== undefined && next.kind !== "aborted" && next.thinking !== undefined && next.thinking.text !== "") {
         onThinking(next.thinking.text);
       }
       return next;

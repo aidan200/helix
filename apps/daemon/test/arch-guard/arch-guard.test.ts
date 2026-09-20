@@ -151,6 +151,10 @@ describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/suba
       // 文本管家批 V2.5：steward/ 是 driven 域 LLM 适配器（PiStewardLlmAdapter
       // 消费 pi-ai streamSimple——TTS/STT adapter 同构的 provider 防腐墙）
       path.join("adapters", "driven", "steward"),
+      // helix-loop L0 批：loop/ 是管家面 LLM 适配器新落点（PiStewardLlmAdapter
+      // 自 steward/ 平移——设计 §2：adapters/driven/loop/ ← pi-ai 唯一 import
+      // 执行点，L3 替换后其余 pi import 面退役收敛于此）
+      path.join("adapters", "driven", "loop"),
     ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));

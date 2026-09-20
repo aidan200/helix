@@ -10,7 +10,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Models, Model, AssistantMessage, AssistantMessageEventStream, Context } from "@earendil-works/pi-ai";
-import { PiStewardLlmAdapter } from "../../src/adapters/driven/steward/PiStewardLlmAdapter";
+import { PiStewardLlmAdapter } from "../../src/adapters/driven/loop/PiStewardLlmAdapter";
 import type { StewardLlmRequest } from "../../src/application/ports/outbound/StewardLlmPort";
 
 interface StreamCall {
