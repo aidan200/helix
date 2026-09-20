@@ -952,6 +952,20 @@ export class StewardService {
     };
   }
 
+  /** 管家只读档案（agent.steward_profile.get；管家公民权批）：纯导出面——
+   *  零新状态，三现有源：①静态人格段 STEWARD_SYSTEM_PROMPT（动态情景快照
+   *  段运行期拼入不在本面）；②注册面八工具清单（ToolRegistry.manifest 含
+   *  hidden 面板原语——观测透明度 = 真实工具面）；③模型槽位 KV 现值
+   *  （未设 = null——修改走设置页语音管家段）。回执不含任何凭据类字段。 */
+  getProfile(): { systemPrompt: string; tools: readonly { name: string; description: string }[]; model: string | null; kindLabel: "steward" } {
+    return {
+      systemPrompt: STEWARD_SYSTEM_PROMPT,
+      tools: this.registry.manifest(),
+      model: this.deps.config.get(STEWARD_MODEL_KEY) ?? null,
+      kindLabel: "steward",
+    };
+  }
+
   /** 设置写面（两槽位可选更新；model 格式校验 "provider/model-id"）。 */
   async setConfig(patch: { enabled?: boolean; model?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.model !== undefined) {

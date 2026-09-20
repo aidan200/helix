@@ -119,6 +119,7 @@ import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import { handleSttStreamChunk, handleSttStreamFinish, handleSttStreamStart, handleSttStreamStop, handleSttTranscribe } from "./handlers/stt";
 import { handleVoiceSubscribe, handleVoiceSynthesize, handleVoiceUnsubscribe } from "./handlers/voice";
 import {
+  handleAgentStewardProfileGet,
   handleStewardAsk,
   handleStewardConfirm,
   handleStewardGetConfig,
@@ -643,6 +644,12 @@ export class WsServerAdapter {
       // ── skills 添加批（settings skills 分区创建写面；两渠道统一全文入参）──
       case "agent.skill.create":
         return handleAgentSkillCreate(this.contexts.resourceContext(ws, type, payload));
+      // ── 管家公民权批（agent 页管家只读档案；回挂 steward handler 族——
+      //    服务面在 StewardService，回执帧挂 agent 通道）──
+      case "agent.steward_profile.get":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleAgentStewardProfileGet(this.contexts.stewardContext(ws, type, payload));
       // ── v0.7 web 族（联网状态图标；全局命令先例 = agent.config 族）──
       // v0.9 +web.start（CDP 显式启动通路）
       case "web.status":
