@@ -47,6 +47,10 @@ export class StewardVoiceSummarizerAdapter implements VoiceSummarizerPort {
     if (response.kind === "toolCall") {
       throw new Error(`播报摘要面收到意外的工具调用（${response.name}——tools 为空不应发生）`);
     }
+    if (response.kind === "aborted") {
+      // 本面不传 signal，aborted 结构性不可达——防御分支（不静默）
+      throw new Error("播报摘要面收到意外的 aborted 判别（不传 signal 不应发生）");
+    }
     return response.text;
   }
 }

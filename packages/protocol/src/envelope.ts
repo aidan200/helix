@@ -49,7 +49,9 @@ export const SYSTEM_SESSION_ID = "__system__" as const;
  * 以判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）；
  * 通道归属例外（type 前缀 ≠ channel）：auth.* 与 config.* 结果帧挂 model
  * 通道、task.changed 挂 notification 通道——均以 EVENT_CHANNELS 登记为准
- * （代码单源），非默认推断面。
+ * （代码单源），非默认推断面。loop 为 helix-loop L0 批新增族（自有 agent
+ * loop 事件族 15 型：pi 11 型同构 + 4 扩展——L3 替换 pi-agent-core 时
+ * shell/trace 消费面零改动）。
  * 扩展纪律：新增族 = additive，不动分发器（TR-AD-18 同构口径）。
  */
 export type Channel =
@@ -69,7 +71,8 @@ export type Channel =
   | "mcp"
   | "stt"
   | "voice"
-  | "steward";
+  | "steward"
+  | "loop";
 
 /**
  * workspace 路由（AD-7 预留）。

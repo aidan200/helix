@@ -72,8 +72,8 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
-    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("stt.stream.final"); // 流式转写批为目录尾段（steward 批其后）
-    expect(EVENT_TYPES.length).toBe(112); // 管家驾驶舱批 +1 后当前值
+    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("loop.duplex.wake"); // helix-loop L0 批为目录尾段（loop 族）
+    expect(EVENT_TYPES.length).toBe(127); // helix-loop L0 批 +15 后当前值
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -82,7 +82,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(112); // 管家驾驶舱批 +1 后当前值
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(127); // helix-loop L0 批 +15 后当前值
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {

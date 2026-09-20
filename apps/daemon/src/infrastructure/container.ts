@@ -53,7 +53,8 @@ import { DashScopeTtsAdapter, DASHSCOPE_PROVIDER_ID as DASHSCOPE_TTS_PROVIDER_ID
 import { BroadcastService } from "../application/voice/BroadcastService";
 import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
 import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
-import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/steward/PiStewardLlmAdapter";
+import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/loop/PiStewardLlmAdapter";
+import { stewardLoopTraceBridge } from "./assembly/stewardLoopTraceBridge";
 import { StewardVoiceSummarizerAdapter } from "../adapters/driven/voice/StewardVoiceSummarizerAdapter";
 import type { VoiceSummarizerPort } from "../application/ports/outbound/VoiceSummarizerPort";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
@@ -666,6 +667,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
   const stewardService = new StewardService({
     llm: stewardLlm,
+    // helix-loop L0：LoopEngine 事件 → domain_events 投影（追踪可见性——
+    // instanceId=steward，里程碑子集；广播面 default→null 不接，防自激
+    // 语义保持：管家只发帧不订阅广播流）
+    emitLoopEvent: stewardLoopTraceBridge({
+      publish: (event) => fanoutPublisher.publish(event),
+      nowIso: () => clock.now(),
+    }),
     orchestration: scheduler, // status 只读 + send 写注入（agent_send 等价 steer 通道）
     tasks: taskStack.query, // 任务清单只读面（TaskQueryService.listTasks）
     config: persistence.runtimeConfig, // steward.enabled / steward.model KV 持久化

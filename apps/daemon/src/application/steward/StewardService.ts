@@ -50,6 +50,20 @@ import type {
   StewardNavigatePayload,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
+import type {
+  LoopEngine,
+  LoopEvent,
+  LoopMessage,
+  LoopMessageSink,
+  LoopPauseDecision,
+  LoopResumeDecision,
+  LoopRunResult,
+  LoopStreamFn,
+  LoopStreamResult,
+  LoopToolCallContext,
+  LoopToolOutcome,
+} from "../../domain/loop";
+import { LoopEngine as LoopEngineImpl, ToolRegistry } from "../../domain/loop";
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
 export const STEWARD_FEED_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -475,6 +489,10 @@ export interface StewardServiceDeps {
   /** A2：code-review 前置校验——项目 git 仓存在性（组合根 fs 注入；
    *  application 零直接 IO）。 */
   readonly hasGitRepo?: (projectRoot: string) => boolean;
+  /** helix-loop L0：loop 事件出口（追踪可见性——组合根接 domain_events
+   *  投影：LoopEvent → DomainEvent{instanceId:"steward"} 落库；缺席 =
+   *  零落库零广播，对话主链路零降级）。 */
+  readonly emitLoopEvent?: (event: LoopEvent) => void;
   readonly logger?: { warn(message: string): void };
 }
 
@@ -608,6 +626,20 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_SPAWN_REVIEW_TASK,
 ];
 
+/** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行）。 */
+const GATED_TOOLS: ReadonlySet<string> = new Set([
+  "propose_send",
+  "deliver_to_session",
+  "create_session",
+  "spawn_review_task",
+]);
+
+/** 挂闸中待确认项（pause 态的 resume 凭据 + 提案动作——actionId 单次消费）。 */
+interface PendingEntry {
+  readonly action: PendingAction;
+  readonly resume: (decision: LoopResumeDecision) => Promise<LoopRunResult>;
+}
+
 export class StewardService {
   private readonly deps: StewardServiceDeps;
   /** 工作记忆 KV（完整记录持久化——thinking/工具/对话全形态；daemon 重启
@@ -615,14 +647,54 @@ export class StewardService {
   private readonly dialog: StewardDialogMemory;
   private readonly now: () => number;
   /** 待确认写动作（actionId 单次消费；不持久化——过期即失效不跨重启）。 */
-  private readonly pending = new Map<string, PendingAction>();
+  private readonly pending = new Map<string, PendingEntry>();
   private actionSeq = 0;
   private feedSeq = 0;
+  /** helix-loop L0：LoopEngine 驱动（八工具注册 ToolRegistry；自写 for
+   *  循环退役——迁移即验证：行为等价 + abort-and-drain 门控新增）。 */
+  private readonly registry: ToolRegistry;
+  private readonly engine: LoopEngine;
+  /** ask 单飞门控（abort-and-drain，duplex-truncation §6.2：在途轮 streaming
+   *  态时新 ask 先 abort 旧轮 + drain 其 KV 写入收尾，再开新轮——写入顺序
+   *  不变量：旧轮最后 KV 写入先于新轮首 KV 写入）。 */
+  private inFlight: Promise<StewardAskResultPayload> | null = null;
+  private inFlightAbort: AbortController | null = null;
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
     this.dialog = deps.dialog ?? new StewardDialogMemory(deps.config);
     this.now = deps.clock ?? (() => Date.now());
+    this.registry = new ToolRegistry();
+    this.registerTools();
+    this.engine = new LoopEngineImpl({
+      streamFn: this.streamFn.bind(this),
+      registry: this.registry,
+      emit: (event) => this.deps.emitLoopEvent?.(event),
+    });
+  }
+
+  /** StewardLlmPort（散参面）→ LoopStreamFn（loop 域契约）包装——application
+   *  内零 pi 胶水（pi-ai 真体在 driven adapter；LLM 失败前缀与 warn 与迁移前
+   *  行为等价）。 */
+  private async streamFn(
+    input: Parameters<LoopStreamFn>[0],
+    callbacks?: Parameters<LoopStreamFn>[1],
+  ): Promise<LoopStreamResult> {
+    try {
+      return await this.deps.llm.complete(
+        {
+          systemPrompt: input.systemPrompt,
+          messages: input.messages,
+          tools: input.tools,
+        },
+        callbacks?.onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
+        callbacks?.onThinking, // thinking 段级（一个完成态块一帧）
+        callbacks?.signal,
+      );
+    } catch (err) {
+      this.deps.logger?.warn(`管家 LLM 调用失败：${(err as Error).message}`);
+      throw new Error(`管家模型调用失败：${(err as Error).message}`);
+    }
   }
 
   /**
@@ -630,6 +702,10 @@ export class StewardService {
    * thinking 段级/工具开始结束，A1 批工具与 thinking 过程对屏幕通道可见；
    * 工具执行段无文本增量，终态以返回值为权威）。
    * money gate：开关关 → error 判别零 LLM 调用零回调。
+   *
+   * helix-loop L0：自写 for 循环退役——LoopEngine 驱动（八工具 ToolRegistry
+   * 分发 + 确认闸 beforeToolCallPause 暂停点）；ask 单飞门控 abort-and-drain
+   * （新 ask 到达时 abort 在途轮 + drain KV 写入收尾 + 开新轮）。
    */
   async ask(text: string, events: StewardAskEvents = {}): Promise<StewardAskResultPayload> {
     if (typeof text !== "string" || text.trim() === "") {
@@ -641,45 +717,112 @@ export class StewardService {
         reason: "管家未开启：请在设置页 → 文本管家 区开启开关（开关关 = 零 LLM 调用）",
       };
     }
+    // abort-and-drain 门控（duplex-truncation §6.2）：在途轮先 abort（只作用
+    // 于 LLM 流式段——工具段不打断）+ drain 其 promise 完整 settle（KV 写入
+    // 收尾），再开新轮——保证旧轮最后 KV 写入先于新轮首 KV 写入。
+    if (this.inFlight !== null) {
+      this.inFlightAbort?.abort("superseded");
+      await this.inFlight.catch(() => {}); // drain（旧轮回执 error 判别直达旧发起方）
+    }
     this.dialog.ensureLoaded();
     await this.pushRecord({ kind: "user", text, at: this.now() });
     // A2：动态情景快照（每次 ask 组装一次——工具轮内状态变化由工具结果
     // 反映，不重取；感知查询失败静默降级为无快照段，绝不挡对话主链路）。
     const systemPrompt = assembleStewardSystemPrompt(await this.buildSnapshotSafely());
-    for (let round = 0; round < STEWARD_MAX_TOOL_ROUNDS; round += 1) {
-      let response;
-      try {
-        response = await this.deps.llm.complete(
-          {
-            systemPrompt,
-            messages: this.dialogSnapshotMessages(),
-            tools: STEWARD_TOOLS,
-          },
-          events.onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
-          events.onThinking, // thinking 段级（一个完成态块一帧）
-        );
-      } catch (err) {
-        this.deps.logger?.warn(`管家 LLM 调用失败：${(err as Error).message}`);
-        return { status: "error", reason: `管家模型调用失败：${(err as Error).message}` };
+    const controller = new AbortController();
+    const done = this.runAskLoop(text, systemPrompt, events, controller.signal);
+    this.inFlight = done;
+    this.inFlightAbort = controller;
+    try {
+      return await done;
+    } finally {
+      if (this.inFlight === done) {
+        this.inFlight = null;
+        this.inFlightAbort = null;
       }
-      if (response.kind === "text") {
-        const answer = response.text.trim() === "" ? "（无回答）" : response.text;
-        await this.pushRecord({
-          kind: "assistant",
-          text: answer,
-          ...(response.thinking !== undefined ? { thinking: response.thinking } : {}),
-          at: this.now(),
-        });
-        return { status: "answer", text: answer };
-      }
-      // 工具轮：assistant 工具调用（携 thinking）入史 + 执行只读面/过闸提案
-      const outcome = await this.runTool(response.id, response.name, response.args, response.thinking, events);
-      if (outcome !== undefined) return outcome;
     }
-    return {
-      status: "error",
-      reason: `工具循环超限（>${STEWARD_MAX_TOOL_ROUNDS} 轮熔断）——请缩小问题范围或重试`,
+  }
+
+  /** 单轮 LoopEngine 驱动（ask 主循环体——含确认闸挂闸闭包与回执映射）。 */
+  private async runAskLoop(
+    text: string,
+    systemPrompt: string,
+    events: StewardAskEvents,
+    signal: AbortSignal,
+  ): Promise<StewardAskResultPayload> {
+    // 挂闸闭包状态：当前 pause 的提案候选（actionId + 回执面）——run
+    // promise settle paused 后由此构造 confirm_required 回执 + pending 登记。
+    // （容器数组绕开 TS 跨闭包赋值窄化限制）
+    const pauseCandidate: { actionId: string; action: PendingAction }[] = [];
+    const onNewMessage: LoopMessageSink = async (message) => {
+      await this.recordLoopMessage(message);
     };
+    const beforeToolCallPause = async (ctx: LoopToolCallContext): Promise<LoopPauseDecision> => {
+      if (!GATED_TOOLS.has(ctx.toolName)) return { pause: false };
+      const gated = await this.gateWriteTool(ctx);
+      if (gated.pause) {
+        this.actionSeq += 1;
+        const actionId = `steward-action-${this.actionSeq}`;
+        pauseCandidate.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
+        pauseCandidate.push({
+          actionId,
+          action: { ...gated.action, toolCall: { id: ctx.toolCallId, name: ctx.toolName } },
+        });
+        return { pause: true };
+      }
+      return gated.outcome !== undefined ? { pause: false, outcome: gated.outcome } : { pause: false };
+    };
+    const run = this.engine.startRun({
+      systemPrompt,
+      messages: this.dialogSnapshotMessages(),
+      tools: this.registry.llmTools(),
+      maxRounds: STEWARD_MAX_TOOL_ROUNDS,
+      signal,
+      beforeToolCallPause,
+      onNewMessage,
+      callbacks: {
+        ...(events.onDelta !== undefined ? { onDelta: events.onDelta } : {}),
+        ...(events.onThinking !== undefined ? { onThinking: events.onThinking } : {}),
+        ...(events.onToolStart !== undefined ? { onToolStart: events.onToolStart } : {}),
+        ...(events.onToolEnd !== undefined ? { onToolEnd: events.onToolEnd } : {}),
+      },
+      promptSummary: text.slice(0, 80),
+    });
+    const result = await run.promise;
+    if (result.kind === "finished") {
+      return { status: "answer", text: result.text };
+    }
+    if (result.kind === "paused") {
+      const candidate = pauseCandidate[pauseCandidate.length - 1];
+      if (candidate === undefined) {
+        // 结构性不可达（挂闸必然置候选——防御分支，不静默）
+        return { status: "error", reason: "确认闸挂起异常：提案候选缺失" };
+      }
+      this.pending.set(candidate.actionId, {
+        action: candidate.action,
+        resume: result.resumeWith,
+      });
+      return {
+        status: "confirm_required",
+        actionId: candidate.actionId,
+        agentId: candidate.action.displayTarget,
+        message: candidate.action.message,
+      };
+    }
+    if (result.kind === "roundLimit") {
+      return {
+        status: "error",
+        reason: `工具循环超限（>${STEWARD_MAX_TOOL_ROUNDS} 轮熔断）——请缩小问题范围或重试`,
+      };
+    }
+    if (result.kind === "aborted") {
+      return { status: "error", reason: "管家对话已被新请求取代（本轮已中止，可重发）" };
+    }
+    if (result.kind === "resolved") {
+      // 结构性不可达（resolved 只在 confirm→resume 轨道收口——ask 轨道防御分支）
+      return { status: "error", reason: "管家对话已由确认闸收口" };
+    }
+    return { status: "error", reason: result.message };
   }
 
   /** 工作记忆读面（steward.history 回放：完整记录数组——UI 渲染与 LLM 窗口
@@ -698,23 +841,25 @@ export class StewardService {
   /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行。
    *  A2：动作分派（send / createSession / spawnReview 判别联合）；执行结果
    *  （成败均）回灌工作记忆 toolResult——下一轮 ask LLM 可见真实回执
-   *  （同时闭环 buildLlmWindow 配对防御：缺结果 toolCall 不再补合成占位）。 */
+   *  （同时闭环 buildLlmWindow 配对防御：缺结果 toolCall 不再补合成占位）。
+   *  helix-loop L0：回灌经暂停点 resumeWith(resolve) 走 LoopEngine
+   *  （run_resumed 事件 + appendToolResult 入账——与迁移前 confirm 直接
+   *  pushRecord 等价）。 */
   async confirm(actionId: string): Promise<StewardConfirmResultPayload> {
-    const action = this.pending.get(actionId);
-    if (action === undefined) {
+    const entry = this.pending.get(actionId);
+    if (entry === undefined) {
       return { status: "error", reason: `待确认动作不存在或已消费（actionId=${actionId}）` };
     }
     this.pending.delete(actionId); // 先消费（单次语义：执行失败也不可重放）
-    const outcome = await this.executePending(action);
-    await this.pushRecord({
-      kind: "toolResult",
-      toolCallId: action.toolCall.id,
-      name: action.toolCall.name,
+    const outcome = await this.executePending(entry.action);
+    // 回灌经 LoopEngine 暂停点（resolve 决策：toolResult 入账 + run 终结）
+    await entry.resume({
+      kind: "resolve",
       text: capToolResultText(outcome.detail),
-      at: this.now(),
+      isError: !outcome.ok,
     });
     if (!outcome.ok) return { status: "error", reason: outcome.detail };
-    return { status: "ok", agentId: action.displayTarget, detail: outcome.detail };
+    return { status: "ok", agentId: entry.action.displayTarget, detail: outcome.detail };
   }
 
   /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的
@@ -836,128 +981,318 @@ export class StewardService {
     await this.dialog.append(record);
   }
 
-  /** 执行单轮工具调用；返回非 undefined = 终止循环直出回执（提案/失败）。
-   *  过程可见（A1 批）：onToolStart/onToolEnd 回调携摘要——屏幕通道
-   *  （TTS 播报链路零接入——耳朵只听 assistant 结论）。 */
-  private async runTool(
-    callId: string,
-    name: string,
-    args: Record<string, unknown>,
-    thinking: StewardLlmThinking | undefined,
-    events: StewardAskEvents,
-  ): Promise<StewardAskResultPayload | undefined> {
-    const argsSummary = summarizeForFrame(JSON.stringify(args));
-    if (name === "list_instances" || name === "list_tasks") {
-      // A1-hotfix：list_instances 走紧凑投影（根因实证：status() 全量含完整
-      //  task brief 文本与全部历史实例，单条 toolResult 可达 537KB）；一切
-      //  工具结果再过 capToolResultText 4000 体量护栏。
-      const rows =
-        name === "list_instances"
-          ? compactInstanceRows(this.deps.orchestration.status())
-          : this.deps.tasks.listTasks({}).map((t) => ({
-              jobId: t.jobId,
-              title: t.title,
-              status: t.status,
-              progress:
-                t.progress === null
-                  ? null
-                  : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
-              error: t.error,
-            }));
-      const resultText = capToolResultText(JSON.stringify(rows));
-      events.onToolStart?.(name, argsSummary);
+  // ── helix-loop L0：工具注册表装配（八工具）+ 暂停点挂钩 ──────
+
+  /**
+   * 八工具注册 ToolRegistry（迁移即验证——runTool 大 if-else 链退役）：
+   * - 只读三件（list_instances/list_tasks/query_recent_work）：handler 直查；
+   * - 写注入四件（propose_send/deliver_to_session/create_session/
+   *   spawn_review_task）：挂闸工具——beforeToolCallPause 暂停点（gateWriteTool
+   *   前置校验 + PendingAction 构造），handler 为 approve 决策执行体（L0 管家
+   *   走 confirm→resolve 路径，handler 供注册面完整性与未来自动化面）；
+   * - steward_confirm：hidden 注册（面板确认原语——不进 LLM 工具投影，
+   *   E-46「注册面恒宽、声明面管控谁可见」同构）。
+   */
+  private registerTools(): void {
+    this.registry.register({
+      ...TOOL_LIST_INSTANCES,
+      handler: async () => {
+        // A1-hotfix：list_instances 走紧凑投影（根因实证：status() 全量含完整
+        //  task brief 文本与全部历史实例，单条 toolResult 可达 537KB）；一切
+        //  工具结果再过 capToolResultText 4000 体量护栏。
+        const rows = compactInstanceRows(this.deps.orchestration.status());
+        const resultText = capToolResultText(JSON.stringify(rows));
+        return {
+          kind: "result",
+          text: resultText,
+          summary: summarizeForFrame(`${rows.length} 条记录：${resultText.slice(0, 80)}`),
+        };
+      },
+    });
+    this.registry.register({
+      ...TOOL_LIST_TASKS,
+      handler: async () => {
+        const rows = this.deps.tasks.listTasks({}).map((t) => ({
+          jobId: t.jobId,
+          title: t.title,
+          status: t.status,
+          progress:
+            t.progress === null
+              ? null
+              : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
+          error: t.error,
+        }));
+        const resultText = capToolResultText(JSON.stringify(rows));
+        return {
+          kind: "result",
+          text: resultText,
+          summary: summarizeForFrame(`${rows.length} 条记录：${resultText.slice(0, 80)}`),
+        };
+      },
+    });
+    this.registry.register({
+      ...TOOL_QUERY_RECENT_WORK,
+      handler: async (args) => {
+        const resultText = capToolResultText(await this.queryRecentWork(args));
+        return { kind: "result", text: resultText, summary: summarizeForFrame(resultText.slice(0, 120)) };
+      },
+    });
+    // 写注入四件：handler = approve 决策执行体（重新过闸校验 + 执行——与
+    // confirm 的 executePending 同源动作体）
+    for (const [tool, actionOf] of [
+      [TOOL_PROPOSE_SEND, this.pendingActionOfProposeSend.bind(this)],
+      [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
+      [TOOL_CREATE_SESSION, this.pendingActionOfCreateSession.bind(this)],
+      [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
+    ] as const) {
+      this.registry.register({
+        ...tool,
+        handler: async (args) => {
+          const gated = await this.gateWriteTool({ runId: "", toolCallId: "", toolName: tool.name, args });
+          if (!gated.pause) {
+            const outcome = gated.outcome ?? { kind: "result" as const, text: "提案未通过校验（approve 不可达此路径）" };
+            return outcome;
+          }
+          const outcome = await this.executePending(gated.action!);
+          return {
+            kind: "result",
+            text: capToolResultText(outcome.detail),
+            isError: !outcome.ok,
+            summary: summarizeForFrame(outcome.detail),
+          };
+        },
+      });
+    }
+    // steward_confirm：面板确认原语（hidden——LLM 不可见；actionId 单次消费
+    // 语义与 handler 层 steward.confirm 命令等价）
+    this.registry.register({
+      name: "steward_confirm",
+      description: "确认闸放行（面板确认按钮原语——actionId 单次消费；非 LLM 工具）。",
+      parameters: {
+        type: "object",
+        properties: { actionId: { type: "string", description: "待确认动作 id" } },
+        required: ["actionId"],
+        additionalProperties: false,
+      },
+      hiddenFromLlm: true,
+      handler: async (args) => {
+        const actionId = typeof args.actionId === "string" ? args.actionId : "";
+        const outcome = await this.confirm(actionId);
+        return {
+          kind: "result",
+          text: capToolResultText(outcome.status === "ok" ? outcome.detail : outcome.reason),
+          isError: outcome.status !== "ok",
+        };
+      },
+    });
+  }
+
+  /** LoopMessage → 工作记忆 KV 记录（onNewMessage 持久化回调——空文本兜底
+   *  「（无回答）」与迁移前行为等价；user 不经此面，初始窗口注入）。 */
+  private async recordLoopMessage(message: LoopMessage): Promise<void> {
+    if (message.role === "toolResult") {
       await this.pushRecord({
-        kind: "assistant",
-        ...(thinking !== undefined ? { thinking } : {}),
-        toolCall: { id: callId, name, args },
+        kind: "toolResult",
+        toolCallId: message.toolCallId,
+        name: message.name,
+        text: message.text,
         at: this.now(),
       });
-      await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: resultText, at: this.now() });
-      events.onToolEnd?.(name, summarizeForFrame(`${rows.length} 条记录：${resultText.slice(0, 80)}`));
-      return undefined;
+      return;
     }
+    if (message.role === "assistant") {
+      const hasToolCall = message.toolCall !== undefined;
+      const rawText = message.text ?? "";
+      const text = hasToolCall || rawText.trim() !== "" ? rawText : "（无回答）";
+      await this.pushRecord({
+        kind: "assistant",
+        ...(text !== "" || hasToolCall ? { text } : {}),
+        ...(message.thinking !== undefined ? { thinking: message.thinking } : {}),
+        ...(message.toolCall !== undefined ? { toolCall: message.toolCall } : {}),
+        at: this.now(),
+      });
+    }
+  }
+
+  // ── 确认闸暂停点（write 类工具挂闸——beforeToolCallPause 实现体） ──────
+
+  /**
+   * 写注入工具挂闸判定（前置校验 + PendingAction 构造——迁移前各 proposeXxx
+   * 逻辑平移）：
+   * - 校验失败（引导类）→ pause:false + outcome（toolResult 回灌循环继续）；
+   * - 防火墙前置拒（propose_send 实例不运行）→ pause:false + terminate
+   *   （run 错误收口直出回执，KV 无痕——与迁移前行为严格等价）；
+   * - 校验通过 → pause:true + action（LoopEngine 发 run.paused，ask 收口
+   *   confirm_required；confirm → resumeWith(resolve) 执行 + 回灌）。
+   */
+  private async gateWriteTool(
+    ctx: LoopToolCallContext,
+  ): Promise<{ pause: true; action: PendingAction } | { pause: false; outcome?: LoopToolOutcome }> {
+    const { toolName: name, args } = ctx;
     if (name === "propose_send") {
-      const agentId = typeof args.agentId === "string" ? args.agentId : "";
-      const message = typeof args.message === "string" ? args.message : "";
-      if (agentId === "" || message === "") {
-        events.onToolStart?.(name, argsSummary);
-        await this.pushRecord({
-          kind: "assistant",
-          ...(thinking !== undefined ? { thinking } : {}),
-          toolCall: { id: callId, name, args },
-          at: this.now(),
-        });
-        await this.pushRecord({
-          kind: "toolResult",
-          toolCallId: callId,
-          name,
-          text: capToolResultText("参数缺失：agentId 与 message 必填"),
-          at: this.now(),
-        });
-        events.onToolEnd?.(name, "参数缺失：agentId 与 message 必填");
-        return undefined;
-      }
-      // 提案校验：目标须存在且运行中（防火墙前置——终态实例递话必拒）
-      const running = this.deps.orchestration.status(agentId).some((s) => s.state === "running");
-      if (!running) {
-        return { status: "error", reason: `实例 ${agentId} 不存在或非运行中——递话提案拒绝（可让用户确认实例 id）` };
-      }
-      this.actionSeq += 1;
-      const actionId = `steward-action-${this.actionSeq}`;
-      this.pending.set(actionId, {
-        kind: "send",
-        displayTarget: agentId,
-        message,
-        toolCall: { id: callId, name },
-        send: { agentId, message },
-      });
-      events.onToolStart?.(name, argsSummary);
-      await this.pushRecord({
-        kind: "assistant",
-        ...(thinking !== undefined ? { thinking } : {}),
-        toolCall: { id: callId, name, args },
-        at: this.now(),
-      });
-      // 确认闸：不执行、不入工具结果（对话挂起待用户裁决——confirm 后执行结果
-      // 回灌工作记忆，用户可继续新 ask）
-      return { status: "confirm_required", actionId, agentId, message };
-    }
-    if (name === "query_recent_work") {
-      const resultText = capToolResultText(await this.queryRecentWork(args));
-      events.onToolStart?.(name, argsSummary);
-      await this.pushRecord({
-        kind: "assistant",
-        ...(thinking !== undefined ? { thinking } : {}),
-        toolCall: { id: callId, name, args },
-        at: this.now(),
-      });
-      await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: resultText, at: this.now() });
-      events.onToolEnd?.(name, summarizeForFrame(resultText.slice(0, 120)));
-      return undefined;
-    }
-    if (name === "create_session") {
-      const outcome = await this.proposeCreateSession(callId, name, args, thinking, events, argsSummary);
-      return outcome;
+      const action = await this.pendingActionOfProposeSend(args);
+      if ("guidance" in action) return { pause: false, outcome: action.outcome };
+      if ("terminate" in action) return { pause: false, outcome: { kind: "terminate", reason: action.reason } };
+      return { pause: true, action };
     }
     if (name === "deliver_to_session") {
-      const outcome = await this.proposeDeliverToSession(callId, name, args, thinking, events, argsSummary);
-      return outcome;
+      const gated = await this.pendingActionOfDeliverToSession(args);
+      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
+      return { pause: true, action: gated };
+    }
+    if (name === "create_session") {
+      const gated = await this.pendingActionOfCreateSession(args);
+      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
+      return { pause: true, action: gated };
     }
     if (name === "spawn_review_task") {
-      const outcome = await this.proposeSpawnReview(callId, name, args, thinking, events, argsSummary);
-      return outcome;
+      const gated = await this.pendingActionOfSpawnReview(args);
+      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
+      return { pause: true, action: gated };
     }
-    // 未知工具（wire 防御）：toolResult 报错回灌，循环继续（模型可自纠）
-    events.onToolStart?.(name, argsSummary);
-    await this.pushRecord({
-      kind: "assistant",
-      ...(thinking !== undefined ? { thinking } : {}),
-      toolCall: { id: callId, name, args },
-      at: this.now(),
-    });
-    await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: capToolResultText(`未知工具 ${name}`), at: this.now() });
-    events.onToolEnd?.(name, `未知工具 ${name}`);
-    return undefined;
+    return { pause: false };
+  }
+
+  /** propose_send 提案判定（参数校验 → 运行态校验 → PendingAction）。 */
+  private async pendingActionOfProposeSend(
+    args: Record<string, unknown>,
+  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome } | { terminate: true; reason: string }> {
+    const agentId = typeof args.agentId === "string" ? args.agentId : "";
+    const message = typeof args.message === "string" ? args.message : "";
+    if (agentId === "" || message === "") {
+      return {
+        guidance: true,
+        outcome: {
+          kind: "result",
+          text: capToolResultText("参数缺失：agentId 与 message 必填"),
+          summary: "参数缺失：agentId 与 message 必填",
+        },
+      };
+    }
+    // 提案校验：目标须存在且运行中（防火墙前置——终态实例递话必拒）
+    const running = this.deps.orchestration.status(agentId).some((s) => s.state === "running");
+    if (!running) {
+      return {
+        terminate: true,
+        reason: `实例 ${agentId} 不存在或非运行中——递话提案拒绝（可让用户确认实例 id）`,
+      };
+    }
+    return {
+      kind: "send",
+      displayTarget: agentId,
+      message,
+      toolCall: { id: "", name: "propose_send" },
+      send: { agentId, message },
+    };
+  }
+
+  /** deliver_to_session 提案判定（驾驶舱批逻辑平移：参数 → 装配面 → 会话存在性）。 */
+  private async pendingActionOfDeliverToSession(
+    args: Record<string, unknown>,
+  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+    const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"].trim() : "";
+    const text = typeof args["text"] === "string" ? args["text"] : "";
+    if (sessionId === "" || text.trim() === "") {
+      return this.guideOutcome("参数缺失：sessionId 与 text 必填（sessionId 可先用 query_recent_work 查询）");
+    }
+    if (this.deps.sessions === undefined) {
+      return this.guideOutcome("会话投递面未装配——无法投递（请让用户在目标会话页直接输入）");
+    }
+    let exists: boolean;
+    try {
+      exists = await this.deps.sessions.sessionExists(sessionId);
+    } catch (err) {
+      return this.guideOutcome(`会话存在性校验失败：${(err as Error).message}`);
+    }
+    if (!exists) {
+      return this.guideOutcome(
+        `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`,
+      );
+    }
+    return {
+      kind: "deliverSession",
+      displayTarget: sessionId,
+      message: text,
+      toolCall: { id: "", name: "deliver_to_session" },
+      deliverSession: { sessionId, text },
+    };
+  }
+
+  /** create_session 提案判定（项目参数校验 → title 缺省生成）。 */
+  private async pendingActionOfCreateSession(
+    args: Record<string, unknown>,
+  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+    const titleRaw = typeof args["title"] === "string" ? args["title"].trim() : "";
+    const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
+    const guidance = this.checkProjectArg(project);
+    if (guidance !== undefined) {
+      return this.guideOutcome(guidance);
+    }
+    if (this.deps.sessions === undefined) {
+      return this.guideOutcome("会话创建面未装配——无法创建会话（请让用户在侧栏新建）");
+    }
+    const now = new Date(this.now());
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const title =
+      titleRaw !== ""
+        ? titleRaw
+        : `${project !== undefined ? `${project} ` : ""}新会话 ${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
+    return {
+      kind: "createSession",
+      displayTarget: "新会话",
+      message: `将创建会话「${title}」`,
+      toolCall: { id: "", name: "create_session" },
+      createSession: { title },
+    };
+  }
+
+  /** spawn_review_task 提案判定（review_type → 项目 → git 仓/.kg 索引三道校验）。 */
+  private async pendingActionOfSpawnReview(
+    args: Record<string, unknown>,
+  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+    const reviewTypeRaw = args["review_type"];
+    const project = typeof args["project"] === "string" ? args["project"].trim() : "";
+    const params =
+      typeof args["params"] === "object" && args["params"] !== null && !Array.isArray(args["params"])
+        ? (args["params"] as Record<string, unknown>)
+        : {};
+    if (reviewTypeRaw !== "code-review" && reviewTypeRaw !== "kg-review") {
+      return this.guideOutcome(
+        `review_type 非法：${JSON.stringify(reviewTypeRaw)}（应为 "code-review" 或 "kg-review"）`,
+      );
+    }
+    const reviewType = reviewTypeRaw;
+    if (project === "") {
+      return this.guideOutcome("参数缺失：project 必填（目标项目名）");
+    }
+    const root = this.deps.projects?.resolve(project);
+    if (root === undefined) {
+      const known = "（项目解析面未装配，无法校验项目存在性）";
+      return this.guideOutcome(
+        this.deps.projects === undefined
+          ? `无法校验项目 ${project}${known}`
+          : `项目 ${project} 不在当前 workspace——请与用户确认项目名（可用清单中的项目）`,
+      );
+    }
+    if (reviewType === "code-review" && this.deps.hasGitRepo !== undefined && !this.deps.hasGitRepo(root)) {
+      return this.guideOutcome(`项目 ${project} 无 git 仓（${root}）——没有可评审的代码，需先初始化仓库`);
+    }
+    if (reviewType === "kg-review" && this.deps.projects !== undefined && !this.deps.projects.hasIndex(root)) {
+      return this.guideOutcome(`项目 ${project} 未建知识图谱——需先 kg-bootstrap（我可以帮你创建该任务）`);
+    }
+    return {
+      kind: "spawnReview",
+      displayTarget: `${reviewType}@${project}`,
+      message: `将对项目 ${project} 发起 ${reviewType}`,
+      toolCall: { id: "", name: "spawn_review_task" },
+      spawnReview: { reviewType, project, params },
+    };
+  }
+
+  /** 引导式工具结果（toolResult 回灌 LLM 循环继续可转述/自纠——迁移前
+   *  toolErrorResult 的校验路径产物）。 */
+  private guideOutcome(guidance: string): { guidance: true; outcome: LoopToolOutcome } {
+    return { guidance: true, outcome: { kind: "result", text: capToolResultText(guidance), summary: summarizeForFrame(guidance) } };
   }
 
   // ── A2：情景快照组装 ────────────────────────────────
@@ -1066,173 +1401,6 @@ export class StewardService {
     return parts.join("\n");
   }
 
-  // ── A2：create_session / spawn_review_task 提案 ──────
-
-  /** create_session 提案（确认闸）：项目参数（若给）先做存在性校验；
-   *  title 缺省自动生成（含时间；项目名织入标题）。 */
-  private async proposeCreateSession(
-    callId: string,
-    name: string,
-    args: Record<string, unknown>,
-    thinking: StewardLlmThinking | undefined,
-    events: StewardAskEvents,
-    argsSummary: string,
-  ): Promise<StewardAskResultPayload | undefined> {
-    const titleRaw = typeof args["title"] === "string" ? args["title"].trim() : "";
-    const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
-    const guidance = this.checkProjectArg(project);
-    if (guidance !== undefined) {
-      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, guidance);
-    }
-    if (this.deps.sessions === undefined) {
-      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "会话创建面未装配——无法创建会话（请让用户在侧栏新建）");
-    }
-    const now = new Date(this.now());
-    const p2 = (n: number) => String(n).padStart(2, "0");
-    const title =
-      titleRaw !== ""
-        ? titleRaw
-        : `${project !== undefined ? `${project} ` : ""}新会话 ${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
-    this.actionSeq += 1;
-    const actionId = `steward-action-${this.actionSeq}`;
-    this.pending.set(actionId, {
-      kind: "createSession",
-      displayTarget: "新会话",
-      message: `将创建会话「${title}」`,
-      toolCall: { id: callId, name },
-      createSession: { title },
-    });
-    events.onToolStart?.(name, argsSummary);
-    await this.pushRecord({
-      kind: "assistant",
-      ...(thinking !== undefined ? { thinking } : {}),
-      toolCall: { id: callId, name, args },
-      at: this.now(),
-    });
-    return { status: "confirm_required", actionId, agentId: "新会话", message: `将创建会话「${title}」` };
-  }
-
-  /** deliver_to_session 提案（驾驶舱批；确认闸）：前置校验 session 存在性
-   *  （不存在 → 引导式 toolResult 回灌——提示 query_recent_work 重查，循环
-   *  继续不终断）；过闸后 confirm 执行 deliverToSession + 成功即广播
-   *  steward.navigate。确认卡全文透明：displayTarget = sessionId、message =
- *  投递原文。 */
-  private async proposeDeliverToSession(
-    callId: string,
-    name: string,
-    args: Record<string, unknown>,
-    thinking: StewardLlmThinking | undefined,
-    events: StewardAskEvents,
-    argsSummary: string,
-  ): Promise<StewardAskResultPayload | undefined> {
-    const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"].trim() : "";
-    const text = typeof args["text"] === "string" ? args["text"] : "";
-    if (sessionId === "" || text.trim() === "") {
-      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "参数缺失：sessionId 与 text 必填（sessionId 可先用 query_recent_work 查询）");
-    }
-    if (this.deps.sessions === undefined) {
-      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "会话投递面未装配——无法投递（请让用户在目标会话页直接输入）");
-    }
-    let exists: boolean;
-    try {
-      exists = await this.deps.sessions.sessionExists(sessionId);
-    } catch (err) {
-      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, `会话存在性校验失败：${(err as Error).message}`);
-    }
-    if (!exists) {
-      return this.toolErrorResult(
-        callId, name, args, thinking, events, argsSummary,
-        `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`,
-      );
-    }
-    this.actionSeq += 1;
-    const actionId = `steward-action-${this.actionSeq}`;
-    this.pending.set(actionId, {
-      kind: "deliverSession",
-      displayTarget: sessionId,
-      message: text,
-      toolCall: { id: callId, name },
-      deliverSession: { sessionId, text },
-    });
-    events.onToolStart?.(name, argsSummary);
-    await this.pushRecord({
-      kind: "assistant",
-      ...(thinking !== undefined ? { thinking } : {}),
-      toolCall: { id: callId, name, args },
-      at: this.now(),
-    });
-    // 确认闸：不执行、不入工具结果（同 propose_send——confirm 后执行结果回灌工作记忆）
-    return { status: "confirm_required", actionId, agentId: sessionId, message: text };
-  }
-
-  /** spawn_review_task 提案（前置校验 + 确认闸）：项目存在性 / git 仓 /
-   *  .kg 索引三道引导式校验（失败 toolResult 回灌 LLM 可转述追问）。 */
-  private async proposeSpawnReview(
-    callId: string,
-    name: string,
-    args: Record<string, unknown>,
-    thinking: StewardLlmThinking | undefined,
-    events: StewardAskEvents,
-    argsSummary: string,
-  ): Promise<StewardAskResultPayload | undefined> {
-    const reviewTypeRaw = args["review_type"];
-    const project = typeof args["project"] === "string" ? args["project"].trim() : "";
-    const params =
-      typeof args["params"] === "object" && args["params"] !== null && !Array.isArray(args["params"])
-        ? (args["params"] as Record<string, unknown>)
-        : {};
-    if (reviewTypeRaw !== "code-review" && reviewTypeRaw !== "kg-review") {
-      return this.toolErrorResult(
-        callId, name, args, thinking, events, argsSummary,
-        `review_type 非法：${JSON.stringify(reviewTypeRaw)}（应为 "code-review" 或 "kg-review"）`,
-      );
-    }
-    const reviewType = reviewTypeRaw;
-    if (project === "") {
-      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "参数缺失：project 必填（目标项目名）");
-    }
-    const root = this.deps.projects?.resolve(project);
-    if (root === undefined) {
-      const known = "（项目解析面未装配，无法校验项目存在性）";
-      return this.toolErrorResult(
-        callId, name, args, thinking, events, argsSummary,
-        this.deps.projects === undefined
-          ? `无法校验项目 ${project}${known}`
-          : `项目 ${project} 不在当前 workspace——请与用户确认项目名（可用清单中的项目）`,
-      );
-    }
-    if (reviewType === "code-review" && this.deps.hasGitRepo !== undefined && !this.deps.hasGitRepo(root)) {
-      return this.toolErrorResult(
-        callId, name, args, thinking, events, argsSummary,
-        `项目 ${project} 无 git 仓（${root}）——没有可评审的代码，需先初始化仓库`,
-      );
-    }
-    if (reviewType === "kg-review" && this.deps.projects !== undefined && !this.deps.projects.hasIndex(root)) {
-      return this.toolErrorResult(
-        callId, name, args, thinking, events, argsSummary,
-        `项目 ${project} 未建知识图谱——需先 kg-bootstrap（我可以帮你创建该任务）`,
-      );
-    }
-    this.actionSeq += 1;
-    const actionId = `steward-action-${this.actionSeq}`;
-    const message = `将对项目 ${project} 发起 ${reviewType}`;
-    this.pending.set(actionId, {
-      kind: "spawnReview",
-      displayTarget: `${reviewType}@${project}`,
-      message,
-      toolCall: { id: callId, name },
-      spawnReview: { reviewType, project, params },
-    });
-    events.onToolStart?.(name, argsSummary);
-    await this.pushRecord({
-      kind: "assistant",
-      ...(thinking !== undefined ? { thinking } : {}),
-      toolCall: { id: callId, name, args },
-      at: this.now(),
-    });
-    return { status: "confirm_required", actionId, agentId: `${reviewType}@${project}`, message };
-  }
-
   /** 项目参数校验（create_session 的可选 project；undefined = 无参数直过）。 */
   private checkProjectArg(project: string | undefined): string | undefined {
     if (project === undefined || this.deps.projects === undefined) return undefined;
@@ -1242,25 +1410,4 @@ export class StewardService {
     return undefined;
   }
 
-  /** 引导式工具错误（toolResult 回灌，LLM 循环继续可转述/自纠）。 */
-  private async toolErrorResult(
-    callId: string,
-    name: string,
-    args: Record<string, unknown>,
-    thinking: StewardLlmThinking | undefined,
-    events: StewardAskEvents,
-    argsSummary: string,
-    guidance: string,
-  ): Promise<undefined> {
-    events.onToolStart?.(name, argsSummary);
-    await this.pushRecord({
-      kind: "assistant",
-      ...(thinking !== undefined ? { thinking } : {}),
-      toolCall: { id: callId, name, args },
-      at: this.now(),
-    });
-    await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: capToolResultText(guidance), at: this.now() });
-    events.onToolEnd?.(name, summarizeForFrame(guidance));
-    return undefined;
-  }
 }

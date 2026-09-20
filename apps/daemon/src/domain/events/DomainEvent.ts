@@ -57,7 +57,20 @@ export type DomainEventType =
   // ── ask 提权申请族（permission_request 批；started 落盘为时间轴原位条目，
   // resolved 为收口帧——协议 interaction 通道 ask.started/ask.resolved）──
   | "ask.started"
-  | "ask.resolved";
+  | "ask.resolved"
+  // ── loop.* 自有 agent loop 族（helix-loop L0 批；只落盘不广播——管家
+  // LoopEngine 事件投影（instanceId=steward），行为历史追踪可见性；广播面
+  // L0 不接（EnvelopeMapper default→null），L3 替换 pi 主会话引擎时接 ──
+  | "loop.run.started"
+  | "loop.run.finished"
+  | "loop.run.error"
+  | "loop.turn.started"
+  | "loop.turn.finished"
+  | "loop.tool.started"
+  | "loop.tool.finished"
+  | "loop.run.paused"
+  | "loop.run.resumed"
+  | "loop.run.interrupted";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -344,4 +357,65 @@ export interface AskStartedPayload {
 export interface AskResolvedPayload {
   readonly askId: string;
   readonly outcome: "approved" | "denied" | "timeout";
+}
+
+// ── loop.* 自有 agent loop 族载荷（helix-loop L0 批；与协议 events/loop.ts
+// 帧同构对应——TR-AD-3 形状同构模式） ──────────────────
+
+/** loop.run.started 载荷（与协议 LoopRunStartedPayload 同构）。 */
+export interface LoopRunStartedDomainPayload {
+  readonly runId: string;
+  readonly promptSummary: string;
+}
+
+/** loop.run.finished 载荷（与协议 LoopRunFinishedPayload 同构）。 */
+export interface LoopRunFinishedDomainPayload {
+  readonly runId: string;
+  readonly resolution: "answer" | "confirm_required" | "resolved" | "roundLimit" | "error" | "aborted";
+}
+
+/** loop.run.error 载荷（与协议 LoopRunErrorPayload 同构）。 */
+export interface LoopRunErrorDomainPayload {
+  readonly runId: string;
+  readonly message: string;
+}
+
+/** loop.turn.started / loop.turn.finished 载荷（与协议同构）。 */
+export interface LoopTurnDomainPayload {
+  readonly runId: string;
+  readonly turn: number;
+  readonly stopReason?: "text" | "toolUse";
+  readonly tools?: readonly string[];
+}
+
+/** loop.tool.started / loop.tool.finished 载荷（与协议同构）。 */
+export interface LoopToolDomainPayload {
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly isError?: boolean;
+  readonly argsSummary?: string;
+  readonly resultSummary?: string;
+}
+
+/** loop.run.paused 载荷（与协议同构）。 */
+export interface LoopRunPausedDomainPayload {
+  readonly runId: string;
+  readonly pauseToken: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly argsSummary: string;
+}
+
+/** loop.run.resumed 载荷（与协议同构）。 */
+export interface LoopRunResumedDomainPayload {
+  readonly runId: string;
+  readonly pauseToken: string;
+  readonly decision: "approve" | "approveWith" | "reject" | "resolve";
+}
+
+/** loop.run.interrupted 载荷（与协议同构；L2 双工挂点）。 */
+export interface LoopRunInterruptedDomainPayload {
+  readonly runId: string;
+  readonly reason: string;
 }

@@ -1,6 +1,8 @@
 /**
  * PiStewardLlmAdapter —— StewardLlmPort 的 pi-ai 实现（driven；V2.5 文本管家批；
- * thinking 面 = A1 工作记忆批）。
+ * thinking 面 = A1 工作记忆批；helix-loop L0 批平移至 adapters/driven/loop/
+ * 并改造：signal 透传 + aborted 判别——本文件成为管家面 pi-ai 的执行点
+ * （设计 §2：adapters/driven/loop/ ← pi-ai 唯一 import 执行点）。
  *
  * 复用 daemon 现有 provider 体系（AD-11/AD-13 纪律，model-provider.ts 先例）：
  * - 模型解析：槽位字符串（RuntimeConfig steward.model）→ resolveModel
@@ -67,6 +69,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     request: StewardLlmRequest,
     onDelta?: (chunk: string) => void,
     onThinking?: (block: string) => void,
+    signal?: AbortSignal,
   ): Promise<StewardLlmResponse> {
     const modelStr = this.modelId;
     let model: Model<any>;
@@ -87,6 +90,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     const stream = this.deps.models.streamSimple(model, context, {
       apiKey,
       ...(model.reasoning === true ? { reasoning: STEWARD_THINKING_LEVEL } : {}),
+      ...(signal !== undefined ? { signal } : {}),
     });
     if (onDelta === undefined && onThinking === undefined) {
       const assistant = await stream.result();
@@ -135,8 +139,13 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
   }
 
   /** 终态消息 → port 响应判别（text 直答 / 首个 toolCall；thinking 块随
-   *  终态携出——signature 透传；错误统一 throw）。 */
+   *  终态携出——signature 透传；错误统一 throw；aborted 判别收口——
+   *  helix-loop L0：signal abort 后 partial 留在流内不入账，resolve
+   *  { kind: "aborted" } 而非 throw（duplex-truncation §6.3 port 面扩展）。 */
   private toResponse(assistant: AssistantMessage): StewardLlmResponse {
+    if (assistant.stopReason === "aborted") {
+      return { kind: "aborted" };
+    }
     if (assistant.stopReason === "error") {
       throw new Error(assistant.errorMessage ?? "管家模型返回错误（无错误详情）");
     }

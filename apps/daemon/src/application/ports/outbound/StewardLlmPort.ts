@@ -2,9 +2,10 @@
  * thinking 面 = A1 工作记忆批）。
  *
  * StewardService（application 层）的 LLM 面抽象：单轮补全（消息 + 工具面 →
- * 文本或首个工具调用）。实现体 = adapters/driven/steward/PiStewardLlmAdapter
+ * 文本或首个工具调用）。实现体 = adapters/driven/loop/PiStewardLlmAdapter
  * （pi-ai streamSimple + 模型目录解析 + auth.json key getter——复用 daemon
- * 现有 provider 体系，模型槽位独立配置，建议最强模型）。
+ * 现有 provider 体系，模型槽位独立配置，建议最强模型；helix-loop L0 批
+ * 平移至 driven/loop/——管家面 pi-ai 唯一执行点）。
  *
  * 端口面收敛为「首个工具调用」单步语义（服务层驱动循环——工具轮上限在
  * service 单点，adapter 无循环）；消息形状为 port 自有窄面（pi-ai 类型不越
@@ -62,7 +63,9 @@ export interface StewardLlmRequest {
 }
 
 /** 单轮补全响应：文本直答（可携本轮 thinking 块）/ 首个工具调用（服务层
- * 裁决执行或过闸；工具调用轮的 thinking 随后续 assistant 记录入史）。 */
+ * 裁决执行或过闸；工具调用轮的 thinking 随后续 assistant 记录入史）；
+ * aborted = signal 取代收口（helix-loop L0 批——duplex-truncation §6.3：
+ * aborted 不再混在 throw 里，调用方按门控语义分流）。 */
 export type StewardLlmResponse =
   | { readonly kind: "text"; readonly text: string; readonly thinking?: StewardLlmThinking }
   | {
@@ -71,7 +74,8 @@ export type StewardLlmResponse =
       readonly name: string;
       readonly args: Record<string, unknown>;
       readonly thinking?: StewardLlmThinking;
-    };
+    }
+  | { readonly kind: "aborted" };
 
 export interface StewardLlmPort {
   /** 模型槽位现值（"provider/model-id"；设置页显示/诊断面）。 */
@@ -85,5 +89,6 @@ export interface StewardLlmPort {
     request: StewardLlmRequest,
     onDelta?: (chunk: string) => void,
     onThinking?: (block: string) => void,
+    signal?: AbortSignal,
   ): Promise<StewardLlmResponse>;
 }

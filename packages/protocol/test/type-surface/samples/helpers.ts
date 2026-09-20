@@ -283,6 +283,37 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
       return `ask-resolved:${event.payload.askId}:${event.payload.outcome}`;
+    // helix-loop L0 批：loop 族 15 型帧窄化（穷尽性守护面）
+    case "loop.run.started":
+      return `loop-run-started:${event.payload.runId}:${event.payload.promptSummary}`;
+    case "loop.run.finished":
+      return `loop-run-finished:${event.payload.runId}:${event.payload.resolution}`;
+    case "loop.turn.started":
+      return `loop-turn-started:${event.payload.runId}:${event.payload.turn}`;
+    case "loop.turn.finished":
+      return `loop-turn-finished:${event.payload.runId}:${event.payload.turn}:${event.payload.stopReason}:${event.payload.tools.join(",")}`;
+    case "loop.message.started":
+      return `loop-message-started:${event.payload.runId}:${event.payload.turn}`;
+    case "loop.message.delta":
+      return `loop-message-delta:${event.payload.runId}:${event.payload.turn}:${event.payload.delta}`;
+    case "loop.message.finished":
+      return `loop-message-finished:${event.payload.runId}:${event.payload.turn}:${event.payload.stopReason}`;
+    case "loop.tool.started":
+      return `loop-tool-started:${event.payload.runId}:${event.payload.toolName}:${event.payload.argsSummary}`;
+    case "loop.tool.progress":
+      return `loop-tool-progress:${event.payload.runId}:${event.payload.partial}`;
+    case "loop.tool.finished":
+      return `loop-tool-finished:${event.payload.runId}:${event.payload.toolName}:${String(event.payload.isError)}`;
+    case "loop.run.error":
+      return `loop-run-error:${event.payload.runId}:${event.payload.message}`;
+    case "loop.run.paused":
+      return `loop-run-paused:${event.payload.runId}:${event.payload.pauseToken}:${event.payload.toolName}`;
+    case "loop.run.resumed":
+      return `loop-run-resumed:${event.payload.runId}:${event.payload.pauseToken}:${event.payload.decision}`;
+    case "loop.run.interrupted":
+      return `loop-run-interrupted:${event.payload.runId}:${event.payload.reason}`;
+    case "loop.duplex.wake":
+      return `loop-duplex-wake:${event.payload.source}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;

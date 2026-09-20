@@ -151,6 +151,23 @@ import type {
   StewardThinkingEvent,
   StewardNavigateEvent,
 } from "./steward";
+import type {
+  LoopRunStartedEvent,
+  LoopRunFinishedEvent,
+  LoopTurnStartedEvent,
+  LoopTurnFinishedEvent,
+  LoopMessageStartedEvent,
+  LoopMessageDeltaEvent,
+  LoopMessageFinishedEvent,
+  LoopToolStartedEvent,
+  LoopToolProgressEvent,
+  LoopToolFinishedEvent,
+  LoopRunErrorEvent,
+  LoopRunPausedEvent,
+  LoopRunResumedEvent,
+  LoopRunInterruptedEvent,
+  LoopDuplexWakeEvent,
+} from "./loop";
 
 export * from "./notification";
 export * from "./session";
@@ -171,6 +188,7 @@ export * from "./interaction";
 export * from "./stt";
 export * from "./voice";
 export * from "./steward";
+export * from "./loop";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -284,6 +302,21 @@ export type EventEnvelope =
   | StewardToolEvent
   | StewardThinkingEvent
   | StewardNavigateEvent
+  | LoopRunStartedEvent
+  | LoopRunFinishedEvent
+  | LoopTurnStartedEvent
+  | LoopTurnFinishedEvent
+  | LoopMessageStartedEvent
+  | LoopMessageDeltaEvent
+  | LoopMessageFinishedEvent
+  | LoopToolStartedEvent
+  | LoopToolProgressEvent
+  | LoopToolFinishedEvent
+  | LoopRunErrorEvent
+  | LoopRunPausedEvent
+  | LoopRunResumedEvent
+  | LoopRunInterruptedEvent
+  | LoopDuplexWakeEvent
   | AskStartedEvent
   | AskResolvedEvent;
 
@@ -406,6 +439,26 @@ export const EVENT_TYPES = [
   "stt.stream.started",
   "stt.stream.interim",
   "stt.stream.final",
+  // helix-loop L0 批（loop 族 15 型）：自有 agent loop 事件族——pi 11 型
+  // 同构 + 4 扩展（run_paused/run_resumed/run_interrupted/duplex_wake；后
+  // 两者 L0 只定义协议不实现触发）。L0 消费面 = domain_events 投影（追踪
+  // 可见性），广播面不接（屏幕通道 steward.* 帧覆盖）；L3 替换 pi 主会话
+  // 引擎时 shell 消费面按本协议零改动。
+  "loop.run.started",
+  "loop.run.finished",
+  "loop.turn.started",
+  "loop.turn.finished",
+  "loop.message.started",
+  "loop.message.delta",
+  "loop.message.finished",
+  "loop.tool.started",
+  "loop.tool.progress",
+  "loop.tool.finished",
+  "loop.run.error",
+  "loop.run.paused",
+  "loop.run.resumed",
+  "loop.run.interrupted",
+  "loop.duplex.wake",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -529,4 +582,19 @@ export const EVENT_CHANNELS = {
   "steward.tool": "steward",
   "steward.thinking": "steward",
   "steward.navigate": "steward",
+  "loop.run.started": "loop",
+  "loop.run.finished": "loop",
+  "loop.turn.started": "loop",
+  "loop.turn.finished": "loop",
+  "loop.message.started": "loop",
+  "loop.message.delta": "loop",
+  "loop.message.finished": "loop",
+  "loop.tool.started": "loop",
+  "loop.tool.progress": "loop",
+  "loop.tool.finished": "loop",
+  "loop.run.error": "loop",
+  "loop.run.paused": "loop",
+  "loop.run.resumed": "loop",
+  "loop.run.interrupted": "loop",
+  "loop.duplex.wake": "loop",
 } as const satisfies Record<EventType, Channel>;
