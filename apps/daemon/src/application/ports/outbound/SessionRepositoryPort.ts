@@ -178,6 +178,9 @@ export interface SessionMetadataRow {
   readonly updatedAt: string;
   /** 首条用户消息全文（title 推导源）；无用户消息的持久化会话为 null。 */
   readonly firstUserText: string | null;
+  /** 条目量级（json_array_length；A2 管家 query_recent_work 消息量级，
+   *  additive——旧查询面/替身缺省 null）。 */
+  readonly entryCount?: number | null;
 }
 
 /** 领域事件四维过滤查询（trace 数据面；v0 无对外 API——内部能力 + 测试证明）。 */
