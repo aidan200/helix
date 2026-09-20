@@ -65,6 +65,13 @@ export interface ConnState {
   authed: boolean;
   /** 认证通过后构造的协议帧发送端（EventStream 注册键）。 */
   sender: FrameSender | null;
+  /**
+   * daemon 主动 close 标记（快照体量批日志增强）：daemon 侧 close 点
+   *（背压/握手拒绝/握手超时/坏帧）在 close 前置位；onClose 据此区分
+   * 「daemon: <原因>」与「client」——修复前「ws close remote=...」不区分
+   * 发起方，重连循环排障无从判向。
+   */
+  daemonClose?: string;
 }
 
 /** per-session 快照盖章（语义 = WsServerAdapter.sessionStamp：view 同源组装，禁 getStatus 串台）。 */
