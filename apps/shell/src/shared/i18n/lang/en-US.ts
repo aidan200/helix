@@ -708,6 +708,19 @@ export const enUS = {
     skillContentView: "View",
     skillContentHide: "Collapse",
     skillContentLoading: "Loading skill content",
+    // Steward citizenship batch: resident-services group + steward read-only archive card
+    groupResident: "Resident services",
+    stewardTitle: "Steward",
+    stewardBadge: "Resident",
+    stewardResidency: "Embedded resident · WS direct · Not configurable · Not derivable",
+    stewardNote: "A first-class embedded resident member of the daemon (not a SubAgent profile), with no on/off switch. This card is a read-only observation surface; its prompt and tool face cannot be edited here.",
+    stewardModelUnset: "Not set (adapter default model)",
+    stewardModelNote: "Change it in Settings → Steward",
+    stewardPromptLabel: "System prompt",
+    stewardPromptView: "View",
+    stewardPromptHide: "Collapse",
+    stewardLoading: "Loading steward profile",
+    stewardErrorTitle: "Failed to load steward profile",
     // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
     // 派生两块 = worker 生效技能集）
     // P-2 thinking level field (T3: on/off switch — off = empty slot by default, on writes the median level)

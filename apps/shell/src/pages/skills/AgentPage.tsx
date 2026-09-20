@@ -38,6 +38,7 @@ import type {
   AgentBasePromptGetResultPayload,
   AgentSkillContentGetResultPayload,
   AgentConfigListResultPayload,
+  AgentStewardProfileGetResultPayload,
 } from "@helix/protocol";
 import { RotateCw, TriangleAlert } from "lucide-react";
 import { useSession } from "@/entities/session/SessionContext";
@@ -55,10 +56,12 @@ import {
   selectAgentPageView,
   type AgentId,
   type AgentKind,
+  type AgentSelection,
   type AgentWriteResource,
   type SystemAgentKind,
 } from "./model/agent-config-model";
 import ProfileCard, { agentTitleOf } from "./ui/ProfileCard";
+import StewardCard from "./ui/StewardCard";
 
 /** 写面载荷（resourceType 收窄于协议五值，页面只发这五类）。 */
 type WriteResource = AgentWriteResource;
@@ -116,19 +119,23 @@ function BasePromptSection({
   );
 }
 
-/** 左栏列表条目（可配置/系统派生两组共用；只读组带只读徽标）。 */
+/** 左栏列表条目（可配置/系统派生/常驻服务三组共用；只读组带徽标——
+ *  系统派生 = 只读，管家 = 常驻，文案经 badgeLabel 覆写）。 */
 function AgentEntry({
   kind,
   title,
   readOnly,
+  badgeLabel,
   selected,
   onSelect,
 }: {
-  kind: AgentId;
+  kind: AgentSelection;
   title: string;
   readOnly: boolean;
+  /** 徽标文案覆写（缺省 = 只读；管家 = 常驻——语义同源：写面恒无）。 */
+  badgeLabel?: string;
   selected: boolean;
-  onSelect: (id: AgentId) => void;
+  onSelect: (id: AgentSelection) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -151,7 +158,7 @@ function AgentEntry({
         <span className="ag-entry-name">{title}</span>
         {readOnly && (
           <span className="hud-badge hud-badge-off" data-ro-badge>
-            {t("agents.roBadge")}
+            {badgeLabel ?? t("agents.roBadge")}
           </span>
         )}
       </div>
@@ -172,6 +179,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     sendAgentConfigSetEnabled,
     sendAgentBasePromptGet,
     sendAgentSkillContentGet,
+    sendAgentStewardProfileGet,
     subscribeAgentConfigFrames,
     subscribeMcpFrames,
   } = useSession();
@@ -227,6 +235,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           // skill-content 批：回执带 name 回显——定向归位缓存
           const p = (e as { payload: AgentSkillContentGetResultPayload }).payload;
           dispatch({ type: "skill-content-result", name: p.name, content: p.content });
+        } else if (e.type === "agent.steward_profile.get.result") {
+          // 管家公民权批：管家只读档案回执——归位缓存（选中 steward 即拉）
+          const p = (e as { payload: AgentStewardProfileGetResultPayload }).payload;
+          dispatch({ type: "steward-profile-result", profile: p });
         } else if (e.type === "connection.error") {
           // F5 批 #2：set_enabled 写面 daemon 失败回执（走 connection.error 而非
           // *.result）——定向清 lastWriteRef 在途 + err toast（单飞门控：非本页
@@ -294,8 +306,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       for (const name of st.skillContentPending) {
         if (st.skillContents[name] === undefined) sendAgentSkillContentGet({ name });
       }
+      // 管家公民权批：档案在途同语义补发（回执随断连丢失时 pending 永挂）
+      if (st.stewardProfilePending) sendAgentStewardProfileGet();
     }
-  }, [conn, runList, requestModelConfig, requestAuthList, sendAgentBasePromptGet, sendAgentSkillContentGet]);
+  }, [conn, runList, requestModelConfig, requestAuthList, sendAgentBasePromptGet, sendAgentSkillContentGet, sendAgentStewardProfileGet]);
 
   /** 写面单飞：pending 非空不再发（结果帧无回显，同刻至多一条在途）。 */
   const onToggle = useCallback(
@@ -326,9 +340,32 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     [onToggle],
   );
 
-  const onSelectAgent = useCallback((id: AgentId) => {
-    dispatch({ type: "select-agent", id });
-  }, []);
+  /** master-detail 选中（含管家条目）：选中 steward 即拉档案——在途防重复
+   *  发；缓存后重选静默重拉（模型槽位经设置页可变，读面保持新鲜；旧数据
+   *  保持渲染不闪骨架）。send 失败 → 错误态 + 重试入口。 */
+  const onSelectAgent = useCallback(
+    (id: AgentSelection) => {
+      dispatch({ type: "select-agent", id });
+      if (id === "steward" && !stateRef.current.stewardProfilePending) {
+        if (sendAgentStewardProfileGet()) {
+          dispatch({ type: "steward-profile-started" });
+        } else {
+          dispatch({ type: "steward-profile-failed", reason: t("agents.notConnected") });
+        }
+      }
+    },
+    [sendAgentStewardProfileGet, t],
+  );
+
+  /** 管家档案拉取失败重试（send false 收口后的重发入口）。 */
+  const onStewardRetry = useCallback(() => {
+    if (stateRef.current.stewardProfilePending) return;
+    if (sendAgentStewardProfileGet()) {
+      dispatch({ type: "steward-profile-started" });
+    } else {
+      dispatch({ type: "steward-profile-failed", reason: t("agents.notConnected") });
+    }
+  }, [sendAgentStewardProfileGet, t]);
 
   /** base prompt 批：折叠开/关——未缓存先懒查询（在途防重复发；send 失败
    *  不开区），已缓存本地开/关（静态数据拉一次常驻）。 */
@@ -370,9 +407,9 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
   const catalog = topology.modelConfig.catalog?.models ?? null;
   const listPending = view === "idle" || view === "loading";
 
-  /** base prompt 批：查看区节点（四 kind 共用）——经 basePrompt 槽传入详情卡，
-   *  渲染于工具组正上方（系统派生 kind 同可观察）。 */
-  const basePromptSection = state.selected !== null ? (
+  /** base prompt 批：查看区节点（五 kind 共用——管家档案卡不携带，kind 卡
+   *  分支内渲染）——经 basePrompt 槽传入详情卡，渲染于工具组正上方。 */
+  const basePromptSection = state.selected !== null && state.selected !== "steward" ? (
     <BasePromptSection
       kind={state.selected}
       text={state.basePrompts[state.selected]}
@@ -428,6 +465,19 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   onSelect={onSelectAgent}
                 />
               ))}
+              {/* 管家公民权批：第三分组「常驻服务」——daemon 内嵌常驻成员（非
+                  SubAgent profile），档案卡只读观测 */}
+              <div className="ag-group-head" data-agent-group="resident">
+                {t("agents.groupResident")}
+              </div>
+              <AgentEntry
+                kind="steward"
+                title={t("agents.stewardTitle")}
+                readOnly
+                badgeLabel={t("agents.stewardBadge")}
+                selected={state.selected === "steward"}
+                onSelect={onSelectAgent}
+              />
             </>
           )}
         </div>
@@ -462,6 +512,29 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
               <div className="ag-cp-sub">{t("agents.noSelectSub")}</div>
             </div>
           </div>
+        ) : state.selected === "steward" ? (
+          /* 管家档案卡（只读观测面；拉取中/失败态卡内呈现，重试入口同页） */
+          state.stewardProfileError !== null && state.stewardProfile === null ? (
+            <div className="ag-center">
+              <div className="ag-error" role="alert" data-steward-error>
+                <div className="err-icon">
+                  <TriangleAlert size={20} strokeWidth={1.75} />
+                </div>
+                <p className="err-t">{t("agents.stewardErrorTitle")}</p>
+                <p className="err-r">{state.stewardProfileError}</p>
+                <button type="button" className="hud-btn hud-btn-danger sm" onClick={onStewardRetry}>
+                  <RotateCw size={14} strokeWidth={1.75} />
+                  {t("agents.retry")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="ag-pane-scroll">
+              <div className="ag-pane-inner">
+                <StewardCard profile={state.stewardProfile} />
+              </div>
+            </div>
+          )
         ) : (
           <div className="ag-pane-scroll">
             <div className="ag-pane-inner">

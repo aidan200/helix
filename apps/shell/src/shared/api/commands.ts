@@ -23,6 +23,7 @@ import type {
   AgentSkillContentGetPayload,
   AgentSkillCreateCommand,
   AgentSkillCreatePayload,
+  AgentStewardProfileGetCommand,
   AuthDeleteKeyCommand,
   AuthListCommand,
   AuthSetKeyCommand,
@@ -379,6 +380,13 @@ export function agentSkillContentGetCommand(payload: AgentSkillContentGetPayload
  *  入参 = SKILL.md 全文统一形态；回执 = agent.skill.create.result 点对点）。 */
 export function agentSkillCreateCommand(payload: AgentSkillCreatePayload): AgentSkillCreateCommand {
   return { v: PROTOCOL_VERSION, type: "agent.skill.create", payload };
+}
+
+/** agent.steward_profile.get：管家只读档案读面（管家公民权批；全局命令；
+ *  零载荷；回执 = agent.steward_profile.get.result 点对点——prompt 全文/
+ *  工具清单/模型槽位/kindLabel）。 */
+export function agentStewardProfileGetCommand(): AgentStewardProfileGetCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.steward_profile.get", payload: {} };
 }
 
 /** web.status：CDP 连接状态读面（全局命令；回执 = web.status.result 点对点）。 */

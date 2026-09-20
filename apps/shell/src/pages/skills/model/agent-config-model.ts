@@ -16,7 +16,7 @@
  *   全清（changed 广播 → 重拉收口），skipped 回执定向清。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
-import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/protocol";
+import type { AgentConfigProfileBlock, AgentConfigSystemBlock, AgentStewardProfileGetResultPayload } from "@helix/protocol";
 
 /** profile kind 维（与协议 profileKind 字面量同源；task-worker 已撤——可配置双 kind）。 */
 export type AgentKind = "main-session" | "subagent-worker";
@@ -31,6 +31,13 @@ export type WritableKind = AgentKind | SystemAgentKind;
 
 /** 列表/详情统一 id（master-detail 选中维）。 */
 export type AgentId = AgentKind | SystemAgentKind;
+
+/** 管家档案选中维（管家公民权批）：左栏第三分组「常驻服务」条目——管家
+ *  不进 profile 注册表（daemon 内嵌常驻服务），独立于 AgentId 命名空间。 */
+export type StewardId = "steward";
+
+/** master-detail 选中全集（五 kind + 常驻服务管家条目）。 */
+export type AgentSelection = AgentId | StewardId;
 
 /** 可配置双 kind 固定卡序（协议 list.result 缺省块序同构）。 */
 export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker"];
@@ -52,7 +59,15 @@ export interface AgentPageState {
   /** 只读系统派生块（agent-roster 批；未携带 = null → 详情骨架态）。 */
   system: Readonly<Record<SystemAgentKind, AgentConfigSystemBlock | null>>;
   /** master-detail 选中（默认 main-session——brief ④；select-agent null 可达空态为防御位；重拉不清——选中是视图态非数据态）。 */
-  selected: AgentId | null;
+  selected: AgentSelection | null;
+  /** 管家档案缓存（管家公民权批）：null = 未拉取（骨架态）。选中 steward
+   *  即拉——含缓存后重选静默重拉（模型槽位经设置页可变，读面保持新鲜；
+   *  prompt/工具面静态）。 */
+  stewardProfile: AgentStewardProfileGetResultPayload | null;
+  /** 管家档案在途（防重复发 + loading 态）。 */
+  stewardProfilePending: boolean;
+  /** 管家档案拉取失败原因（send false 时显示 + 重试；null = 无错误）。 */
+  stewardProfileError: string | null;
   /** 写面在途行 key 集（单飞：结果帧无回显，页面侧保证同刻至多一条） */
   pending: ReadonlySet<string>;
   /**
@@ -105,6 +120,9 @@ export function createAgentPageState(): AgentPageState {
     skillContents: {},
     skillContentPending: new Set<string>(),
     skillContentOpen: null,
+    stewardProfile: null,
+    stewardProfilePending: false,
+    stewardProfileError: null,
   };
 }
 
@@ -112,7 +130,7 @@ export type AgentPageAction =
   | { type: "list-started" }
   | { type: "list-result"; profiles: readonly AgentConfigProfileBlock[]; system?: readonly AgentConfigSystemBlock[] }
   | { type: "list-failed"; reason: string }
-  | { type: "select-agent"; id: AgentId | null }
+  | { type: "select-agent"; id: AgentSelection | null }
   | { type: "toggle-started"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
   | { type: "toggle-settled"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
   | { type: "base-prompt-started"; kind: AgentId }
@@ -120,7 +138,11 @@ export type AgentPageAction =
   | { type: "base-prompt-toggle"; kind: AgentId }
   | { type: "skill-content-started"; name: string }
   | { type: "skill-content-result"; name: string; content: string }
-  | { type: "skill-content-toggle"; name: string };
+  | { type: "skill-content-toggle"; name: string }
+  // 管家公民权批：档案读面三动作（started/result/failed）
+  | { type: "steward-profile-started" }
+  | { type: "steward-profile-result"; profile: AgentStewardProfileGetResultPayload }
+  | { type: "steward-profile-failed"; reason: string };
 
 function hasData(s: AgentPageState): boolean {
   return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null;
@@ -192,6 +214,12 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
     case "skill-content-toggle":
       // 已缓存的折叠开/关（恰一展开；点同一行 = 收起）
       return { ...s, skillContentOpen: s.skillContentOpen === action.name ? null : action.name };
+    case "steward-profile-started":
+      return { ...s, stewardProfilePending: true, stewardProfileError: null };
+    case "steward-profile-result":
+      return { ...s, stewardProfilePending: false, stewardProfileError: null, stewardProfile: action.profile };
+    case "steward-profile-failed":
+      return { ...s, stewardProfilePending: false, stewardProfileError: action.reason };
   }
 }
 

@@ -33,6 +33,9 @@ export const AGENT_CONFIG_EVENT_TYPES = [
   "agent.skill_content.get.result",
   // skills 添加批：用户级技能创建回执（拓扑级直通，真消费归页面查询链同款）
   "agent.skill.create.result",
+  // 管家公民权批：管家只读档案回执（点对点，真消费归 AgentPage 查询链——
+  // subscribeAgentConfigFrames 转发，拓扑零写入同款直通语义）
+  "agent.steward_profile.get.result",
 ] as const;
 
 /** 是否 agent.config 配置族事件（dispatcher 路由前置判定）。 */

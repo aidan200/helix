@@ -713,6 +713,19 @@ export const zhCN = {
     skillContentView: "查看",
     skillContentHide: "收起",
     skillContentLoading: "正在读取 skill 正文",
+    // 管家公民权批：常驻服务分组 + 管家只读档案卡（观测透明度对齐其他 kind）
+    groupResident: "常驻服务",
+    stewardTitle: "管家",
+    stewardBadge: "常驻",
+    stewardResidency: "内嵌常驻 · WS 直通 · 不可配置 · 不可派生",
+    stewardNote: "daemon 内嵌一等常驻成员（非 SubAgent profile），无启停开关；本卡为只读观测面，提示词与工具面不可在此修改。",
+    stewardModelUnset: "未设置（使用适配器默认模型）",
+    stewardModelNote: "在设置页语音管家段修改",
+    stewardPromptLabel: "系统提示词",
+    stewardPromptView: "查看",
+    stewardPromptHide: "收起",
+    stewardLoading: "正在读取管家档案",
+    stewardErrorTitle: "管家档案读取失败",
     // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
     // 派生两块 = worker 生效技能集）
     // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
