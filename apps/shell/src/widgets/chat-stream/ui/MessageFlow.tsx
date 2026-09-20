@@ -26,6 +26,9 @@
  * P-1-draft-empty 独立草稿空态组件退役。
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
+ * （生成中占位卡已退役：实时链工具批间隙/注入启动窗口与快照恢复同条件
+ * 派生，驻滚动流的挂载-卸载循环即底部抖动源；生成中反馈由 ChatStatusBar
+ * 右槽 WorkPhaseDot working 段承担——滚动容器外、高度恒定零布局参与。）
  */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, Fragment, type ReactNode } from "react";
 import type { EntryDto, ErrorEntryDto, UsageDto } from "@helix/protocol";
@@ -44,7 +47,6 @@ import EngineErrorCard, { TurnErrorGroup } from "./EngineErrorCard";
 import AskCard from "./AskCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
-import GeneratingPlaceholder from "./GeneratingPlaceholder";
 
 function EntryView({
   entry,
@@ -192,15 +194,6 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
 
   // 主线 thinking 流式槽位（T10c：键 = 快照习得的主实例 id；局部常量供窄化）
   const mainThinkingStream = state.thinkingStreams[state.mainInstanceId];
-  // 生成中占位卡（切回/刷新仍生成的会话）：快照 agentState 活跃但流式槽全空
-  // （streaming 不落盘、切走即弃，快照重建 streaming=null）——与 streaming
-  // 气泡/ThinkingLiveView 互斥派生，message.completed 到达后自然让位转正。
-  const showGeneratingPlaceholder =
-    state.view === "ready" &&
-    state.agentState !== "idle" &&
-    state.agentState !== "stopped" &&
-    state.streaming === null &&
-    mainThinkingStream === undefined;
 
   useLayoutEffect(() => {
     const el = flowRef.current;
@@ -247,7 +240,6 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
     state.thinkingStreams[state.mainInstanceId],
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
     state.pendingAsk !== null, // permission_request 批：申请卡出入视口同样贴底
-    showGeneratingPlaceholder, // 占位卡出入（agentState 切换不吃条目变化时）同样贴底
   ]);
 
   // H-2：滚动到顶自动加载更早已退役（三重误触发 + e2e 竞态源头），加载更早
@@ -363,8 +355,6 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
               streamingText={state.streaming.text}
             />
           )}
-          {/* 生成中占位卡：与上两块互斥（条件派生）；错误卡/重试卡独立共存 */}
-          {showGeneratingPlaceholder && <GeneratingPlaceholder />}
           {/* P2 ⑦ 网络重试批：退避等待状态卡（瞬态；流恢复即清，最终失败换错误卡） */}
           <NetworkRetryCard />
           {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}

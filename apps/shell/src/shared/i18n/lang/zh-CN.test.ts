@@ -85,7 +85,6 @@ const REQUIRED_KEYS = [
   "chat.sa.spawn.toastSub",
   "chat.think.streaming",
   "chat.think.done",
-  "chat.think.generating",
   "chat.compact.bar",
   "chat.compact.note",
   "chat.stats.badge",
