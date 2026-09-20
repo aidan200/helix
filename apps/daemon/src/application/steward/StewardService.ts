@@ -97,6 +97,25 @@ export const STEWARD_MODEL_KEY = "steward.model";
 /** 工具/思考过程帧摘要截断上限（steward.tool 帧面——屏幕折叠行密度）。 */
 export const PROCESS_SUMMARY_MAX_CHARS = 200;
 
+/** ── A2 批：动态情景快照段 ───────────────────────────────
+ *  内容预算（字符级硬顶；中文 ~600 字符 ≈ 400-600 token，满足 brief
+ *  ≤600 token 口径）：当前时间一行 + 活跃 agent/会话计数两行 + 最近
+ *  1-2 个会话主题一行。 */
+export const CONTEXT_SNAPSHOT_MAX_CHARS = 600;
+
+/** 快照段内会话主题标题截断上限（标题级——不进正文）。 */
+export const SNAPSHOT_TITLE_MAX_CHARS = 16;
+
+/** 快照段「最近会话」行数上限。 */
+export const SNAPSHOT_RECENT_SESSIONS = 2;
+
+/** query_recent_work 单类行数上限（体量自律：A1-hotfix 4000 护栏之外再
+ *  自律——多行时尾部「另有 N 个未列出」收口）。 */
+export const RECENT_WORK_LINES_MAX = 8;
+
+/** query_recent_work 会话主题/任务标题截断上限（每条一行紧凑口径）。 */
+export const RECENT_WORK_TITLE_MAX_CHARS = 20;
+
 /**
  * 系统提示词骨架（§2 三分法 + 拒绝清单——任务 brief 口径）。
  * 导出为常量供测试断言（prompt 骨架即行为契约的一部分）。
@@ -176,6 +195,92 @@ function summarizeForFrame(text: string): string {
 /** 字段级截断（紧凑投影用；超限截断加省略号）。 */
 function capChars(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
+}
+
+/** ── A2：时间档窗口（本地时区；纯函数导出供单测） ───────── */
+export type TimeRange = "today" | "yesterday" | "this_week" | "last_week";
+
+const TIME_RANGE_LABELS: Record<TimeRange, string> = {
+  today: "今天",
+  yesterday: "昨天",
+  this_week: "本周",
+  last_week: "上周",
+};
+
+/** 本地时区某时刻的当日零点。 */
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 本地时区所在周的周一零点（ISO 周：周一为首日）。 */
+function startOfWeek(ms: number): number {
+  const d = new Date(startOfDay(ms));
+  const day = d.getDay(); // 0=周日
+  d.setDate(d.getDate() - ((day + 6) % 7));
+  return d.getTime();
+}
+
+/** 时间档 → [since, until) 毫秒窗口（today/this_week 右端 = now 开区间上含；
+ *  label = 枚举原文（LLM 参数面机械口径），中文展示标签见 zhLabel）。 */
+export function timeRangeWindow(range: TimeRange, nowMs: number): { sinceMs: number; untilMs: number; label: string; zhLabel: string } {
+  const today0 = startOfDay(nowMs);
+  const thisWeek0 = startOfWeek(nowMs);
+  switch (range) {
+    case "today":
+      return { sinceMs: today0, untilMs: nowMs, label: "today", zhLabel: TIME_RANGE_LABELS.today };
+    case "yesterday":
+      return { sinceMs: today0 - 86_400_000, untilMs: today0, label: "yesterday", zhLabel: TIME_RANGE_LABELS.yesterday };
+    case "this_week":
+      return { sinceMs: thisWeek0, untilMs: nowMs, label: "this_week", zhLabel: TIME_RANGE_LABELS.this_week };
+    case "last_week":
+      return { sinceMs: thisWeek0 - 7 * 86_400_000, untilMs: thisWeek0, label: "last_week", zhLabel: TIME_RANGE_LABELS.last_week };
+  }
+}
+
+/** 查询行时间格式化（MM-DD HH:mm；纯函数）。 */
+function fmtWhen(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "?";
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${p2(t.getMonth() + 1)}-${p2(t.getDate())} ${p2(t.getHours())}:${p2(t.getMinutes())}`;
+}
+
+const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
+
+/** 快照段行文（纯函数导出供单测）：<context_snapshot> XML 包裹的情景快照。
+ *  行序：当前时间 → 活跃 agent → 会话计数 → 最近 1-2 个会话主题。
+ *  硬预算：整体字符数 ≤ CONTEXT_SNAPSHOT_MAX_CHARS（防御性截断）。 */
+export function buildContextSnapshot(input: {
+  nowMs: number;
+  activeAgents: number;
+  totalAgents: number;
+  sessionCount: number;
+  recentSessions: readonly { title: string; updatedAt: string }[];
+}): string {
+  const now = new Date(input.nowMs);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const lines: string[] = [
+    `当前时间：${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}（${WEEKDAY_NAMES[now.getDay()]}）${p2(now.getHours())}:${p2(now.getMinutes())}`,
+    `活跃 agent：${input.activeAgents}${input.totalAgents > input.activeAgents ? `（在册 ${input.totalAgents}）` : ""}`,
+    `会话：${input.sessionCount} 个`,
+  ];
+  const recent = input.recentSessions.slice(0, SNAPSHOT_RECENT_SESSIONS);
+  if (recent.length > 0) {
+    lines.push(
+      `最近会话：${recent.map((s) => `「${capChars(s.title, SNAPSHOT_TITLE_MAX_CHARS)}」（${fmtWhen(s.updatedAt).slice(0, 5)}）`).join("、")}`,
+    );
+  }
+  const body = lines.join("\n");
+  const budget = CONTEXT_SNAPSHOT_MAX_CHARS - "<context_snapshot>\n".length - "</context_snapshot>".length;
+  return `<context_snapshot>\n${capChars(body, budget)}\n</context_snapshot>`;
+}
+
+/** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段；
+ *  快照缺席（感知查询失败静默降级）= 原样静态段。 */
+export function assembleStewardSystemPrompt(snapshot: string | undefined): string {
+  return snapshot === undefined ? STEWARD_SYSTEM_PROMPT : `${STEWARD_SYSTEM_PROMPT}\n\n${snapshot}`;
 }
 
 /** 工具结果送 LLM 前体量护栏（A1-hotfix 纯函数，导出供单测）：超
@@ -274,6 +379,36 @@ export interface StewardTasksSource {
   }[];
 }
 
+/** A2：会话元数据行（session_state 轻量读面——SessionRepositoryPort
+ *  .listSessionMetadata 同形，additive entryCount 消息量级）。 */
+export interface StewardSessionMetaRow {
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** 首条用户消息全文（title 推导源）；无用户消息的持久化会话为 null。 */
+  readonly firstUserText: string | null;
+  /** 消息条目量级（json_array_length(entries)；查询面不可得 = null）。 */
+  readonly entryCount: number | null;
+}
+
+/** A2：L1 感知面（情景快照 + query_recent_work 数据源；快照降级容忍缺席）。 */
+export interface StewardSessionsSource {
+  /** 会话元数据轻量读面（updated_at 倒序）。 */
+  listSessionMetadata(): Promise<readonly StewardSessionMetaRow[]>;
+  /** 会话创建（SessionDirectoryPort.startDraftSession 同款窄面——与 shell
+   *  新建会话同一条服务路径；text = 首条消息文本兼 title 推导源）。 */
+  startDraftSession(text: string, mode?: string): Promise<{ sessionId: string }>;
+}
+
+/** A2：kg 项目解析面（KgProjectService 同款窄接口——spawn_review_task
+ *  前置校验：项目存在性 + .kg 索引判定）。 */
+export interface StewardProjectsSource {
+  /** 项目名/绝对路径 → projectRoot；不在 workspace 扫描全集 = undefined。 */
+  resolve(project: string): string | undefined;
+  /** projectRoot 有 .helix-kg/kg.db（读面绝不新建库）。 */
+  hasIndex(projectRoot: string): boolean;
+}
+
 export interface StewardServiceDeps {
   readonly llm: StewardLlmPort;
   /** 编排面（status 只读 + send 写注入——agent_send 等价 steer 通道）。 */
@@ -290,13 +425,50 @@ export interface StewardServiceDeps {
   readonly feedGate: { hasStewardSubscribers(): boolean };
   /** feed 帧出口（组合根接 EventStream.broadcastStewardFeed）。 */
   readonly emitFeed: (payload: StewardFeedPayload) => void;
+  /** A2：L1 感知面（快照 + query_recent_work + create_session 执行面）。
+   *  缺席 = 无快照段/query_recent_work 降级提示/create_session 引导式不可用
+   *  ——感知查询绝不能挡住对话主链路（缺席零抛错）。 */
+  readonly sessions?: StewardSessionsSource;
+  /** A2：kg 项目解析面（spawn_review_task 前置校验；缺席 = 项目校验降级
+   *  为存在性未知，直接进确认闸）。 */
+  readonly projects?: StewardProjectsSource;
+  /** A2：任务创建面（task_create 同款引擎通道——paramsSchema 校验在引擎，
+   *  TaskError message 原样透传；method 语法容忍 CreateTaskInput 逆变）。 */
+  readonly taskEngine?: {
+    createTask(input: {
+      type: string;
+      projects: readonly string[];
+      params: Record<string, unknown>;
+      createdBy: "page" | "chat";
+    }): Promise<{ jobId: string }>;
+  };
+  /** A2：code-review 前置校验——项目 git 仓存在性（组合根 fs 注入；
+   *  application 零直接 IO）。 */
+  readonly hasGitRepo?: (projectRoot: string) => boolean;
   readonly logger?: { warn(message: string): void };
 }
 
-/** 待确认写动作（确认闸登记项；单次消费）。 */
+/** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
+ *  spawnReview = 动作标识——见各分支注释）。 */
 interface PendingAction {
-  readonly agentId: string;
+  readonly kind: "send" | "createSession" | "spawnReview";
+  /** 面板确认卡「目标」行显示值（send = agentId；createSession = "新会话"；
+   *  spawnReview = "<reviewType>@<project>"）。 */
+  readonly displayTarget: string;
+  /** 面板确认卡「内容」行显示值（动作摘要全文）。 */
   readonly message: string;
+  /** 提案时的工具调用（confirm 执行结果回灌工作记忆的配对锚）。 */
+  readonly toolCall: { id: string; name: string };
+  /** send 形态载荷。 */
+  readonly send?: { agentId: string; message: string };
+  /** createSession 形态载荷。 */
+  readonly createSession?: { title: string };
+  /** spawnReview 形态载荷。 */
+  readonly spawnReview?: {
+    reviewType: "code-review" | "kg-review";
+    project: string;
+    params: Record<string, unknown>;
+  };
 }
 
 /** 工具声明（JSON Schema 面——flash 级模型的 function calling 契约）。 */
@@ -327,7 +499,62 @@ const TOOL_PROPOSE_SEND: StewardLlmTool = {
   },
 };
 
-const STEWARD_TOOLS: readonly StewardLlmTool[] = [TOOL_LIST_INSTANCES, TOOL_LIST_TASKS, TOOL_PROPOSE_SEND];
+const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
+  name: "query_recent_work",
+  description:
+    "按时间范围查询近期工作（会话清单 + 任务清单；可按项目过滤任务）。回答「最近在忙什么/今天做了什么」类问题时先用本工具取数。",
+  parameters: {
+    type: "object",
+    properties: {
+      time_range: {
+        type: "string",
+        enum: ["today", "yesterday", "this_week", "last_week"],
+        description: "时间范围（缺省 this_week）",
+      },
+      project: { type: "string", description: "项目过滤（可选——仅过滤任务清单）" },
+    },
+    additionalProperties: false,
+  },
+};
+
+const TOOL_CREATE_SESSION: StewardLlmTool = {
+  name: "create_session",
+  description:
+    "提案创建新会话（写操作——仅提案，系统会请求用户确认后才执行）。用户想开新会话/新话题时使用。",
+  parameters: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "会话主题标题（可选，缺省自动生成）" },
+      project: { type: "string", description: "关联项目名（可选——织入标题标注）" },
+    },
+    additionalProperties: false,
+  },
+};
+
+const TOOL_SPAWN_REVIEW_TASK: StewardLlmTool = {
+  name: "spawn_review_task",
+  description:
+    "提案发起评审任务（写操作——仅提案，系统会请求用户确认后才执行）。review_type: code-review（代码评审，需项目有 git 仓）或 kg-review（知识图谱评审，需项目已建 .kg 索引）",
+  parameters: {
+    type: "object",
+    properties: {
+      review_type: { type: "string", enum: ["code-review", "kg-review"], description: "评审类型" },
+      project: { type: "string", description: "目标项目名（workspace 内）" },
+      params: { type: "object", description: "任务参数（按任务类型 paramsSchema 透传）" },
+    },
+    required: ["review_type", "project"],
+    additionalProperties: false,
+  },
+};
+
+const STEWARD_TOOLS: readonly StewardLlmTool[] = [
+  TOOL_LIST_INSTANCES,
+  TOOL_LIST_TASKS,
+  TOOL_QUERY_RECENT_WORK,
+  TOOL_PROPOSE_SEND,
+  TOOL_CREATE_SESSION,
+  TOOL_SPAWN_REVIEW_TASK,
+];
 
 export class StewardService {
   private readonly deps: StewardServiceDeps;
@@ -364,12 +591,15 @@ export class StewardService {
     }
     this.dialog.ensureLoaded();
     await this.pushRecord({ kind: "user", text, at: this.now() });
+    // A2：动态情景快照（每次 ask 组装一次——工具轮内状态变化由工具结果
+    // 反映，不重取；感知查询失败静默降级为无快照段，绝不挡对话主链路）。
+    const systemPrompt = assembleStewardSystemPrompt(await this.buildSnapshotSafely());
     for (let round = 0; round < STEWARD_MAX_TOOL_ROUNDS; round += 1) {
       let response;
       try {
         response = await this.deps.llm.complete(
           {
-            systemPrompt: STEWARD_SYSTEM_PROMPT,
+            systemPrompt,
             messages: this.dialogSnapshotMessages(),
             tools: STEWARD_TOOLS,
           },
@@ -413,18 +643,64 @@ export class StewardService {
     await this.dialog.clear();
   }
 
-  /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行。 */
+  /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行。
+   *  A2：动作分派（send / createSession / spawnReview 判别联合）；执行结果
+   *  （成败均）回灌工作记忆 toolResult——下一轮 ask LLM 可见真实回执
+   *  （同时闭环 buildLlmWindow 配对防御：缺结果 toolCall 不再补合成占位）。 */
   async confirm(actionId: string): Promise<StewardConfirmResultPayload> {
     const action = this.pending.get(actionId);
     if (action === undefined) {
       return { status: "error", reason: `待确认动作不存在或已消费（actionId=${actionId}）` };
     }
     this.pending.delete(actionId); // 先消费（单次语义：执行失败也不可重放）
-    const outcome = this.deps.orchestration.send(action.agentId, action.message);
-    if (!outcome.delivered) {
-      return { status: "error", reason: `递话未投递：${outcome.detail}` };
+    const outcome = await this.executePending(action);
+    await this.pushRecord({
+      kind: "toolResult",
+      toolCallId: action.toolCall.id,
+      name: action.toolCall.name,
+      text: capToolResultText(outcome.detail),
+      at: this.now(),
+    });
+    if (!outcome.ok) return { status: "error", reason: outcome.detail };
+    return { status: "ok", agentId: action.displayTarget, detail: outcome.detail };
+  }
+
+  /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的
+   *  回执文本）。 */
+  private async executePending(action: PendingAction): Promise<{ ok: boolean; detail: string }> {
+    if (action.kind === "send") {
+      const outcome = this.deps.orchestration.send(action.send!.agentId, action.send!.message);
+      return outcome.delivered
+        ? { ok: true, detail: outcome.detail }
+        : { ok: false, detail: `递话未投递：${outcome.detail}` };
     }
-    return { status: "ok", agentId: action.agentId, detail: outcome.detail };
+    if (action.kind === "createSession") {
+      if (this.deps.sessions === undefined) {
+        return { ok: false, detail: "会话创建面未装配（daemon 装配缺 sessions 源）" };
+      }
+      try {
+        const created = await this.deps.sessions.startDraftSession(action.createSession!.title);
+        return { ok: true, detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」` };
+      } catch (err) {
+        return { ok: false, detail: `会话创建失败：${(err as Error).message}` };
+      }
+    }
+    // spawnReview：paramsSchema 校验在引擎（TaskError message 原样透传）
+    if (this.deps.taskEngine === undefined) {
+      return { ok: false, detail: "任务创建面未装配（daemon 装配缺 taskEngine）" };
+    }
+    const review = action.spawnReview!;
+    try {
+      const created = await this.deps.taskEngine.createTask({
+        type: review.reviewType,
+        projects: [review.project],
+        params: review.params,
+        createdBy: "chat",
+      });
+      return { ok: true, detail: `任务已创建：${created.jobId}（${review.reviewType} @ ${review.project}）` };
+    } catch (err) {
+      return { ok: false, detail: `任务创建被引擎拒绝：${(err as Error).message}` };
+    }
   }
 
   /**
@@ -557,7 +833,13 @@ export class StewardService {
       }
       this.actionSeq += 1;
       const actionId = `steward-action-${this.actionSeq}`;
-      this.pending.set(actionId, { agentId, message });
+      this.pending.set(actionId, {
+        kind: "send",
+        displayTarget: agentId,
+        message,
+        toolCall: { id: callId, name },
+        send: { agentId, message },
+      });
       events.onToolStart?.(name, argsSummary);
       await this.pushRecord({
         kind: "assistant",
@@ -565,8 +847,30 @@ export class StewardService {
         toolCall: { id: callId, name, args },
         at: this.now(),
       });
-      // 确认闸：不执行、不入工具结果（对话挂起待用户裁决——confirm 后用户可继续新 ask）
+      // 确认闸：不执行、不入工具结果（对话挂起待用户裁决——confirm 后执行结果
+      // 回灌工作记忆，用户可继续新 ask）
       return { status: "confirm_required", actionId, agentId, message };
+    }
+    if (name === "query_recent_work") {
+      const resultText = capToolResultText(await this.queryRecentWork(args));
+      events.onToolStart?.(name, argsSummary);
+      await this.pushRecord({
+        kind: "assistant",
+        ...(thinking !== undefined ? { thinking } : {}),
+        toolCall: { id: callId, name, args },
+        at: this.now(),
+      });
+      await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: resultText, at: this.now() });
+      events.onToolEnd?.(name, summarizeForFrame(resultText.slice(0, 120)));
+      return undefined;
+    }
+    if (name === "create_session") {
+      const outcome = await this.proposeCreateSession(callId, name, args, thinking, events, argsSummary);
+      return outcome;
+    }
+    if (name === "spawn_review_task") {
+      const outcome = await this.proposeSpawnReview(callId, name, args, thinking, events, argsSummary);
+      return outcome;
     }
     // 未知工具（wire 防御）：toolResult 报错回灌，循环继续（模型可自纠）
     events.onToolStart?.(name, argsSummary);
@@ -578,6 +882,238 @@ export class StewardService {
     });
     await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: capToolResultText(`未知工具 ${name}`), at: this.now() });
     events.onToolEnd?.(name, `未知工具 ${name}`);
+    return undefined;
+  }
+
+  // ── A2：情景快照组装 ────────────────────────────────
+
+  /** 快照段组装（感知查询失败静默降级 = undefined；绝不能挡对话主链路）。
+   *  数据源与工具面同源：活跃 agent 数 = orchestration.status()（与
+   *  list_instances 同一调用面）；会话计数与主题 = sessions 源（与
+   *  query_recent_work 同一读面）。 */
+  private async buildSnapshotSafely(): Promise<string | undefined> {
+    if (this.deps.sessions === undefined) return undefined;
+    try {
+      const rows = await this.deps.sessions.listSessionMetadata();
+      const statuses = this.deps.orchestration.status();
+      const activeAgents = statuses.filter((s) => s.state === "running").length;
+      return buildContextSnapshot({
+        nowMs: this.now(),
+        activeAgents,
+        totalAgents: statuses.length,
+        sessionCount: rows.length,
+        recentSessions: rows.slice(0, SNAPSHOT_RECENT_SESSIONS).map((r) => ({
+          title: r.firstUserText ?? "（无主题会话）",
+          updatedAt: r.updatedAt,
+        })),
+      });
+    } catch (err) {
+      this.deps.logger?.warn(`管家情景快照组装失败（降级为无快照段）：${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  // ── A2：query_recent_work ───────────────────────────
+
+  /** 近期工作查询（文本组装；会话源缺席/失败时降级提示，不抛错）。 */
+  private async queryRecentWork(args: Record<string, unknown>): Promise<string> {
+    const rangeRaw = args["time_range"];
+    const range: TimeRange =
+      rangeRaw === "today" || rangeRaw === "yesterday" || rangeRaw === "last_week" || rangeRaw === "this_week"
+        ? rangeRaw
+        : "this_week";
+    const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
+    const win = timeRangeWindow(range, this.now());
+    const inWindow = (iso: string): boolean => {
+      const t = Date.parse(iso);
+      return !Number.isNaN(t) && t >= win.sinceMs && t < win.untilMs;
+    };
+    const sessionLines: string[] = [];
+    let sessionTotal = 0;
+    if (this.deps.sessions !== undefined) {
+      try {
+        const rows = (await this.deps.sessions.listSessionMetadata()).filter((r) => inWindow(r.updatedAt));
+        sessionTotal = rows.length;
+        for (const r of rows.slice(0, RECENT_WORK_LINES_MAX)) {
+          const title = capChars(r.firstUserText ?? "（无主题）", RECENT_WORK_TITLE_MAX_CHARS);
+          const scale = r.entryCount === null ? "" : ` · 约${r.entryCount}条消息`;
+          sessionLines.push(`「${title}」${fmtWhen(r.createdAt)}~${fmtWhen(r.updatedAt)}${scale}`);
+        }
+        if (rows.length > RECENT_WORK_LINES_MAX) {
+          sessionLines.push(`…另有 ${rows.length - RECENT_WORK_LINES_MAX} 个会话未列出`);
+        }
+      } catch (err) {
+        this.deps.logger?.warn(`query_recent_work 会话读面失败：${(err as Error).message}`);
+      }
+    }
+    const taskRows = this.deps.tasks
+      .listTasks({})
+      .filter(
+        (t) =>
+          inWindow((t as unknown as { createdAt?: string }).createdAt ?? "") &&
+          (project === undefined || (t as unknown as { projects?: readonly string[] }).projects?.includes(project)),
+      );
+    const taskLines = taskRows.slice(0, RECENT_WORK_LINES_MAX).map((t) => {
+      const meta = t as unknown as { type?: string; createdAt?: string };
+      const tail = t.error !== null && t.error !== "" ? capChars(t.error, 40) : t.progress === null ? "" : `${t.progress.percent}%`;
+      const type = meta.type ?? "task";
+      return `[${type}] ${capChars(t.title, RECENT_WORK_TITLE_MAX_CHARS)}——${t.status}${tail !== "" ? `（${tail}）` : ""}`;
+    });
+    if (taskRows.length > RECENT_WORK_LINES_MAX) {
+      taskLines.push(`…另有 ${taskRows.length - RECENT_WORK_LINES_MAX} 个任务未列出`);
+    }
+    if (sessionTotal === 0 && taskRows.length === 0) {
+      return `${win.zhLabel}（${win.label}）范围内无记录——没有会话与任务活动`;
+    }
+    const parts: string[] = [`【会话·${sessionTotal}】`];
+    parts.push(...(sessionLines.length > 0 ? sessionLines : ["（无）"]));
+    parts.push(`【任务·${taskRows.length}${project !== undefined ? ` · 项目 ${project}` : ""}】`);
+    parts.push(...(taskLines.length > 0 ? taskLines : ["（无）"]));
+    return parts.join("\n");
+  }
+
+  // ── A2：create_session / spawn_review_task 提案 ──────
+
+  /** create_session 提案（确认闸）：项目参数（若给）先做存在性校验；
+   *  title 缺省自动生成（含时间；项目名织入标题）。 */
+  private async proposeCreateSession(
+    callId: string,
+    name: string,
+    args: Record<string, unknown>,
+    thinking: StewardLlmThinking | undefined,
+    events: StewardAskEvents,
+    argsSummary: string,
+  ): Promise<StewardAskResultPayload | undefined> {
+    const titleRaw = typeof args["title"] === "string" ? args["title"].trim() : "";
+    const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
+    const guidance = this.checkProjectArg(project);
+    if (guidance !== undefined) {
+      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, guidance);
+    }
+    if (this.deps.sessions === undefined) {
+      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "会话创建面未装配——无法创建会话（请让用户在侧栏新建）");
+    }
+    const now = new Date(this.now());
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const title =
+      titleRaw !== ""
+        ? titleRaw
+        : `${project !== undefined ? `${project} ` : ""}新会话 ${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
+    this.actionSeq += 1;
+    const actionId = `steward-action-${this.actionSeq}`;
+    this.pending.set(actionId, {
+      kind: "createSession",
+      displayTarget: "新会话",
+      message: `将创建会话「${title}」`,
+      toolCall: { id: callId, name },
+      createSession: { title },
+    });
+    events.onToolStart?.(name, argsSummary);
+    await this.pushRecord({
+      kind: "assistant",
+      ...(thinking !== undefined ? { thinking } : {}),
+      toolCall: { id: callId, name, args },
+      at: this.now(),
+    });
+    return { status: "confirm_required", actionId, agentId: "新会话", message: `将创建会话「${title}」` };
+  }
+
+  /** spawn_review_task 提案（前置校验 + 确认闸）：项目存在性 / git 仓 /
+   *  .kg 索引三道引导式校验（失败 toolResult 回灌 LLM 可转述追问）。 */
+  private async proposeSpawnReview(
+    callId: string,
+    name: string,
+    args: Record<string, unknown>,
+    thinking: StewardLlmThinking | undefined,
+    events: StewardAskEvents,
+    argsSummary: string,
+  ): Promise<StewardAskResultPayload | undefined> {
+    const reviewTypeRaw = args["review_type"];
+    const project = typeof args["project"] === "string" ? args["project"].trim() : "";
+    const params =
+      typeof args["params"] === "object" && args["params"] !== null && !Array.isArray(args["params"])
+        ? (args["params"] as Record<string, unknown>)
+        : {};
+    if (reviewTypeRaw !== "code-review" && reviewTypeRaw !== "kg-review") {
+      return this.toolErrorResult(
+        callId, name, args, thinking, events, argsSummary,
+        `review_type 非法：${JSON.stringify(reviewTypeRaw)}（应为 "code-review" 或 "kg-review"）`,
+      );
+    }
+    const reviewType = reviewTypeRaw;
+    if (project === "") {
+      return this.toolErrorResult(callId, name, args, thinking, events, argsSummary, "参数缺失：project 必填（目标项目名）");
+    }
+    const root = this.deps.projects?.resolve(project);
+    if (root === undefined) {
+      const known = "（项目解析面未装配，无法校验项目存在性）";
+      return this.toolErrorResult(
+        callId, name, args, thinking, events, argsSummary,
+        this.deps.projects === undefined
+          ? `无法校验项目 ${project}${known}`
+          : `项目 ${project} 不在当前 workspace——请与用户确认项目名（可用清单中的项目）`,
+      );
+    }
+    if (reviewType === "code-review" && this.deps.hasGitRepo !== undefined && !this.deps.hasGitRepo(root)) {
+      return this.toolErrorResult(
+        callId, name, args, thinking, events, argsSummary,
+        `项目 ${project} 无 git 仓（${root}）——没有可评审的代码，需先初始化仓库`,
+      );
+    }
+    if (reviewType === "kg-review" && this.deps.projects !== undefined && !this.deps.projects.hasIndex(root)) {
+      return this.toolErrorResult(
+        callId, name, args, thinking, events, argsSummary,
+        `项目 ${project} 未建知识图谱——需先 kg-bootstrap（我可以帮你创建该任务）`,
+      );
+    }
+    this.actionSeq += 1;
+    const actionId = `steward-action-${this.actionSeq}`;
+    const message = `将对项目 ${project} 发起 ${reviewType}`;
+    this.pending.set(actionId, {
+      kind: "spawnReview",
+      displayTarget: `${reviewType}@${project}`,
+      message,
+      toolCall: { id: callId, name },
+      spawnReview: { reviewType, project, params },
+    });
+    events.onToolStart?.(name, argsSummary);
+    await this.pushRecord({
+      kind: "assistant",
+      ...(thinking !== undefined ? { thinking } : {}),
+      toolCall: { id: callId, name, args },
+      at: this.now(),
+    });
+    return { status: "confirm_required", actionId, agentId: `${reviewType}@${project}`, message };
+  }
+
+  /** 项目参数校验（create_session 的可选 project；undefined = 无参数直过）。 */
+  private checkProjectArg(project: string | undefined): string | undefined {
+    if (project === undefined || this.deps.projects === undefined) return undefined;
+    if (this.deps.projects.resolve(project) === undefined) {
+      return `项目 ${project} 不在当前 workspace——请与用户确认项目名`;
+    }
+    return undefined;
+  }
+
+  /** 引导式工具错误（toolResult 回灌，LLM 循环继续可转述/自纠）。 */
+  private async toolErrorResult(
+    callId: string,
+    name: string,
+    args: Record<string, unknown>,
+    thinking: StewardLlmThinking | undefined,
+    events: StewardAskEvents,
+    argsSummary: string,
+    guidance: string,
+  ): Promise<undefined> {
+    events.onToolStart?.(name, argsSummary);
+    await this.pushRecord({
+      kind: "assistant",
+      ...(thinking !== undefined ? { thinking } : {}),
+      toolCall: { id: callId, name, args },
+      at: this.now(),
+    });
+    await this.pushRecord({ kind: "toolResult", toolCallId: callId, name, text: capToolResultText(guidance), at: this.now() });
+    events.onToolEnd?.(name, summarizeForFrame(guidance));
     return undefined;
   }
 }

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import type { SessionChatPort } from "../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../application/ports/inbound/SessionPort";
 import type { SystemPort } from "../application/ports/inbound/SystemPort";
@@ -670,6 +671,32 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     config: persistence.runtimeConfig, // steward.enabled / steward.model KV 持久化
     feedGate: eventStream, // hasStewardSubscribers 窄接口（连接级订阅闸门）
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
+    // A2：L1 感知面（快照 + query_recent_work 读面 + create_session 执行面
+    // ——与 shell 新建会话同一 startDraftSession 服务路径；entryCount additive）。
+    sessions: {
+      listSessionMetadata: async () =>
+        (await persistence.repository.listSessionMetadata()).map((r) => ({
+          sessionId: r.sessionId,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+          firstUserText: r.firstUserText,
+          entryCount: r.entryCount ?? null,
+        })),
+      startDraftSession: (text, mode) => registry.startDraftSession(text, undefined, undefined, mode),
+    },
+    // A2：kg 项目解析面（workspace 持有者读现值——重绑跟随新栈；未绑定 →
+    //  resolve undefined / hasIndex false，引导式引导用户先绑 workspace）。
+    projects: {
+      resolve: (project) => workspace.stack()?.projectService.resolve(project),
+      hasIndex: (projectRoot) => workspace.stack()?.projectService.hasIndex(projectRoot) ?? false,
+    },
+    // A2：任务创建面（task_create 同款引擎通道——paramsSchema 校验在引擎，
+    //  TaskError message 原样透传；createdBy 词表封闭 "page"|"chat"，管家
+    //  归 chat 宿主语义）。code-review 前置 git 仓判定（fs 注入——application
+    //  零直接 IO）。
+    taskEngine: taskStack.taskEngine,
+    // .git 存在性（目录或文件——worktree 形态 .git 是文件）均算 git 仓
+    hasGitRepo: (projectRoot) => existsSync(path.join(projectRoot, ".git")),
     logger,
   });
 

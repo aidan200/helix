@@ -297,12 +297,19 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
     expect(prompt).toContain("不伪装用户身份");
   });
 
-  test("工具面恰为三个只读+提案原语（list_instances/list_tasks/propose_send）——无 spawn/kill 等旁路", async () => {
+  test("工具面恰为六个（三只读 + 三提案原语——A2 扩 query_recent_work/create_session/spawn_review_task）——无 spawn/kill 等旁路", async () => {
     const llm = fakeLlm([{ kind: "text", text: "ok" }]);
     const { svc } = makeService({ llm });
     await svc.ask("hi");
     const names = llm.calls[0]!.request.tools.map((t) => t.name).sort();
-    expect(names).toEqual(["list_instances", "list_tasks", "propose_send"]);
+    expect(names).toEqual([
+      "create_session",
+      "list_instances",
+      "list_tasks",
+      "propose_send",
+      "query_recent_work",
+      "spawn_review_task",
+    ]);
   });
 });
 

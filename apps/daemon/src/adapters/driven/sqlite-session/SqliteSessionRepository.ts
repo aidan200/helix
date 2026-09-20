@@ -93,13 +93,16 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
    * 会话元数据轻量读面（AD-4）：json_extract 只取首条 entry 的
    * role/text（不整体反序列化 entries——session.list 读面不随会话体量线性
    * 传输）；首条非 user entry（理论不可达：会话首条必为用户消息）防御 null。
+   * entry_count = json_array_length（A2 管家 query_recent_work 消息量级；
+   * additive 列，消费方缺省 null）。
    */
   async listSessionMetadata(): Promise<readonly SessionMetadataRow[]> {
     const rows = this.queue.database
       .prepare(
         "SELECT session_id, created_at, updated_at, " +
           "json_extract(entries, '$[0].role') AS first_role, " +
-          "json_extract(entries, '$[0].text') AS first_text " +
+          "json_extract(entries, '$[0].text') AS first_text, " +
+          "json_array_length(entries) AS entry_count " +
           "FROM session_state ORDER BY updated_at DESC",
       )
       .all() as {
@@ -108,12 +111,14 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
         updated_at: string;
         first_role: string | null;
         first_text: string | null;
+        entry_count: number | null;
       }[];
     return rows.map((r) => ({
       sessionId: r.session_id,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       firstUserText: r.first_role === "user" ? r.first_text : null,
+      entryCount: r.entry_count,
     }));
   }
 
