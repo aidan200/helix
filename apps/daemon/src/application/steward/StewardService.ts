@@ -51,6 +51,7 @@ import type {
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type {
+  LoopCompactionInfo,
   LoopEngine,
   LoopEvent,
   LoopMessage,
@@ -63,6 +64,7 @@ import type {
   LoopToolCallContext,
   LoopToolOutcome,
 } from "../../domain/loop";
+import { LOOP_COMPACTION_SUMMARY_PROMPT } from "../../domain/loop";
 import { LoopEngine as LoopEngineImpl, ToolRegistry } from "../../domain/loop";
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
@@ -108,6 +110,16 @@ export const STEWARD_ENABLED_KEY = "steward.enabled";
 
 /** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认）。 */
 export const STEWARD_MODEL_KEY = "steward.model";
+
+/** L1 件一：压缩触发阈值（token 估算口径与 estimateLoopTokens 同族；
+ *  任务书默认 12k——低于工作记忆 16k 预算闸，压缩先于粗裁剪接管）。 */
+export const STEWARD_COMPACTION_THRESHOLD_TOKENS = 12_288;
+
+/** L1 件一：压缩尾部滚动窗（条数——TR-47：压的是历史不是工作集）。 */
+export const STEWARD_COMPACTION_KEEP_RECENT = 6;
+
+/** L1 件二：输入缓冲 pending 队列上限（忙碌态入队不拒绝；超限提示）。 */
+export const STEWARD_PENDING_ASKS_MAX = 3;
 
 /** 工具/思考过程帧摘要截断上限（steward.tool 帧面——屏幕折叠行密度）。 */
 export const PROCESS_SUMMARY_MAX_CHARS = 200;
@@ -493,6 +505,9 @@ export interface StewardServiceDeps {
    *  投影：LoopEvent → DomainEvent{instanceId:"steward"} 落库；缺席 =
    *  零落库零广播，对话主链路零降级）。 */
   readonly emitLoopEvent?: (event: LoopEvent) => void;
+  /** L1 件一：压缩参数覆盖（thresholdTokens/keepRecent 缺省回落导出常量；
+   *  本体能力在 LoopEngine compaction 挂点——管家是首个消费者）。 */
+  readonly compaction?: { readonly thresholdTokens?: number; readonly keepRecent?: number };
   readonly logger?: { warn(message: string): void };
 }
 
@@ -640,6 +655,15 @@ interface PendingEntry {
   readonly resume: (decision: LoopResumeDecision) => Promise<LoopRunResult>;
 }
 
+/** L1 件二：排队中的 ask 项（忙碌态输入缓冲——收口后自动作为下一轮输入）。
+ *  deliver = 轮次完成回执面（queued 帧已由 ask promise 发出，结果帧经此
+ *  闭包直达原发起方——handler 层注入 sendNow(sender)）。 */
+interface PendingAsk {
+  readonly text: string;
+  readonly events: StewardAskEvents;
+  readonly deliver?: (payload: StewardAskResultPayload) => void;
+}
+
 export class StewardService {
   private readonly deps: StewardServiceDeps;
   /** 工作记忆 KV（完整记录持久化——thinking/工具/对话全形态；daemon 重启
@@ -654,11 +678,15 @@ export class StewardService {
    *  循环退役——迁移即验证：行为等价 + abort-and-drain 门控新增）。 */
   private readonly registry: ToolRegistry;
   private readonly engine: LoopEngine;
-  /** ask 单飞门控（abort-and-drain，duplex-truncation §6.2：在途轮 streaming
-   *  态时新 ask 先 abort 旧轮 + drain 其 KV 写入收尾，再开新轮——写入顺序
-   *  不变量：旧轮最后 KV 写入先于新轮首 KV 写入）。 */
+  /** ask 单飞门控（L1 件二：在途轮忙碌态新 ask 入 pending 队列不拒——
+   *  收口（answer/confirm_required/error/aborted 均算）后自动作为下一轮
+   *  输入；duplex-truncation §6.2 的 abort-and-drain 序保留：队列消费在
+   *  drain 完成（promise settle = KV 写入收尾）之后，abort 语义下队列
+   *  保留不丢）。 */
   private inFlight: Promise<StewardAskResultPayload> | null = null;
   private inFlightAbort: AbortController | null = null;
+  /** L1 件二：输入缓冲队列（上限 STEWARD_PENDING_ASKS_MAX）。 */
+  private pendingAsks: PendingAsk[] = [];
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
@@ -670,6 +698,14 @@ export class StewardService {
       streamFn: this.streamFn.bind(this),
       registry: this.registry,
       emit: (event) => this.deps.emitLoopEvent?.(event),
+      // L1 件一：循环内压缩（loop 域能力，管家首个消费者）——摘要执行体
+      // 复用 StewardLlmPort 单轮无工具形态（pi streamSimple 同体），失败
+      // 由引擎降级（事件 failed + 原窗口继续，16k 粗裁剪兑底）。
+      compaction: {
+        thresholdTokens: deps.compaction?.thresholdTokens ?? STEWARD_COMPACTION_THRESHOLD_TOKENS,
+        keepRecent: deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
+        summarize: (messages) => this.summarizeForCompaction(messages),
+      },
     });
   }
 
@@ -704,10 +740,18 @@ export class StewardService {
    * money gate：开关关 → error 判别零 LLM 调用零回调。
    *
    * helix-loop L0：自写 for 循环退役——LoopEngine 驱动（八工具 ToolRegistry
-   * 分发 + 确认闸 beforeToolCallPause 暂停点）；ask 单飞门控 abort-and-drain
-   * （新 ask 到达时 abort 在途轮 + drain KV 写入收尾 + 开新轮）。
+   * 分发 + 确认闸 beforeToolCallPause 暂停点）。
+   * L1 件二：忙碌态输入缓冲——在途轮未收口时新 ask 入 pending 队列
+   * （上限 3，超限 error 提示）不拒答；本轮收口后自动作为下一轮输入
+   * （队列消费在 drain 完成后；abort 语义下队列保留不丢）。回执双帧：
+   * queued 确认帧（promise 立即 settle）+ 轮次结果帧（经 deliver 闭包
+   * 直达原发起方）。
    */
-  async ask(text: string, events: StewardAskEvents = {}): Promise<StewardAskResultPayload> {
+  async ask(
+    text: string,
+    events: StewardAskEvents = {},
+    deliver?: (payload: StewardAskResultPayload) => void,
+  ): Promise<StewardAskResultPayload> {
     if (typeof text !== "string" || text.trim() === "") {
       return { status: "error", reason: "payload.text 应为非空 string" };
     }
@@ -717,20 +761,40 @@ export class StewardService {
         reason: "管家未开启：请在设置页 → 文本管家 区开启开关（开关关 = 零 LLM 调用）",
       };
     }
-    // abort-and-drain 门控（duplex-truncation §6.2）：在途轮先 abort（只作用
-    // 于 LLM 流式段——工具段不打断）+ drain 其 promise 完整 settle（KV 写入
-    // 收尾），再开新轮——保证旧轮最后 KV 写入先于新轮首 KV 写入。
+    // L1 件二：忙碌态入队不拒绝（替代 L0 的 abort-and-drain 取代语义）
     if (this.inFlight !== null) {
-      this.inFlightAbort?.abort("superseded");
-      await this.inFlight.catch(() => {}); // drain（旧轮回执 error 判别直达旧发起方）
+      if (this.pendingAsks.length >= STEWARD_PENDING_ASKS_MAX) {
+        return {
+          status: "error",
+          reason: `管家正在处理中，排队已满（上限 ${STEWARD_PENDING_ASKS_MAX} 条）——请稍后再试`,
+        };
+      }
+      this.pendingAsks.push({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
+      return { status: "queued", queued: true, position: this.pendingAsks.length };
     }
+    return this.runAskPipeline({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
+  }
+
+  /** 在途轮 abort（L2 interrupt/barge-in 地基；幂等——非在途态 no-op 返回
+   *  false）。abort 只作用 LLM 流式段（工具段不打断）；收口后队列自动
+   * 消费（L1 件二序不变量：队列不丢）。 */
+  abortInFlight(reason: string): boolean {
+    if (this.inFlightAbort === null) return false;
+    this.inFlightAbort.abort(reason);
+    return true;
+  }
+
+  /** 单轮管线（直接路径 promise 即结果；drain 消费路径轮完成经 item.deliver
+   *  回执）。收口序：promise settle = drain 完成（KV 写入收尾）→ 队列消费
+   *  → 新轮首 KV 写入（写入顺序不变量保持）。 */
+  private async runAskPipeline(item: PendingAsk): Promise<StewardAskResultPayload> {
     this.dialog.ensureLoaded();
-    await this.pushRecord({ kind: "user", text, at: this.now() });
+    await this.pushRecord({ kind: "user", text: item.text, at: this.now() });
     // A2：动态情景快照（每次 ask 组装一次——工具轮内状态变化由工具结果
     // 反映，不重取；感知查询失败静默降级为无快照段，绝不挡对话主链路）。
     const systemPrompt = assembleStewardSystemPrompt(await this.buildSnapshotSafely());
     const controller = new AbortController();
-    const done = this.runAskLoop(text, systemPrompt, events, controller.signal);
+    const done = this.runAskLoop(item.text, systemPrompt, item.events, controller.signal);
     this.inFlight = done;
     this.inFlightAbort = controller;
     try {
@@ -740,7 +804,34 @@ export class StewardService {
         this.inFlight = null;
         this.inFlightAbort = null;
       }
+      // L1 件二：drain 完成后自动消费队列（下一轮输入）；abort/error 收口
+      // 同样触发——队列保留不丢（duplex-truncation T9 同族序）。
+      this.drainPendingAsks();
     }
+  }
+
+  /** 队列消费（在途轮收口后）：队首自动开新轮，结果经 item.deliver 回执。 */
+  private drainPendingAsks(): void {
+    if (this.inFlight !== null || this.pendingAsks.length === 0) return;
+    const item = this.pendingAsks.shift()!;
+    void this.runAskPipeline(item).then((payload) => {
+      item.deliver?.(payload);
+    });
+  }
+
+  /** L1 件一：压缩摘要执行体（StewardLlmPort 单轮无工具形态——与主对话
+   *  同一 adapter/模型槽位；prompt 要点见 LOOP_COMPACTION_SUMMARY_PROMPT）。
+   *  抛错由 LoopEngine 收口为 failed 事件 + 原窗口继续（降级粗裁剪）。 */
+  private async summarizeForCompaction(messages: readonly LoopMessage[]): Promise<string> {
+    const response = await this.deps.llm.complete({
+      systemPrompt: LOOP_COMPACTION_SUMMARY_PROMPT,
+      messages: messages as readonly import("../ports/outbound/StewardLlmPort").StewardLlmMessage[],
+      tools: [],
+    });
+    if (response.kind !== "text") {
+      throw new Error(`压缩摘要响应非文本（${response.kind}）`);
+    }
+    return response.text;
   }
 
   /** 单轮 LoopEngine 驱动（ask 主循环体——含确认闸挂闸闭包与回执映射）。 */
@@ -780,6 +871,15 @@ export class StewardService {
       signal,
       beforeToolCallPause,
       onNewMessage,
+      // L1 件一：压缩完成同步——KV 整窗替换（[摘要记录, ...尾部滚动窗]）
+      // 与引擎窗口替换同步（KV 与 LLM 窗口同源不变量；两空间的尾部保窗
+      // 同族口径——buildLlmWindow 占位差异客忍，孤儿两空间各自清理）。
+      onCompacted: async (info: LoopCompactionInfo) => {
+        await this.dialog.compact(
+          { kind: "user", text: info.summaryMessage.text, at: this.now(), compaction: true },
+          this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
+        );
+      },
       callbacks: {
         ...(events.onDelta !== undefined ? { onDelta: events.onDelta } : {}),
         ...(events.onThinking !== undefined ? { onThinking: events.onThinking } : {}),
@@ -816,7 +916,7 @@ export class StewardService {
       };
     }
     if (result.kind === "aborted") {
-      return { status: "error", reason: "管家对话已被新请求取代（本轮已中止，可重发）" };
+      return { status: "error", reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）" };
     }
     if (result.kind === "resolved") {
       // 结构性不可达（resolved 只在 confirm→resume 轨道收口——ask 轨道防御分支）

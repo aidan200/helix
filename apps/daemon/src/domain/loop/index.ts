@@ -8,4 +8,5 @@
 export * from "./LoopTypes";
 export * from "./LoopEvent";
 export * from "./ToolRegistry";
+export * from "./LoopCompaction";
 export * from "./LoopEngine";

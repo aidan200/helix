@@ -1098,6 +1098,8 @@ export const zhCN = {
     newChatTitle: "清空当前对话（管家记忆与显示同步清空）",
     inputPlaceholder: "问管家：现在有什么在跑？",
     send: "发送",
+    // L1 件二：排队确认帧文案（{position} 插值）
+    askQueued: "已排队（第 {position} 位）——当前回答完成后自动接续",
     confirmTitle: "写动作待确认",
     confirmTarget: "目标",
     confirmBody: "内容",

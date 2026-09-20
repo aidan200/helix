@@ -15,9 +15,11 @@
  */
 import type { EventFrame } from "../envelope";
 
-/** steward.ask.result payload：三判别——answer = 直答文本；confirm_required =
+/** steward.ask.result payload：四判别——answer = 直答文本；confirm_required =
  *  确认闸请求（写注入唯一原语 propose_send 的回执形态，未确认零执行）；
- *  error = 业务失败（开关关/模型未配/key 缺失/循环超限等，reason 含引导）。 */
+ *  queued = 忙碌态入队确认（L1 件二：本轮工具循环收口后自动作为下一轮
+ *  输入，结果帧随后另发）；error = 业务失败（开关关/模型未配/key 缺失/
+ *  循环超限等，reason 含引导）。 */
 export type StewardAskResultPayload =
   | {
       status: "answer";
@@ -32,6 +34,13 @@ export type StewardAskResultPayload =
       agentId: string;
       /** 递话内容（注入前用户可全文过目——确认闸透明性）。 */
       message: string;
+    }
+  | {
+      status: "queued";
+      /** 排队标记（恒 true——帧面判别冗余锚，便于旧 UI 防守卫式过滤）。 */
+      queued: true;
+      /** 队内位置（1 起——首条即将被消费）。 */
+      position: number;
     }
   | {
       status: "error";
@@ -145,6 +154,9 @@ export type StewardHistoryRecord =
       text: string;
       /** 落笔时间戳（ms；TTL/排序面）。 */
       at: number;
+      /** L1 件一：压缩摘要合成记录标记（synthesized——非用户真实输入；
+       *  UI 可据此渲染压缩行，LLM 窗口重建与普通 user 同构）。 */
+      compaction?: true;
     }
   | {
       kind: "assistant";

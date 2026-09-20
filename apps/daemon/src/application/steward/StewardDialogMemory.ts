@@ -108,6 +108,16 @@ export function isExpired(lastActiveAt: number, now: number, ttlMs: number): boo
   return now - lastActiveAt > ttlMs;
 }
 
+/** 压缩保尾窗（helix-loop L1 件一纯函数）：尾部 keepRecentCount 条 + 头部
+ *  孤儿 toolResult 连带丢弃（配对 call 已被压掉——A1-hotfix 同族：空窗优于
+ *  毒孤儿，孤儿直达 LLM 请求 = provider 400）。 */
+export function keepTailPairAware(
+  records: readonly StewardHistoryRecord[],
+  keepRecentCount: number,
+): StewardHistoryRecord[] {
+  return dropHeadOrphanToolResults(records.slice(Math.max(0, records.length - keepRecentCount)));
+}
+
 /** KV 原值 → 域值（形状防御：非法 JSON/字段缺失 → undefined = 不可用）。 */
 function parseDialog(raw: string | undefined): StewardDialogKv | undefined {
   if (raw === undefined || raw === "") return undefined;
@@ -183,6 +193,16 @@ export class StewardDialogMemory {
     this.loaded = true;
     this.records = [];
     await this.kv.set(STEWARD_DIALOG_KEY, this.serialize([], this.now()));
+  }
+
+  /** 压缩替换（helix-loop L1 件一）：[summary, ...尾部 keepRecentCount 条原文]
+   *  整窗替换（TR-47：压的是历史不是工作集——尾部滚动窗保留；头部孤儿
+   *  toolResult 连带清理）。与 LoopEngine 侧窗口替换同步（onCompacted 回调
+   *  驱动——KV 与 LLM 窗口同源不变量）。 */
+  async compact(summary: StewardHistoryRecord, keepRecentCount: number): Promise<void> {
+    this.ensureLoaded();
+    this.records = [summary, ...keepTailPairAware(this.records, keepRecentCount)];
+    await this.kv.set(STEWARD_DIALOG_KEY, this.serialize(this.records, this.now()));
   }
 
   private serialize(records: readonly StewardHistoryRecord[], lastActiveAt: number): string {

@@ -143,6 +143,34 @@ describe("useSteward（V2.5 文本管家）", () => {
     expect(result.current.items.some((m) => m.kind === "assistant" && m.text === "当前 2 个实例运行中。")).toBe(true);
   });
 
+  it("L1 件二：queued 确认帧 → 「已排队」条目；不清 streaming、不结束在途态（结果帧随后收口）", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("在跑什么？");
+    });
+    act(() => {
+      frameListener?.(frame("steward.ask.delta", { delta: "当前 ", seq: 1 }));
+    });
+    await waitFor(() => expect(result.current.streamingText).toBe("当前 "));
+    // 忙碌态第二问被排队：queued 帧 → 排队条目（双语匹配——测试环境 lang
+    // 依 detectLang）+ 在途态保持
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "queued", queued: true, position: 1 }));
+    });
+    expect(result.current.items.some((m) => m.kind === "assistant" && /已排队|Queued/.test(m.text))).toBe(true);
+    expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("1"))).toBe(true); // 位置号
+    expect(result.current.streamingText).toBe("当前 "); // 在途轮流式缓冲不清
+    expect(result.current.askInFlight).toBe(true); // 在途态不结束
+    // 结果帧随后到达 → 正常收口
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "answer", text: "当前 2 个实例运行中。" }));
+    });
+    await waitFor(() => {
+      expect(result.current.streamingText).toBeNull();
+      expect(result.current.askInFlight).toBe(false);
+    });
+  });
+
   it("流式：error 终态同样清 streamingText（中途失败零残留）", async () => {
     const { result } = renderSteward();
     act(() => {

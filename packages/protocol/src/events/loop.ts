@@ -253,3 +253,27 @@ export interface LoopDuplexWakeEvent extends EventFrame<LoopDuplexWakePayload> {
   channel?: "loop";
   type: "loop.duplex.wake";
 }
+
+/** loop.context.compacted payload：上下文压缩里程碑（helix 扩展，L1 件一；
+ *  TR-47 语义同族：压的是历史不是工作集——尾部滚动窗保留原文）。
+ *  failed 同型记错（压缩是优化不是依赖：降级粗裁剪不阻塞对话）。 */
+export interface LoopContextCompactedPayload {
+  runId: string;
+  /** completed = 窗口已替换为摘要 + 尾窗；failed = 保留原窗口（粗裁剪兑底）。 */
+  status: "completed" | "failed";
+  /** 压前窗口 token 估算（estimateLoopTokens 同族口径）。 */
+  tokensBefore: number;
+  /** 压后窗口 token 估算（failed 时缺席）。 */
+  tokensAfter?: number;
+  /** 摘要短串（completed 时携带；截断 200 字符）。 */
+  summary?: string;
+  /** 失败原因（failed 时携带）。 */
+  error?: string;
+}
+
+/** loop.context.compacted：上下文压缩里程碑帧（channel = "loop"；追踪页
+ *  可见压缩何时发生——tokensBefore/After 水位 + 摘要）。 */
+export interface LoopContextCompactedEvent extends EventFrame<LoopContextCompactedPayload> {
+  channel?: "loop";
+  type: "loop.context.compacted";
+}

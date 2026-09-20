@@ -54,6 +54,15 @@ function payloadOf(event: LoopEvent): unknown {
       return { runId: event.runId, pauseToken: event.pauseToken, decision: event.decision };
     case "loop.run.interrupted":
       return { runId: event.runId, reason: event.reason };
+    case "loop.context.compacted":
+      return {
+        runId: event.runId,
+        status: event.status,
+        tokensBefore: event.tokensBefore,
+        ...(event.tokensAfter !== undefined ? { tokensAfter: event.tokensAfter } : {}),
+        ...(event.summary !== undefined ? { summary: event.summary } : {}),
+        ...(event.error !== undefined ? { error: event.error } : {}),
+      };
     default:
       return undefined; // 流式中间态/占位型（过滤面已挡，防御兜底）
   }

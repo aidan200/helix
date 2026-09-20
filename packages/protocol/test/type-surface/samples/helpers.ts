@@ -251,10 +251,12 @@ export function summarizeEvent(event: EventEnvelope): string {
       // 语音播报批（V2 TTS）：两判别窄化（ok 音频 / error 原因）
       return `voice-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.provider}:${event.payload.audio.length}` : event.payload.reason}`;
     case "steward.ask.result":
-      // 文本管家批（V2.5）：三判别窄化（answer 文本 / confirm_required 确认闸 / error 原因）
+      // 文本管家批（V2.5）+ L1 件二：四判别窄化（answer 文本 / confirm_required
+      //  确认闸 / queued 排队确认 / error 原因）
       if (event.payload.status === "answer") return `steward-answer:${event.payload.text}`;
       if (event.payload.status === "confirm_required")
         return `steward-confirm-required:${event.payload.actionId}:${event.payload.agentId}:${event.payload.message}`;
+      if (event.payload.status === "queued") return `steward-queued:${event.payload.position}`;
       return `steward-error:${event.payload.reason}`;
     case "steward.ask.delta":
       // 管家流式体验批（V2.5）：增量帧窄化（delta 增量 + seq 单调）
@@ -317,6 +319,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `loop-run-interrupted:${event.payload.runId}:${event.payload.reason}`;
     case "loop.duplex.wake":
       return `loop-duplex-wake:${event.payload.source}`;
+    case "loop.context.compacted":
+      return `loop-context-compacted:${event.payload.runId}:${event.payload.status}:${String(event.payload.tokensAfter ?? "-")}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;

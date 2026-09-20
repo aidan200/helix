@@ -92,28 +92,28 @@ export function handleStewardAsk(ctx: StewardCommandContext): void {
     ctx.sendNow(sender, frame);
   };
   const events: StewardAskEvents = { onDelta, onThinking, onToolStart, onToolEnd };
+  // L1 件二：排队路径的结果帧回执面（queued 确认帧由 ask promise 即发；
+  // 轮次完成帧经此闭包直达原发起连接——与 promise 路径双轨不重复）。
+  const deliverResult = (payload: import("@helix/protocol").StewardAskResultPayload): void => {
+    const frame: StewardAskResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.ask.result",
+      payload,
+    };
+    ctx.sendNow(sender, frame);
+  };
   void ctx.steward.service
-    .ask(text, events)
+    .ask(text, events, deliverResult)
     .then((payload) => {
-      const frame: StewardAskResultEvent = {
-        v: PROTOCOL_VERSION,
-        sessionId: SYSTEM_SESSION_ID,
-        channel: "steward",
-        type: "steward.ask.result",
-        payload,
-      };
-      ctx.sendNow(sender, frame);
+      // 直接路径：promise 即结果（一帧）；排队路径：queued 确认帧（结果帧
+      // 由 service 在轮次完成时经 deliverResult 另发——双帧双轨不重复）。
+      deliverResult(payload);
     })
     .catch((err) => {
       // 服务层已收口业务失败为 error 判别；此处防御未知异常（不静默）
-      const frame: StewardAskResultEvent = {
-        v: PROTOCOL_VERSION,
-        sessionId: SYSTEM_SESSION_ID,
-        channel: "steward",
-        type: "steward.ask.result",
-        payload: { status: "error", reason: `管家执行异常：${(err as Error).message}` },
-      };
-      ctx.sendNow(sender, frame);
+      deliverResult({ status: "error", reason: `管家执行异常：${(err as Error).message}` });
     });
 }
 

@@ -17,6 +17,8 @@
  * （LoopTypes.ts），执行体在 driven adapter 装配注入。
  */
 import type {
+  LoopCompactionInfo,
+  LoopCompactionOptions,
   LoopMessage,
   LoopResumeDecision,
   LoopRunInput,
@@ -27,6 +29,7 @@ import type {
 } from "./LoopTypes";
 import type { LoopEvent } from "./LoopEvent";
 import { loopToolArgsSummary } from "./LoopEvent";
+import { estimateLoopTokens, planCompactionWindow } from "./LoopCompaction";
 import type { LoopEventEmitter } from "./LoopTypes";
 import type { ToolRegistry } from "./ToolRegistry";
 
@@ -61,10 +64,11 @@ export interface LoopRunHandle {
 const CONTINUE = Symbol("loop-continue");
 type ToolPhase = LoopRunResult | typeof CONTINUE;
 
-/** run 内可变状态（暂停后跨 resume 续跑保持）。 */
+/** run 内可变状态（暂停后跨 resume 续跑保持；messages 引用稳定——压缩
+ *  整窗替换也在同引用上重排）。 */
 interface RunState {
   readonly runId: string;
-  readonly messages: LoopMessage[];
+  messages: LoopMessage[];
   turn: number;
   rounds: number;
 }
@@ -76,6 +80,8 @@ export interface LoopEngineDeps {
   readonly emit: LoopEventEmitter;
   /** runId 发号（缺省内部自增；测试注入）。 */
   readonly newRunId?: () => string;
+  /** L1 件一：上下文压缩（阈值触发 + 滚动窗保留 + 配对保护；缺省 = 无压缩）。 */
+  readonly compaction?: LoopCompactionOptions;
 }
 
 export class LoopEngine {
@@ -83,6 +89,7 @@ export class LoopEngine {
   private readonly registry: ToolRegistry;
   private readonly emitEvent: LoopEventEmitter;
   private readonly newRunId: () => string;
+  private readonly compaction?: LoopCompactionOptions;
   private pauseSeq = 0;
 
   constructor(deps: LoopEngineDeps) {
@@ -90,6 +97,7 @@ export class LoopEngine {
     this.registry = deps.registry;
     this.emitEvent = deps.emit;
     this.newRunId = deps.newRunId ?? (() => `loop-run-${++LoopEngine.runSeq}`);
+    this.compaction = deps.compaction;
   }
 
   private static runSeq = 0;
@@ -108,6 +116,64 @@ export class LoopEngine {
     this.emitEvent(event);
   }
 
+  /** L1 件一：轮边界压缩（阈值判定 → 摘要 → 窗口替换 + 事件 + 调用方同步）。
+   *  失败语义：summarize 抛错/空摘要 → 事件记 failed + 保留原窗口继续
+   *  （调用方粗裁剪兑底）——永不抛出、永不阻塞对话（压缩是优化不是依赖）。 */
+  private async maybeCompact(state: RunState, input: LoopRunInput): Promise<void> {
+    const compaction = this.compaction;
+    if (compaction === undefined) return;
+    const tokensBefore = estimateLoopTokens(state.messages);
+    if (tokensBefore <= compaction.thresholdTokens) return;
+    const plan = planCompactionWindow(state.messages, {
+      thresholdTokens: compaction.thresholdTokens,
+      keepRecent: compaction.keepRecent,
+    });
+    if (plan === null) return;
+    let summary: string;
+    try {
+      summary = await compaction.summarize(state.messages.slice(0, plan.compactFrom));
+    } catch (err) {
+      this.emit({
+        type: "loop.context.compacted",
+        runId: state.runId,
+        status: "failed",
+        tokensBefore,
+        error: (err as Error).message,
+      });
+      return;
+    }
+    if (summary.trim() === "") {
+      this.emit({
+        type: "loop.context.compacted",
+        runId: state.runId,
+        status: "failed",
+        tokensBefore,
+        error: "压缩摘要为空",
+      });
+      return;
+    }
+    const summaryMessage = { role: "user" as const, text: summary, compaction: true as const };
+    const kept = state.messages.slice(plan.compactFrom);
+    state.messages = [summaryMessage, ...kept];
+    const tokensAfter = estimateLoopTokens(state.messages);
+    this.emit({
+      type: "loop.context.compacted",
+      runId: state.runId,
+      status: "completed",
+      tokensBefore,
+      tokensAfter,
+      summary: summary.slice(0, 200),
+    });
+    const info: LoopCompactionInfo = {
+      summaryMessage,
+      keptMessages: kept,
+      droppedCount: plan.compactFrom,
+      tokensBefore,
+      tokensAfter,
+    };
+    await input.onCompacted?.(info);
+  }
+
   private async drive(state: RunState, input: LoopRunInput): Promise<LoopRunResult> {
     this.emit({ type: "loop.run.started", runId: state.runId, promptSummary: input.promptSummary ?? "" });
     return this.driveLoop(state, input);
@@ -120,6 +186,9 @@ export class LoopEngine {
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
         return { kind: "aborted" };
       }
+      // L1 件一：轮边界压缩检查（上轮结束→本轮 streamFn 前；首轮前同查——
+      // 工作记忆跨 run 持久时首请求即需瘦身）。失败不抛（优化非依赖）。
+      await this.maybeCompact(state, input);
       state.rounds += 1;
       if (state.rounds > input.maxRounds) {
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "roundLimit" });

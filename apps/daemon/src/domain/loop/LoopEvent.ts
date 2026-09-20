@@ -75,6 +75,17 @@ export type LoopEvent =
   | { readonly type: "loop.run.resumed"; readonly runId: string; readonly pauseToken: string; readonly decision: LoopResumeDecisionKind }
   /** helix 扩展（L2 双工挂点，L0 只定义）：外部中断（barge-in 截断保留）。 */
   | { readonly type: "loop.run.interrupted"; readonly runId: string; readonly reason: string }
+  /** helix 扩展（L1 件一）：上下文压缩里程碑（tokensBefore/After + 摘要；
+   *  失败同型记 failed——压缩是优化不是依赖，降级粗裁剪不阻塞对话）。 */
+  | {
+      readonly type: "loop.context.compacted";
+      readonly runId: string;
+      readonly status: "completed" | "failed";
+      readonly tokensBefore: number;
+      readonly tokensAfter?: number;
+      readonly summary?: string;
+      readonly error?: string;
+    }
   /** helix 扩展（L2 双工挂点，L0 只定义）：idle 挂监听态被唤醒。 */
   | { readonly type: "loop.duplex.wake"; readonly source: string };
 
@@ -91,6 +102,7 @@ export const LOOP_TRACE_EVENT_TYPES: ReadonlySet<string> = new Set([
   "loop.run.paused",
   "loop.run.resumed",
   "loop.run.interrupted",
+  "loop.context.compacted",
 ]);
 
 /** 消息终态事件载荷推导辅助（装配层投影用）。 */

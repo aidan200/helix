@@ -29,6 +29,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
+import { useI18n } from "@/shared/i18n";
 import type { EventEnvelope, StewardHistoryRecord } from "@helix/protocol";
 
 /** feed 滚动窗口上限（截尾保最新；面板轻量态不落 store）。 */
@@ -173,6 +174,7 @@ export function useSteward(open: boolean): UseSteward {
   const [feed, setFeed] = useState<readonly FeedLine[]>([]);
   const [askInFlight, setAskInFlight] = useState(false);
   const [config, setConfig] = useState<StewardConfig | null>(null);
+  const { t } = useI18n();
 
   const pushItem = useCallback((item: StewardPanelItem) => {
     setItems((prev) => {
@@ -282,7 +284,14 @@ export function useSteward(open: boolean): UseSteward {
         const payload = event.payload as
           | { status: "answer"; text: string }
           | { status: "confirm_required"; actionId: string; agentId: string; message: string }
+          | { status: "queued"; queued: true; position: number }
           | { status: "error"; reason: string };
+        // L1 件二：排队确认帧——显示「已排队」，不清流式缓冲、不结束在途态
+        //（本轮仍在跑；结果帧随后到达时再收口）
+        if (payload.status === "queued") {
+          pushItem({ kind: "assistant", text: t("steward.askQueued", { position: payload.position }) });
+          return;
+        }
         setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error/confirm 同口径）
         if (payload.status === "answer") {
           pushItem({ kind: "assistant", text: payload.text });
@@ -322,7 +331,7 @@ export function useSteward(open: boolean): UseSteward {
         });
       }
     });
-  }, [subscribeStewardFrames, pushItem]);
+  }, [subscribeStewardFrames, pushItem, t]);
 
   const ask = useCallback(
     (text: string): boolean => {

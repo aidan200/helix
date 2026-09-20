@@ -132,6 +132,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "loop.tool.started",
   "loop.tool.progress",
   "loop.tool.finished",
+  // helix-loop L1 批：上下文压缩里程碑（追踪面帧——daemon 内部投影，shell
+  // 侧无独立消费面，登记直通满足全类型路由守卫）
+  "loop.context.compacted",
   // 语音输入批 V1：stt.transcribe.result = 连接私有回执（点对点），真消费归
   // Composer useVoiceInput（SessionContext 转发层 subscribeSttFrames——
   // trace.query.result 先例）

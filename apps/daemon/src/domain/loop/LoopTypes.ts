@@ -21,7 +21,13 @@ export interface LoopThinking {
 
 /** 对话消息（loop 域窄面；与 StewardLlmMessage 同构）。 */
 export type LoopMessage =
-  | { readonly role: "user"; readonly text: string }
+  | {
+      readonly role: "user";
+      readonly text: string;
+      /** L1 件一：压缩摘要合成消息标记（synthesized——非用户真实输入；
+       *  回传面与普通 user 同构，标记仅供 UI/追踪区分）。 */
+      readonly compaction?: true;
+    }
   | {
       readonly role: "assistant";
       readonly text?: string;
@@ -121,6 +127,32 @@ export type LoopPauseDecision =
 /** run 运行面事件发射器（LoopEngine → 外部投影的唯一通道）。 */
 export type LoopEventEmitter = (event: LoopEvent) => void;
 
+/** L1 件一：压缩能力契约（LoopEngineDeps.compaction 注入面）——
+ *  domain 零 LLM 依赖：摘要执行体由调用方注入（管家 = StewardLlmPort
+ *  单轮无工具形态），domain 只做阈值判定/边界规划/配对保护（LoopCompaction
+ *  纯函数）。失败语义：summarize 抛错/空摘要 = 压缩失败，保留原窗口继续
+ *  （调用方粗裁剪兑底）——压缩是优化不是依赖，永不阻塞对话。 */
+export interface LoopCompactionOptions {
+  /** 触发阈值（token 估算——estimateLoopTokens 同族口径）。 */
+  readonly thresholdTokens: number;
+  /** 保留尾部滚动窗条数（TR-47：压的是历史不是工作集）。 */
+  readonly keepRecent: number;
+  /** 压缩区间 → 摘要文本（异步 LLM 单轮）。 */
+  readonly summarize: (messages: readonly LoopMessage[]) => Promise<string>;
+}
+
+/** 压缩完成回调信息（调用方事实源同步面——管家工作记忆 KV 整窗替换）。 */
+export interface LoopCompactionInfo {
+  /** 摘要合成消息（compaction: true——入事实源的形态）。 */
+  readonly summaryMessage: LoopMessage & { role: "user"; compaction: true };
+  /** 保留区消息（滚动窗原文）。 */
+  readonly keptMessages: readonly LoopMessage[];
+  /** 被压缩抆的历史消息条数。 */
+  readonly droppedCount: number;
+  readonly tokensBefore: number;
+  readonly tokensAfter: number;
+}
+
 /** run 内新消息持久化回调（调用方工作记忆/事件存储同步——await 串行保序）。 */
 export type LoopMessageSink = (message: LoopMessage) => Promise<void>;
 
@@ -147,6 +179,8 @@ export interface LoopRunInput {
   readonly beforeToolCallPause?: (context: LoopToolCallContext) => Promise<LoopPauseDecision>;
   /** 新消息持久化回调（assistant 终态/toolResult——await 串行保序）。 */
   readonly onNewMessage?: LoopMessageSink;
+  /** L1 件一：压缩完成回调（事实源整窗替换——摘要入账 + 尾部保留）。 */
+  readonly onCompacted?: (info: LoopCompactionInfo) => Promise<void>;
   /** 过程可见回调（屏幕通道等价面）。 */
   readonly callbacks?: LoopRunCallbacks;
   /** run 首条 prompt 摘要（run.started 事件检索面）。 */

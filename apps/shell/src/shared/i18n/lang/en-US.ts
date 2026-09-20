@@ -1091,6 +1091,8 @@ export const enUS = {
     newChatTitle: "Clear the current conversation (steward memory and display reset together)",
     inputPlaceholder: "Ask the steward: what is running now?",
     send: "Send",
+    // L1 queue batch: queued ack copy ({position} interpolation)
+    askQueued: "Queued (position {position}) — starts right after the current reply finishes",
     confirmTitle: "Write action needs confirmation",
     confirmTarget: "Target",
     confirmBody: "Message",

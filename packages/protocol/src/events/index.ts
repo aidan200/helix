@@ -168,6 +168,7 @@ import type {
   LoopRunResumedEvent,
   LoopRunInterruptedEvent,
   LoopDuplexWakeEvent,
+  LoopContextCompactedEvent,
 } from "./loop";
 
 export * from "./notification";
@@ -319,6 +320,7 @@ export type EventEnvelope =
   | LoopRunResumedEvent
   | LoopRunInterruptedEvent
   | LoopDuplexWakeEvent
+  | LoopContextCompactedEvent
   | AskStartedEvent
   | AskResolvedEvent;
 
@@ -463,6 +465,9 @@ export const EVENT_TYPES = [
   "loop.run.resumed",
   "loop.run.interrupted",
   "loop.duplex.wake",
+  // helix-loop L1 批：上下文压缩里程碑（tokensBefore/After + 摘要；
+  // failed 同型记错——压缩失败降级粗裁剪不阻塞对话，追踪页可见）
+  "loop.context.compacted",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -602,4 +607,5 @@ export const EVENT_CHANNELS = {
   "loop.run.resumed": "loop",
   "loop.run.interrupted": "loop",
   "loop.duplex.wake": "loop",
+  "loop.context.compacted": "loop",
 } as const satisfies Record<EventType, Channel>;

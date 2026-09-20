@@ -61,8 +61,8 @@ function baseDeps(overrides: Partial<Deps> = {}): Deps {
   return { ...base, ...overrides };
 }
 
-describe("abort-and-drain：steward.ask 单飞门控（L0 子集）", () => {
-  test("streaming 中新 ask 到达 → abort 旧轮 + drain + 开新轮；KV 顺序 = […旧轮收尾, user2]（写入顺序不变量）", async () => {
+describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）", () => {
+  test("streaming 中新 ask 到达 → 入队不 abort → 旧轮完成 → 新轮自动跑；KV 顺序 = […旧轮收尾, user2]（写入顺序不变量保持）", async () => {
     let resolveGate: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       resolveGate = resolve;
@@ -89,23 +89,21 @@ describe("abort-and-drain：steward.ask 单飞门控（L0 子集）", () => {
     const svc = new StewardService({ ...baseDeps({ config }), llm });
     const first = svc.ask("第一问");
     await new Promise((r) => setTimeout(r, 5)); // 首问进入 streaming（挂起中）
-    const second = svc.ask("第二问");
-    resolveGate!(); // 释放（若门控缺位会双跑交错——drain 门控保证第二问等首问收口）
-    const [r1, r2] = await Promise.all([first, second]);
-    expect(r1.status).toBe("error"); // 被取代收口
-    if (r1.status === "error") expect(r1.reason).toContain("已被新请求取代");
-    expect(r2.status).toBe("answer");
-    if (r2.status !== "answer") throw new Error("r2 应为 answer");
-    expect(r2.text).toBe("答");
-    // KV 顺序不变量：旧轮收尾（无 partial 入账——L0 无清洗器）后新 user 入账；
-    // 新轮直答完成（第二问 run 正常收口）
+    const second = await svc.ask("第二问"); // L1：入队不 abort（旧轮继续）
+    expect(second.status).toBe("queued");
+    resolveGate!(); // 释放首问 → 直答收口 → 队列自动消费第二问
+    const r1 = await first;
+    expect(r1.status).toBe("answer"); // 旧轮不再被取代——完整收口
+    await new Promise((r) => setTimeout(r, 10));
+    // KV 顺序不变量：旧轮完整收尾（user1/assistant1）后新 user2 入账
     const history = await svc.getHistory();
     expect(history.filter((r: StewardHistoryRecord) => r.kind === "user").map((r: { text: string }) => r.text)).toEqual([
       "第一问",
       "第二问",
     ]);
+    // abort 面保留给外部（abortInFlight）——新 ask 不再触发 abort
     expect(seenSignals.length).toBeGreaterThanOrEqual(1);
-    expect(seenSignals[0]!.aborted).toBe(true);
+    expect(seenSignals[0]!.aborted).toBe(false);
   });
 
   test("idle 态连续 ask：零 abort 干扰（串行直答）", async () => {
