@@ -57,4 +57,27 @@ describe("code-review M：createRawSender 背压守护", () => {
     sender(frame);
     expect(sent).toHaveLength(0);
   });
+
+  test("快照体量批：缓冲越过半限 → onWatermark 预警回调（水位线）；半限内不触发", () => {
+    const half = Math.floor(WS_BUFFER_LIMIT_BYTES / 2);
+    // 半限内：不触发
+    {
+      const { ws } = fakeWs(half);
+      let marks = 0;
+      const sender = createRawSender(ws, undefined, () => {
+        marks++;
+      });
+      sender(frame);
+      expect(marks).toBe(0);
+    }
+    // 越过半限且未超限：触发并照常发送
+    {
+      const { ws, sent } = fakeWs(half + 1);
+      const seen: number[] = [];
+      const sender = createRawSender(ws, undefined, (b) => seen.push(b));
+      sender(frame);
+      expect(seen).toEqual([half + 1]);
+      expect(sent).toHaveLength(1); // 水位线不是断连——照常发送
+    }
+  });
 });

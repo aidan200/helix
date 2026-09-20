@@ -88,9 +88,10 @@ export interface AgentInstanceDto {
   /** 该实例累计（popover 行数据） */
   usage?: UsageDto;
   /**
-   * per-instance channel 完整历史（v0.2 新增，AD-1 硬约束，additive）：
-   * **不随主时间轴尾窗截断**——SubAgent 及主实例非主时间轴 channel 的
-   * 历史按实例分组完整保留（F-14⑤）。缺省 = 未携带（旧剧本兼容）。
+   * per-instance channel 历史（v0.2 新增，AD-3，additive）：不随主时间轴
+   * 尾窗切——独立通道尾窗（快照体量批：保最新 + 字节预算，被裁时
+   * truncated=true；F-14⑤ 原全量约束经背压断连循环事故降级）。缺省 =
+   * 未携带（旧剧本兼容）。
    */
   channels?: InstanceChannelHistory;
   /**
@@ -103,9 +104,17 @@ export interface AgentInstanceDto {
   anchorEntryId?: string | null;
 }
 
-/** 实例通道历史分组（AgentInstanceDto.channels 载体；EntryDto 归 kind 分组） */
+/**
+ * 实例通道历史分组（AgentInstanceDto.channels 载体；EntryDto 归 kind 分组）。
+ * 快照体量批（v0.14 微批）：daemon 组装对每通道保最新 channelTail 条且
+ * 主轴+通道合计受字节预算约束——被裁时 truncated=true（additive，缺省 =
+ * 未截断全量）；深历史经主轴 loadHistory 分页/后续通道分页面补拉。
+ */
 export interface InstanceChannelHistory {
   thinking?: EntryDto[];
   messages?: EntryDto[];
   tools?: EntryDto[];
+  /** 通道尾窗截断标记（快照体量批，additive）：true = 本实例通道只含最新
+   *  条目（深历史不在快照内）；缺省 = 未截断（全量）。 */
+  truncated?: boolean;
 }

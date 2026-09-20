@@ -136,7 +136,8 @@ export interface SessionSnapshotDto {
   /**
    * 主时间轴尾窗（v0.2 新增，AD-1 尾窗口径，additive）：默认 30 条（G-1）。
    * 尾窗只作用于主时间轴 entry；per-instance channel 分组（instances[].channels）
-   * 完整保留不截断（F-14⑤ 硬约束）。缺省 = 未携带（v0/v0.1 旧剧本兼容）。
+   * 不随主轴尾窗切——独立通道尾窗 + 字节预算（快照体量批，见
+   * InstanceChannelHistory.truncated）。缺省 = 未携带（v0/v0.1 旧剧本兼容）。
    */
   tail?: EntryDto[];
   /** 全量计数（v0.2 新增，分页指示用，additive）：缺省 = 未携带 */

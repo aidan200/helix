@@ -52,7 +52,9 @@ export const WS_BUFFER_LIMIT_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 /** 原始发送面工厂（code-review M 背压守护，单测缝）：缓冲超阈值 → 断连慢客户端
- * （4000 = 应用自定义关闭码），不发送不堆积；onDrop 供观测（adapter 接 console.warn）。 */
+ * （4000 = 应用自定义关闭码），不发送不堆积；onDrop 供观测（adapter 接 console.warn）。
+ * onWatermark（快照体量批日志增强）：缓冲越过半限（慢客户端预警水位线）时回调
+ * ——每次发送检查都可能触发，去重归调用方（adapter 侧按连接一次性记录）。 */
 export function createRawSender(
   ws: {
     readonly readyState: number;
@@ -61,6 +63,7 @@ export function createRawSender(
     close(code?: number, reason?: string): void;
   },
   onDrop?: (buffered: number) => void,
+  onWatermark?: (buffered: number) => void,
 ): FrameSender {
   return (frame: EventEnvelope) => {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -70,6 +73,7 @@ export function createRawSender(
       ws.close(4000, "发送缓冲超限（背压断连，重连经快照收敛）");
       return;
     }
+    if (buffered > WS_BUFFER_LIMIT_BYTES / 2) onWatermark?.(buffered);
     ws.send(JSON.stringify(frame));
   };
 }
@@ -197,6 +201,8 @@ export class WsServerAdapter {
    * *.result 回执会先于 connection.welcome 到达。排队至握手完成后按序回放。
    */
   private readonly handshakeQueues = new Map<ServerWebSocket<ConnState>, RawCommandFrame[]>();
+  /** 水位线预警已记录连接表（快照体量批日志增强：每连接一次性）。 */
+  private readonly watermarkLogged = new WeakSet<ServerWebSocket<ConnState>>();
 
   constructor(deps: WsServerAdapterDeps) {
     this.deps = deps;
@@ -305,6 +311,7 @@ export class WsServerAdapter {
             message: `握手超时（${this.handshakeTimeoutMs}ms 内未收到合法 hello）——连接已关闭，请重连`,
           },
         });
+        ws.data.daemonClose = "handshake-timeout"; // 日志增强：daemon 发起 close 标记
         ws.close(); // 先发帧再 close（E-54 拒绝路径同处置）
       }, this.handshakeTimeoutMs);
       this.handshakeTimers.set(ws, timer);
@@ -318,7 +325,10 @@ export class WsServerAdapter {
       this.handshakeTimers.delete(ws); // 定时器清理点①：连接关闭（含拒绝后 close/客户端主动断）
     }
     this.handshakeQueues.delete(ws); // 窗口内断连：丢弃排队帧（回放面另有 readyState 守卫）
-    this.logConn(ws, "ws close");
+    // 快照体量批日志增强：区分 close 发起方——daemon 主动 close 点（背压/
+    // 握手拒绝/握手超时/坏帧）在 close 前置位 daemonClose；未标记 = 客户端
+    // 发起（修复前「ws close remote=...」不区分发起方，重连循环排障无从判向）
+    this.logConn(ws, `ws close (${ws.data.daemonClose !== undefined ? `daemon: ${ws.data.daemonClose}` : "client"})`);
     if (ws.data.sender) {
       this.deps.events.detach(ws.data.sender);
       // 流式转写批（V3b-1）：连接级单流随断连清理（abort 上游——voice.subscribe
@@ -332,6 +342,7 @@ export class WsServerAdapter {
     try {
       envelope = JSON.parse(String(data));
     } catch {
+      ws.data.daemonClose = "bad-frame-nonjson"; // 日志增强：daemon 发起 close 标记
       ws.close(); // 非 JSON 帧 = 连接层垃圾数据（契约 §7：不发帧直接 close）
       return;
     }
@@ -339,6 +350,7 @@ export class WsServerAdapter {
     // null.type 会在 async handleHandshake 内抛 TypeError 成 unhandled rejection
     // 且连接悬挂；与非 JSON 帧同口径 ws.close()。
     if (typeof envelope !== "object" || envelope === null) {
+      ws.data.daemonClose = "bad-frame-shape"; // 日志增强：daemon 发起 close 标记
       ws.close();
       return;
     }
@@ -387,6 +399,7 @@ export class WsServerAdapter {
         type: "connection.error",
         payload: { code, message },
       });
+      ws.data.daemonClose = `handshake-reject-${code}`; // 日志增强：daemon 发起 close 标记
       ws.close(); // error 帧先入发送队列，close 控制帧随后（契约 §2：先发帧再 close）
     };
 
@@ -797,8 +810,19 @@ export class WsServerAdapter {
 
   /** 构造连接的协议帧发送端（readyState 守卫：关闭中的连接静默丢弃）。 */
   private rawSender(ws: ServerWebSocket<ConnState>): FrameSender {
-    return createRawSender(ws, (buffered) =>
-      console.warn(`[ws] 发送缓冲超限（${buffered}B > ${WS_BUFFER_LIMIT_BYTES}B）——背压断连慢客户端（重连经快照收敛）`),
+    return createRawSender(
+      ws,
+      (buffered) => {
+        ws.data.daemonClose = "backpressure-4000"; // 日志增强：daemon 发起 close 标记
+        console.warn(`[ws] 发送缓冲超限（${buffered}B > ${WS_BUFFER_LIMIT_BYTES}B）——背压断连慢客户端（重连经快照收敛）`);
+      },
+      (buffered) => {
+        // 水位线一次性预警（快照体量批）：每连接只记一次——慢客户端在断连前
+        // 先留下「何时开始堆缓冲」的轨迹（rawSender 每次构造新闭包，去重靠本表）
+        if (this.watermarkLogged.has(ws)) return;
+        this.watermarkLogged.add(ws);
+        this.logConn(ws, `发送缓冲水位 ${buffered}B ≥ 半限（${Math.floor(WS_BUFFER_LIMIT_BYTES / 2)}B）——慢客户端预警`);
+      },
     );
   }
 
@@ -807,7 +831,8 @@ export class WsServerAdapter {
   }
 
   /** 连接级一行式诊断日志（修复批⑤）：ws open/hello accepted/hello rejected
-   * (code)/handshake timeout/ws close——未来再出现死锁连接时有轨迹可查。
+   * (code)/handshake timeout/ws close（daemon: <原因> | client——快照体量批
+   * 日志增强：区分 close 发起方）——未来再出现死锁连接/重连循环时有轨迹可查。
    * 别刷屏：仅连接级事件，不含逐帧；deps.connLog 缺省（stub rig）静默。 */
   private logConn(ws: ServerWebSocket<ConnState>, event: string): void {
     const remote = ws.remoteAddress ?? "unknown";
