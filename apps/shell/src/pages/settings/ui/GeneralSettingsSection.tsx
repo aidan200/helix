@@ -1,8 +1,12 @@
 /**
- * 设置页「通用」分区（语言切换 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关）。
+ * 设置页「通用」分区（语言切换 + 管家开关 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关）。
  *
  * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
  * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
+ * 管家（管家配置并轨批）：启用开关 = daemon 权威（steward.get_config 进入拉取
+ * + set_config 写、config.result 回执回填，不乐观）；语音播报 = 本地偏好
+ * （helix.steward.speakReply，面板语音模式朗读闸逐次读）——仅启用后显示
+ * （从属项，缩进一层），非平级。管家模型槽位在智能体页管家卡。
  * 工作空间：原独立分区撤项并入（单配置独占一页浪费），卡片本体在
  * WorkspaceSettingsSection（当前绑定 + 切换入口，F2 活跃禁用语义不变）。
  * 压缩参数数据面：topology.modelConfig.compaction（config.get/set_compaction
@@ -27,6 +31,7 @@ import { useEffect, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
+import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
 
@@ -38,7 +43,7 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
 
 const GeneralSettingsSection = function GeneralSettingsSection() {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -62,6 +67,32 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   const portInput = portField.inputs[0] ?? "";
   /** 沙箱开关 send 失败交代（code-review H8：断线窗口不静默——结果帧驱动的开关无在途态，行内错误即全部反馈面）。 */
   const [sandboxError, setSandboxError] = useState<string | null>(null);
+
+  // ── 管家（管家配置并轨批：自退役的管家独立分区并入，两开关零描述文案）──
+  // 启用 = daemon 权威（get_config 进入拉 + config.result 回执回填，不乐观）；
+  // 语音播报 = 本地偏好（朗读闸在 useStewardVoice 逐次读，写后下一轮生效）
+  const [stewardEnabled, setStewardEnabled] = useState<boolean | null>(null);
+  const [stewardError, setStewardError] = useState<string | null>(null);
+  const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
+  useEffect(() => {
+    sendStewardGetConfig();
+  }, [sendStewardGetConfig]);
+  useEffect(
+    () =>
+      subscribeStewardFrames?.((e) => {
+        if (e.type !== "steward.config.result") return;
+        setStewardEnabled((e.payload as { enabled?: boolean }).enabled === true);
+      }),
+    [subscribeStewardFrames],
+  );
+  const toggleSteward = (enabled: boolean): void => {
+    if (sendStewardSetConfig({ enabled }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+
   const toggleSandbox = (enabled: boolean): void => {
     if (setSandboxConfig({ enabled }) === false) {
       setSandboxError(t("chat.settings.general.sendFail"));
@@ -188,6 +219,44 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 管家（管家配置并轨批：启用 = daemon 权威回执回填；语音播报 = 本地偏好，
+          仅启用后显示的从属项——缩进一层非平级；模型槽位在智能体页管家卡） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupSteward")}</h3>
+      <div className="hud-card" data-steward-card>
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.stewardEnable")}</span>
+          <label className="set-check" data-steward-enabled>
+            <input
+              type="checkbox"
+              checked={stewardEnabled === true}
+              onChange={(e) => toggleSteward(e.target.checked)}
+            />
+            {t("chat.settings.general.stewardSwitchOn")}
+          </label>
+          {stewardError !== null && (
+            <span className="mcp-err" data-steward-save-error role="alert">
+              {stewardError}
+            </span>
+          )}
+        </div>
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-speak>
+            <span className="hud-label">{t("chat.settings.general.stewardSpeak")}</span>
+            <label className="set-check" data-steward-speak-reply>
+              <input
+                type="checkbox"
+                checked={speakReply}
+                onChange={(e) => {
+                  setSpeakReply(e.target.checked);
+                  writeStewardSpeakReplyPref(e.target.checked);
+                }}
+              />
+              {t("chat.settings.general.stewardSwitchOn")}
+            </label>
+          </div>
+        )}
       </div>
 
       {/* 工作空间卡（原独立分区并入；绑定展示 + 切换入口语义不变） */}

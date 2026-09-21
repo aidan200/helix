@@ -19,7 +19,7 @@ import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 
 /** 设置分区 id（新增分区在此扩展联合类型）。 */
-export type SettingsSectionId = "models" | "general" | "mcp" | "skills" | "voice" | "steward";
+export type SettingsSectionId = "models" | "general" | "mcp" | "skills" | "voice";
 
 /** 分区清单（首项 = 模型设置；追加方式见文件头预留说明）。 */
 export const SETTINGS_SECTIONS: readonly {
@@ -31,7 +31,6 @@ export const SETTINGS_SECTIONS: readonly {
   { id: "mcp", labelKey: "chat.settings.nav.mcp" },
   { id: "skills", labelKey: "chat.settings.nav.skills" },
   { id: "voice", labelKey: "chat.settings.nav.voice" },
-  { id: "steward", labelKey: "chat.settings.nav.steward" },
 ];
 
 export interface SettingsNavProps {

@@ -167,8 +167,11 @@ const mock = {
   sentSkillContentGet: [] as string[],
   sentStewardProfileGet: 0,
   stewardSendOk: true,
+  sentStewardSetConfig: [] as { enabled?: boolean; model?: string }[],
+  stewardSetConfigOk: true,
   listeners: [] as ((e: EventEnvelope) => void)[],
   mcpListeners: [] as ((e: EventEnvelope) => void)[],
+  stewardListeners: [] as ((e: EventEnvelope) => void)[],
 };
 const requestModelConfig = vi.fn();
 const requestAuthList = vi.fn();
@@ -211,6 +214,16 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       sendAgentStewardProfileGet: () => {
         mock.sentStewardProfileGet += 1;
         return mock.stewardSendOk;
+      },
+      sendStewardSetConfig: (patch: { enabled?: boolean; model?: string }) => {
+        mock.sentStewardSetConfig.push(patch);
+        return mock.stewardSetConfigOk;
+      },
+      subscribeStewardFrames: (cb: (e: EventEnvelope) => void) => {
+        mock.stewardListeners.push(cb);
+        return () => {
+          mock.stewardListeners = mock.stewardListeners.filter((l) => l !== cb);
+        };
       },
       subscribeAgentConfigFrames: (cb: (e: EventEnvelope) => void) => {
         mock.listeners.push(cb);
@@ -1251,7 +1264,7 @@ function feedStewardProfile(over: Partial<AgentStewardProfileGetResultPayload> =
   } as EventEnvelope);
 }
 
-describe("管家公民权批：常驻服务分组 + 管家只读档案卡", () => {
+describe("管家公民权批 + 管家配置并轨批：常驻服务分组 + 管家档案卡（模型槽位可编辑）", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -1265,6 +1278,9 @@ describe("管家公民权批：常驻服务分组 + 管家只读档案卡", () =
     mock.sentBasePromptGet = [];
     mock.sentStewardProfileGet = 0;
     mock.stewardSendOk = true;
+    mock.sentStewardSetConfig = [];
+    mock.stewardSetConfigOk = true;
+    mock.stewardListeners = [];
     mock.conn = "connected";
   });
 
@@ -1279,7 +1295,7 @@ describe("管家公民权批：常驻服务分组 + 管家只读档案卡", () =
     expect(row.querySelector("[data-ro-badge]")!.textContent).toBe("常驻");
   });
 
-  it("② 选中管家 → agent.steward_profile.get → 档案卡：三要素标注/模型显示+指引/八工具清单", () => {
+  it("② 选中管家 → agent.steward_profile.get → 档案卡：常驻标注/模型选择器（现值选中）/八工具清单", () => {
     ui();
     act(() => feedList());
     act(() => selectAgent("steward"));
@@ -1292,18 +1308,49 @@ describe("管家公民权批：常驻服务分组 + 管家只读档案卡", () =
     // 卡头：标题 + kind chip + 常驻徽标
     expect(card.querySelector(".ag-card-title")!.textContent).toBe("管家");
     expect(card.querySelector("[data-kind-chip]")!.textContent).toBe("steward");
-    // 三要素标注（含「内嵌常驻 · WS 直通 · 不可配置 · 不可派生」）
-    expect(card.querySelector("[data-steward-residency]")!.textContent).toContain("内嵌常驻 · WS 直通 · 不可配置 · 不可派生");
-    // 模型槽位显示 + 设置页指引（无编辑器）
-    expect(card.querySelector("[data-steward-model-value]")!.textContent).toBe("deepseek/deepseek-v4-flash");
-    expect(card.querySelector("[data-steward-model-note]")!.textContent).toContain("设置页");
-    expect(card.querySelector("select")).toBeNull();
+    // 常驻标注（「内嵌常驻 · WS 直通 · 不可派生」）
+    expect(card.querySelector("[data-steward-residency]")!.textContent).toContain("内嵌常驻 · WS 直通 · 不可派生");
+    // 模型槽位：可编辑选择器（与 kind 卡同形态；现值选中，兑底保留）
+    const select = card.querySelector("[data-steward-model-select]") as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    expect(select.value).toBe("deepseek/deepseek-v4-flash");
+    expect(card.querySelector("[data-steward-model-note]")).toBeNull();
     // 八工具清单：名称 + 一句话描述
     const rows = [...card.querySelectorAll("[data-steward-tool-row]")];
     expect(rows.map((r) => r.getAttribute("data-steward-tool-row"))).toEqual(STEWARD_PROFILE_PAYLOAD.tools.map((t) => t.name));
     expect(card.querySelector('[data-steward-tool-row="steward_confirm"]')!.textContent).toContain("面板确认按钮原语");
-    // 无启停开关（常驻定位——全卡零 switch）
+    // 无启停开关（常驻定位——全卡零 switch；启停在设置页通用配置）
     expect(card.querySelectorAll('[role="switch"]').length).toBe(0);
+  });
+
+  it("②b 模型选择：换值 → sendStewardSetConfig({model})（不乐观）；config.result 回执 → 档案重拉 → 新值回填", () => {
+    mock.catalog = CATALOG;
+    ui();
+    act(() => feedList());
+    act(() => selectAgent("steward"));
+    act(() => feedStewardProfile());
+    const select = document.querySelector("[data-steward-model-select]") as HTMLSelectElement;
+    // 换值 → 写面单发（本地态不动，等回执链）
+    act(() => {
+      fireEvent.change(select, { target: { value: "openai/gpt-5.2" } });
+    });
+    expect(mock.sentStewardSetConfig).toEqual([{ model: "openai/gpt-5.2" }]);
+    expect(mock.sentStewardProfileGet).toBe(1); // 未回执不重拉
+    // config.result 回执 → 档案静默重拉 → 新回执回填 select 值
+    act(() => {
+      for (const l of mock.stewardListeners) {
+        l({
+          v: "0.14",
+          sessionId: "__system__",
+          channel: "steward",
+          type: "steward.config.result",
+          payload: { enabled: true, model: "openai/gpt-5.2" },
+        } as EventEnvelope);
+      }
+    });
+    expect(mock.sentStewardProfileGet).toBe(2);
+    act(() => feedStewardProfile({ model: "openai/gpt-5.2" }));
+    expect((document.querySelector("[data-steward-model-select]") as HTMLSelectElement).value).toBe("openai/gpt-5.2");
   });
 
   it("③ prompt 折叠面板：默认收起显示首行摘要；展开全文；再点收起（零新命令）", () => {
@@ -1331,13 +1378,15 @@ describe("管家公民权批：常驻服务分组 + 管家只读档案卡", () =
     expect(mock.sentStewardProfileGet).toBe(1);
   });
 
-  it("④ 模型槽位未设（model=null）→ 未设置提示文案；重选缓存后静默重拉（重发送不闪骨架）", () => {
+  it("④ 模型槽位未设（model=null）→ 未设置占位文案；重选缓存后静默重拉（重发送不闪骨架）", () => {
     ui();
     act(() => feedList());
     act(() => selectAgent("steward"));
     act(() => feedStewardProfile({ model: null }));
-    expect(document.querySelector("[data-steward-model-value]")!.textContent).toContain("未设置");
-    // 切走再切回：重拉（模型槽位经设置页可变——读面保持新鲜）但旧数据保持渲染
+    const select = document.querySelector("[data-steward-model-select]") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(select.selectedOptions[0]?.textContent).toContain("未设置");
+    // 切走再切回：重拉（模型槽位经写面可变——读面保持新鲜）但旧数据保持渲染
     act(() => selectAgent("main-session"));
     act(() => selectAgent("steward"));
     expect(mock.sentStewardProfileGet).toBe(2);
@@ -1378,12 +1427,15 @@ describe("管家档案卡 i18n：en-US 双语断言", () => {
     mock.sentBasePromptGet = [];
     mock.sentStewardProfileGet = 0;
     mock.stewardSendOk = true;
+    mock.sentStewardSetConfig = [];
+    mock.stewardSetConfigOk = true;
+    mock.stewardListeners = [];
     mock.conn = "connected";
     // 还原产品断言语言 zh-CN（jsdom 默认 en-US——本 describe 前被钉为 zh）
     localStorage.setItem("helix-lang", "zh-CN");
   });
 
-  it("en 文案：常驻服务分组 / 三要素标注 / 模型指引（双语对齐）", () => {
+  it("en 文案：常驻服务分组 / 常驻标注 / 模型选择器现值（双语对齐）", () => {
     localStorage.setItem("helix-lang", "en-US");
     ui();
     act(() => feedList());
@@ -1392,9 +1444,8 @@ describe("管家档案卡 i18n：en-US 双语断言", () => {
     act(() => feedStewardProfile());
     const card = document.querySelector('[data-agent-card="steward"]')!;
     expect(card.querySelector("[data-steward-residency]")!.textContent).toBe(
-      "Embedded resident · WS direct · Not configurable · Not derivable",
+      "Embedded resident · WS direct · Not derivable",
     );
-    expect(card.querySelector("[data-steward-model-note]")!.textContent).toBe("Change it in Settings → Steward");
-    expect(card.querySelector("[data-steward-model-value]")!.textContent).toBe("deepseek/deepseek-v4-flash");
+    expect((card.querySelector("[data-steward-model-select]") as HTMLSelectElement).value).toBe("deepseek/deepseek-v4-flash");
   });
 });

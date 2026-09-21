@@ -33,6 +33,10 @@ let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null =
 /** M10 批②：config 族 connection.error 订阅听众（三卡 useConfigField 各挂一
  *  个；feed 全量回放——单飞门控由各卡 pending 自行判）。 */
 let configListeners: ((e: EventEnvelope) => void)[] = [];
+/** 管家配置并轨批：steward 命令面 mock（进入拉取 + 写面记录 + 回执听众）。 */
+const sendStewardGetConfig = vi.fn(() => true);
+const sendStewardSetConfig = vi.fn((_patch: { enabled?: boolean; model?: string }) => true);
+let stewardListeners: ((e: EventEnvelope) => void)[] = [];
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -53,6 +57,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
         configListeners.push(listener);
         return () => {
           configListeners = configListeners.filter((l) => l !== listener);
+        };
+      },
+      sendStewardGetConfig,
+      sendStewardSetConfig,
+      subscribeStewardFrames: (listener: (e: EventEnvelope) => void) => {
+        stewardListeners.push(listener);
+        return () => {
+          stewardListeners = stewardListeners.filter((l) => l !== listener);
         };
       },
     }),
@@ -86,6 +98,8 @@ afterEach(() => {
   mockSandbox = null;
   mockDaemonFreshness = null;
   configListeners = [];
+  stewardListeners = [];
+  localStorage.removeItem("helix.steward.speakReply");
   vi.clearAllMocks();
 });
 
@@ -112,6 +126,21 @@ function ui() {
       </ToastProvider>
     </I18nProvider>,
   );
+}
+
+/** 管家 config.result 回执注入（steward 频道点对点帧）。 */
+function feedStewardConfig(enabled: boolean) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    channel: "steward",
+    type: "steward.config.result",
+    ts: 1,
+    payload: { enabled, model: "deepseek/deepseek-v4-flash" },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of stewardListeners) l(frame);
+  });
 }
 
 describe("通用配置分区：语言切换", () => {
@@ -397,6 +426,53 @@ describe("code-review 族A：沙箱开关 daemon 拒绝交代（connection.error
     fireEvent.click(container.querySelector<HTMLElement>('[data-sandbox-option="on"]')!);
     feedConnError("端口配置非法（命令 config.set_port）");
     expect(container.querySelector("[data-sandbox-save-error]")).toBeNull();
+  });
+});
+
+describe("管家配置并轨批：管家组（启用 + 语音播报从属项）", () => {
+  it("进入分区 → sendStewardGetConfig 拉取；config.result(enabled=false) → 勾选关 + 语音播报不渲染", () => {
+    const { container } = ui();
+    expect(sendStewardGetConfig).toHaveBeenCalledTimes(1);
+    feedStewardConfig(false);
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-enabled] input")!;
+    expect(toggle.checked).toBe(false);
+    expect(container.querySelector("[data-steward-speak]")).toBeNull();
+  });
+
+  it("启用切换 → sendStewardSetConfig({enabled}) 不乐观翻转；config.result 回执回填", () => {
+    const { container } = ui();
+    feedStewardConfig(false);
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-enabled] input")!;
+    fireEvent.click(toggle);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ enabled: true });
+    expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
+    feedStewardConfig(true);
+    expect(toggle.checked).toBe(true);
+  });
+
+  it("语音播报从属项：仅启用后显示（层级缩进 fld-sub）；切换写本地偏好零 daemon 命令", () => {
+    const { container } = ui();
+    feedStewardConfig(true);
+    const sub = container.querySelector("[data-steward-speak]")!;
+    expect(sub).not.toBeNull();
+    expect(sub.className).toContain("fld-sub");
+    const speak = sub.querySelector<HTMLInputElement>("[data-steward-speak-reply] input")!;
+    expect(speak.checked).toBe(true); // 缺省开
+    const callsBefore = sendStewardSetConfig.mock.calls.length;
+    fireEvent.click(speak);
+    expect(speak.checked).toBe(false);
+    expect(localStorage.getItem("helix.steward.speakReply")).toBe("0");
+    expect(sendStewardSetConfig.mock.calls.length).toBe(callsBefore); // 本地偏好零 daemon 命令
+  });
+
+  it("send 失败（未连接）→ 行内错误交代，勾选不翻转", () => {
+    sendStewardSetConfig.mockReturnValueOnce(false);
+    const { container } = ui();
+    feedStewardConfig(false);
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-enabled] input")!;
+    fireEvent.click(toggle);
+    expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("未连接");
+    expect(toggle.checked).toBe(false);
   });
 });
 

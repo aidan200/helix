@@ -1,30 +1,72 @@
 /**
- * 管家只读档案卡（管家公民权批；ProfileCard 卡片骨架同构——hud-card 载体）。
+ * 管家档案卡（管家公民权批 + 管家配置并轨批：模型选择并入本卡——与 kind 配置卡
+ * 同一选择器形态（filterAvailableModels 可用性过滤 + provider optgroup），
+ * 写面 steward.set_config {model} 经 AgentPage 注入，本卡不直连 SessionContext）。
  *
- * 与 kind 配置卡的三点差异（用户拍板的设计决定，不可改）：
- * - 无「启用/禁用」开关（管家常驻——全卡零 switch）；
- * - 无模型选择器编辑：只显示当前 steward.model 槽位 + 「在设置页语音管家段
- *   修改」指引（写面在设置页，本卡纯观测）；
+ * 与 kind 配置卡的差异：
+ * - 无「启用/禁用」开关（启停在设置页通用配置；工具/提示词面无写面）；
  * - 无 spawn 入口（不可派生）。
  *
- * 内容三块：system prompt 折叠面板（默认收起显示首行任务描述摘要，展开
- * 全文——数据随档案一次拉全，开/关纯本地态）/ 工具清单（注册面八工具：
- * 名称 + 一句话描述）/ 模型显示 + 指引。常驻标注行含三要素四词组
- * 「内嵌常驻 · WS 直通 · 不可配置 · 不可派生」。
+ * 内容三块：模型槽位选择器 / system prompt 折叠面板（默认收起显示首行任务
+ * 描述摘要，展开全文——数据随档案一次拉全，开/关纯本地态）/ 工具清单（注册
+ * 面八工具：名称 + 一句话描述）。
  */
-import { useState } from "react";
-import type { AgentStewardProfileGetResultPayload } from "@helix/protocol";
+import { useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import type { AgentStewardProfileGetResultPayload, CatalogModel } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
+import { filterAvailableModels } from "@/features/model-switch/model/available-models";
+import type { AuthProviderEntry } from "@/entities/session/model/state";
 
-/** 管家档案卡（只读观测面；数据 = agent.steward_profile.get.result 载荷）。 */
+/** 管家档案卡（数据 = agent.steward_profile.get.result 载荷；模型写面回调注入）。 */
 export default function StewardCard({
   profile,
+  catalog,
+  auth,
+  authLoaded,
+  onModelChange,
 }: {
   profile: AgentStewardProfileGetResultPayload | null;
+  /** 模型目录（null = 未加载——选择器禁用）。 */
+  catalog: CatalogModel[] | null;
+  auth: Record<string, AuthProviderEntry>;
+  authLoaded: boolean;
+  /** 模型槽位写面（steward.set_config {model}；新态经 config.result → 档案重拉回填）。 */
+  onModelChange: (model: string) => void;
 }) {
   const { t } = useI18n();
   const [promptOpen, setPromptOpen] = useState(false);
   const promptSummary = profile === null ? "" : profile.systemPrompt.split("\n", 1)[0] ?? "";
+
+  // 模型选项（ProfileCard 同口径：filterAvailableModels 可用性过滤 + provider
+  // 分组；现值兑底——provider 未 configured / 不在目录仍保留，select 不说谎）
+  const modelsByProvider = useMemo(() => {
+    const visible = filterAvailableModels({
+      models: catalog ?? [],
+      auth,
+      authLoaded,
+      currentModel: profile?.model ?? undefined,
+      query: "",
+    });
+    const current = profile?.model ?? null;
+    const withCurrent =
+      current !== null && !visible.some((m) => m.id === current)
+        ? [
+            {
+              id: current,
+              providerId: current.split("/", 1)[0] ?? current,
+            } as CatalogModel,
+            ...visible,
+          ]
+        : visible;
+    const map = new Map<string, CatalogModel[]>();
+    for (const m of withCurrent) {
+      const list = map.get(m.providerId);
+      if (list) list.push(m);
+      else map.set(m.providerId, [m]);
+    }
+    return map;
+  }, [catalog, auth, authLoaded, profile?.model]);
 
   return (
     <section className="hud-card ag-card" data-agent-card="steward">
@@ -39,21 +81,46 @@ export default function StewardCard({
         </span>
       </header>
 
-      {/* 常驻标注：三要素四词组 + 定位说明（daemon 内嵌常驻服务，非 SubAgent profile） */}
+      {/* 常驻标注 + 定位说明（daemon 内嵌常驻服务，非 SubAgent profile） */}
       <p className="ag-note" data-steward-residency>
         {t("agents.stewardResidency")}
       </p>
       <p className="ag-note">{t("agents.stewardNote")}</p>
 
-      {/* 模型槽位：只显示 + 指引（写面在设置页语音管家段；无选择器） */}
+      {/* 模型槽位：可编辑选择器（与 kind 卡同形态；写面 steward.set_config） */}
       <div className="ag-model" data-steward-model>
-        <span className="hud-label">{t("agents.modelLabel")}</span>
-        <span className="ag-name" data-steward-model-value>
-          {profile === null ? t("agents.stewardLoading") : profile.model ?? t("agents.stewardModelUnset")}
-        </span>
-        <p className="ag-note" data-steward-model-note>
-          {t("agents.stewardModelNote")}
-        </p>
+        <label className="hud-label" htmlFor="sel-model-steward">
+          {t("agents.modelLabel")}
+        </label>
+        <div className="sel-wrap">
+          <select
+            id="sel-model-steward"
+            className="hud-input"
+            data-steward-model-select
+            value={profile?.model ?? ""}
+            disabled={profile === null || catalog === null}
+            onChange={(e) => onModelChange(e.target.value)}
+          >
+            {/* 未设置现值占位（disabled——set_config 不支持清空槽位，仅作显示） */}
+            {(profile === null || profile.model === null) && (
+              <option value="" disabled>
+                {profile === null ? t("agents.stewardLoading") : t("agents.stewardModelUnset")}
+              </option>
+            )}
+            {[...modelsByProvider.entries()].map(([providerId, models]) => (
+              <optgroup label={providerId} key={providerId}>
+                {models.map((m) => (
+                  <option value={m.id} key={m.id}>
+                    {m.id}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <span className="sel-chev">
+            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+          </span>
+        </div>
       </div>
 
       {/* system prompt 折叠面板：默认收起显示首行任务描述；展开全文（数据随档案

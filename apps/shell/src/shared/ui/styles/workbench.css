@@ -309,6 +309,8 @@
 .mcp-form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .mcp-enabled, .set-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-body); color: var(--text); cursor: pointer; }
 .set-check input { accent-color: var(--accent); }
+/* 从属配置项（管家配置并轨批：语音播报隶属「启用管家」——缩进一层，非平级） */
+.fld-sub { margin-left: 18px; }
 .mcp-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .mcp-row:last-child { border-bottom: none; }
 .mcp-row-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

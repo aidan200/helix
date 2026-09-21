@@ -16,7 +16,6 @@ import GeneralSettingsSection from "./ui/GeneralSettingsSection";
 import McpSettingsSection from "./ui/McpSettingsSection";
 import SkillsSettingsSection from "./ui/SkillsSettingsSection";
 import VoiceSettingsSection from "./ui/VoiceSettingsSection";
-import StewardSettingsSection from "./ui/StewardSettingsSection";
 import SettingsNav, {
   SETTINGS_SECTIONS,
   type SettingsSectionId,
@@ -39,7 +38,6 @@ const SettingsPage = function SettingsPage({ path }: { path: string }) {
         {section === "mcp" && <McpSettingsSection />}
         {section === "skills" && <SkillsSettingsSection />}
         {section === "voice" && <VoiceSettingsSection />}
-        {section === "steward" && <StewardSettingsSection />}
       </AppLayout>
     </div>
   );

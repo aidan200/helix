@@ -180,8 +180,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     sendAgentBasePromptGet,
     sendAgentSkillContentGet,
     sendAgentStewardProfileGet,
+    sendStewardSetConfig,
     subscribeAgentConfigFrames,
     subscribeMcpFrames,
+    subscribeStewardFrames,
   } = useSession();
   const conn = session.conn;
 
@@ -357,6 +359,33 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     [sendAgentStewardProfileGet, t],
   );
 
+  // 管家配置并轨批：steward.config.result 回执（本页模型写面 / 设置页开关写面
+  // 同源）→ 档案静默重拉刷新模型槽位（daemon 权威，不乐观写本地态）
+  useEffect(
+    () =>
+      subscribeStewardFrames?.((e: EventEnvelope) => {
+        if (e.type !== "steward.config.result") return;
+        const st = stateRef.current;
+        if (st.stewardProfile === null || st.stewardProfilePending) return;
+        if (sendAgentStewardProfileGet()) {
+          dispatch({ type: "steward-profile-started" });
+        }
+      }),
+    [subscribeStewardFrames, sendAgentStewardProfileGet],
+  );
+
+  /** 管家模型槽位写面（管家配置并轨批）：换值 → steward.set_config {model}；
+   *  新态等 config.result 回执 → 档案重拉回填（不乐观）。 */
+  const onStewardModelChange = useCallback(
+    (model: string) => {
+      if (model === "") return; // 未设置占位项（disabled 防御——不可达）
+      if (sendStewardSetConfig({ model }) === false) {
+        toast.push("err", t("agents.notConnected"));
+      }
+    },
+    [sendStewardSetConfig, toast, t],
+  );
+
   /** 管家档案拉取失败重试（send false 收口后的重发入口）。 */
   const onStewardRetry = useCallback(() => {
     if (stateRef.current.stewardProfilePending) return;
@@ -466,7 +495,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                 />
               ))}
               {/* 管家公民权批：第三分组「常驻服务」——daemon 内嵌常驻成员（非
-                  SubAgent profile），档案卡只读观测 */}
+                  SubAgent profile）；详情卡模型槽位可编辑，其余只读观测 */}
               <div className="ag-group-head" data-agent-group="resident">
                 {t("agents.groupResident")}
               </div>
@@ -513,7 +542,8 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
             </div>
           </div>
         ) : state.selected === "steward" ? (
-          /* 管家档案卡（只读观测面；拉取中/失败态卡内呈现，重试入口同页） */
+          /* 管家档案卡（模型槽位可编辑——写面 steward.set_config；其余只读
+             观测面；拉取中/失败态卡内呈现，重试入口同页） */
           state.stewardProfileError !== null && state.stewardProfile === null ? (
             <div className="ag-center">
               <div className="ag-error" role="alert" data-steward-error>
@@ -531,7 +561,13 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           ) : (
             <div className="ag-pane-scroll">
               <div className="ag-pane-inner">
-                <StewardCard profile={state.stewardProfile} />
+                <StewardCard
+                  profile={state.stewardProfile}
+                  catalog={catalog}
+                  auth={auth}
+                  authLoaded={authLoaded}
+                  onModelChange={onStewardModelChange}
+                />
               </div>
             </div>
           )

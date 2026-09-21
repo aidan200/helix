@@ -284,7 +284,6 @@ export const enUS = {
         mcp: "MCP Servers",
         skills: "Skills",
         voice: "Voice Input",
-        steward: "Steward",
       },
       voice: {
         title: "Voice Input",
@@ -332,24 +331,7 @@ export const enUS = {
         auditionSendFail: "Audition not sent: daemon connection unavailable",
         auditionBlocked: "Playback blocked by browser policy (interact with the page first)",
       },
-      // ── Steward section (V2.5 finale batch + settings UX restyle batch:
-      //    enable switch + model slot; panel strings live in the top-level
-      //    steward.* family) ──
-      steward: {
-        title: "Steward",
-        note: "The steward is a global assistant: ask it what tasks are running, or have it pass a message to a running task. Open it any time from the bell button in the left sidebar.",
-        groupSwitch: "Enable steward",
-        enable: "Enable steward",
-        enableOn: "Turn on",
-        enableHint: "Free while off; when on, billed by the usage of the selected model.",
-        // ── Voice-mode read-aloud switch (V3a: only applies in panel voice mode; text mode never speaks) ──
-        speakReply: "Read replies aloud in voice mode",
-        speakReplyOn: "On",
-        speakReplyHint: "When on, spoken questions get spoken replies; replies to typed questions are never read aloud.",
-        groupModel: "Answer model",
-        model: "Answer model",
-        modelHint: "The strongest model available is recommended: the steward handles global monitoring and message-relay decisions — stronger reasoning means more reliability (thinking is on by default). Only models from configured providers are listed; configure them in the Models section.",
-      },
+
       skills: {
         title: "User skills",
         subtitle: "Skill directory ~/.helix/skills: drop <name>/SKILL.md (frontmatter with name and description) and it loads automatically; enable/disable per agent on the Agents page",
@@ -434,6 +416,10 @@ export const enUS = {
         invalidSchedBudget: "Invalid input: max concurrent must be an integer ≥ 1; max queued must be a non-negative integer",
         invalidPort: "Invalid input: port must be an integer in 0-65535",
         groupLanguage: "Language",
+        groupSteward: "Steward",
+        stewardEnable: "Enable steward",
+        stewardSpeak: "Voice replies",
+        stewardSwitchOn: "On",
         groupWorkspace: "Workspace",
         groupCompaction: "Context compaction",
         groupScheduling: "SubAgent scheduling",
@@ -712,10 +698,9 @@ export const enUS = {
     groupResident: "Resident services",
     stewardTitle: "Steward",
     stewardBadge: "Resident",
-    stewardResidency: "Embedded resident · WS direct · Not configurable · Not derivable",
-    stewardNote: "A first-class embedded resident member of the daemon (not a SubAgent profile), with no on/off switch. This card is a read-only observation surface; its prompt and tool face cannot be edited here.",
+    stewardResidency: "Embedded resident · WS direct · Not derivable",
+    stewardNote: "An embedded resident member of the daemon (not a SubAgent profile); prompt and tools are read-only, on/off lives in Settings → General.",
     stewardModelUnset: "Not set (adapter default model)",
-    stewardModelNote: "Change it in Settings → Steward",
     stewardPromptLabel: "System prompt",
     stewardPromptView: "View",
     stewardPromptHide: "Collapse",
@@ -1081,7 +1066,7 @@ export const enUS = {
     stateOn: "Active",
     stateOff: "Off",
     disabledTitle: "Steward is off",
-    disabledHint: "The steward switch is off by default; enable it in Settings → Steward to ask about global state here. Write actions need confirmation.",
+    disabledHint: "The steward switch is off by default; enable it in Settings → General to ask about global state here. Write actions need confirmation.",
     feedTitle: "Event feed",
     feedEmpty: "No events yet",
     thinking: "Thinking…",
