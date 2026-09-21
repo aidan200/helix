@@ -5,7 +5,7 @@
  * draft:true 建会话链消费；缺省 = 全局默认（payload 不携带 model 键）。
  */
 import { describe, expect, it } from "vitest";
-import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand } from "./commands";
+import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardSetConfigCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -145,5 +145,26 @@ describe("voice 流式两命令构造器（V3b-2：管家朗读流式接线）",
   it("voiceSynthesizeStopCommand：utterId 省略 → payload 空（全部在途句）；携带 → 定向", () => {
     expect(voiceSynthesizeStopCommand().payload).toEqual({});
     expect(voiceSynthesizeStopCommand("utt-9").payload).toEqual({ utterId: "utt-9" });
+  });
+});
+
+// ── 管家记忆 B1：steward.set_config 构造器 memory 槽位透传（回归：修复前构造器
+//    签名只收 enabled/model，memory 字段被静默丢弃——UI 开关勾不上）──
+
+describe("stewardSetConfigCommand 槽位透传（管家记忆 B1 回归）", () => {
+  it("memory 槽位携带 → payload.memory 透传（修复前被丢弃）", () => {
+    const cmd = stewardSetConfigCommand({ memory: { enabled: true } });
+    expect(cmd.type).toBe("steward.set_config");
+    expect(cmd.payload).toEqual({ memory: { enabled: true } });
+  });
+
+  it("三槽位共存：enabled + model + memory 同时携带互不覆盖", () => {
+    const cmd = stewardSetConfigCommand({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, baseUrl: "http://localhost:11434/v1", model: "bge-m3" } });
+    expect(cmd.payload).toEqual({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, baseUrl: "http://localhost:11434/v1", model: "bge-m3" } });
+  });
+
+  it("单槽位最小帧：只携带传入位，缺省不携带键（帧噪音最小化）", () => {
+    expect(stewardSetConfigCommand({ enabled: false }).payload).toEqual({ enabled: false });
+    expect(stewardSetConfigCommand({}).payload).toEqual({});
   });
 });

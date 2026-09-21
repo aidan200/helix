@@ -529,12 +529,21 @@ export function stewardGetConfigCommand(): StewardGetConfigCommand {
   return { v: PROTOCOL_VERSION, type: "steward.get_config", payload: {} };
 }
 
-/** steward.set_config：设置写面（enabled/model 两槽位可选；全局命令）。 */
-export function stewardSetConfigCommand(patch: { enabled?: boolean; model?: string }): StewardSetConfigCommand {
+/** steward.set_config：设置写面（enabled/model/memory 槽位可选；全局命令；
+ * 管家记忆 B1 增 memory 组——嵌入端点配置，apiKey 只进不出）。 */
+export function stewardSetConfigCommand(patch: {
+  enabled?: boolean;
+  model?: string;
+  memory?: { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string };
+}): StewardSetConfigCommand {
   return {
     v: PROTOCOL_VERSION,
     type: "steward.set_config",
-    payload: { ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}), ...(patch.model !== undefined ? { model: patch.model } : {}) },
+    payload: {
+      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.model !== undefined ? { model: patch.model } : {}),
+      ...(patch.memory !== undefined ? { memory: patch.memory } : {}),
+    },
   };
 }
 
