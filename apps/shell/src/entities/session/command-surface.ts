@@ -846,11 +846,15 @@ export const LISTEN_SURFACE = {
   },
   /** 订阅 voice 族帧（语音播报批 V2 TTS：voice.broadcast 广播 +
    *  voice.synthesize.result 点对点回执 + connection.error——useVoiceBroadcast
-   *  播放与设置页试听两消费面；TR-89 双登记纪律）。 */
+   *  播放与设置页试听两消费面；TR-89 双登记纪律；V3b-2 流式批补
+   *  chunk/done/error 三帧——管家朗读流式回推面（漏登即播放器零帧）。 */
   subscribeVoiceFrames: {
     match: (type) =>
       type === "voice.broadcast" ||
       type === "voice.synthesize.result" ||
+      type === "voice.synthesize.chunk" ||
+      type === "voice.synthesize.done" ||
+      type === "voice.synthesize.error" ||
       type === "connection.error",
   },
   /** 订阅 steward 族帧（V2.5 文本管家：ask/confirm/config 三点对点回执 +

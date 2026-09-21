@@ -64,6 +64,8 @@ export interface SpeechPlayer {
   stop(): void;
   /** 释放（面板卸载）。 */
   close(): void;
+  /** 复活（StrictMode 双效应：close 后重开——内部 ctx 懒建，重置 dead 即可）。 */
+  reopen(): void;
   /** 播放态边沿回调（true = 有音频在播或在队；false = 全部播尽/停）。 */
   onActiveChange(cb: (active: boolean) => void): () => void;
 }
@@ -204,6 +206,10 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
         ctx = null;
         gain = null;
       }
+    },
+    reopen(): void {
+      // ctx 已置空（懒建重跑）；队列已清（close→stop）；只重置死亡位
+      dead = false;
     },
     onActiveChange(cb: (active: boolean) => void): () => void {
       activeListeners.add(cb);

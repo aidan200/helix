@@ -250,6 +250,16 @@ export class StewardSpeechOut {
     this.player.close();
   }
 
+  /** 复活（StrictMode 双效应兼容：mount→cleanup→remount 的 cleanup 先跑
+   * close() 毒死 useRef 持有的同一实例——remount 后 setup 必须显式重开，
+   * 否则 disposed 永真 → 全链静默（2026-09-21 生产事故根因）。真实卸载
+   * 不经本方法，close 语义不变。） */
+  reopen(): void {
+    if (!this.disposed) return;
+    this.disposed = false;
+    this.player.reopen();
+  }
+
   /** 本轮流式链死判别（消费端提示面可选读）。 */
   get degraded(): boolean {
     return this.streamDead && this.streamUsed;

@@ -17,6 +17,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, act, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { StrictMode } from "react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope } from "@helix/protocol";
 
@@ -638,6 +640,7 @@ describe("useStewardVoice（V3b-2 流式朗读接线）", () => {
       playerStopped += 1;
     },
     close: () => {},
+    reopen: () => {},
     onActiveChange(cb: (a: boolean) => void) {
       playerActiveCb = cb;
       return () => {
@@ -689,6 +692,32 @@ describe("useStewardVoice（V3b-2 流式朗读接线）", () => {
   function renderVoiceStream() {
     return renderHook(() => useStewardVoice(true, { createPlayer }), { wrapper: I18nProvider }).result;
   }
+
+  it("StrictMode 双效应不毒死朗读链（生产事故回归锚）：mount→cleanup→remount 后 delta/result 照发流式", async () => {
+    restoreEnv = installEnv();
+    // StrictMode 包裹：React18 dev 下 effect setup→cleanup→setup（useRef 实例跨重挂保留）
+    const r = renderHook(() => useStewardVoice(true, { createPlayer }), {
+      wrapper: ({ children }: { children?: ReactNode }) => (
+        <I18nProvider>
+          <StrictMode>{children}</StrictMode>
+        </I18nProvider>
+      ),
+    }).result;
+    // 触发一轮 ask（开轮）
+    sendStewardAsk.mockReturnValueOnce(true);
+    act(() => {
+      r.current.ask("问题");
+    });
+    await tick();
+    sendVoiceSynthesizeStream.mockClear();
+    // 驱动 delta + result（经订阅面注入）
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "第一句。第二句。" }, "steward"));
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第一句。第二句。" }, "steward"));
+    });
+    await tick();
+    expect(sendVoiceSynthesizeStream.mock.calls.length).toBeGreaterThanOrEqual(1); // 修复前：disposed 毒死零命令
+  });
 
   it("流式闭环：delta 切句 → stream 逐句（md 剥离/utterId 单调）→ chunk 入播放队列 → answer 终态零一次性", async () => {
     restoreEnv = installEnv();

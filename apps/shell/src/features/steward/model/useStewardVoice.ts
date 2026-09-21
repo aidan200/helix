@@ -209,18 +209,23 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     speechOut.stopSpeaking(); // stop 命令 + 队列清空 + 分句缓冲 reset + 本轮静音
   }, [speechOut]);
 
-  // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频/孤儿在途句
+  // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频/孤儿在途句。
+  // StrictMode 双效应兼容：cleanup 先跑 close() 毒死 useRef 实例，重挂 setup
+  // 必须显式 reopen()（否则 disposed 永真 → 朗读全链静默）。
   useEffect(
-    () => () => {
-      speakPendingRef.current = false;
-      const audio = audioRef.current;
-      audioRef.current = null;
-      if (audio !== null) {
-        audio.onended = null;
-        audio.onerror = null;
-        audio.pause();
-      }
-      speechOut.close();
+    () => {
+      speechOut.reopen();
+      return () => {
+        speakPendingRef.current = false;
+        const audio = audioRef.current;
+        audioRef.current = null;
+        if (audio !== null) {
+          audio.onended = null;
+          audio.onerror = null;
+          audio.pause();
+        }
+        speechOut.close();
+      };
     },
     [speechOut],
   );

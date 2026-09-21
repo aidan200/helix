@@ -21,6 +21,7 @@ function fakePlayer(): SpeechPlayer & {
   dropped: string[];
   stopped: number;
   closed: number;
+  reopened: number;
   active: boolean;
   emit(active: boolean): void;
 } {
@@ -30,6 +31,7 @@ function fakePlayer(): SpeechPlayer & {
     dropped: [] as string[],
     stopped: 0,
     closed: 0,
+    reopened: 0,
     active: false,
     enqueue(utterId: string, b64: string) {
       p.enqueued.push([utterId, b64]);
@@ -44,6 +46,9 @@ function fakePlayer(): SpeechPlayer & {
     },
     close() {
       p.closed += 1;
+    },
+    reopen() {
+      p.reopened += 1;
     },
     onActiveChange(fn: (a: boolean) => void) {
       cb = fn;
@@ -108,6 +113,18 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
   afterEach(() => {
     out.close();
     vi.useRealTimers();
+  });
+
+  it("close→reopen（StrictMode 双效应）：close 毒死后 reopen 复活——delta/result 全链恢复发命令", () => {
+    // StrictMode 时序：mount → cleanup（close 毒死）→ remount setup（reopen 复活）
+    out.close();
+    expect(() => out.feedRawDelta("第一句。")).not.toThrow();
+    out.reopen();
+    out.resetAnswer(); // 新一轮 ask
+    out.feedRawDelta("第一句。第二句。");
+    const verdict = out.answerResult("answer", "第一句。第二句。");
+    expect(verdict).not.toBe("none"); // 复活后链路活着（stream 或 fallback）
+    expect(player.reopened).toBe(1); // 播放器同步复活
   });
 
   it("delta 切句：md 剥离 + 尾部 withhold + 逐句流式（utterId 单调）", () => {
