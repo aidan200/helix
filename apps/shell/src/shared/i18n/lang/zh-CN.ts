@@ -298,16 +298,8 @@ export const zhCN = {
         groupService: "识别服务",
         provider: "识别服务",
         providerOpt: { auto: "自动（推荐）", dashscope: "只用 DashScope", siliconflow: "只用 SiliconFlow" },
-        providerHint: "自动（推荐）= 哪个服务配了密钥就用哪个；也可以固定只用一个。密钥在「模型」分区配置。",
-        groupKeys: "语音服务",
-        svc: { dashscope: "DashScope", siliconflow: "SiliconFlow" },
-        svcBadge: { dashscope: "推荐", siliconflow: "备选" },
-        svcNote: {
-          dashscope: "阿里云百炼，语音输入与语音播报共用",
-          siliconflow: "备选识别服务",
-        },
-        unset: "未配置",
-        keyStatusHint: "两个服务任选其一即可，推荐 DashScope。密钥在「模型」分区统一配置。",
+        providerHint: "自动（推荐）= 哪个服务配了密钥就用哪个；也可以固定只用一个。",
+        notConfigured: "未配置",
       },
       voiceTts: {
         title: "语音播报",

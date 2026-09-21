@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 /**
- * 语音设置分区测试（语音输入批 V1 + 语音播报批 V2 + 设置页 UX 重排批）：
+ * 语音设置分区测试（语音输入批 V1 + 语音播报批 V2 + 语音服务卡退役批）：
  * - 识别服务偏好（lang-switch 三选按钮）：默认 auto；点击写 localStorage
  *   （helix.stt.provider）+ aria-pressed 翻转；
- * - 服务状态引用卡（UX 重排批：key 录入归「模型」分区，本区只读引用）：
- *   configured → key-chip 尾 4 位脱敏；未配置 → 「未配置」+ 指路「模型」
- *   分区；密码输入框零残留（不做第二录入入口）；
+ * - 配置态区分（语音服务卡退役批：状态卡整体移除）：具名服务未配 key →
+ *   选择钮标灰（opt-nokey）+ 「未配置」后缀；已配 → 无标记；auto 恒无标记；
+ *   密码输入框零残留（key 管理唯一入口归「模型」分区，不做第二入口）；
  * - 播报开关（checkbox 形态）：默认关；切换写 localStorage
  *   （helix.voice.broadcast）+ 即时订阅/退订；
  * - 音色选择写 localStorage（helix.voice.ttsVoice）+ 默认 Cherry 选中；
@@ -33,7 +33,7 @@ const subscribeVoiceFrames = vi.fn((cb: (e: EventEnvelope) => void) => {
     frameListener = null;
   };
 });
-// 服务状态引用卡数据注入口（per-test 变更；工厂闭包渲染时求值，无 TDZ）
+// 配置态区分数据注入口（per-test 变更；工厂闭包渲染时求值，无 TDZ）
 let mockAuth: Record<string, AuthProviderEntry> = {};
 
 vi.mock("@/entities/session/SessionContext", () => ({
@@ -80,7 +80,7 @@ const AUDITION_ERR: EventEnvelope = {
   payload: { status: "error", reason: "无 key" },
 } as unknown as EventEnvelope;
 
-/** auth.list 行（服务状态引用卡数据面）。 */
+/** auth.list 行（配置态区分数据面）。 */
 function authEntry(providerId: string, configured: boolean, keyMasked?: string): AuthProviderEntry {
   return { providerId, configured, verifyStatus: configured ? "ok" : "unverified", ...(keyMasked !== undefined ? { keyMasked } : {}) };
 }
@@ -129,22 +129,25 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
     expect(localStorage.getItem("helix.stt.provider")).toBeNull();
   });
 
-  it("服务状态引用卡：configured → 尾 4 位脱敏 + 推荐/备选徽标；hint 指路「模型」分区", () => {
+  it("配置态区分（语音服务卡退役批）：未配 key 的服务钮标灰 + 后缀标记；已配/auto 无标记", () => {
     mockAuth = {
       dashscope: authEntry("dashscope", true, "sk-abcd1234"),
       siliconflow: authEntry("siliconflow", false),
     };
     const r = rig();
-    const ds = r.container.querySelector('[data-voice-svc="dashscope"]') as HTMLElement;
-    const sf = r.container.querySelector('[data-voice-svc="siliconflow"]') as HTMLElement;
-    // 脱敏对齐模型分区：key ···· + 尾 4 位
-    expect(ds.textContent).toContain("1234");
-    expect(ds.textContent).toContain("推荐");
+    const auto = r.container.querySelector('[data-stt-option="auto"]') as HTMLButtonElement;
+    const ds = r.container.querySelector('[data-stt-option="dashscope"]') as HTMLButtonElement;
+    const sf = r.container.querySelector('[data-stt-option="siliconflow"]') as HTMLButtonElement;
+    // 已配 key 与 auto：无标记
+    expect(auto.classList.contains("opt-nokey")).toBe(false);
+    expect(ds.classList.contains("opt-nokey")).toBe(false);
+    expect(ds.querySelector(".opt-nokey-tag")).toBeNull();
+    // 未配 key：标灰 + 「未配置」后缀
+    expect(sf.classList.contains("opt-nokey")).toBe(true);
     expect(sf.textContent).toContain("未配置");
-    expect(sf.textContent).toContain("备选");
-    // 用户最需要的一句答案 + 指路（key 管理归模型分区）
-    expect(r.container.textContent).toContain("任选其一");
-    expect(r.container.textContent).toContain("模型");
+    // 状态卡整体退役：零残留
+    expect(r.container.querySelector("[data-voice-keys]")).toBeNull();
+    expect(r.container.querySelectorAll(".voice-svc-row")).toHaveLength(0);
   });
 
   it("key 录入入口零残留：无密码输入框（key 管理归「模型」分区，不做第二入口）", () => {

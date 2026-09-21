@@ -295,16 +295,8 @@ export const enUS = {
           dashscope: "DashScope only",
           siliconflow: "SiliconFlow only",
         },
-        providerHint: "Auto (recommended) uses whichever service has a key configured; you can also pin one. Keys are configured in the Models section.",
-        groupKeys: "Speech services",
-        svc: { dashscope: "DashScope", siliconflow: "SiliconFlow" },
-        svcBadge: { dashscope: "Recommended", siliconflow: "Alternative" },
-        svcNote: {
-          dashscope: "Alibaba Cloud Bailian; shared by voice input and broadcast",
-          siliconflow: "Alternative recognition service",
-        },
-        unset: "Not configured",
-        keyStatusHint: "Either service alone is enough; DashScope is recommended. Keys are managed in the Models section.",
+        providerHint: "Auto (recommended) uses whichever service has a key configured; you can also pin one.",
+        notConfigured: "No key",
       },
       voiceTts: {
         title: "Voice Broadcast",

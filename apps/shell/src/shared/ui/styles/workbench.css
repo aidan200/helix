@@ -482,9 +482,9 @@
   border: none; background: transparent; font-family: var(--font-mono); text-align: left;
 }
 .prov-name { font-size: var(--text-main); font-weight: 600; color: var(--text); min-width: 86px; }
-.prov .key-chip, .voice-svc-row .key-chip { font-size: var(--text-cap); color: var(--text-muted); }
-.prov .key-chip .k4, .voice-svc-row .key-chip .k4 { color: var(--accent); }
-.prov .key-none, .voice-svc-row .key-none { font-size: var(--text-cap); color: var(--text-faint); }
+.prov .key-chip { font-size: var(--text-cap); color: var(--text-muted); }
+.prov .key-chip .k4 { color: var(--accent); }
+.prov .key-none { font-size: var(--text-cap); color: var(--text-faint); }
 .prov-head .conn { margin-left: auto; }
 .prov-head .pc-chev { color: var(--text-dim); display: inline-flex; transition: transform 0.15s; }
 .prov.open .pc-chev { transform: rotate(90deg); }

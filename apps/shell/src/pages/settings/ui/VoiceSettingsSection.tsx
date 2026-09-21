@@ -10,10 +10,9 @@
  * - 识别服务偏好：偏好存 localStorage（helix.stt.provider；缺省 auto =
  *   daemon 装配序自动选首个已配 key 的——dashscope 主选、siliconflow 兜底）；
  *   Composer 转写命令随偏好携带 payload.provider（auto 不带）；
- * - 服务状态引用卡（UX 重排批）：key 录入入口整体移除——key 管理统一归
- *   「模型」分区（dashscope/siliconflow 在其 provider 全集内，auth.set_key
- *   通道复用）；本区只读引用 auth.list 状态（configured → 尾 4 位脱敏，
- *   模型分区 key-chip 同构；未配置 → 指路「模型」分区文案）。数据复用
+ * - 配置态区分（语音服务卡退役批）：未配 key 的服务在选择钮上标灰 +
+ *   「· 未配置」后缀——不配 key 的服务选了也用不了，区分落在按钮上，
+ *   不做第二状态卡、不指路；key 管理唯一入口归「模型」分区。数据复用
  *   进入分区即发的 requestAuthList，无新拉取。
  *
  * TTS（V2 播报）：
@@ -146,44 +145,27 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
         <div className="fld">
           <span className="hud-label">{t("chat.settings.voice.provider")}</span>
           <div className="lang-switch" role="group" aria-label={t("chat.settings.voice.provider")}>
-            {(["auto", ...STT_PROVIDERS] as const).map((id) => (
-              <button
-                key={id}
-                type="button"
-                className={cn("hud-btn sm", provider === id ? "hud-btn-cyan" : "hud-btn-ghost")}
-                data-stt-option={id}
-                aria-pressed={provider === id}
-                onClick={() => onPickProvider(id)}
-              >
-                {t(`chat.settings.voice.providerOpt.${id}`)}
-              </button>
-            ))}
+            {(["auto", ...STT_PROVIDERS] as const).map((id) => {
+              // 配置态区分（语音服务卡退役批）：auto 恒可选；具名服务未配 key
+              // → 标灰 + 后缀标记（选了也用不了——daemon 侧会回 key 未配错误）
+              const unconfigured = id !== "auto" && auth[id]?.configured !== true;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={cn("hud-btn sm", provider === id ? "hud-btn-cyan" : "hud-btn-ghost", unconfigured && "opt-nokey")}
+                  data-stt-option={id}
+                  aria-pressed={provider === id}
+                  onClick={() => onPickProvider(id)}
+                >
+                  {t(`chat.settings.voice.providerOpt.${id}`)}
+                  {unconfigured && <span className="opt-nokey-tag">{t("chat.settings.voice.notConfigured")}</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
         <span className="ag-note">{t("chat.settings.voice.providerHint")}</span>
-      </div>
-
-      {/* 服务状态引用卡（UX 重排批）：key 录入归「模型」分区，本区只读引用 */}
-      <h3 className="section-label gen-group-label">{t("chat.settings.voice.groupKeys")}</h3>
-      <div className="hud-card" data-voice-keys>
-        {STT_PROVIDERS.map((pid) => {
-          const entry = auth[pid];
-          return (
-            <div className="voice-svc-row" key={pid} data-voice-svc={pid}>
-              <span className="voice-svc-name">{t(`chat.settings.voice.svc.${pid}`)}</span>
-              <span className="hud-chip">{t(`chat.settings.voice.svcBadge.${pid}`)}</span>
-              <span className="ag-note">{t(`chat.settings.voice.svcNote.${pid}`)}</span>
-              {entry?.configured && entry.keyMasked !== undefined ? (
-                <span className="key-chip">
-                  key ····<span className="k4">{entry.keyMasked.slice(-4)}</span>
-                </span>
-              ) : (
-                <span className="key-none">{t("chat.settings.voice.unset")}</span>
-              )}
-            </div>
-          );
-        })}
-        <span className="ag-note">{t("chat.settings.voice.keyStatusHint")}</span>
       </div>
 
       {/* ── TTS 播报段（语音播报批 V2）────────────────────── */}

@@ -1167,15 +1167,12 @@ html.light .bubble code.inline { color: var(--accent); }
 .diff-view .dl-hunk { display: block; color: var(--accent); opacity: 0.8; padding-left: 14px; }
 .diff-view .dl-ctx { display: block; color: var(--text-dim); padding-left: 14px; }
 
-/* ══ 语音输入设置分区（UX 重排批：key 录入归模型分区，本块仅服务状态
-   引用卡行；卡片骨架/开关/下拉全收敛 workbench.css 通用类：hud-card/
-   set-check/set-inline/sel-wrap；key 脱敏 key-chip 同模型分区）══ */
-.voice-svc-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 9px 0; border-bottom: 1px solid var(--border);
-}
-.voice-svc-row:last-of-type { border-bottom: none; }
-.voice-svc-name { font-size: var(--text-body); font-weight: 600; color: var(--text); }
+/* ══ 语音输入设置分区（语音服务卡退役批：状态卡整体移除，配置态区分
+   落在识别服务选择钮上——未配 key 的服务标灰 + 「· 未配置」后缀标记；
+   卡片骨架/开关/下拉全收敛 workbench.css 通用类：hud-card/set-check/
+   set-inline/sel-wrap）══ */
+.opt-nokey { opacity: 0.55; }
+.opt-nokey-tag { font-size: var(--text-micro); color: var(--text-faint); margin-left: 4px; }
 
 /* ── 管家全局弹层（管家全局化批：stp-* 语义族重做——chat 右缘列退役，
    rail 右缘 fixed 浮动面板；hud-popover 弹层语义：tokens.md §02
