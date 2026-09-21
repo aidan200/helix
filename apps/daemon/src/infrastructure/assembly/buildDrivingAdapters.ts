@@ -359,6 +359,9 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     ...(deps.voice !== undefined ? { voice: deps.voice } : {}),
     // 文本管家批 V2.5：steward 族六命令回口（StewardService + feed 订阅面）
     ...(deps.steward !== undefined ? { steward: deps.steward } : {}),
+    // 管家记忆 B2：embedding 配置域回口（端点 CRUD + 连通测试；未注入 →
+    // 四命令回 unimplemented——stub rig 兼容）
+    ...(deps.embedding !== undefined ? { embedding: deps.embedding } : {}),
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）
     ...(deps.mcp !== undefined ? { mcp: deps.mcp } : {}),
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验
