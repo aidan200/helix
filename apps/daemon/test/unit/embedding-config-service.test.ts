@@ -109,7 +109,7 @@ describe("EmbeddingConfigService：凭据卫生与 verify", () => {
     const view = svc.listView();
     expect(view).toHaveLength(1);
     expect(view[0]!.hasApiKey).toBe(true);
-    expect(view[0]!.keyMasked).toBe("····ecret");
+    expect(view[0]!.keyMasked).toBe("····cret");
     expect(JSON.stringify(view)).not.toContain("sk-secret");
     expect(view[0]!.verifiedAt).toBeNull();
   });
