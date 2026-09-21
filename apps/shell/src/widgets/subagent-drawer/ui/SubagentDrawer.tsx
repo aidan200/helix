@@ -24,6 +24,7 @@ import { cn } from "@/shared/lib/cn";
 import { useSession } from "@/entities/session/SessionContext";
 import ChannelTimeline from "./ChannelTimeline";
 import SteerComposer from "./SteerComposer";
+import DrawerPlanBar from "./DrawerPlanBar";
 
 /** kill 确认窗口（决策消解：3s 未确认自动复原；终态禁用优先于确认态）。 */
 const KILL_CONFIRM_MS = 3_000;
@@ -213,6 +214,10 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
               删行+收键。 */}
           <div className="task-meta">{t("chat.drawer.instanceMeta")}</div>
         </div>
+
+        {/* SubAgent 抽屉 plan 面：实例工作台账条（任务段与 channel 之间常驻；
+            无分片整条隐藏——未建 plan 的实例零占位） */}
+        <DrawerPlanBar instanceId={card.instanceId} />
 
         <div className="d-body" ref={bodyRef} onScroll={onBodyScroll}>
           <div className="d-seclabel">{t("chat.drawer.channel")}</div>

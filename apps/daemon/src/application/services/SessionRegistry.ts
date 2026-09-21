@@ -131,6 +131,13 @@ export interface SessionRegistryDeps {
    */
   readonly mainPlanOf?: (sessionId: string) => readonly WorkItemData[];
   /**
+   * 实例工作台账读面（SubAgent 抽屉 plan 面，additive）：快照组装对
+   * scheduler 实例附 plan 全行（键 = 实例 id——与 mainPlanOf 的键 =
+   * sessionId 分流）。缺省不携带（未接读面——旧装配兼容）；零行不附
+   *（DTO 缺省携带语义）。
+   */
+  readonly instancePlanOf?: (instanceId: string) => readonly WorkItemData[];
+  /**
    * 未收口提权申请读面（permission_request 批）：快照组装附 pendingAsk
    *（重连/切换后 ask 卡片重建）。缺省不携带（未接 ask 栈——旧装配兼容）。
    */
@@ -833,10 +840,16 @@ export class SessionRegistry implements SessionDirectoryPort {
             ? { model: runtime.chatService.currentModel }
             : {}),
         },
-        ...this.deps.scheduler.snapshotInstances(runtime.sessionId).map((instance) => ({
-          ...instance,
-          usage: runtime.projection.instanceUsage(instance.instanceId),
-        })),
+        ...this.deps.scheduler.snapshotInstances(runtime.sessionId).map((instance) => {
+          // 实例台账种子（SubAgent 抽屉 plan 面）：读面注入才读；零行不附
+          //（主实例键 = sessionId 不在 instancePlanOf 读面→自然零行，无需特判）
+          const rows = this.deps.instancePlanOf?.(instance.instanceId) ?? [];
+          return {
+            ...instance,
+            usage: runtime.projection.instanceUsage(instance.instanceId),
+            ...(rows.length > 0 ? { plan: rows } : {}),
+          };
+        }),
       ] satisfies InstanceSnapshotEntry[],
       usage: runtime.projection.usageSummary(),
     };

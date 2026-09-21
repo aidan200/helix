@@ -26,7 +26,9 @@ import type {
   MessageEntryDto,
   PendingSteerDto,
   SessionUsageDto,
+  TaskBatchLedgerDto,
   UsageDto,
+  WorkItemDto,
 } from "@helix/protocol";
 import { entrySortKey } from "@helix/protocol"; // T3.1：条目排序基元单源 projection（原本地 entryTimelineKey 同构副本退役）
 import { DEFAULT_MODE_ID } from "@helix/protocol";
@@ -300,6 +302,18 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         // 与 thinking 切片同判）
         plan: snap.plan !== undefined ? snap.plan : s.plan,
         ledger: snap.plan !== undefined ? (snap.ledger ?? null) : s.ledger,
+        // SubAgent 实例台账分片重建（SubAgent 抽屉 plan 面，权威）：快照
+        // instances[].plan/ledger 为权威整体替换——dto 无 plan = 该实例无
+        // 台账（如实落条隐藏）；未列实例分片随实例消亡清理（instanceChannels
+        // merged 同判）；旧 daemon 无此字段 → 恒空表（与增量面互不影响）
+        instancePlans: Object.fromEntries(
+          dtos
+            .filter(
+              (d): d is AgentInstanceDto & { plan: WorkItemDto[]; ledger: TaskBatchLedgerDto } =>
+                d.kind === "subagent" && d.plan !== undefined && d.ledger !== undefined,
+            )
+            .map((d) => [d.instanceId, { plan: d.plan, ledger: d.ledger }]),
+        ),
         // additive：提权申请卡重建（permission_request 批，权威）——携带时整体
         // 替换（null = 无挂起如实落）；缺省保留现值（旧 daemon 兼容）
         pendingAsk: snap.pendingAsk !== undefined ? (snap.pendingAsk ?? null) : s.pendingAsk,

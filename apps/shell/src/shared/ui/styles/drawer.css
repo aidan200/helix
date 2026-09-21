@@ -228,12 +228,6 @@
   font-size: var(--text-micro); color: var(--text-dim);
   letter-spacing: 0.1em; text-transform: uppercase;
 }
-.sc-target .tgt {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 1px 8px; border-radius: 999px;
-  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
-  font-size: var(--text-cap); color: var(--violet); font-weight: 500;
-}
 .sc-bar {
   display: flex; gap: 8px; align-items: center;
   border: 1px solid rgb(var(--violet-rgb) / 0.3); border-radius: 8px;
@@ -249,6 +243,58 @@
 .sc-bar .kbd {
   flex-shrink: 0; font-size: var(--text-micro); color: var(--text-faint);
   border: 1px solid rgb(var(--edge-rgb) / 0.14); border-radius: 4px; padding: 1px 6px;
+}
+
+/* ═══ 抽屉实例台账条（SubAgent 抽屉 plan 面；widgets/subagent-drawer/ui/
+   DrawerPlanBar——主区 WorkLedgerBar wl-* 同语言，布局适配抽屉窄列）═══ */
+.dpb {
+  /* dpb-items 浮窗定位上下文 */
+  position: relative; flex-shrink: 0;
+  margin: 10px 16px 0; padding-bottom: 2px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.25); border-radius: 8px;
+  background: rgb(var(--violet-rgb) / 0.05);
+}
+.dpb-summary {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 10px; background: none; border: 0; cursor: pointer;
+  font-size: var(--text-body); color: var(--text-muted); text-align: left;
+}
+.dpb-summary:hover { color: var(--text); }
+.dpb-ic { color: var(--violet); font-size: var(--text-cap); }
+.dpb-count { font-family: var(--font-mono); white-space: nowrap; }
+.dpb-doing {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-family: var(--font-sans); color: var(--text-muted);
+}
+.dpb-doing .ing { color: var(--violet); font-family: var(--font-mono); margin-right: 4px; }
+.dpb-arrow { color: var(--text-faint); }
+.dpb-items {
+  /* 浮窗：absolute 脱文档流锚摘要条下沿（覆盖 channel 不推挤布局——
+     wl-items 同纪律）；实底遮字 + 描边 + 内部滚动（40vh 上限不吞抽屉） */
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 5;
+  max-height: 40vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;
+  background: var(--popover-fill);
+  border: 1px solid var(--border); border-radius: 0 0 8px 8px;
+  border-top: 1px dashed rgb(var(--edge-rgb) / 0.12);
+  box-shadow: var(--shadow-pop);
+}
+.dpb-pi { display: flex; gap: 8px; align-items: baseline; font-size: var(--text-body); line-height: 1.6; }
+.dpb-pi-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; align-self: center; background: var(--text-faint); }
+.dpb-pi.done .dpb-pi-dot { background: var(--success); }
+.dpb-pi.in_progress .dpb-pi-dot { background: var(--violet); box-shadow: 0 0 6px rgb(var(--violet-rgb) / 0.6); }
+.dpb-pi.pending .dpb-pi-dot { background: var(--text-faint); }
+.dpb-pi.abandoned .dpb-pi-dot { background: var(--warning); }
+.dpb-pi-c { font-family: var(--font-sans); color: var(--text-muted); }
+.dpb-pi.done .dpb-pi-c { color: var(--text); }
+.dpb-pi.pending .dpb-pi-c { color: var(--text-faint); }
+/* in_progress 高亮（进行中行 = 问责面当前焦点；violet 域强调） */
+.dpb-pi.in_progress .dpb-pi-c { color: var(--violet); }
+/* abandoned 灰显带理由（note 必载——daemon 写面机械判据） */
+.dpb-pi.abandoned .dpb-pi-c { color: var(--text-faint); text-decoration: line-through; }
+.dpb-pi-n {
+  flex-shrink: 0; max-width: 40%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  margin-left: auto; font-size: var(--text-micro); color: var(--text-faint);
 }
 
 /* reduced-motion：进入/脉冲全关（含 kill 确认脉冲）*/

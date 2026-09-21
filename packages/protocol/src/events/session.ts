@@ -20,9 +20,16 @@ export interface SessionSnapshotPayload {
  * 路由）；plan/ledger 复用 task 域批次 DTO 形状（WorkItemDto/
  * TaskBatchLedgerDto，对齐批次 DTO 口径），ledger 服务端从 plan 行组装
  * （前端零拼装）；无台账 = 双 null（null 语义与 task 批次行同构）。
+ *
+ * 实例台账增型（SubAgent 抽屉 plan 面）：instanceId 携带时该帧为 SubAgent
+ * 实例台账——信封 sessionId 仍 = 归属会话（订阅路由维度），payload.
+ * instanceId = 台账归属实例（agent-N）；缺省 = 主会话台账（instanceId 维度
+ * = sessionId，既有口径零变化）。
  */
 export interface SessionPlanChangedPayload {
   sessionId: string;
+  /** 台账归属实例（agent-N）；缺省 = 主会话台账。观测链单源见 E-181。 */
+  instanceId?: string;
   /** 台账全行（seq 升序）；null = 无台账。 */
   plan: WorkItemDto[] | null;
   /** 计数摘要（与 plan 同源同 null 语义）。 */

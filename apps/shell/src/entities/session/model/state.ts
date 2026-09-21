@@ -133,6 +133,13 @@ export interface InstanceCardState {
   anchorEntryId: string | null;
 }
 
+/** SubAgent 实例台账投影（SubAgent 抽屉 plan 面）：plan 全行 + 服务端计数摘要
+ * （非 null 成对携带——主会话 state.plan/ledger 双 null 语义的分片形态）。 */
+export interface InstancePlanProjection {
+  plan: WorkItemDto[];
+  ledger: TaskBatchLedgerDto;
+}
+
 /** 会话账目投影（F3.3/F3.4；渲染归 T4.2）。 */
 export interface SessionUsageProjection {
   /** 徽标值 = 各实例行合计 + compaction 行（popover 行自洽） */
@@ -560,6 +567,15 @@ export interface SessionState {
   plan: WorkItemDto[] | null;
   /** 台账计数摘要（与 plan 同源同 null 语义；服务端组装，前端零拼装）。 */
   ledger: TaskBatchLedgerDto | null;
+  /**
+   * SubAgent 实例工作台账分片（SubAgent 抽屉 plan 面）：instanceId →
+   * plan 全行 + ledger 计数摘要（服务端组装，前端零拼装）。写面：
+   * session.plan.changed payload.instanceId 路由增量（consumers/plan）+
+   * 快照 instances[].plan 种子重建（consumers/snapshot）；无台账实例无键
+   * （观察面条整条隐藏——与主会话 plan 双 null 同规，实例消亡随快照清理）。
+   * UI 消费 = 抽屉 DrawerPlanBar。
+   */
+  instancePlans: Record<string, InstancePlanProjection>;
   /** 向上分页状态（AD-1；快照 tailStartCursor 初始化，loadHistory.result 推进） */
   history: HistoryPaging;
 }
@@ -688,6 +704,7 @@ export function createInitialSessionState(): SessionState {
     view: "loading",
     plan: null, // 主会话工作台账（main-session plan 批）：无台账基线（快照/plan.changed 写入）
     ledger: null,
+    instancePlans: {}, // SubAgent 实例台账分片（抽屉 plan 面）：无键 = 无台账基线
     history: { hasMore: false, nextCursor: null, loading: false, total: null, paged: false },
   };
 }

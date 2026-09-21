@@ -88,6 +88,13 @@ export interface InstanceSnapshotEntry extends AgentInstanceData {
    * createdAt（恢复链原值）截断推导（契约记录在案边界）。
    */
   readonly spawnAnchorEntryId?: string | null;
+  /**
+   * 实例工作台账快照种子（SubAgent 抽屉 plan 面，additive）：SubAgent
+   * plan 三工具的台账全行（seq 升序）。读面注入才携带且仅有行时附
+   *（与顶层 plan（主会话，键 = sessionId）分流——本槽键 = 实例 id）；
+   * 缺省不携带（未接读面——旧装配兼容），DTO 组装在 SnapshotMapper。
+   */
+  readonly plan?: readonly WorkItemData[];
 }
 
 export interface SessionPort {

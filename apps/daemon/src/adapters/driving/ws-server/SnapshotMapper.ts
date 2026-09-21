@@ -90,14 +90,19 @@ function ledgerDtoOf(rows: readonly WorkItemData[]): TaskBatchLedgerDto {
 /**
  * session.plan.changed 载荷组装（发布点 = 装配层包装；快照 plan/ledger 同源）：
  * 无台账（零行）→ plan/ledger 双 null（null 语义与 task 批次行同构）。
+ * instanceId（实例台账抽屉批，可选）携带时 = SubAgent 实例台账——
+ * 信封 sessionId 仍 = 归属会话（订阅路由），payload.instanceId = 台账
+ * 归属实例；缺省 = 主会话台账（instanceId 维度 = sessionId）。
  */
 export function sessionPlanPayloadOf(
   sessionId: string,
   rows: readonly WorkItemData[],
+  instanceId?: string,
 ): SessionPlanChangedPayload {
   const has = rows.length > 0;
   return {
     sessionId,
+    ...(instanceId !== undefined ? { instanceId } : {}),
     plan: has ? rows.map(workItemDtoOf) : null,
     ledger: has ? ledgerDtoOf(rows) : null,
   };
@@ -371,6 +376,12 @@ function instanceDto(
     ...(entry.model !== undefined ? { model: entry.model } : {}),
     ...(channels !== undefined ? { channels } : {}),
     ...(anchor !== undefined ? { anchorEntryId: anchor } : {}),
+    // 实例台账种子（SubAgent 抽屉 plan 面）：domain 全行 → 协议 plan/ledger
+    // 双携带（ledger 服务端组装，前端零拼装——与 sessionPlanPayloadOf 同源
+    // 同形；组装面保证有行才携带，零行 = 缺省不携带）
+    ...(entry.plan !== undefined
+      ? { plan: entry.plan.map(workItemDtoOf), ledger: ledgerDtoOf(entry.plan) }
+      : {}),
     ...(entry.closure !== undefined
       ? {
           closure: {

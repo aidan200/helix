@@ -811,6 +811,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               facts.map((f) => ({ instanceId: agentId, sessionId, path: f.path, at: f.at, confidence: f.confidence })),
             );
           },
+          // 实例台账抽屉批：plan-changed 行分派（子进程 plan 三工具写后上报）
+          // → 装配层广播 session.plan.changed（payload 携 instanceId——前端
+          // 分实例路由；信封 sessionId = 归属会话，per-session 订阅路由）。
+          // 会话反查同 onFileWrite；冷会话/无归属丢弃（重启后快照种子兜底）。
+          onPlanChange: (agentId, rows) => {
+            const sessionId = scheduler.instance(agentId)?.sessionId;
+            if (sessionId === undefined) return;
+            eventStream.broadcastPlanChanged(sessionPlanPayloadOf(sessionId, rows, agentId));
+          },
         })
       : undefined;
   const subagentRunner: InstanceRunner = deps.subagentRunnerOverride ?? subagentLauncher ?? {
@@ -979,6 +988,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           };
           return { ledger, planToolService, service };
         })();
+  // 实例台账读面（SubAgent 抽屉 plan 面）：父进程 LazyWorkLedger 惰性直连
+  // 同库（子进程 HELIX_DB_PATH 写面同库 WAL 跨进程安全）；与 mainPlanStack
+  // 独立——main plan 未接时 SubAgent 快照种子仍可用；零调用零文件触碰
+  const instancePlanLedger = new LazyWorkLedger(paths.dbPath());
   // U4：轮末对账 plan 读面晚绑回填（main plan 键 = sessionId）
   planReaderRef = mainPlanStack?.service;
 
@@ -1086,6 +1099,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     ...(mainPlanStack !== undefined
       ? { mainPlanOf: (sessionId: string) => mainPlanStack.ledger.getItems(sessionId) }
       : {}),
+    // 实例台账读面（SubAgent 抽屉 plan 面）：快照种子读 SubAgent 台账全行
+    //（父进程 LazyWorkLedger 惰性直连同库——与子进程写面同库 WAL 跨进程安全；
+    // 与 mainPlanStack 相互独立——main plan 未接时 SubAgent 快照种子仍可用）
+    instancePlanOf: instancePlanLedger.getItems.bind(instancePlanLedger),
     // 未收口提权申请读面（permission_request 批）：快照组装附 pendingAsk
     //（重连/切换后 ask 卡片重建；未接 ask 栈 = 缺省不携带）
     ...(deps.askService !== undefined

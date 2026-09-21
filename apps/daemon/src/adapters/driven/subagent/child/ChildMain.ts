@@ -57,6 +57,7 @@ import { kgReadProjects, scanWorkspaceProjects } from "../../workspace-scan";
 import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../../../application/services/task/WorkLedgerService";
 import type { PlanToolDeps } from "../../tools/plan/PlanTools";
+import type { WorkItemData } from "../../../../application/ports/outbound/WorkLedgerPort";
 import { openTaskLedgerDatabase } from "../../sqlite-session/WriteQueue";
 import { readTaskContextByInstance } from "../../sqlite-session/TaskStore";
 import { accessSync, constants as fsConstants } from "node:fs";
@@ -437,14 +438,46 @@ export function createKgTaskContextResolver(
  * spawn 时注入；缺席 → plan 工具首调报未装配，注册常驻——browser 先例）。
  * 表域由父进程先行建库保证（子进程总是父进程写入 batch.instance_id
  * 后才被拉起；未拉台账调用不触盘，TR-TEST-4）。
+ *
+ * publish（实例台账抽屉批，可选）：plan 三工具成功后写后上报回调——
+ * 每次写/读面成功后携最新全行上行（父侧广播 session.plan.changed；
+ * 与父进程 mainPlanStack 装配层包装同构——成功后发布、失败不发布）。
+ * 缺省不包装（既有测试形态零变化）。
  */
 export function buildLocalWorkLedgerStack(
   dbPath: string | undefined,
   instanceId: string,
+  publish?: (rows: readonly WorkItemData[]) => void,
 ): { readonly tools: PlanToolDeps; readonly ledger: LazyWorkLedger } {
   const ledger = new LazyWorkLedger(dbPath);
   const service = new WorkLedgerService({ reader: ledger, writer: ledger });
-  return { tools: { service, instanceId }, ledger };
+  const planToolService: PlanToolDeps["service"] =
+    publish === undefined
+      ? service
+      : {
+          // 写后上报包装（成功才发布——写面抛错即工具 error 结果，无事件；
+          // getPlan 幂等快照同发一帧，观察面即问责面，与父进程同口径）
+          createPlan: async (iid, items) => {
+            const r = await service.createPlan(iid, items);
+            publish(service.getPlan(iid));
+            return r;
+          },
+          updateItem: async (iid, seq, status, note) => {
+            await service.updateItem(iid, seq, status, note);
+            publish(service.getPlan(iid));
+          },
+          getPlan: (iid) => {
+            const rows = service.getPlan(iid);
+            publish(rows);
+            return rows;
+          },
+          forceResolveInProgress: async (iid, note) => {
+            const r = await service.forceResolveInProgress(iid, note);
+            publish(service.getPlan(iid));
+            return r;
+          },
+        };
+  return { tools: { service: planToolService, instanceId }, ledger };
 }
 
 // ── 子进程本地 codegraph 栈（W1-B，R5/R7：codegraph 工具注入面） ─────
@@ -545,8 +578,12 @@ async function main(): Promise<void> {
   // → degraded 不阻断装配，同 ensureIndex degraded 先例）
   const codegraph = buildLocalCodegraphStack(toolCwd);
   // T1.4：plan 三工具本地栈（AD-6① 全量配给——SubAgentProfile 声明三名；
-  // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）
-  const workLedger = buildLocalWorkLedgerStack(process.env.HELIX_DB_PATH, instanceId);
+  // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）。
+  // 实例台账抽屉批：写后上报 plan-changed 行（父侧广播 session.plan.changed
+  // ——file-write/bash-fact 增型同构，stdout 只携台账行；观测链单源 E-181）
+  const workLedger = buildLocalWorkLedgerStack(process.env.HELIX_DB_PATH, instanceId, (rows) =>
+    writeLine({ type: "plan-changed", instanceId, rows }),
+  );
   // mcp 批：子进程自建 McpRegistry（env 透传 server 配置——MCP 工具无
   // 会话态，各自连各自不做跨进程转发）。await 预热完成才构造 executor：
   // spawn 快照工具名已含 mcp 命名空间名（父进程 catalog 现拍），

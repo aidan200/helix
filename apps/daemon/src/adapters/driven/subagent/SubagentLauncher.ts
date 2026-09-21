@@ -12,6 +12,7 @@ import type {
   InstanceRunnerCallbacks,
 } from "../../../application/services/InstanceRunner";
 import type { AgentEngineEvent } from "../../../application/ports/outbound/AgentEnginePort";
+import type { WorkItemData } from "../../../application/ports/outbound/WorkLedgerPort";
 import type { AgentProfile } from "../pi-engine/runtime/AgentProfile";
 import type { McpServerConfig } from "../mcp/types";
 import { ChildProcessTransport } from "./transport/ChildProcessTransport";
@@ -197,7 +198,16 @@ export interface SubagentLauncherDeps {
    * （轮内呈现由 E-126 walk 兑底覆盖，口径纪律「粗估不撒谎」）。
    */
   readonly onBashFact?: (instanceId: string, facts: readonly BashFactLineItem[]) => void;
-  /** 日志（容器接 file logger——dispose kill 失败 / brief·report 结构违例可观测；缺省静默）。 */
+  /**
+   * 实例台账抽屉批：plan-changed 行分派回调（组合根接装配层广播
+   * session.plan.changed——按 instanceId 反查归属会话后携 instanceId 广播；
+   * 冷会话/无归属丢弃，与 onFileWrite 同构）；缺省 no-op（任务栈 launcher
+   * 不接线 = 不广播，task 页批次 plan 走 TaskQueryService 既有读面）。
+   */
+  readonly onPlanChange?: (instanceId: string, rows: readonly WorkItemData[]) => void;
+  /**
+   * 日志（容器接 file logger——dispose kill 失败 / brief·report 结构违例可观测；缺省静默）。
+   */
   readonly logger?: { warn: (message: string) => void };
 }
 
@@ -565,6 +575,12 @@ export class SubagentLauncher implements InstanceRunner {
     if (line.type === "bash-fact") {
       // U0b：子进程内算毕的 bash 写事实上行 → 注入回调（→ registry 记账）
       this.deps.onBashFact?.(id, line.facts);
+      return;
+    }
+    if (line.type === "plan-changed") {
+      // 实例台账抽屉批：子进程 plan 三工具写后上报 → 注入回调（→ 装配层
+      // 广播 session.plan.changed；会话反查在回调内，与 onFileWrite 同构）
+      this.deps.onPlanChange?.(id, line.rows);
       return;
     }
     // started/log：观测面已转发，无需编排动作

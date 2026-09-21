@@ -1,4 +1,5 @@
 import type { EntryDto } from "./session";
+import type { TaskBatchLedgerDto, WorkItemDto } from "./task";
 import type { UsageDto } from "./usage";
 
 /**
@@ -94,6 +95,15 @@ export interface AgentInstanceDto {
    * 未携带（旧剧本兼容）。
    */
   channels?: InstanceChannelHistory;
+  /**
+   * 实例工作台账（SubAgent 抽屉 plan 面，additive）：SubAgent plan 三工具
+   * 的台账快照种子（重连/切换会话后抽屉台账原位恢复）；与 session.plan.changed
+   * 增量帧同源同形状。仅 SubAgent 且台账有行时携带（无台账 = 缺省不携带
+   * ——旧 daemon 兼容）；ledger 服务端从 plan 行组装（前端零拼装）。
+   */
+  plan?: WorkItemDto[];
+  /** 计数摘要（与 plan 同源同携带语义）。观测链单源见 E-181。 */
+  ledger?: TaskBatchLedgerDto;
   /**
    * spawn 锚（v0.3 新增，契约 v0.3 §1，Q-1a）：卡片插入位的权威 entry id
    * （复用 EntryDto.id 体系）。daemon 组装期权威计算（派生值不持久化，无

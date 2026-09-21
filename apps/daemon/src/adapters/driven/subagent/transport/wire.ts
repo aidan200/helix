@@ -1,5 +1,6 @@
 import type { AgentEngineEvent } from "../../../../application/ports/outbound/AgentEnginePort";
 import type { InstanceClosurePayload } from "../../../../domain/events/DomainEvent";
+import type { WorkItemData } from "../../../../application/ports/outbound/WorkLedgerPort";
 import type { WriteConfidence } from "../../../../domain/writefact/types";
 
 /** bash-fact 行的单条裸事实（与 BashObservedWrite 同形——wire 面内联，置信取 domain 单点）。 */
@@ -23,6 +24,10 @@ export interface BashFactLineItem {
  *   / file-write（T2 turn diff：子进程 env.writeFile 写前元数据上报——
  *   instanceId/path/prevHash/prevSize/nextSize，只报元数据不报内容，
  *   stdout 管道安全；父侧分派 → TurnDiffService.recordExternal）。
+ *   / plan-changed（实例台账抽屉批：子进程 plan 三工具写后上报——
+ *   instanceId + rows（WorkItemData 全行），父侧分派 → 装配层广播
+ *   session.plan.changed（payload 带 instanceId；file-write/bash-fact
+ *   增型同构）。观测链单源见 E-181。
  * - 父 → 子（stdin）：send（steer 注入消息，AD-7⑤；park/resume 指令同为
  *   本通道——子进程按协议标记分派，见 parkProtocol.ts）
  *   / tool-res（H-3：tool-req 回执，reqId 关联；ok 判别字段 value/error 互斥）。
@@ -71,6 +76,13 @@ export type ChildOutboundLine =
       readonly instanceId: string;
       /** 观察到的写（裸事实——归属/会话由父侧分派时装配方补全）。 */
       readonly facts: readonly BashFactLineItem[];
+    }
+  | {
+      /** 实例台账抽屉批：plan 三工具写后上报（additive 增型）。 */
+      readonly type: "plan-changed";
+      readonly instanceId: string;
+      /** 台账全行（seq 升序，WorkItemData 原形——DTO 转换归父侧单源）。 */
+      readonly rows: readonly WorkItemData[];
     };
 
 /** 父进程 → 子进程的 stdin 行（send = steer 注入）。 */

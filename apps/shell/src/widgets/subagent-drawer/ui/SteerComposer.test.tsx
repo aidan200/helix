@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 /**
- * SteerComposer 键盘发送测试（CL-3 F(3.3).3 补面）。
+ * SteerComposer 键盘发送测试（CL-3 F(3.3).3 补面 + 抽屉 plan 面批补断言）。
  *
  * - Enter 非空 → steerInstance + 清空；空输入零动作（既有口径回归）；
  * - IME 选词确认的 Enter（nativeEvent.isComposing=true）不发送——zh-CN
- *   一等语言，未上屏半截文本直发 SubAgent 是事故面（M11 批修复）。
+ *   一等语言，未上屏半截文本直发 SubAgent 是事故面（M11 批修复）；
+ * - 去 agentid（用户需求）：目标行/placeholder 均不携带 instanceId——
+ *   身份面唯一化抽屉头部 d-id 行，输入区不重复展示。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -64,5 +66,22 @@ describe("SteerComposer Enter 发送（IME 组合态门控）", () => {
     // 组合结束后的确认 Enter 正常发送
     fireEvent.keyDown(input(), { key: "Enter", isComposing: false });
     expect(steerInstance).toHaveBeenCalledWith("拼音未上屏", "agent-run");
+  });
+});
+
+describe("SteerComposer 去 agentid（抽屉输入区身份面唯一化）", () => {
+  it("目标提示行不携带 instanceId（无 tgt chip）", () => {
+    ui();
+    const target = document.querySelector(".sc-target");
+    expect(target).not.toBeNull();
+    expect(target!.textContent).not.toContain("agent-run");
+    expect(document.querySelector(".sc-target .tgt")).toBeNull();
+  });
+
+  it("placeholder 不携带 instanceId（空输入态文案）", () => {
+    ui();
+    expect(input().value).toBe(""); // 空输入态 → placeholder 可见
+    expect(input().placeholder).not.toContain("agent-run");
+    expect(input().placeholder).toContain("纠偏指令");
   });
 });
