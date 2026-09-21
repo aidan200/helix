@@ -111,7 +111,17 @@ import type {
   StewardGetConfigCommand,
   StewardSetConfigCommand,
   StewardHistoryCommand,
+  StewardMemoryListCommand,
+  StewardMemoryAppendCommand,
+  StewardMemoryUpdateCommand,
+  StewardMemoryDeleteCommand,
 } from "./steward";
+import type {
+  EmbeddingListCommand,
+  EmbeddingSetCommand,
+  EmbeddingDeleteCommand,
+  EmbeddingVerifyCommand,
+} from "./embedding";
 
 export type CommandEnvelope =
   | ChatSendCommand
@@ -208,6 +218,14 @@ export type CommandEnvelope =
   | StewardGetConfigCommand
   | StewardSetConfigCommand
   | StewardHistoryCommand
+  | StewardMemoryListCommand
+  | StewardMemoryAppendCommand
+  | StewardMemoryUpdateCommand
+  | StewardMemoryDeleteCommand
+  | EmbeddingListCommand
+  | EmbeddingSetCommand
+  | EmbeddingDeleteCommand
+  | EmbeddingVerifyCommand
   | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -239,6 +257,17 @@ export const COMMAND_TYPES = [
   "steward.get_config",
   "steward.set_config",
   "steward.history",
+  // 管家记忆 B2：长期记忆条目管理（读/人工新增/重嵌更新/行级删除）
+  "steward.memory_list",
+  "steward.memory_append",
+  "steward.memory_update",
+  "steward.memory_delete",
+  // embedding 配置域（管家记忆 B2）：向量端点 CRUD + 连通测试（独立配置域，
+  // 模型页向量 tab 消费；apiKey 只进不出）
+  "embedding.list",
+  "embedding.set",
+  "embedding.delete",
+  "embedding.verify",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",

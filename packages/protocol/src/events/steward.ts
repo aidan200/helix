@@ -128,15 +128,16 @@ export interface StewardConfigResultPayload {
   enabled: boolean;
   /** 模型槽位现值（"provider/model-id"；未设置 = daemon 默认 flash 级模型）。 */
   model: string;
-  /** 长期记忆面现态（管家记忆 B1，additive；凭据卫生——只回 hasApiKey，
-   *  apiKey 永不出库）。 */
+  /** 长期记忆面现态（管家记忆 B2 瘦身：endpoint 为引用态——只回 id/name/
+   *  model/hasApiKey，baseUrl 不再回传；端点全集经 embedding.list 读）。 */
   memory: {
     /** 记忆开关现态（默认 false——可选项，零依赖开箱）。 */
     enabled: boolean;
-    /** 综合可用性（开关开 ∧ 端点已配 ∧ 存储已装配——召回/写入真实门槛）。 */
+    /** 综合可用性（开关开 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配——
+     *  召回/写入真实门槛）。 */
     available: boolean;
-    /** 端点配置现态（未配置 = null）。 */
-    endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+    /** 当前引用端点（引用态：id/name/model/hasApiKey；未引用或条目已删 = null）。 */
+    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     /** 记忆条目总数。 */
     entryCount: number;
     /** 当前向量维度（未初始化 = null）。 */
@@ -261,4 +262,33 @@ export interface StewardNavigatePayload {
 export interface StewardNavigateEvent extends EventFrame<StewardNavigatePayload> {
   channel?: "steward";
   type: "steward.navigate";
+}
+
+/** 长期记忆条目行（管家记忆 B2：memory_list 回执形态；kind 枚举对齐
+ *  存储面既有值 fact/preference）。 */
+export interface StewardMemoryEntryView {
+  /** 条目 id（存储 rowid）。 */
+  id: number;
+  /** 记忆文本。 */
+  text: string;
+  /** 条目类别。 */
+  kind: "fact" | "preference";
+  /** 创建时间（epoch ms）。 */
+  createdAt: number;
+  /** 来源标注（如 "steward-turn"（remember 工具）/ "manual"（人工新增））。 */
+  sourceTurn: string;
+}
+
+/** steward.memory_list.result payload：条目清单（memory_list/append/
+ *  update/delete 四命令共用回执——写后即回新清单）。 */
+export interface StewardMemoryListResultPayload {
+  /** 条目全集（创建时间升序）。 */
+  entries: readonly StewardMemoryEntryView[];
+}
+
+/** steward.memory_list.result：长期记忆条目清单回执（channel = "steward"；
+ *  点对点）。 */
+export interface StewardMemoryListResultEvent extends EventFrame<StewardMemoryListResultPayload> {
+  channel?: "steward";
+  type: "steward.memory_list.result";
 }

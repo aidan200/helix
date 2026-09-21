@@ -50,23 +50,20 @@ export interface StewardUnsubscribeCommand extends CommandFrame<Record<string, n
   type: "steward.unsubscribe";
 }
 
-/** steward.set_config 载荷（槽位均可选——只更新携带位；管家记忆 B1
- *  增 memory 组——嵌入端点配置经此写入，apiKey 只进不出）。 */
+/** steward.set_config 载荷（槽位均可选——只更新携带位；管家记忆 B2
+ *  memory 组瘦身：端点 CRUD 收编 embedding 配置域（模型页向量 tab），
+ *  此处只留开关 + 端点引用（endpointId——指向 embedding.* 域条目）。 */
 export interface StewardSetConfigPayload {
   /** 管家开关（默认关；true = 开）。 */
   enabled?: boolean;
   /** 模型槽位（"provider/model-id" 形态，flash 级建议；格式非法回执 error 判别）。 */
   model?: string;
-  /** 长期记忆组（管家记忆 B1，additive；全部位可选）。 */
+  /** 长期记忆组（管家记忆 B2 瘦身形态；全部位可选）。 */
   memory?: {
     /** 记忆开关（默认关——记忆是可选项，零依赖开箱）。 */
     enabled?: boolean;
-    /** OpenAI 兼容嵌入端点根（如 "http://localhost:11434/v1"）。 */
-    baseUrl?: string;
-    /** 端点 API key（本地免 key 端点传空串清除；只进不出——回执只回 hasApiKey）。 */
-    apiKey?: string;
-    /** 嵌入模型名（如 "bge-m3"）。 */
-    model?: string;
+    /** 嵌入端点引用（embedding.* 域端点 id；指向向量 tab 配置的条目）。 */
+    endpointId?: string;
   };
 }
 
@@ -91,4 +88,49 @@ export interface StewardHistoryPayload {
  *  回放链路：面板打开 → 读 KV → UI 渲染与 LLM 窗口同源重建）。 */
 export interface StewardHistoryCommand extends CommandFrame<StewardHistoryPayload> {
   type: "steward.history";
+}
+
+/** steward.memory_list：长期记忆条目读面（管家记忆 B2；回执
+ *  steward.memory_list.result——四命令共用：append/update/delete 写后
+ *  即回新清单，与 embedding 族回执同构）。 */
+export interface StewardMemoryListCommand extends CommandFrame<Record<string, never>> {
+  type: "steward.memory_list";
+}
+
+/** steward.memory_append 载荷（管家记忆 B2：人工新增条目——走 embed 入库）。 */
+export interface StewardMemoryAppendPayload {
+  /** 记忆文本（非空；daemon 校验）。 */
+  text: string;
+  /** 条目类别（缺省 "fact"；枚举对齐存储面既有 kind 值）。 */
+  kind?: "fact" | "preference";
+}
+
+/** steward.memory_append：人工新增记忆（回执 steward.memory_list.result）。 */
+export interface StewardMemoryAppendCommand extends CommandFrame<StewardMemoryAppendPayload> {
+  type: "steward.memory_append";
+}
+
+/** steward.memory_update 载荷（管家记忆 B2：重嵌更新——文本改写后重新
+ *  向量化）。 */
+export interface StewardMemoryUpdatePayload {
+  /** 目标条目 id。 */
+  id: number;
+  /** 新文本。 */
+  text: string;
+}
+
+/** steward.memory_update：条目文本更新（回执 steward.memory_list.result）。 */
+export interface StewardMemoryUpdateCommand extends CommandFrame<StewardMemoryUpdatePayload> {
+  type: "steward.memory_update";
+}
+
+/** steward.memory_delete 载荷（管家记忆 B2：行级删除）。 */
+export interface StewardMemoryDeletePayload {
+  /** 目标条目 id。 */
+  id: number;
+}
+
+/** steward.memory_delete：条目删除（回执 steward.memory_list.result）。 */
+export interface StewardMemoryDeleteCommand extends CommandFrame<StewardMemoryDeletePayload> {
+  type: "steward.memory_delete";
 }

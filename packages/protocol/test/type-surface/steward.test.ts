@@ -38,6 +38,11 @@ import type {
   StewardToolPayload,
   StewardThinkingEvent,
   StewardThinkingPayload,
+  StewardMemoryListCommand,
+  StewardMemoryAppendCommand,
+  StewardMemoryUpdateCommand,
+  StewardMemoryDeleteCommand,
+  StewardMemoryListResultEvent,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -79,7 +84,8 @@ type _FeedKind = Expect<
 type _FeedSeq = Expect<Equal<StewardFeedPayload["seq"], number>>;
 
 // channel = "steward" 新族窄化（familyOf case 存在 + TypeOfChannel 收窄；
-// 管家驾驶舱批 +steward.navigate——投递/建会话成功后的页面切换指令帧）
+// 管家驾驶舱批 +steward.navigate——投递/建会话成功后的页面切换指令帧；
+// 管家记忆 B2 批 +steward.memory_list.result——条目清单回执）
 type _StewardFamily = Expect<
   Equal<
     TypeOfChannel<"steward">,
@@ -92,6 +98,7 @@ type _StewardFamily = Expect<
       | "steward.tool"
       | "steward.thinking"
       | "steward.navigate"
+      | "steward.memory_list.result"
   >
 >;
 
@@ -398,5 +405,110 @@ describe("管家驾驶舱批：steward.navigate 页面切换帧 additive", () =>
     expect(navigateFrame.payload.sessionId).toBe("sess-abc123");
     expect(summarizeEvent(navigateFrame)).toBe("steward-navigate:sess-abc123");
     expect(familyOf(navigateFrame)).toBe("steward/steward.navigate");
+  });
+});
+
+// ── 管家记忆 B2：memory 组瘦身 + 条目管理四命令 ──────────────────────
+
+const memorySetCommand: StewardSetConfigCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.set_config",
+  payload: { memory: { enabled: true, endpointId: "ep-1" } },
+};
+
+const memoryConfigResult: StewardConfigResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.config.result",
+  payload: {
+    enabled: true,
+    model: "deepseek/deepseek-v4-flash",
+    memory: {
+      enabled: true,
+      available: true,
+      endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
+      entryCount: 3,
+      dim: 1024,
+    },
+  },
+};
+
+const memoryListCommand: StewardMemoryListCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.memory_list",
+  payload: {},
+};
+
+const memoryAppendCommand: StewardMemoryAppendCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.memory_append",
+  payload: { text: "用户偏好简洁回复", kind: "preference" },
+};
+
+const memoryUpdateCommand: StewardMemoryUpdateCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.memory_update",
+  payload: { id: 2, text: "主技术栈：TypeScript + React（更新）" },
+};
+
+const memoryDeleteCommand: StewardMemoryDeleteCommand = {
+  v: PROTOCOL_VERSION,
+  type: "steward.memory_delete",
+  payload: { id: 2 },
+};
+
+const memoryListResult: StewardMemoryListResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.memory_list.result",
+  payload: {
+    entries: [
+      { id: 1, text: "用户偏好简洁回复", kind: "preference", createdAt: 1760000000000, sourceTurn: "manual" },
+      { id: 2, text: "主技术栈：TypeScript + React", kind: "fact", createdAt: 1760000100000, sourceTurn: "steward-turn" },
+    ],
+  },
+};
+
+describe("管家记忆 B2：memory 组瘦身（endpointId 引用态）", () => {
+  test("set_config.memory 两槽位可选（enabled/endpointId——baseUrl/apiKey/model 退役）", () => {
+    expect(dispatchCommand(memorySetCommand)).toBe("steward-set_config:undefined:-");
+    expect(memorySetCommand.payload.memory?.endpointId).toBe("ep-1");
+  });
+
+  test("config.result.memory.endpoint 引用态窄化（id/name/model/hasApiKey——无 baseUrl）", () => {
+    const endpoint = memoryConfigResult.payload.memory.endpoint;
+    if (endpoint === null) throw new Error("endpoint 引用态窄化失败");
+    expect(endpoint.id).toBe("ep-1");
+    expect(endpoint.model).toBe("bge-m3");
+    expect(endpoint.hasApiKey).toBe(false);
+    expect("baseUrl" in endpoint).toBe(false);
+    expect(memoryConfigResult.payload.memory.available).toBe(true);
+  });
+});
+
+describe("管家记忆 B2：memory_* 四命令 additive", () => {
+  test("目录登记（COMMAND_TYPES / EVENT_TYPES / EVENT_CHANNELS 挂 steward 族）", () => {
+    for (const t of ["steward.memory_list", "steward.memory_append", "steward.memory_update", "steward.memory_delete"] as const) {
+      expect(COMMAND_TYPES).toContain(t);
+    }
+    expect(EVENT_TYPES).toContain("steward.memory_list.result");
+    expect(EVENT_CHANNELS["steward.memory_list.result"]).toBe("steward");
+  });
+
+  test("四命令可构造且 dispatch 窄化（append kind 缺省面 + update/delete id）", () => {
+    expect(dispatchCommand(memoryListCommand)).toBe("steward-memory_list");
+    expect(dispatchCommand(memoryAppendCommand)).toBe("steward-memory_append:用户偏好简洁回复:preference");
+    expect(dispatchCommand(memoryUpdateCommand)).toBe("steward-memory_update:2:主技术栈：TypeScript + React（更新）");
+    expect(dispatchCommand(memoryDeleteCommand)).toBe("steward-memory_delete:2");
+  });
+
+  test("memory_list.result 条目行窄化（id/text/kind/createdAt/sourceTurn）", () => {
+    expect(summarizeEvent(memoryListResult)).toBe("steward-memory-list:2:preference");
+    const first = memoryListResult.payload.entries[0];
+    expect(first?.sourceTurn).toBe("manual");
+    expect(first?.createdAt).toBe(1760000000000);
+    expect(familyOf(memoryListResult)).toBe("steward/steward.memory_list.result");
   });
 });

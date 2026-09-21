@@ -157,7 +157,12 @@ import type {
   StewardToolEvent,
   StewardThinkingEvent,
   StewardNavigateEvent,
+  StewardMemoryListResultEvent,
 } from "./steward";
+import type {
+  EmbeddingListResultEvent,
+  EmbeddingVerifyResultEvent,
+} from "./embedding";
 import type {
   LoopRunStartedEvent,
   LoopRunFinishedEvent,
@@ -196,6 +201,7 @@ export * from "./interaction";
 export * from "./stt";
 export * from "./voice";
 export * from "./steward";
+export * from "./embedding";
 export * from "./loop";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
@@ -314,6 +320,9 @@ export type EventEnvelope =
   | StewardToolEvent
   | StewardThinkingEvent
   | StewardNavigateEvent
+  | StewardMemoryListResultEvent
+  | EmbeddingListResultEvent
+  | EmbeddingVerifyResultEvent
   | LoopRunStartedEvent
   | LoopRunFinishedEvent
   | LoopTurnStartedEvent
@@ -480,6 +489,12 @@ export const EVENT_TYPES = [
   // helix-loop L1 批：上下文压缩里程碑（tokensBefore/After + 摘要；
   // failed 同型记错——压缩失败降级粗裁剪不阻塞对话，追踪页可见）
   "loop.context.compacted",
+  // 管家记忆 B2：steward 记忆条目清单回执（memory_list/append/update/delete
+  // 四命令共用）+ embedding 配置域两帧（新族 channel "embedding"——端点
+  // 清单回执与连通测试回执）
+  "steward.memory_list.result",
+  "embedding.list.result",
+  "embedding.verify.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -607,6 +622,9 @@ export const EVENT_CHANNELS = {
   "steward.tool": "steward",
   "steward.thinking": "steward",
   "steward.navigate": "steward",
+  "steward.memory_list.result": "steward",
+  "embedding.list.result": "embedding",
+  "embedding.verify.result": "embedding",
   "loop.run.started": "loop",
   "loop.run.finished": "loop",
   "loop.turn.started": "loop",

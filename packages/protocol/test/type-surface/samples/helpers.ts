@@ -284,6 +284,17 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.navigate":
       // 管家驾驶舱批：页面切换指令帧窄化（sessionId = shell 切页目标）
       return `steward-navigate:${event.payload.sessionId}`;
+    case "steward.memory_list.result":
+      // 管家记忆 B2：长期记忆条目清单回执窄化（数量 + 首条 kind 面）
+      return `steward-memory-list:${event.payload.entries.length}:${event.payload.entries[0]?.kind ?? "-"}`;
+    case "embedding.list.result":
+      // embedding 配置域（B2）：端点清单回执窄化（数量 + 首条 name 面）
+      return `embedding-list:${event.payload.endpoints.length}:${event.payload.endpoints[0]?.name ?? "-"}`;
+    case "embedding.verify.result":
+      // embedding 配置域（B2）：连通测试两判别窄化（ok 含 dim / fail 含原因）
+      return event.payload.state === "ok"
+        ? `embedding-verify-ok:${event.payload.id}:${event.payload.dim}`
+        : `embedding-verify-fail:${event.payload.id}:${event.payload.error}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
@@ -536,6 +547,30 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.history":
       // 管家工作记忆批（A1）：读/清同命令（clear 缺省 = 回放）
       return `steward-history:${String(cmd.payload.clear ?? false)}`;
+    case "steward.memory_list":
+      // 管家记忆 B2：条目读面
+      return "steward-memory_list";
+    case "steward.memory_append":
+      // 管家记忆 B2：人工新增（kind 缺省 fact）
+      return `steward-memory_append:${cmd.payload.text}:${cmd.payload.kind ?? "fact"}`;
+    case "steward.memory_update":
+      // 管家记忆 B2：重嵌更新
+      return `steward-memory_update:${cmd.payload.id}:${cmd.payload.text}`;
+    case "steward.memory_delete":
+      // 管家记忆 B2：行级删除
+      return `steward-memory_delete:${cmd.payload.id}`;
+    case "embedding.list":
+      // embedding 配置域（B2）：端点清单读面
+      return "embedding-list";
+    case "embedding.set":
+      // embedding 配置域（B2）：新增（id 缺省）/更新（带 id）
+      return `embedding-set:${cmd.payload.id ?? "-"}:${cmd.payload.name}:${cmd.payload.baseUrl}:${cmd.payload.model}:${cmd.payload.apiKey ?? "-"}`;
+    case "embedding.delete":
+      // embedding 配置域（B2）：删除
+      return `embedding-delete:${cmd.payload.id}`;
+    case "embedding.verify":
+      // embedding 配置域（B2）：连通测试
+      return `embedding-verify:${cmd.payload.id}`;
     case "voice.synthesize.stream":
       return `voice-syn-stream:${cmd.payload.utterId}:${cmd.payload.voice ?? "-"}:${cmd.payload.text}`;
     case "voice.synthesize.stop":
@@ -613,6 +648,11 @@ export function familyOf(event: EventEnvelope): string {
       // 文本管家批（V2.5）：steward 新族窄化（对话/确认回执 + feed 广播 + 设置回执）
       const t: TypeOfChannel<"steward"> = event.type;
       return `steward/${t}`;
+    }
+    case "embedding": {
+      // embedding 配置域（B2）：embedding 新族窄化（清单回执 + 连通回执）
+      const t: TypeOfChannel<"embedding"> = event.type;
+      return `embedding/${t}`;
     }
     default:
       // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）
