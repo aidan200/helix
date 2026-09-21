@@ -67,7 +67,7 @@ function ui() {
   return render(
     <I18nProvider>
       <ToastProvider>
-        <SettingsPage path="/settings" />
+        <SettingsPage path="/settings" onOpenStewardMemory={vi.fn()} />
       </ToastProvider>
     </I18nProvider>,
   );

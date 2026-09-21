@@ -164,7 +164,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // A1 工作记忆批 +history.result/tool/thinking（回放回执 + 过程帧——
   // useSteward items 同源重建与过程行追加）；
   // 驾驶舱批 +steward.navigate（页面切换指令帧——真消费归 useStewardNavigate
-  // 切页钩子，App 装配层接线 navigate+switchSession）
+  // 切页钩子，App 装配层接线 navigate+switchSession）；
+  // 管家记忆 B2 +steward.memory_list.result（条目清单回执——memory_list/
+  // append/update/delete 四命令共用，真消费归记忆独立页）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
@@ -174,6 +176,12 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.tool",
   "steward.thinking",
   "steward.navigate",
+  "steward.memory_list.result",
+  // embedding 配置域（管家记忆 B2）：两帧 = 连接私有（清单回执 list/set/
+  // delete 共用 + 连通回执 verify），真消费归模型页向量 tab 与管家记忆区
+  // 下拉（SessionContext 转发层 subscribeEmbeddingFrames——voice 先例同构）
+  "embedding.list.result",
+  "embedding.verify.result",
   // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
   // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
   // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api

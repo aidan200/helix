@@ -31,7 +31,7 @@
  * （A1：隐藏不卸载但全局监听归活跃态）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Mic, Square, Wrench } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, Mic, Square, Wrench } from "lucide-react";
 import { useStewardVoice } from "../model/useStewardVoice";
 import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
@@ -44,6 +44,8 @@ interface StewardPanelProps {
   /** 面板活跃（可见）态；false = Dock 隐藏期（组件树驻留但不可见）——
  *  Esc 窗口监听挂载归活跃态（隐藏期零全局监听，A1）。 */
   readonly active?: boolean;
+  /** B2-④ 入口①：头部记忆钮 → 记忆独立页 /steward/memory（app 层注入）。 */
+  readonly onOpenMemory?: () => void;
 }
 
 /** 波形条高型（7 条对称阵列；listening 态 = level × 型值，他态贴底）。 */
@@ -116,7 +118,7 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
   return <ToolRow name={item.name} argsSummary={item.argsSummary} resultSummary={item.resultSummary} />;
 }
 
-const StewardPanel = function StewardPanel({ onClose, active = true }: StewardPanelProps) {
+const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory }: StewardPanelProps) {
   const { t } = useI18n();
   const sv = useStewardVoice(true);
   const [draft, setDraft] = useState("");
@@ -192,6 +194,16 @@ const StewardPanel = function StewardPanel({ onClose, active = true }: StewardPa
           <i className="stp-status-dot" aria-hidden="true" />
           {enabled ? t("steward.stateOn") : t("steward.stateOff")}
         </span>
+        <button
+          type="button"
+          className="stp-newchat"
+          data-testid="steward-open-memory"
+          title={t("steward.memory.openTitle")}
+          aria-label={t("steward.memory.openTitle")}
+          onClick={onOpenMemory}
+        >
+          <Brain size={14} strokeWidth={1.75} aria-hidden="true" />
+        </button>
         <button
           type="button"
           className="stp-newchat"

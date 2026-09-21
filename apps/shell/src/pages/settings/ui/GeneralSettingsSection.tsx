@@ -7,6 +7,10 @@
  * + set_config 写、config.result 回执回填，不乐观）；语音播报 = 本地偏好
  * （helix.steward.speakReply，面板语音模式朗读闸逐次读）——仅启用后显示
  * （从属项，缩进一层），非平级。管家模型槽位在智能体页管家卡。
+ * 管家记忆区（B2 瘦身）：开关 + 「向量模型」下拉（embedding.list 驱动，
+ * 选中写 steward.set_config {memory:{endpointId}}）+ 待命提示 + 「管理记忆」
+ * 链接（跳记忆独立页 /steward/memory）；端点 CRUD 收编模型页向量 tab
+ * （B1 的三字段 + 预置选择器形态退役）；空列表 → 引导链接跳向量 tab。
  * 工作空间：原独立分区撤项并入（单配置独占一页浪费），卡片本体在
  * WorkspaceSettingsSection（当前绑定 + 切换入口，F2 活跃禁用语义不变）。
  * 压缩参数数据面：topology.modelConfig.compaction（config.get/set_compaction
@@ -34,7 +38,7 @@ import { cn } from "@/shared/lib/cn";
 import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
-import MemoryManageSection from "./MemoryManageSection";
+import type { EmbeddingEndpointView } from "@helix/protocol";
 
 /** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
 const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
@@ -42,9 +46,17 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
   { id: "en-US", labelKey: "chat.settings.general.langEn" },
 ];
 
-const GeneralSettingsSection = function GeneralSettingsSection() {
+const GeneralSettingsSection = function GeneralSettingsSection({
+  onOpenMemory,
+  onOpenModelsEmbeddingTab,
+}: {
+  /** 入口②：跳记忆独立页 /steward/memory（SettingsPage 注入）。 */
+  onOpenMemory: () => void;
+  /** 引导链接：跳模型页向量 tab（SettingsPage 注入——同页切分区 + tab 位）。 */
+  onOpenModelsEmbeddingTab: () => void;
+}) {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -75,18 +87,16 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   const [stewardEnabled, setStewardEnabled] = useState<boolean | null>(null);
   const [stewardError, setStewardError] = useState<string | null>(null);
   const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
-  // 记忆（管家记忆 B1）：daemon 权威现态（config.result 回执回填，不乐观）；
-  // 端点三字段 = 本地编辑态 null 未编辑（展示现值），保存走部分更新
+  // 记忆（管家记忆 B2 瘦身）：daemon 权威现态（config.result 回执回填，不乐观）；
+  // 端点选择 = embedding 配置域引用（下拉写 endpointId，回执引用态回填）
   const [memoryCfg, setMemoryCfg] = useState<{
     enabled: boolean;
     available: boolean;
-    endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
   } | null>(null);
-  const [memBaseUrlDraft, setMemBaseUrlDraft] = useState<string | null>(null);
-  const [memModelDraft, setMemModelDraft] = useState<string | null>(null);
-  const [memApiKeyDraft, setMemApiKeyDraft] = useState<string | null>(null);
+  const [embeddingEndpoints, setEmbeddingEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
   useEffect(() => {
     sendStewardGetConfig();
   }, [sendStewardGetConfig]);
@@ -99,7 +109,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
           memory?: {
             enabled: boolean;
             available: boolean;
-            endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+            endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
             entryCount: number;
             dim: number | null;
           };
@@ -108,6 +118,20 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         if (payload.memory !== undefined) setMemoryCfg(payload.memory);
       }),
     [subscribeStewardFrames],
+  );
+  // 向量模型下拉数据源（embedding.list 驱动——每次进入分区刷新）
+  useEffect(() => {
+    sendEmbeddingList();
+  }, [sendEmbeddingList]);
+  useEffect(
+    () =>
+      subscribeEmbeddingFrames?.((e) => {
+        if (e.type === "embedding.list.result") {
+          setEmbeddingEndpoints(e.payload.endpoints);
+          return;
+        }
+      }),
+    [subscribeEmbeddingFrames],
   );
   const toggleSteward = (enabled: boolean): void => {
     if (sendStewardSetConfig({ enabled }) === false) {
@@ -123,42 +147,13 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     }
     setStewardError(null);
   };
-  // 预置接入方式（选中即自动保存端点两字段——本地 Ollama 用户一键可用；
-  // 自定义 = 只切到手动填模式不动配置；apiKey 不携带 = daemon 合并现值）
-  const applyMemoryPreset = (preset: string): void => {
-    const presetValues: Record<string, { baseUrl: string; model: string }> = {
-      ollama: { baseUrl: "http://localhost:11434/v1", model: "bge-m3" },
-      openai: { baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small" },
-    };
-    const picked = presetValues[preset];
-    if (picked === undefined) return;
-    if (sendStewardSetConfig({ memory: picked }) === false) {
+  // 向量模型选择（写 endpointId 引用；空串 = 清除引用）；回执驱动回填不乐观
+  const selectMemoryEndpoint = (endpointId: string): void => {
+    if (sendStewardSetConfig({ memory: { endpointId } }) === false) {
       setStewardError(t("chat.settings.general.sendFail"));
       return;
     }
     setStewardError(null);
-    setMemBaseUrlDraft(null);
-    setMemModelDraft(null);
-  };
-  const saveMemoryEndpoint = (): void => {
-    if (
-      sendStewardSetConfig({
-        memory: {
-          baseUrl: memBaseUrlDraft ?? memoryCfg?.endpoint?.baseUrl ?? "",
-          model: memModelDraft ?? memoryCfg?.endpoint?.model ?? "",
-          // apiKey 未编辑 = 不动（daemon 侧合并现值——凭据只进不出，
-          // 回执无原值可回填）；显式编辑（含清空）才携带
-          ...(memApiKeyDraft !== null ? { apiKey: memApiKeyDraft } : {}),
-        },
-      }) === false
-    ) {
-      setStewardError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setStewardError(null);
-    setMemBaseUrlDraft(null);
-    setMemModelDraft(null);
-    setMemApiKeyDraft(null);
   };
 
   const toggleSandbox = (enabled: boolean): void => {
@@ -332,9 +327,9 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             </label>
           </div>
         )}
-        {/* 记忆（管家记忆 B1）：启用管家的从属项（缩进一层）——开关开才展开
-            端点配置（再缩进一层，与语音播报同一套从属语言）；daemon 权威
-            回执回填，校验失败经 connection.error（steward.set_config 尾缀）交代 */}
+        {/* 记忆（管家记忆 B2 瘦身）：启用管家的从属项（缩进一层）——开关 +
+            「向量模型」下拉（embedding.list 驱动，选中写 endpointId 引用）；
+            端点 CRUD 收编模型页向量 tab，空列表显示引导链接 */}
         {stewardEnabled === true && (
           <div className="fld fld-sub" data-steward-memory>
             <span className="hud-label">{t("chat.settings.general.stewardMemory")}</span>
@@ -360,56 +355,45 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         )}
         {stewardEnabled === true && memoryCfg?.enabled === true && (
           <div className="fld fld-sub" data-steward-memory-endpoint>
-            <div className="sel-wrap">
-              <select
-                className="hud-input"
-                data-steward-memory-preset
-                value=""
-                onChange={(e) => applyMemoryPreset(e.target.value)}
+            {embeddingEndpoints !== null && embeddingEndpoints.length > 0 ? (
+              <div className="sel-wrap">
+                <select
+                  className="hud-input"
+                  data-steward-memory-endpoint-select
+                  value={memoryCfg.endpoint?.id ?? ""}
+                  onChange={(e) => selectMemoryEndpoint(e.target.value)}
+                >
+                  <option value="">{t("chat.settings.general.stewardMemoryEndpointPlaceholder")}</option>
+                  {embeddingEndpoints.map((ep) => (
+                    <option key={ep.id} value={ep.id}>
+                      {`${ep.name} (${ep.model})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="hud-btn hud-btn-ghost sm"
+                data-steward-memory-go-config
+                onClick={onOpenModelsEmbeddingTab}
               >
-                <option value="">{t("chat.settings.general.stewardMemoryPresetPlaceholder")}</option>
-                <option value="ollama">{t("chat.settings.general.stewardMemoryPresetOllama")}</option>
-                <option value="openai">{t("chat.settings.general.stewardMemoryPresetOpenai")}</option>
-                <option value="custom">{t("chat.settings.general.stewardMemoryPresetCustom")}</option>
-              </select>
-            </div>
-            <input
-              className="hud-input"
-              value={memBaseUrlDraft ?? memoryCfg.endpoint?.baseUrl ?? ""}
-              placeholder={t("chat.settings.general.stewardMemoryBaseUrl")}
-              data-steward-memory-baseurl
-              onChange={(e) => setMemBaseUrlDraft(e.target.value)}
-            />
-            <input
-              className="hud-input"
-              value={memModelDraft ?? memoryCfg.endpoint?.model ?? ""}
-              placeholder={t("chat.settings.general.stewardMemoryModel")}
-              data-steward-memory-model
-              onChange={(e) => setMemModelDraft(e.target.value)}
-            />
-            <input
-              className="hud-input"
-              type="password"
-              value={memApiKeyDraft ?? ""}
-              placeholder={t("chat.settings.general.stewardMemoryApiKey")}
-              data-steward-memory-apikey
-              onChange={(e) => setMemApiKeyDraft(e.target.value)}
-            />
-            <button
-              type="button"
-              className="hud-btn hud-btn-cyan"
-              data-steward-memory-save
-              disabled={memBaseUrlDraft === null && memModelDraft === null && memApiKeyDraft === null}
-              onClick={saveMemoryEndpoint}
-            >
-              {t("chat.settings.general.stewardMemorySave")}
-            </button>
+                {t("chat.settings.general.stewardMemoryGoConfig")}
+              </button>
+            )}
           </div>
         )}
-        {/* 记忆管理（B2）：条目列表 + 手动增删改——mock 数据先行 */}
+        {/* 入口②：管理记忆链接（跳记忆独立页 /steward/memory——mock 内嵌区退役） */}
         {stewardEnabled === true && memoryCfg?.enabled === true && (
           <div className="fld fld-sub" data-steward-memory-manage>
-            <MemoryManageSection />
+            <button
+              type="button"
+              className="hud-btn hud-btn-ghost sm"
+              data-steward-memory-manage-link
+              onClick={onOpenMemory}
+            >
+              {t("chat.settings.general.stewardMemoryManage")}
+            </button>
           </div>
         )}
       </div>

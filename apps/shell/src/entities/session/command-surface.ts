@@ -49,9 +49,17 @@ import {
   stewardConfirmCommand,
   stewardGetConfigCommand,
   stewardHistoryCommand,
+  stewardMemoryAppendCommand,
+  stewardMemoryDeleteCommand,
+  stewardMemoryListCommand,
+  stewardMemoryUpdateCommand,
   stewardSetConfigCommand,
   stewardSubscribeCommand,
   stewardUnsubscribeCommand,
+  embeddingDeleteCommand,
+  embeddingListCommand,
+  embeddingSetCommand,
+  embeddingVerifyCommand,
   voiceSubscribeCommand,
   voiceSynthesizeCommand,
   voiceSynthesizeStopCommand,
@@ -273,17 +281,53 @@ export const COMMAND_SURFACE = {
   /** 设置读面（回执 steward.config.result）。 */
   sendStewardGetConfig: (deps) =>
     (): boolean => deps.send(stewardGetConfigCommand()),
-  /** 设置写面（槽位均可选——含记忆组（管家记忆 B1）；回执 steward.config.result 新态）。 */
+  /** 设置写面（槽位均可选——含记忆组（管家记忆 B2 瘦身形态 {enabled?,endpointId?}）；
+   *  回执 steward.config.result 新态）。 */
   sendStewardSetConfig: (deps) =>
     (patch: {
       enabled?: boolean;
       model?: string;
-      memory?: { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string };
+      memory?: { enabled?: boolean; endpointId?: string };
     }): boolean => deps.send(stewardSetConfigCommand(patch)),
   /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true
    *  新对话三处同清）。 */
   sendStewardHistory: (deps) =>
     (clear?: boolean): boolean => deps.send(stewardHistoryCommand(clear)),
+  // ── 管家记忆 B2：长期记忆条目管理四命令（回执 steward.memory_list.result
+  //    四命令共用——写后即回新清单）────────────────────────────
+  /** 条目读面（记忆页列表数据源）。 */
+  sendStewardMemoryList: (deps) =>
+    (): boolean => deps.send(stewardMemoryListCommand()),
+  /** 人工新增（embed 入库；kind 缺省 fact）。 */
+  sendStewardMemoryAppend: (deps) =>
+    (text: string, kind?: "fact" | "preference"): boolean =>
+      deps.send(stewardMemoryAppendCommand(text, kind)),
+  /** 条目文本更新（重嵌）。 */
+  sendStewardMemoryUpdate: (deps) =>
+    (id: number, text: string): boolean => deps.send(stewardMemoryUpdateCommand(id, text)),
+  /** 行级删除。 */
+  sendStewardMemoryDelete: (deps) =>
+    (id: number): boolean => deps.send(stewardMemoryDeleteCommand(id)),
+  // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（模型页向量
+  //    tab / 管家记忆区下拉数据源）──────────────────────────────
+  /** 端点清单读面（回执 embedding.list.result）。 */
+  sendEmbeddingList: (deps) =>
+    (): boolean => deps.send(embeddingListCommand()),
+  /** 端点新增/更新（回执 embedding.list.result 新清单）。 */
+  sendEmbeddingSet: (deps) =>
+    (payload: {
+      id?: string;
+      name: string;
+      baseUrl: string;
+      apiKey?: string;
+      model: string;
+    }): boolean => deps.send(embeddingSetCommand(payload)),
+  /** 端点删除（回执 embedding.list.result 新清单）。 */
+  sendEmbeddingDelete: (deps) =>
+    (id: string): boolean => deps.send(embeddingDeleteCommand(id)),
+  /** 连通测试（回执 embedding.verify.result 两判别，id 回携）。 */
+  sendEmbeddingVerify: (deps) =>
+    (id: string): boolean => deps.send(embeddingVerifyCommand(id)),
 
   // ── 连接 / 会话生命周期面 ─────────────────────────────────
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
@@ -877,6 +921,16 @@ export const LISTEN_SURFACE = {
       type === "steward.tool" ||
       type === "steward.thinking" ||
       type === "steward.navigate" ||
+      type === "steward.memory_list.result" ||
+      type === "connection.error",
+  },
+  /** 订阅 embedding 族帧（管家记忆 B2：list.result 清单回执（list/set/delete
+   *  共用）+ verify.result 连通回执（两判别，id 回携）——模型页向量 tab /
+   *  管家记忆区下拉两消费面）。 */
+  subscribeEmbeddingFrames: {
+    match: (type) =>
+      type === "embedding.list.result" ||
+      type === "embedding.verify.result" ||
       type === "connection.error",
   },
 } satisfies Record<string, ListenDomainSpec>;

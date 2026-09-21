@@ -129,36 +129,6 @@ export function useConfigField<T>(
  * 两段式删除确认（首击 armed → timeoutMs 后复原；同 id 二击执行 action）。
  * armed = 当前 armed 行 id（按钮变确认态的数据源；null = 无 armed）。
  */
-export function useArmedConfirm(timeoutMs = 2_500): {
-  readonly armed: string | null;
-  readonly confirm: (id: string, action: () => void) => void;
-} {
-  const [armed, setArmed] = useState<string | null>(null);
-  const armedRef = useRef<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // unmount 清理复原定时器
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const confirm = useCallback(
-    (id: string, action: () => void): void => {
-      if (armedRef.current !== id) {
-        armedRef.current = id;
-        setArmed(id);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(() => {
-          armedRef.current = null;
-          setArmed(null);
-        }, timeoutMs);
-        return;
-      }
-      clearTimeout(timer.current);
-      armedRef.current = null;
-      setArmed(null);
-      action();
-    },
-    [timeoutMs],
-  );
-
-  return { armed, confirm };
-}
+// B2：useArmedConfirm 提升至 shared/lib（记忆页跨 slice 复用——AG-15 同层
+// 互引防线）；本文件 re-export 保持既有 import 兼容。
+export { useArmedConfirm } from "@/shared/lib/useArmedConfirm";

@@ -7,8 +7,12 @@
  * 分区状态：页面本地 useState（无 URL 子路由——route.ts 是扁平路由，
  * 不扩机制）。页面域/会话域分离：路由行由 app 层注入（data-settings-page
  * 锚）；数据面全在分区组件内。
+ *
+ * B2：跨页指路（记忆页/管家记忆区引导 → 模型分区向量 tab）经
+ * settings-section-bus 一次性 pending 信号——挂载时消费切分区 + 透传
+ * initialTab（分区条件渲染保证重挂载接初值）。
  */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import ModelsSettingsSection from "./ui/ModelsSettingsSection";
@@ -20,21 +24,37 @@ import SettingsNav, {
   SETTINGS_SECTIONS,
   type SettingsSectionId,
 } from "./ui/SettingsNav";
+import { consumePendingSection, type ModelsTab } from "./settings-section-bus";
 
-const SettingsPage = function SettingsPage({ path }: { path: string }) {
+const SettingsPage = function SettingsPage({ path, onOpenStewardMemory }: { path: string; onOpenStewardMemory: () => void }) {
   const { t } = useI18n();
-  // 首分区缺省选中（列表非空由编译期字面量保证；首项 = 模型设置）
+  // 首分区缺省选中（列表非空由编译期字面量保证；首项 = 模型设置）；
+  // B2：跨页指路 pending 信号消费（记忆页/管家区引导 → models 分区 + tab 位）
+  const pending = consumePendingSection();
   const [section, setSection] = useState<SettingsSectionId>(
-    SETTINGS_SECTIONS[0]!.id,
+    pending?.section != null && SETTINGS_SECTIONS.some((s) => s.id === pending.section)
+      ? (pending.section as SettingsSectionId)
+      : SETTINGS_SECTIONS[0]!.id,
   );
+  const [modelsTab, setModelsTab] = useState<ModelsTab>(pending?.tab ?? "chat");
+  /** 管家区引导：切模型分区 + 向量 tab（同页内切分区——条件渲染重挂载接初值）。 */
+  const openModelsEmbeddingTab = useCallback(() => {
+    setModelsTab("embedding");
+    setSection("models");
+  }, []);
   return (
     <div data-settings-page={path}>
       <AppLayout
         headerLeft={<h1 className="tb-title">{t("chat.nav.pages.settings.label")}</h1>}
         sidebar={<SettingsNav active={section} onSelect={setSection} />}
       >
-        {section === "models" && <ModelsSettingsSection />}
-        {section === "general" && <GeneralSettingsSection />}
+        {section === "models" && <ModelsSettingsSection initialTab={modelsTab} />}
+        {section === "general" && (
+          <GeneralSettingsSection
+            onOpenModelsEmbeddingTab={openModelsEmbeddingTab}
+            onOpenMemory={onOpenStewardMemory}
+          />
+        )}
         {section === "mcp" && <McpSettingsSection />}
         {section === "skills" && <SkillsSettingsSection />}
         {section === "voice" && <VoiceSettingsSection />}

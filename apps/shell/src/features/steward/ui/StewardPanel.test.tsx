@@ -55,10 +55,10 @@ function frame(type: string, payload: unknown): EventEnvelope {
   return { v: "0.14", sessionId: "__system__", channel: "steward", type, payload } as EventEnvelope;
 }
 
-function renderPanel() {
+function renderPanel(onOpenMemory?: () => void) {
   return render(
     <I18nProvider>
-      <StewardPanel onClose={() => undefined} />
+      <StewardPanel onClose={() => undefined} {...(onOpenMemory !== undefined ? { onOpenMemory } : {})} />
     </I18nProvider>,
   );
 }
@@ -286,5 +286,48 @@ describe("StewardPanel（A1 过程行渲染——真实 DOM 断言）", () => {
     fireEvent.click(screen.getByTestId("steward-new-chat"));
     expect(sendStewardHistory).toHaveBeenCalledWith(true);
     await waitFor(() => expect(screen.queryAllByTestId("steward-msg-user").length).toBe(0));
+  });
+});
+
+// ── 管家记忆 B2-④：头部记忆入口钮（入口①→ /steward/memory）──
+
+describe("StewardPanel 记忆入口钮（B2-④ 入口①）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => cleanup());
+  localStorage.setItem("helix-lang", "zh-CN");
+
+  it("头部渲染记忆钮（data-testid=steward-open-memory）；点击 → onOpenMemory 回调", async () => {
+    const onOpenMemory = vi.fn();
+    const { findByTestId } = renderPanel(onOpenMemory);
+    // config.result enabled 后面板激活（头部含记忆钮）
+    await act(async () => {
+      emitSteward(
+        frame("steward.config.result", {
+          enabled: true,
+          model: "deepseek/x",
+          memory: { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+        }),
+      );
+    });
+    const btn = await findByTestId("steward-open-memory");
+    fireEvent.click(btn);
+    expect(onOpenMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it("未注入 onOpenMemory（可选位）：钮渲染不炸、点击零动作", async () => {
+    const { findByTestId } = renderPanel();
+    await act(async () => {
+      emitSteward(
+        frame("steward.config.result", {
+          enabled: true,
+          model: "deepseek/x",
+          memory: { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+        }),
+      );
+    });
+    const btn = await findByTestId("steward-open-memory");
+    expect(() => fireEvent.click(btn)).not.toThrow();
   });
 });

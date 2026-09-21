@@ -40,6 +40,7 @@ import {
   ROUTE_PROJECT,
   ROUTE_SETTINGS,
   ROUTE_SKILLS,
+  ROUTE_STEWARD_MEMORY,
   ROUTE_TASKS,
   ROUTE_TRACE,
   ROUTE_WORKBENCH,
@@ -50,6 +51,7 @@ import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 import StewardDock from "@/features/steward/ui/StewardDock";
+import StewardMemoryPage from "@/pages/steward-memory/StewardMemoryPage";
 import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
 
 /** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
@@ -77,6 +79,11 @@ export function AppRoutes() {
   const [stewardOpen, setStewardOpen] = useState(false);
   const toggleSteward = useCallback(() => setStewardOpen((v) => !v), []);
   const closeSteward = useCallback(() => setStewardOpen(false), []);
+  // B2-④ 入口①：StewardPanel 头部记忆钮 → 记忆独立页（关面板 + 导航）
+  const openStewardMemory = useCallback(() => {
+    setStewardOpen(false);
+    navigate(ROUTE_STEWARD_MEMORY);
+  }, [navigate]);
   // 页内指路出口（T3.1/T3.2）：P-2 任务页 → /project；P-1 bootstrap 入口卡与
   // 产出分组 → /tasks（页面间闭环流转，review.md §页面间闭环）
   const goProject = useCallback(() => navigate(ROUTE_PROJECT), [navigate]);
@@ -143,12 +150,15 @@ export function AppRoutes() {
           {route === ROUTE_TRACE && <TracePage path={ROUTE_TRACE} />}
           {route === ROUTE_PROJECT && <ProjectPage path={ROUTE_PROJECT} onOpenTasks={goTasks} />}
           {route === ROUTE_TASKS && <TasksPage path={ROUTE_TASKS} onOpenProject={goProject} />}
-          {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}
+          {route === ROUTE_SETTINGS && (
+            <SettingsPage path={ROUTE_SETTINGS} onOpenStewardMemory={() => navigate(ROUTE_STEWARD_MEMORY)} />
+          )}
+          {route === ROUTE_STEWARD_MEMORY && <StewardMemoryPage path={ROUTE_STEWARD_MEMORY} />}
         </div>
       </div>
       {/* 管家全局弹层（管家全局化批）：rail 右缘 fixed 浮动面板，页面域之外
-          ——路由切换不卸载（app 生命周期态） */}
-      <StewardDock open={stewardOpen} onClose={closeSteward} />
+          ——路由切换不卸载（app 生命周期态）；B2-④ 记忆钮注入开页回调 */}
+      <StewardDock open={stewardOpen} onClose={closeSteward} onOpenMemory={openStewardMemory} />
       {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；各页历史副本已随 AppLayout 迁移全数清理） */}
       <div className="scanline-overlay" aria-hidden="true" />
       {/* W2-D kg sync 提示全局 toast（task.changed 随行 syncHint 直渲；页面无关常驻） */}

@@ -11,6 +11,7 @@ import {
   ROUTE_PROJECT,
   ROUTE_SETTINGS,
   ROUTE_SKILLS,
+  ROUTE_STEWARD_MEMORY,
   ROUTE_TASKS,
   ROUTE_TRACE,
   ROUTE_WORKBENCH,
@@ -18,13 +19,14 @@ import {
 } from "./route";
 
 describe("TP-CL4-1 routeOfPath 路径映射", () => {
-  it("六路径各自映射到对应路由位", () => {
+  it("七路径各自映射到对应路由位（B2-④ +/steward/memory 记忆独立页）", () => {
     expect(routeOfPath("/")).toBe(ROUTE_WORKBENCH);
     expect(routeOfPath("/skills")).toBe(ROUTE_SKILLS);
     expect(routeOfPath("/trace")).toBe(ROUTE_TRACE);
     expect(routeOfPath("/project")).toBe(ROUTE_PROJECT);
     expect(routeOfPath("/tasks")).toBe(ROUTE_TASKS);
     expect(routeOfPath("/settings")).toBe(ROUTE_SETTINGS);
+    expect(routeOfPath("/steward/memory")).toBe(ROUTE_STEWARD_MEMORY);
   });
 
   it("尾斜杠规范化：带尾斜杠路径与裸路径同路由（不静默回落工作台）", () => {
@@ -33,6 +35,7 @@ describe("TP-CL4-1 routeOfPath 路径映射", () => {
     expect(routeOfPath("/project//")).toBe(ROUTE_PROJECT);
     expect(routeOfPath("/tasks///")).toBe(ROUTE_TASKS);
     expect(routeOfPath("/settings/")).toBe(ROUTE_SETTINGS);
+    expect(routeOfPath("/steward/memory/")).toBe(ROUTE_STEWARD_MEMORY); // B2-④ 尾斜杠同构
     expect(routeOfPath("//")).toBe(ROUTE_WORKBENCH); // "/" 剥空 → 回落工作台，语义不变
   });
 

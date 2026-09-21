@@ -45,6 +45,8 @@ import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
 import { useArmedConfirm } from "./settings-hooks";
+import EmbeddingModelsTab from "./EmbeddingModelsTab";
+import type { ModelsTab } from "../settings-section-bus";
 
 /** ctx 档位（200k / 400k / 1M…；与 P-3 同源格式）。 */
 function fmtContext(tokens: number): string {
@@ -114,9 +116,12 @@ function ConnBadge({ entry }: { entry: AuthProviderEntry }) {
   }
 }
 
-const ModelsSettingsSection = function ModelsSettingsSection() {
+const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "chat" }: { initialTab?: ModelsTab }) {
   const { t } = useI18n();
   const toast = useToast();
+  // B2-③ 模型页 tab 化：「对话模型」（既有全部内容零改动包裹）|「向量模型」
+  //（embedding 端点配置域——引导链接可携带初始 tab（settings-section-bus）
+  const [tab, setTab] = useState<ModelsTab>(initialTab);
   const {
     topology,
     requestModelConfig,
@@ -276,6 +281,32 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     <div className="pg" data-models-section>
       <h2 className="pg-title">{t("chat.settings.title")}</h2>
 
+      {/* B2-③ tab 切换排（对话模型 | 向量模型；stp-mode 双钮同构视觉） */}
+      <div className="lang-switch" data-models-tab role="group" aria-label={t("chat.settings.title")}>
+        <button
+          type="button"
+          className={cn("hud-btn sm", tab === "chat" ? "hud-btn-cyan" : "hud-btn-ghost")}
+          data-models-tab-chat
+          aria-pressed={tab === "chat"}
+          onClick={() => setTab("chat")}
+        >
+          {t("chat.settings.general.modelsTabChat")}
+        </button>
+        <button
+          type="button"
+          className={cn("hud-btn sm", tab === "embedding" ? "hud-btn-cyan" : "hud-btn-ghost")}
+          data-models-tab-embedding
+          aria-pressed={tab === "embedding"}
+          onClick={() => setTab("embedding")}
+        >
+          {t("chat.settings.general.modelsTabEmbedding")}
+        </button>
+      </div>
+
+      {tab === "embedding" ? (
+        <EmbeddingModelsTab />
+      ) : (
+        <>
       {/* 工具卡：全局默认展示（只读，改默认在下方模型表行内操作）+ 推理强度
           + 目录刷新（F(3.4).5）——两行收紧布局 */}
       <div className="hud-card">
@@ -533,8 +564,7 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
 
       {/* F(3.4).2 key 弹层（hud-modal：backdrop + 缩放淡入；非空校验内联；
           Escape 关闭——开态窗口级监听与 backdrop 点击同语义） */}
-      {modal !== null && (
-        <div
+      {modal !== null && (        <div
           className="modal-backdrop open"
           role="presentation"
           onClick={(e) => {
@@ -598,6 +628,8 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

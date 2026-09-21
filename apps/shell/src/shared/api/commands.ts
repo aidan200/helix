@@ -114,9 +114,17 @@ import type {
   StewardConfirmCommand,
   StewardGetConfigCommand,
   StewardHistoryCommand,
+  StewardMemoryAppendCommand,
+  StewardMemoryDeleteCommand,
+  StewardMemoryListCommand,
+  StewardMemoryUpdateCommand,
   StewardSetConfigCommand,
   StewardSubscribeCommand,
   StewardUnsubscribeCommand,
+  EmbeddingDeleteCommand,
+  EmbeddingListCommand,
+  EmbeddingSetCommand,
+  EmbeddingVerifyCommand,
   VoiceSubscribeCommand,
   VoiceSynthesizeCommand,
   VoiceSynthesizeStopCommand,
@@ -530,11 +538,12 @@ export function stewardGetConfigCommand(): StewardGetConfigCommand {
 }
 
 /** steward.set_config：设置写面（enabled/model/memory 槽位可选；全局命令；
- * 管家记忆 B1 增 memory 组——嵌入端点配置，apiKey 只进不出）。 */
+ * 管家记忆 B2 memory 组瘦身——{enabled?,endpointId?}（端点 CRUD 收编
+ * embedding 配置域，endpointId 引用其条目）。 */
 export function stewardSetConfigCommand(patch: {
   enabled?: boolean;
   model?: string;
-  memory?: { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string };
+  memory?: { enabled?: boolean; endpointId?: string };
 }): StewardSetConfigCommand {
   return {
     v: PROTOCOL_VERSION,
@@ -555,6 +564,62 @@ export function stewardHistoryCommand(clear?: boolean): StewardHistoryCommand {
     type: "steward.history",
     payload: clear === true ? { clear: true } : {},
   };
+}
+
+// ── 管家记忆 B2：长期记忆条目管理（读/人工新增/重嵌更新/行级删除；四命令
+//    共用回执 steward.memory_list.result——写后即回新清单）────────────
+
+/** steward.memory_list：条目读面（全局命令；回执 steward.memory_list.result）。 */
+export function stewardMemoryListCommand(): StewardMemoryListCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.memory_list", payload: {} };
+}
+
+/** steward.memory_append：人工新增（embed 入库；kind 缺省 fact）。 */
+export function stewardMemoryAppendCommand(text: string, kind?: "fact" | "preference"): StewardMemoryAppendCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.memory_append",
+    payload: { text, ...(kind !== undefined ? { kind } : {}) },
+  };
+}
+
+/** steward.memory_update：条目文本更新（重嵌；回执新清单）。 */
+export function stewardMemoryUpdateCommand(id: number, text: string): StewardMemoryUpdateCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.memory_update", payload: { id, text } };
+}
+
+/** steward.memory_delete：行级删除（回执新清单）。 */
+export function stewardMemoryDeleteCommand(id: number): StewardMemoryDeleteCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.memory_delete", payload: { id } };
+}
+
+// ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（向量模型 tab）──
+// 回执 = embedding.list.result（list/set/delete 共用）/ embedding.verify.result。
+
+/** embedding.list：端点清单读面（凭据卫生视图——行含 hasApiKey/verifiedAt）。 */
+export function embeddingListCommand(): EmbeddingListCommand {
+  return { v: PROTOCOL_VERSION, type: "embedding.list", payload: {} };
+}
+
+/** embedding.set：新增（id 缺省）/更新端点（apiKey 空串 = 清除）。 */
+export function embeddingSetCommand(payload: {
+  id?: string;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+}): EmbeddingSetCommand {
+  return { v: PROTOCOL_VERSION, type: "embedding.set", payload };
+}
+
+/** embedding.delete：删除端点（回执新清单）。 */
+export function embeddingDeleteCommand(id: string): EmbeddingDeleteCommand {
+  return { v: PROTOCOL_VERSION, type: "embedding.delete", payload: { id } };
+}
+
+/** embedding.verify：连通测试（回执 embedding.verify.result 两判别，id 回携）。 */
+export function embeddingVerifyCommand(id: string): EmbeddingVerifyCommand {
+  return { v: PROTOCOL_VERSION, type: "embedding.verify", payload: { id } };
 }
 
 // ── mcp 族命令（mcp 批：MCP server 标准接入；六命令全全局命令）────

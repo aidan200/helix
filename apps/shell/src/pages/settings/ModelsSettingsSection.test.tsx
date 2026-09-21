@@ -86,6 +86,11 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setProviderKey,
       deleteProviderKey,
       consumeModelConfigError,
+      sendEmbeddingList: vi.fn(() => true),
+      sendEmbeddingSet: vi.fn(() => true),
+      sendEmbeddingDelete: vi.fn(() => true),
+      sendEmbeddingVerify: vi.fn(() => true),
+      subscribeEmbeddingFrames: () => () => {},
     }),
   };
 });
@@ -102,11 +107,11 @@ afterEach(() => {
 
 localStorage.setItem("helix-lang", "zh-CN");
 
-function ui() {
+function ui(initialTab?: "chat" | "embedding") {
   return render(
     <I18nProvider>
       <ToastProvider>
-        <ModelsSettingsSection />
+        <ModelsSettingsSection {...(initialTab !== undefined ? { initialTab } : {})} />
       </ToastProvider>
     </I18nProvider>,
   );
@@ -263,5 +268,31 @@ describe("code-review 族A：设为默认 ok toast 结果帧驱动（M47 同构�
     view.rerender(element());
     expect(document.querySelector(".toast-zone")!.textContent).toContain("操作失败 · daemon 拒绝");
     expect(document.querySelector(".toast-zone")!.textContent).not.toContain("已更新");
+  });
+});
+
+
+// ── B2-③ 模型页 tab 化：「对话模型」（既有内容零改动包裹）|「向量模型」──
+
+describe("模型页 tab 化（B2-③）", () => {
+  it("默认对话模型 tab：既有 provider 列表可见 + tab 切换排渲染", () => {
+    const { container } = ui();
+    expect(container.querySelector("[data-models-tab]")!).not.toBeNull();
+    expect(container.querySelector("[data-models-tab-chat]")!.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector("[data-prov=anthropic]")!).not.toBeNull(); // 既有内容在场
+    expect(container.querySelector("[data-embedding-tab]")).toBeNull(); // 向量 tab 未渲染
+  });
+
+  it("切到向量模型 tab：既有对话模型面退场 + EmbeddingModelsTab 挂载（进入拉取）", () => {
+    const { container } = ui();
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-models-tab-embedding]")!);
+    expect(container.querySelector("[data-embedding-tab]")!).not.toBeNull();
+    expect(container.querySelector("[data-prov=anthropic]")).toBeNull();
+    expect(container.querySelector("[data-models-tab-embedding]")!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("initialTab=embedding（引导链接跳入形态）：挂载即向量 tab", () => {
+    const { container } = ui("embedding");
+    expect(container.querySelector("[data-embedding-tab]")!).not.toBeNull();
   });
 });

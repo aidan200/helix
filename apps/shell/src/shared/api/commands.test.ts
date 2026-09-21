@@ -5,7 +5,8 @@
  * draft:true 建会话链消费；缺省 = 全局默认（payload 不携带 model 键）。
  */
 import { describe, expect, it } from "vitest";
-import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardSetConfigCommand } from "./commands";
+import { PROTOCOL_VERSION } from "@helix/protocol";
+import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardSetConfigCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -148,23 +149,65 @@ describe("voice 流式两命令构造器（V3b-2：管家朗读流式接线）",
   });
 });
 
-// ── 管家记忆 B1：steward.set_config 构造器 memory 槽位透传（回归：修复前构造器
-//    签名只收 enabled/model，memory 字段被静默丢弃——UI 开关勾不上）──
+// ── 管家记忆 B2：steward.set_config 构造器 memory 槽位透传（回归：修复前构造器
+//    签名只收 enabled/model，memory 字段被静默丢弃——UI 开关勾不上）+
+//    memory 组瘦身形态 {enabled?,endpointId?}（B1 三字段形态退役）──
 
-describe("stewardSetConfigCommand 槽位透传（管家记忆 B1 回归）", () => {
+describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）", () => {
   it("memory 槽位携带 → payload.memory 透传（修复前被丢弃）", () => {
     const cmd = stewardSetConfigCommand({ memory: { enabled: true } });
     expect(cmd.type).toBe("steward.set_config");
     expect(cmd.payload).toEqual({ memory: { enabled: true } });
   });
 
-  it("三槽位共存：enabled + model + memory 同时携带互不覆盖", () => {
-    const cmd = stewardSetConfigCommand({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, baseUrl: "http://localhost:11434/v1", model: "bge-m3" } });
-    expect(cmd.payload).toEqual({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, baseUrl: "http://localhost:11434/v1", model: "bge-m3" } });
+  it("三槽位共存：enabled + model + memory（endpointId 引用）同时携带互不覆盖", () => {
+    const cmd = stewardSetConfigCommand({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, endpointId: "ep-1" } });
+    expect(cmd.payload).toEqual({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, endpointId: "ep-1" } });
   });
 
   it("单槽位最小帧：只携带传入位，缺省不携带键（帧噪音最小化）", () => {
     expect(stewardSetConfigCommand({ enabled: false }).payload).toEqual({ enabled: false });
     expect(stewardSetConfigCommand({}).payload).toEqual({});
+    // endpointId 空串 = 清除引用（显式解绑）
+    expect(stewardSetConfigCommand({ memory: { endpointId: "" } }).payload).toEqual({ memory: { endpointId: "" } });
+  });
+});
+
+// ── 管家记忆 B2：memory_* 四命令 + embedding 四命令构造器 ──
+
+describe("steward memory_* / embedding.* 构造器（管家记忆 B2）", () => {
+  it("steward.memory_list：零载荷", () => {
+    expect(stewardMemoryListCommand()).toEqual({ v: PROTOCOL_VERSION, type: "steward.memory_list", payload: {} });
+  });
+
+  it("steward.memory_append：kind 缺省不携带键；携带时透传", () => {
+    expect(stewardMemoryAppendCommand("手动记一条")).toEqual({ v: PROTOCOL_VERSION, type: "steward.memory_append", payload: { text: "手动记一条" } });
+    expect(stewardMemoryAppendCommand("偏好", "preference").payload).toEqual({ text: "偏好", kind: "preference" });
+  });
+
+  it("steward.memory_update / memory_delete：id + text / id 最小帧", () => {
+    expect(stewardMemoryUpdateCommand(2, "改").payload).toEqual({ id: 2, text: "改" });
+    expect(stewardMemoryDeleteCommand(2).payload).toEqual({ id: 2 });
+  });
+
+  it("embedding.set：新增形态（id 缺省不携带）/ 更新形态（id + apiKey 空串清除）", () => {
+    expect(embeddingSetCommand({ name: "Ollama", baseUrl: "http://localhost:11434/v1", model: "bge-m3" }).payload).toEqual({
+      name: "Ollama",
+      baseUrl: "http://localhost:11434/v1",
+      model: "bge-m3",
+    });
+    expect(embeddingSetCommand({ id: "ep-1", name: "OpenAI", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "m" }).payload).toEqual({
+      id: "ep-1",
+      name: "OpenAI",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "",
+      model: "m",
+    });
+  });
+
+  it("embedding.list / delete / verify：最小帧", () => {
+    expect(embeddingListCommand()).toEqual({ v: PROTOCOL_VERSION, type: "embedding.list", payload: {} });
+    expect(embeddingDeleteCommand("ep-1").payload).toEqual({ id: "ep-1" });
+    expect(embeddingVerifyCommand("ep-1").payload).toEqual({ id: "ep-1" });
   });
 });

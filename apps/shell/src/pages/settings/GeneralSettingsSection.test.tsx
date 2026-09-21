@@ -37,6 +37,12 @@ let configListeners: ((e: EventEnvelope) => void)[] = [];
 const sendStewardGetConfig = vi.fn(() => true);
 const sendStewardSetConfig = vi.fn((_patch: { enabled?: boolean; model?: string }) => true);
 let stewardListeners: ((e: EventEnvelope) => void)[] = [];
+/** 管家记忆 B2：embedding 配置域命令/订阅面 mock。 */
+const sendEmbeddingList = vi.fn(() => true);
+let embeddingListeners: ((e: EventEnvelope) => void)[] = [];
+/** B2 双入口回调 mock（管理记忆链接 / 引导链接）。 */
+const onOpenMemory = vi.fn();
+const onOpenModelsEmbeddingTab = vi.fn();
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -65,6 +71,13 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
         stewardListeners.push(listener);
         return () => {
           stewardListeners = stewardListeners.filter((l) => l !== listener);
+        };
+      },
+      sendEmbeddingList,
+      subscribeEmbeddingFrames: (listener: (e: EventEnvelope) => void) => {
+        embeddingListeners.push(listener);
+        return () => {
+          embeddingListeners = embeddingListeners.filter((l) => l !== listener);
         };
       },
     }),
@@ -99,6 +112,7 @@ afterEach(() => {
   mockDaemonFreshness = null;
   configListeners = [];
   stewardListeners = [];
+  embeddingListeners = [];
   localStorage.removeItem("helix.steward.speakReply");
   vi.clearAllMocks();
 });
@@ -122,10 +136,25 @@ function ui() {
   return render(
     <I18nProvider>
       <ToastProvider>
-        <GeneralSettingsSection />
+        <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
       </ToastProvider>
     </I18nProvider>,
   );
+}
+
+/** embedding.list.result 回执注入（管家记忆 B2：下拉数据源）。 */
+function feedEmbeddingList(endpoints: { id: string; name: string; model: string; hasApiKey?: boolean }[]) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    channel: "embedding",
+    type: "embedding.list.result",
+    ts: 1,
+    payload: { endpoints },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of embeddingListeners) l(frame);
+  });
 }
 
 /** 管家 config.result 回执注入（steward 频道点对点帧；管家记忆 B1：
@@ -135,7 +164,7 @@ function feedStewardConfig(
   memory?: {
     enabled: boolean;
     available: boolean;
-    endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
   },
@@ -269,7 +298,7 @@ describe("M44/M45/M46 压缩参数保存链路", () => {
     view.rerender(
       <I18nProvider>
         <ToastProvider>
-          <GeneralSettingsSection />
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
         </ToastProvider>
       </I18nProvider>,
     );
@@ -288,7 +317,7 @@ describe("M44/M45/M46 压缩参数保存链路", () => {
     view.rerender(
       <I18nProvider>
         <ToastProvider>
-          <GeneralSettingsSection />
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
         </ToastProvider>
       </I18nProvider>,
     );
@@ -316,7 +345,7 @@ describe("M10 批②：config 族在途错误经 connection.error 收口（不�
     view.rerender(
       <I18nProvider>
         <ToastProvider>
-          <GeneralSettingsSection />
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
         </ToastProvider>
       </I18nProvider>,
     );
@@ -352,7 +381,7 @@ describe("M10 批②：config 族在途错误经 connection.error 收口（不�
     view.rerender(
       <I18nProvider>
         <ToastProvider>
-          <GeneralSettingsSection />
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
         </ToastProvider>
       </I18nProvider>,
     );
@@ -388,7 +417,7 @@ describe("沙箱开关卡（沙箱开关批）", () => {
     view.rerender(
       <I18nProvider>
         <ToastProvider>
-          <GeneralSettingsSection />
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
         </ToastProvider>
       </I18nProvider>,
     );
@@ -504,11 +533,11 @@ describe("管家配置并轨批：管家组（启用 + 语音播报从属项）"
   });
 });
 
-describe("管家记忆 B1：记忆从属项（启用后才出现，开启后才展开端点）", () => {
+describe("管家记忆 B2：记忆从属项（开关 + 端点引用下拉 + 管理链接）", () => {
   const MEMORY_ON = {
     enabled: true,
     available: true,
-    endpoint: { baseUrl: "http://localhost:11434/v1", model: "bge-m3", hasApiKey: false },
+    endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
     entryCount: 7,
     dim: 1024,
   };
@@ -537,32 +566,51 @@ describe("管家记忆 B1：记忆从属项（启用后才出现，开启后才�
     expect(toggle.checked).toBe(true);
   });
 
-  it("端点从属展开：仅记忆开启后渲染三字段（baseUrl/model 现值回填，apiKey 空——凭据只进不出）", () => {
+  it("端点从属展开：仅记忆开启后渲染向量模型下拉（embedding.list 驱动，现值选中）", () => {
     const { container } = ui();
     feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
     expect(container.querySelector("[data-steward-memory-endpoint]")).toBeNull();
     feedStewardConfig(true, MEMORY_ON);
-    const baseUrl = container.querySelector<HTMLInputElement>("[data-steward-memory-baseurl]")!;
-    const model = container.querySelector<HTMLInputElement>("[data-steward-memory-model]")!;
-    const apiKey = container.querySelector<HTMLInputElement>("[data-steward-memory-apikey]")!;
-    expect(baseUrl.value).toBe("http://localhost:11434/v1");
-    expect(model.value).toBe("bge-m3");
-    expect(apiKey.value).toBe(""); // hasApiKey 不回填原值
+    feedEmbeddingList([
+      { id: "ep-1", name: "Ollama 本地", model: "bge-m3" },
+      { id: "ep-2", name: "OpenAI", model: "text-embedding-3-small", hasApiKey: true },
+    ]);
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-memory-endpoint-select]")!;
+    expect(select).not.toBeNull();
+    expect(select.value).toBe("ep-1"); // 现引用端点选中
+    expect(select.options[1]!.textContent).toBe("Ollama 本地 (bge-m3)");
+    expect(select.options[2]!.textContent).toBe("OpenAI (text-embedding-3-small)");
   });
 
-  it("端点保存：编辑 → 保存发送合并载荷（apiKey 未编辑不携带）+ 草稿清空", () => {
+  it("向量模型选择：切换下拉 → sendStewardSetConfig({memory:{endpointId}}) 引用写面", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);
-    const baseUrl = container.querySelector<HTMLInputElement>("[data-steward-memory-baseurl]")!;
-    const save = container.querySelector<HTMLButtonElement>("[data-steward-memory-save]")!;
-    expect(save.disabled).toBe(true); // 零编辑 = 保存禁用
-    fireEvent.change(baseUrl, { target: { value: "https://api.openai.com/v1" } });
-    expect(save.disabled).toBe(false);
-    fireEvent.click(save);
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({
-      memory: { baseUrl: "https://api.openai.com/v1", model: "bge-m3" },
-    });
-    expect(save.disabled).toBe(true); // 草稿清空
+    feedEmbeddingList([
+      { id: "ep-1", name: "Ollama 本地", model: "bge-m3" },
+      { id: "ep-2", name: "OpenAI", model: "text-embedding-3-small" },
+    ]);
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-memory-endpoint-select]")!;
+    fireEvent.change(select, { target: { value: "ep-2" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { endpointId: "ep-2" } });
+  });
+
+  it("空端点列表：显示引导链接（跳模型页向量 tab）——B1 三字段形态退役", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    feedEmbeddingList([]);
+    expect(container.querySelector("[data-steward-memory-endpoint-select]")).toBeNull();
+    const goConfig = container.querySelector<HTMLButtonElement>("[data-steward-memory-go-config]")!;
+    expect(goConfig.textContent).toContain("去模型页配置向量模型");
+    fireEvent.click(goConfig);
+    expect(onOpenModelsEmbeddingTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("管理记忆链接（入口②）：点击 → onOpenMemory（跳记忆独立页）", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    feedEmbeddingList([]);
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-steward-memory-manage-link]")!);
+    expect(onOpenMemory).toHaveBeenCalledTimes(1);
   });
 
   it("daemon 校验失败（connection.error 命令 steward.set_config 尾缀）→ 行内错误交代", () => {
@@ -582,21 +630,6 @@ describe("管家记忆 B1：记忆从属项（启用后才出现，开启后才�
     expect(container.querySelector("[data-steward-memory-pending]")).toBeNull();
   });
 
-  it("预置选择器：选 Ollama → 立即发送端点两字段（一键接入本地）；自定义不动配置", () => {
-    const { container } = ui();
-    feedStewardConfig(true, { ...MEMORY_ON, available: false, endpoint: null, entryCount: 0 });
-    const preset = container.querySelector<HTMLSelectElement>("[data-steward-memory-preset]")!;
-    fireEvent.change(preset, { target: { value: "ollama" } });
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({
-      memory: { baseUrl: "http://localhost:11434/v1", model: "bge-m3" },
-    });
-    fireEvent.change(preset, { target: { value: "openai" } });
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({
-      memory: { baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small" },
-    });
-    fireEvent.change(preset, { target: { value: "custom" } });
-    expect(sendStewardSetConfig).toHaveBeenCalledTimes(2); // 自定义不发
-  });
 });
 
 describe("stale-indicator 批：关于 daemon 卡（daemon 启动时间人话显示）", () => {
