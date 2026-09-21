@@ -54,6 +54,8 @@ import {
   stewardUnsubscribeCommand,
   voiceSubscribeCommand,
   voiceSynthesizeCommand,
+  voiceSynthesizeStopCommand,
+  voiceSynthesizeStreamCommand,
   voiceUnsubscribeCommand,
   agentKillCommand,
   agentSkillContentGetCommand,
@@ -243,6 +245,16 @@ export const COMMAND_SURFACE = {
   /** 播报退订（开关关时发送；断连自动等效）。 */
   sendVoiceUnsubscribe: (deps) =>
     (): boolean => deps.send(voiceUnsubscribeCommand()),
+
+  // ── 流式 TTS 面（V3b-2 哑帧修复批：管家朗读流式优先接线）──
+  /** 单句流式合成（全局命令；音频经 voice.synthesize.chunk/done/error 帧点对点
+   *  回推无命令回执；返回 false = 未连接——消费方降级一次性回退链）。 */
+  sendVoiceSynthesizeStream: (deps) =>
+    (utterId: string, text: string, opts?: { voice?: string }): boolean =>
+      deps.send(voiceSynthesizeStreamCommand(utterId, text, opts)),
+  /** 中正在途流式合成（utterId 定向；省略 = 全部在途句；money 纪律零孤儿任务）。 */
+  sendVoiceSynthesizeStop: (deps) =>
+    (utterId?: string): boolean => deps.send(voiceSynthesizeStopCommand(utterId)),
 
   // ── 文本管家面（V2.5 steward）────────────────────────────
   /** 管家对话一轮（全局命令；回执 steward.ask.result 三判别经

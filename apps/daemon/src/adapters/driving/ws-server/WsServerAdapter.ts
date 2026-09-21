@@ -386,11 +386,11 @@ export class WsServerAdapter {
         this.handshakeQueues.delete(ws);
         // 握手拒绝（连接已 close）或窗口内断连：丢弃排队帧不回放
         if (!ws.data.authed || ws.readyState !== WebSocket.OPEN) return;
-        for (const queuedFrame of queued) this.routeCommand(ws, queuedFrame);
+        for (const queuedFrame of queued) this.dispatchCommand(ws, queuedFrame);
       });
       return;
     }
-    this.routeCommand(ws, frame);
+    this.dispatchCommand(ws, frame);
   }
 
   // ── 握手（三分支） ──────────────────────────────────
@@ -527,6 +527,21 @@ export class WsServerAdapter {
   }
 
   // ── 命令路由（只转发不决策） ───────────────────────
+
+  /**
+   * 命令分发兑底网（哑帧修复批）：handler/依赖面同步抛异常时 Bun message
+   * 回调内异常被吞 = 客户端零帧零断连（探针实测哑帧机制类）；包 try/catch
+   * 回 connection.error(daemon.internal) 后返回，连接保持（H5 兑底语义上收
+   * 到 adapter 层——对全部命令成立，非逐 handler 补丁）。
+   */
+  private dispatchCommand(ws: ServerWebSocket<ConnState>, frame: RawCommandFrame): void {
+    try {
+      this.routeCommand(ws, frame);
+    } catch (err) {
+      const type = typeof frame.type === "string" ? frame.type : "";
+      this.commandError(ws, type, "daemon.internal", `命令处理意外异常：${(err as Error).message}`);
+    }
+  }
 
   private routeCommand(
     ws: ServerWebSocket<ConnState>,

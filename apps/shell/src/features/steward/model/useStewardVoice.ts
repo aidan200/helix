@@ -11,10 +11,14 @@
  *   →interim 实时上屏→finish→final 即刻喂 ask）；WS 失败/超时/终帧 error
  *   → 自动回落非流式链路（V3a 行为等价——失败静默降级，面板一处不显眼
  *   提示，不弹错误卡）；streamId 单飞门控（他流/旧流帧丢弃）；
- * - TTS 朗读层（本文件内联）：steward.ask.result answer 终态 ×
- *   shouldSpeakReply money 闸 → mdToSpeechText → voice.synthesize 点对点
- *   （设置页试听同款，协议零新增）→ 回执 ok 面板 Audio 播放；静音钮
- *   stopSpeaking 一键停读；面板卸载（Dock 关）即停。
+ * - TTS 朗读层（V3b-2 流式优先 + 回退链，编排体 = steward-speech-out.ts）：
+ *   steward.ask.delta 增量喂 SentenceBuffer 切句 → 逐句 voice.synthesize.stream
+ *   （utterId 单调）→ chunk 帧入 SpeechPlayer 播放队列（Web Audio 无缝调度
+ *   ——上一句播放中下一句已在合成）；流式失败（error 帧且零出声/首帧超时/
+ *   发送失败/播放面不可用）→ answer 终态一次性 voice.synthesize 整段回退
+ *   （V3a 现行为）→ 再失败只丢句不断对话；静音钮 stopSpeaking →
+ *   voice.synthesize.stop + 播放队列清空 + 分句缓冲 reset；面板卸载（Dock
+ *   关）即停。money 闸：语音模式 × 偏好开在 delta/result 两时点判。
  *
  * 语音链（V3b-1）：点击 mic（idle→listening；同步发 stt.stream.start）→
  * 边说边转写（interim 淡色浮字实时上屏）→ VAD 静音 ~1.8s/点击强制停 →
@@ -39,10 +43,12 @@ import { useVoiceInput } from "@/shared/lib/useVoiceInput";
 import type { RmsMeterFactory } from "@/shared/lib/rms-meter";
 import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
+import type { SpeechPlayerFactory } from "@/shared/lib/pcm-player";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import { readTtsVoicePref, readVoiceVolumePref, readStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 import { useSteward, type StewardPanelItem, type StewardPendingAction } from "./useSteward";
+import { StewardSpeechOut } from "./steward-speech-out";
 import {
   deriveStewardVoicePhase,
   shouldSpeakReply,
@@ -63,6 +69,8 @@ export interface UseStewardVoiceOptions {
   readonly createPump?: PcmPumpFactory;
   /** 终帧等待上限 ms（缺省 STREAM_FINAL_TIMEOUT_MS；测试注入短窗）。 */
   readonly streamFinalTimeoutMs?: number;
+  /** 流式朗读播放器工厂（缺省 Web Audio；测试注入 fake——jsdom 无音频设备）。 */
+  readonly createPlayer?: SpeechPlayerFactory;
 }
 
 export interface UseStewardVoice {
@@ -116,6 +124,8 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     sendSttStreamStop,
     subscribeSttFrames,
     sendVoiceSynthesize,
+    sendVoiceSynthesizeStream,
+    sendVoiceSynthesizeStop,
     subscribeVoiceFrames,
     subscribeStewardFrames,
   } = useSession() as {
@@ -126,6 +136,8 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     sendSttStreamStop?: () => boolean;
     subscribeSttFrames?: (listener: (e: EventEnvelope) => void) => () => void;
     sendVoiceSynthesize?: (text: string, opts?: { voice?: string; language?: string }) => boolean;
+    sendVoiceSynthesizeStream?: (utterId: string, text: string, opts?: { voice?: string }) => boolean;
+    sendVoiceSynthesizeStop?: (utterId?: string) => boolean;
     subscribeVoiceFrames?: (listener: (e: EventEnvelope) => void) => () => void;
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
@@ -134,10 +146,54 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   // ── 双模（打开默认语音模式——brief 口径；unsupported 自动回退文本态）──
   const [mode, setModeState] = useState<StewardInputMode>("voice");
 
-  // ── TTS 朗读层（点对点合成 + 面板播放 + 静音停读）──
-  const [speaking, setSpeaking] = useState(false);
+  // ── TTS 朗读层（V3b-2 流式优先 + 回退链）──
+  // 流式：delta 切句 → voice.synthesize.stream 逐句 → chunk 入 SpeechPlayer
+  // 队列（句间无缝）；回退：流式失败 → 一次性 voice.synthesize → 面板 Audio
+  // 播放（V3a 现行为）；再失败只丢句不断对话。
+  const [legacySpeaking, setLegacySpeaking] = useState(false);
+  const [streamSpeaking, setStreamSpeaking] = useState(false);
+  const speaking = legacySpeaking || streamSpeaking;
   const speakPendingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // 发送面 ref 转发（speechOut 单例构造——发送器随连接态重绑，streamSenders 先例）
+  const speechSendersRef = useRef({
+    sendStream: sendVoiceSynthesizeStream,
+    sendStopFor: (utterId: string) => sendVoiceSynthesizeStop?.(utterId) ?? false,
+    sendStopAll: () => sendVoiceSynthesizeStop?.() ?? false,
+    sendFallback: sendVoiceSynthesize,
+  });
+  speechSendersRef.current = {
+    sendStream: sendVoiceSynthesizeStream,
+    sendStopFor: (utterId: string) => sendVoiceSynthesizeStop?.(utterId) ?? false,
+    sendStopAll: () => sendVoiceSynthesizeStop?.() ?? false,
+    sendFallback: sendVoiceSynthesize,
+  };
+  const speechOutRef = useRef<StewardSpeechOut | null>(null);
+  if (speechOutRef.current === null) {
+    speechOutRef.current = new StewardSpeechOut({
+      senders: {
+        sendStream: (utterId, text, opts) => speechSendersRef.current.sendStream?.(utterId, text, opts) ?? false,
+        sendStopFor: (utterId) => speechSendersRef.current.sendStopFor(utterId),
+        sendStopAll: () => speechSendersRef.current.sendStopAll(),
+        sendFallback: (text, opts) => speechSendersRef.current.sendFallback?.(text, opts) ?? false,
+      },
+      voiceProvider: () => readTtsVoicePref(),
+      ...(options?.createPlayer !== undefined
+        ? {
+            createPlayer: () => {
+              const player = options.createPlayer!();
+              player.setVolume(Math.max(0, Math.min(1, readVoiceVolumePref() / 100)));
+              return player;
+            },
+          }
+        : {}),
+    });
+  }
+  const speechOut = speechOutRef.current;
+  useEffect(() => {
+    return speechOut.onSpeakingChange(setStreamSpeaking);
+  }, [speechOut]);
 
   const stopSpeaking = useCallback(() => {
     speakPendingRef.current = false;
@@ -148,10 +204,12 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
       audio.onerror = null;
       audio.pause();
     }
-    setSpeaking(false);
-  }, []);
+    setLegacySpeaking(false);
+    setStreamSpeaking(false); // 静音即停——不依赖播放器回调时序（fake/真体一致）
+    speechOut.stopSpeaking(); // stop 命令 + 队列清空 + 分句缓冲 reset + 本轮静音
+  }, [speechOut]);
 
-  // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频
+  // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频/孤儿在途句
   useEffect(
     () => () => {
       speakPendingRef.current = false;
@@ -162,67 +220,101 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
         audio.onerror = null;
         audio.pause();
       }
+      speechOut.close();
     },
-    [],
+    [speechOut],
   );
 
-  // 回复终态 → 朗读闸（money 纪律：语音模式 × 偏好开 × answer；纯代码回复
-  // 剥离后空文本零合成）。模式按 result 时点读（ref 免 listener 重绑）。
+  // 回答终态 → 朗读闸（money 纪律：语音模式 × 偏好开；answer 判别在
+  // speechOut 内收口）。流式优先：delta 已切句发流的轮次不再重复一次性。
+  // 模式按 result 时点读（ref 免 listener 重绑）。
   const modeRef = useRef(mode);
   modeRef.current = mode;
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return;
     return subscribeStewardFrames((event: EventEnvelope) => {
-      if (event.type !== "steward.ask.result") return;
-      const payload = event.payload as { status?: unknown; text?: unknown };
-      if (!shouldSpeakReply({ mode: modeRef.current, speakEnabled: readStewardSpeakReplyPref(), askResult: { status: String(payload.status ?? "") } })) {
+      if (event.type === "steward.ask.delta") {
+        // 流式朗读闸（money 纪律）：语音模式 × 偏好开才喂（文本模式零合成）
+        const p = event.payload as { delta?: unknown };
+        if (modeRef.current !== "voice" || !readStewardSpeakReplyPref()) return;
+        if (typeof p.delta !== "string" || p.delta === "") return;
+        speechOut.feedRawDelta(p.delta);
         return;
       }
-      const speech = mdToSpeechText(typeof payload.text === "string" ? payload.text : "");
-      if (speech === "") return; // 纯代码块回复：零合成零花费
-      if (typeof sendVoiceSynthesize !== "function") return;
-      const sent = sendVoiceSynthesize(speech, { voice: readTtsVoicePref() });
-      if (sent) speakPendingRef.current = true; // 回执单飞门控位
+      if (event.type !== "steward.ask.result") return;
+      const payload = event.payload as { status?: unknown; text?: unknown };
+      const status = String(payload.status ?? "");
+      // 闸不过（非语音模式/偏好关/非 answer 不合成——confirm/error 零朗读）
+      // 时：语音模式下非 answer 终态仍收口轮次（废弃在途未读句缓冲）
+      if (!shouldSpeakReply({ mode: modeRef.current, speakEnabled: readStewardSpeakReplyPref(), askResult: { status } })) {
+        if (modeRef.current === "voice" && readStewardSpeakReplyPref()) {
+          speechOut.answerResult(status, typeof payload.text === "string" ? payload.text : "");
+        }
+        return;
+      }
+      const verdict = speechOut.answerResult(status, typeof payload.text === "string" ? payload.text : "");
+      if (verdict === "fallback") speakPendingRef.current = true; // 一次性回执单飞门控位
     });
-  }, [subscribeStewardFrames, sendVoiceSynthesize]);
+  }, [subscribeStewardFrames, speechOut]);
 
-  // 合成回执 → 播放（单飞门控：仅本面 pending 消费——设置页试听回执不串台；
-  // useVoiceBroadcast 顺序播放是全局订阅面，与本点对点面互不相干）
+  // ask 在途 → 新一轮朗读开轮（迟到 delta 归零——句不跨轮泄漏）
+  const askInFlight = steward.askInFlight;
+  useEffect(() => {
+    if (askInFlight) speechOut.resetAnswer();
+  }, [askInFlight, speechOut]);
+
+  // 一次性回退回执 → 播放（单飞门控：仅本面 pending 消费——设置页试听回执
+  // 不串台；useVoiceBroadcast 顺序播放是全局订阅面，与本点对点面互不相干）
   useEffect(() => {
     if (subscribeVoiceFrames === undefined) return;
     return subscribeVoiceFrames((event: EventEnvelope) => {
+      if (event.type === "voice.synthesize.chunk") {
+        const p = event.payload as { utterId?: unknown; audio?: unknown };
+        if (typeof p.utterId === "string" && typeof p.audio === "string") speechOut.onChunkFrame(p.utterId, p.audio);
+        return;
+      }
+      if (event.type === "voice.synthesize.done") {
+        const p = event.payload as { utterId?: unknown };
+        if (typeof p.utterId === "string") speechOut.onDoneFrame(p.utterId);
+        return;
+      }
+      if (event.type === "voice.synthesize.error") {
+        const p = event.payload as { utterId?: unknown };
+        if (typeof p.utterId === "string") speechOut.onErrorFrame(p.utterId);
+        return;
+      }
       if (event.type !== "voice.synthesize.result") return;
       if (!speakPendingRef.current) return;
       speakPendingRef.current = false;
       const payload = event.payload as { status?: unknown; audio?: unknown };
       if (payload.status !== "ok" || typeof payload.audio !== "string") {
-        setSpeaking(false);
+        setLegacySpeaking(false);
         return;
       }
       try {
         const audio = new Audio(payload.audio);
         audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
         audioRef.current = audio;
-        setSpeaking(true);
+        setLegacySpeaking(true);
         audio.onended = () => {
           audioRef.current = null;
-          setSpeaking(false);
+          setLegacySpeaking(false);
         };
         audio.onerror = () => {
           audioRef.current = null;
-          setSpeaking(false);
+          setLegacySpeaking(false);
         };
         void audio.play().catch(() => {
           // 自动播放策略拒绝等：跳过（不重试不打扰——面板交互态在场，
           // 下轮用户点击后天然解锁）
           audioRef.current = null;
-          setSpeaking(false);
+          setLegacySpeaking(false);
         });
       } catch {
-        setSpeaking(false);
+        setLegacySpeaking(false);
       }
     });
-  }, [subscribeVoiceFrames]);
+  }, [subscribeVoiceFrames, speechOut]);
 
   // ── 录音 + 转写 → ask（转写文本一次性喂 ask；失败回填草稿可重试）──
   const [voiceDraft, setVoiceDraft] = useState<string | null>(null);

@@ -27,6 +27,8 @@ const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
 const sendSttTranscribe = vi.fn(() => true);
 const sendVoiceSynthesize = vi.fn(() => true);
+const sendVoiceSynthesizeStream = vi.fn(() => true);
+const sendVoiceSynthesizeStop = vi.fn(() => true);
 
 // ── V3b-1 流式面（streamStartEnabled 开关：false = 开流不可达，既有 V3a
 //    回落路径回归不受串扰；true = 流式链路）──
@@ -72,6 +74,8 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendSttStreamFinish,
     sendSttStreamStop,
     sendVoiceSynthesize,
+    sendVoiceSynthesizeStream,
+    sendVoiceSynthesizeStop,
     subscribeVoiceFrames,
   }),
 }));
@@ -328,6 +332,7 @@ describe("useStewardVoice（V3a 管家语音闭环）", () => {
     const r = renderVoice();
     await speakOnce(r, "救命的话");
     await waitFor(() => expect(r.current.voiceDraft).toBe("救命的话"));
+    sendStewardAsk.mockReturnValue(true); // 复位——clearAllMocks 不清实现，防泄漏后续 describe
     expect(r.current.askInFlight).toBe(false);
     // 面板采纳后清位
     act(() => {
@@ -610,5 +615,205 @@ describe("useStewardVoice（V3b-1 流式转写面）", () => {
     });
     spy.mockRestore();
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+  });
+});
+
+// ── V3b-2 流式朗读面：delta 切句 → voice.synthesize.stream 逐句 → chunk 播放
+//    队列 → 回退链（流式失败→一次性整段）→ 静音钮/闸门 ──
+
+describe("useStewardVoice（V3b-2 流式朗读接线）", () => {
+  let restoreEnv: (() => void) | null = null;
+  /** fake SpeechPlayer（队列探针面）。 */
+  let playerEnqueued: [string, string][] = [];
+  let playerStopped = 0;
+  let playerActiveCb: ((a: boolean) => void) | null = null;
+  const createPlayer = () => ({
+    enqueue(utterId: string, b64: string) {
+      playerEnqueued.push([utterId, b64]);
+      return true;
+    },
+    setVolume: () => {},
+    drop: () => {},
+    stop() {
+      playerStopped += 1;
+    },
+    close: () => {},
+    onActiveChange(cb: (a: boolean) => void) {
+      playerActiveCb = cb;
+      return () => {
+        playerActiveCb = null;
+      };
+    },
+  });
+
+  /** 走完「说话→转写→ask 发出」进入 asking（fake clock 过录音窗）。 */
+  async function askOnce(result: { current: ReturnType<typeof useStewardVoice> }, text: string): Promise<void> {
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    try {
+      await act(async () => {
+        await result.current.startListening();
+      });
+      nowMs += 500;
+      await tick();
+      act(() => {
+        result.current.stopListening();
+      });
+      await waitFor(() => expect(sendSttTranscribe.mock.calls.length).toBeGreaterThan(0), { timeout: 2000 });
+      act(() => {
+        emit("stt", frame("stt.transcribe.result", { status: "ok", text, provider: "dashscope" }, "stt"));
+      });
+      await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    for (const s of Object.values(listeners)) s.clear();
+    playerEnqueued = [];
+    playerStopped = 0;
+    playerActiveCb = null;
+    streamStartEnabled = false;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    FakeAudio.instances = [];
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  function renderVoiceStream() {
+    return renderHook(() => useStewardVoice(true, { createPlayer }), { wrapper: I18nProvider }).result;
+  }
+
+  it("流式闭环：delta 切句 → stream 逐句（md 剥离/utterId 单调）→ chunk 入播放队列 → answer 终态零一次性", async () => {
+    restoreEnv = installEnv();
+    const r = renderVoiceStream();
+    await askOnce(r, "现在有什么在跑？");
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "**第一句**来了。", seq: 1 }, "steward"));
+      emit("steward", frame("steward.ask.delta", { delta: "第二句", seq: 2 }, "steward"));
+      emit("steward", frame("steward.ask.delta", { delta: "到了。", seq: 3 }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesizeStream).toHaveBeenCalledTimes(2));
+    const [id1, text1] = sendVoiceSynthesizeStream.mock.calls[0] as unknown as [string, string];
+    const [id2, text2] = sendVoiceSynthesizeStream.mock.calls[1] as unknown as [string, string];
+    expect(text1).toBe("第一句来了。"); // md 剥离在切句前
+    expect(text2).toBe("第二句到了。");
+    expect(id1 < id2).toBe(true); // utterId 单调
+    // chunk 帧入播放队列 → speaking
+    act(() => {
+      emit("voice", frame("voice.synthesize.chunk", { utterId: id1, seq: 1, audio: "QUJD" }, "voice"));
+    });
+    expect(playerEnqueued).toEqual([[id1, "QUJD"]]);
+    act(() => {
+      playerActiveCb?.(true);
+    });
+    expect(r.current.speaking).toBe(true);
+    expect(r.current.phase).toBe("asking"); // ask 在途优先级高于朗读（派生设计）——流式首句在 asking 期出声
+    // done 收口 + answer 终态：零一次性合成（流式已播）；终态后 speaking 住
+    act(() => {
+      emit("voice", frame("voice.synthesize.done", { utterId: id1, provider: "dashscope", frames: 1 }, "voice"));
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "**第一句**来了。第二句到了。" }, "steward"));
+    });
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    expect(sendVoiceSynthesize).not.toHaveBeenCalled();
+    expect(r.current.phase).toBe("speaking"); // 队列仍在播（第二句无缝续播）
+    act(() => {
+      playerActiveCb?.(false);
+    });
+    expect(r.current.phase).toBe("idle");
+  });
+
+  it("回退链：首句 error → 链死；answer 终态 → 一次性整段回退 → 回执 ok → Audio 播放", async () => {
+    restoreEnv = installEnv();
+    const r = renderVoiceStream();
+    await askOnce(r, "状态如何");
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "第一句。第二句。", seq: 1 }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesizeStream).toHaveBeenCalledTimes(2));
+    const [id1] = sendVoiceSynthesizeStream.mock.calls[0] as unknown as [string];
+    act(() => {
+      emit("voice", frame("voice.synthesize.error", { utterId: id1, reason: "上游断开" }, "voice"));
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第一句。第二句。" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    expect((sendVoiceSynthesize.mock.calls[0] as unknown as [string])[0]).toBe("第一句。第二句。");
+    // 一次性回执 ok → 面板 Audio 播放（现行为）
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/wav;base64,QUJD", provider: "dashscope" }, "voice"));
+    });
+    expect(r.current.speaking).toBe(true);
+    expect(FakeAudio.instances.length).toBe(1);
+  });
+
+  it("静音钮：播放中 stopSpeaking → voice.synthesize.stop + 队列清空；后续 delta 零流式", async () => {
+    restoreEnv = installEnv();
+    const r = renderVoiceStream();
+    await askOnce(r, "读一段");
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "第一句。", seq: 1 }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesizeStream).toHaveBeenCalledTimes(1));
+    const [id1] = sendVoiceSynthesizeStream.mock.calls[0] as unknown as [string];
+    act(() => {
+      emit("voice", frame("voice.synthesize.chunk", { utterId: id1, seq: 1, audio: "QUJD" }, "voice"));
+      playerActiveCb?.(true);
+    });
+    playerStopped = 0; // 预停读（startListening）的空队列 stop 不计——只断静音钮本次
+    act(() => {
+      r.current.stopSpeaking();
+    });
+    expect(sendVoiceSynthesizeStop).toHaveBeenCalledTimes(1);
+    expect(playerStopped).toBe(1);
+    expect(r.current.speaking).toBe(false);
+    // 静音后同轮 delta 不再流式
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "第二句。", seq: 2 }, "steward"));
+    });
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    expect(sendVoiceSynthesizeStream).toHaveBeenCalledTimes(1);
+    // 终态不回退出声（静音语义）
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第一句。第二句。" }, "steward"));
+    });
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    expect(sendVoiceSynthesize).not.toHaveBeenCalled();
+  });
+
+  it("money 闸：文本模式与偏好关 → delta 零流式零合成（answer 也零一次性）", async () => {
+    restoreEnv = installEnv();
+    const r = renderVoiceStream();
+    act(() => {
+      r.current.setMode("text");
+    });
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "第一句。", seq: 1 }, "steward"));
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第一句。" }, "steward"));
+    });
+    expect(sendVoiceSynthesizeStream).not.toHaveBeenCalled();
+    expect(sendVoiceSynthesize).not.toHaveBeenCalled();
+    // 语音模式但偏好关：同样零合成
+    act(() => {
+      r.current.setMode("voice");
+    });
+    localStorage.setItem("helix.steward.speakReply", "0");
+    act(() => {
+      emit("steward", frame("steward.ask.delta", { delta: "第二句。", seq: 2 }, "steward"));
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第二句。" }, "steward"));
+    });
+    expect(sendVoiceSynthesizeStream).not.toHaveBeenCalled();
+    expect(sendVoiceSynthesize).not.toHaveBeenCalled();
   });
 });
