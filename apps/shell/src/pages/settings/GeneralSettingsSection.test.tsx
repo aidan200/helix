@@ -570,8 +570,32 @@ describe("管家记忆 B1：记忆从属项（启用后才出现，开启后才�
     feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false, endpoint: null });
     const toggle = container.querySelector<HTMLInputElement>("[data-steward-memory-enabled] input")!;
     fireEvent.click(toggle);
-    feedConnectionError("开启记忆前请先配置嵌入端点（baseUrl 与 model 必填）（命令 steward.set_config）");
-    expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("端点");
+    feedConnectionError("嵌入端点不可达（命令 steward.set_config）");
+    expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("不可达");
+  });
+
+  it("待命态：已开启但端点未配置 → 提示行（不阻开关，daemon 权威回 available）", () => {
+    const { container } = ui();
+    feedStewardConfig(true, { ...MEMORY_ON, available: false, endpoint: null, entryCount: 0 });
+    expect(container.querySelector("[data-steward-memory-pending]")!.textContent).toContain("暂未生效");
+    feedStewardConfig(true, MEMORY_ON);
+    expect(container.querySelector("[data-steward-memory-pending]")).toBeNull();
+  });
+
+  it("预置选择器：选 Ollama → 立即发送端点两字段（一键接入本地）；自定义不动配置", () => {
+    const { container } = ui();
+    feedStewardConfig(true, { ...MEMORY_ON, available: false, endpoint: null, entryCount: 0 });
+    const preset = container.querySelector<HTMLSelectElement>("[data-steward-memory-preset]")!;
+    fireEvent.change(preset, { target: { value: "ollama" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({
+      memory: { baseUrl: "http://localhost:11434/v1", model: "bge-m3" },
+    });
+    fireEvent.change(preset, { target: { value: "openai" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({
+      memory: { baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small" },
+    });
+    fireEvent.change(preset, { target: { value: "custom" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledTimes(2); // 自定义不发
   });
 });
 

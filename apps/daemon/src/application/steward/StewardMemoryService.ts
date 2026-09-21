@@ -122,7 +122,10 @@ export class StewardMemoryService {
     };
   }
 
-  /** 配置写面（开关 + 端点三字段可选更新；baseUrl/model 非空校验）。 */
+  /** 配置写面（开关 + 端点三字段可选更新；无前置校验——可用性由
+   * readEmbeddingEndpointConfig 读面闸统一判定：空 baseUrl/model 视同
+   * 未配置，isAvailable() 为假即整体降级待命。先开后配是合法路径
+   * （端点字段是记忆开启后才展开的从属项——写面拦截会造成死锁）。 */
   async setMemoryConfig(patch: {
     enabled?: boolean;
     baseUrl?: string;
@@ -141,13 +144,6 @@ export class StewardMemoryService {
           ? { apiKey: current.apiKey }
           : {}),
     };
-    if (patch.enabled === true && (next.baseUrl === "" || next.model === "")) {
-      return { ok: false, error: "开启记忆前请先配置嵌入端点（baseUrl 与 model 必填）" };
-    }
-    if ((patch.baseUrl !== undefined || patch.model !== undefined || patch.apiKey !== undefined) &&
-        (next.baseUrl === "" || next.model === "")) {
-      return { ok: false, error: "嵌入端点 baseUrl 与 model 不得为空" };
-    }
     if (patch.baseUrl !== undefined || patch.model !== undefined || patch.apiKey !== undefined) {
       await this.deps.config.set(STEWARD_MEMORY_EMBEDDING_KEY, JSON.stringify(next));
     }

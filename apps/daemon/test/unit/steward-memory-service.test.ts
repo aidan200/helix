@@ -196,23 +196,25 @@ describe("StewardMemoryService", () => {
     expect(embedding.calls.some((c) => c.join() === "旧条目甲,旧条目乙")).toBe(true);
   });
 
-  test("⑤ 配置写面：开启前端点必填 / 端点持久化 / apiKey 空串清除", async () => {
+  test("⑤ 配置写面：先开后配合法（待命态）/ 端点持久化 / apiKey 空串清除", async () => {
     const config = fakeConfig();
     const svc = new StewardMemoryService({ config, embedding: fakeEmbedding(), store: fakeStore() });
-    // 开启前端点必填
-    const denied = await svc.setMemoryConfig({ enabled: true });
-    expect(denied.ok).toBe(false);
-    // 端点三字段持久化
-    const ok = await svc.setMemoryConfig({ baseUrl: "http://localhost:11434/v1", model: "bge-m3", apiKey: "sk-1" });
+    // 先开开关（端点未配）——写面放行，可用性待命（读面闸空字段视同未配置）
+    const turnedOn = await svc.setMemoryConfig({ enabled: true });
+    expect(turnedOn.ok).toBe(true);
+    expect(config.kv.get(STEWARD_MEMORY_ENABLED_KEY)).toBe("1");
+    expect(svc.getMemoryState().available).toBe(false); // 待命：可用但不生效
+    // 端点两字段补齐 → 自动生效（available 翻真）
+    const ok = await svc.setMemoryConfig({ baseUrl: "http://localhost:11434/v1", model: "bge-m3" });
     expect(ok.ok).toBe(true);
     expect(JSON.parse(config.kv.get(STEWARD_MEMORY_EMBEDDING_KEY)!)).toEqual({
       baseUrl: "http://localhost:11434/v1",
       model: "bge-m3",
-      apiKey: "sk-1",
     });
-    // 开启（端点已配 → 放行）
-    expect((await svc.setMemoryConfig({ enabled: true })).ok).toBe(true);
-    expect(config.kv.get(STEWARD_MEMORY_ENABLED_KEY)).toBe("1");
+    expect(svc.getMemoryState().available).toBe(true);
+    // apiKey 补充持久化
+    await svc.setMemoryConfig({ apiKey: "sk-1" });
+    expect(JSON.parse(config.kv.get(STEWARD_MEMORY_EMBEDDING_KEY)!).apiKey).toBe("sk-1");
     // apiKey 空串清除（本地免 key 端点）
     await svc.setMemoryConfig({ apiKey: "" });
     expect(JSON.parse(config.kv.get(STEWARD_MEMORY_EMBEDDING_KEY)!).apiKey).toBeUndefined();

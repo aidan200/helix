@@ -34,6 +34,7 @@ import { cn } from "@/shared/lib/cn";
 import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
+import MemoryManageSection from "./MemoryManageSection";
 
 /** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
 const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
@@ -121,6 +122,23 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
       return;
     }
     setStewardError(null);
+  };
+  // 预置接入方式（选中即自动保存端点两字段——本地 Ollama 用户一键可用；
+  // 自定义 = 只切到手动填模式不动配置；apiKey 不携带 = daemon 合并现值）
+  const applyMemoryPreset = (preset: string): void => {
+    const presetValues: Record<string, { baseUrl: string; model: string }> = {
+      ollama: { baseUrl: "http://localhost:11434/v1", model: "bge-m3" },
+      openai: { baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small" },
+    };
+    const picked = presetValues[preset];
+    if (picked === undefined) return;
+    if (sendStewardSetConfig({ memory: picked }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+    setMemBaseUrlDraft(null);
+    setMemModelDraft(null);
   };
   const saveMemoryEndpoint = (): void => {
     if (
@@ -333,10 +351,28 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
                 {t("chat.settings.general.stewardMemoryEntries", { count: memoryCfg.entryCount })}
               </span>
             )}
+            {memoryCfg !== null && memoryCfg.enabled && !memoryCfg.available && (
+              <span className="ag-note" data-steward-memory-pending>
+                {t("chat.settings.general.stewardMemoryPending")}
+              </span>
+            )}
           </div>
         )}
         {stewardEnabled === true && memoryCfg?.enabled === true && (
           <div className="fld fld-sub" data-steward-memory-endpoint>
+            <div className="sel-wrap">
+              <select
+                className="hud-input"
+                data-steward-memory-preset
+                value=""
+                onChange={(e) => applyMemoryPreset(e.target.value)}
+              >
+                <option value="">{t("chat.settings.general.stewardMemoryPresetPlaceholder")}</option>
+                <option value="ollama">{t("chat.settings.general.stewardMemoryPresetOllama")}</option>
+                <option value="openai">{t("chat.settings.general.stewardMemoryPresetOpenai")}</option>
+                <option value="custom">{t("chat.settings.general.stewardMemoryPresetCustom")}</option>
+              </select>
+            </div>
             <input
               className="hud-input"
               value={memBaseUrlDraft ?? memoryCfg.endpoint?.baseUrl ?? ""}
@@ -368,6 +404,12 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             >
               {t("chat.settings.general.stewardMemorySave")}
             </button>
+          </div>
+        )}
+        {/* 记忆管理（B2）：条目列表 + 手动增删改——mock 数据先行 */}
+        {stewardEnabled === true && memoryCfg?.enabled === true && (
+          <div className="fld fld-sub" data-steward-memory-manage>
+            <MemoryManageSection />
           </div>
         )}
       </div>

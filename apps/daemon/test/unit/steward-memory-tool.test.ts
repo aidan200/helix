@@ -82,8 +82,9 @@ function fakeMemory(opts: { available?: boolean; recallSection?: string | undefi
     },
     setMemoryConfig: async (patch: Record<string, unknown>) => {
       state.configPatches.push(patch);
-      if (patch.enabled === true && patch.baseUrl === undefined) {
-        return { ok: false as const, error: "开启记忆前请先配置嵌入端点（baseUrl 与 model 必填）" };
+      // 模拟存储层故障（写面校验已废除——错误透传路径用中性故障形态验证）
+      if (patch.baseUrl === "") {
+        return { ok: false as const, error: "嵌入端点写入失败（存储异常）" };
       }
       return { ok: true as const };
     },
@@ -186,10 +187,10 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
     const svc = makeService({ llm: fakeLlm([]), memory });
     expect(svc.getConfig().memory.available).toBe(true);
     expect(svc.getConfig().memory.endpoint!.model).toBe("bge-m3");
-    // setConfig memory 组委托（校验错误原样透传）
-    const denied = await svc.setConfig({ memory: { enabled: true } });
+    // setConfig memory 组委托（服务层错误原样透传——如存储故障）
+    const denied = await svc.setConfig({ memory: { baseUrl: "", enabled: true } });
     expect(denied.ok).toBe(false);
-    if (!denied.ok) expect(denied.error).toContain("端点");
+    if (!denied.ok) expect(denied.error).toContain("存储异常");
     const ok = await svc.setConfig({ memory: { baseUrl: "http://localhost:11434/v1", model: "bge-m3", enabled: true } });
     expect(ok.ok).toBe(true);
     expect(memory.configPatches.length).toBe(2);
