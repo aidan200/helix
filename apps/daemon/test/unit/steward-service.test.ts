@@ -297,7 +297,7 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
     expect(prompt).toContain("不伪装用户身份");
   });
 
-  test("工具面恰为七个（三只读 + 四提案原语——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session）——无 spawn/kill 等旁路", async () => {
+  test("工具面恰为八个（三只读 + 五提案原语——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember）——无 spawn/kill 等旁路", async () => {
     const llm = fakeLlm([{ kind: "text", text: "ok" }]);
     const { svc } = makeService({ llm });
     await svc.ask("hi");
@@ -309,6 +309,7 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
       "list_tasks",
       "propose_send",
       "query_recent_work",
+      "remember",
       "spawn_review_task",
     ]);
   });

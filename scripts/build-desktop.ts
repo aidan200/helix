@@ -105,6 +105,7 @@ export function pipelineSteps(root: string, platform: DesktopPlatform = "darwin-
   const shellDir = join(root, "apps/shell");
   const steps: StepSpec[] = [
     { name: `fetch-rg（rg ${platform} 获取，幂等）`, cmd: [bun, join(root, "scripts/fetch-rg.ts"), "--platform", platform], cwd: root },
+    { name: `fetch-vec0（vec0 ${platform} 获取，幂等——管家记忆 B1）`, cmd: [bun, join(root, "scripts/fetch-vec0.ts"), "--platform", platform], cwd: root },
     { name: `fetch-codegraph（codegraph ${platform} 树获取，幂等）`, cmd: [bun, join(root, "scripts/fetch-codegraph.ts"), "--platform", platform], cwd: root },
     { name: `compile（daemon → ${platform} sidecar）`, cmd: [bun, join(root, "scripts/compile-daemon.ts"), "--platform", platform], cwd: root },
   ];

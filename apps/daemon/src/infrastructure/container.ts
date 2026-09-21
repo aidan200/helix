@@ -54,6 +54,11 @@ import { DashScopeStreamingTtsAdapter } from "../adapters/driven/tts/streaming";
 import { TtsStreamService } from "../application/tts/TtsStreamService";
 import { BroadcastService } from "../application/voice/BroadcastService";
 import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
+import { StewardMemoryService, readEmbeddingEndpointConfig } from "../application/steward/StewardMemoryService";
+import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
+import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
+import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0";
+import { getLoadablePath as sqliteVecLoadablePath } from "sqlite-vec";
 import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
 import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/loop/PiStewardLlmAdapter";
 import { stewardLoopTraceBridge } from "./assembly/stewardLoopTraceBridge";
@@ -319,7 +324,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    二级解析 + rg 探针 / AF-2 bundle-only 语义注释随切片迁移；AG-08 env
   //    读取例外面同迁）。定格产物原位消费：grep → buildSessionStack 注入；
   //    codegraphResolution → buildKnowledgeStack/子进程 env 透传。──
-  const { grepFreeze, codegraphResolution } = await freezeSearchBackends({ config, logger });
+  const { grepFreeze, codegraphResolution, vec0BundlePath } = await freezeSearchBackends({ config, logger });
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   // U2 观测态晚绑容器：trace 面板 main displayState 的会话运行态读口
@@ -684,6 +689,47 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
   const stewardService = new StewardService({
     llm: stewardLlm,
+    // 管家记忆 B1：长期记忆编排面装配（全部失败面降级为未装配/缺席——
+    // 对话主链路零影响）：vec0 扩展路径二级解析（① 壳 env HELIX_VEC_PATH
+    // 注入——AG-08 例外面同 HELIX_RG_PATH 收束本域；② dev 形态 node_modules
+    // 平台包 getLoadablePath()，编译单文件形态解析失败靠 ① 级兜底）→
+    // better-sqlite3 开库（构造抛错 = 扩展加载失败 → 捕获降级）。
+    memory: (() => {
+      const vec0Resolution = resolveVec0Path({
+        bundlePath: vec0BundlePath,
+        nodeModulesPath: (() => {
+          try {
+            // dev 形态：sqlite-vec npm 包按平台解析 vec0.dylib/.so/.dll
+            // （编译单文件形态 import.meta.resolve 失败 → undefined）。
+            return sqliteVecLoadablePath();
+          } catch {
+            return undefined;
+          }
+        })(),
+        probe: (p) => existsSync(p),
+      });
+      if (vec0Resolution.kind !== "resolved") {
+        logger.info(`管家记忆降级（vec0 扩展不可解析）：${vec0Resolution.reasons.join("；")}`);
+        return undefined;
+      }
+      let store: SqliteVecMemoryStore;
+      try {
+        store = new SqliteVecMemoryStore(paths.stewardMemoryDbPath(), vec0Resolution.path);
+        logger.info(`管家记忆存储就绪（source=${vec0Resolution.source}）：${paths.stewardMemoryDbPath()}`);
+      } catch (err) {
+        logger.warn(`管家记忆降级（vec0 扩展加载失败）：${(err as Error).message}`);
+        return undefined;
+      }
+      const embedding = new OpenAiCompatEmbeddingAdapter({
+        getConfig: () => readEmbeddingEndpointConfig(persistence.runtimeConfig),
+      });
+      return new StewardMemoryService({
+        config: persistence.runtimeConfig,
+        embedding,
+        store,
+        logger: { warn: (message) => logger.warn(message) },
+      });
+    })(),
     // helix-loop L0：LoopEngine 事件 → domain_events 投影（追踪可见性——
     // instanceId=steward，里程碑子集；广播面 default→null 不接，防自激
     // 语义保持：管家只发帧不订阅广播流）

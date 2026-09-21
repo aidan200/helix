@@ -74,6 +74,18 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   const [stewardEnabled, setStewardEnabled] = useState<boolean | null>(null);
   const [stewardError, setStewardError] = useState<string | null>(null);
   const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
+  // 记忆（管家记忆 B1）：daemon 权威现态（config.result 回执回填，不乐观）；
+  // 端点三字段 = 本地编辑态 null 未编辑（展示现值），保存走部分更新
+  const [memoryCfg, setMemoryCfg] = useState<{
+    enabled: boolean;
+    available: boolean;
+    endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+    entryCount: number;
+    dim: number | null;
+  } | null>(null);
+  const [memBaseUrlDraft, setMemBaseUrlDraft] = useState<string | null>(null);
+  const [memModelDraft, setMemModelDraft] = useState<string | null>(null);
+  const [memApiKeyDraft, setMemApiKeyDraft] = useState<string | null>(null);
   useEffect(() => {
     sendStewardGetConfig();
   }, [sendStewardGetConfig]);
@@ -81,7 +93,18 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     () =>
       subscribeStewardFrames?.((e) => {
         if (e.type !== "steward.config.result") return;
-        setStewardEnabled((e.payload as { enabled?: boolean }).enabled === true);
+        const payload = e.payload as {
+          enabled?: boolean;
+          memory?: {
+            enabled: boolean;
+            available: boolean;
+            endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+            entryCount: number;
+            dim: number | null;
+          };
+        };
+        setStewardEnabled(payload.enabled === true);
+        if (payload.memory !== undefined) setMemoryCfg(payload.memory);
       }),
     [subscribeStewardFrames],
   );
@@ -91,6 +114,33 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
       return;
     }
     setStewardError(null);
+  };
+  const toggleMemory = (enabled: boolean): void => {
+    if (sendStewardSetConfig({ memory: { enabled } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  const saveMemoryEndpoint = (): void => {
+    if (
+      sendStewardSetConfig({
+        memory: {
+          baseUrl: memBaseUrlDraft ?? memoryCfg?.endpoint?.baseUrl ?? "",
+          model: memModelDraft ?? memoryCfg?.endpoint?.model ?? "",
+          // apiKey 未编辑 = 不动（daemon 侧合并现值——凭据只进不出，
+          // 回执无原值可回填）；显式编辑（含清空）才携带
+          ...(memApiKeyDraft !== null ? { apiKey: memApiKeyDraft } : {}),
+        },
+      }) === false
+    ) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+    setMemBaseUrlDraft(null);
+    setMemModelDraft(null);
+    setMemApiKeyDraft(null);
   };
 
   const toggleSandbox = (enabled: boolean): void => {
@@ -129,7 +179,14 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         if (e.type !== "connection.error") return;
         const message = (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
         const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
-        if (cmd !== undefined && cmd !== "config.set_sandbox") return;
+        if (cmd === undefined) return;
+        // 管家记忆 B1：steward.set_config 校验失败（如开启记忆前端点未配）
+        // 同面交代——命令尾缀归因辨识写面
+        if (cmd === "steward.set_config") {
+          setStewardError(message);
+          return;
+        }
+        if (cmd !== "config.set_sandbox") return;
         setSandboxError(message);
       }),
     [subscribeConfigFrames],
@@ -255,6 +312,62 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
               />
               {t("chat.settings.general.stewardSwitchOn")}
             </label>
+          </div>
+        )}
+        {/* 记忆（管家记忆 B1）：启用管家的从属项（缩进一层）——开关开才展开
+            端点配置（再缩进一层，与语音播报同一套从属语言）；daemon 权威
+            回执回填，校验失败经 connection.error（steward.set_config 尾缀）交代 */}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-memory>
+            <span className="hud-label">{t("chat.settings.general.stewardMemory")}</span>
+            <label className="set-check" data-steward-memory-enabled>
+              <input
+                type="checkbox"
+                checked={memoryCfg?.enabled === true}
+                onChange={(e) => toggleMemory(e.target.checked)}
+              />
+              {t("chat.settings.general.stewardSwitchOn")}
+            </label>
+            {memoryCfg !== null && memoryCfg.entryCount > 0 && (
+              <span className="ag-note" data-steward-memory-count>
+                {t("chat.settings.general.stewardMemoryEntries", { count: memoryCfg.entryCount })}
+              </span>
+            )}
+          </div>
+        )}
+        {stewardEnabled === true && memoryCfg?.enabled === true && (
+          <div className="fld fld-sub" data-steward-memory-endpoint>
+            <input
+              className="hud-input"
+              value={memBaseUrlDraft ?? memoryCfg.endpoint?.baseUrl ?? ""}
+              placeholder={t("chat.settings.general.stewardMemoryBaseUrl")}
+              data-steward-memory-baseurl
+              onChange={(e) => setMemBaseUrlDraft(e.target.value)}
+            />
+            <input
+              className="hud-input"
+              value={memModelDraft ?? memoryCfg.endpoint?.model ?? ""}
+              placeholder={t("chat.settings.general.stewardMemoryModel")}
+              data-steward-memory-model
+              onChange={(e) => setMemModelDraft(e.target.value)}
+            />
+            <input
+              className="hud-input"
+              type="password"
+              value={memApiKeyDraft ?? ""}
+              placeholder={t("chat.settings.general.stewardMemoryApiKey")}
+              data-steward-memory-apikey
+              onChange={(e) => setMemApiKeyDraft(e.target.value)}
+            />
+            <button
+              type="button"
+              className="hud-btn hud-btn-cyan"
+              data-steward-memory-save
+              disabled={memBaseUrlDraft === null && memModelDraft === null && memApiKeyDraft === null}
+              onClick={saveMemoryEndpoint}
+            >
+              {t("chat.settings.general.stewardMemorySave")}
+            </button>
           </div>
         )}
       </div>

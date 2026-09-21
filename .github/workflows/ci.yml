@@ -42,7 +42,7 @@ jobs:
       - name: Setup bun (版本锁定)
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache bun dependencies (bun.lock)
         uses: actions/cache@v4

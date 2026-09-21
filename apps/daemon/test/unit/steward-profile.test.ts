@@ -4,7 +4,7 @@
  * 断言面（任务 brief 测试要求逐条）：
  * 1. StewardService.getProfile 返回面：
  *    - systemPrompt 非空 = STEWARD_SYSTEM_PROMPT 单源（静态人格段）；
- *    - 八工具全名（七 LLM 可见 + steward_confirm 面板原语——注册面全集），
+ *    - 九工具全名（八 LLM 可见 + steward_confirm 面板原语——注册面全集），
  *      每行 description 非空；
  *    - model 透传：KV steward.model 已设 = 槽位值；未设 = null（非 undefined
  *      ——JSON 序列化面钉死 null）；
@@ -66,7 +66,8 @@ function makeService(config: RuntimeConfigPort): StewardService {
   });
 }
 
-/** 管家注册面八工具全集（注册序——七 LLM 可见 + steward_confirm 面板原语）。 */
+/** 管家注册面九工具全集（注册序——八 LLM 可见 + steward_confirm 面板原语；
+ *  管家记忆 B1 增 remember）。 */
 const STEWARD_TOOL_NAMES = [
   "list_instances",
   "list_tasks",
@@ -75,6 +76,7 @@ const STEWARD_TOOL_NAMES = [
   "deliver_to_session",
   "create_session",
   "spawn_review_task",
+  "remember",
   "steward_confirm",
 ] as const;
 
@@ -86,7 +88,7 @@ describe("StewardService.getProfile（管家只读档案导出面）", () => {
     expect(profile.systemPrompt).toBe(STEWARD_SYSTEM_PROMPT);
   });
 
-  test("八工具全名（注册面全集——七 LLM 可见 + steward_confirm）+ 每行描述非空", () => {
+  test("九工具全名（注册面全集——八 LLM 可见 + steward_confirm）+ 每行描述非空", () => {
     const svc = makeService(fakeConfig());
     const profile = svc.getProfile();
     expect(profile.tools.map((t) => t.name)).toEqual([...STEWARD_TOOL_NAMES]);

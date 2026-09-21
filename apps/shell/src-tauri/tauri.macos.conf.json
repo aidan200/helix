@@ -2,6 +2,7 @@
   "bundle": {
     "resources": {
       "resources/bin/rg": "bin/rg",
+      "resources/bin/vec0.dylib": "bin/vec0.dylib",
       "resources/codegraph": "codegraph"
     },
     "macOS": {

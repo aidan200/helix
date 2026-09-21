@@ -60,7 +60,9 @@ jobs:
       - name: Setup bun (版本锁定，同 ci.yml)
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          # ≥1.4.2：daemon NAPI（better-sqlite3 管家记忆）在 1.3.x 下进程 panic——
+          # spike 验证 1.4.2 修复 NAPI 错误路径，与根 packageManager 同步锁
+          bun-version: "1.4.2"
 
       - name: Cache bun dependencies (bun.lock)
         uses: actions/cache@v4
@@ -104,11 +106,11 @@ jobs:
       # key 与 scripts/fetch-{rg,codegraph}.ts 的 pin 常量手动同步：脚本升级
       # 改 pin 而 key 未跟时，sha256 校验兜底（缓存旧版校验失败 → 回源重下）。
       # 候选：10GB/仓库总量，7 天未访问驱逐（低频发布会回源一次，无害）。
-      - name: Cache desktop resources (codegraph + rg)
+      - name: Cache desktop resources (codegraph + rg + vec0)
         uses: actions/cache@v4
         with:
           path: apps/shell/src-tauri/resources
-          key: desktop-resources-${{ matrix.platform }}-codegraph-1.6.0-rg-15.1.0
+          key: desktop-resources-${{ matrix.platform }}-codegraph-1.6.0-rg-15.1.0-vec0-0.1.9
 
       # 版本解析：tag 触发 → GITHUB_REF_NAME 去 v 前缀；dispatch → inputs.version
       - name: Resolve release version

@@ -273,9 +273,13 @@ export const COMMAND_SURFACE = {
   /** 设置读面（回执 steward.config.result）。 */
   sendStewardGetConfig: (deps) =>
     (): boolean => deps.send(stewardGetConfigCommand()),
-  /** 设置写面（两槽位可选；回执 steward.config.result 新态）。 */
+  /** 设置写面（槽位均可选——含记忆组（管家记忆 B1）；回执 steward.config.result 新态）。 */
   sendStewardSetConfig: (deps) =>
-    (patch: { enabled?: boolean; model?: string }): boolean => deps.send(stewardSetConfigCommand(patch)),
+    (patch: {
+      enabled?: boolean;
+      model?: string;
+      memory?: { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string };
+    }): boolean => deps.send(stewardSetConfigCommand(patch)),
   /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true
    *  新对话三处同清）。 */
   sendStewardHistory: (deps) =>

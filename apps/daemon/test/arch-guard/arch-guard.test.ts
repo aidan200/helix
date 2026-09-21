@@ -234,7 +234,7 @@ describe("TP-CL5-2（A 半）：grep 语义契约面 framework-free（不碰 fs/
 });
 
 describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-coding-agent）", () => {
-  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为五键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带）", () => {
+  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为八键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带；管家记忆 B1 +better-sqlite3/sqlite-vec：向量存储引擎）", () => {
     const pkg = JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
@@ -246,13 +246,19 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // generateDiffString/generateUnifiedPatch 运行时依赖，与 pi-agent-core
     // 同版锁定（pi bump 再同步时同步复核版本）；yaml@2.9.0（T2.3/AF-2.3a）：
     // TaskSkillRegistry 自解析 SKILL.md frontmatter task 块（pi loadSourcedSkills
-    // 不透传附加字段），与 pi-agent-core pinned 传递依赖同版本零增树
+    // 不透传附加字段），与 pi-agent-core pinned 传递依赖同版本零增树；
+    // better-sqlite3 + sqlite-vec（管家记忆 B1 裁决）：管家长期记忆向量
+    // 存储引擎——helix.db（bun:sqlite，AG-06）物理隔离独立文件
+    // steward_memory.db；NAPI 加载需 Bun ≥1.4.2（1.3.14 panic spike 实证），
+    // vec0 扩展随包分发走 rg 先例（resources/bin + HELIX_VEC_PATH）
     expect(deps).toEqual([
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
       "@helix/common",
       "@helix/protocol",
+      "better-sqlite3",
       "diff",
+      "sqlite-vec",
       "yaml",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
@@ -301,6 +307,12 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     // deleteByInstanceIds——SQL 文本仍只在 WriteQueue，四表 DML/DDL 落位由
     // O-1 表分域断言另行钉死，见下方 describe）。
     path.join("adapters", "driven", "sqlite-session", "WorkLedger.ts"),
+    // 管家记忆 B1：steward_memory.db 独立文件第三写面登记——与 helix.db
+    // （bun:sqlite + WriteQueue）物理隔离（vec0 只能活在 better-sqlite3
+    // 连接里，两引擎同文件必打架）；sqlite-kg 先例同构（per-domain 独立
+    // 库独立写点）：本库仅管家记忆域单写者，连接级串行 + 事务写入，
+    // 无跨面并发（端口 StewardMemoryPort 唯一消费面 = StewardMemoryService）。
+    path.join("adapters", "driven", "steward-memory", "SqliteVecMemoryStore.ts"),
   ]);
   // T2.1（AF-2）：codegraph.db 只读读点登记（**非写点**）——codegraph-engine
   // 投影面 new Database（mode=ro 系只读连接，零 DML/DDL/写类 PRAGMA，绝不
@@ -457,7 +469,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // M5 后 container.ts 不读 env，两键收束 bootPrelude）。
     const envReaderRules: readonly (readonly [string, readonly string[]])[] = [
       [path.join("infrastructure", "container.ts"), []],
-      [path.join("infrastructure", "assembly", "bootPrelude.ts"), ["HELIX_CODEGRAPH_PATH", "HELIX_RG_PATH"]],
+      // 管家记忆 B1：HELIX_VEC_PATH 同模式扩登记（vec0 扩展 bundle 注入键，
+      // resolve-vec0.ts 本体零 env 依赖——rg/codegraph 先例同构第三键）
+      [path.join("infrastructure", "assembly", "bootPrelude.ts"), ["HELIX_CODEGRAPH_PATH", "HELIX_RG_PATH", "HELIX_VEC_PATH"]],
       // 沙箱批：内层 shell 探测（macOS 26 /bin/sh 沙箱内自崩，$SHELL 兜底
       // /bin/bash）——环境探测非配置源，键级登记可评审
       [path.join("adapters", "driven", "tools", "SandboxEnvWrap.ts"), ["SHELL"]],

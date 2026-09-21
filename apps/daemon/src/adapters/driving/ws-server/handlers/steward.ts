@@ -203,15 +203,36 @@ export function handleStewardGetConfig(ctx: StewardCommandContext): void {
 /** steward.set_config（全局命令）：设置写面 + 新态回执；格式非法 → invalid_payload。 */
 export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model } = ctx.payload;
+  const { enabled, model, memory } = ctx.payload;
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
   }
   if (model !== undefined && typeof model !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string");
   }
+  // 管家记忆 B1：memory 组形态校验（透传前最后一道——TR-159 逐字段透传纪律）
+  if (memory !== undefined) {
+    if (typeof memory !== "object" || memory === null) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory 应为 object");
+    }
+    const mem = memory as { enabled?: unknown; baseUrl?: unknown; apiKey?: unknown; model?: unknown };
+    if (mem.enabled !== undefined && typeof mem.enabled !== "boolean") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.enabled 应为 boolean");
+    }
+    for (const key of ["baseUrl", "apiKey", "model"] as const) {
+      if (mem[key] !== undefined && typeof mem[key] !== "string") {
+        return ctx.commandError(ctx.type, "command.invalid_payload", `payload.memory.${key} 应为 string`);
+      }
+    }
+  }
   void ctx.steward.service
-    .setConfig({ ...(enabled !== undefined ? { enabled } : {}), ...(model !== undefined ? { model } : {}) })
+    .setConfig({
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(model !== undefined ? { model } : {}),
+      ...(memory !== undefined
+        ? { memory: memory as { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string } }
+        : {}),
+    })
     .then((outcome) => {
       if (!outcome.ok) {
         return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);

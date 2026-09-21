@@ -112,22 +112,23 @@ describe("resolveSigning（签名配置位纯函数，tauri 官方环境变量�
 
 // ── F2.1 管线编排（假命令注入成败，调用序列断言）────────────
 
-describe("pipelineSteps（六步契约）", () => {
-  test("六步依序：fetch-rg → fetch-codegraph → compile → F2.2 验证 → vite build → tauri build", () => {
+describe("pipelineSteps（七步契约——管家记忆 B1 增 fetch-vec0）", () => {
+  test("七步依序：fetch-rg → fetch-vec0 → fetch-codegraph → compile → F2.2 验证 → vite build → tauri build", () => {
     const steps = pipelineSteps(root);
-    expect(steps.length).toBe(6);
+    expect(steps.length).toBe(7);
     expect(steps[0]!.name).toContain("fetch-rg");
-    expect(steps[1]!.name).toContain("fetch-codegraph");
-    expect(steps[2]!.name).toContain("compile");
-    expect(steps[3]!.name).toContain("F2.2");
-    expect(steps[4]!.name).toContain("vite build");
-    expect(steps[5]!.name).toContain("tauri build");
+    expect(steps[1]!.name).toContain("fetch-vec0");
+    expect(steps[2]!.name).toContain("fetch-codegraph");
+    expect(steps[3]!.name).toContain("compile");
+    expect(steps[4]!.name).toContain("F2.2");
+    expect(steps[5]!.name).toContain("vite build");
+    expect(steps[6]!.name).toContain("tauri build");
   });
 
   test("vite build / tauri build 工作目录 = apps/shell", () => {
     const steps = pipelineSteps(root);
-    expect(steps[4]!.cwd).toBe(join(root, "apps/shell"));
     expect(steps[5]!.cwd).toBe(join(root, "apps/shell"));
+    expect(steps[6]!.cwd).toBe(join(root, "apps/shell"));
   });
 });
 
@@ -136,18 +137,18 @@ describe("pipelineSteps（平台分档，TR-95）", () => {
     const steps = pipelineSteps(root);
     expect(steps[0]!.cmd).toContain("--platform");
     expect(steps[0]!.cmd).toContain("darwin-arm64");
-    expect(steps[2]!.cmd).toContain("darwin-arm64");
-    expect(steps[5]!.cmd).toEqual(["cargo", "tauri", "build", "--target", "aarch64-apple-darwin"]);
+    expect(steps[3]!.cmd).toContain("darwin-arm64");
+    expect(steps[6]!.cmd).toEqual(["cargo", "tauri", "build", "--target", "aarch64-apple-darwin"]);
   });
 
-  test("windows-x64 档五步（无 F2.2——交叉编译产物 mac 宿主不可执行），tauri build 带 --target", () => {
+  test("windows-x64 档六步（无 F2.2——交叉编译产物 mac 宿主不可执行），tauri build 带 --target", () => {
     const steps = pipelineSteps(root, "windows-x64");
-    expect(steps.length).toBe(5);
+    expect(steps.length).toBe(6);
     expect(steps.map((s) => s.name).some((n) => n.includes("F2.2"))).toBe(false);
     expect(steps[0]!.cmd).toContain("windows-x64");
     expect(steps[1]!.cmd).toContain("windows-x64");
     expect(steps[2]!.cmd).toContain("windows-x64");
-    const tauri = steps[4]!;
+    const tauri = steps[5]!;
     expect(tauri.cmd).toEqual(["cargo", "tauri", "build", "--target", "x86_64-pc-windows-msvc"]);
     expect(tauri.cwd).toBe(join(root, "apps/shell"));
   });
@@ -209,9 +210,9 @@ describe("runPipeline（F2.1 失败即中断）", () => {
     expect(out).not.toContain("line-10"); // 第 50 行之前被截断
   });
 
-  test("末步（tauri build）失败 → 全部六步执行后以非零退出", async () => {
+  test("末步（tauri build）失败 → 全部七步执行后以非零退出", async () => {
     const steps = pipelineSteps(root);
-    const { runner, calls } = fakeRunner(6, 1);
+    const { runner, calls } = fakeRunner(7, 1);
     const code = await runPipeline(steps, runner, () => {});
     expect(code).toBe(1);
     expect(calls).toEqual(steps.map((s) => s.name));

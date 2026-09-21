@@ -42,6 +42,10 @@ function isExecutableFile(p: string): boolean {
 export interface SearchBackendFreeze {
   readonly grepFreeze: GrepBackendFreeze;
   readonly codegraphResolution: CodegraphResolution;
+  /** 管家记忆 B1：vec0 扩展 bundle 路径（壳 env HELIX_VEC_PATH 注入原值——
+   *  env 读取收束本域（AG-08 例外面），二级解析（bundle → node_modules
+   *  dev 形态）在组合根经 resolve-vec0 完成（本域不拼 node_modules 路径）。 */
+  readonly vec0BundlePath: string | undefined;
 }
 
 /**
@@ -86,7 +90,7 @@ export async function freezeSearchBackends(deps: { readonly config: DaemonConfig
   } else {
     logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
   }
-  return { grepFreeze, codegraphResolution };
+  return { grepFreeze, codegraphResolution, vec0BundlePath: process.env.HELIX_VEC_PATH };
 }
 
 // ── config 瘦身批迁移（两批，一次性幂等） ──────────────────────────

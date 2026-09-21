@@ -36,6 +36,8 @@ export interface PlatformSpec {
   readonly rgArchiveFormat: "tar.gz" | "zip";
   /** rg 落位文件名（windows 档 rg.exe）。 */
   readonly rgBinaryName: string;
+  /** vec0 落位文件名（管家记忆 B1：darwin 档 .dylib / windows 档 .dll）。 */
+  readonly vec0BinaryName: string;
   /** codegraph release 资产名。 */
   readonly codegraphAssetName: string;
   /** codegraph 资产包格式（解压分派用）。 */
@@ -57,6 +59,7 @@ const SPECS: Record<DesktopPlatform, PlatformSpec> = {
     rgTriple: "aarch64-apple-darwin",
     rgArchiveFormat: "tar.gz",
     rgBinaryName: "rg",
+    vec0BinaryName: "vec0.dylib",
     codegraphAssetName: "codegraph-darwin-arm64.tar.gz",
     codegraphArchiveFormat: "tar.gz",
     codegraphNodeRel: "node",
@@ -72,6 +75,7 @@ const SPECS: Record<DesktopPlatform, PlatformSpec> = {
     rgTriple: "x86_64-pc-windows-msvc",
     rgArchiveFormat: "zip",
     rgBinaryName: "rg.exe",
+    vec0BinaryName: "vec0.dll",
     codegraphAssetName: "codegraph-win32-x64.zip",
     codegraphArchiveFormat: "zip",
     codegraphNodeRel: "node.exe",

@@ -12,7 +12,12 @@
     "@earendil-works/pi-ai": "0.85.1",
     "@helix/common": "workspace:*",
     "@helix/protocol": "workspace:*",
+    "better-sqlite3": "^13.0.3",
     "diff": "8.0.4",
+    "sqlite-vec": "^0.1.9",
     "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0"
   }
 }

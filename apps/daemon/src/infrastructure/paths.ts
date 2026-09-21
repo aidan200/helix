@@ -29,6 +29,10 @@ export interface HelixPaths {
   readonly logsDir: () => string;
   /** 系统 SQLite：`<home>/helix.db`（领域状态持久化，WAL）。 */
   readonly dbPath: () => string;
+  /** 管家长期记忆 SQLite：`<home>/steward_memory.db`（管家记忆 B1——
+   *  better-sqlite3 + sqlite-vec 独立文件，与 helix.db（bun:sqlite +
+   *  WriteQueue，AG-06）物理隔离：vec0 只能活在 better-sqlite3 连接里）。 */
+  readonly stewardMemoryDbPath: () => string;
   /** user 层技能目录：`<home>/skills`（双层技能根之一；project 层 = <工作区>/.helix/skills，启动时定格，与 toolCwd 同款判定，不入本单点）。 */
   readonly skillsHome: () => string;
   /** 单例幂等锁：`<home>/daemon.lock`（AG-17，同 --home 二启拒绝）。 */
@@ -74,6 +78,7 @@ export function createPaths(explicitHome?: string): HelixPaths {
     devTokenPath: () => path.join(home, "dev-token"),
     logsDir: () => path.join(home, "logs"),
     dbPath: () => path.join(home, "helix.db"),
+    stewardMemoryDbPath: () => path.join(home, "steward_memory.db"),
     skillsHome: () => path.join(home, "skills"),
     lockPath: () => path.join(home, "daemon.lock"),
     ensureHome: () => mkdirSync(home, { recursive: true }),

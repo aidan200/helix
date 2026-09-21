@@ -2,6 +2,7 @@
   "bundle": {
     "resources": {
       "resources/bin/rg.exe": "bin/rg.exe",
+      "resources/bin/vec0.dll": "bin/vec0.dll",
       "resources/codegraph": "codegraph"
     }
   }

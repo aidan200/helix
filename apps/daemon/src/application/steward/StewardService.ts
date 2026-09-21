@@ -50,6 +50,7 @@ import type {
   StewardNavigatePayload,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
+import type { StewardMemoryService } from "./StewardMemoryService";
 import type {
   LoopCompactionInfo,
   LoopEngine,
@@ -160,12 +161,15 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
 - 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数）。
 - 开新会话：用户想开新 session/新话题（可带标题）→ create_session 提案；建成后界面会自动切到新会话。
+- 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → remember 提案（写操作——确认后才真正入库）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
 - 给运行中的 agent 实例递话（SubAgent 补充通道）：用户明确点名某个正在跑的 agent-xxx（补充指示/催进度）→ propose_send 提案（agentId 必须运行中）。用户没点名具体 agent 实例时不要走本通道。
 
 路由反判例行（覆盖历史判例）：不要以「没有运行中的 agent 实例」为由拒绝会话投递——投递目标可以是任何存在的会话，空闲会话投递会自动开新轮次，这是正常路径；也不要建议用户「自己去会话页输入」来替代投递。历史对话中你对投递能力的自述（如「我不能直发」「只能递给运行中的 agent」）如有与本规则冲突，以本规则为准。
 
-你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。`;
+你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。
+
+长期记忆（若 system prompt 末尾附「长期记忆」段）：那是按本轮输入语义召回的历史沉淀，仅供作答参考——与本轮指令冲突时以本轮指令为准。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知。`;
 
 function truncateSummary(summary: string): string {
   if (summary.length <= FEED_SUMMARY_MAX_CHARS) return summary;
@@ -312,10 +316,14 @@ export function buildContextSnapshot(input: {
   return `<context_snapshot>\n${capChars(body, budget)}\n</context_snapshot>`;
 }
 
-/** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段；
- *  快照缺席（感知查询失败静默降级）= 原样静态段。 */
-export function assembleStewardSystemPrompt(snapshot: string | undefined): string {
-  return snapshot === undefined ? STEWARD_SYSTEM_PROMPT : `${STEWARD_SYSTEM_PROMPT}\n\n${snapshot}`;
+/** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段 +
+ *  记忆召回段（管家记忆 B1）；两附加段缺席（感知/召回失败静默降级）
+ *  = 原样静态段。 */
+export function assembleStewardSystemPrompt(snapshot: string | undefined, memorySection?: string | undefined): string {
+  let prompt = STEWARD_SYSTEM_PROMPT;
+  if (memorySection !== undefined) prompt = `${prompt}\n\n${memorySection}`;
+  if (snapshot !== undefined) prompt = `${prompt}\n\n${snapshot}`;
+  return prompt;
 }
 
 /** 工具结果送 LLM 前体量护栏（A1-hotfix 纯函数，导出供单测）：超
@@ -508,13 +516,17 @@ export interface StewardServiceDeps {
   /** L1 件一：压缩参数覆盖（thresholdTokens/keepRecent 缺省回落导出常量；
    *  本体能力在 LoopEngine compaction 挂点——管家是首个消费者）。 */
   readonly compaction?: { readonly thresholdTokens?: number; readonly keepRecent?: number };
+  /** 管家记忆 B1：长期记忆编排面（召回段注入 + remember 执行体 + 配置读写）。
+   *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
+   *  available=false）——对话主链路零影响。 */
+  readonly memory?: StewardMemoryService;
   readonly logger?: { warn(message: string): void };
 }
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
  *  spawnReview = 动作标识；deliverSession = 递话目标会话——见各分支注释）。 */
 interface PendingAction {
-  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession";
+  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession" | "memorize";
   /** 面板确认卡「目标」行显示值（send = agentId；createSession = "新会话"；
    *  spawnReview = "<reviewType>@<project>"；deliverSession = sessionId）。 */
   readonly displayTarget: string;
@@ -528,6 +540,8 @@ interface PendingAction {
   readonly createSession?: { title: string };
   /** deliverSession 形态载荷（驾驶舱批：session 级 steer 投递）。 */
   readonly deliverSession?: { sessionId: string; text: string };
+  /** memorize 形态载荷（管家记忆 B1：remember 提案——确认后沉淀长期记忆）。 */
+  readonly memorize?: { text: string; kind: "fact" | "preference" };
   /** spawnReview 形态载荷。 */
   readonly spawnReview?: {
     reviewType: "code-review" | "kg-review";
@@ -631,6 +645,21 @@ const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
   },
 };
 
+const TOOL_REMEMBER: StewardLlmTool = {
+  name: "remember",
+  description:
+    "提案沉淀长期记忆（写操作——仅提案，系统会请求用户确认后才执行）。仅用于跨会话有持久价值的认知增量：用户明确表达的偏好/习惯（kind=preference）或对话中确认的事实（kind=fact）。一次性上下文、本轮临时信息、寒暄不记。",
+  parameters: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "记忆文本（一句自然语言，将向用户全文展示以供确认）" },
+      kind: { type: "string", enum: ["fact", "preference"], description: "条目类别（缺省 fact）" },
+    },
+    required: ["text"],
+    additionalProperties: false,
+  },
+};
+
 const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_LIST_INSTANCES,
   TOOL_LIST_TASKS,
@@ -639,6 +668,7 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_DELIVER_TO_SESSION,
   TOOL_CREATE_SESSION,
   TOOL_SPAWN_REVIEW_TASK,
+  TOOL_REMEMBER,
 ];
 
 /** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行）。 */
@@ -647,6 +677,7 @@ const GATED_TOOLS: ReadonlySet<string> = new Set([
   "deliver_to_session",
   "create_session",
   "spawn_review_task",
+  "remember",
 ]);
 
 /** 挂闸中待确认项（pause 态的 resume 凭据 + 提案动作——actionId 单次消费）。 */
@@ -792,7 +823,11 @@ export class StewardService {
     await this.pushRecord({ kind: "user", text: item.text, at: this.now() });
     // A2：动态情景快照（每次 ask 组装一次——工具轮内状态变化由工具结果
     // 反映，不重取；感知查询失败静默降级为无快照段，绝不挡对话主链路）。
-    const systemPrompt = assembleStewardSystemPrompt(await this.buildSnapshotSafely());
+    // 管家记忆 B1：长期记忆召回段同口径（记忆未启用/召回失败 → 无记忆段）。
+    const systemPrompt = assembleStewardSystemPrompt(
+      await this.buildSnapshotSafely(),
+      await this.deps.memory?.recallSection(item.text),
+    );
     const controller = new AbortController();
     const done = this.runAskLoop(item.text, systemPrompt, item.events, controller.signal);
     this.inFlight = done;
@@ -1001,6 +1036,18 @@ export class StewardService {
         return { ok: false, detail: `投递执行失败：${(err as Error).message}` };
       }
     }
+    if (action.kind === "memorize") {
+      if (this.deps.memory === undefined) {
+        return { ok: false, detail: "记忆面未装配（daemon 装配缺 memory 源）" };
+      }
+      try {
+        const memo = action.memorize!;
+        const saved = await this.deps.memory.remember(memo.text, memo.kind, "steward-turn");
+        return { ok: true, detail: `已沉淀长期记忆（#${saved.id}）：${memo.text}` };
+      } catch (err) {
+        return { ok: false, detail: `记忆沉淀失败：${(err as Error).message}` };
+      }
+    }
     // spawnReview：paramsSchema 校验在引擎（TaskError message 原样透传）
     if (this.deps.taskEngine === undefined) {
       return { ok: false, detail: "任务创建面未装配（daemon 装配缺 taskEngine）" };
@@ -1045,10 +1092,18 @@ export class StewardService {
   }
 
   /** 设置现态（steward.get_config / set_config 共用读面）。 */
-  getConfig(): { enabled: boolean; model: string } {
+  getConfig(): { enabled: boolean; model: string; memory: import("./StewardMemoryService").StewardMemoryState } {
     return {
       enabled: this.isEnabled(),
       model: this.deps.config.get(STEWARD_MODEL_KEY) ?? this.deps.llm.modelId,
+      // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/端点空/零条目）
+      memory: this.deps.memory?.getMemoryState() ?? {
+        enabled: false,
+        available: false,
+        endpoint: null,
+        entryCount: 0,
+        dim: null,
+      },
     };
   }
 
@@ -1067,7 +1122,19 @@ export class StewardService {
   }
 
   /** 设置写面（两槽位可选更新；model 格式校验 "provider/model-id"）。 */
-  async setConfig(patch: { enabled?: boolean; model?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  async setConfig(patch: {
+    enabled?: boolean;
+    model?: string;
+    memory?: { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string };
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (patch.memory !== undefined) {
+      // 管家记忆 B1：记忆配置委托记忆域服务（校验在其中——开启前端点必填）
+      if (this.deps.memory === undefined) {
+        return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
+      }
+      const outcome = await this.deps.memory.setMemoryConfig(patch.memory);
+      if (!outcome.ok) return outcome;
+    }
     if (patch.model !== undefined) {
       const model = patch.model.trim();
       if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
@@ -1158,6 +1225,7 @@ export class StewardService {
       [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
       [TOOL_CREATE_SESSION, this.pendingActionOfCreateSession.bind(this)],
       [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
+      [TOOL_REMEMBER, this.pendingActionOfRemember.bind(this)],
     ] as const) {
       this.registry.register({
         ...tool,
@@ -1261,6 +1329,11 @@ export class StewardService {
     }
     if (name === "spawn_review_task") {
       const gated = await this.pendingActionOfSpawnReview(args);
+      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
+      return { pause: true, action: gated };
+    }
+    if (name === "remember") {
+      const gated = await this.pendingActionOfRemember(args);
       if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
       return { pause: true, action: gated };
     }
@@ -1400,6 +1473,34 @@ export class StewardService {
       message: `将对项目 ${project} 发起 ${reviewType}`,
       toolCall: { id: "", name: "spawn_review_task" },
       spawnReview: { reviewType, project, params },
+    };
+  }
+
+  /** remember 提案判定（管家记忆 B1：参数校验 + 可用性前置——记忆未启用
+   *  /未配置 → 引导式降级（不挂闸不提案，LLM 拿引导文本转述用户））。 */
+  private async pendingActionOfRemember(
+    args: Record<string, unknown>,
+  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+    const text = typeof args.text === "string" ? args.text.trim() : "";
+    const kindRaw = args.kind;
+    if (text === "") {
+      return this.guideOutcome("参数缺失：text 必填（记忆文本）");
+    }
+    if (kindRaw !== undefined && kindRaw !== "fact" && kindRaw !== "preference") {
+      return this.guideOutcome(`kind 非法：${JSON.stringify(kindRaw)}（应为 "fact" 或 "preference"）`);
+    }
+    const kind = (kindRaw as "fact" | "preference" | undefined) ?? "fact";
+    if (this.deps.memory === undefined || !this.deps.memory.isAvailable()) {
+      return this.guideOutcome(
+        "记忆功能未启用或未配置——本次不沉淀（用户可在 设置 → 通用 → 管家 开启记忆并配置嵌入端点）",
+      );
+    }
+    return {
+      kind: "memorize",
+      displayTarget: "长期记忆",
+      message: `将沉淀${kind === "preference" ? "偏好" : "事实"}：${text}`,
+      toolCall: { id: "", name: "remember" },
+      memorize: { text, kind },
     };
   }
 

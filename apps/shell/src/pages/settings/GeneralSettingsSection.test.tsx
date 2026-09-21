@@ -128,18 +128,46 @@ function ui() {
   );
 }
 
-/** 管家 config.result 回执注入（steward 频道点对点帧）。 */
-function feedStewardConfig(enabled: boolean) {
+/** 管家 config.result 回执注入（steward 频道点对点帧；管家记忆 B1：
+ *  memory 现态可选携带——缺省 = 未装配降级缺省）。 */
+function feedStewardConfig(
+  enabled: boolean,
+  memory?: {
+    enabled: boolean;
+    available: boolean;
+    endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+    entryCount: number;
+    dim: number | null;
+  },
+) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
     channel: "steward",
     type: "steward.config.result",
     ts: 1,
-    payload: { enabled, model: "deepseek/deepseek-v4-flash" },
+    payload: {
+      enabled,
+      model: "deepseek/deepseek-v4-flash",
+      memory: memory ?? { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+    },
   } as unknown as EventEnvelope;
   act(() => {
     for (const l of stewardListeners) l(frame);
+  });
+}
+
+/** connection.error 注入（config 频道——命令尾缀归因面）。 */
+function feedConnectionError(message: string) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    type: "connection.error",
+    ts: 1,
+    payload: { code: "command.invalid_payload", message },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of configListeners) l(frame);
   });
 }
 
@@ -473,6 +501,77 @@ describe("管家配置并轨批：管家组（启用 + 语音播报从属项）"
     fireEvent.click(toggle);
     expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("未连接");
     expect(toggle.checked).toBe(false);
+  });
+});
+
+describe("管家记忆 B1：记忆从属项（启用后才出现，开启后才展开端点）", () => {
+  const MEMORY_ON = {
+    enabled: true,
+    available: true,
+    endpoint: { baseUrl: "http://localhost:11434/v1", model: "bge-m3", hasApiKey: false },
+    entryCount: 7,
+    dim: 1024,
+  };
+
+  it("管家未启用 → 记忆项不渲染；启用 → 记忆项出现（fld-sub 缩进）+ 条目计数行", () => {
+    const { container } = ui();
+    feedStewardConfig(false, MEMORY_ON);
+    expect(container.querySelector("[data-steward-memory]")).toBeNull();
+    feedStewardConfig(true, MEMORY_ON);
+    const mem = container.querySelector("[data-steward-memory]")!;
+    expect(mem).not.toBeNull();
+    expect(mem.className).toContain("fld-sub");
+    expect(mem.querySelector<HTMLInputElement>("[data-steward-memory-enabled] input")!.checked).toBe(true);
+    expect(container.querySelector("[data-steward-memory-count]")!.textContent).toContain("7");
+  });
+
+  it("记忆开关切换 → sendStewardSetConfig({memory:{enabled}}) 不乐观翻转；回执回填", () => {
+    const { container } = ui();
+    feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-memory-enabled] input")!;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { enabled: true } });
+    expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
+    feedStewardConfig(true, MEMORY_ON);
+    expect(toggle.checked).toBe(true);
+  });
+
+  it("端点从属展开：仅记忆开启后渲染三字段（baseUrl/model 现值回填，apiKey 空——凭据只进不出）", () => {
+    const { container } = ui();
+    feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
+    expect(container.querySelector("[data-steward-memory-endpoint]")).toBeNull();
+    feedStewardConfig(true, MEMORY_ON);
+    const baseUrl = container.querySelector<HTMLInputElement>("[data-steward-memory-baseurl]")!;
+    const model = container.querySelector<HTMLInputElement>("[data-steward-memory-model]")!;
+    const apiKey = container.querySelector<HTMLInputElement>("[data-steward-memory-apikey]")!;
+    expect(baseUrl.value).toBe("http://localhost:11434/v1");
+    expect(model.value).toBe("bge-m3");
+    expect(apiKey.value).toBe(""); // hasApiKey 不回填原值
+  });
+
+  it("端点保存：编辑 → 保存发送合并载荷（apiKey 未编辑不携带）+ 草稿清空", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    const baseUrl = container.querySelector<HTMLInputElement>("[data-steward-memory-baseurl]")!;
+    const save = container.querySelector<HTMLButtonElement>("[data-steward-memory-save]")!;
+    expect(save.disabled).toBe(true); // 零编辑 = 保存禁用
+    fireEvent.change(baseUrl, { target: { value: "https://api.openai.com/v1" } });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({
+      memory: { baseUrl: "https://api.openai.com/v1", model: "bge-m3" },
+    });
+    expect(save.disabled).toBe(true); // 草稿清空
+  });
+
+  it("daemon 校验失败（connection.error 命令 steward.set_config 尾缀）→ 行内错误交代", () => {
+    const { container } = ui();
+    feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false, endpoint: null });
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-memory-enabled] input")!;
+    fireEvent.click(toggle);
+    feedConnectionError("开启记忆前请先配置嵌入端点（baseUrl 与 model 必填）（命令 steward.set_config）");
+    expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("端点");
   });
 });
 

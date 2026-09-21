@@ -346,6 +346,7 @@ fn is_sidecar_binary_name(name: &str) -> bool {
 fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
     let mut rg_path = None;
     let mut codegraph_path = None;
+    let mut vec0_path = None;
     if let Some(exe_dir) = exe_parent_dir() {
         #[cfg(target_os = "macos")]
         {
@@ -357,6 +358,10 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
             if cg_candidate.is_file() {
                 codegraph_path = cg_candidate.canonicalize().ok();
             }
+            let vec0_candidate = exe_dir.join("../Resources/bin/vec0.dylib");
+            if vec0_candidate.is_file() {
+                vec0_path = vec0_candidate.canonicalize().ok();
+            }
         }
         #[cfg(target_os = "windows")]
         {
@@ -367,6 +372,10 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
             let cg_candidate = exe_dir.join("codegraph/bin/codegraph.cmd");
             if cg_candidate.is_file() {
                 codegraph_path = cg_candidate.canonicalize().ok();
+            }
+            let vec0_candidate = exe_dir.join("bin/vec0.dll");
+            if vec0_candidate.is_file() {
+                vec0_path = vec0_candidate.canonicalize().ok();
             }
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -383,6 +392,7 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
             args: vec!["--sidecar".into()],
             rg_path,
             codegraph_path,
+            vec0_path,
         });
     }
 
@@ -400,6 +410,7 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
                 args: vec!["--sidecar".into()],
                 rg_path,
                 codegraph_path,
+                vec0_path,
             });
         }
     }

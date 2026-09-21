@@ -50,12 +50,24 @@ export interface StewardUnsubscribeCommand extends CommandFrame<Record<string, n
   type: "steward.unsubscribe";
 }
 
-/** steward.set_config 载荷（两槽位均可选——只更新携带位）。 */
+/** steward.set_config 载荷（槽位均可选——只更新携带位；管家记忆 B1
+ *  增 memory 组——嵌入端点配置经此写入，apiKey 只进不出）。 */
 export interface StewardSetConfigPayload {
   /** 管家开关（默认关；true = 开）。 */
   enabled?: boolean;
   /** 模型槽位（"provider/model-id" 形态，flash 级建议；格式非法回执 error 判别）。 */
   model?: string;
+  /** 长期记忆组（管家记忆 B1，additive；全部位可选）。 */
+  memory?: {
+    /** 记忆开关（默认关——记忆是可选项，零依赖开箱）。 */
+    enabled?: boolean;
+    /** OpenAI 兼容嵌入端点根（如 "http://localhost:11434/v1"）。 */
+    baseUrl?: string;
+    /** 端点 API key（本地免 key 端点传空串清除；只进不出——回执只回 hasApiKey）。 */
+    apiKey?: string;
+    /** 嵌入模型名（如 "bge-m3"）。 */
+    model?: string;
+  };
 }
 
 /** steward.set_config：写管家设置（点对点回执 steward.config.result 新态）。 */

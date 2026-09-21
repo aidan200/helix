@@ -128,6 +128,20 @@ export interface StewardConfigResultPayload {
   enabled: boolean;
   /** 模型槽位现值（"provider/model-id"；未设置 = daemon 默认 flash 级模型）。 */
   model: string;
+  /** 长期记忆面现态（管家记忆 B1，additive；凭据卫生——只回 hasApiKey，
+   *  apiKey 永不出库）。 */
+  memory: {
+    /** 记忆开关现态（默认 false——可选项，零依赖开箱）。 */
+    enabled: boolean;
+    /** 综合可用性（开关开 ∧ 端点已配 ∧ 存储已装配——召回/写入真实门槛）。 */
+    available: boolean;
+    /** 端点配置现态（未配置 = null）。 */
+    endpoint: { baseUrl: string; model: string; hasApiKey: boolean } | null;
+    /** 记忆条目总数。 */
+    entryCount: number;
+    /** 当前向量维度（未初始化 = null）。 */
+    dim: number | null;
+  };
 }
 
 /** steward.config.result：设置读写回执（channel = "steward"；点对点）。 */

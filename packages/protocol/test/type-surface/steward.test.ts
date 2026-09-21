@@ -213,7 +213,11 @@ const configResult: StewardConfigResultEvent = {
   sessionId: "__system__",
   channel: "steward",
   type: "steward.config.result",
-  payload: { enabled: false, model: "deepseek/deepseek-v4-flash" },
+  payload: {
+    enabled: false,
+    model: "deepseek/deepseek-v4-flash",
+    memory: { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+  },
 };
 
 const historyCommand: StewardHistoryCommand = {

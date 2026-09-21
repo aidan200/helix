@@ -33,11 +33,14 @@ describe("tauri.conf 三通道接线（TR-AD-34）", () => {
     // Resources/codegraph/bin/codegraph 定位错位）
     expect(macConf.bundle.resources).toEqual({
       "resources/bin/rg": "bin/rg",
+      "resources/bin/vec0.dylib": "bin/vec0.dylib",
       "resources/codegraph": "codegraph",
     });
-    // win 档：rg 是 rg.exe（fetch-rg windows 落位名）；codegraph 树同名
+    // win 档：rg 是 rg.exe（fetch-rg windows 落位名）；vec0 是 vec0.dll
+    // （管家记忆 B1 fetch-vec0 落位名）；codegraph 树同名
     expect(winConf.bundle.resources).toEqual({
       "resources/bin/rg.exe": "bin/rg.exe",
+      "resources/bin/vec0.dll": "bin/vec0.dll",
       "resources/codegraph": "codegraph",
     });
   });

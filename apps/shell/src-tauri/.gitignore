@@ -7,6 +7,9 @@
 # rg 捆绑二进制（T3.1 落位，不入库）
 /resources/bin/rg
 
+# vec0 捆绑扩展（管家记忆 B1 fetch-vec0 落位，不入库——bun.lock pin 确定性）
+/resources/bin/vec0.*
+
 # codegraph 捆绑树（fetch-codegraph 落位，不入库；~245MB vendored node 树）
 /resources/codegraph/
 /gen
