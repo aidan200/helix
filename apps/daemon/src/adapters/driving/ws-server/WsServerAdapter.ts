@@ -130,10 +130,20 @@ import {
   handleStewardConfirm,
   handleStewardGetConfig,
   handleStewardHistory,
+  handleStewardMemoryAppend,
+  handleStewardMemoryDelete,
+  handleStewardMemoryList,
+  handleStewardMemoryUpdate,
   handleStewardSetConfig,
   handleStewardSubscribe,
   handleStewardUnsubscribe,
 } from "./handlers/steward";
+import {
+  handleEmbeddingDelete,
+  handleEmbeddingList,
+  handleEmbeddingSet,
+  handleEmbeddingVerify,
+} from "./handlers/embedding";
 import {
   handleMcpServersAdd,
   handleMcpServersList,
@@ -751,6 +761,42 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardHistory(this.contexts.stewardContext(ws, type, payload));
+      // ── 管家记忆 B2：长期记忆条目管理四命令（memory 服务缺席时零记忆
+      //    降级形态——读面空清单/写面 error 判别，不走 unimplemented）──
+      case "steward.memory_list":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardMemoryList(this.contexts.stewardContext(ws, type, payload));
+      case "steward.memory_append":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardMemoryAppend(this.contexts.stewardContext(ws, type, payload));
+      case "steward.memory_update":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardMemoryUpdate(this.contexts.stewardContext(ws, type, payload));
+      case "steward.memory_delete":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardMemoryDelete(this.contexts.stewardContext(ws, type, payload));
+      // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试；
+      //    全局命令先例 = auth 族（配置域无会话维）──
+      case "embedding.list":
+        return this.deps.embedding === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleEmbeddingList(this.contexts.embeddingContext(ws, type, payload));
+      case "embedding.set":
+        return this.deps.embedding === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleEmbeddingSet(this.contexts.embeddingContext(ws, type, payload));
+      case "embedding.delete":
+        return this.deps.embedding === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleEmbeddingDelete(this.contexts.embeddingContext(ws, type, payload));
+      case "embedding.verify":
+        return this.deps.embedding === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleEmbeddingVerify(this.contexts.embeddingContext(ws, type, payload));
       // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
       case "mcp.servers.list":
         return this.deps.mcp === undefined

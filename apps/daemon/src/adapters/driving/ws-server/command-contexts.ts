@@ -60,6 +60,8 @@ import type {
   SttCommandDeps,
   StewardCommandContext,
   StewardCommandDeps,
+  EmbeddingCommandDeps,
+  EmbeddingCommandContext,
   TaskCommandContext,
   TraceCommandContext,
   VoiceCommandContext,
@@ -137,6 +139,12 @@ export interface WsServerAdapterDeps {
    * command.unimplemented（voice 先例；stub rig 兼容）。
    */
   readonly steward?: StewardCommandDeps;
+  /**
+   * embedding 配置域回口（管家记忆 B2）：端点 CRUD + 连通测试
+   * （EmbeddingConfigService；只转发不决策）。可选：未注入 → 回
+   * command.unimplemented（steward 先例；stub rig 兼容）。
+   */
+  readonly embedding?: EmbeddingCommandDeps;
   /**
    * 合并目录校验面：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -657,6 +665,27 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     };
   };
 
+  /**
+   * embedding 配置域命令处理上下文（管家记忆 B2 批）：EmbeddingCommandDeps
+   * + 共享辅助。装配缺席（deps.embedding undefined）在 routeCommand 已拒，
+   * 此处非空断言安全。
+   */
+  const embeddingContext = (
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): EmbeddingCommandContext => {
+    return {
+      ws,
+      type,
+      payload,
+      embedding: deps.embedding!,
+      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      rawSender: () => helpers.rawSender(ws),
+      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+    };
+  };
+
   return {
     commandContext,
     chatContext,
@@ -673,5 +702,6 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     sttContext,
     voiceContext,
     stewardContext,
+    embeddingContext,
   };
 }

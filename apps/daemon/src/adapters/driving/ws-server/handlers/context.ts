@@ -45,6 +45,7 @@ import type { SttStreamService } from "../../../../application/stt/SttStreamServ
 import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
 import type { TtsStreamService } from "../../../../application/tts/TtsStreamService";
 import type { StewardService } from "../../../../application/steward/StewardService";
+import type { EmbeddingConfigService } from "../../../../application/embedding/EmbeddingConfigService";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
@@ -563,5 +564,26 @@ export interface StewardCommandContext {
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
   rawSender(): FrameSender;
   /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/** embedding 配置域命令回口（管家记忆 B2：端点 CRUD + 连通测试——只转发
+ *  不决策，决策收口 EmbeddingConfigService application 层）。 */
+export interface EmbeddingCommandDeps {
+  /** embedding 配置域服务体。 */
+  readonly service: EmbeddingConfigService;
+}
+
+/**
+ * embedding 配置域命令处理上下文（管家记忆 B2）：全局命令（信封 sessionId
+ * 不消费）——配置域无会话维；回执 channel = "embedding"。
+ */
+export interface EmbeddingCommandContext {
+  readonly ws: ServerWebSocket<ConnState>;
+  readonly type: string;
+  readonly payload: Record<string, unknown>;
+  readonly embedding: EmbeddingCommandDeps;
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  rawSender(): FrameSender;
   sendNow(sender: FrameSender, frame: EventEnvelope): void;
 }

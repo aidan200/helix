@@ -54,7 +54,14 @@ import { DashScopeStreamingTtsAdapter } from "../adapters/driven/tts/streaming";
 import { TtsStreamService } from "../application/tts/TtsStreamService";
 import { BroadcastService } from "../application/voice/BroadcastService";
 import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
-import { StewardMemoryService, readEmbeddingEndpointConfig } from "../application/steward/StewardMemoryService";
+import {
+  StewardMemoryService,
+  STEWARD_MEMORY_EMBEDDING_KEY,
+  STEWARD_MEMORY_ENDPOINT_ID_KEY,
+} from "../application/steward/StewardMemoryService";
+import {
+  EmbeddingConfigService,
+} from "../application/embedding/EmbeddingConfigService";
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0";
@@ -687,6 +694,21 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     summarizer: voiceSummarizer,
     logger,
   });
+  // ── 管家记忆 B2：embedding 配置域服务体（端点 CRUD + verify + 解析）。
+  //    KV embedding_endpoints；apiKey 明文存储对齐 auth.json 同款（不另造
+  //    加密）。一次性迁移：旧 steward.memory.embedding（B1 三字段）→ 首条
+  //    端点 + steward.memory.endpointId 指向 + 清旧键（幂等——新域非空零动作）。
+  const embeddingConfig = new EmbeddingConfigService({
+    config: persistence.runtimeConfig,
+    createProbe: (cfg) => new OpenAiCompatEmbeddingAdapter({ getConfig: () => cfg }),
+  });
+  void embeddingConfig
+    .migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)
+    .then((migrated) => {
+      if (migrated !== null) logger.info(`管家记忆迁移：旧端点配置已收编为 embedding 配置域首条端点（${migrated}）`);
+    })
+    .catch((err) => logger.warn(`管家记忆迁移失败（旧配置保留，可重试）：${(err as Error).message}`));
+
   const stewardService = new StewardService({
     llm: stewardLlm,
     // 管家记忆 B1：长期记忆编排面装配（全部失败面降级为未装配/缺席——
@@ -721,11 +743,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         return undefined;
       }
       const embedding = new OpenAiCompatEmbeddingAdapter({
-        getConfig: () => readEmbeddingEndpointConfig(persistence.runtimeConfig),
+        // B2：端点配置经 EmbeddingConfigService 解析（endpointId → 条目——
+        // 换端点零重建，下一次调用自动跟随）
+        getConfig: () => {
+          const endpointId = persistence.runtimeConfig.get(STEWARD_MEMORY_ENDPOINT_ID_KEY);
+          if (endpointId === undefined || endpointId === "") return null;
+          return embeddingConfig.resolve(endpointId);
+        },
       });
       return new StewardMemoryService({
         config: persistence.runtimeConfig,
         embedding,
+        embeddingConfig,
         store,
         logger: { warn: (message) => logger.warn(message) },
       });
@@ -1044,6 +1073,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     steward: {
       service: stewardService,
       stream: eventStream,
+    },
+    // 管家记忆 B2：embedding 配置域回口（EmbeddingConfigService——端点
+    // CRUD + 连通测试；只转发不决策）
+    embedding: {
+      service: embeddingConfig,
     },
     // mcp 批：mcp 族六命令依赖面——registry 单例 + 配置窄写面闭包
     //（整段替换 config.mcpServers → writeConfig 全字段序列化；readonly →

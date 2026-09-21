@@ -1121,11 +1121,41 @@ export class StewardService {
     };
   }
 
-  /** 设置写面（两槽位可选更新；model 格式校验 "provider/model-id"）。 */
+  // ── 记忆条目管理委托面（管家记忆 B2：steward.memory_* 四命令回口——
+  //    memory 服务缺席时零记忆降级形态）───────────────────────
+
+  /** 条目只读清单（空数组 = 记忆面缺席/空库）。 */
+  listMemoryEntries(): readonly import("../ports/outbound/StewardMemoryPort").StewardMemoryEntry[] {
+    return this.deps.memory?.listEntries() ?? [];
+  }
+
+  /** 人工新增（embed 入库；缺席/失败 → error outcome）。 */
+  async appendMemoryEntry(text: string, kind?: "fact" | "preference"): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.deps.memory === undefined) {
+      return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
+    }
+    return this.deps.memory.appendMemoryEntry(text, kind);
+  }
+
+  /** 重嵌更新（缺席/失败 → error outcome）。 */
+  async updateMemoryEntry(id: number, text: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.deps.memory === undefined) {
+      return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
+    }
+    return this.deps.memory.updateMemoryEntry(id, text);
+  }
+
+  /** 行级删除（缺席 → false，幂等）。 */
+  forgetMemoryEntry(id: number): boolean {
+    return this.deps.memory?.forgetEntry(id) ?? false;
+  }
+
+  /** 设置写面（两槽位可选更新；model 格式校验 "provider/model-id"；
+   *  memory 组 B2 瘦身形态 {enabled?,endpointId?}）。 */
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
-    memory?: { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string };
+    memory?: { enabled?: boolean; endpointId?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.memory !== undefined) {
       // 管家记忆 B1：记忆配置委托记忆域服务（校验在其中——开启前端点必填）

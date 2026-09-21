@@ -1,0 +1,117 @@
+/**
+ * embedding 配置域命令处理（管家记忆 B2 批；handlers/ 落位 = handlers/
+ * auth.ts 点对点结果帧先例——只转发不决策，决策收口 EmbeddingConfigService
+ * application 层）。
+ *
+ * 四命令（全局命令，channel = "embedding"、sessionId = SYSTEM_SESSION_ID）：
+ * - embedding.list → 端点清单回执 embedding.list.result（凭据卫生视图）；
+ * - embedding.set → 新增/更新 → 回执 embedding.list.result 新清单
+ *   （invalid_payload：字段形态/空值/更新目标不存在）；
+ * - embedding.delete → 删除 → 回执 embedding.list.result 新清单；
+ * - embedding.verify → 连通测试 → 回执 embedding.verify.result 两判别
+ *   （fail 是正常结果非 error——auth.verify 同构口径）。
+ */
+import type {
+  EmbeddingListResultEvent,
+  EmbeddingVerifyResultEvent,
+} from "@helix/protocol";
+import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { EmbeddingCommandContext } from "./context";
+
+/** 清单回执（list/set/delete 共用形态）。 */
+function respondList(ctx: EmbeddingCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: EmbeddingListResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "embedding",
+    type: "embedding.list.result",
+    payload: { endpoints: ctx.embedding.service.listView().map((e) => ({ ...e })) },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** embedding.list（全局命令）：端点清单读面。 */
+export function handleEmbeddingList(ctx: EmbeddingCommandContext): void {
+  respondList(ctx);
+}
+
+/** embedding.set（全局命令）：新增/更新端点 → 回执清单；invalid_payload 防御。 */
+export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
+  const { id, name, baseUrl, apiKey, model } = ctx.payload;
+  if (id !== undefined && (typeof id !== "string" || id === "")) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string（缺省 = 新增）");
+  }
+  for (const key of ["name", "baseUrl", "model"] as const) {
+    const v = ctx.payload[key];
+    if (typeof v !== "string" || v.trim() === "") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", `payload.${key} 应为非空 string`);
+    }
+  }
+  if (apiKey !== undefined && typeof apiKey !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.apiKey 应为 string（空串 = 清除）");
+  }
+  void ctx.embedding.service
+    .set({
+      ...(id !== undefined ? { id } : {}),
+      name: name as string,
+      baseUrl: baseUrl as string,
+      model: model as string,
+      ...(apiKey !== undefined ? { apiKey } : {}),
+    })
+    .then((outcome) => {
+      if (!outcome.ok) {
+        return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+      }
+      respondList(ctx);
+    })
+    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.set 执行失败：${(err as Error).message}`));
+}
+
+/** embedding.delete（全局命令）：删除端点 → 回执清单。 */
+export function handleEmbeddingDelete(ctx: EmbeddingCommandContext): void {
+  const { id } = ctx.payload;
+  if (typeof id !== "string" || id === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string");
+  }
+  void ctx.embedding.service
+    .delete(id)
+    .then((outcome) => {
+      if (!outcome.ok) {
+        return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+      }
+      respondList(ctx);
+    })
+    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.delete 执行失败：${(err as Error).message}`));
+}
+
+/** embedding.verify（全局命令）：连通测试 → 两判别回执（fail 是正常结果非 error）。 */
+export function handleEmbeddingVerify(ctx: EmbeddingCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const { id } = ctx.payload;
+  if (typeof id !== "string" || id === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string");
+  }
+  void ctx.embedding.service
+    .verify(id)
+    .then((result) => {
+      const frame: EmbeddingVerifyResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "embedding",
+        type: "embedding.verify.result",
+        payload: result.state === "ok" ? { id, state: "ok", dim: result.dim } : { id, state: "fail", error: result.error },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => {
+      const frame: EmbeddingVerifyResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "embedding",
+        type: "embedding.verify.result",
+        payload: { id, state: "fail", error: (err as Error).message },
+      };
+      ctx.sendNow(sender, frame);
+    });
+}

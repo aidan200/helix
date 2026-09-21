@@ -146,6 +146,23 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     return tx(id) > 0;
   }
 
+  updateEntry(id: number, text: string, vector: Float32Array): boolean {
+    // 维度对齐：新向量维度 ≠ 锁表维度时重建向量面（调用方 ensureDim 已保证，
+    // 此处防御性兑底——重建清全表后旧行已亡，直接 INSERT）
+    this.ensureVecTable(vector.length);
+    const tx = this.db.transaction((target: number, newText: string, vec: Float32Array) => {
+      const changed = this.db.prepare("UPDATE entries SET text = ? WHERE id = ?").run(newText, target).changes;
+      if (changed === 0) return false;
+      // 向量重写：先删旧行再插入（vec0 rowid 无 REPLACE 语义）
+      this.db.prepare("DELETE FROM vec_items WHERE rowid = ?").run(BigInt(target));
+      this.db
+        .prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)")
+        .run(BigInt(target), Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength));
+      return true;
+    });
+    return tx(id, text, vector);
+  }
+
   count(): number {
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM entries").get() as { n: number };
     return row.n;

@@ -29,7 +29,7 @@ import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-
 import { createDaemonFreshnessProvider } from "../../adapters/driven/freshness/SourceFreshness";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { VoiceCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
-import type { StewardCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
+import type { StewardCommandDeps, EmbeddingCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
 import { StaticServe } from "../../adapters/driven/static-serve/StaticServe";
 import type { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
@@ -199,6 +199,12 @@ export interface WsDrivingDeps {
    *（voice 先例；stub rig 兼容）。
    */
   readonly steward?: StewardCommandDeps;
+  /**
+   * embedding 配置域回口（管家记忆 B2）：端点 CRUD + 连通测试
+   * （EmbeddingConfigService）。可选：未注入 → 四命令回
+   * command.unimplemented（steward 先例；stub rig 兼容）。
+   */
+  readonly embedding?: EmbeddingCommandDeps;
   /**
    * mcp 族命令依赖面（mcp 批）：McpServerPort + 配置窄写面（组合根闭包）。
    * 可选：未注入 → mcp 六命令回 command.unimplemented（stub rig 兼容）。

@@ -210,19 +210,18 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   if (model !== undefined && typeof model !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string");
   }
-  // 管家记忆 B1：memory 组形态校验（透传前最后一道——TR-159 逐字段透传纪律）
+  // 管家记忆 B2：memory 组瘦身校验（{enabled?,endpointId?}——透传前最后一道
+  // TR-159 逐字段透传纪律）
   if (memory !== undefined) {
     if (typeof memory !== "object" || memory === null) {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory 应为 object");
     }
-    const mem = memory as { enabled?: unknown; baseUrl?: unknown; apiKey?: unknown; model?: unknown };
+    const mem = memory as { enabled?: unknown; endpointId?: unknown };
     if (mem.enabled !== undefined && typeof mem.enabled !== "boolean") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.enabled 应为 boolean");
     }
-    for (const key of ["baseUrl", "apiKey", "model"] as const) {
-      if (mem[key] !== undefined && typeof mem[key] !== "string") {
-        return ctx.commandError(ctx.type, "command.invalid_payload", `payload.memory.${key} 应为 string`);
-      }
+    if (mem.endpointId !== undefined && typeof mem.endpointId !== "string") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.endpointId 应为 string（空串 = 清除引用）");
     }
   }
   void ctx.steward.service
@@ -230,7 +229,7 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
       ...(enabled !== undefined ? { enabled } : {}),
       ...(model !== undefined ? { model } : {}),
       ...(memory !== undefined
-        ? { memory: memory as { enabled?: boolean; baseUrl?: string; apiKey?: string; model?: string } }
+        ? { memory: memory as { enabled?: boolean; endpointId?: string } }
         : {}),
     })
     .then((outcome) => {
@@ -268,4 +267,104 @@ export function handleAgentStewardProfileGet(ctx: StewardCommandContext): void {
     payload: ctx.steward.service.getProfile(),
   };
   ctx.sendNow(sender, frame);
+}
+
+/** 记忆条目清单回执（管家记忆 B2：memory_list/append/update/delete 四命令
+ *  共用——写后即回新清单；条目 → 协议视图（sourceTurn = 存储 source））。 */
+function respondMemoryList(ctx: StewardCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const service = ctx.steward.service;
+  const frame: import("@helix/protocol").StewardMemoryListResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "steward",
+    type: "steward.memory_list.result",
+    payload: {
+      entries: service.listMemoryEntries().map((e) => ({
+        id: e.id,
+        text: e.text,
+        kind: e.kind,
+        createdAt: e.createdAt,
+        sourceTurn: e.source,
+      })),
+    },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** 记忆面缺席回执（daemon 装配缺 memory 源——vec0 不可解析等降级面；
+ *  条目清单空回执但不报 error：记忆是可选项，缺位是合法状态）。 */
+function respondMemoryUnavailable(ctx: StewardCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: import("@helix/protocol").StewardMemoryListResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "steward",
+    type: "steward.memory_list.result",
+    payload: { entries: [] },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** steward.memory_list（全局命令；管家记忆 B2）：条目读面 + 点对点回执。 */
+export function handleStewardMemoryList(ctx: StewardCommandContext): void {
+  respondMemoryList(ctx);
+}
+
+/** steward.memory_append（全局命令；管家记忆 B2）：人工新增（embed 入库）
+ *  → 回执新清单；失败经 invalid_payload 交代（命令回执 error 判别面）。 */
+export function handleStewardMemoryAppend(ctx: StewardCommandContext): void {
+  const text = ctx.payload.text;
+  if (typeof text !== "string" || text.trim() === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.text 应为非空 string");
+  }
+  const kind = ctx.payload.kind;
+  if (kind !== undefined && kind !== "fact" && kind !== "preference") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.kind 应为 \"fact\" | \"preference\"");
+  }
+  const job = ctx.steward.service.appendMemoryEntry(text, kind);
+  void job
+    .then((outcome) => {
+      if (!outcome.ok) {
+        return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+      }
+      respondMemoryList(ctx);
+    })
+    .catch((err) =>
+      ctx.commandError(ctx.type, "command.invalid_payload", `steward.memory_append 执行失败：${(err as Error).message}`),
+    );
+}
+
+/** steward.memory_update（全局命令；管家记忆 B2）：重嵌更新 → 回执新清单。 */
+export function handleStewardMemoryUpdate(ctx: StewardCommandContext): void {
+  const id = ctx.payload.id;
+  const text = ctx.payload.text;
+  if (typeof id !== "number" || !Number.isInteger(id)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为 integer");
+  }
+  if (typeof text !== "string" || text.trim() === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.text 应为非空 string");
+  }
+  void ctx.steward.service
+    .updateMemoryEntry(id, text)
+    .then((outcome) => {
+      if (!outcome.ok) {
+        return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+      }
+      respondMemoryList(ctx);
+    })
+    .catch((err) =>
+      ctx.commandError(ctx.type, "command.invalid_payload", `steward.memory_update 执行失败：${(err as Error).message}`),
+    );
+}
+
+/** steward.memory_delete（全局命令；管家记忆 B2）：行级删除 → 回执新清单
+ *  （id 不存在也回清单——删除幂等，UI 以清单为权威）。 */
+export function handleStewardMemoryDelete(ctx: StewardCommandContext): void {
+  const id = ctx.payload.id;
+  if (typeof id !== "number" || !Number.isInteger(id)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为 integer");
+  }
+  ctx.steward.service.forgetMemoryEntry(id);
+  respondMemoryList(ctx);
 }

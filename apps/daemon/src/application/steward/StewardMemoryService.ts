@@ -1,10 +1,12 @@
 /**
- * StewardMemoryService —— 管家长期记忆 application service（管家记忆 B1 批）。
+ * StewardMemoryService —— 管家长期记忆 application service（管家记忆 B1 批
+ * 落地、B2 批配置域化改造）。
  *
  * 定位：StewardService 的记忆域编排面（委托注入，缺席 = 记忆整体降级
  * 不可用、对话主链路零影响）。编排两出站端口：
- * - EmbeddingPort（文本 → 向量；OpenAI 兼容 HTTP——端点配置 KV 惰性读，
- *   未配置 = 记忆不可用）；
+ * - EmbeddingPort（文本 → 向量；OpenAI 兼容 HTTP——端点配置经
+ *   EmbeddingConfigService 惰性解析（endpointId → 条目），未引用/条目已删
+ *   = 记忆不可用）；
  * - StewardMemoryPort（sqlite-vec 存储；vec0 扩展不可解析 = 装配层缺
  *   席注入，同降级路径）。
  *
@@ -12,22 +14,26 @@
  * ① 召回（recallSection）：ask 前轮内 query 嵌入 → cosine topK → system
  *    prompt 记忆段文本。任何失败（端点不可达/协议异常/维度重建失败）
  *    静默降级为 undefined（无记忆段）+ logger.warn——召回绝不能挡对话；
- * ② 写入（remember）：confirm 闸执行体调用——条目 embed → 维度对齐 →
- *    append。失败原样上抛（确认卡回执展示失败详情——写路径不静默）；
+ * ② 写入（remember / appendMemoryEntry）：confirm 闸执行体与人工新增
+ *    （steward.memory_append 命令）双入口——条目 embed → 维度对齐 →
+ *    append。失败原样上抛（写路径不静默）；
  * ③ 维度切换重建（ensureDim）：vec0 维度建表锁死——换 embedding 模型
  *    （dim 变）→ resetVectors 清向量面 → 全量条目分批重嵌入回填。
  *    文本是唯一 source of truth，向量是可再生缓存。
  *
- * 配置面（RuntimeConfigPort KV 两键——steward.enabled/model 先例同构）：
+ * 配置面（B2 瘦身形态——RuntimeConfigPort KV 两键）：
  * - steward.memory.enabled = "1"/"0"（开关——记忆是可选项：无 Ollama
  *   无云 API 用户不开，零依赖开箱）；
- * - steward.memory.embedding = JSON {baseUrl, apiKey?, model}（OpenAI
- *   兼容端点——云端 provider 与本地 Ollama/LM Studio 同协议通吃）。
- * 凭据卫生：getMemoryState 导出面只回 hasApiKey 布尔，apiKey 永不出库。
+ * - steward.memory.endpointId（引用 embedding_endpoints 配置域条目——
+ *   B1 期的 steward.memory.embedding 三字段私钥已一次性迁移进该域）。
+ * available 闸 = 开关 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配。
+ * 凭据卫生：getMemoryState 导出面只回引用态（id/name/model/hasApiKey），
+ * apiKey 与 baseUrl 永不出库。
  */
 
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../ports/outbound/EmbeddingPort";
+import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
 import type {
   StewardMemoryEntry,
   StewardMemoryPort,
@@ -35,21 +41,31 @@ import type {
 
 /** 记忆开关 KV 键。 */
 export const STEWARD_MEMORY_ENABLED_KEY = "steward.memory.enabled";
-/** 嵌入端点配置 KV 键（JSON {baseUrl, apiKey?, model}）。 */
+/**
+ * 旧嵌入端点配置 KV 键（B1 三字段 JSON——B2 起退役，仅供一次性迁移读取；
+ * 迁移后清空）。
+ */
 export const STEWARD_MEMORY_EMBEDDING_KEY = "steward.memory.embedding";
+/** 嵌入端点引用 KV 键（B2：指向 embedding_endpoints 配置域条目 id）。 */
+export const STEWARD_MEMORY_ENDPOINT_ID_KEY = "steward.memory.endpointId";
 /** 召回 topK（B1 定格 5——system prompt 预算纪律，与对话 16k 窗口同族）。 */
 export const STEWARD_MEMORY_RECALL_TOP_K = 5;
 /** 维度重建分批大小（embedding 批量调用——端点速率防御）。 */
 const REBUILD_BATCH_SIZE = 32;
 
-/** 配置面导出现态（凭据卫生：只回 hasApiKey）。 */
+/** embedding 配置域窄查询面（EmbeddingConfigService 结构性满足；测试注入 fake）。 */
+export interface EmbeddingConfigLookup {
+  resolveRecord(endpointId: string): EmbeddingEndpointRecord | null;
+}
+
+/** 配置面导出现态（B2 引用态：endpoint 只回 id/name/model/hasApiKey）。 */
 export interface StewardMemoryState {
   /** 记忆开关现态（默认 false）。 */
   readonly enabled: boolean;
-  /** 综合可用性（开关开 ∧ 端点已配 ∧ 存储已装配——召回/写入真实门槛）。 */
+  /** 综合可用性（开关开 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配——召回/写入真实门槛）。 */
   readonly available: boolean;
-  /** 端点配置现态（未配置 = null）。 */
-  readonly endpoint: { readonly baseUrl: string; readonly model: string; readonly hasApiKey: boolean } | null;
+  /** 当前引用端点（引用态；未引用或条目已删 = null）。 */
+  readonly endpoint: { readonly id: string; readonly name: string; readonly model: string; readonly hasApiKey: boolean } | null;
   /** 记忆条目总数。 */
   readonly entryCount: number;
   /** 当前向量维度（未初始化 = null）。 */
@@ -59,29 +75,12 @@ export interface StewardMemoryState {
 export interface StewardMemoryServiceDeps {
   readonly config: RuntimeConfigPort;
   readonly embedding: EmbeddingPort;
+  /** embedding 配置域查询面（endpointId → 端点条目）。 */
+  readonly embeddingConfig: EmbeddingConfigLookup;
   /** 存储面（vec0 不可用 → 装配层缺席注入 → 记忆整体降级）。 */
   readonly store?: StewardMemoryPort;
   readonly clock?: () => number;
   readonly logger?: { warn(message: string): void };
-}
-
-/** 端点配置 KV 解析（纯函数导出——组合根 embedding 适配器 getConfig
- *  与服务内部共用同一解析单源；形态非法视同未配置）。 */
-export function readEmbeddingEndpointConfig(config: RuntimeConfigPort): EmbeddingEndpointConfig | null {
-  const raw = config.get(STEWARD_MEMORY_EMBEDDING_KEY);
-  if (raw === undefined || raw.trim() === "") return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<EmbeddingEndpointConfig>;
-    if (typeof parsed.baseUrl !== "string" || parsed.baseUrl.trim() === "") return null;
-    if (typeof parsed.model !== "string" || parsed.model.trim() === "") return null;
-    return {
-      baseUrl: parsed.baseUrl.trim(),
-      model: parsed.model.trim(),
-      ...(typeof parsed.apiKey === "string" && parsed.apiKey !== "" ? { apiKey: parsed.apiKey } : {}),
-    };
-  } catch {
-    return null;
-  }
 }
 
 export class StewardMemoryService {
@@ -93,9 +92,20 @@ export class StewardMemoryService {
     this.now = deps.clock ?? Date.now;
   }
 
-  /** 端点配置读面（KV JSON 防御解析——形态非法视同未配置）。 */
+  /** 当前引用的端点配置（endpointId 未设/条目已删 → null）。 */
   endpointConfig(): EmbeddingEndpointConfig | null {
-    return readEmbeddingEndpointConfig(this.deps.config);
+    const endpointId = this.deps.config.get(STEWARD_MEMORY_ENDPOINT_ID_KEY);
+    if (endpointId === undefined || endpointId === "") return null;
+    return this.deps.embeddingConfig.resolveRecord(endpointId) === null
+      ? null
+      : this.deps.embeddingConfig.resolveRecord(endpointId)!;
+  }
+
+  /** 当前引用的端点记录（含 name——回执引用态数据源；null = 未引用/悬空）。 */
+  private endpointRecord(): EmbeddingEndpointRecord | null {
+    const endpointId = this.deps.config.get(STEWARD_MEMORY_ENDPOINT_ID_KEY);
+    if (endpointId === undefined || endpointId === "") return null;
+    return this.deps.embeddingConfig.resolveRecord(endpointId);
   }
 
   isEnabled(): boolean {
@@ -104,48 +114,37 @@ export class StewardMemoryService {
 
   /** 综合可用性（召回/写入统一门槛）。 */
   isAvailable(): boolean {
-    return this.isEnabled() && this.endpointConfig() !== null && this.deps.store !== undefined;
+    return this.isEnabled() && this.endpointRecord() !== null && this.deps.store !== undefined;
   }
 
-  /** 配置面导出现态（凭据卫生：apiKey 不出库）。 */
+  /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库）。 */
   getMemoryState(): StewardMemoryState {
-    const cfg = this.endpointConfig();
+    const record = this.endpointRecord();
     return {
       enabled: this.isEnabled(),
       available: this.isAvailable(),
       endpoint:
-        cfg === null
+        record === null
           ? null
-          : { baseUrl: cfg.baseUrl, model: cfg.model, hasApiKey: cfg.apiKey !== undefined },
+          : { id: record.id, name: record.name, model: record.model, hasApiKey: record.apiKey !== undefined },
       entryCount: this.deps.store?.count() ?? 0,
       dim: this.deps.store?.storedDim() ?? null,
     };
   }
 
-  /** 配置写面（开关 + 端点三字段可选更新；无前置校验——可用性由
-   * readEmbeddingEndpointConfig 读面闸统一判定：空 baseUrl/model 视同
-   * 未配置，isAvailable() 为假即整体降级待命。先开后配是合法路径
-   * （端点字段是记忆开启后才展开的从属项——写面拦截会造成死锁）。 */
+  /**
+   * 配置写面（开关 + 端点引用可选更新；无前置校验——引用悬空自然降级：
+   * endpointId 指向不存在的条目 → endpointRecord() null → isAvailable()
+   * 假即整体降级待命。先开后配是合法路径（endpointId 是记忆开启后才展开
+   * 的从属项——写面拦截会造成死锁）。
+   */
   async setMemoryConfig(patch: {
     enabled?: boolean;
-    baseUrl?: string;
-    apiKey?: string;
-    model?: string;
+    endpointId?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
-    const current = this.endpointConfig();
-    const next: EmbeddingEndpointConfig = {
-      baseUrl: patch.baseUrl !== undefined ? patch.baseUrl.trim() : (current?.baseUrl ?? ""),
-      model: patch.model !== undefined ? patch.model.trim() : (current?.model ?? ""),
-      ...(patch.apiKey !== undefined
-        ? patch.apiKey !== ""
-          ? { apiKey: patch.apiKey }
-          : {}
-        : current?.apiKey !== undefined
-          ? { apiKey: current.apiKey }
-          : {}),
-    };
-    if (patch.baseUrl !== undefined || patch.model !== undefined || patch.apiKey !== undefined) {
-      await this.deps.config.set(STEWARD_MEMORY_EMBEDDING_KEY, JSON.stringify(next));
+    if (patch.endpointId !== undefined) {
+      // 空串 = 清除引用（显式解绑）
+      await this.deps.config.set(STEWARD_MEMORY_ENDPOINT_ID_KEY, patch.endpointId);
     }
     if (patch.enabled !== undefined) {
       await this.deps.config.set(STEWARD_MEMORY_ENABLED_KEY, patch.enabled ? "1" : "0");
@@ -201,6 +200,47 @@ export class StewardMemoryService {
   /** 条目删除（配置面写面；id 不存在 → false）。 */
   forgetEntry(id: number): boolean {
     return this.deps.store?.forget(id) ?? false;
+  }
+
+  /**
+   * 人工新增（steward.memory_append 命令路径）：同 remember 双入口但
+   * source 固定 "manual"、kind 缺省 "fact"。失败收口为 outcome（命令回执
+   * error 判别——人工写路径不经确认卡）。
+   */
+  async appendMemoryEntry(text: string, kind?: "fact" | "preference"): Promise<{ ok: true } | { ok: false; error: string }> {
+    try {
+      await this.remember(text, kind ?? "fact", "manual");
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  /**
+   * 条目编辑重写（steward.memory_update 命令路径）：新文本重嵌 → 文本 +
+   * 向量单事务重写。id 不存在 → error；不可用 → error（记忆未启用无法
+   * 重嵌——编辑路径强依赖端点）。
+   */
+  async updateMemoryEntry(id: number, text: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.isAvailable()) {
+      return { ok: false, error: "记忆功能未启用或未配置（设置 → 通用 → 管家 → 记忆）" };
+    }
+    const trimmed = text.trim();
+    if (trimmed === "") return { ok: false, error: "记忆文本不得为空" };
+    const store = this.deps.store!;
+    if (!store.list().some((e) => e.id === id)) {
+      return { ok: false, error: `记忆条目不存在：${id}` };
+    }
+    try {
+      const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
+      await this.ensureDim(dim);
+      if (!store.updateEntry(id, trimmed, vectors[0]!)) {
+        return { ok: false, error: `记忆条目不存在：${id}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   }
 
   /**

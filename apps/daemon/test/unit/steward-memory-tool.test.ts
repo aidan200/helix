@@ -67,7 +67,7 @@ function fakeMemory(opts: { available?: boolean; recallSection?: string | undefi
     getMemoryState: (): StewardMemoryState => ({
       enabled: true,
       available: opts.available ?? true,
-      endpoint: { baseUrl: "http://localhost:11434/v1", model: "bge-m3", hasApiKey: false },
+      endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
       entryCount: state.remembers.length,
       dim: 1024,
     }),
@@ -82,8 +82,8 @@ function fakeMemory(opts: { available?: boolean; recallSection?: string | undefi
     },
     setMemoryConfig: async (patch: Record<string, unknown>) => {
       state.configPatches.push(patch);
-      // 模拟存储层故障（写面校验已废除——错误透传路径用中性故障形态验证）
-      if (patch.baseUrl === "") {
+      // 模拟存储层故障（写面无前置校验——错误透传路径用中性故障形态验证）
+      if (patch.enabled === true && patch.endpointId === "ep-fail") {
         return { ok: false as const, error: "嵌入端点写入失败（存储异常）" };
       }
       return { ok: true as const };
@@ -187,11 +187,11 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
     const svc = makeService({ llm: fakeLlm([]), memory });
     expect(svc.getConfig().memory.available).toBe(true);
     expect(svc.getConfig().memory.endpoint!.model).toBe("bge-m3");
-    // setConfig memory 组委托（服务层错误原样透传——如存储故障）
-    const denied = await svc.setConfig({ memory: { baseUrl: "", enabled: true } });
+    // setConfig memory 组委托（B2 瘦身形态 {enabled,endpointId}——服务层错误原样透传）
+    const denied = await svc.setConfig({ memory: { enabled: true, endpointId: "ep-fail" } });
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error).toContain("存储异常");
-    const ok = await svc.setConfig({ memory: { baseUrl: "http://localhost:11434/v1", model: "bge-m3", enabled: true } });
+    const ok = await svc.setConfig({ memory: { enabled: true, endpointId: "ep-1" } });
     expect(ok.ok).toBe(true);
     expect(memory.configPatches.length).toBe(2);
   });
