@@ -9,7 +9,7 @@
  *
  * 重试语义（裁决 2026-09-08，取代 P2 ⑦ 状态码裁决与 P8 配额特判；
  * 引擎错误体验批 2026-09-19 增流中断快速档；用户裁决 2026-09-19
- * 翻转 5xx 子句）：
+ * 翻转 5xx 子句；2026-09-21 收编 Anthropic refusal 库常量串入快速档）：
  * - 只重试「传输层错误」= 没拿到 LLM 接口响应的请求期失败（连接拒绝/
  *   重置/超时/socket 断开——undici/Node fetch/node:http 库常量文案与
  *   errno 族，有限可枚举，非 provider 散文）；
@@ -101,6 +101,19 @@ const STREAM_INTERRUPTION_MESSAGE_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * provider 拒答文案（transient-fast 快速档；2026-09-21 refusal 错误卡实证收编）：
+ * pi-ai anthropic-messages 对 stop_reason:"refusal" 的固定映射串（无 explanation
+ * 时恒定——有限可枚举库常量，符合收录纪律；带 explanation 的散文形态不收编，
+ * 仍缺省永久）。实证：2026-09-21 06:21 主会话错误卡「The model refused to
+ * complete the request」——零事件形态拒答大概率一次重试自愈；真实拒答（内容
+ * 触发）错判代价上限 = 白等 5s（与 5xx 同档论证）。中途形态（拒答前已流出
+ * delta）受 !forwarded 门拦截不重试，与 5xx/流中断同一守卫。
+ */
+const REFUSAL_MESSAGE_PATTERNS: readonly RegExp[] = [
+  /The model refused to complete the request/i, // pi-ai anthropic-messages refusal 固定串
+];
+
+/**
  * 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态；
  * 多码时首位命中即判）。否定后顾排除 host:port（"connect ECONNREFUSED
  * 127.0.0.1:443" 的 443）与 IP 段误伤——端口数字不是状态码，传输层错误
@@ -119,6 +132,8 @@ const HTTP_STATUS_RE = /(?<![:.\d])([45]\d{2})\b/;
  *   · 5xx → 瞬时快速（transient-fast：provider 侧故障/过载，5s 单次短
  *     退避，见 LLM_STREAM_RETRY_BACKOFF_MS；kimi 500 事故实证翻转）；
  *   · 4xx → 永久（429 限流/配额、鉴权、参数类一律快速失败，重试决策归人）；
+ * - 无状态码 + 拒答库常量命中（REFUSAL_MESSAGE_PATTERNS，2026-09-21 收编）
+ *   → 瞬时快速；
  * - 无状态码 + 流中断库常量命中（STREAM_INTERRUPTION_MESSAGE_PATTERNS）
  *   → 瞬时快速；
  * - 无状态码 + 传输层库常量命中（TRANSPORT_MESSAGE_PATTERNS）→ 瞬时；
@@ -132,6 +147,7 @@ export function classifyLlmError(stopReason: string, errorMessage: string | unde
   // 5xx = provider 侧故障/过载 → 快速档重试；4xx = provider 明确拒绝 → 快速失败
   const status = HTTP_STATUS_RE.exec(message)?.[1];
   if (status) return status.startsWith("5") ? "transient-fast" : "permanent";
+  if (REFUSAL_MESSAGE_PATTERNS.some((re) => re.test(message))) return "transient-fast";
   if (STREAM_INTERRUPTION_MESSAGE_PATTERNS.some((re) => re.test(message))) return "transient-fast";
   return TRANSPORT_MESSAGE_PATTERNS.some((re) => re.test(message)) ? "transient" : "permanent";
 }

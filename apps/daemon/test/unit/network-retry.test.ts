@@ -198,6 +198,17 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "529 overloaded_error")).toBe("transient-fast");
   });
 
+  test("Anthropic refusal（pi-ai 库常量串）→ 瞬时快速档（2026-09-21 refusal 错误卡实证收编）", () => {
+    // pi-ai anthropic-messages 对 stop_reason:"refusal" 的固定映射串（无
+    // explanation 时恒定，有限可枚举库常量——符合收录纪律；带 explanation
+    // 的散文形态不收编，仍缺省永久）。实证：2026-09-21 06:21 主会话 refusal
+    // 错误卡（零事件形态拒答一次重试大概率自愈；真实拒答代价上限 = 白等 5s）
+    expect(classifyLlmError("error", "The model refused to complete the request")).toBe("transient-fast");
+    expect(classifyLlmError("error", "the model refused to complete the request")).toBe("transient-fast");
+    // explanation 散文形态不收编（非库常量）
+    expect(classifyLlmError("error", "I cannot help with that content")).toBe("permanent");
+  });
+
   test("裸 timeout 字样（非库常量形态）→ 永久（code-review 低危：末尾裸 |timeout 兜底已剔除）", () => {
     // 任何含 "timeout" 字样的 provider 散文不再被末位兜底误判瞬时——
     // 库常量形态（ETIMEDOUT/Headers·Body·Connect Timeout Error/request
@@ -489,6 +500,56 @@ describe("withNetworkRetry", () => {
     // attemptIndex=3 耗尽 → 末次失败原样转发（共 4 次调用 = 1 首发 + 3 重试）
     expect(callCount()).toBe(4);
     expect(clock.slept).toEqual([5_000, 30_000, 60_000]);
+  });
+
+  test("零事件 refusal（2026-09-21 错误卡形态）：transient-fast 5s 单次重试后成功，消费者只见成功流", async () => {
+    const clock = fakeClock();
+    const retries: LlmRetryInfo[] = [];
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "The model refused to complete the request" },
+      { kind: "ok", text: "recovered-refusal" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    expect(callCount()).toBe(2);
+    expect(clock.slept).toEqual([5_000]);
+    expect(retries).toEqual([
+      { attempt: 1, totalAttempts: 1, waitMs: 5_000, message: "The model refused to complete the request" },
+    ]);
+    expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "done"]);
+  });
+
+  test("零事件 refusal 二次仍拒：退避耗尽原样转发（真实拒答代价上限 = 白等 5s）", async () => {
+    const clock = fakeClock();
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "error", message: "The model refused to complete the request" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    expect(callCount()).toBe(2); // 恰 1 次重试（快速档单次），不吃全序列
+    expect(clock.slept).toEqual([5_000]);
+    expect(events.map((e) => e.type)).toEqual(["error"]);
+    const terminal = events[0] as Extract<AssistantMessageEvent, { type: "error" }>;
+    expect(terminal.error.errorMessage).toBe("The model refused to complete the request");
+  });
+
+  test("中途 refusal（已转发 delta 后拒答）：不重试直通——中途门不因 refusal 收编放开", async () => {
+    const clock = fakeClock();
+    const { fn, callCount } = scriptedStreamFn([
+      { kind: "midstream", message: "The model refused to complete the request" },
+    ]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    // 与 5xx/流中断同一守卫：partial 已进 context.messages，重试致重复消息
+    expect(callCount()).toBe(1);
+    expect(clock.slept).toEqual([]);
+    expect(events.map((e) => e.type)).toEqual(["start", "text_delta", "error"]);
   });
 
   test("默认退避常量 = 裁决序列 10s/30s/60s；流中断快速档 = 5s 单次", () => {
