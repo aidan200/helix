@@ -5,7 +5,7 @@
  * draft:true 建会话链消费；缺省 = 全局默认（payload 不携带 model 键）。
  */
 import { describe, expect, it } from "vitest";
-import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand } from "./commands";
+import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -126,5 +126,24 @@ describe("chatSteerCommand 可选 sessionId 形态（M9 #2.18：草稿防御分�
   it("sessionId 携带 → 既有形态零变更（含 instanceId 定向）", () => {
     expect(chatSteerCommand("hi", "s1")).toMatchObject({ sessionId: "s1", payload: { text: "hi" } });
     expect(chatSteerCommand("hi", "s1", "inst-1").payload).toEqual({ text: "hi", instanceId: "inst-1" });
+  });
+});
+
+// ── V3b-2 接线：流式 TTS 两命令构造器（哑帧修复批）──
+
+describe("voice 流式两命令构造器（V3b-2：管家朗读流式接线）", () => {
+  it("voiceSynthesizeStreamCommand：utterId + text 必携带，voice 可选（缺省不携带键）", () => {
+    const cmd = voiceSynthesizeStreamCommand("utt-1", "第一句。", { voice: "longanlingxi" });
+    expect(cmd.type).toBe("voice.synthesize.stream");
+    expect(cmd.payload).toEqual({ utterId: "utt-1", text: "第一句。", voice: "longanlingxi" });
+    expect(cmd.sessionId).toBeUndefined();
+    const bare = voiceSynthesizeStreamCommand("utt-2", "第二句。");
+    expect(bare.payload).toEqual({ utterId: "utt-2", text: "第二句。" });
+    expect("voice" in bare.payload).toBe(false);
+  });
+
+  it("voiceSynthesizeStopCommand：utterId 省略 → payload 空（全部在途句）；携带 → 定向", () => {
+    expect(voiceSynthesizeStopCommand().payload).toEqual({});
+    expect(voiceSynthesizeStopCommand("utt-9").payload).toEqual({ utterId: "utt-9" });
   });
 });

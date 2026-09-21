@@ -201,6 +201,12 @@ export interface AssembleDaemonDeps {
    */
   readonly voiceTtsOverride?: TtsPort;
   /**
+   * 流式 TTS 服务覆盖（哑帧修复批：测试注入 fake TtsStreamService 驱动
+   * chunk/done/error 帧剧本与毒化异常路径；缺省 = TtsStreamService 真体
+   * ——DashScopeStreamingTtsAdapter 连接池 + authStore key 读面）。
+   */
+  readonly voiceTtsStreamOverride?: TtsStreamService;
+  /**
    * ③层 LLM 摘要面覆盖（语音播报批：测试注入 fake VoiceSummarizerPort 驱动
    * 摘要/回退路径；缺省 = StewardVoiceSummarizerAdapter 真体——复用管家 LLM
    * 面与配置槽位）。
@@ -639,11 +645,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID),
   });
   // 流式 TTS 批（V3b-2）：单句流式合成服务（连接池复用 adapter；key 读面
-  // 与一次性合成同源——每次调用重读 auth.json，换 key 自动跟随）
-  const ttsStream = new TtsStreamService({
-    adapters: [new DashScopeStreamingTtsAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID) })],
-    apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
-  });
+  // 与一次性合成同源——每次调用重读 auth.json，换 key 自动跟随；哑帧修复批
+  // 注入 voiceTtsStreamOverride 测试缝）
+  const ttsStream =
+    deps.voiceTtsStreamOverride ??
+    new TtsStreamService({
+      adapters: [new DashScopeStreamingTtsAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID) })],
+      apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
+    });
 
   // ── 文本管家批（V2.5）：StewardService（fanout 目标 steward-feed-bridge
   //    的服务体 + steward.* 命令族回口）。LLM 面复用 provider 体系：

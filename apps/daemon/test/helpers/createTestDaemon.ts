@@ -58,6 +58,8 @@ export interface TestDaemonOptions {
   readonly subagentRunner?: InstanceRunner;
   /** TTS 合成面覆盖（语音播报批 V2 集成：注入 fake TTSPort 驱动全链广播断言；缺省 = DashScope 真体）。 */
   readonly voiceTts?: Parameters<typeof assembleDaemon>[0]["voiceTtsOverride"];
+  /** 流式 TTS 服务覆盖（哑帧修复批集成：注入 fake TtsStreamService 驱动 chunk/done/error 帧剧本与毒化异常路径）。 */
+  readonly voiceTtsStream?: Parameters<typeof assembleDaemon>[0]["voiceTtsStreamOverride"];
   /** findings 落账管道覆盖（F3.0，T4.1：注入替身真 KgWriteService/故障注入；缺省 = kg 栈真体）。 */
   readonly findingsSink?: Parameters<typeof assembleDaemon>[0]["findingsSinkOverride"];
   /** 编排会话 LLM 覆盖（T4.1 E 层：fake 剧本 streamFn 驱动编排批次循环；缺省生产形态）。 */
@@ -118,6 +120,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     browserPort: options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() }),
     subagentRunnerOverride: options.subagentRunner,
     voiceTtsOverride: options.voiceTts,
+    ...(options.voiceTtsStream !== undefined ? { voiceTtsStreamOverride: options.voiceTtsStream } : {}),
     findingsSinkOverride: options.findingsSink,
     orchestratorLlmOverride: options.orchestratorLlmOverride,
     mainSessionLlmOverride: options.mainSessionLlmOverride,

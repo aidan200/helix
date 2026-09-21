@@ -1,0 +1,229 @@
+/**
+ * StewardSpeechOut 单测 —— V3b-2 管家朗读流式编排（哑帧修复批接线件三）。
+ *
+ * 断言面（fake senders + fake player + fake timers——零 WS 零音频设备）：
+ * - delta 聚合 → md 剥离 → 尾部 withhold → SentenceBuffer 切句 → 逐句
+ *   sendStream（utterId 单调；超长句硬切 ≤600 防御）；
+ * - chunk → player.enqueue（未知 utterId no-op）；done → 句收口；
+ * - 回退链：首句 error（零出声）→ 链死 → answerResult 回退一次性整段；
+ *   中途 error（已出声）→ 只丢句不降级；首帧超时 → 定向 stop + 降级；
+ *   播放面死 → 降级回退；
+ * - 无 delta 的 answer → 一次性路径等价（现行为回归面）；
+ * - stopSpeaking → sendStopAll + player.stop + 缓冲 reset + 本轮静音
+ * （answerResult 不再回退出声）。
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StewardSpeechOut, SPEECH_SENTENCE_MAX, type SpeechOutSenders } from "./steward-speech-out";
+import type { SpeechPlayer } from "@/shared/lib/pcm-player";
+
+function fakePlayer(): SpeechPlayer & {
+  enqueued: [string, string][];
+  dropped: string[];
+  stopped: number;
+  closed: number;
+  active: boolean;
+  emit(active: boolean): void;
+} {
+  let cb: ((a: boolean) => void) | null = null;
+  const p = {
+    enqueued: [] as [string, string][],
+    dropped: [] as string[],
+    stopped: 0,
+    closed: 0,
+    active: false,
+    enqueue(utterId: string, b64: string) {
+      p.enqueued.push([utterId, b64]);
+      return true;
+    },
+    setVolume: () => {},
+    drop(utterId: string) {
+      p.dropped.push(utterId);
+    },
+    stop() {
+      p.stopped += 1;
+    },
+    close() {
+      p.closed += 1;
+    },
+    onActiveChange(fn: (a: boolean) => void) {
+      cb = fn;
+      return () => {
+        cb = null;
+      };
+    },
+    emit(active: boolean) {
+      p.active = active;
+      cb?.(active);
+    },
+  };
+  return p as typeof p;
+}
+
+function fakeSenders(): SpeechOutSenders & {
+  streams: [string, string][];
+  stopFor: string[];
+  stopAll: number;
+  fallbacks: string[];
+  streamFails: boolean;
+} {
+  const s = {
+    streams: [] as [string, string][],
+    stopFor: [] as string[],
+    stopAll: 0,
+    fallbacks: [] as string[],
+    streamFails: false,
+    sendStream(utterId: string, text: string) {
+      if (s.streamFails) return false;
+      s.streams.push([utterId, text]);
+      return true;
+    },
+    sendStopFor(utterId: string) {
+      s.stopFor.push(utterId);
+      return true;
+    },
+    sendStopAll() {
+      s.stopAll += 1;
+      return true;
+    },
+    sendFallback(text: string) {
+      s.fallbacks.push(text);
+      return true;
+    },
+  };
+  return s;
+}
+
+describe("StewardSpeechOut（流式朗读编排）", () => {
+  let player: ReturnType<typeof fakePlayer>;
+  let senders: ReturnType<typeof fakeSenders>;
+  let out: StewardSpeechOut;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    player = fakePlayer();
+    senders = fakeSenders();
+    out = new StewardSpeechOut({ senders, createPlayer: () => player, voiceProvider: () => "longanlingxi" });
+    out.resetAnswer(); // ask 发出时开轮（hook 接线同序）
+  });
+  afterEach(() => {
+    out.close();
+    vi.useRealTimers();
+  });
+
+  it("delta 切句：md 剥离 + 尾部 withhold + 逐句流式（utterId 单调）", () => {
+    out.feedRawDelta("**加粗**第一句。");
+    out.feedRawDelta("第二句");
+    expect(senders.streams.length).toBe(1); // 尾 withhold：无边界残余不出句
+    out.feedRawDelta("到了。");
+    expect(senders.streams.map(([, t]) => t)).toEqual(["加粗第一句。", "第二句到了。"]);
+    expect(senders.streams[0]![0] < senders.streams[1]![0]).toBe(true); // utterId 单调
+  });
+
+  it("chunk → player.enqueue；done → 句收口；未知 utterId 帧 no-op", () => {
+    out.feedRawDelta("第一句。");
+    const utterId = senders.streams[0]![0];
+    out.onChunkFrame(utterId, "QUJD");
+    out.onChunkFrame("unknown-utter", "AAAA"); // 他面/迟到帧
+    expect(player.enqueued).toEqual([[utterId, "QUJD"]]);
+    out.onDoneFrame(utterId);
+    out.onDoneFrame("unknown-utter"); // no-op 不抛
+    expect(player.enqueued.length).toBe(1);
+  });
+
+  it("回退链：首句 error（零出声）→ 链死；后续句入回退缓冲；终态一次性整段回退", () => {
+    out.feedRawDelta("第一句。第二句。");
+    expect(senders.streams.length).toBe(2);
+    const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+    out.onErrorFrame(id1); // 首句失败（未出过声）→ 降级
+    expect(player.dropped).toEqual([id1]);
+    // 第二句在途 error 也进回退缓冲
+    out.onErrorFrame(id2);
+    const verdict = out.answerResult("answer", "第一句。第二句。全文");
+    expect(verdict).toBe("fallback");
+    expect(senders.fallbacks).toEqual(["第一句。第二句。全文"]); // 含终态冲刷尾句
+    // 链死后新 delta 不再发流
+    out.feedRawDelta("第三句。");
+    expect(senders.streams.length).toBe(2);
+  });
+
+  it("中途 error（已出声）→ 只丢句不降级：后续句继续流式", () => {
+    out.feedRawDelta("第一句。第二句。");
+    const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+    out.onChunkFrame(id1, "QUJD"); // 已出声
+    out.onErrorFrame(id1);
+    expect(player.dropped).toEqual([id1]);
+    expect(out.answerResult("answer", "第一句。第二句。")).toBe("stream"); // 不回退
+    out.feedRawDelta("第三句。"); // answerResult 已收口——迟到 delta 丢弃
+    expect(senders.streams.length).toBe(2);
+    void id2;
+  });
+
+  it("首帧超时 → 定向 stop + 降级；终态回退一次性", () => {
+    out.feedRawDelta("第一句。");
+    const id1 = senders.streams[0]![0];
+    vi.advanceTimersByTime(6_100);
+    expect(senders.stopFor).toEqual([id1]);
+    expect(out.answerResult("answer", "第一句。")).toBe("fallback");
+    expect(senders.fallbacks).toEqual(["第一句。"]);
+  });
+
+  it("播放面死（enqueue false）→ 降级回退", () => {
+    player.enqueue = () => false; // AudioContext 不可用形态
+    out.feedRawDelta("第一句。");
+    const id1 = senders.streams[0]![0];
+    out.onChunkFrame(id1, "QUJD");
+    expect(out.answerResult("answer", "第一句。")).toBe("fallback");
+    expect(senders.fallbacks).toEqual(["第一句。"]);
+  });
+
+  it("无 delta 的 answer → 一次性路径等价（现行为回归面）", () => {
+    const verdict = out.answerResult("answer", "有 **2 个**任务。\n\n```bash\nls\n```\n详见任务页。");
+    expect(verdict).toBe("fallback");
+    expect(senders.fallbacks).toEqual(["有 2 个任务。 详见任务页。"]);
+    expect(senders.streams.length).toBe(0);
+  });
+
+  it("confirm_required / error 终态 → 零朗读零回退", () => {
+    out.feedRawDelta("第一句。");
+    expect(out.answerResult("confirm_required", "递话")).toBe("none");
+    expect(out.answerResult("error", "")).toBe("none");
+    expect(senders.fallbacks.length).toBe(0);
+  });
+
+  it("stopSpeaking：sendStopAll + player.stop + 静音本轮（终态不再回退出声）", () => {
+    out.feedRawDelta("第一句。第二句。");
+    player.emit(true);
+    out.stopSpeaking();
+    expect(senders.stopAll).toBe(1);
+    expect(player.stopped).toBe(1);
+    expect(out.answerResult("answer", "第一句。第二句。")).toBe("none");
+    expect(senders.fallbacks.length).toBe(0);
+    // 新一轮回答（ask 时 resetAnswer 开轮）非静音残留
+    out.resetAnswer();
+    out.feedRawDelta("新一轮。");
+    expect(senders.streams.length).toBe(3);
+  });
+
+  it("超长句（>600）硬切多段（daemon 防御上限对齐）", () => {
+    const long = "字".repeat(SPEECH_SENTENCE_MAX + 50) + "。";
+    out.feedRawDelta(long);
+    expect(senders.streams.length).toBe(2);
+    expect(senders.streams[0]![1].length).toBe(SPEECH_SENTENCE_MAX);
+    expect(senders.streams[1]![1].length).toBe(51); // 50 字 + 句号
+  });
+
+  it("答终态 flush 尾句：无边界残余经 answerResult 冲刷入流", () => {
+    out.feedRawDelta("第一句。第二句还没边界");
+    expect(senders.streams.length).toBe(1);
+    expect(out.answerResult("answer", "第一句。第二句还没边界")).toBe("stream");
+    expect(senders.streams.map(([, t]) => t)).toEqual(["第一句。", "第二句还没边界"]);
+  });
+
+  it("流式发送失败（未连接）→ 首句即降级回退", () => {
+    senders.streamFails = true;
+    out.feedRawDelta("第一句。");
+    expect(senders.streams.length).toBe(0);
+    expect(out.answerResult("answer", "第一句。")).toBe("fallback");
+    expect(senders.fallbacks).toEqual(["第一句。"]);
+  });
+});

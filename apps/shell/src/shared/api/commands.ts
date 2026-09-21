@@ -119,6 +119,8 @@ import type {
   StewardUnsubscribeCommand,
   VoiceSubscribeCommand,
   VoiceSynthesizeCommand,
+  VoiceSynthesizeStopCommand,
+  VoiceSynthesizeStreamCommand,
   VoiceUnsubscribeCommand,
   WebStopCommand,
   WorkspaceGetCommand,
@@ -479,6 +481,23 @@ export function voiceSubscribeCommand(voice?: string): VoiceSubscribeCommand {
 /** voice.unsubscribe：播报退订（断连自动等效；全局命令）。 */
 export function voiceUnsubscribeCommand(): VoiceUnsubscribeCommand {
   return { v: PROTOCOL_VERSION, type: "voice.unsubscribe", payload: {} };
+}
+
+// ── 流式 TTS 批（V3b-2 接线：管家回答边出边合成边播；帧回推 chunk/done/error
+//    无命令回执——回退链第一级失败面）──
+
+/** voice.synthesize.stream：单句流式合成（全局命令；utterId 连接内唯一单调）。 */
+export function voiceSynthesizeStreamCommand(utterId: string, text: string, opts?: { voice?: string }): VoiceSynthesizeStreamCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "voice.synthesize.stream",
+    payload: { utterId, text, ...(opts?.voice !== undefined ? { voice: opts.voice } : {}) },
+  };
+}
+
+/** voice.synthesize.stop：中正在途流式合成（utterId 省略 = 全部在途句）。 */
+export function voiceSynthesizeStopCommand(utterId?: string): VoiceSynthesizeStopCommand {
+  return { v: PROTOCOL_VERSION, type: "voice.synthesize.stop", payload: { ...(utterId !== undefined ? { utterId } : {}) } };
 }
 
 // ── steward 族命令（V2.5 文本管家）：对话 + 确认闸 + feed 订阅 + 设置面 ──
