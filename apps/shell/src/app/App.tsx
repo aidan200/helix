@@ -23,6 +23,8 @@ import { Activity, FolderKanban, Layers, ListTodo, MessageSquare, Settings } fro
 import { I18nProvider, useI18n } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider, useToast } from "@/shared/ui/Toast";
+import { subscribeOpenSettings } from "@/shared/lib/open-settings-signal";
+import { requestSettingsSection } from "@/pages/settings/settings-section-bus";
 import { SessionProvider } from "@/entities/session/SessionContext";
 import { useSession } from "@/entities/session/SessionContext";
 import { WorkspaceProvider, useWorkspace } from "@/entities/workspace/WorkspaceContext";
@@ -84,6 +86,20 @@ export function AppRoutes() {
     setStewardOpen(false);
     navigate(ROUTE_STEWARD_MEMORY);
   }, [navigate]);
+  // 「打开设置页某分区」信号接线（Bug 修复批：P-3 零可用空态逃生口——
+  // features 层发起 shared 信号，本层订阅 navigate + 分区指路；
+  // AG-15：app → pages 引 settings-section-bus 合法）
+  useEffect(
+    () =>
+      subscribeOpenSettings((section, tab) => {
+        // shared 信号 tab 为宽 string（依赖方向：shared 不引 pages 类型）；
+        // 本层收敛——非模型 tab 字面量直接丢弃（只指路，不猜义）
+        const modelsTab = tab === "chat" || tab === "embedding" || tab === "provider" ? tab : undefined;
+        requestSettingsSection(section, modelsTab);
+        navigate(ROUTE_SETTINGS);
+      }),
+    [navigate],
+  );
   // 页内指路出口（T3.1/T3.2）：P-2 任务页 → /project；P-1 bootstrap 入口卡与
   // 产出分组 → /tasks（页面间闭环流转，review.md §页面间闭环）
   const goProject = useCallback(() => navigate(ROUTE_PROJECT), [navigate]);

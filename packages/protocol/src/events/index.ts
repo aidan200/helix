@@ -28,6 +28,7 @@ import type {
   SessionListChangedEvent,
   SessionListResultEvent,
   SessionLoadHistoryResultEvent,
+  SessionInstanceChannelsResultEvent,
   SessionPlanChangedEvent,
   SessionSnapshotEvent,
 } from "./session";
@@ -157,12 +158,14 @@ import type {
   StewardToolEvent,
   StewardThinkingEvent,
   StewardNavigateEvent,
+  StewardSedimentProposalEvent,
   StewardMemoryListResultEvent,
 } from "./steward";
 import type {
   EmbeddingListResultEvent,
   EmbeddingVerifyResultEvent,
 } from "./embedding";
+import type { ProviderListResultEvent } from "./provider";
 import type {
   LoopRunStartedEvent,
   LoopRunFinishedEvent,
@@ -203,6 +206,7 @@ export * from "./voice";
 export * from "./steward";
 export * from "./embedding";
 export * from "./loop";
+export * from "./provider";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -213,6 +217,7 @@ export type EventEnvelope =
   | SessionPlanChangedEvent
   | SessionListResultEvent
   | SessionLoadHistoryResultEvent
+  | SessionInstanceChannelsResultEvent
   | ChatStreamDeltaEvent
   | ChatTurnStartedEvent
   | ChatTurnCompletedEvent
@@ -320,9 +325,11 @@ export type EventEnvelope =
   | StewardToolEvent
   | StewardThinkingEvent
   | StewardNavigateEvent
+  | StewardSedimentProposalEvent
   | StewardMemoryListResultEvent
   | EmbeddingListResultEvent
   | EmbeddingVerifyResultEvent
+  | ProviderListResultEvent
   | LoopRunStartedEvent
   | LoopRunFinishedEvent
   | LoopTurnStartedEvent
@@ -351,6 +358,7 @@ export const EVENT_TYPES = [
   "session.plan.changed",
   "session.list.result",
   "session.loadHistory.result",
+  "session.instanceChannels.result",
   "chat.stream.delta",
   "chat.turn.started",
   "chat.turn.completed",
@@ -462,6 +470,8 @@ export const EVENT_TYPES = [
   "steward.tool",
   "steward.thinking",
   "steward.navigate",
+  // 管家记忆 B4a 批 +steward.sediment_proposal（自动沉淀提案——与 feed 同订阅闸）
+  "steward.sediment_proposal",
   // 流式转写批（V3b-1）：开流回执/实时中间帧/终帧（点对点；streamId 门控）
   "stt.stream.started",
   "stt.stream.interim",
@@ -495,6 +505,9 @@ export const EVENT_TYPES = [
   "steward.memory_list.result",
   "embedding.list.result",
   "embedding.verify.result",
+  // 三方平台（自定义 provider）族：平台清单回执（provider.list/set/delete
+  // 三命令共用）
+  "provider.list.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -513,6 +526,7 @@ export const EVENT_CHANNELS = {
   "session.plan.changed": "session",
   "session.list.result": "session",
   "session.loadHistory.result": "session",
+  "session.instanceChannels.result": "session",
   "chat.stream.delta": "chat",
   "chat.turn.started": "chat",
   "chat.turn.completed": "chat",
@@ -622,9 +636,11 @@ export const EVENT_CHANNELS = {
   "steward.tool": "steward",
   "steward.thinking": "steward",
   "steward.navigate": "steward",
+  "steward.sediment_proposal": "steward",
   "steward.memory_list.result": "steward",
   "embedding.list.result": "embedding",
   "embedding.verify.result": "embedding",
+  "provider.list.result": "provider",
   "loop.run.started": "loop",
   "loop.run.finished": "loop",
   "loop.turn.started": "loop",

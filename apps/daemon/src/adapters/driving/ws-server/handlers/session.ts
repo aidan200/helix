@@ -16,9 +16,9 @@
  * 回调 + 3 个共享辅助，经 SessionCommandContext 由 WsServerAdapter 供出
  * （handlers/context.ts 承载）。
  */
-import type { SessionListResultEvent, SessionLoadHistoryResultEvent, ErrorCode } from "@helix/protocol";
+import type { SessionListResultEvent, SessionLoadHistoryResultEvent, SessionInstanceChannelsResultEvent, ErrorCode } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
-import { historyPage, HISTORY_PAGE_DEFAULT, HISTORY_PAGE_MAX } from "../DtoMapper";
+import { historyPage, HISTORY_PAGE_DEFAULT, HISTORY_PAGE_MAX, instanceChannelsPage } from "../DtoMapper";
 import type { SessionCommandContext } from "./context";
 
 /**
@@ -134,6 +134,50 @@ export function handleSessionLoadHistory(ctx: SessionCommandContext): void {
     } catch (err) {
       // 判别改 err.code 码匹配（原 err.name 字符串比对；无 code 旧
       // 对象 → 兑底 session.invalid_cursor，与原非 NotFound 兑底等价）
+      const code =
+        (err as { code?: ErrorCode }).code === "session.not_found" ? "session.not_found" : "session.invalid_cursor";
+      ctx.commandError(ctx.type, code, (err as Error).message);
+    }
+  })();
+}
+
+/**
+ * session.instanceChannels（实例通道历史按需分页，channels 惰性化批）：
+ * 快照只携带每通道预览条，完整历史经本命令回溯——SubAgent 抽屉打开实例
+ * 时拉取。session.instanceChannels.result 点对点回执。与 loadHistory 同构
+ * （保最新 + 游标回溯 + 字节预算），但打平轴是实例三槽归并时间线。
+ */
+export function handleSessionInstanceChannels(ctx: SessionCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  if (typeof ctx.payload.instanceId !== "string" || ctx.payload.instanceId === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.instanceId 应为非空 string");
+  }
+  const rawBefore = ctx.payload.beforeEntryId;
+  if (rawBefore !== undefined && (typeof rawBefore !== "string" || rawBefore === "")) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.beforeEntryId 应为非空 string");
+  }
+  const rawLimit = ctx.payload.limit;
+  if (rawLimit !== undefined && (typeof rawLimit !== "number" || !Number.isInteger(rawLimit) || rawLimit < 1)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.limit 应为正整数");
+  }
+  const instanceId = ctx.payload.instanceId;
+  const beforeEntryId = rawBefore === undefined ? undefined : rawBefore;
+  const limit = rawLimit === undefined ? HISTORY_PAGE_DEFAULT : Math.min(rawLimit, HISTORY_PAGE_MAX);
+  const target = typeof ctx.envelope.sessionId === "string" && ctx.envelope.sessionId !== "" ? ctx.envelope.sessionId : undefined;
+  void (async () => {
+    try {
+      const sessionId = await ctx.directory.resolveTarget(target);
+      const view = await ctx.directory.getSessionView(sessionId);
+      const page = instanceChannelsPage(view, instanceId, beforeEntryId, limit);
+      const frame: SessionInstanceChannelsResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId,
+        channel: "session",
+        type: "session.instanceChannels.result",
+        payload: { instanceId, channels: page.channels, hasMore: page.hasMore, nextCursor: page.nextCursor },
+      };
+      ctx.sendNow(sender, frame);
+    } catch (err) {
       const code =
         (err as { code?: ErrorCode }).code === "session.not_found" ? "session.not_found" : "session.invalid_cursor";
       ctx.commandError(ctx.type, code, (err as Error).message);

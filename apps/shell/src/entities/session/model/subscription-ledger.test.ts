@@ -219,11 +219,12 @@ describe("SubscriptionLedger —— 重连重放（replay）", () => {
     l.syncList(["a", "b", "c"]);
     l.switchTo("b");
     l.onSnapshot("b"); // 收口：b full / a,c monitor
-    // 断连重连：daemon tier 表随连接销毁 → 全图重放
+    // 断连重连：daemon tier 表随连接销毁 → 全图重放（LRU 序：a 降档时
+    // setMonitor 挪位至尾部——重放顺序无语义要求，幂等 subscribe 收敛）
     expect(proj(l.replay())).toEqual([
       ["session.subscribe", "b", "full"],
-      ["session.subscribe", "a", "monitor"],
       ["session.subscribe", "c", "monitor"],
+      ["session.subscribe", "a", "monitor"],
     ]);
   });
 
@@ -281,5 +282,101 @@ describe("SubscriptionLedger —— welcome 活跃习得（learnAttached，list 
     expect(l.learnAttached("b")).toEqual([]);
     expect(l.tierOf("b")).toBeUndefined();
     expect(l.onSnapshot("b").dispatch).toBe(false); // b 的快照仍是 ack 噪声
+  });
+});
+
+describe("SubscriptionLedger —— 监控窗口容量化（慢客户端积压修复批）", () => {
+  test("addCreated 超容：淘汰最老 monitor + 退订命令（每次调用最多新增一个 → 淘汰一个即平衡）", () => {
+    const l = new SubscriptionLedger(2);
+    l.addCreated("a");
+    l.addCreated("b");
+    // 第 3 个入窗：monitor 3 > 2 → 淘汰迭代序头部最老（a）+ 退订
+    expect(proj(l.addCreated("c"))).toEqual([
+      ["session.subscribe", "c", "monitor"],
+      ["session.unsubscribe", "a", undefined],
+    ]);
+    expect(l.tierOf("a")).toBeUndefined();
+    expect(l.tierOf("b")).toBe("monitor");
+    expect(l.tierOf("c")).toBe("monitor");
+  });
+
+  test("LRU 挪位免死：降档 setMonitor 挪至前沿，后续淘汰选最老而非最近交互者", () => {
+    const l = new SubscriptionLedger(2);
+    l.addCreated("a");
+    l.addCreated("b");
+    l.switchTo("a");
+    l.onSnapshot("a"); // a 活跃 full
+    l.newDraft(); // a 降档 monitor（setMonitor 挪位至尾部——LRU 前沿）
+    // 灌入 c：超容淘汰最老 monitor = b（a 已挪位免死）
+    expect(proj(l.addCreated("c"))).toEqual([
+      ["session.subscribe", "c", "monitor"],
+      ["session.unsubscribe", "b", undefined],
+    ]);
+    expect(l.tierOf("a")).toBe("monitor");
+    expect(l.tierOf("b")).toBeUndefined();
+  });
+
+  test("出窗退订的老会话再打开：switchTo 恒发 full 订阅（快照必达）+ ack 后降档回窗", () => {
+    const l = new SubscriptionLedger(2);
+    l.addCreated("a");
+    l.addCreated("b");
+    l.addCreated("c"); // a 出窗退订（unsubscribe a 已发）
+    expect(l.tierOf("a")).toBeUndefined();
+    // 用户点开出窗老会话 a：恒发 subscribe(a, full)（幂等，不依赖簿内状态）
+    expect(proj(l.switchTo("a"))).toEqual([["session.subscribe", "a", "full"]]);
+    expect(l.tierOf("a")).toBe("full");
+    // daemon 对全新订阅立即重推全量快照 → 命中挂起 target → 进 dispatcher（dispatch:true）
+    const ack = l.onSnapshot("a");
+    expect(ack.dispatch).toBe(true);
+    expect(l.tierOf("a")).toBe("full");
+    // 切走：a 降档回窗（monitor 不超容不淘汰）
+    l.switchTo("b");
+    const ack2 = l.onSnapshot("b");
+    expect(ack2.dispatch).toBe(true);
+    expect(l.tierOf("a")).toBe("monitor");
+    // 重连 replay：出窗老会话若正停留（full 档）必在重放内
+    expect(l.replay().some((c) => c.type === "session.subscribe" && c.sessionId === "a")).toBe(true);
+  });
+
+  test("syncList 窗口对齐：清单前 capacity 个才订阅（不再全图订阅）+ 出窗残留退订", () => {
+    const l = new SubscriptionLedger(3);
+    // 清单 5 个：只订前 3（list 序 = recency）
+    expect(proj(l.syncList(["s1", "s2", "s3", "s4", "s5"]))).toEqual([
+      ["session.subscribe", "s1", "monitor"],
+      ["session.subscribe", "s2", "monitor"],
+      ["session.subscribe", "s3", "monitor"],
+    ]);
+    expect(l.tierOf("s4")).toBeUndefined();
+    expect(l.tierOf("s5")).toBeUndefined();
+    // list 序刷新（新会话插前排）：清理先行（s1-s3 出窗退订腾位），订阅随后（x1-x3 入窗）
+    expect(proj(l.syncList(["x1", "x2", "x3", "s1", "s2", "s3"]))).toEqual([
+      ["session.unsubscribe", "s1", undefined],
+      ["session.unsubscribe", "s2", undefined],
+      ["session.unsubscribe", "s3", undefined],
+      ["session.subscribe", "x1", "monitor"],
+      ["session.subscribe", "x2", "monitor"],
+      ["session.subscribe", "x3", "monitor"],
+    ]);
+  });
+
+  test("清理先行回归钉子：窗内旧条目不被新条目的 LRU 淘汰误杀（腾位在前）", () => {
+    const l = new SubscriptionLedger(3);
+    l.syncList(["a", "b", "c"]); // 簿 {a,b,c} 满窗
+    // 换窗：window=[a,x1,x2]——a 留窗，b/c 出窗退订，x1/x2 入窗零淘汰
+    expect(proj(l.syncList(["a", "x1", "x2", "x3"]))).toEqual([
+      ["session.unsubscribe", "b", undefined],
+      ["session.unsubscribe", "c", undefined],
+      ["session.subscribe", "x1", "monitor"],
+      ["session.subscribe", "x2", "monitor"],
+    ]);
+    expect(l.tierOf("a")).toBe("monitor"); // 窗内旧条目保留（修复前被 x1 的 LRU 淘汰误杀）
+  });
+
+  test("replay 上限：重连重放 ≤ 活跃 full + 容量（风暴面收敛）", () => {
+    const l = new SubscriptionLedger(3);
+    activateFirst(l, "act");
+    l.syncList(["act", "s1", "s2", "s3", "s4", "s5", "s6"]);
+    // 活跃 full + 窗口 3 个 monitor → replay ≤ 4 条
+    expect(l.replay().length).toBeLessThanOrEqual(4);
   });
 });

@@ -9,8 +9,8 @@
  * 不值得 sessionStorage 面）。
  */
 
-/** 模型分区 tab 面（B2-③：对话模型 | 向量模型）。 */
-export type ModelsTab = "chat" | "embedding";
+/** 模型分区 tab 面（B2-③：对话模型 | 向量模型；三方平台批 +provider）。 */
+export type ModelsTab = "chat" | "embedding" | "provider";
 
 let pendingSection: { section: string; tab?: ModelsTab } | null = null;
 

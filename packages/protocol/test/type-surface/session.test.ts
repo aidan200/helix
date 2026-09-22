@@ -24,6 +24,7 @@ type _SessionFamily = Expect<
     | "session.list_changed"
     | "session.list.result"
     | "session.loadHistory.result"
+    | "session.instanceChannels.result"
     | "session.plan.changed"
     | "diff.changed"
   >

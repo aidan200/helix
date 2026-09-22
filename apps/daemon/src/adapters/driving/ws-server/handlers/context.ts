@@ -46,6 +46,7 @@ import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
 import type { TtsStreamService } from "../../../../application/tts/TtsStreamService";
 import type { StewardService } from "../../../../application/steward/StewardService";
 import type { EmbeddingConfigService } from "../../../../application/embedding/EmbeddingConfigService";
+import type { CustomProviderService } from "../../../../application/services/CustomProviderService";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
@@ -572,6 +573,27 @@ export interface StewardCommandContext {
 export interface EmbeddingCommandDeps {
   /** embedding 配置域服务体。 */
   readonly service: EmbeddingConfigService;
+}
+
+/** 三方平台命令回口（三方平台批：平台 CRUD——只转发不决策，决策收口
+ *  CustomProviderService application 层）。 */
+export interface ProviderCommandDeps {
+  /** 三方平台配置域服务体。 */
+  readonly service: CustomProviderService;
+}
+
+/**
+ * 三方平台命令处理上下文（三方平台批）：全局命令（信封 sessionId
+ * 不消费）——配置域无会话维；回执 channel = "provider"。
+ */
+export interface ProviderCommandContext {
+  readonly ws: ServerWebSocket<ConnState>;
+  readonly type: string;
+  readonly payload: Record<string, unknown>;
+  readonly provider: ProviderCommandDeps;
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  rawSender(): FrameSender;
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
 }
 
 /**

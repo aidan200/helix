@@ -494,6 +494,55 @@
 .prov-body { display: none; border-top: 1px dashed rgb(var(--edge-rgb) / 0.1); padding: 12px 14px 14px; }
 .prov.open .prov-body { display: block; }
 .prov-actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+/* Bug 修复批：默认模型更改面板（顶部直接修改口；同 cprov 滚动容器规范） */
+.dms-panel {
+  margin-top: 10px; padding: 10px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.16); border-radius: 8px;
+  background: rgb(var(--void-rgb) / 0.28);
+}
+.dms-search { width: 100%; margin-bottom: 8px; }
+.dms-list { max-height: 252px; overflow-y: auto; }
+.dms-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 34px; padding: 0 10px; text-align: left;
+  border: none; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--text);
+  font-size: var(--text-cap); font-family: var(--font-sans);
+}
+.dms-item:hover { background: rgb(var(--accent-rgb) / 0.045); }
+.dms-item.sel { background: rgb(var(--accent-rgb) / 0.1); }
+.dms-item .dms-name { flex: 1; font-variant-numeric: tabular-nums; }
+/* 三方平台批 II：模型清单表格化单行编辑（列头一次 + 每模型一行；弹层 wide 变体） */
+.hud-modal.wide { width: 680px; }
+.cprov-models-head { margin-top: 10px; margin-bottom: 6px; }
+.cprov-tbl {
+  border: 1px solid rgb(var(--edge-rgb) / 0.16); border-radius: 8px;
+  background: rgb(var(--void-rgb) / 0.28); overflow: hidden;
+}
+.cprov-row {
+  display: grid; align-items: center; gap: 8px; padding: 0 10px;
+  grid-template-columns: minmax(110px, 1.5fr) minmax(76px, 1fr) 78px 74px 64px 64px 26px 22px;
+}
+.cprov-tbl-head {
+  position: sticky; top: 0; z-index: 1; height: 26px;
+  font-size: var(--text-cap); color: var(--text-dim); font-family: var(--font-sans);
+  background: rgb(var(--void-rgb) / 0.92); border-bottom: 1px solid rgb(var(--edge-rgb) / 0.14);
+}
+.cprov-tbl-head .req::after { content: " *"; color: var(--error); }
+.cprov-tbl-rows { max-height: 252px; overflow-y: auto; }
+.cprov-tbl-rows .cprov-row { min-height: 38px; border-bottom: 1px solid rgb(var(--edge-rgb) / 0.07); }
+.cprov-tbl-rows .cprov-row:last-child { border-bottom: none; }
+.cprov-tbl-rows .cprov-row:hover { background: rgb(var(--accent-rgb) / 0.045); }
+.cprov-row .hud-input { width: 100%; padding: 4px 8px; font-size: var(--text-cap); border-radius: 5px; }
+.cprov-row .hud-input.num { font-variant-numeric: tabular-nums; }
+.cprov-col-reasoning { display: inline-flex; justify-content: center; }
+.cprov-col-reasoning input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+.cprov-col-del { display: inline-flex; justify-content: center; padding: 0; width: 22px; height: 22px; }
+@media (max-width: 720px) {
+  .hud-modal.wide { width: 440px; }
+  .cprov-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; padding: 8px 10px; }
+  .cprov-tbl-head { display: none; }
+}
 .hud-btn.sm { height: 26px; font-size: var(--text-cap); }
 
 /* 模型表（F(3.4.4：四费率 tabular-nums） */

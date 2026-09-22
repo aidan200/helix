@@ -73,7 +73,8 @@ export type Channel =
   | "voice"
   | "steward"
   | "loop"
-  | "embedding";
+  | "embedding"
+  | "provider";
 
 /**
  * workspace 路由（AD-7 预留）。

@@ -5,6 +5,7 @@ import type {
   SessionSnapshotDto,
 } from "../types/session";
 import type { TaskBatchLedgerDto, WorkItemDto } from "../types/task";
+import type { InstanceChannelHistory } from "../types/agent";
 
 // ── payload ──────────────────────────────────────────────────
 
@@ -98,4 +99,24 @@ export interface SessionLoadHistoryResultEvent
   extends EventFrame<SessionLoadHistoryResultEventPayload> {
   channel?: "session";
   type: "session.loadHistory.result";
+}
+
+/**
+ * session.instanceChannels.result：实例通道历史按需拉取结果（channels
+ * 惰性化批）。点对点回执——仅发给发起命令的连接；信封 sessionId = 目标
+ * 会话 id。channels 三槽各自保最新分页；任一槽被字节预算裁 → truncated
+ * 标记 + nextCursor 游标（ InstanceChannelHistory.truncated 语义同快照）。
+ */
+export interface SessionInstanceChannelsResultEventPayload {
+  instanceId: string;
+  /** 三槽分组（tools/messages/thinking），各自升序 */
+  channels: InstanceChannelHistory;
+  hasMore: boolean;
+  /** 下页游标（任一槽仍有更早条目时 = 三槽最早 entry id）；无更早 = null */
+  nextCursor: string | null;
+}
+export interface SessionInstanceChannelsResultEvent
+  extends EventFrame<SessionInstanceChannelsResultEventPayload> {
+  channel?: "session";
+  type: "session.instanceChannels.result";
 }

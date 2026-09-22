@@ -3,7 +3,9 @@ import { toSnapshotDto, historyPage } from "../../src/adapters/driving/ws-server
 import {
   CHANNEL_TAIL_SIZE,
   SNAPSHOT_BUDGET_BYTES,
+  SNAPSHOT_CHANNEL_PREVIEW,
   TAIL_WINDOW_SIZE,
+  instanceChannelsPage,
 } from "../../src/adapters/driving/ws-server/DtoMapper";
 import type { SessionStateView } from "../../src/application/ports/inbound/SessionPort";
 import type { EntryData } from "../../src/domain/session/Entry";
@@ -241,5 +243,65 @@ describe("快照字节预算（重连循环第二轮修复）", () => {
     expect(page.nextCursor).toBe(page.entries[0]!.id);
     // 保最新：紧邻游标的条目必在
     expect(page.entries[page.entries.length - 1]!.id).toBe("m-58");
+  });
+});
+
+describe("channels 惰性化批（快照预览 + 按需分页）", () => {
+  test("快照通道预览化：每槽 ≤ SNAPSHOT_CHANNEL_PREVIEW(2) 且 truncated=true（完整历史走按需拉取）", () => {
+    const dto = toSnapshotDto(bigView(), "anthropic/fake", "idle");
+    const agent = dto.instances?.find((i) => i.instanceId === "agent-1");
+    // fixture 主轴 30 条×100KB 吃满主轴预算 → 通道份额兑底 4KB——预览槽可能
+    // 被字节预算进一步压到 1 条；预览语义 = ≤2 条 + 保最新 + truncated 标记
+    expect(agent!.channels!.tools!.length).toBeLessThanOrEqual(SNAPSHOT_CHANNEL_PREVIEW);
+    expect(agent!.channels!.tools!.length).toBeGreaterThanOrEqual(1);
+    expect(agent!.channels!.thinking!.length).toBeLessThanOrEqual(SNAPSHOT_CHANNEL_PREVIEW);
+    expect(agent!.channels!.thinking!.length).toBeGreaterThanOrEqual(1);
+    expect(agent?.channels?.truncated).toBe(true);
+    // 保最新：预览末条是最新条目
+    const tools = agent!.channels!.tools!;
+    expect(tools[tools.length - 1]!.id).toBe("tc-299");
+    const thinking = agent!.channels!.thinking!;
+    expect(thinking[thinking.length - 1]!.id).toBe("a-49");
+  });
+
+  test("instanceChannelsPage 首页：打平时间轴保最新 limit 条 + hasMore/nextCursor 游标", () => {
+    const view = bigView();
+    const page = instanceChannelsPage(view, "agent-1", undefined, 10);
+    // 时间线尾部 = tools（tc-290..299 都晚于全部 thinking）
+    expect(page.channels.tools?.length).toBe(10);
+    expect(page.channels.tools![0]!.id).toBe("tc-290");
+    expect(page.channels.tools![9]!.id).toBe("tc-299");
+    expect(page.channels.messages).toBeUndefined(); // 首页未触及 thinking 段
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBe("tc-290");
+  });
+
+  test("instanceChannelsPage 游标回溯：nextCursor 续拉更早页（跨槽归并升序）", () => {
+    const view = bigView();
+    // 游标 tc-270：更早段 = 270 条 tools + 50 条 thinking（thinking ts 1490 < tc-0 ts 2000）
+    const page = instanceChannelsPage(view, "agent-1", "tc-270", 20);
+    // 更早段尾部 20 条 = tc-250..269（tools 连续段）
+    expect(page.channels.tools?.length).toBe(20);
+    expect(page.channels.tools![0]!.id).toBe("tc-250");
+    expect(page.channels.tools![19]!.id).toBe("tc-269");
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBe("tc-250");
+    // 回溯到 thinking 段（游标 tc-5 → 更早段含全部 thinking）
+    const page2 = instanceChannelsPage(view, "agent-1", "tc-5", 60);
+    expect(page2.channels.thinking?.length).toBe(50); // thinking 全量在页内
+    expect(page2.channels.tools?.length).toBe(5); // tc-0..4
+    expect(page2.hasMore).toBe(false);
+    expect(page2.nextCursor).toBeNull();
+  });
+
+  test("instanceChannelsPage 边界：main 实例与未知实例抛错 / 大页受字节窗收敛", () => {
+    const view = bigView();
+    expect(() => instanceChannelsPage(view, "main", undefined, 10)).toThrow(/主实例/);
+    expect(() => instanceChannelsPage(view, "agent-x", undefined, 10)).toThrow(/不在会话实例清单/);
+    // limit=1000 但 350 条×40KB ≈ 12MB >> 2MB 字节预算：保最新收敛 + 游标续拉
+    const full = instanceChannelsPage(view, "agent-1", undefined, 1000);
+    expect(JSON.stringify(full.channels).length).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(full.hasMore).toBe(true);
+    expect(full.nextCursor).toBe(full.channels.tools![0]!.id);
   });
 });

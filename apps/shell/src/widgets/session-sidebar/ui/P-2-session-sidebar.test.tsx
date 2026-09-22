@@ -284,3 +284,52 @@ describe("F5 批 #6：timeLabel 非挂载定格", () => {
     }
   });
 });
+
+describe("P-2 会话列表分页（慢客户端积压修复批）", () => {
+  it("首页 10 张 +「加载更多」每次 +10；加载尽后按钮消失", () => {
+    const bigList: SessionMeta[] = Array.from({ length: 25 }, (_, i) => ({
+      sessionId: `p${i}`,
+      title: `会话${i}`,
+      lastActivityAt: 9_000 - i,
+      runState: "idle",
+      loaded: false,
+    }));
+    stateRef.current = makeState("p0", "idle");
+    topologyRef.current = {
+      active: stateRef.current,
+      background: {},
+      list: bigList,
+      modelConfig: createInitialModelConfigState(),
+      agentConfig: { revision: 0, slots: null },
+      webStatus: null,
+    };
+    const { container } = ui();
+    // 首页 10 张（含活跃 p0）+ 加载更多按钮
+    expect(container.querySelectorAll("[data-session-card]").length).toBe(10);
+    const more = container.querySelector<HTMLButtonElement>("[data-slist-more]")!;
+    expect(more).not.toBeNull();
+    expect(more.textContent).toContain("加载更多");
+    // 第一次加载 +10 → 20 张，按钮仍在
+    fireEvent.click(more);
+    expect(container.querySelectorAll("[data-session-card]").length).toBe(20);
+    // 第二次加载 +10（余 5 截断）→ 25 张，按钮消失
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-slist-more]")!);
+    expect(container.querySelectorAll("[data-session-card]").length).toBe(25);
+    expect(container.querySelector("[data-slist-more]")).toBeNull();
+  });
+
+  it("列表不足首页档位：无「加载更多」按钮", () => {
+    stateRef.current = makeState("s1", "idle");
+    topologyRef.current = {
+      active: stateRef.current,
+      background: {},
+      list: LIST,
+      modelConfig: createInitialModelConfigState(),
+      agentConfig: { revision: 0, slots: null },
+      webStatus: null,
+    };
+    const { container } = ui();
+    expect(container.querySelectorAll("[data-session-card]").length).toBe(2);
+    expect(container.querySelector("[data-slist-more]")).toBeNull();
+  });
+});

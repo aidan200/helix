@@ -32,6 +32,7 @@ import { useToast } from "@/shared/ui/Toast";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
 import { filterAvailableModels, resolveCatalogMatch, sameModel } from "../model/available-models";
+import { requestOpenSettings } from "@/shared/lib/open-settings-signal";
 
 /** ctx chip 档位（200k / 400k / 1M…）。 */
 function fmtContext(tokens: number): string {
@@ -190,6 +191,19 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
         <div className="mm-empty show" data-mm-empty data-mm-no-available>
           <span>{t("chat.modelSwitch.noProviderTitle")}</span>
           <span className="me-sub">{t("chat.modelSwitch.noProviderSub")}</span>
+          <button
+            className="hud-btn hud-btn-cyan sm"
+            type="button"
+            data-mm-open-settings
+            onClick={() => {
+              // 零可用空态逃生口（Bug 修复批）：shared 信号 → app 层接线跳
+              // 设置页模型分区（AG-15：features 只发信号不引路由）
+              requestOpenSettings("models", "chat");
+              onClose();
+            }}
+          >
+            {t("chat.modelSwitch.openModelSettings")}
+          </button>
         </div>
       )}
       <div className="mm-foot">

@@ -89,6 +89,7 @@ import {
 import { handleChatAbort, handleChatSend, handleChatSteer } from "./handlers/chat";
 import {
   handleSessionDelete,
+  handleSessionInstanceChannels,
   handleSessionLoadHistory,
   handleSessionList,
   handleSessionSubscribe,
@@ -144,6 +145,11 @@ import {
   handleEmbeddingSet,
   handleEmbeddingVerify,
 } from "./handlers/embedding";
+import {
+  handleProviderDelete,
+  handleProviderList,
+  handleProviderSet,
+} from "./handlers/provider";
 import {
   handleMcpServersAdd,
   handleMcpServersList,
@@ -577,6 +583,8 @@ export class WsServerAdapter {
         return handleSessionList(this.contexts.sessionContext(ws, type, payload, envelope));
       case "session.loadHistory":
         return handleSessionLoadHistory(this.contexts.sessionContext(ws, type, payload, envelope));
+      case "session.instanceChannels":
+        return handleSessionInstanceChannels(this.contexts.sessionContext(ws, type, payload, envelope));
       case "session.delete":
         return handleSessionDelete(this.contexts.sessionContext(ws, type, payload, envelope));
       // ── v0.1 编排命令（契约 §4；AD-1 迁出 handlers/agent.ts）──
@@ -797,6 +805,20 @@ export class WsServerAdapter {
         return this.deps.embedding === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleEmbeddingVerify(this.contexts.embeddingContext(ws, type, payload));
+      // ── 三方平台批（自定义 OpenAI 兼容 provider CRUD）；全局命令先例 =
+      //    embedding 族（配置域无会话维）；key/verify 走既有 auth 族 ──
+      case "provider.list":
+        return this.deps.provider === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleProviderList(this.contexts.providerContext(ws, type, payload));
+      case "provider.set":
+        return this.deps.provider === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleProviderSet(this.contexts.providerContext(ws, type, payload));
+      case "provider.delete":
+        return this.deps.provider === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleProviderDelete(this.contexts.providerContext(ws, type, payload));
       // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
       case "mcp.servers.list":
         return this.deps.mcp === undefined

@@ -32,6 +32,8 @@ import type {
   SessionPlanChangedEvent,
   SessionPlanChangedPayload,
   StewardFeedEvent,
+  StewardSedimentProposalEvent,
+  StewardSedimentProposalPayload,
   StewardFeedPayload,
   StewardNavigateEvent,
   StewardNavigatePayload,
@@ -467,6 +469,31 @@ export class EventStream implements EventPublisherPort {
       sessionId: SYSTEM_SESSION_ID,
       channel: "steward",
       type: "steward.feed",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /**
+   * steward.sediment_proposal 自动沉淀提案帧广播（管家记忆 B4a）：daemon 级
+   * 全局帧（信封 sessionId = SYSTEM_SESSION_ID、channel = steward），投递按
+   * 连接级 steward 订阅位过滤（broadcastStewardFeed 同闸门同构）。触发面 =
+   * StewardService 判定管线（轮收口判官判定「值得记忆」→ 轮外提案）——shell
+   * 确认卡 UI 与 confirm_required 同构复用，steward.confirm 单次消费执行。
+   */
+  broadcastStewardSedimentProposal(payload: StewardSedimentProposalPayload): void {
+    const frame: StewardSedimentProposalEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.sediment_proposal",
       payload,
     };
     for (const [sender, conn] of this.connections) {

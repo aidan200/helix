@@ -25,6 +25,7 @@ import {
 } from "../consumers/thinking-usage";
 import { applySnapshotEvent, SNAPSHOT_EVENT_TYPES } from "../consumers/snapshot";
 import { applyHistoryEvent, HISTORY_EVENT_TYPES } from "../consumers/history";
+import { applyInstanceHistoryEvent, INSTANCE_HISTORY_EVENT_TYPES } from "../consumers/instance-history";
 import { applyModelChangedEvent, MODEL_EVENT_TYPES } from "../consumers/model";
 import {
   applyThinkingLevelEvent,
@@ -93,6 +94,8 @@ register({ types: PLAN_EVENT_TYPES, apply: applyPlanEvent });
 register({ types: DIFF_EVENT_TYPES, apply: applyDiffEvent });
 // session.loadHistory.result：历史前插 + 翻页位（仅活跃会话路由至此）
 register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
+// session.instanceChannels.result：实例通道全量回填（channels 惰性化批）
+register({ types: INSTANCE_HISTORY_EVENT_TYPES, apply: applyInstanceHistoryEvent });
 // session.list.result / session.list_changed：拓扑级清单消费者
 // （consumers/directory.ts，操作 TopologyState——经 dispatcher/frame.ts
 // 的 isDirectoryEventType 前置路由，不入本注册表；「EVENT_TYPES 全类型
@@ -166,7 +169,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // 驾驶舱批 +steward.navigate（页面切换指令帧——真消费归 useStewardNavigate
   // 切页钩子，App 装配层接线 navigate+switchSession）；
   // 管家记忆 B2 +steward.memory_list.result（条目清单回执——memory_list/
-  // append/update/delete 四命令共用，真消费归记忆独立页）
+  // append/update/delete 四命令共用，真消费归记忆独立页）；
+  // 管家记忆 B4a +steward.sediment_proposal（自动沉淀提案帧——真消费归
+  // useSteward 确认卡合流，feed 同订阅闸广播）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
@@ -176,12 +181,17 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.tool",
   "steward.thinking",
   "steward.navigate",
+  "steward.sediment_proposal",
   "steward.memory_list.result",
   // embedding 配置域（管家记忆 B2）：两帧 = 连接私有（清单回执 list/set/
   // delete 共用 + 连通回执 verify），真消费归模型页向量 tab 与管家记忆区
   // 下拉（SessionContext 转发层 subscribeEmbeddingFrames——voice 先例同构）
   "embedding.list.result",
   "embedding.verify.result",
+  // 三方平台批（自定义 OpenAI 兼容 provider）：清单回执 = 连接私有（list/
+  // set/delete 三命令共用），真消费归模型页三方平台 tab（SessionContext
+  // 转发层 subscribeProviderFrames——embedding 先例同构）
+  "provider.list.result",
   // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
   // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
   // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api

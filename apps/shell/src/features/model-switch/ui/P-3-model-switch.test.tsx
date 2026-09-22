@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import type { CatalogModel } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
+import { subscribeOpenSettings } from "@/shared/lib/open-settings-signal";
 import {
   createInitialSessionState,
   type SessionState,
@@ -132,6 +133,28 @@ describe("目录未到达加载空态（catalog===null；2026-09-13 菜单静默
     expect(container.querySelector("[data-mm-loading]")).toBeNull();
     expect(container.querySelector("[data-mm-no-available]")).not.toBeNull();
     expect(container.querySelector("[data-mm-list]")).toBeNull();
+  });
+
+  it("Bug 修复批：零可用空态渲染逃生口按钮，点击发 shared 信号 + 关菜单（AG-15：features 只发信号）", () => {
+    setup({ catalog: [catalogModel("anthropic/claude-a")], authLoaded: true, configured: [] });
+    const onClose = vi.fn();
+    const { container } = render(
+      <I18nProvider>
+        <ToastProvider>
+          <ModelSwitchMenu onClose={onClose} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    const btn = container.querySelector("[data-mm-open-settings]")!;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("打开模型设置");
+    // 点击 → shared 信号订阅者收到（section/tab 形态）+ 菜单关闭
+    const received: { section: string; tab?: string }[] = [];
+    const unsubscribe = subscribeOpenSettings((section, tab) => received.push({ section, tab }));
+    fireEvent.click(btn);
+    expect(received).toEqual([{ section: "models", tab: "chat" }]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 
   it("catalog 到达 + 有 configured → 分组列表渲染（加载态退场）", () => {

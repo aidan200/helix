@@ -20,6 +20,13 @@
  * （frame.ts：快照 = 连接级重建指令）。故「快照是否进 dispatcher」由本簿
  * 判定：仅 ①当前活跃重建 ②切换/草稿链激活 放行；其余吞帧。
  *
+ * 监控窗口容量（慢客户端积压修复批，用户裁决方案）：monitor 档 LRU 上限
+ * （缺省 10，可注入）——daemon 对每次 subscribe 均重推全量快照（不分档位），
+ * 全量列表转全量订阅会在重连重放时瞬间推 N 个尾窗快照（实测 4-5MB），爆
+ * 8MB 背压上限断连 → 重连再推 → 风暴循环。窗口化后重连重放 ≤ capacity+1
+ * 个快照。list 序 = recency（活跃会话更新时间刷新 → 活跃的必在前排）→
+ * 被挤出窗外的都是不活跃会话，退订零损失。
+ *
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now；出站命令经
  * commands.ts 构造器（@helix/protocol 同源类型）。
  */
@@ -36,9 +43,11 @@ export interface SnapshotVerdict {
 }
 
 export class SubscriptionLedger {
+  /** monitor 档 LRU 容量（构造注入；测试用小值）。 */
+  private readonly monitorCapacity: number;
   /** 活跃会话镜像（同步推进；见模块头）。 */
   private activeId: string | null = null;
-  /** 已发出档位簿记（sessionId → tier）。 */
+  /** 已发出档位簿记（sessionId → tier；Map 迭代序 = 订阅 LRU，尾部最新）。 */
   private readonly tiers = new Map<string, SubscriptionTier>();
   /** 先升后降挂起：target = 等待 ack 的新活跃；demote = ack 后降 monitor 的会话链。 */
   private pending: { target: string; demote: string[] } | null = null;
@@ -46,6 +55,10 @@ export class SubscriptionLedger {
    *  （区别于降档/补订 ack 噪声；daemon 对每次 subscribe 均重推快照，
    *  newDraft 降档 ack 若走「快照优先激活」会把草稿顶回旧会话——E 层实查）。 */
   private readonly pendingActivation = new Set<string>();
+
+  constructor(monitorCapacity = 10) {
+    this.monitorCapacity = monitorCapacity;
+  }
 
   /** 观测面（测试/诊断）：某会话当前簿记档位。 */
   tierOf(sessionId: string): SubscriptionTier | undefined {
@@ -57,15 +70,41 @@ export class SubscriptionLedger {
     return sessionSubscribeCommand(sessionId, tier);
   }
 
+  /**
+   * monitor 档 LRU 订阅（慢客户端积压修复批）：delete+set 挪迭代序尾部
+   * （最近订阅前沿）；超容时淘汰头部最老 monitor（跳过 demote 挂起链——
+   * 降档 ack 即将入簿，淘汰它只会抖动）+ 退订命令。每次调用最多新增一个
+   * monitor → 淘汰一个即平衡。
+   */
+  private setMonitor(sessionId: string): SubscriptionCommand[] {
+    this.tiers.delete(sessionId);
+    this.tiers.set(sessionId, "monitor");
+    const out: SubscriptionCommand[] = [sessionSubscribeCommand(sessionId, "monitor")];
+    let monitorCount = 0;
+    for (const tier of this.tiers.values()) if (tier === "monitor") monitorCount++;
+    if (monitorCount <= this.monitorCapacity) return out;
+    for (const id of [...this.tiers.keys()]) {
+      if (this.tiers.get(id) !== "monitor") continue;
+      if (this.isPendingDemote(id)) continue;
+      this.tiers.delete(id);
+      out.push(sessionUnsubscribeCommand(id));
+      break;
+    }
+    return out;
+  }
+
   private isPendingDemote(sessionId: string): boolean {
     return this.pending?.demote.includes(sessionId) ?? false;
   }
 
   /**
-   * 启动/清单对齐（session.list.result 到达）：活跃 full 先行 + 其余全部
-   * monitor（逐会话订阅，工作台会话数有限无批量命令需求）+ 清单外残留退订
-   * （deleted 帧丢失兜底）。幂等：档位一致零命令。挂起降档中的会话不抢降
-   * （先升后降严格序保护）。
+   * 启动/清单对齐（session.list.result 到达）：活跃 full 先行 + **监控窗口**
+   * （清单前 monitorCapacity 个，慢客户端积压修复批——取代旧「其余全部
+   * monitor」全图订阅语义）。清理先行（出窗/清单外残留退订——腾位，防窗内
+   * 旧条目被新条目的 LRU 淘汰误杀），订阅随后（窗内缺位补订）。list 序 =
+   * recency（活跃会话更新时间刷新 → 活跃的必在前排）→ 出窗的都是不活跃
+   * 会话，退订零损失。幂等：档位一致零命令。挂起降档中的会话不抢降（先升
+   * 后降严格序保护）。
    */
   syncList(sessionIds: string[]): SubscriptionCommand[] {
     const out: SubscriptionCommand[] = [];
@@ -78,25 +117,27 @@ export class SubscriptionLedger {
     ) {
       out.push(this.set(activeId, "full"));
     }
-    for (const id of sessionIds) {
-      if (id === activeId || this.isPendingDemote(id)) continue;
-      if (this.tiers.get(id) !== "monitor") out.push(this.set(id, "monitor"));
-    }
+    const windowIds = sessionIds.slice(0, this.monitorCapacity);
     for (const id of [...this.tiers.keys()]) {
-      if (!sessionIds.includes(id) && id !== activeId) {
+      if (!windowIds.includes(id) && id !== activeId) {
         this.tiers.delete(id);
         out.push(sessionUnsubscribeCommand(id));
       }
     }
+    for (const id of windowIds) {
+      if (id === activeId || this.isPendingDemote(id)) continue;
+      if (this.tiers.get(id) !== "monitor") out.push(...this.setMonitor(id));
+    }
     return out;
   }
 
-  /** created（list_changed）：补订 monitor（幂等；档位升级归 switchTo/快照激活）。
-   *  无活跃（草稿链）时登记 pendingActivation——该会话的回推快照 = 激活指令。 */
+  /** created（list_changed）：补订 monitor（LRU 容量化；幂等；档位升级归
+   *  switchTo/快照激活）。无活跃（草稿链）时登记 pendingActivation——该会话
+   *  的回推快照 = 激活指令。 */
   addCreated(sessionId: string): SubscriptionCommand[] {
     if (this.tiers.has(sessionId)) return [];
     if (this.activeId === null) this.pendingActivation.add(sessionId);
-    return [this.set(sessionId, "monitor")];
+    return this.setMonitor(sessionId);
   }
 
   /** deleted（list_changed）：退订 + 挂起降档/待激活清理（ack 时不再降它）。 */
@@ -146,7 +187,7 @@ export class SubscriptionLedger {
     this.activeId = null;
     const out: SubscriptionCommand[] = [];
     for (const id of ids) {
-      if (this.tiers.get(id) === "full") out.push(this.set(id, "monitor"));
+      if (this.tiers.get(id) === "full") out.push(...this.setMonitor(id));
     }
     return out;
   }
@@ -172,7 +213,7 @@ export class SubscriptionLedger {
     //（switchTo 乐观推进 activeId=target，故须先于活跃重建判定）
     if (this.pending?.target === sessionId) {
       for (const id of this.pending.demote) {
-        if (this.tiers.get(id) === "full") commands.push(this.set(id, "monitor"));
+        if (this.tiers.get(id) === "full") commands.push(...this.setMonitor(id));
       }
       this.pending = null;
       return { commands, dispatch: true }; // 切换 ack 快照 = 激活指令（进 dispatcher）

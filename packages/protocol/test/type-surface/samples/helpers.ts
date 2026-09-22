@@ -267,6 +267,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.feed":
       // 文本管家批（V2.5）：feed 文本行窄化（kind/agentId/seq）
       return `steward-feed:${event.payload.kind}:${event.payload.agentId}:${event.payload.seq}`;
+    case "steward.sediment_proposal":
+      // 管家记忆 B4a：自动沉淀提案（actionId/kind/text）
+      return `steward-sediment:${event.payload.actionId}:${event.payload.kind}:${event.payload.text}`;
     case "steward.config.result":
       // 文本管家批（V2.5）：设置回执窄化（enabled/model）
       return `steward-config:${event.payload.enabled}:${event.payload.model}`;
@@ -341,6 +344,12 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `voice-syn-done:${event.payload.utterId}:${event.payload.provider}:${event.payload.frames}`;
     case "voice.synthesize.error":
       return `voice-syn-error:${event.payload.utterId}:${event.payload.reason}`;
+    case "provider.list.result":
+      // 三方平台批：平台清单回执
+      return `provider-list-result:${event.payload.providers.map((p) => p.id).join(",")}`;
+    case "session.instanceChannels.result":
+      // channels 惰性化批：实例通道历史回执（打开抽屉重建完整时间线）
+      return `instance-channels-result:${event.payload.instanceId}:${String(event.payload.hasMore)}:${event.payload.nextCursor ?? "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -374,6 +383,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `session-list`;
     case "session.loadHistory":
       return `load-history:${cmd.sessionId ?? "-"}:${cmd.payload.beforeEntryId}:${cmd.payload.limit ?? 50}`;
+    case "session.instanceChannels":
+      // channels 惰性化批：抽屉打开按需拉全量通道历史（快照只携带预览条）
+      return `instance-channels:${cmd.sessionId ?? "-"}:${cmd.payload.instanceId}`;
     case "session.delete":
       return `session-delete:${cmd.sessionId ?? "-"}`;
     // ── v0.2 model 族 ──
@@ -574,6 +586,15 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "embedding.verify":
       // embedding 配置域（B2）：连通测试
       return `embedding-verify:${cmd.payload.id}`;
+    case "provider.list":
+      // 三方平台批：清单读面
+      return "provider-list";
+    case "provider.set":
+      // 三方平台批：新增/更新（按 id upsert）
+      return `provider-set:${cmd.payload.id}:${cmd.payload.baseUrl}:${cmd.payload.models.map((m) => m.id).join(",")}`;
+    case "provider.delete":
+      // 三方平台批：删除
+      return `provider-delete:${cmd.payload.id}`;
     case "voice.synthesize.stream":
       return `voice-syn-stream:${cmd.payload.utterId}:${cmd.payload.voice ?? "-"}:${cmd.payload.text}`;
     case "voice.synthesize.stop":

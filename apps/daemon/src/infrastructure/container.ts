@@ -58,10 +58,12 @@ import {
   StewardMemoryService,
   STEWARD_MEMORY_EMBEDDING_KEY,
   STEWARD_MEMORY_ENDPOINT_ID_KEY,
+  STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY,
 } from "../application/steward/StewardMemoryService";
 import {
   EmbeddingConfigService,
 } from "../application/embedding/EmbeddingConfigService";
+import { CustomProviderService } from "../application/services/CustomProviderService";
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
 import { JevJudgeAdapter } from "../adapters/driven/embedding/JevJudgeAdapter";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
@@ -409,7 +411,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // CLI bindCwd）
     await workspace.restore();
   }
-  const modelStack = buildModelStack({ paths, logger });
+  // 三方平台批：config 注入（KV custom_providers 启动回读——自定义 provider
+  //   登记进目录底座；persistence 在装配序上先于本步，依赖已就绪）
+  const modelStack = buildModelStack({ paths, logger, config: persistence.runtimeConfig });
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
   // ── 装配序步 2-5：任务栈（T1.3，与三 build* 同列）──
   //    任务类型注册表（T2.3 真体）：独立 SkillScanner 实例扫 builtin 层（与
@@ -760,6 +764,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         embedding,
         embeddingConfig,
         store,
+        // B4a 判官真体：judgeEndpointId 惰性解析 + kind 校验（误指 embedding
+        // 端点 → null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
+        // 同一 service 上语义正确：vec0 缺席时判了也存不了，不如不判。
+        judge: new JevJudgeAdapter({
+          getConfig: () => {
+            const judgeEndpointId = persistence.runtimeConfig.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY);
+            if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
+            const record = embeddingConfig.resolveRecord(judgeEndpointId);
+            if (record === null || record.kind !== "classifier") return null;
+            return record;
+          },
+        }),
         logger: { warn: (message) => logger.warn(message) },
       });
     })(),
@@ -775,6 +791,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     config: persistence.runtimeConfig, // steward.enabled / steward.model KV 持久化
     feedGate: eventStream, // hasStewardSubscribers 窄接口（连接级订阅闸门）
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
+    // B4a 自动沉淀提案帧出口（与 feed 同订阅闸——判官判定后轮外投递确认卡）
+    emitSedimentProposal: (payload) => eventStream.broadcastStewardSedimentProposal(payload),
     // 驾驶舱批：页面切换指令帧出口（投递成功/建会话即切——仅已订阅 steward 连接收）
     emitNavigate: (payload) => eventStream.broadcastStewardNavigate(payload),
     // A2：L1 感知面（快照 + query_recent_work 读面 + create_session 执行面
@@ -1082,6 +1100,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // CRUD + 连通测试；只转发不决策）
     embedding: {
       service: embeddingConfig,
+    },
+    // 三方平台批：provider 族三命令回口（CustomProviderService——自定义
+    // OpenAI 兼容平台 CRUD + 活目录同步；key/verify 走既有 auth 族）
+    provider: {
+      service: new CustomProviderService({
+        config: persistence.runtimeConfig,
+        registry: modelStack.customProviderRegistry,
+        auth: modelStack.authStore,
+        defaultModel: persistence.defaultModel,
+      }),
     },
     // mcp 批：mcp 族六命令依赖面——registry 单例 + 配置窄写面闭包
     //（整段替换 config.mcpServers → writeConfig 全字段序列化；readonly →

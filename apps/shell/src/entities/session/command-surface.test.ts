@@ -339,3 +339,48 @@ describe("COMMAND_SURFACE setSessionModel 返回值（code-review 族A，TR-168�
     expect(COMMAND_SURFACE.setSessionModel(draft.deps)("anthropic/claude-x")).toBe(true); // 草稿本地暂存恒成
   });
 });
+
+describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
+  const { match } = LISTEN_SURFACE.subscribeStewardFrames;
+
+  it("转发 steward 族回执/广播全清单（含 B4a sediment_proposal 提案帧）", () => {
+    for (const type of [
+      "steward.ask.result",
+      "steward.ask.delta",
+      "steward.confirm.result",
+      "steward.feed",
+      "steward.config.result",
+      "steward.history.result",
+      "steward.tool",
+      "steward.thinking",
+      "steward.navigate",
+      "steward.sediment_proposal",
+      "steward.memory_list.result",
+      "connection.error",
+    ] as const) {
+      expect(match(type)).toBe(true);
+    }
+  });
+
+  it("不转发其他域帧", () => {
+    expect(match("embedding.list.result")).toBe(false);
+    expect(match("voice.synthesize.chunk")).toBe(false);
+    expect(match("agent.config.list.result")).toBe(false);
+  });
+});
+
+describe("LISTEN_SURFACE.subscribeProviderFrames（三方平台批——TR-89 双登记钉死）", () => {
+  const { match } = LISTEN_SURFACE.subscribeProviderFrames;
+
+  it("转发 provider 族清单回执 + connection.error", () => {
+    expect(match("provider.list.result")).toBe(true);
+    expect(match("connection.error")).toBe(true);
+  });
+
+  it("不转发命令帧与其他域帧", () => {
+    expect(match("provider.set")).toBe(false); // 命令非回执
+    expect(match("embedding.list.result")).toBe(false);
+    expect(match("model.catalog.result")).toBe(false);
+    expect(match("auth.list.result")).toBe(false);
+  });
+});

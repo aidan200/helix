@@ -18,6 +18,7 @@ import { createInitialTopologyState } from "@/entities/session/model/state";
 const killInstance = vi.fn();
 const subscribeInstance = vi.fn();
 const unsubscribeInstance = vi.fn();
+const requestInstanceChannels = vi.fn(); // channels 惰性化批：抽屉开拉全量通道历史
 const consumeKillToast = vi.fn();
 const switchSession = vi.fn();
 const newDraft = vi.fn();
@@ -66,6 +67,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
+      requestInstanceChannels,
       consumeRestoreToast: () => {},
       consumeSpawnToast: () => {},
       consumeKillToast,

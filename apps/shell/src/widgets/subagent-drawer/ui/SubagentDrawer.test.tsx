@@ -28,6 +28,7 @@ import {
 const killInstance = vi.fn();
 const subscribeInstance = vi.fn();
 const unsubscribeInstance = vi.fn();
+const requestInstanceChannels = vi.fn(); // channels 惰性化批：抽屉开拉全量通道历史
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -38,6 +39,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
+      requestInstanceChannels,
     }),
   };
 });

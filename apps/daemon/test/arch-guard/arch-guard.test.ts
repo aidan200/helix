@@ -621,7 +621,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // AG-12 曾长期红，pi-0.87 批收口补齐）。
           const serviceTypeOnly =
             (/\/services\/(kg|workspace|task)\//.test(spec) ||
-              /\/services\/(TurnDiffService|AskService)$/.test(spec) ||
+              /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
               /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec)) &&
             typeOnly(spec, src);
           // stt 批显式例外：VocabularyBuilder = 纯函数词汇表工具面
@@ -641,7 +641,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
       for (const spec of importSpecifiers(src)) {
         if (
           (/\/services\/(kg|workspace|task)\//.test(spec) ||
-            /\/services\/(TurnDiffService|AskService)$/.test(spec) ||
+            /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
             /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec)) &&
           typeOnly(spec, src)
         )

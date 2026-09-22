@@ -100,7 +100,7 @@ function usageFromSnapshot(
  *  CL-3：定向 steer 干预条目（user + steerState + instanceId=本实例，契约 §3.2
  *  Q-3a 双投影）→ steer-directed 物种（与时间轴侧同构）；主线 agent_send
  *  转投回放（普通 user 无 steerState）→ 既有 steer 注入标记。 */
-function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
+export function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
   switch (entry.kind) {
     case "message":
       if (entry.role === "user") {

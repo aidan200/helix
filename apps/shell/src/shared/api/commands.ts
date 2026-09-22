@@ -74,6 +74,7 @@ import type {
   SessionDeleteCommand,
   SessionListCommand,
   SessionLoadHistoryCommand,
+  SessionInstanceChannelsCommand,
   SessionSubscribeCommand,
   SessionUnsubscribeCommand,
   TaskArtifactsCommand,
@@ -125,6 +126,10 @@ import type {
   EmbeddingListCommand,
   EmbeddingSetCommand,
   EmbeddingVerifyCommand,
+  ProviderDeleteCommand,
+  ProviderListCommand,
+  ProviderSetCommand,
+  ProviderSetPayload,
   VoiceSubscribeCommand,
   VoiceSynthesizeCommand,
   VoiceSynthesizeStopCommand,
@@ -249,6 +254,24 @@ export function sessionLoadHistoryCommand(sessionId: string, beforeEntryId: stri
     type: "session.loadHistory",
     sessionId,
     payload: { beforeEntryId },
+  };
+}
+
+/**
+ * session.instanceChannels：SubAgent 实例通道历史按需拉取（channels 惰性
+ * 化批）。快照只携带每通道预览条，抽屉打开实例时拉首页（beforeEntryId
+ * 缺省）；翻页续拉传上一页 nextCursor。
+ */
+export function sessionInstanceChannelsCommand(
+  sessionId: string,
+  instanceId: string,
+  beforeEntryId?: string,
+): SessionInstanceChannelsCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "session.instanceChannels",
+    sessionId,
+    payload: beforeEntryId === undefined ? { instanceId } : { instanceId, beforeEntryId },
   };
 }
 
@@ -539,11 +562,12 @@ export function stewardGetConfigCommand(): StewardGetConfigCommand {
 
 /** steward.set_config：设置写面（enabled/model/memory 槽位可选；全局命令；
  * 管家记忆 B2 memory 组瘦身——{enabled?,endpointId?}（端点 CRUD 收编
- * embedding 配置域，endpointId 引用其条目）。 */
+ * embedding 配置域，endpointId 引用其条目）；B4a +judgeEndpointId
+ * （classifier 端点引用——判官自动沉淀）。 */
 export function stewardSetConfigCommand(patch: {
   enabled?: boolean;
   model?: string;
-  memory?: { enabled?: boolean; endpointId?: string };
+  memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
 }): StewardSetConfigCommand {
   return {
     v: PROTOCOL_VERSION,
@@ -622,6 +646,25 @@ export function embeddingDeleteCommand(id: string): EmbeddingDeleteCommand {
 /** embedding.verify：连通测试（回执 embedding.verify.result 两判别，id 回携）。 */
 export function embeddingVerifyCommand(id: string): EmbeddingVerifyCommand {
   return { v: PROTOCOL_VERSION, type: "embedding.verify", payload: { id } };
+}
+
+// ── provider 族命令（三方平台批：自定义 OpenAI 兼容平台 CRUD；全局命令）
+// 回执 = provider.list.result 点对点（list/set/delete 三命令共用——写后
+// 即刷新清单）；key 录入/连通验证走既有 auth 族（不另设通路）。
+
+/** provider.list：三方平台清单读面。 */
+export function providerListCommand(): ProviderListCommand {
+  return { v: PROTOCOL_VERSION, type: "provider.list", payload: {} };
+}
+
+/** provider.set：新增/更新平台（按 id upsert；id = 模型字符串前缀）。 */
+export function providerSetCommand(payload: ProviderSetPayload): ProviderSetCommand {
+  return { v: PROTOCOL_VERSION, type: "provider.set", payload };
+}
+
+/** provider.delete：删除平台（回执新清单）。 */
+export function providerDeleteCommand(id: string): ProviderDeleteCommand {
+  return { v: PROTOCOL_VERSION, type: "provider.delete", payload: { id } };
 }
 
 // ── mcp 族命令（mcp 批：MCP server 标准接入；六命令全全局命令）────

@@ -43,6 +43,7 @@ import type {
   StewardMemoryUpdateCommand,
   StewardMemoryDeleteCommand,
   StewardMemoryListResultEvent,
+  StewardSedimentProposalEvent,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -98,6 +99,7 @@ type _StewardFamily = Expect<
       | "steward.tool"
       | "steward.thinking"
       | "steward.navigate"
+      | "steward.sediment_proposal"
       | "steward.memory_list.result"
   >
 >;
@@ -223,7 +225,7 @@ const configResult: StewardConfigResultEvent = {
   payload: {
     enabled: false,
     model: "deepseek/deepseek-v4-flash",
-    memory: { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+    memory: { enabled: false, available: false, endpoint: null, judgeEndpoint: null, entryCount: 0, dim: null },
   },
 };
 
@@ -428,6 +430,7 @@ const memoryConfigResult: StewardConfigResultEvent = {
       enabled: true,
       available: true,
       endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
+      judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
       entryCount: 3,
       dim: 1024,
     },
@@ -510,5 +513,44 @@ describe("管家记忆 B2：memory_* 四命令 additive", () => {
     expect(first?.sourceTurn).toBe("manual");
     expect(first?.createdAt).toBe(1760000000000);
     expect(familyOf(memoryListResult)).toBe("steward/steward.memory_list.result");
+  });
+});
+
+// ── 管家记忆 B4a：judgeEndpointId 引用 + sediment_proposal 提案帧 ──────────
+
+const sedimentProposalFrame: StewardSedimentProposalEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.sediment_proposal",
+  payload: { actionId: "steward-action-7", text: "以后别用 bun test 跑 shell 测试", kind: "preference" },
+};
+
+describe("管家记忆 B4a：judgeEndpointId 引用 + sediment_proposal 提案帧", () => {
+  test("set_config.memory 三槽位可选（judgeEndpointId = classifier 端点引用）", () => {
+    const cmd: StewardSetConfigCommand = {
+      v: PROTOCOL_VERSION,
+      type: "steward.set_config",
+      payload: { memory: { judgeEndpointId: "ep-9" } },
+    };
+    expect(cmd.payload.memory?.judgeEndpointId).toBe("ep-9");
+    expect(cmd.payload.memory?.endpointId).toBeUndefined();
+  });
+
+  test("config.result.memory.judgeEndpoint 引用态窄化（id/name/model/hasApiKey）", () => {
+    const judge = memoryConfigResult.payload.memory.judgeEndpoint;
+    if (judge === null) throw new Error("judgeEndpoint 引用态窄化失败");
+    expect(judge.id).toBe("ep-9");
+    expect(judge.model).toBe("jev-latest");
+    expect("baseUrl" in judge).toBe(false);
+  });
+
+  test("sediment_proposal 事件目录登记 + payload 窄化（与 feed 同订阅闸）", () => {
+    expect(EVENT_TYPES).toContain("steward.sediment_proposal");
+    expect(EVENT_CHANNELS["steward.sediment_proposal"]).toBe("steward");
+    expect(summarizeEvent(sedimentProposalFrame)).toBe(
+      "steward-sediment:steward-action-7:preference:以后别用 bun test 跑 shell 测试",
+    );
+    expect(familyOf(sedimentProposalFrame)).toBe("steward/steward.sediment_proposal");
   });
 });

@@ -196,13 +196,11 @@ export class ModelCatalog implements ModelCatalogPort {
     return this.resolveModel(modelId) !== undefined;
   }
 
-  /** 合并目录的 provider id 全集。 */
+  /** 合并目录的 provider id 全集（动态面：builtin/内置快照 + 底座现册
+   *（含三方平台活注册）+ 有效 overlay 键——三方平台批：运行期 provider.set/
+   * delete 后目录读面即时反映，无需重启）。 */
   providerIds(): readonly string[] {
-    const ids = new Set(this.providerIdList);
-    for (const [providerId, entry] of this.store) {
-      if (effectiveOverlay(entry, this.localGeneratedAt).length > 0) ids.add(providerId);
-    }
-    return [...ids];
+    return this.dynamicProviderIds();
   }
 
   /** 连通验证（auth.verify 最小请求：streamSimple maxTokens=1）。 */
@@ -232,9 +230,9 @@ export class ModelCatalog implements ModelCatalogPort {
 
   // ── 组合根/引擎装配扩展面（非 port 面：pi Model 对象出口） ──
 
-  /** 合并全量模型（builtin baseline + 各 provider 有效 overlay）。 */
+  /** 合并全量模型（builtin baseline + 底座现册（含三方平台）+ 各 provider 有效 overlay）。 */
   mergedModels(): Model<Api>[] {
-    return this.providerIdList.flatMap((providerId) =>
+    return this.dynamicProviderIds().flatMap((providerId) =>
       mergeModels(this.base.getModels(providerId), this.overlayOf(providerId)),
     );
   }
@@ -285,6 +283,17 @@ export class ModelCatalog implements ModelCatalogPort {
 
   private overlayOf(providerId: string): Model<Api>[] {
     return effectiveOverlay(this.store.get(providerId), this.localGeneratedAt);
+  }
+
+  /** 目录读面 provider 集（动态）：刷新域快照（builtin）+ 底座现册
+   * （三方平台活注册）+ 有效 overlay 键。刷新域（stale/refreshAll）仍用
+   * 构造期 providerIdList 快照——自定义 provider 不参与 pi.dev 刷新。 */
+  private dynamicProviderIds(): readonly string[] {
+    const ids = new Set([...this.providerIdList, ...this.base.getProviders().map((p) => p.id)]);
+    for (const [providerId, entry] of this.store) {
+      if (effectiveOverlay(entry, this.localGeneratedAt).length > 0) ids.add(providerId);
+    }
+    return [...ids];
   }
 
   // ── 刷新与快照 ────────────────────────────────────────────

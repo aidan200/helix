@@ -47,6 +47,15 @@ export const HISTORY_PAGE_MAX = 200;
 export const SNAPSHOT_BUDGET_BYTES = 2 * 1024 * 1024;
 /** 单通道条数尾窗缺省（快照体量批）：字节预算内的深历史通道条数上限。 */
 export const CHANNEL_TAIL_SIZE = 50;
+/**
+ * 快照内每通道预览条数（channels 惰性化批）：快照只携带预览（抽屉摘要
+ * 可见），完整通道历史经 session.instanceChannels 按需分页拉取。
+ * 取值 2：末条状态 + 倒数第二条上下文（摘要足够）；SubAgent 重度会话
+ * 实测 channels 占单帧 81%（52 实例 × 50 条/通道）——预览化后单帧回到
+ * 主轴体量（<100KB 量级）。CHANNEL_TAIL_SIZE 退役快照职责，仅作历史
+ * 参考值保留（按需拉取页宽走 HISTORY_PAGE_DEFAULT 同口径）。
+ */
+export const SNAPSHOT_CHANNEL_PREVIEW = 2;
 
 /** 快照组装的尾窗参数（组合根/测试注入面）。 */
 export interface SnapshotTailOptions {
@@ -138,7 +147,7 @@ export function toSnapshotDto(
   const mainAxis = merged.filter(isMainAxisEntry);
   const tailSize = opts.tailSize ?? TAIL_WINDOW_SIZE;
   const budgetBytes = opts.budgetBytes ?? SNAPSHOT_BUDGET_BYTES;
-  const channelTail = opts.channelTail ?? CHANNEL_TAIL_SIZE;
+  const channelTail = opts.channelTail ?? SNAPSHOT_CHANNEL_PREVIEW;
   const countTail = mainAxis.length > tailSize ? mainAxis.slice(mainAxis.length - tailSize) : mainAxis;
   const { entries: tail, usedBytes } = byteTailNewest(countTail, Math.floor(budgetBytes / 2));
   // 帧级计账（快照体量批）：entries 与 tail 同源双写（v0.2 兼容别名——wire
@@ -352,6 +361,58 @@ function instanceChannels(entries: readonly EntryDto[], instance: InstanceSnapsh
     // 加 errors 槽 + 抽屉渲染面（跨包改动，产品决策点）。
   }
   return channels;
+}
+
+/**
+ * 实例通道历史按需分页（channels 惰性化批）：打平单时间轴（三槽归并升序）
+ * 上的游标回溯——与主轴 historyPage 同构（保最新 + hasMore/nextCursor +
+ * 字节预算），返回时重新归组三槽。快照只携带 SNAPSHOT_CHANNEL_PREVIEW
+ * 条预览，完整历史经本函数补拉（session.instanceChannels 命令消费）。
+ * 游标不在实例时间轴内 / main 实例（主轴即其历史）→ 抛错（handler 转
+ * connection.error）。
+ */
+export function instanceChannelsPage(
+  view: SessionStateView,
+  instanceId: string,
+  beforeEntryId: string | undefined,
+  limit: number,
+): { channels: InstanceChannelHistory; hasMore: boolean; nextCursor: string | null } {
+  const instance = view.instances?.find((i) => i.instanceId === instanceId);
+  if (instance === undefined) {
+    throw new Error(`实例 ${instanceId} 不在会话实例清单`);
+  }
+  if (instance.kind === "main") {
+    throw new Error(`主实例 ${instanceId} 历史即主时间轴（走 session.loadHistory）`);
+  }
+  const merged = assembleMerged(view);
+  const full = instanceChannels(merged, instance) ?? {};
+  // 三槽归并打平（升序稳定——时间并列保持槽内原序，与主轴同口径）
+  const timeline = [
+    ...(full.messages ?? []),
+    ...(full.thinking ?? []),
+    ...(full.tools ?? []),
+  ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
+  let earlier = timeline;
+  if (beforeEntryId !== undefined && beforeEntryId !== "") {
+    const cursorIndex = timeline.findIndex((entry) => entry.id === beforeEntryId);
+    if (cursorIndex < 0) {
+      throw new Error(`游标 ${beforeEntryId} 不在实例 ${instanceId} 通道时间轴内`);
+    }
+    earlier = timeline.slice(0, cursorIndex); // 严格早于游标（升序）
+  }
+  const countPage = earlier.length > limit ? earlier.slice(earlier.length - limit) : [...earlier];
+  const { entries: page } = byteTailNewest(countPage, SNAPSHOT_BUDGET_BYTES);
+  const hasMore = earlier.length > page.length;
+  const channels: InstanceChannelHistory = {};
+  for (const [key, kind] of [
+    ["tools", "tool-call"],
+    ["messages", "message"],
+    ["thinking", "thinking"],
+  ] as const) {
+    const items = page.filter((entry) => entry.kind === kind).sort((a, b) => entrySortKey(a) - entrySortKey(b));
+    if (items.length > 0) channels[key] = items;
+  }
+  return { channels, hasMore, nextCursor: hasMore ? (page[0]?.id ?? null) : null };
 }
 
 /** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure/usage 同构直映射）。

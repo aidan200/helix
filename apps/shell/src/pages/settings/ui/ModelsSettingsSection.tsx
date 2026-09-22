@@ -46,6 +46,8 @@ import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
 import { useArmedConfirm } from "./settings-hooks";
 import EmbeddingModelsTab from "./EmbeddingModelsTab";
+import CustomProvidersTab from "./CustomProvidersTab";
+import { filterAvailableModels } from "@/features/model-switch/model/available-models";
 import type { ModelsTab } from "../settings-section-bus";
 
 /** ctx 档位（200k / 400k / 1M…；与 P-3 同源格式）。 */
@@ -145,6 +147,12 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
   // 展开的 provider（单值；null = 全收起）
   const [expanded, setExpanded] = useState<string | null>(null);
+  // 默认模型更改菜单（open|closed + 搜索词；Bug 修复批：删默认 provider key
+  // 后唯一修改口藏在 provider 展开表行内——顶部只读行加直接修改口，
+  // configured 优先 + 当前默认兑底保留（filterAvailableModels 复用，
+  // StewardCard/ProfileCard 同口径））
+  const [defaultEditOpen, setDefaultEditOpen] = useState(false);
+  const [defaultQuery, setDefaultQuery] = useState("");
 
   // key 弹层 Escape 关闭（开态窗口级监听；与 backdrop 点击关闭同语义）
   useEffect(() => {
@@ -281,7 +289,7 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
     <div className="pg" data-models-section>
       <h2 className="pg-title">{t("chat.settings.title")}</h2>
 
-      {/* B2-③ tab 切换排（对话模型 | 向量模型；stp-mode 双钮同构视觉） */}
+      {/* B2-③ tab 切换排（对话模型 | 向量模型 | 三方平台；stp-mode 双钮同构视觉） */}
       <div className="lang-switch" data-models-tab role="group" aria-label={t("chat.settings.title")}>
         <button
           type="button"
@@ -301,14 +309,25 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
         >
           {t("chat.settings.general.modelsTabEmbedding")}
         </button>
+        <button
+          type="button"
+          className={cn("hud-btn sm", tab === "provider" ? "hud-btn-cyan" : "hud-btn-ghost")}
+          data-models-tab-provider
+          aria-pressed={tab === "provider"}
+          onClick={() => setTab("provider")}
+        >
+          {t("chat.settings.general.modelsTabProvider")}
+        </button>
       </div>
 
       {tab === "embedding" ? (
         <EmbeddingModelsTab />
+      ) : tab === "provider" ? (
+        <CustomProvidersTab onGoAuth={() => setTab("chat")} />
       ) : (
         <>
-      {/* 工具卡：全局默认展示（只读，改默认在下方模型表行内操作）+ 推理强度
-          + 目录刷新（F(3.4).5）——两行收紧布局 */}
+      {/* 工具卡：全局默认展示（顶部直接修改口 + 推理强度 + 目录刷新
+          （F(3.4).5）——两行收紧布局） */}
       <div className="hud-card">
         <div className="toolbar">
           <div className="toolbar-row">
@@ -318,6 +337,18 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                 {mc.defaultModel === "" ? t("chat.modelsConfig.unconfigured") : mc.defaultModel}
               </span>
             </div>
+            <button
+              className="hud-btn hud-btn-ghost sm"
+              type="button"
+              data-default-edit-toggle
+              aria-expanded={defaultEditOpen}
+              onClick={() => {
+                setDefaultEditOpen(!defaultEditOpen);
+                setDefaultQuery("");
+              }}
+            >
+              {t("chat.modelsConfig.changeDefault")}
+            </button>
             {(() => {
               // R7 全局兜底批：全局默认推理强度（档位解析基准 = 全局默认模型能力）
               const capability = resolveThinkingCapability(mc.defaultModel === "" ? "" : mc.defaultModel, mc.catalog?.models ?? undefined);
@@ -386,6 +417,70 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
             </span>
           </div>
         </div>
+        {/* 默认模型更改面板（Bug 修复批：configured 优先 + 当前默认兑底保留；
+            限高滚动（与三方平台模型清单同规范）；选中即 set_default（乐观
+            更新 + 族A结果帧 toast，下方模型表行内按钮同链路） */}
+        {defaultEditOpen && (
+          <div className="dms-panel" data-dms-panel>
+            <input
+              className="hud-input dms-search"
+              type="text"
+              autoComplete="off"
+              placeholder={t("chat.modelSwitch.searchPlaceholder")}
+              value={defaultQuery}
+              data-dms-search
+              onChange={(e) => setDefaultQuery(e.target.value)}
+            />
+            <div className="dms-list" data-dms-list>
+              {(() => {
+                const visible = filterAvailableModels({
+                  models: mc.catalog?.models ?? [],
+                  auth: mc.auth,
+                  authLoaded: mc.authLoaded,
+                  currentModel: mc.defaultModel === "" ? undefined : mc.defaultModel,
+                  query: defaultQuery,
+                });
+                const byProvider = new Map<string, typeof visible>();
+                for (const m of visible) {
+                  const list = byProvider.get(m.providerId);
+                  if (list) list.push(m);
+                  else byProvider.set(m.providerId, [m]);
+                }
+                if (byProvider.size === 0) {
+                  return <p className="ag-note" data-dms-empty>{t("chat.modelSwitch.emptyTitle")}</p>;
+                }
+                return [...byProvider.entries()].map(([providerId, models]) => (
+                  <div key={providerId}>
+                    <div className="pgroup-label">{providerId}</div>
+                    {models.map((m) => {
+                      const isDefault = mc.defaultModel === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          className={cn("dms-item", isDefault && "sel")}
+                          type="button"
+                          data-dms-item={m.id}
+                          onClick={() => {
+                            if (!setDefaultModel(m.id)) {
+                              defaultAbortedRef.current = true;
+                              toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                              return;
+                            }
+                            setDefaultEditOpen(false);
+                          }}
+                        >
+                          <span className="dms-name">{m.id}</span>
+                          {isDefault && <span className="hud-chip">{t("chat.modelsConfig.defaultChip")}</span>}
+                          <span className="hud-chip">{fmtContext(m.contextWindow)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
       </div>
 
       <h2 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h2>
@@ -475,7 +570,9 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                           onClick={() => onDeleteKey(row.providerId)}
                         >
                           {armedDelete === row.providerId
-                            ? t("chat.modelsConfig.confirmDelete")
+                            ? mc.defaultModel !== "" && mc.defaultModel.startsWith(`${row.providerId}/`)
+                              ? t("chat.modelsConfig.confirmDeleteWarn")
+                              : t("chat.modelsConfig.confirmDelete")
                             : t("chat.modelsConfig.deleteKey")}
                         </button>
                       </>

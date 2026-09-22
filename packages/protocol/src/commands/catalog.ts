@@ -16,6 +16,7 @@ import type {
   AgentUnsubscribeCommand,
   SessionListCommand,
   SessionLoadHistoryCommand,
+  SessionInstanceChannelsCommand,
   SessionDeleteCommand,
   AskAnswerCommand,
 } from "./session";
@@ -122,6 +123,11 @@ import type {
   EmbeddingDeleteCommand,
   EmbeddingVerifyCommand,
 } from "./embedding";
+import type {
+  ProviderListCommand,
+  ProviderSetCommand,
+  ProviderDeleteCommand,
+} from "./provider";
 
 export type CommandEnvelope =
   | ChatSendCommand
@@ -134,6 +140,7 @@ export type CommandEnvelope =
   | AgentUnsubscribeCommand
   | SessionListCommand
   | SessionLoadHistoryCommand
+  | SessionInstanceChannelsCommand
   | SessionDeleteCommand
   | ModelSetCommand
   | ModelGetCommand
@@ -226,6 +233,9 @@ export type CommandEnvelope =
   | EmbeddingSetCommand
   | EmbeddingDeleteCommand
   | EmbeddingVerifyCommand
+  | ProviderListCommand
+  | ProviderSetCommand
+  | ProviderDeleteCommand
   | AskAnswerCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -268,6 +278,9 @@ export const COMMAND_TYPES = [
   "embedding.set",
   "embedding.delete",
   "embedding.verify",
+  "provider.list",
+  "provider.set",
+  "provider.delete",
   "session.subscribe",
   "session.unsubscribe",
   "agent.kill",
@@ -275,6 +288,7 @@ export const COMMAND_TYPES = [
   "agent.unsubscribe",
   "session.list",
   "session.loadHistory",
+  "session.instanceChannels",
   "session.delete",
   "model.set",
   "model.get",

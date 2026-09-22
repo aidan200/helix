@@ -42,6 +42,7 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     killInstance,
     subscribeInstance,
     unsubscribeInstance,
+    requestInstanceChannels,
   } = useSession();
 
   const card = state.instances.find((c) => c.instanceId === agentId);
@@ -52,10 +53,13 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
   const elapsed = useRunningElapsed(running, card?.startedAtMs, card?.elapsedMs ?? 0); // hooks 先于早退（实例不在状态源的防御分支）
 
   // ── 订阅生命周期（开订/关退订；实例切换 = 换订）──
+  // channels 惰性化批：抽屉打开同步拉全量通道历史（快照只携带预览条；
+  // 回执 consumers/instance-history 重建 channel 列表——替换预览态）
   useEffect(() => {
     subscribeInstance(agentId);
+    requestInstanceChannels(agentId);
     return () => unsubscribeInstance(agentId);
-  }, [agentId, subscribeInstance, unsubscribeInstance]);
+  }, [agentId, subscribeInstance, unsubscribeInstance, requestInstanceChannels]);
 
   // ── Esc 关闭（抽屉打开期间全局键盘；背板/✕ 为另两路径）──
   useEffect(() => {

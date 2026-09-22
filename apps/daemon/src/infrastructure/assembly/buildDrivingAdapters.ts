@@ -29,7 +29,7 @@ import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-
 import { createDaemonFreshnessProvider } from "../../adapters/driven/freshness/SourceFreshness";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { VoiceCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
-import type { StewardCommandDeps, EmbeddingCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
+import type { StewardCommandDeps, EmbeddingCommandDeps, ProviderCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
 import { StaticServe } from "../../adapters/driven/static-serve/StaticServe";
 import type { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
@@ -206,6 +206,12 @@ export interface WsDrivingDeps {
    */
   readonly embedding?: EmbeddingCommandDeps;
   /**
+   * 三方平台回口（三方平台批）：自定义 OpenAI 兼容平台 CRUD
+   * （CustomProviderService）。可选：未注入 → 三命令回
+   * command.unimplemented（embedding 同构；stub rig 兼容）。
+   */
+  readonly provider?: ProviderCommandDeps;
+  /**
    * mcp 族命令依赖面（mcp 批）：McpServerPort + 配置窄写面（组合根闭包）。
    * 可选：未注入 → mcp 六命令回 command.unimplemented（stub rig 兼容）。
    */
@@ -362,6 +368,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // 管家记忆 B2：embedding 配置域回口（端点 CRUD + 连通测试；未注入 →
     // 四命令回 unimplemented——stub rig 兼容）
     ...(deps.embedding !== undefined ? { embedding: deps.embedding } : {}),
+    // 三方平台批：provider 族三命令回口（未注入 → 回 unimplemented；组合根恒注入）
+    ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）
     ...(deps.mcp !== undefined ? { mcp: deps.mcp } : {}),
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验

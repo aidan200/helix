@@ -171,6 +171,13 @@ describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）
     // endpointId 空串 = 清除引用（显式解绑）
     expect(stewardSetConfigCommand({ memory: { endpointId: "" } }).payload).toEqual({ memory: { endpointId: "" } });
   });
+
+  it("B4a：judgeEndpointId 槽位透传（classifier 端点引用；与 endpointId 共存）", () => {
+    const cmd = stewardSetConfigCommand({ memory: { judgeEndpointId: "ep-9" } });
+    expect(cmd.payload).toEqual({ memory: { judgeEndpointId: "ep-9" } });
+    const both = stewardSetConfigCommand({ memory: { endpointId: "ep-1", judgeEndpointId: "ep-9" } });
+    expect(both.payload.memory).toEqual({ endpointId: "ep-1", judgeEndpointId: "ep-9" });
+  });
 });
 
 // ── 管家记忆 B2：memory_* 四命令 + embedding 四命令构造器 ──

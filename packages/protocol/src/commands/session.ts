@@ -142,6 +142,25 @@ export interface SessionLoadHistoryCommand
 }
 
 /**
+ * session.instanceChannels 载荷（channels 惰性化批）：按需拉取某 SubAgent
+ * 实例的完整通道历史（快照只带每通道 SNAPSHOT_CHANNEL_PREVIEW 条预览，
+ * 完整历史经本命令回溯分页——与 session.loadHistory 同构的保最新分页）。
+ */
+export interface SessionInstanceChannelsPayload {
+  /** 目标实例 id（非 main 实例——主实例历史即主轴，走 session.loadHistory） */
+  instanceId: string;
+  /** 游标：当前该通道最早 entry id（回溯拉更早页）；缺省 = 最新一页 */
+  beforeEntryId?: string;
+  /** 缺省 50，上限 200（与 loadHistory 同口径） */
+  limit?: number;
+}
+
+export interface SessionInstanceChannelsCommand
+  extends CommandFrame<SessionInstanceChannelsPayload> {
+  type: "session.instanceChannels";
+}
+
+/**
  * session.delete 载荷（Q-4④）：信封 sessionId 必填；payload 空（路由位在
  * 信封）。daemon 顺序硬约束：取消全部执行完成 → 删库 → 注册表移除 →
  * 广播 session.list_changed（T2.2 落地）。

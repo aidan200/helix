@@ -31,6 +31,10 @@ import SessionCard from "./P-2-session-card";
 /** 侧栏折叠记忆键（AG-14 白名单：纯 UI 布局偏好，非业务状态）。 */
 const SIDEBAR_KEY = "helix-sidebar-collapsed";
 
+/** 列表分页档位（慢客户端积压修复批：首页 10 + 每次加载 10——与订阅监控
+ *  窗口同量级，活跃会话更新时间刷新 → 活跃的必在第一页）。 */
+const PAGE_SIZE = 10;
+
 /** 折叠记忆读写（shared/lib/persisted-flag 收拢；缺省 = 展开）。 */
 const readCollapsed = (): boolean => readPersistedFlag(SIDEBAR_KEY, false);
 const writeCollapsed = (v: boolean): void => writePersistedFlag(SIDEBAR_KEY, v);
@@ -42,6 +46,8 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // 列表分页（慢客户端积压修复批）：首页 PAGE_SIZE，「加载更多」每次 +PAGE_SIZE
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // 清单拉取（F(1.2).2）：每次进入 connected 发 session.list（daemon 权威
   // 全量回推；list_changed 增量维护归 store）
@@ -223,7 +229,7 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
               </div>
             </div>
           )}
-          {cards.map((c) => (
+          {cards.slice(0, visibleCount).map((c) => (
             <SessionCard
               key={c.key}
               sessionId={c.sessionId}
@@ -239,6 +245,16 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
               onDeleteCancel={onDeleteCancel}
             />
           ))}
+          {cards.length > visibleCount && (
+            <button
+              className="hud-btn hud-btn-ghost sm"
+              type="button"
+              data-slist-more
+              onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+            >
+              {t("chat.sidebar.loadMore", { n: Math.min(PAGE_SIZE, cards.length - visibleCount) })}
+            </button>
+          )}
         </div>
         <div className="sb-foot">
           <span className="foot-note">daemon · ws</span>

@@ -62,6 +62,8 @@ import type {
   StewardCommandDeps,
   EmbeddingCommandDeps,
   EmbeddingCommandContext,
+  ProviderCommandDeps,
+  ProviderCommandContext,
   TaskCommandContext,
   TraceCommandContext,
   VoiceCommandContext,
@@ -145,6 +147,12 @@ export interface WsServerAdapterDeps {
    * command.unimplemented（steward 先例；stub rig 兼容）。
    */
   readonly embedding?: EmbeddingCommandDeps;
+  /**
+   * 三方平台回口（三方平台批）：自定义 OpenAI 兼容平台 CRUD
+   * （CustomProviderService；只转发不决策）。可选：未注入 → 回
+   * command.unimplemented（embedding 同构；stub rig 兼容）。
+   */
+  readonly provider?: ProviderCommandDeps;
   /**
    * 合并目录校验面：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -686,6 +694,27 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     };
   };
 
+  /**
+   * 三方平台命令处理上下文（三方平台批）：CustomProviderService + 共享
+   * 辅助。装配缺席（deps.provider undefined）在 routeCommand 已拒，
+   * 此处非空断言安全（embeddingContext 同构）。
+   */
+  const providerContext = (
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): ProviderCommandContext => {
+    return {
+      ws,
+      type,
+      payload,
+      provider: deps.provider!,
+      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      rawSender: () => helpers.rawSender(ws),
+      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+    };
+  };
+
   return {
     commandContext,
     chatContext,
@@ -703,5 +732,6 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     voiceContext,
     stewardContext,
     embeddingContext,
+    providerContext,
   };
 }

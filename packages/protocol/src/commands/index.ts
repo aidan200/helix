@@ -28,4 +28,5 @@ export * from "./stt";
 export * from "./voice";
 export * from "./steward";
 export * from "./embedding";
+export * from "./provider";
 export * from "./catalog";

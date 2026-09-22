@@ -37,6 +37,10 @@ import type {
   TaskListPayload,
   TraceQueryPayload,
   DiffGetPayload,
+  ProviderDeleteCommand,
+  ProviderListCommand,
+  ProviderSetCommand,
+  ProviderSetPayload,
 } from "@helix/protocol";
 import {
   agentBasePromptGetCommand,
@@ -60,6 +64,9 @@ import {
   embeddingListCommand,
   embeddingSetCommand,
   embeddingVerifyCommand,
+  providerDeleteCommand,
+  providerListCommand,
+  providerSetCommand,
   voiceSubscribeCommand,
   voiceSynthesizeCommand,
   voiceSynthesizeStopCommand,
@@ -113,6 +120,7 @@ import {
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
+  sessionInstanceChannelsCommand,
   taskArtifactsCommand,
   taskCancelCommand,
   taskDeleteCommand,
@@ -281,13 +289,13 @@ export const COMMAND_SURFACE = {
   /** 设置读面（回执 steward.config.result）。 */
   sendStewardGetConfig: (deps) =>
     (): boolean => deps.send(stewardGetConfigCommand()),
-  /** 设置写面（槽位均可选——含记忆组（管家记忆 B2 瘦身形态 {enabled?,endpointId?}）；
-   *  回执 steward.config.result 新态）。 */
+  /** 设置写面（槽位均可选——含记忆组（管家记忆 B2 瘦身形态 {enabled?,endpointId?}
+   *  + B4a judgeEndpointId）；回执 steward.config.result 新态）。 */
   sendStewardSetConfig: (deps) =>
     (patch: {
       enabled?: boolean;
       model?: string;
-      memory?: { enabled?: boolean; endpointId?: string };
+      memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
     }): boolean => deps.send(stewardSetConfigCommand(patch)),
   /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true
    *  新对话三处同清）。 */
@@ -330,6 +338,26 @@ export const COMMAND_SURFACE = {
   /** 连通测试（回执 embedding.verify.result 两判别，id 回携）。 */
   sendEmbeddingVerify: (deps) =>
     (id: string): boolean => deps.send(embeddingVerifyCommand(id)),
+
+  // ── 三方平台域（三方平台批）：自定义 OpenAI 兼容平台 CRUD（模型页
+  //    三方平台 tab）──────────────────────────────────────
+  /** 平台清单读面（回执 provider.list.result）。 */
+  sendProviderList: (deps) =>
+    (): boolean => deps.send(providerListCommand()),
+  /** 平台新增/更新（按 id upsert；回执 provider.list.result 新清单）。 */
+  sendProviderSet: (deps) =>
+    (payload: ProviderSetPayload): boolean => deps.send(providerSetCommand(payload)),
+  /** 平台删除（回执 provider.list.result 新清单）。 */
+  sendProviderDelete: (deps) =>
+    (id: string): boolean => deps.send(providerDeleteCommand(id)),
+  /** 无条件重拉目录快照（三方平台批 V2 修复：provider.set/delete 后 daemon
+   *  目录即时更新，但 shell 的 mc.catalog 缓存不失效——模型清单/上下文窗口
+   *  等目录面改动后 P-3 菜单与设置页显示旧值。由 provider.list.result 回执
+   *  回调消费（结果帧驱动，与 requestModelConfig 的 catalog===null 首进锁存
+   *  互补；model.catalog 回执不会再触发 provider 拉取，链路无环无自激——
+   *  TR-169 守卫纪律核对）。 */
+  pullModelCatalog: (deps) =>
+    (): boolean => deps.send(modelCatalogCommand()),
 
   // ── 连接 / 会话生命周期面 ─────────────────────────────────
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
@@ -431,6 +459,16 @@ export const COMMAND_SURFACE = {
   /** agent.subscribe（抽屉打开；v0.1 通路语义，契约 §8-1） */
   subscribeInstance: (deps) =>
     (agentId: string) => sendAgentCommand(deps, "agent.subscribe", agentId),
+  /** 实例通道全量拉取（channels 惰性化批）：快照只带预览条，抽屉打开时
+   *  拉首页全量回填（回执 session.instanceChannels.result → consumers/
+   *  instance-history 重建 channel 列表）。游标缺省 = 首页；草稿态无
+   *  会话上下文零帧（抽屉不处于草稿，防御分支）。 */
+  requestInstanceChannels: (deps) =>
+    (agentId: string) => {
+      const { sessionId } = deps.getTopology().active;
+      if (sessionId === null) return;
+      deps.send(sessionInstanceChannelsCommand(sessionId, agentId));
+    },
   /** agent.unsubscribe（抽屉关闭/换订） */
   unsubscribeInstance: (deps) =>
     (agentId: string) => sendAgentCommand(deps, "agent.unsubscribe", agentId),
@@ -923,6 +961,7 @@ export const LISTEN_SURFACE = {
       type === "steward.tool" ||
       type === "steward.thinking" ||
       type === "steward.navigate" ||
+      type === "steward.sediment_proposal" ||
       type === "steward.memory_list.result" ||
       type === "connection.error",
   },
@@ -933,6 +972,13 @@ export const LISTEN_SURFACE = {
     match: (type) =>
       type === "embedding.list.result" ||
       type === "embedding.verify.result" ||
+      type === "connection.error",
+  },
+  /** 订阅 provider 族帧（三方平台批：list.result 清单回执（list/set/delete
+   *  共用）——模型页三方平台 tab 消费面）。 */
+  subscribeProviderFrames: {
+    match: (type) =>
+      type === "provider.list.result" ||
       type === "connection.error",
   },
 } satisfies Record<string, ListenDomainSpec>;

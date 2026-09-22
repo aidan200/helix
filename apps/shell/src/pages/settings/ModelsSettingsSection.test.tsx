@@ -272,6 +272,68 @@ describe("code-review 族A：设为默认 ok toast 结果帧驱动（M47 同构�
 });
 
 
+// ── Bug 修复批：默认模型直接修改口（顶部更改菜单）+ 删默认 provider key 警示 ──
+
+describe("Bug 修复批：顶部默认模型更改菜单", () => {
+  it("点击「更改」展开面板：configured 过滤 + 当前默认兑底保留；选中即发 setDefaultModel + 面板收起", () => {
+    const { container } = ui();
+    expect(container.querySelector("[data-dms-panel]")).toBeNull(); // 初始收起
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-default-edit-toggle]")!);
+    const panel = container.querySelector("[data-dms-panel]")!;
+    expect(panel).not.toBeNull();
+    // anthropic（configured）两模型在场；openai（未配置且非默认）隐藏；
+    // 当前默认 anthropic/claude-a 在场（configured 本就显示——兑底口径不另断）
+    expect(panel.querySelector("[data-dms-item='anthropic/claude-a']")).not.toBeNull();
+    expect(panel.querySelector("[data-dms-item='anthropic/claude-b']")).not.toBeNull();
+    expect(panel.querySelector("[data-dms-item='openai/gpt-x']")).toBeNull();
+    // 选中即发命令 + 面板收起
+    fireEvent.click(panel.querySelector<HTMLButtonElement>("[data-dms-item='anthropic/claude-b']")!);
+    expect(setDefaultModel).toHaveBeenCalledWith("anthropic/claude-b");
+    expect(container.querySelector("[data-dms-panel]")).toBeNull();
+  });
+
+  it("零 configured 时当前默认仍保留（兑底）：删默认 provider key 后可达的修改口", () => {
+    // 场景重置：anthropic key 也删了（零 configured），默认 anthropic/claude-a
+    const savedAuth = mc.auth;
+    mc.auth = {
+      anthropic: { providerId: "anthropic", configured: false, verifyStatus: "unverified" },
+      openai: { providerId: "openai", configured: false, verifyStatus: "unverified" },
+    };
+    try {
+      const { container } = ui();
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-default-edit-toggle]")!);
+      const panel = container.querySelector("[data-dms-panel]")!;
+      // 仅当前默认兑底在场（其余全隐）
+      expect(panel.querySelector("[data-dms-item='anthropic/claude-a']")).not.toBeNull();
+      expect(panel.querySelector("[data-dms-item='anthropic/claude-b']")).toBeNull();
+    } finally {
+      mc.auth = savedAuth; // 还原共享 fixture
+    }
+  });
+
+  it("搜索过滤：关键词命中模型子集", () => {
+    const { container } = ui();
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-default-edit-toggle]")!);
+    fireEvent.change(container.querySelector("[data-dms-search]")!, { target: { value: "gpt" } });
+    const panel = container.querySelector("[data-dms-panel]")!;
+    expect(panel.querySelector("[data-dms-item='anthropic/claude-a']")).toBeNull();
+    // openai/gpt-x 未配置且非当前默认——搜索也不出现（可用性过滤先于搜索）
+    expect(panel.querySelector("[data-dms-item='openai/gpt-x']")).toBeNull();
+    expect(panel.querySelector("[data-dms-empty]")!).not.toBeNull();
+  });
+});
+
+describe("Bug 修复批：删除托管默认模型的 provider key 警示文案", () => {
+  it("anthropic（托管默认 claude-a）一击武装 → 警示变体文案", () => {
+    const { container } = ui();
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-prov="anthropic"] [data-prov-toggle]')!);
+    const delBtn = container.querySelector<HTMLButtonElement>('[data-prov="anthropic"] [data-prov-delkey]')!;
+    expect(delBtn.textContent).toContain("删除"); // 初始普通文案
+    fireEvent.click(delBtn); // 一击武装
+    expect(delBtn.textContent).toContain("默认模型将失效"); // 警示变体
+  });
+});
+
 // ── B2-③ 模型页 tab 化：「对话模型」（既有内容零改动包裹）|「向量模型」──
 
 describe("模型页 tab 化（B2-③）", () => {
