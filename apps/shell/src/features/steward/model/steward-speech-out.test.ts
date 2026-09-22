@@ -243,4 +243,74 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
     expect(out.answerResult("answer", "第一句。")).toBe("fallback");
     expect(senders.fallbacks).toEqual(["第一句。"]);
   });
+
+  describe("播放闸（乱序修复：入队序 = 发句序，句内 seq 单调）", () => {
+    it("句间乱序到达：后句 chunk 先到不插队——前句收口后按发句序 flush", () => {
+      out.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      // 句 2 合成更快：chunk 先到（闸未开——零入队缓冲）
+      out.onChunkFrame(id2, "RDg=", 1);
+      expect(player.enqueued).toEqual([]);
+      // 句 1 chunk 到达：头句已释放，直通
+      out.onChunkFrame(id1, "QUJD", 1);
+      expect(player.enqueued).toEqual([[id1, "QUJD"]]);
+      // 句 1 收口 → 句 2 过闸，缓冲按序 flush
+      out.onDoneFrame(id1);
+      expect(player.enqueued).toEqual([
+        [id1, "QUJD"],
+        [id2, "RDg="],
+      ]);
+    });
+
+    it("头句直通流水线：未收口期间后续 chunk 不缓冲", () => {
+      out.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      out.onChunkFrame(id1, "QUJD", 1);
+      out.onChunkFrame(id2, "RDg=", 1); // 后句缓冲
+      out.onChunkFrame(id1, "Q0JD", 2); // 头句第二块直通（不缓冲）
+      out.onChunkFrame(id2, "RUVG", 2); // 后句仍缓冲
+      expect(player.enqueued).toEqual([
+        [id1, "QUJD"],
+        [id1, "Q0JD"],
+      ]);
+      out.onDoneFrame(id1);
+      expect(player.enqueued).toEqual([
+        [id1, "QUJD"],
+        [id1, "Q0JD"],
+        [id2, "RDg="],
+        [id2, "RUVG"],
+      ]);
+    });
+
+    it("前句 error（已出声）→ 闸推进：后句缓冲照常 flush", () => {
+      out.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      out.onChunkFrame(id2, "RDg=", 1); // 后句先备好（缓冲）
+      out.onChunkFrame(id1, "QUJD", 1); // 头句出声
+      out.onErrorFrame(id1); // 中途断——只丢句不降级
+      expect(player.dropped).toEqual([id1]);
+      expect(player.enqueued).toEqual([[id1, "QUJD"], [id2, "RDg="]]); // 闸推进后 flush
+      expect(out.answerResult("answer", "第一句。第二句。")).toBe("stream");
+    });
+
+    it("未过闸句 error：缓冲整句丢弃（零入队），drop 照记", () => {
+      out.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      out.onChunkFrame(id2, "RDg=", 1); // 缓冲
+      out.onErrorFrame(id2); // 未过闸失败（未出声）→ 回退缓冲 + drop
+      expect(player.dropped).toEqual([id2]);
+      out.onChunkFrame(id1, "QUJD", 1);
+      expect(player.enqueued).toEqual([[id1, "QUJD"]]); // id2 缓冲未泄漏进队列
+    });
+
+    it("句内 seq 单调防御：回退/重复 seq 帧丢弃", () => {
+      out.feedRawDelta("第一句。");
+      const id1 = senders.streams[0]![0];
+      out.onChunkFrame(id1, "QUJD", 1);
+      out.onChunkFrame(id1, "QUJD", 1); // 重复
+      out.onChunkFrame(id1, "QUJD", 0); // 回退
+      out.onChunkFrame(id1, "Q0JD", 2); // 正常升序
+      expect(player.enqueued).toEqual([[id1, "QUJD"], [id1, "Q0JD"]]);
+    });
+  });
 });

@@ -274,8 +274,9 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     if (subscribeVoiceFrames === undefined) return;
     return subscribeVoiceFrames((event: EventEnvelope) => {
       if (event.type === "voice.synthesize.chunk") {
-        const p = event.payload as { utterId?: unknown; audio?: unknown };
-        if (typeof p.utterId === "string" && typeof p.audio === "string") speechOut.onChunkFrame(p.utterId, p.audio);
+        const p = event.payload as { utterId?: unknown; audio?: unknown; seq?: unknown };
+        if (typeof p.utterId === "string" && typeof p.audio === "string")
+          speechOut.onChunkFrame(p.utterId, p.audio, typeof p.seq === "number" ? p.seq : undefined);
         return;
       }
       if (event.type === "voice.synthesize.done") {

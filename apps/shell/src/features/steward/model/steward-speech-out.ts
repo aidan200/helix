@@ -6,8 +6,12 @@
  *   尾部 withhold（增量 markdown 变换的前缀稳定性防御：仅最后一个句读
  *   边界前的文本喂切句）→ SentenceBuffer 切句 → 逐句 voice.synthesize.stream
  *   （utterId 连接内单调）；
- * - chunk 帧 → SpeechPlayer 播放队列（句间无缝：上一句播放中下一句已在
- *   合成）；done/error 帧句级收口；
+ * - chunk 帧 → **播放闸** → SpeechPlayer 播放队列（乱序修复批）：多句并发
+ *   合成是常态（上一句播放中下一句已在合成），chunk 到达序 ≠ 发句序——
+ *   闸按发句序过闸释放（头句直通；后句缓冲至前句收口 flush），播放序恒
+ *   = 文本序；句内 seq 单调防御（迟到/重复帧丢弃——WS FIFO 下物理有序，
+ *   防御层）；句间串行无缝 = player timeline 追加调度（nextStart 连续推进，
+ *   一块播完才是下一块）；done/error 帧句级收口（error 推进闸——后继句照常放行）；
  * - 回退链（V3b-2 原语义）：流式失败（error 帧且本轮零出声 / 首帧超时 /
  *   发送失败 / 播放面不可用）→ 链死降级，未读句累积 → answer 终态一次性
  *   voice.synthesize 整段回退（≤500 截断）；再失败只丢句不断对话；
@@ -64,6 +68,14 @@ interface PendingUtter {
   readonly text: string;
   gotChunk: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  /** 播放闸：done/error 已收口（闸推进判据——后继句放行条件）。 */
+  done: boolean;
+  /** 播放闸：已过闸（此后续 chunk 直通 player；未过闸 = 缓冲）。 */
+  released: boolean;
+  /** 句内已接受最大 seq（单调防御；undefined = 无 seq 信息不防御）。 */
+  lastSeq: number | undefined;
+  /** 未过闸 chunk 缓冲（到达序 FIFO——WS 同连接保证句内有序）。 */
+  buffered: string[];
 }
 
 /** 最后一个句读边界后的稳定喂入点（尾部 withhold——边界前文本不会再变）。 */
@@ -136,8 +148,9 @@ export class StewardSpeechOut {
     this.armCutTimer();
   }
 
-  /** chunk 帧消费：音频入队；播放面死 → 整链降级回退。 */
-  onChunkFrame(utterId: string, base64Pcm: string): void {
+  /** chunk 帧消费：seq 单调防御 → 闸（未过闸缓冲/过闸直通）→ 音频入队；
+   * 播放面死 → 整链降级回退。 */
+  onChunkFrame(utterId: string, base64Pcm: string, seq?: number): void {
     if (this.disposed) return;
     const pending = this.pending.get(utterId);
     if (pending === undefined) return; // 迟到/他面/已收口帧
@@ -146,37 +159,42 @@ export class StewardSpeechOut {
       pending.timer = null;
     }
     pending.gotChunk = true;
-    const ok = this.player.enqueue(utterId, base64Pcm);
-    if (!ok) {
-      // 播放面不可用（AudioContext 构造失败等）：流式音频无处可播——整链
-      // 降级，未读句转一次性（回退链第三入口）
-      this.pending.delete(utterId);
-      this.player.drop(utterId);
-      this.degrade();
-      this.fallbackText += pending.text;
+    // 句内 seq 单调防御：迟到/重复帧丢弃（迟到帧无法插入已调度的 timeline）
+    if (seq !== undefined) {
+      if (pending.lastSeq !== undefined && seq <= pending.lastSeq) return;
+      pending.lastSeq = seq;
+    }
+    if (!pending.released) {
+      pending.buffered.push(base64Pcm); // 前句未收口——闸住（乱序到达不插队）
       return;
     }
-    this.anyAudio = true;
+    this.enqueueOrDegrade(utterId, pending, base64Pcm);
   }
 
-  /** done 帧消费：句收口（音频已全量下发——播放队列自然续播）。 */
+  /** done 帧消费：句收口标记 + 闸推进（音频已全量下发；后继句过闸 flush）。 */
   onDoneFrame(utterId: string): void {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
     if (pending.timer !== null) clearTimeout(pending.timer);
-    this.pending.delete(utterId);
+    pending.done = true;
+    if (pending.released) this.pending.delete(utterId); // 音频已全量入队
+    this.pumpGate();
   }
 
-  /** error 帧消费：未出声句转回退；已出声句只丢（半句重读会重复）。 */
+  /** error 帧消费：未出声句转回退；已出声句只丢（半句重读会重复）；闸推进。 */
   onErrorFrame(utterId: string): void {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
     if (pending.timer !== null) clearTimeout(pending.timer);
     this.pending.delete(utterId);
     this.player.drop(utterId);
-    if (pending.gotChunk) return; // 中途断：丢句不降级（V3b-2 语义）
+    if (pending.gotChunk) {
+      this.pumpGate(); // 中途断：丢句不降级（V3b-2 语义）——后继句照常放行
+      return;
+    }
     this.fallbackText += pending.text; // 先入缓冲（时序正确——降级废的在途句后到后拼）
     if (!this.anyAudio) this.degrade();
+    else this.pumpGate();
   }
 
   /** answer 终态裁决（status = steward.ask.result 判别；text = 全文权威）。 */
@@ -300,7 +318,12 @@ export class StewardSpeechOut {
         text: piece,
         gotChunk: false,
         timer: setTimeout(() => this.onFirstChunkTimeout(utterId), this.firstChunkTimeoutMs),
+        done: false,
+        released: false,
+        lastSeq: undefined,
+        buffered: [],
       });
+      this.pumpGate(); // 头句立即过闸（流水线：首 chunk 到达即直通）
     }
   }
 
@@ -311,7 +334,42 @@ export class StewardSpeechOut {
     // money 纪律：超时句定向 stop（daemon 侧任务取消），不弃在途任务
     this.senders.sendStopFor(utterId);
     if (!this.anyAudio) this.degrade();
+    else this.pumpGate(); // 已出声链：不降级——闸推进，后继句放行
     this.fallbackText += pending.text;
+  }
+
+  /** 入队单点：player 拒收（播放面不可用）→ 整链降级回退（回退链第三入口）。 */
+  private enqueueOrDegrade(utterId: string, pending: PendingUtter, audio: string): void {
+    const ok = this.player.enqueue(utterId, audio);
+    if (!ok) {
+      // 播放面不可用（AudioContext 构造失败等）：流式音频无处可播——整链
+      // 降级，未读句转一次性
+      this.pending.delete(utterId);
+      this.player.drop(utterId);
+      this.degrade();
+      this.fallbackText += pending.text;
+      return;
+    }
+    this.anyAudio = true;
+  }
+
+  /** 播放闸推进：按发句序（Map 插入序 = issue 序）扫描——未过闸句过闸
+   *（缓冲按序 flush）；已收口句清位推进；未收口句拦住后继（等待其 done/
+   * error/超时收口后再推进）。降级/停读时 pending 清空即闸复位。 */
+  private pumpGate(): void {
+    for (const [utterId, p] of [...this.pending.entries()]) {
+      if (!p.released) {
+        p.released = true;
+        const buffered = p.buffered;
+        p.buffered = [];
+        for (const audio of buffered) {
+          this.enqueueOrDegrade(utterId, p, audio);
+          if (this.streamDead) return; // 降级已清场——快照迭代即刻终止
+        }
+      }
+      if (!p.done) break; // 未收口：后继句必须等它（乱序修复的核心闸）
+      this.pending.delete(utterId); // 已收口且音频全量入队
+    }
   }
 
   /** 链死降级：未出声在途句全废（各自定向 stop——money 零孤儿）。 */
