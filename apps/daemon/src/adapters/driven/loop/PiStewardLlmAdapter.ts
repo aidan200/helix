@@ -26,7 +26,7 @@
  * 本文件是 pi-ai import 的合法执行点之一（architecture.md §8.3 红线；
  * application 层只见 StewardLlmPort 窄面——pi-ai 类型不越墙）。
  */
-import type { AssistantMessage, Models, Model, Context, Message, Tool, ThinkingLevel } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Models, Model, Context, JsonObject, Message, Tool, ThinkingLevel } from "@earendil-works/pi-ai";
 import { resolveModel } from "../pi-engine/model-provider";
 import type {
   StewardLlmPort,
@@ -195,7 +195,9 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
         }
         if (m.text !== undefined && m.text !== "") content.push({ type: "text", text: m.text });
         if (m.toolCall !== undefined) {
-          content.push({ type: "toolCall", id: m.toolCall.id, name: m.toolCall.name, arguments: m.toolCall.args });
+          // port args 源头是 pi JsonObject（toResponse 透传 toolCall.arguments），
+          // 闭环内 JSON 保证——断言收窄回 0.87 收紧的 ToolCall.arguments 形态。
+          content.push({ type: "toolCall", id: m.toolCall.id, name: m.toolCall.name, arguments: m.toolCall.args as JsonObject });
         }
         messages.push({
           role: "assistant",

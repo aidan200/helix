@@ -118,9 +118,10 @@ export function mcpDiscoverToolName(
 /**
  * 单 server meta 发现工具（deferred 批懒加载入口）：
  * - 模型调用 → content 返回工具清单（name + description 行）；
- * - addedToolNames 标记物化工具（pi deferred 通道：Anthropic
- *   defer_loading / OpenAI additional-tools|tool-search；其余 provider
- *   忽略标记 = 物化后急发，降级不坏）；
+ * - 0.87 起 pi agent-loop 每请求前自动宣告 context.tools 与 transcript 声明
+ *   的差异（toolsAdded/toolsRemoved system message）——物化链 onDiscover →
+ *   refreshAssembly 赋 agent.state.tools 后，模型自动可见新工具，无需
+ *   0.85 时代的 addedToolNames 标记（已随 AgentToolResult 移除）；
  * - onDiscover 同步触发物化链（组合根：物化集 + refreshAssembly）。
  *
  * 参数 schema：无参（空对象——清单即全部信息；避免伪造参数误导模型）。
@@ -155,8 +156,8 @@ export function createMcpDiscoverTool(
           details: { server, count: 0 },
         };
       }
-      // 物化链先行（工具池追加 + 刷新链）——标记随结果落地（transcript
-      // 重放语义：未调用的物化工具 deferred，调用过转 immediate）。
+      // 物化链先行（工具池追加 + 刷新链）——刷新后 loop 自动宣告工具差异
+      //（transcript 重放语义：未调用的物化工具 deferred，调用过转 immediate）。
       deps.onDiscover?.(server, namespacedNames);
       return {
         content: [
@@ -167,7 +168,6 @@ export function createMcpDiscoverTool(
               lines.join("\n"),
           },
         ],
-        addedToolNames: namespacedNames,
         details: { server, count: enabled.length },
       };
     },

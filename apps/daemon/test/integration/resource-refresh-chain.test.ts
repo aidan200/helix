@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
@@ -69,8 +69,9 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
   };
   const streamFn: StreamFn = (model: Model<any>, context) => {
-    const ctx = context as unknown as { systemPrompt?: string; tools?: Array<{ name: string }> };
-    seen.push({ systemPrompt: ctx.systemPrompt, tools: (ctx.tools ?? []).map((t) => t.name) });
+    // 0.87：prompt/tools 声明由 transcript system messages 承载——官方回放读取
+    //（替代 0.85 的 context 字段直读）。
+    seen.push({ systemPrompt: getCurrentSystemPrompt(context.messages), tools: getCurrentTools(context.messages).map((t) => t.name) });
     const stream = createAssistantMessageEventStream();
     const final: AssistantMessage = {
       role: "assistant",

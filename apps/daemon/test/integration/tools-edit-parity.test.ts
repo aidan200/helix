@@ -577,7 +577,7 @@ describe("⑧ VENDORED 纪律（AF-1）：逐字复制 + 零 pi import", () => {
     (name) => {
       const ours = readFileSync(path.join(kernelDir, name), "utf8");
       const upstream = readFileSync(path.join(upstreamDir, name), "utf8");
-      expect(ours.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.85.1")).toBe(true);
+      expect(ours.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.87.0")).toBe(true);
       expect(sha(body(ours))).toBe(sha(upstream));
     },
   );

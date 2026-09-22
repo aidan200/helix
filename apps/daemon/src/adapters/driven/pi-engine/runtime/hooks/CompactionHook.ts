@@ -128,9 +128,16 @@ export class CompactionHook implements HookSet {
       // compaction 分支语义）：上下文 = compactionSummary 消息 + retainedTail
       // （滤除 error/aborted/deferred 终态的 assistant 消息，与 pi
       // sessionEntryToContextMessages 同口径）+ 后续新消息。
+      // 0.87 补丁：prompt/工具声明由 leading SystemMessage 承载
+      //（AgentState.systemPrompt 只读回放）——pi prepareCompaction 切点不豁免
+      // 首条 system 消息（几乎必入摘要窗口），重建时回插防丢 prompt；
+      // retainedTail 内可能残留的 system 消息（窗口极短时）滤除防双回放。
+      const first = agent.state.messages[0];
+      const leadingSystem = first !== undefined && first.role === "system" ? first : undefined;
       const rebuiltMessages: AgentMessage[] = [
+        ...(leadingSystem !== undefined ? [leadingSystem] : []),
         createCompactionSummaryMessage(cr.summary, cr.tokensBefore, Date.now()),
-        ...cr.retainedTail.filter(isContextMessage),
+        ...cr.retainedTail.filter(isContextMessage).filter((m) => m.role !== "system"),
       ];
       const tokensAfter = estimateContextTokens(rebuiltMessages).tokens;
       // 双写：agent.state（跨 run 持久）+ 返回替换 context（本 run 下一请求生效）
@@ -143,7 +150,6 @@ export class CompactionHook implements HookSet {
       });
       return {
         context: {
-          systemPrompt: agent.state.systemPrompt,
           messages: rebuiltMessages,
           tools: agent.state.tools,
         },

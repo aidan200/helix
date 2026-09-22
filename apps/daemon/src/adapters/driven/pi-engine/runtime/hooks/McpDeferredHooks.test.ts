@@ -12,7 +12,6 @@ function fakeTurn(toolNames: string[]): PrepareNextTurnContext {
     message: { role: "assistant", content: [] } as never,
     toolResults: [],
     context: {
-      systemPrompt: "SP",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] } as never],
       tools: toolNames.map((name) => ({ name, description: "" }) as never),
     },
@@ -46,7 +45,7 @@ describe("McpDeferredHooks", () => {
     expect(hook.prepareNextTurn(fakeTurn(["bash", "fake__discover"]))).toBeUndefined();
   });
 
-  test("漂移（物化新增）→ 替换 context.tools，保留 systemPrompt/messages", () => {
+  test("漂移（物化新增）→ 替换 context.tools，保留 messages", () => {
     const hook = new McpDeferredHooks();
     const agent = fakeAgent(["bash", "fake__discover"]);
     hook.bind(agent);
@@ -61,7 +60,6 @@ describe("McpDeferredHooks", () => {
       "fake__echo",
       "fake__ping",
     ]);
-    expect(update!.context!.systemPrompt).toBe("SP");
     expect(update!.context!.messages).toHaveLength(1);
   });
 

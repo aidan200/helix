@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { Api, AssistantMessage, Context, Model, Models } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context, JsonValue, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
@@ -36,9 +36,9 @@ export type ScriptEntry =
   | {
       kind: "tool";
       toolName: string;
-      args?: Record<string, unknown>;
+      args?: Record<string, JsonValue>;
       /** 需要引用先前工具结果时用 build（入参 = 截至本 turn 的全部工具结果文本，按到达序）。 */
-      build?: (results: readonly string[]) => { toolName: string; args: Record<string, unknown> };
+      build?: (results: readonly string[]) => { toolName: string; args: Record<string, JsonValue> };
     }
   | { kind: "reply"; text?: string };
 

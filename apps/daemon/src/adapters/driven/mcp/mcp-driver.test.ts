@@ -301,7 +301,7 @@ describe("mcpDiscoverToolName（撞名防御）", () => {
 });
 
 describe("createMcpDiscoverTool / createMcpDiscoverTools（真 registry）", () => {
-  test("execute 返回清单 + addedToolNames + onDiscover 回调", async () => {
+  test("execute 返回清单 + onDiscover 回调", async () => {
     const registry = new McpRegistry();
     await registry.addServer(fakeServerConfig("fake"));
     const discovered: Array<[string, string[]]> = [];
@@ -311,7 +311,6 @@ describe("createMcpDiscoverTool / createMcpDiscoverTools（真 registry）", () 
     expect(tools.map((t) => t.name)).toEqual(["fake__discover"]);
     const discover = tools[0]!;
     const result = await discover.execute("c1", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
-    expect(result.addedToolNames).toEqual(["fake__echo", "fake__ping"]);
     expect(result.content[0]).toMatchObject({ type: "text" });
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain("fake__echo: Echo back");
@@ -327,7 +326,6 @@ describe("createMcpDiscoverTool / createMcpDiscoverTools（真 registry）", () 
     });
     const discover = tools[0]!;
     const result = await discover.execute("c1", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
-    expect(result.addedToolNames).toEqual(["fake__echo"]);
     expect((result.content[0] as { text: string }).text).not.toContain("fake__ping");
   });
 

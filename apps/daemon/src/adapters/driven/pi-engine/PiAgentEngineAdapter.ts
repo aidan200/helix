@@ -282,6 +282,9 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       case "turn_end":
         return emit({ type: "turn_end", toolResultCount: event.toolResults.length });
       case "message_start": {
+        // 0.87：loop 会以正常事件流发出 system 消息（prompt/工具宣告载体）——
+        // 引擎内部机制不进对话流事件面（port role 封闭三角色），静默滤除。
+        if ((event.message as { role: string }).role === "system") return;
         const role = event.message.role as "user" | "assistant" | "toolResult";
         // drain 判别：run 中出现的 user 消息且文本与最早的 steer 注入一致
         //（注入消息出现在 turn 边界；prompt 的 user 消息只在 run 开头出现）。
@@ -314,6 +317,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         return;
       }
       case "message_end": {
+        if ((event.message as { role: string }).role === "system") return; // 同 message_start：system 消息滤除
         const role = event.message.role as "user" | "assistant" | "toolResult";
         // assistant 消息携带 usage 时提取（七字段防腐，账目本体归 UsageLedger）
         const usage = role === "assistant" ? usageOf(event.message) : undefined;

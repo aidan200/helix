@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context, JsonValue, Model } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { Database } from "bun:sqlite";
@@ -32,7 +32,7 @@ import { effectiveMainToolNames } from "../../src/infrastructure/assembly/buildS
 // ── 剧本 LLM（tools-loop 同款形态：每次引擎调用取一段；工具调用真执行真回注）──
 
 type ScriptEntry =
-  | { kind: "tool"; toolName: string; args: Record<string, unknown> }
+  | { kind: "tool"; toolName: string; args: Record<string, JsonValue> }
   | { kind: "reply"; text: string };
 
 const fakeModel = {

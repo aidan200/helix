@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Api, AssistantMessage, Context, Model, Models } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context, JsonValue, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { ChatService } from "../../src/application/services/ChatService";
@@ -34,7 +34,7 @@ import { stubCoordDeps } from "../helpers/coord-stub";
 // ── FakeLLM（模型替身：发起工具调用 / 基于真实结果续写） ──────────
 
 type ScriptEntry =
-  | { kind: "tool"; toolName: string; args: Record<string, unknown> }
+  | { kind: "tool"; toolName: string; args: Record<string, JsonValue> }
   | { kind: "reply"; build: (toolResults: string[]) => string };
 
 const fakeModel = {
@@ -76,7 +76,7 @@ function textMessage(text: string): AssistantMessage {
   return baseAssistant([{ type: "text", text }], "stop");
 }
 
-function toolCallMessage(id: string, name: string, args: Record<string, unknown>): AssistantMessage {
+function toolCallMessage(id: string, name: string, args: Record<string, JsonValue>): AssistantMessage {
   return baseAssistant([{ type: "toolCall", id, name, arguments: args }], "toolUse");
 }
 

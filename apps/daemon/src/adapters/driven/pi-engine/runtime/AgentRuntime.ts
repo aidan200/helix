@@ -175,13 +175,21 @@ export class AgentRuntime {
   }
 
   /**
-   * 运行期改系统提示（setModel 同构）：AgentState.systemPrompt 直改，
-   * 下一 run 起生效（不走 prepareNextTurn 链——同 setModel 机械裁决）。
-   * 已知边界（§六登记）：run 中 compaction 与配置变更并发时，压缩 turn
-   * 透传新 systemPrompt（run 内提前生效）——方向与意图一致，无害。
+   * 运行期改系统提示（setModel 同构）：0.87 起 AgentState.systemPrompt 只读
+   * （由 transcript leading SystemMessage 回放）——整体换 prompt = 替换 leading
+   * 的 content（保留 sections/toolsAdded——工具声明载体不丢）；无 leading（防御）
+   * 前插新 SystemMessage。下一 run 起生效（不走 prepareNextTurn 链——同
+   * setModel 机械裁决）。
    */
   setSystemPrompt(systemPrompt: string): void {
-    this.agent.state.systemPrompt = systemPrompt;
+    const messages = [...this.agent.state.messages];
+    const first = messages[0];
+    if (first !== undefined && first.role === "system") {
+      messages[0] = { ...first, content: systemPrompt };
+    } else {
+      messages.unshift({ role: "system", content: systemPrompt, timestamp: Date.now() });
+    }
+    this.agent.state.messages = messages;
   }
 
   setThinking(level: string): void {

@@ -91,9 +91,9 @@ describe("TP-CL4-1：恢复后 mainAgent 引擎 transcript 回填", () => {
       });
       await d1.chat.sendMessage("第一个问题");
       expect(seen1).toHaveLength(1);
-      // 基线：新建会话首轮 LLM 上下文只有新 prompt，无历史
-      expect(seen1[0]!.map((m) => m.role)).toEqual(["user"]);
-      expect(seen1[0]![0]!.text).toBe("第一个问题");
+      // 基线：新建会话首轮 LLM 上下文 = leading SystemMessage（0.87 prompt 载体）+ 新 prompt，无历史
+      expect(seen1[0]!.map((m) => m.role)).toEqual(["system", "user"]);
+      expect(seen1[0]![1]!.text).toBe("第一个问题");
       await d1.shutdown();
 
       // ② 重启恢复：同 --home，发第二条消息
@@ -108,11 +108,11 @@ describe("TP-CL4-1：恢复后 mainAgent 引擎 transcript 回填", () => {
       });
       await d2.chat.sendMessage("第二个问题");
       expect(seen2).toHaveLength(1);
-      // 回填生效：恢复后首轮上下文 = 历史（user + assistant）+ 新 prompt（user）
-      expect(seen2[0]!.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
-      expect(seen2[0]![0]!.text).toBe("第一个问题"); // 历史 user
-      expect(seen2[0]![1]!.text).toBe("回复@fake-model"); // 历史 assistant 回复
-      expect(seen2[0]![2]!.text).toBe("第二个问题"); // 新 prompt
+      // 回填生效：恢复后首轮上下文 = leading SystemMessage + 历史（user + assistant）+ 新 prompt（user）
+      expect(seen2[0]!.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+      expect(seen2[0]![1]!.text).toBe("第一个问题"); // 历史 user
+      expect(seen2[0]![2]!.text).toBe("回复@fake-model"); // 历史 assistant 回复
+      expect(seen2[0]![3]!.text).toBe("第二个问题"); // 新 prompt
       await d2.shutdown();
     } finally {
       rmSync(home, { recursive: true, force: true });

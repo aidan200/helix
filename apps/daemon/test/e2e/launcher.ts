@@ -32,7 +32,7 @@ import { buildModels } from "../../src/adapters/driven/pi-engine/model-provider"
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import type { DaemonScript, DaemonScriptEntry, SubagentScript, OrchestratorScript, OrchestratorScriptEntry } from "../../../../e2e/harness/daemon-script";
-import type { Api, AssistantMessage, Context, Model, Models } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context, JsonObject, JsonValue, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 
@@ -116,7 +116,7 @@ function textMessage(text: string, thinking?: string): AssistantMessage {
   return baseAssistant([{ type: "text", text }], "stop");
 }
 
-function toolCallMessage(id: string, name: string, args: Record<string, unknown>): AssistantMessage {
+function toolCallMessage(id: string, name: string, args: Record<string, JsonValue>): AssistantMessage {
   return baseAssistant([{ type: "toolCall", id, name, arguments: args }], "toolUse");
 }
 
@@ -180,7 +180,7 @@ function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[], modelLogPat
     const text = isTool ? "" : entry.kind === "replyFromResult" ? resolveText(entry, context as Context) : (entry as { text: string }).text;
     const thinking = !isTool && entry.kind === "reply" ? ((entry as { thinking?: string }).thinking ?? "") : "";
     const message = isTool
-      ? toolCallMessage(`call-${++seq}`, entry.toolName, entry.args)
+      ? toolCallMessage(`call-${++seq}`, entry.toolName, entry.args as Record<string, JsonValue>)
       : textMessage(text, thinking);
     const chunkSize = reply?.chunkSize ?? 0;
     const chunkDelayMs = reply?.chunkDelayMs ?? 0;
@@ -277,7 +277,7 @@ function makeOrchestratorStreamFn(entries: readonly OrchestratorScriptEntry[]): 
                 type: "toolCall",
                 id: `orch-call-${++seq}`,
                 name: entry.toolName!,
-                arguments: interpolateOrchestratorValue(entry.args ?? {}, findField) as Record<string, unknown>,
+                arguments: interpolateOrchestratorValue(entry.args ?? {}, findField) as Record<string, JsonValue>,
               },
             ],
             "toolUse",

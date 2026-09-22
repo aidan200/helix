@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AssistantMessage, AssistantMessageEvent, Model } from "@earendil-works/pi-ai";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, normalizeContext } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
   abortableSleep,
@@ -23,6 +23,9 @@ import {
  *   持续瞬时失败恰 4 次尝试（1+3）后退避耗尽走既有失败路径、
  *   永久类 1 次即失败、abort 打断等待、中途断流不重试、5xx 快速档。
  */
+
+/** 0.87：StreamFn 入参 branded TranscriptContext——normalizeContext 是唯一合法构造入口。 */
+const emptyTranscript = () => normalizeContext({ messages: [] });
 
 const fakeModel = {
   id: "fake-model",
@@ -246,7 +249,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(3); // 1 + 2 重试
     expect(clock.slept).toEqual([LLM_RETRY_BACKOFF_MS[0]!, LLM_RETRY_BACKOFF_MS[1]!]); // 假时钟断言退避序列消费
@@ -267,7 +270,7 @@ describe("withNetworkRetry", () => {
     const { fn, callCount } = scriptedStreamFn([{ kind: "error", message: "The socket connection was closed unexpectedly" }]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(4); // 首调 + 3 次退避重试
     expect(clock.slept).toEqual([10_000, 30_000, 60_000]); // 全序列 10s/30s/60s
@@ -285,7 +288,7 @@ describe("withNetworkRetry", () => {
     const { fn, callCount } = scriptedStreamFn([{ kind: "error", message: "401 authentication_error" }]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(1);
     expect(clock.slept).toEqual([]);
@@ -300,7 +303,7 @@ describe("withNetworkRetry", () => {
     const { fn, callCount } = scriptedStreamFn([{ kind: "error", message: quotaMessage }]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(1); // 恰 1 次——接口响应快速失败，不吃 10/30/60 退避
     expect(clock.slept).toEqual([]);
@@ -317,7 +320,7 @@ describe("withNetworkRetry", () => {
     const { fn, callCount } = scriptedStreamFn([{ kind: "error", message: glmQuota }]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(1);
     expect(clock.slept).toEqual([]);
@@ -337,7 +340,7 @@ describe("withNetworkRetry", () => {
       return stream;
     };
     const wrapped = withNetworkRetry(abortedFn, { sleep: clock.sleep });
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
     expect(events.map((e) => e.type)).toEqual(["error"]);
     expect((events[0] as Extract<AssistantMessageEvent, { type: "error" }>).reason).toBe("aborted");
     expect(clock.slept).toEqual([]);
@@ -349,7 +352,7 @@ describe("withNetworkRetry", () => {
     const { fn, callCount } = scriptedStreamFn([{ kind: "error", message: "fetch failed" }]);
     const wrapped = withNetworkRetry(fn, { backoffMs: [60_000], sleep: abortableSleep });
 
-    const promise = collect(wrapped(fakeModel, { messages: [] as never }, { signal: controller.signal }));
+    const promise = collect(wrapped(fakeModel, emptyTranscript(), { signal: controller.signal }));
     await Bun.sleep(5); // 进入退避等待后
     controller.abort();
 
@@ -366,7 +369,7 @@ describe("withNetworkRetry", () => {
     const { fn, callCount } = scriptedStreamFn([{ kind: "midstream", message: "ECONNRESET mid-stream" }]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(1);
     expect(clock.slept).toEqual([]);
@@ -381,7 +384,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     // pi-ai start 帧在 HTTP 响应头到达即推送 → 该文案恒为中途形态：
     // 分类面已收编（transient-fast），但中途门（forwarded）保持直通——
@@ -401,7 +404,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     // 快速档：恰 1 次重试（非 10s→30s→60s 全序列），二次失败退避耗尽原样转发
     expect(callCount()).toBe(2);
@@ -423,7 +426,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(2);
     expect(clock.slept).toEqual([5_000]);
@@ -439,7 +442,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     // 5xx 走流中断同款快速档：恰 1 次重试（非 10s→30s→60s 全序列），
     // 二次失败退避耗尽原样转发既有失败帧
@@ -461,7 +464,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(2);
     expect(clock.slept).toEqual([5_000]);
@@ -475,7 +478,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     // 守卫不动：5xx 分类翻转只影响零事件前导的请求期失败；已转发任何
     // 事件（partial 已进 context.messages）仍直通不重试（重复风险不变）
@@ -493,7 +496,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     // attemptIndex 全局计数，每次失败按自身类序列取第 attemptIndex 项：
     // ①stream[0]=5s → ②transport[1]=30s → ③transport[2]=60s → ④
@@ -511,7 +514,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(2);
     expect(clock.slept).toEqual([5_000]);
@@ -528,7 +531,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     expect(callCount()).toBe(2); // 恰 1 次重试（快速档单次），不吃全序列
     expect(clock.slept).toEqual([5_000]);
@@ -544,7 +547,7 @@ describe("withNetworkRetry", () => {
     ]);
     const wrapped = withNetworkRetry(fn, { sleep: clock.sleep });
 
-    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+    const events = await collect(wrapped(fakeModel, emptyTranscript(), {}));
 
     // 与 5xx/流中断同一守卫：partial 已进 context.messages，重试致重复消息
     expect(callCount()).toBe(1);

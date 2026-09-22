@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentTools } from "@earendil-works/pi-ai";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import type { Daemon } from "../../src/infrastructure/container";
@@ -105,7 +105,9 @@ describe("MCP deferred 懒加载全链（真组合根 + 剧本 LLM + 假 server�
     const toolsPerRequest: string[][] = [];
     let callSeq = 0;
     const scriptedLlm: StreamFn = (_model, context: Context, _options) => {
-      toolsPerRequest.push([...(context.tools ?? []).map((t) => t.name)]);
+      // 0.87：声明面（模型可见工具集）由 transcript system messages 回放
+      //（context.tools 字段已随 TranscriptContext 体系移除）。
+      toolsPerRequest.push(getCurrentTools(context.messages).map((t) => t.name));
       callSeq += 1;
       const message =
         callSeq === 1

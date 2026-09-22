@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, JsonValue, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import { createTestDaemon } from "../helpers/createTestDaemon";
@@ -68,7 +68,7 @@ const noopTool = {
   execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
 } as unknown as AgentTool;
 
-type FakeToolCall = { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> };
+type FakeToolCall = { type: "toolCall"; id: string; name: string; arguments: Record<string, JsonValue> };
 
 function textMessage(text: string, withUsage: boolean, toolCalls?: FakeToolCall[]): AssistantMessage {
   const usage = withUsage

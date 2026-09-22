@@ -1,4 +1,4 @@
-// VENDORED from @earendil-works/pi-agent-core@0.85.1 dist/harness/tools/file-mutation-queue.d.ts
+// VENDORED from @earendil-works/pi-agent-core@0.87.0 dist/harness/tools/file-mutation-queue.d.ts
 // Upstream unexported (package exports whitelist) — AF-1, iter-20260825-11fo.
 // Do NOT hand-edit. Re-sync = re-copy from pinned version + parity tests must pass.
 import type { Context } from "../context.ts";

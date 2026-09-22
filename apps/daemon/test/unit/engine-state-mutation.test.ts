@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "../../src/adapters/driven/pi-engine/runtime/AgentRuntime";
 import { textOfContent } from "../../src/adapters/driven/pi-engine/mappers/SessionMapper";
@@ -54,8 +54,13 @@ function assistantMessage(text: string): AssistantMessage {
 /** 捕获型 FakeLLM：记录每次请求的 llmContext（systemPrompt + tools 名单）。 */
 function makeCapturingLLM(seen: Array<{ systemPrompt?: string; tools: string[] }>, chunkDelayMs = 4) {
   const streamFn: StreamFn = (model, context) => {
-    const ctx = context as unknown as { systemPrompt?: string; tools?: Array<{ name: string }> };
-    seen.push({ systemPrompt: ctx.systemPrompt, tools: (ctx.tools ?? []).map((t) => t.name) });
+    // 0.87：provider 面 prompt/tools 声明由 transcript system messages 承载
+    //（TranscriptContext 无 systemPrompt/tools 字段）——官方回放读取替代
+    // 0.85 的 context 字段直读。
+    seen.push({
+      systemPrompt: getCurrentSystemPrompt(context.messages),
+      tools: getCurrentTools(context.messages).map((t) => t.name),
+    });
     const stream = createAssistantMessageEventStream();
     const final = assistantMessage(`ok@${model.id}`);
     void (async () => {
@@ -159,7 +164,8 @@ describe("PiAgentEngineAdapter 直改面（M6 T2）", () => {
     engine.setTools(["read", "grep"]);
     await engine.start("q2", () => undefined);
     expect(seen[1]!.systemPrompt).toBe("adapter 直改提示");
-    expect(seen[1]!.tools).toEqual(["read", "grep"]);
+    // 0.87 回放序：delta 保留旧工具在前、新增追加——集合语义断言（调用集无序）
+    expect([...seen[1]!.tools].sort()).toEqual(["grep", "read"]);
     expect(engine.currentModel()).toBe("anthropic/fake-model");
   });
 
@@ -204,10 +210,11 @@ describe("AgentRuntime initialMessages（恢复回填）", () => {
     });
     await runtime.drive("新问题");
     expect(seen).toHaveLength(1);
-    expect(seen[0]!.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
-    expect(seen[0]![0]!.text).toBe("历史问题");
-    expect(seen[0]![1]!.text).toBe("历史回答");
-    expect(seen[0]![2]!.text).toBe("新问题");
+    // 0.87：messages[0] 为 leading SystemMessage（profile.systemPrompt seed）
+    expect(seen[0]!.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(seen[0]![1]!.text).toBe("历史问题");
+    expect(seen[0]![2]!.text).toBe("历史回答");
+    expect(seen[0]![3]!.text).toBe("新问题");
   });
 
   test("未传 initialMessages：上下文仅新 prompt（基线，防止未来过度回填）", async () => {
@@ -231,7 +238,8 @@ describe("AgentRuntime initialMessages（恢复回填）", () => {
     });
     await runtime.drive("只有新问题");
     expect(seen).toHaveLength(1);
-    expect(seen[0]!.map((m) => m.role)).toEqual(["user"]);
+    // 0.87：leading SystemMessage 恒在首位（基线含 prompt 载体）
+    expect(seen[0]!.map((m) => m.role)).toEqual(["system", "user"]);
   });
 });
 

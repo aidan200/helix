@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, JsonValue, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
@@ -48,7 +48,7 @@ function fullMessage(
   thinking: string,
   text: string,
   withUsage = true,
-  toolCalls?: { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }[],
+  toolCalls?: { type: "toolCall"; id: string; name: string; arguments: Record<string, JsonValue> }[],
 ): AssistantMessage {
   const usage = withUsage
     ? {
@@ -105,7 +105,7 @@ interface FakeScript {
    *  estimateContextTokens 优先用 provider usage，会遮蔽字符启发式估 token。 */
   withUsage?: boolean;
   /** 携带 tool_use 块（触发 agent-loop 继续 → prepareNextTurn/compaction）。 */
-  toolCalls?: { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }[];
+  toolCalls?: { type: "toolCall"; id: string; name: string; arguments: Record<string, JsonValue> }[];
 }
 
 /**
@@ -288,14 +288,16 @@ describe("T3.1 runtime：loop 内 compaction 全链（pi 0.84.4 语义：tool ca
     expect(compacted.summary).toContain("MARLIN-77");
     expect(compacted.usage).toMatchObject({ input: expect.any(Number), totalTokens: expect.any(Number) });
 
-    // 压缩后第五轮 LLM 上下文 = compactionSummary（user 打头）+ retainedTail
+    // 压缩后第五轮 LLM 上下文 = leading SystemMessage（0.87 回插防丢 prompt）
+    // + compactionSummary（user）+ retainedTail
     expect(seenContexts.length).toBe(5);
     const after = seenContexts[4]!.messages as unknown as {
       role: string;
       content?: { type: string; text?: string }[];
     }[];
-    expect(after[0]!.role).toBe("user");
-    expect(JSON.stringify(after[0])).toContain("MARLIN-77");
+    expect(after[0]!.role).toBe("system");
+    expect(after[1]!.role).toBe("user");
+    expect(JSON.stringify(after[1])).toContain("MARLIN-77");
     // 压缩前全量历史（3 轮）比压缩后 prompt（summary+尾部）长
     const beforeChars = JSON.stringify(seenContexts[3]!.messages).length;
     const afterChars = JSON.stringify(after).length;

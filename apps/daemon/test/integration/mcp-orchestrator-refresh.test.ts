@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentTools } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { Daemon } from "../../src/infrastructure/container";
 import { createTestDaemon } from "../helpers/createTestDaemon";
@@ -103,8 +103,9 @@ const fakeModel = {
 /** 捕获型编排 streamFn：记录每次 kickoff 的 tools 名单，回一句文本收轮。 */
 function makeCapturingStreamFn(seen: Array<{ tools: string[] }>): StreamFn {
   return (model: Model<any>, context) => {
-    const ctx = context as unknown as { tools?: Array<{ name: string }> };
-    seen.push({ tools: (ctx.tools ?? []).map((t) => t.name) });
+    // 0.87：声明面（模型可见工具集）由 transcript system messages 回放
+    //（context.tools 字段已随 TranscriptContext 体系移除）。
+    seen.push({ tools: getCurrentTools(context.messages).map((t) => t.name) });
     const stream = createAssistantMessageEventStream();
     const final: AssistantMessage = {
       role: "assistant",

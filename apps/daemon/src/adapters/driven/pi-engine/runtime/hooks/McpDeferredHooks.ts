@@ -55,7 +55,6 @@ export class McpDeferredHooks implements HookSet {
     }
     return {
       context: {
-        systemPrompt: turn.context.systemPrompt,
         messages: turn.context.messages,
         tools: agent.state.tools.slice(),
       },

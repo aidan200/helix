@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { AssistantMessage, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEvent, Model } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import {
   loadFakeEngineScript,
   makeScriptedStreamFn,
@@ -52,7 +53,7 @@ function withScriptFile(json: unknown, fn: (path: string) => void): void {
 
 async function collectEvents(script: unknown): Promise<AssistantMessageEvent[]> {
   const streamFn = makeScriptedStreamFn(script as Parameters<typeof makeScriptedStreamFn>[0], fakeModel);
-  const stream = await streamFn(fakeModel, { messages: [] } as unknown as Context, undefined);
+  const stream = await streamFn(fakeModel, normalizeContext({ messages: [] }), undefined);
   const events: AssistantMessageEvent[] = [];
   for await (const e of stream) events.push(e);
   return events;
@@ -150,7 +151,7 @@ describe("FakeEngineScript toolCall 形态（H-3④：子进程 browser 工具�
     } as const;
     const streamFn = makeScriptedStreamFn(script, fakeModel);
     const first: AssistantMessageEvent[] = [];
-    for await (const e of await streamFn(fakeModel, { messages: [] } as unknown as Context, undefined)) first.push(e);
+    for await (const e of await streamFn(fakeModel, normalizeContext({ messages: [] }), undefined)) first.push(e);
     const done = first.at(-1)! as Extract<AssistantMessageEvent, { type: "done" }>;
     expect(done.message.stopReason).toBe("toolUse");
     expect(done.message.content).toEqual([
@@ -158,7 +159,7 @@ describe("FakeEngineScript toolCall 形态（H-3④：子进程 browser 工具�
     ]);
     // 次 turn：回退正常 replies 文本流
     const second: AssistantMessageEvent[] = [];
-    for await (const e of await streamFn(fakeModel, { messages: [] } as unknown as Context, undefined)) second.push(e);
+    for await (const e of await streamFn(fakeModel, normalizeContext({ messages: [] }), undefined)) second.push(e);
     const done2 = second.at(-1)! as Extract<AssistantMessageEvent, { type: "done" }>;
     expect(done2.message.stopReason).toBe("stop");
   });
