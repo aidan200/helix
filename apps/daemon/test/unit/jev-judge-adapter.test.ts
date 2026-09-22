@@ -3,10 +3,14 @@
  *
  * 断言面：
  * 1. noul 成功：POST {baseUrl}/systemone + Bearer 头 + noul question 体
- *    → 解析 answers.q.value 校准概率；
+ *    → 解析校准概率（实测契约：值字段以类型命名 answers.q.noul；value 旧形态兼容）；
  * 2. 未配置 → 抛错降级；
  * 3. HTTP 非 2xx → 抛错含状态码与响应体片段；
- * 4. 协议形态异常（缺 answers / value 非 [0,1] 数值）→ 抛错定位。
+ * 4. 协议形态异常（缺 answers / 值越界）→ 抛错定位。
+ *
+ * 实测契约样本（2026-09 curl 实录）：
+ *   {"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":0.7}},
+ *    "usage":{"input_tokens":274,"output_tokens":20}}
  */
 import { describe, expect, test } from "bun:test";
 import { JevJudgeAdapter } from "../../src/adapters/driven/embedding/JevJudgeAdapter";
@@ -26,7 +30,14 @@ function fakeFetch(behavior: { status?: number; body?: string; delayMs?: number 
 const CFG: JudgeEndpointConfig = { baseUrl: "https://api.typesafe.ai/v1/", apiKey: "ts-live-secret", model: "jev-latest" };
 
 describe("JevJudgeAdapter：noul 判定", () => {
-  test("成功：POST /systemone + Bearer + noul 体 → 校准概率", async () => {
+  test("成功（实测契约）：answers.q.noul 值字段以类型命名 → 校准概率", async () => {
+    const ff = fakeFetch({ body: '{"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":0.7}},"usage":{"input_tokens":274,"output_tokens":20}}' });
+    const adapter = new JevJudgeAdapter({ getConfig: () => CFG, fetch: ff.doFetch });
+    const prob = await adapter.noul("对话片段", "是否包含新信息？");
+    expect(prob).toBeCloseTo(0.7);
+  });
+
+  test("成功（兼容形态）：answers.q.value 旧形态回退读取", async () => {
     const ff = fakeFetch();
     const adapter = new JevJudgeAdapter({
       getConfig: () => CFG,
@@ -65,11 +76,11 @@ describe("JevJudgeAdapter：noul 判定", () => {
     expect(message).toContain("invalid key");
   });
 
-  test("协议形态异常（缺 answers / value 越界）→ 抛错定位", async () => {
+  test("协议形态异常（缺 answers / 值越界）→ 抛错定位", async () => {
     const noAnswers = new JevJudgeAdapter({ getConfig: () => CFG, fetch: fakeFetch({ body: '{"ok":1}' }).doFetch });
     expect(noAnswers.noul("s", "q")).rejects.toThrow("answers");
 
-    const badValue = new JevJudgeAdapter({ getConfig: () => CFG, fetch: fakeFetch({ body: '{"answers":{"q":{"value":1.5}}}' }).doFetch });
+    const badValue = new JevJudgeAdapter({ getConfig: () => CFG, fetch: fakeFetch({ body: '{"answers":{"q":{"noul":1.5}}}' }).doFetch });
     expect(badValue.noul("s", "q")).rejects.toThrow("形态非法");
   });
 

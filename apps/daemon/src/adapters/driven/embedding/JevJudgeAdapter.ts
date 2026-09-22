@@ -3,8 +3,9 @@
  *
  * 协议面：POST {baseUrl}/systemone，body
  *   { state, model, questions: { q1: { type: "noul", instructions } } }，
- * 响应 { answers: { q1: { value: number } } }（TypeSafe Jev
- * `/v1/systemone` 契约子集——单步判别，零生成 token）。
+ * 响应 { answers: { q1: { type: "noul", noul: number } } }（TypeSafe Jev
+ * `/v1/systemone` 契约——实测 2026-09 契约：值字段以问题类型命名（noul），
+ * 兼容读取 value 旧形态。单步判别，零生成 token）。
  *
  * 认证：Authorization: Bearer {apiKey}（Jev 是云 API——与 OpenAI 兼容
  * embedding 同款凭据形态，端点记录复用 EmbeddingEndpointConfig）。
@@ -27,16 +28,17 @@ export interface JevJudgeAdapterDeps {
   readonly timeoutMs?: number;
 }
 
-/** 响应面协议形态校验（answers.{q}.value 数值 ∈ [0,1]——校准概率）。 */
+/** 响应面协议形态校验（answers.{q}.noul 数值 ∈ [0,1]——校准概率；
+ *  实测值字段以问题类型命名（noul），value 旧形态兼容读取）。 */
 function parseNoul(raw: unknown, qid: string): number {
   if (typeof raw !== "object" || raw === null) throw new Error("判官响应非 JSON 对象");
   const answers = (raw as { answers?: unknown }).answers;
   if (typeof answers !== "object" || answers === null) throw new Error("判官响应缺 answers 对象");
-  const answer = (answers as Record<string, { value?: unknown }>)[qid];
+  const answer = (answers as Record<string, { noul?: unknown; value?: unknown }>)[qid];
   if (answer === undefined) throw new Error(`判官响应缺 answers.${qid}`);
-  const value = answer.value;
+  const value = answer.noul ?? answer.value;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
-    throw new Error(`判官响应 answers.${qid}.value 形态非法（应为 [0,1] 数值）`);
+    throw new Error(`判官响应 answers.${qid}.noul 形态非法（应为 [0,1] 数值）`);
   }
   return value;
 }
