@@ -9,10 +9,12 @@
  *
  * 职责：
  * - CRUD：set（缺省 id 新增 uuid / 带 id 更新——apiKey 空串清除、缺省
- *   不动，凭据只进不出）；delete；list（daemon 内全量）/ listView（回执
- *   视图——hasApiKey + verifiedAt，apiKey 原值永不出库）；
- * - verify：目标端点一次短文本嵌入——ok 落 verifiedAt + 回实测 dim
- *   （vec0 dim 锁表语义），fail 回定位信息；
+ *   不动，凭据只进不出；kind 同款缺席不动）；delete；list（daemon 内
+ *   全量）/ listView（回执视图——hasApiKey + verifiedAt，apiKey 原值
+ *   永不出库）；
+ * - verify：按 kind 分叉探测——embedding 端点一次短文本嵌入（回实测
+ *   dim；vec0 dim 锁表语义）；classifier 端点一次 noul 判定（回校准
+ *   概率）。ok 落 verifiedAt，fail 回定位信息；
  * - resolve：endpointId → EmbeddingEndpointConfig（条目完整才可用；
  *   条目已删/不存在 → null——记忆可用性闸的输入）；
  * - migrateLegacyStewardEndpoint：一次性迁移——旧 KV
@@ -26,9 +28,15 @@
 
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../ports/outbound/EmbeddingPort";
+import type { JudgePort } from "../ports/outbound/JudgePort";
 
 /** 端点清单 KV 键（JSON 数组）。 */
 export const EMBEDDING_ENDPOINTS_KEY = "embedding_endpoints";
+
+/** 端点用途维度（B4a）：embedding = 向量嵌入（记忆主链路）；classifier =
+ *  分类判官（Jev 等单步判别——自动沉淀写入闸判定面）。同域不同用途，
+ *  存量记录无 kind 字段 = embedding（零迁移兼容）。 */
+export type EndpointKind = "embedding" | "classifier";
 
 /** 端点存储行（KV JSON 数组元素形态）。 */
 export interface EmbeddingEndpointRecord {
@@ -37,6 +45,8 @@ export interface EmbeddingEndpointRecord {
   readonly baseUrl: string;
   readonly apiKey?: string;
   readonly model: string;
+  /** 端点用途（缺席 = embedding——存量兼容）。 */
+  readonly kind?: EndpointKind;
   /** 最近一次连通验证通过时间（epoch ms；从未验证 = 缺席）。 */
   readonly verifiedAt?: number;
 }
@@ -47,6 +57,7 @@ export interface EmbeddingEndpointDto {
   readonly name: string;
   readonly baseUrl: string;
   readonly model: string;
+  readonly kind: EndpointKind;
   readonly hasApiKey: boolean;
   readonly keyMasked?: string;
   readonly verifiedAt: number | null;
@@ -57,6 +68,9 @@ export interface EmbeddingConfigServiceDeps {
   /** 按目标端点现配构造探测端口（verify 连通测试面——组合根注入
    *  OpenAiCompatEmbeddingAdapter 工厂；与 steward 记忆主端口同实现类）。 */
   readonly createProbe: (cfg: EmbeddingEndpointConfig) => EmbeddingPort;
+  /** 按目标端点现配构造判官探测端口（classifier 端点 verify 面——B4a；
+   *  组合根注入 JevJudgeAdapter 工厂）。 */
+  readonly createJudgeProbe: (cfg: EmbeddingEndpointConfig) => JudgePort;
   /** uuid 生成器（测试注入；缺省 crypto.randomUUID）。 */
   readonly newId?: () => string;
   readonly clock?: () => number;
@@ -79,6 +93,7 @@ function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
         name: r.name,
         baseUrl: r.baseUrl,
         model: r.model,
+        ...(r.kind === "embedding" || r.kind === "classifier" ? { kind: r.kind } : {}),
         ...(typeof r.apiKey === "string" && r.apiKey !== "" ? { apiKey: r.apiKey } : {}),
         ...(typeof r.verifiedAt === "number" ? { verifiedAt: r.verifiedAt } : {}),
       });
@@ -98,9 +113,13 @@ export class EmbeddingConfigService {
     this.now = deps.clock ?? Date.now;
   }
 
-  /** 全量端点（daemon 内——含 apiKey；勿直接进回执帧）。 */
+  /** 全量端点（daemon 内——含 apiKey；勿直接进回执帧。kind 归一显式：
+   *  存储缺席 = embedding，出口恒有值；写盘仍保持缺席兼容）。 */
   list(): readonly EmbeddingEndpointRecord[] {
-    return parseRecords(this.deps.config.get(EMBEDDING_ENDPOINTS_KEY));
+    return parseRecords(this.deps.config.get(EMBEDDING_ENDPOINTS_KEY)).map((r) => ({
+      ...r,
+      kind: r.kind ?? "embedding",
+    }));
   }
 
   /** 回执视图（凭据卫生：apiKey → hasApiKey + 尾 4 位脱敏）。 */
@@ -110,6 +129,7 @@ export class EmbeddingConfigService {
       name: r.name,
       baseUrl: r.baseUrl,
       model: r.model,
+      kind: r.kind ?? "embedding",
       hasApiKey: r.apiKey !== undefined,
       ...(r.apiKey !== undefined ? { keyMasked: `····${r.apiKey.slice(-4)}` } : {}),
       verifiedAt: r.verifiedAt ?? null,
@@ -127,6 +147,7 @@ export class EmbeddingConfigService {
     baseUrl: string;
     apiKey?: string;
     model: string;
+    kind?: EndpointKind;
   }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
     const name = input.name.trim();
     const baseUrl = input.baseUrl.trim();
@@ -142,6 +163,7 @@ export class EmbeddingConfigService {
         name,
         baseUrl,
         model,
+        ...(input.kind !== undefined ? { kind: input.kind } : {}),
         ...(input.apiKey !== undefined && input.apiKey !== "" ? { apiKey: input.apiKey } : {}),
       });
       await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
@@ -155,6 +177,9 @@ export class EmbeddingConfigService {
       name,
       baseUrl,
       model,
+      // kind 缺省 = 保留现值（与 apiKey 同款——编辑面不改用途不丢分类）；
+      // 显式传则覆盖
+      ...(input.kind !== undefined ? { kind: input.kind } : prev.kind !== undefined ? { kind: prev.kind } : {}),
       // apiKey 空串 = 清除；缺省 = 保留现值（凭据只进不出——编辑面无原值可回填）
       ...(input.apiKey !== undefined
         ? input.apiKey !== ""
@@ -179,29 +204,45 @@ export class EmbeddingConfigService {
   }
 
   /**
-   * 连通测试：按目标端点现配构造探测端口，一次短文本嵌入。ok → verifiedAt
-   * 落盘 + 回实测 dim；fail → error 含定位信息（verifiedAt 不动——上次
-   * 成功时间保留）。
+   * 连通测试（按 kind 分叉）：embedding 端点一次短文本嵌入（回实测 dim）；
+   * classifier 端点一次 noul 判定（回校准概率）。ok → verifiedAt 落盘；
+   * fail → error 含定位信息（verifiedAt 不动——上次成功时间保留）。
    */
-  async verify(id: string): Promise<{ state: "ok"; dim: number } | { state: "fail"; error: string }> {
+  async verify(id: string): Promise<
+    | { state: "ok"; dim: number }
+    | { state: "ok"; prob: number }
+    | { state: "fail"; error: string }
+  > {
     const record = this.list().find((r) => r.id === id);
     if (record === undefined) return { state: "fail", error: `端点不存在：${id}` };
-    const probe = this.deps.createProbe({
+    const endpointCfg: EmbeddingEndpointConfig = {
       baseUrl: record.baseUrl,
       model: record.model,
       ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-    });
+    };
     try {
-      const { dim } = await probe.embed(["hi"]);
-      const records = [...this.list()];
-      const idx = records.findIndex((r) => r.id === id);
-      if (idx !== -1) {
-        records[idx] = { ...records[idx]!, verifiedAt: this.now() };
-        await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
+      if ((record.kind ?? "embedding") === "classifier") {
+        const judge = this.deps.createJudgeProbe(endpointCfg);
+        const prob = await judge.noul("ping", "Is this a valid test query?");
+        await this.markVerified(id);
+        return { state: "ok", prob };
       }
+      const probe = this.deps.createProbe(endpointCfg);
+      const { dim } = await probe.embed(["hi"]);
+      await this.markVerified(id);
       return { state: "ok", dim };
     } catch (err) {
       return { state: "fail", error: (err as Error).message };
+    }
+  }
+
+  /** verifiedAt 落盘（verify 成功路径共用）。 */
+  private async markVerified(id: string): Promise<void> {
+    const records = [...this.list()];
+    const idx = records.findIndex((r) => r.id === id);
+    if (idx !== -1) {
+      records[idx] = { ...records[idx]!, verifiedAt: this.now() };
+      await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
     }
   }
 

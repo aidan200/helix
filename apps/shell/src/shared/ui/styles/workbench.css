@@ -485,6 +485,9 @@
 .prov .key-chip { font-size: var(--text-cap); color: var(--text-muted); }
 .prov .key-chip .k4 { color: var(--accent); }
 .prov .key-none { font-size: var(--text-cap); color: var(--text-faint); }
+/* 其他模型 tab：内部分组标题 + 表单用途选择器（B4a） */
+.group-title { font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 14px; }
+.kind-picker { display: flex; gap: 8px; margin-bottom: 12px; }
 .prov-head .conn { margin-left: auto; }
 .prov-head .pc-chev { color: var(--text-dim); display: inline-flex; transition: transform 0.15s; }
 .prov.open .pc-chev { transform: rotate(90deg); }

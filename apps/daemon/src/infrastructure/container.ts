@@ -63,6 +63,7 @@ import {
   EmbeddingConfigService,
 } from "../application/embedding/EmbeddingConfigService";
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
+import { JevJudgeAdapter } from "../adapters/driven/embedding/JevJudgeAdapter";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0";
 import { getLoadablePath as sqliteVecLoadablePath } from "sqlite-vec";
@@ -701,6 +702,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const embeddingConfig = new EmbeddingConfigService({
     config: persistence.runtimeConfig,
     createProbe: (cfg) => new OpenAiCompatEmbeddingAdapter({ getConfig: () => cfg }),
+    // B4a：classifier 端点 verify 探测面（Jev /systemone noul）——与
+    // createProbe 同构（按目标端点现配一次性构造，探测完即奔）
+    createJudgeProbe: (cfg) => new JevJudgeAdapter({ getConfig: () => cfg }),
   });
   void embeddingConfig
     .migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)

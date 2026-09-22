@@ -355,7 +355,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         )}
         {stewardEnabled === true && memoryCfg?.enabled === true && (
           <div className="fld fld-sub" data-steward-memory-endpoint>
-            {embeddingEndpoints !== null && embeddingEndpoints.length > 0 ? (
+            {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => (ep.kind ?? "embedding") === "embedding").length > 0 ? (
               <div className="sel-wrap">
                 <select
                   className="hud-input"
@@ -364,11 +364,13 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                   onChange={(e) => selectMemoryEndpoint(e.target.value)}
                 >
                   <option value="">{t("chat.settings.general.stewardMemoryEndpointPlaceholder")}</option>
-                  {embeddingEndpoints.map((ep) => (
-                    <option key={ep.id} value={ep.id}>
-                      {`${ep.name} (${ep.model})`}
-                    </option>
-                  ))}
+                  {embeddingEndpoints
+                    .filter((ep) => (ep.kind ?? "embedding") === "embedding")
+                    .map((ep) => (
+                      <option key={ep.id} value={ep.id}>
+                        {`${ep.name} (${ep.model})`}
+                      </option>
+                    ))}
                 </select>
               </div>
             ) : (

@@ -35,8 +35,12 @@ export interface EmbeddingSetPayload {
   baseUrl: string;
   /** API key（本地免 key 端点可空；更新形态下空串 = 清除）。 */
   apiKey?: string;
-  /** 嵌入模型名（如 "bge-m3"）。 */
+  /** 模型名（embedding = 嵌入模型如 "bge-m3"；classifier = 判别模型如
+   *  "jev-latest"）。 */
   model: string;
+  /** 端点用途（B4a）：embedding = 向量嵌入（缺省）；classifier = 分类
+   *  判官（Jev /systemone noul 探测面）。更新形态下缺省 = 不动。 */
+  kind?: "embedding" | "classifier";
 }
 
 /** embedding.set：新增/更新端点（点对点回执 embedding.list.result 新清单）。 */

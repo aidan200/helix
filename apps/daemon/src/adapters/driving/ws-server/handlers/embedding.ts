@@ -38,7 +38,7 @@ export function handleEmbeddingList(ctx: EmbeddingCommandContext): void {
 
 /** embedding.set（全局命令）：新增/更新端点 → 回执清单；invalid_payload 防御。 */
 export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
-  const { id, name, baseUrl, apiKey, model } = ctx.payload;
+  const { id, name, baseUrl, apiKey, model, kind } = ctx.payload;
   if (id !== undefined && (typeof id !== "string" || id === "")) {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string（缺省 = 新增）");
   }
@@ -51,6 +51,9 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
   if (apiKey !== undefined && typeof apiKey !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.apiKey 应为 string（空串 = 清除）");
   }
+  if (kind !== undefined && kind !== "embedding" && kind !== "classifier") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.kind 应为 \"embedding\" | \"classifier\"（缺省 = embedding）");
+  }
   void ctx.embedding.service
     .set({
       ...(id !== undefined ? { id } : {}),
@@ -58,6 +61,7 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
       baseUrl: baseUrl as string,
       model: model as string,
       ...(apiKey !== undefined ? { apiKey } : {}),
+      ...(kind !== undefined ? { kind } : {}),
     })
     .then((outcome) => {
       if (!outcome.ok) {
@@ -95,12 +99,20 @@ export function handleEmbeddingVerify(ctx: EmbeddingCommandContext): void {
   void ctx.embedding.service
     .verify(id)
     .then((result) => {
+      // ok 分叉（TR-159 帧级纪律）：embedding → dim 变体；classifier →
+      // prob 变体（判别联合，二选一组帧）
+      const payload: EmbeddingVerifyResultEvent["payload"] =
+        result.state === "fail"
+          ? { id, state: "fail", error: result.error }
+          : "dim" in result
+            ? { id, state: "ok", dim: result.dim }
+            : { id, state: "ok", prob: result.prob };
       const frame: EmbeddingVerifyResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
         channel: "embedding",
         type: "embedding.verify.result",
-        payload: result.state === "ok" ? { id, state: "ok", dim: result.dim } : { id, state: "fail", error: result.error },
+        payload,
       };
       ctx.sendNow(sender, frame);
     })

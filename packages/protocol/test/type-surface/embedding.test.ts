@@ -40,13 +40,18 @@ type _SetModel = Expect<Equal<EmbeddingSetCommand["payload"]["model"], string>>;
 type _DeleteId = Expect<Equal<EmbeddingDeleteCommand["payload"]["id"], string>>;
 type _VerifyId = Expect<Equal<EmbeddingVerifyCommand["payload"]["id"], string>>;
 
+// set 载荷 kind（B4a）：可选——缺省 = embedding；两枚举
+ type _SetKind = Expect<Equal<EmbeddingSetCommand["payload"]["kind"], "embedding" | "classifier" | undefined>>;
+
 // 清单行凭据卫生：hasApiKey 布尔 + verifiedAt（null = 从未验证），
-// 无 apiKey 原值字段
+// 无 apiKey 原值字段；kind 必填（B4a——daemon 回执恒显式）
 type _ViewHasKey = Expect<Equal<EmbeddingEndpointView["hasApiKey"], boolean>>;
 type _ViewVerifiedAt = Expect<Equal<EmbeddingEndpointView["verifiedAt"], number | null>>;
+type _ViewKind = Expect<Equal<EmbeddingEndpointView["kind"], "embedding" | "classifier">>;
 
-// verify.result 两判别窄化（ok 含 dim / fail 含 error）
-type _VerifyOk = Expect<Equal<Extract<EmbeddingVerifyResultEvent["payload"], { state: "ok" }>["dim"], number>>;
+// verify.result 两判别窄化（ok 携 dim 或 prob 二选一 / fail 含 error）
+type _VerifyOk = Expect<Equal<Extract<EmbeddingVerifyResultEvent["payload"], { state: "ok"; dim: number }>["dim"], number>>;
+type _VerifyOkProb = Expect<Equal<Extract<EmbeddingVerifyResultEvent["payload"], { state: "ok"; prob: number }>["prob"], number>>;
 type _VerifyFail = Expect<Equal<Extract<EmbeddingVerifyResultEvent["payload"], { state: "fail" }>["error"], string>>;
 
 // channel = "embedding" 新族窄化（familyOf case 存在 + TypeOfChannel 收窄）
@@ -66,6 +71,12 @@ const setCommand: EmbeddingSetCommand = {
   v: PROTOCOL_VERSION,
   type: "embedding.set",
   payload: { name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "bge-m3" },
+};
+
+const setClassifierCommand: EmbeddingSetCommand = {
+  v: PROTOCOL_VERSION,
+  type: "embedding.set",
+  payload: { name: "Jev", baseUrl: "https://api.typesafe.ai/v1", apiKey: "ts-live-secret", model: "jev-latest", kind: "classifier" },
 };
 
 const setUpdateCommand: EmbeddingSetCommand = {
@@ -98,14 +109,16 @@ const listResult: EmbeddingListResultEvent = {
         name: "Ollama 本地",
         baseUrl: "http://localhost:11434/v1",
         model: "bge-m3",
+        kind: "embedding",
         hasApiKey: false,
         verifiedAt: 1760000000000,
       },
       {
         id: "ep-2",
-        name: "OpenAI",
-        baseUrl: "https://api.openai.com/v1",
-        model: "text-embedding-3-small",
+        name: "Jev",
+        baseUrl: "https://api.typesafe.ai/v1",
+        model: "jev-latest",
+        kind: "classifier",
         hasApiKey: true,
         verifiedAt: null,
       },
@@ -121,12 +134,20 @@ const verifyOk: EmbeddingVerifyResultEvent = {
   payload: { id: "ep-1", state: "ok", dim: 1024 },
 };
 
+const verifyOkProb: EmbeddingVerifyResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "embedding",
+  type: "embedding.verify.result",
+  payload: { id: "ep-2", state: "ok", prob: 0.91 },
+};
+
 const verifyFail: EmbeddingVerifyResultEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
   channel: "embedding",
   type: "embedding.verify.result",
-  payload: { id: "ep-2", state: "fail", error: "嵌入端点不可达（https://api.openai.com/v1/embeddings）：timeout" },
+  payload: { id: "ep-2", state: "fail", error: "判官 HTTP 401：invalid key" },
 };
 
 describe("embedding 配置域批（管家记忆 B2）：四命令 additive", () => {
@@ -158,10 +179,13 @@ describe("embedding 配置域批（管家记忆 B2）：四命令 additive", () 
     expect(openai?.verifiedAt).toBeNull();
   });
 
-  test("verify.result 两判别窄化：ok 含 dim / fail 含 error（id 回携）", () => {
+  test("verify.result 两判别窄化：ok 携 dim 或 prob 二选一 / fail 含 error（id 回携）", () => {
     expect(summarizeEvent(verifyOk)).toBe("embedding-verify-ok:ep-1:1024");
+    expect(summarizeEvent(verifyOkProb)).toBe("embedding-verify-prob:ep-2:0.91");
     expect(summarizeEvent(verifyFail)).toContain("embedding-verify-fail:ep-2:");
-    if (verifyFail.payload.state === "fail") expect(verifyFail.payload.error).toContain("不可达");
+    if (verifyFail.payload.state === "fail") expect(verifyFail.payload.error).toContain("401");
+    // classifier 端点行 kind 透出（B4a 帧级钉死：TR-159 逐字段透传面）
+    expect(listResult.payload.endpoints[1]?.kind).toBe("classifier");
   });
 
   test("familyOf 分族窄化：channel=embedding → 'embedding/<type>'", () => {

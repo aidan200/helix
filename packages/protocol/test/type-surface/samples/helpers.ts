@@ -291,10 +291,13 @@ export function summarizeEvent(event: EventEnvelope): string {
       // embedding 配置域（B2）：端点清单回执窄化（数量 + 首条 name 面）
       return `embedding-list:${event.payload.endpoints.length}:${event.payload.endpoints[0]?.name ?? "-"}`;
     case "embedding.verify.result":
-      // embedding 配置域（B2）：连通测试两判别窄化（ok 含 dim / fail 含原因）
-      return event.payload.state === "ok"
-        ? `embedding-verify-ok:${event.payload.id}:${event.payload.dim}`
-        : `embedding-verify-fail:${event.payload.id}:${event.payload.error}`;
+      // embedding 配置域（B2/B4a）：连通测试两判别窄化（ok 携 dim 或 prob
+      // 二选一 / fail 含原因）
+      return event.payload.state === "fail"
+        ? `embedding-verify-fail:${event.payload.id}:${event.payload.error}`
+        : "dim" in event.payload
+          ? `embedding-verify-ok:${event.payload.id}:${event.payload.dim}`
+          : `embedding-verify-prob:${event.payload.id}:${event.payload.prob}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":

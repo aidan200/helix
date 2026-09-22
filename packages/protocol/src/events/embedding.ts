@@ -21,8 +21,11 @@ export interface EmbeddingEndpointView {
   name: string;
   /** OpenAI 兼容服务根。 */
   baseUrl: string;
-  /** 嵌入模型名。 */
+  /** 模型名（embedding = 嵌入模型；classifier = 判别模型如 jev-latest）。 */
   model: string;
+  /** 端点用途（B4a）：embedding = 向量嵌入；classifier = 分类判官。
+   *  daemon 回执恒显式（存量缺席已归一）。 */
+  kind: "embedding" | "classifier";
   /** 是否已配 API key。 */
   hasApiKey: boolean;
   /** key 尾 4 位脱敏（如 "····7f3a"；未配 key = 缺席）。 */
@@ -44,8 +47,9 @@ export interface EmbeddingListResultEvent extends EventFrame<EmbeddingListResult
 }
 
 /**
- * embedding.verify.result payload：连通测试两判别——ok = 端点可达且协议
- * 形态合法（dim = 实测向量维度，daemon 侧 dim 锁表语义）；fail = 不可达/
+ * embedding.verify.result payload：连通测试两判别（按 kind 分叉探测：
+ * embedding 端点一次短文本嵌入回 dim；classifier 端点一次 noul 判定回
+ * 校准概率 prob）——ok = 端点可达且协议形态合法；fail = 不可达/
  * HTTP 非 2xx/协议异常（error 含定位信息）。id 回携——多端点并发验证
  * 归属无歧义（auth.verify in-flight 单飞限制的改良）。
  */
@@ -53,8 +57,15 @@ export type EmbeddingVerifyResultPayload =
   | {
       id: string;
       state: "ok";
-      /** 实测向量维度（vec0 建表基准——不硬编码）。 */
+      /** 实测向量维度（embedding 端点；vec0 建表基准——不硬编码）。 */
       dim: number;
+    }
+  | {
+      id: string;
+      state: "ok";
+      /** classifier 端点（B4a）：noul 探测回校准概率（与 dim 变体互斥——
+       *  按 kind 分叉探测，二选一）。 */
+      prob: number;
     }
   | {
       id: string;

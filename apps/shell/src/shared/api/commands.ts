@@ -601,13 +601,15 @@ export function embeddingListCommand(): EmbeddingListCommand {
   return { v: PROTOCOL_VERSION, type: "embedding.list", payload: {} };
 }
 
-/** embedding.set：新增（id 缺省）/更新端点（apiKey 空串 = 清除）。 */
+/** embedding.set：新增（id 缺省）/更新端点（apiKey 空串 = 清除；kind
+ *  可选——缺省 embedding，classifier = 分类判官端点，更新缺省不动）。 */
 export function embeddingSetCommand(payload: {
   id?: string;
   name: string;
   baseUrl: string;
   apiKey?: string;
   model: string;
+  kind?: "embedding" | "classifier";
 }): EmbeddingSetCommand {
   return { v: PROTOCOL_VERSION, type: "embedding.set", payload };
 }

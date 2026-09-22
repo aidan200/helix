@@ -27,19 +27,25 @@ import { useArmedConfirm } from "./settings-hooks";
 /** 弹层打开后聚焦延迟（key 弹层先例同值）。 */
 const MODAL_FOCUS_DELAY_MS = 60;
 
-/** 连通态（前端聚合：verify.result 两判别 + in-flight verifying + 持久 verifiedAt）。 */
-type VerifyState = { phase: "verifying" } | { phase: "ok"; dim: number } | { phase: "fail"; error: string };
+/** 连通态（前端聚合：verify.result 两判别 + in-flight verifying + 持久 verifiedAt；
+ *  ok 携 dim（embedding）或 prob（classifier）二选一）。 */
+type VerifyState =
+  | { phase: "verifying" }
+  | { phase: "ok"; dim?: number; prob?: number }
+  | { phase: "fail"; error: string };
 
-/** 编辑弹层表单态（null 编辑位 = 未编辑）。 */
+/** 编辑弹层表单态（null 编辑位 = 未编辑；kind 缺省 embedding——新增表单
+ *  可选，编辑保留现端点用途）。 */
 interface EndpointForm {
   readonly id?: string;
   name: string;
   baseUrl: string;
   model: string;
   apiKey: string | null;
+  kind: "embedding" | "classifier";
 }
 
-const EMPTY_FORM: EndpointForm = { name: "", baseUrl: "", model: "", apiKey: null };
+const EMPTY_FORM: EndpointForm = { name: "", baseUrl: "", model: "", apiKey: null, kind: "embedding" };
 
 /** 相对时间短文案（刚刚 / N 分钟前 / N 小时前——目录刷新先例同族）。 */
 function verifiedLabel(at: number, t: (k: string, v?: Record<string, string | number>) => string): string {
@@ -71,7 +77,9 @@ function EmbConnBadge({ verify, endpoint }: { verify: VerifyState | undefined; e
     return (
       <span className="conn hud-badge hud-badge-ok" data-emb-conn="ok">
         <span className="hud-dot hud-dot-ok" aria-hidden="true" />
-        {t("chat.settings.general.embConnOk", { dim: verify.dim })}
+        {verify.dim !== undefined
+          ? t("chat.settings.general.embConnOk", { dim: verify.dim })
+          : t("chat.settings.general.embConnOkProb", { prob: Math.round((verify.prob ?? 0) * 100) })}
       </span>
     );
   }
@@ -123,11 +131,15 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
           return;
         }
         if (e.type === "embedding.verify.result") {
-          const payload = e.payload as { id: string; state: "ok"; dim: number } | { id: string; state: "fail"; error: string };
+          const payload = e.payload as
+            | { id: string; state: "ok"; dim?: number; prob?: number }
+            | { id: string; state: "fail"; error: string };
           setVerifyStates((prev) => ({
             ...prev,
             [payload.id]:
-              payload.state === "ok" ? { phase: "ok", dim: payload.dim } : { phase: "fail", error: payload.error },
+              payload.state === "ok"
+                ? { phase: "ok", ...("dim" in payload ? { dim: payload.dim } : { prob: payload.prob }) }
+                : { phase: "fail", error: payload.error },
           }));
           if (payload.state === "fail") {
             toast.push("err", t("chat.settings.general.embVerifyFailToast", { message: payload.error }));
@@ -152,7 +164,14 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
     setForm(
       endpoint === undefined
         ? EMPTY_FORM
-        : { id: endpoint.id, name: endpoint.name, baseUrl: endpoint.baseUrl, model: endpoint.model, apiKey: null },
+        : {
+            id: endpoint.id,
+            name: endpoint.name,
+            baseUrl: endpoint.baseUrl,
+            model: endpoint.model,
+            apiKey: null,
+            kind: endpoint.kind ?? "embedding",
+          },
     );
     window.setTimeout(() => nameInputRef.current?.focus(), MODAL_FOCUS_DELAY_MS);
   };
@@ -172,6 +191,7 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
       name,
       baseUrl,
       model,
+      kind: form.kind,
       ...(form.apiKey !== null ? { apiKey: form.apiKey } : {}),
     });
     if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
@@ -216,53 +236,70 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
         </p>
       )}
 
-      {(endpoints ?? []).map((ep) => (
-        <div className="hud-card" data-emb-row={ep.id} key={ep.id}>
-          <div className="toolbar">
-            <div className="toolbar-row">
-              <span className="prov-name" data-emb-name={ep.id}>
-                {ep.name}
-              </span>
-              <span className="catalog-meta" data-emb-url={ep.id}>
-                {ep.baseUrl} · {ep.model}
-              </span>
-              {ep.keyMasked !== undefined ? (
-                <span className="key-chip" data-emb-key={ep.id}>
-                  key ····<span className="k4">{ep.keyMasked.slice(-4)}</span>
-                </span>
-              ) : (
-                <span className="key-none" data-emb-nokey={ep.id}>
-                  {t("chat.modelsConfig.unconfigured")}
-                </span>
-              )}
-              <EmbConnBadge verify={verifyStates[ep.id]} endpoint={ep} />
+      {/* 内部分组（B4a）：向量（embedding）与分类模型（classifier）两组——
+          空组不渲染标题 */}
+      {([
+        { kind: "embedding", groupKey: "chat.settings.general.embGroupEmbedding" },
+        { kind: "classifier", groupKey: "chat.settings.general.embGroupClassifier" },
+      ] as const).map(
+        ({ kind, groupKey }) =>
+          (endpoints ?? []).filter((ep) => (ep.kind ?? "embedding") === kind).length > 0 && (
+            <div key={kind} data-emb-group={kind}>
+              <p className="ag-note group-title" data-emb-group-label={kind}>
+                {t(groupKey)}
+              </p>
+              {(endpoints ?? [])
+                .filter((ep) => (ep.kind ?? "embedding") === kind)
+                .map((ep) => (
+                  <div className="hud-card" data-emb-row={ep.id} key={ep.id}>
+                    <div className="toolbar">
+                      <div className="toolbar-row">
+                        <span className="prov-name" data-emb-name={ep.id}>
+                          {ep.name}
+                        </span>
+                        <span className="catalog-meta" data-emb-url={ep.id}>
+                          {ep.baseUrl} · {ep.model}
+                        </span>
+                        {ep.keyMasked !== undefined ? (
+                          <span className="key-chip" data-emb-key={ep.id}>
+                            key ····<span className="k4">{ep.keyMasked.slice(-4)}</span>
+                          </span>
+                        ) : (
+                          <span className="key-none" data-emb-nokey={ep.id}>
+                            {t("chat.modelsConfig.unconfigured")}
+                          </span>
+                        )}
+                        <EmbConnBadge verify={verifyStates[ep.id]} endpoint={ep} />
+                      </div>
+                      <div className="toolbar-row prov-actions">
+                        <button
+                          className="hud-btn hud-btn-ghost sm"
+                          type="button"
+                          data-emb-verify={ep.id}
+                          disabled={verifyStates[ep.id]?.phase === "verifying"}
+                          onClick={() => onVerify(ep.id)}
+                        >
+                          {t("chat.modelsConfig.test")}
+                        </button>
+                        <button className="hud-btn hud-btn-ghost sm" type="button" data-emb-edit={ep.id} onClick={() => openForm(ep)}>
+                          {t("chat.settings.general.embEdit")}
+                        </button>
+                        <button
+                          className="hud-btn hud-btn-danger sm"
+                          type="button"
+                          data-emb-delete={ep.id}
+                          data-armed={armedDelete === ep.id ? "1" : undefined}
+                          onClick={() => onDelete(ep.id)}
+                        >
+                          {armedDelete === ep.id ? t("chat.modelsConfig.confirmDelete") : t("chat.settings.general.embDelete")}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
             </div>
-            <div className="toolbar-row prov-actions">
-              <button
-                className="hud-btn hud-btn-ghost sm"
-                type="button"
-                data-emb-verify={ep.id}
-                disabled={verifyStates[ep.id]?.phase === "verifying"}
-                onClick={() => onVerify(ep.id)}
-              >
-                {t("chat.modelsConfig.test")}
-              </button>
-              <button className="hud-btn hud-btn-ghost sm" type="button" data-emb-edit={ep.id} onClick={() => openForm(ep)}>
-                {t("chat.settings.general.embEdit")}
-              </button>
-              <button
-                className="hud-btn hud-btn-danger sm"
-                type="button"
-                data-emb-delete={ep.id}
-                data-armed={armedDelete === ep.id ? "1" : undefined}
-                onClick={() => onDelete(ep.id)}
-              >
-                {armedDelete === ep.id ? t("chat.modelsConfig.confirmDelete") : t("chat.settings.general.embDelete")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ))}
+          ),
+      )}
 
       {/* 新增/编辑弹层（hud-modal：key 弹层先例同构；非空校验内联错误） */}
       {form !== null && (
@@ -282,6 +319,25 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
             </div>
             <p className="modal-sub">{t("chat.settings.general.embModalSub")}</p>
             <div className="modal-body">
+              <label className="hud-label">{t("chat.settings.general.embKind")}</label>
+              <div className="kind-picker" data-emb-form-kind>
+                {(
+                  [
+                    { value: "embedding", label: t("chat.settings.general.embKindEmbedding") },
+                    { value: "classifier", label: t("chat.settings.general.embKindClassifier") },
+                  ] as const
+                ).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    className={cn("hud-btn sm", form.kind === value ? "hud-btn-cyan" : "hud-btn-ghost")}
+                    type="button"
+                    data-emb-kind-opt={value}
+                    onClick={() => setForm({ ...form, kind: value })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <label className="hud-label" htmlFor="emb-name">
                 {t("chat.settings.general.embName")}
               </label>
@@ -301,7 +357,9 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                 className={cn("hud-input", formErr !== null && form.baseUrl.trim() === "" && "err")}
                 id="emb-baseurl"
                 type="text"
-                placeholder="http://localhost:11434/v1"
+                placeholder={
+                  form.kind === "classifier" ? "https://api.typesafe.ai/v1" : "http://localhost:11434/v1"
+                }
                 value={form.baseUrl}
                 data-emb-form-baseurl
                 onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
@@ -313,7 +371,7 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                 className={cn("hud-input", formErr !== null && form.model.trim() === "" && "err")}
                 id="emb-model"
                 type="text"
-                placeholder="bge-m3"
+                placeholder={form.kind === "classifier" ? "jev-latest" : "bge-m3"}
                 value={form.model}
                 data-emb-form-model
                 onChange={(e) => setForm({ ...form, model: e.target.value })}

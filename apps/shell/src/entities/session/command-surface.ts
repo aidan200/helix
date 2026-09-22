@@ -313,7 +313,8 @@ export const COMMAND_SURFACE = {
   /** 端点清单读面（回执 embedding.list.result）。 */
   sendEmbeddingList: (deps) =>
     (): boolean => deps.send(embeddingListCommand()),
-  /** 端点新增/更新（回执 embedding.list.result 新清单）。 */
+  /** 端点新增/更新（回执 embedding.list.result 新清单；kind 可选——
+   *  classifier = 分类判官端点）。 */
   sendEmbeddingSet: (deps) =>
     (payload: {
       id?: string;
@@ -321,6 +322,7 @@ export const COMMAND_SURFACE = {
       baseUrl: string;
       apiKey?: string;
       model: string;
+      kind?: "embedding" | "classifier";
     }): boolean => deps.send(embeddingSetCommand(payload)),
   /** 端点删除（回执 embedding.list.result 新清单）。 */
   sendEmbeddingDelete: (deps) =>
