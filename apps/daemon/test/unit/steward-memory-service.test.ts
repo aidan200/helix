@@ -33,6 +33,7 @@ import {
   StewardMemoryService,
   STEWARD_MEMORY_ENABLED_KEY,
   STEWARD_MEMORY_ENDPOINT_ID_KEY,
+  STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY,
   STEWARD_MEMORY_RECALL_TOP_K,
   STEWARD_MEMORY_DEDUP_THRESHOLD,
   STEWARD_MEMORY_RECALL_MIN_SCORE,
@@ -396,5 +397,111 @@ describe("StewardMemoryService B3：写入去重 + 召回阈值", () => {
     expect(ok).toContain("回复要简洁");
     const filtered = await b3Service(STEWARD_MEMORY_RECALL_MIN_SCORE - 0.01).recallSection("随便什么");
     expect(filtered).toBeUndefined();
+  });
+});
+
+// ── 管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验 + 判定调用面）─────
+
+describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）", () => {
+  const JUDGE_RECORD: EmbeddingEndpointRecord = {
+    id: "ep-jev",
+    name: "Jev",
+    baseUrl: "https://api.typesafe.ai/v1",
+    apiKey: "sk-judge",
+    model: "jev-latest",
+    kind: "classifier",
+  };
+
+  function fakeJudge(probability = 0.8, fail = false) {
+    const calls: { state: string; question: string }[] = [];
+    return {
+      calls,
+      endpointLabel: () => "fake-judge",
+      async noul(state: string, question: string): Promise<number> {
+        calls.push({ state, question });
+        if (fail) throw new Error("判官 HTTP 500");
+        return probability;
+      },
+    };
+  }
+
+  function judgeLookup(): EmbeddingConfigLookup {
+    return {
+      resolveRecord: (endpointId) => {
+        if (endpointId === JUDGE_RECORD.id) return JUDGE_RECORD;
+        if (endpointId === ENDPOINT_RECORD.id) return ENDPOINT_RECORD;
+        return null;
+      },
+    };
+  }
+
+  test("① 判官可用性：enabled ∧ judgeEndpointId 有效(classifier) ∧ judge port 注入 → true", () => {
+    const svc = new StewardMemoryService({
+      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      embedding: fakeEmbedding(3),
+      embeddingConfig: judgeLookup(),
+      judge: fakeJudge(),
+    });
+    expect(svc.judgeSedimentAvailable()).toBe(true);
+  });
+
+  test("② kind 校验：judgeEndpointId 指向 kind=embedding（kind 缺席同判）端点 → 不可用", () => {
+    const svc = new StewardMemoryService({
+      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: ENDPOINT_RECORD.id }),
+      embedding: fakeEmbedding(3),
+      embeddingConfig: judgeLookup(),
+      judge: fakeJudge(),
+    });
+    expect(svc.judgeSedimentAvailable()).toBe(false);
+  });
+
+  test("③ 降级三面：开关关 / judgeEndpointId 未设 / judge port 缺席 → 静默不可用", () => {
+    const base = { embedding: fakeEmbedding(3), embeddingConfig: judgeLookup(), judge: fakeJudge() };
+    expect(new StewardMemoryService({ ...base, config: fakeConfig({ [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }) }).judgeSedimentAvailable()).toBe(false);
+    expect(new StewardMemoryService({ ...base, config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1" }) }).judgeSedimentAvailable()).toBe(false);
+    const noJudge = new StewardMemoryService({
+      embedding: fakeEmbedding(3),
+      embeddingConfig: judgeLookup(),
+      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+    });
+    expect(noJudge.judgeSedimentAvailable()).toBe(false);
+  });
+
+  test("④ judgeSediment：透传 state/question 返校准概率；判官抛错原样上抛", async () => {
+    const judge = fakeJudge(0.7);
+    const svc = new StewardMemoryService({
+      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      embedding: fakeEmbedding(3),
+      embeddingConfig: judgeLookup(),
+      judge,
+    });
+    expect(await svc.judgeSediment("用户：以后别用 bun test", "值得长期记忆吗？")).toBe(0.7);
+    expect(judge.calls).toHaveLength(1);
+    expect(judge.calls[0]!.state).toContain("bun test");
+    const failing = new StewardMemoryService({
+      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      embedding: fakeEmbedding(3),
+      embeddingConfig: judgeLookup(),
+      judge: fakeJudge(0.5, true),
+    });
+    await expect(failing.judgeSediment("x", "y")).rejects.toThrow("判官 HTTP 500");
+  });
+
+  test("⑤ 配置写面：judgeEndpointId 可选更新（空串 = 清除引用）；getMemoryState 判官引用态凭据卫生", async () => {
+    const config = fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1" });
+    const svc = new StewardMemoryService({
+      config,
+      embedding: fakeEmbedding(3),
+      embeddingConfig: judgeLookup(),
+      judge: fakeJudge(),
+    });
+    await svc.setMemoryConfig({ judgeEndpointId: JUDGE_RECORD.id });
+    expect(config.kv.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY)).toBe(JUDGE_RECORD.id);
+    const state = svc.getMemoryState();
+    expect(state.judgeEndpoint).toEqual({ id: JUDGE_RECORD.id, name: "Jev", model: "jev-latest", hasApiKey: true });
+    expect(state.judgeEndpoint !== null && "baseUrl" in state.judgeEndpoint).toBe(false);
+    await svc.setMemoryConfig({ judgeEndpointId: "" });
+    expect(svc.getMemoryState().judgeEndpoint).toBeNull();
+    expect(svc.judgeSedimentAvailable()).toBe(false);
   });
 });

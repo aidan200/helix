@@ -260,6 +260,7 @@ describe("EmbeddingConfigService：kind 维度（B4a——分类端点）", () =
     const config = memoryConfig();
     let judgeCalls = 0;
     let embedCalls = 0;
+    const judgeSentinelArgs: Array<{ state: string; question: string }> = [];
     const svc = new EmbeddingConfigService({
       config,
       createProbe: () => ({
@@ -270,8 +271,9 @@ describe("EmbeddingConfigService：kind 维度（B4a——分类端点）", () =
         endpointLabel: () => "emb-fake",
       }),
       createJudgeProbe: () => ({
-        noul: async () => {
+        noul: async (state: string, question: string) => {
           judgeCalls += 1;
+          judgeSentinelArgs.push({ state, question });
           return 0.87;
         },
         endpointLabel: () => "judge-fake",
@@ -290,6 +292,12 @@ describe("EmbeddingConfigService：kind 维度（B4a——分类端点）", () =
     expect(clsVerified.state).toBe("ok");
     if (clsVerified.state === "ok" && "prob" in clsVerified) expect(clsVerified.prob).toBeCloseTo(0.87);
     expect(embedCalls).toBe(1); // 只有 embedding 端点用了向量探测
+    // 哨兵必须是强确定性问题对（校准判官应给高置信 yes ~0.95+）——
+    // 弱语义哨兵（如 "Is this a valid test query?"）实测只回 ~0.69，
+    // 连通徽标显示困惑值（用户实测 2026-09）。
+    expect(judgeSentinelArgs.length).toBe(1);
+    expect(judgeSentinelArgs[0]!.state.toLowerCase()).toContain("even");
+    expect(judgeSentinelArgs[0]!.question.toLowerCase()).toContain("even");
     expect(svc.listView().find((r) => r.id === cls.id)!.verifiedAt).not.toBeNull();
   });
 

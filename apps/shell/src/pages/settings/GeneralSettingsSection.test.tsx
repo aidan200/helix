@@ -143,7 +143,7 @@ function ui() {
 }
 
 /** embedding.list.result 回执注入（管家记忆 B2：下拉数据源）。 */
-function feedEmbeddingList(endpoints: { id: string; name: string; model: string; hasApiKey?: boolean }[]) {
+function feedEmbeddingList(endpoints: { id: string; name: string; model: string; hasApiKey?: boolean; kind?: "embedding" | "classifier" }[]) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
@@ -538,6 +538,7 @@ describe("管家记忆 B2：记忆从属项（开关 + 端点引用下拉 + 管�
     enabled: true,
     available: true,
     endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
+    judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
     entryCount: 7,
     dim: 1024,
   };
@@ -594,13 +595,41 @@ describe("管家记忆 B2：记忆从属项（开关 + 端点引用下拉 + 管�
     expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { endpointId: "ep-2" } });
   });
 
+  it("B4a 判官下拉：仅列 kind=classifier 端点（embedding 端点不出现）；现引用回填", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    feedEmbeddingList([
+      { id: "ep-1", name: "Ollama 本地", model: "bge-m3" },
+      { id: "ep-9", name: "Jev", model: "jev-latest", kind: "classifier", hasApiKey: true },
+      { id: "ep-10", name: "OpenAI 判官", model: "jev-latest", kind: "classifier", hasApiKey: true },
+    ]);
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-memory-judge-select]")!;
+    expect(select).not.toBeNull();
+    expect(select.value).toBe("ep-9"); // 现引用判官回填
+    expect(select.options).toHaveLength(3); // 占位 + 两个 classifier（ep-1 embedding 端点被过滤）
+    expect(select.options[1]!.textContent).toBe("Jev (jev-latest)");
+    expect(select.options[2]!.textContent).toBe("OpenAI 判官 (jev-latest)");
+  });
+
+  it("B4a 判官选择：切换下拉 → sendStewardSetConfig({memory:{judgeEndpointId}}) 引用写面", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    feedEmbeddingList([
+      { id: "ep-9", name: "Jev", model: "jev-latest", kind: "classifier", hasApiKey: true },
+      { id: "ep-10", name: "OpenAI 判官", model: "jev-latest", kind: "classifier", hasApiKey: true },
+    ]);
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-memory-judge-select]")!;
+    fireEvent.change(select, { target: { value: "ep-10" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { judgeEndpointId: "ep-10" } });
+  });
+
   it("空端点列表：显示引导链接（跳模型页向量 tab）——B1 三字段形态退役", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);
     feedEmbeddingList([]);
     expect(container.querySelector("[data-steward-memory-endpoint-select]")).toBeNull();
     const goConfig = container.querySelector<HTMLButtonElement>("[data-steward-memory-go-config]")!;
-    expect(goConfig.textContent).toContain("去模型页配置向量模型");
+    expect(goConfig.textContent).toMatch(/去模型页|models page/);
     fireEvent.click(goConfig);
     expect(onOpenModelsEmbeddingTab).toHaveBeenCalledTimes(1);
   });

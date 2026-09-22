@@ -33,6 +33,7 @@
 
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../ports/outbound/EmbeddingPort";
+import type { JudgePort } from "../ports/outbound/JudgePort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
 import type {
   StewardMemoryEntry,
@@ -48,6 +49,9 @@ export const STEWARD_MEMORY_ENABLED_KEY = "steward.memory.enabled";
 export const STEWARD_MEMORY_EMBEDDING_KEY = "steward.memory.embedding";
 /** 嵌入端点引用 KV 键（B2：指向 embedding_endpoints 配置域条目 id）。 */
 export const STEWARD_MEMORY_ENDPOINT_ID_KEY = "steward.memory.endpointId";
+/** 判官端点引用 KV 键（B4a 自动沉淀：指向 embedding_endpoints 域 kind=
+ *  classifier 条目；未配置 = 自动沉淀静默不挂——对话主链路零影响）。 */
+export const STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY = "steward.memory.judgeEndpointId";
 /** 召回 topK（B1 定格 5——system prompt 预算纪律，与对话 16k 窗口同族）。 */
 export const STEWARD_MEMORY_RECALL_TOP_K = 5;
 /**
@@ -85,6 +89,8 @@ export interface StewardMemoryState {
   readonly entryCount: number;
   /** 当前向量维度（未初始化 = null）。 */
   readonly dim: number | null;
+  /** 当前判官端点引用（B4a 引用态；未引用/悬空/非 classifier = null）。 */
+  readonly judgeEndpoint: { readonly id: string; readonly name: string; readonly model: string; readonly hasApiKey: boolean } | null;
 }
 
 export interface StewardMemoryServiceDeps {
@@ -94,6 +100,8 @@ export interface StewardMemoryServiceDeps {
   readonly embeddingConfig: EmbeddingConfigLookup;
   /** 存储面（vec0 不可用 → 装配层缺席注入 → 记忆整体降级）。 */
   readonly store?: StewardMemoryPort;
+  /** 判官面（B4a 自动沉淀；缺席 = 自动沉淀静默不挂——对话主链路零影响）。 */
+  readonly judge?: JudgePort;
   readonly clock?: () => number;
   readonly logger?: { warn(message: string): void };
 }
@@ -132,9 +140,32 @@ export class StewardMemoryService {
     return this.isEnabled() && this.endpointRecord() !== null && this.deps.store !== undefined;
   }
 
+  /** 当前判官端点记录（B4a：未引用/悬空/非 classifier → null——kind 校验
+   *  保证判官端点与召回端点不串用；kind 缺席 = embedding 同判不适用）。 */
+  private judgeEndpointRecord(): EmbeddingEndpointRecord | null {
+    const judgeEndpointId = this.deps.config.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY);
+    if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
+    const record = this.deps.embeddingConfig.resolveRecord(judgeEndpointId);
+    if (record === null || record.kind !== "classifier") return null;
+    return record;
+  }
+
+  /** 自动沉淀可用性（B4a：记忆开关 ∧ 判官端点有效(classifier) ∧ judge port 已注入）。 */
+  judgeSedimentAvailable(): boolean {
+    return this.isEnabled() && this.judgeEndpointRecord() !== null && this.deps.judge !== undefined;
+  }
+
+  /** 判官二分类校准概率（B4a；失败原样上抛——调用面（StewardService 判定
+   *  管线）捕获降级为「本轮跳过」，不挡对话主链路）。 */
+  async judgeSediment(state: string, question: string): Promise<number> {
+    if (!this.judgeSedimentAvailable()) throw new Error("判官不可用（开关/端点/判官面未就绪）");
+    return this.deps.judge!.noul(state, question);
+  }
+
   /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库）。 */
   getMemoryState(): StewardMemoryState {
     const record = this.endpointRecord();
+    const judgeRecord = this.judgeEndpointRecord();
     return {
       enabled: this.isEnabled(),
       available: this.isAvailable(),
@@ -144,6 +175,10 @@ export class StewardMemoryService {
           : { id: record.id, name: record.name, model: record.model, hasApiKey: record.apiKey !== undefined },
       entryCount: this.deps.store?.count() ?? 0,
       dim: this.deps.store?.storedDim() ?? null,
+      judgeEndpoint:
+        judgeRecord === null
+          ? null
+          : { id: judgeRecord.id, name: judgeRecord.name, model: judgeRecord.model, hasApiKey: judgeRecord.apiKey !== undefined },
     };
   }
 
@@ -156,10 +191,14 @@ export class StewardMemoryService {
   async setMemoryConfig(patch: {
     enabled?: boolean;
     endpointId?: string;
+    judgeEndpointId?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.endpointId !== undefined) {
       // 空串 = 清除引用（显式解绑）
       await this.deps.config.set(STEWARD_MEMORY_ENDPOINT_ID_KEY, patch.endpointId);
+    }
+    if (patch.judgeEndpointId !== undefined) {
+      await this.deps.config.set(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY, patch.judgeEndpointId);
     }
     if (patch.enabled !== undefined) {
       await this.deps.config.set(STEWARD_MEMORY_ENABLED_KEY, patch.enabled ? "1" : "0");

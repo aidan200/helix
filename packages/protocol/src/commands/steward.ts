@@ -64,6 +64,9 @@ export interface StewardSetConfigPayload {
     enabled?: boolean;
     /** 嵌入端点引用（embedding.* 域端点 id；指向向量 tab 配置的条目）。 */
     endpointId?: string;
+    /** 判官端点引用（B4a 自动沉淀：embedding.* 域 kind=classifier 端点 id；
+     *  未配置 = 自动沉淀静默不挂——对话主链路零影响）。 */
+    judgeEndpointId?: string;
   };
 }
 

@@ -122,6 +122,25 @@ export interface StewardFeedEvent extends EventFrame<StewardFeedPayload> {
   type: "steward.feed";
 }
 
+/** steward.sediment_proposal payload：自动沉淀提案（B4a——对话收口判官
+ *  判定「值得记忆」后轮外投递；确认卡 UI 与 confirm_required 同构复用，
+ *  steward.confirm 单次消费执行入库）。 */
+export interface StewardSedimentProposalPayload {
+  /** 提案动作 id（steward.confirm 消费凭据——单次语义）。 */
+  actionId: string;
+  /** 候选记忆文本（本轮用户消息原文截断——零 LLM 提取，可解释）。 */
+  text: string;
+  /** 条目类别（判官不问类别——B4a 一律 "preference" 起步，人可后续编辑）。 */
+  kind: "preference";
+}
+
+/** steward.sediment_proposal：自动沉淀提案广播帧（channel = "steward"；
+ *  仅发已订阅连接——与 feed 同订阅闸）。 */
+export interface StewardSedimentProposalEvent extends EventFrame<StewardSedimentProposalPayload> {
+  channel?: "steward";
+  type: "steward.sediment_proposal";
+}
+
 /** steward.config.result payload：设置现态（读/写共用回执形态）。 */
 export interface StewardConfigResultPayload {
   /** 管家开关现态（默认 false）。 */
@@ -138,6 +157,8 @@ export interface StewardConfigResultPayload {
     available: boolean;
     /** 当前引用端点（引用态：id/name/model/hasApiKey；未引用或条目已删 = null）。 */
     endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
+    /** 当前判官端点引用（B4a 自动沉淀；kind=classifier 引用态；未引用/条目已删/非 classifier = null）。 */
+    judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     /** 记忆条目总数。 */
     entryCount: number;
     /** 当前向量维度（未初始化 = null）。 */

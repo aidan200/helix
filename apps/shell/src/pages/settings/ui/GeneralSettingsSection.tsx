@@ -93,6 +93,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     enabled: boolean;
     available: boolean;
     endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
+    judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
   } | null>(null);
@@ -110,6 +111,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             enabled: boolean;
             available: boolean;
             endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
+            judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
             entryCount: number;
             dim: number | null;
           };
@@ -150,6 +152,14 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // 向量模型选择（写 endpointId 引用；空串 = 清除引用）；回执驱动回填不乐观
   const selectMemoryEndpoint = (endpointId: string): void => {
     if (sendStewardSetConfig({ memory: { endpointId } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  // 判官端点选择（B4a：写 judgeEndpointId 引用——kind=classifier 端点才可选）
+  const selectJudgeEndpoint = (judgeEndpointId: string): void => {
+    if (sendStewardSetConfig({ memory: { judgeEndpointId } }) === false) {
       setStewardError(t("chat.settings.general.sendFail"));
       return;
     }
@@ -378,6 +388,39 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                 type="button"
                 className="hud-btn hud-btn-ghost sm"
                 data-steward-memory-go-config
+                onClick={onOpenModelsEmbeddingTab}
+              >
+                {t("chat.settings.general.stewardMemoryGoConfig")}
+              </button>
+            )}
+          </div>
+        )}
+        {/* 判官端点下拉（B4a：kind=classifier 端点；未配 = 自动沉淀静默不挂） */}
+        {stewardEnabled === true && memoryCfg?.enabled === true && (
+          <div className="fld fld-sub" data-steward-memory-judge>
+            {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => ep.kind === "classifier").length > 0 ? (
+              <div className="sel-wrap">
+                <select
+                  className="hud-input"
+                  data-steward-memory-judge-select
+                  value={memoryCfg.judgeEndpoint?.id ?? ""}
+                  onChange={(e) => selectJudgeEndpoint(e.target.value)}
+                >
+                  <option value="">{t("chat.settings.general.stewardMemoryJudgePlaceholder")}</option>
+                  {embeddingEndpoints
+                    .filter((ep) => ep.kind === "classifier")
+                    .map((ep) => (
+                      <option key={ep.id} value={ep.id}>
+                        {`${ep.name} (${ep.model})`}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="hud-btn hud-btn-ghost sm"
+                data-steward-memory-judge-go-config
                 onClick={onOpenModelsEmbeddingTab}
               >
                 {t("chat.settings.general.stewardMemoryGoConfig")}

@@ -303,6 +303,17 @@ export function useSteward(open: boolean): UseSteward {
         markAskInFlight(false);
         return;
       }
+      if (event.type === "steward.sediment_proposal") {
+        // B4a 自动沉淀提案：确认卡与 confirm_required 同构合流（agentId 用
+        // 动作标识「长期记忆」——确认卡「目标」行渲染语义重载先例同构）
+        const payload = event.payload as { actionId: string; text: string; kind: string };
+        setPending({
+          actionId: payload.actionId,
+          agentId: t("steward.sedimentTarget"),
+          message: t("steward.sedimentProposalMessage", { text: payload.text }),
+        });
+        return;
+      }
       if (event.type === "steward.confirm.result") {
         const payload = event.payload as
           | { status: "ok"; agentId: string; detail: string }

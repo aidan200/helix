@@ -214,6 +214,28 @@ describe("useSteward（V2.5 文本管家）", () => {
     expect(sendStewardConfirm).not.toHaveBeenCalled();
   });
 
+  it("B4a sediment_proposal 提案帧 → pending 确认卡合流（actionId + 记忆目标 + 提案文案）", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      frameListener?.(
+        frame("steward.sediment_proposal", {
+          actionId: "steward-action-7",
+          text: "以后别用 bun test 跑 shell 测试",
+          kind: "preference",
+        }),
+      );
+    });
+    await waitFor(() => expect(result.current.pending).not.toBeNull());
+    expect(result.current.pending!.actionId).toBe("steward-action-7");
+    expect(result.current.pending!.agentId).toMatch(/长期记忆|Long-term memory/);
+    expect(result.current.pending!.message).toContain("以后别用 bun test 跑 shell 测试");
+    // 确认路径复用：confirmPending → steward.confirm(actionId)
+    act(() => {
+      result.current.confirmPending();
+    });
+    expect(sendStewardConfirm).toHaveBeenCalledWith("steward-action-7");
+  });
+
   it("确认按钮 → sendStewardConfirm；ok 回执 → 清 pending + 追加回执行", async () => {
     const { result } = renderSteward();
     act(() => {

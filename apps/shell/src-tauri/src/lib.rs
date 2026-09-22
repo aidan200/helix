@@ -235,7 +235,7 @@ pub struct SidecarSpec {
     pub rg_path: Option<PathBuf>,
     /// 包内 codegraph launcher 绝对路径（Some → 经 env HELIX_CODEGRAPH_PATH 注入）。
     pub codegraph_path: Option<PathBuf>,
-    /// 包内 vec0 扩展库绝对路径（Some → 经 env HELIX_VEC0_LIB 注入；
+    /// 包内 vec0 扩展库绝对路径（Some → 经 env HELIX_VEC_PATH 注入；
     /// 管家记忆 sqlite-vec 扩展，dev 形态 None = daemon 侧 node_modules 解析兜底）。
     pub vec0_path: Option<PathBuf>,
 }
@@ -394,7 +394,7 @@ fn spawn_sidecar(spec: &SidecarSpec, stderr_tail: &StderrTail) -> std::io::Resul
         command.env("HELIX_CODEGRAPH_PATH", cg);
     }
     if let Some(vec0) = &spec.vec0_path {
-        command.env("HELIX_VEC0_LIB", vec0);
+        command.env("HELIX_VEC_PATH", vec0);
     }
     // 独立进程组：SIGKILL 兑底杀整组——sidecar 子孙进程（rg 等）继承 stdio
     // 管道，只杀主进程会导致管道不 EOF、stderr 收尾线程悬挂。

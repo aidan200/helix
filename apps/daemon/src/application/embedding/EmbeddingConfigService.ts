@@ -222,8 +222,15 @@ export class EmbeddingConfigService {
     };
     try {
       if ((record.kind ?? "embedding") === "classifier") {
+        // 哨兵 = 强确定性问题对：事实陈述 + 答案明确为 yes 的问题——校准
+        // 判官应回高置信 ~0.95+，连通徽标显示直观（强问题弱回执 = 服务异常）。
+        // 不用弱语义哨兵（"Is this a valid test query?"）——实测只回 ~0.69，
+// 显示困惑值（用户实测 2026-09）。
         const judge = this.deps.createJudgeProbe(endpointCfg);
-        const prob = await judge.noul("ping", "Is this a valid test query?");
+        const prob = await judge.noul(
+          "The number two is an even prime number.",
+          "Is the number two even?",
+        );
         await this.markVerified(id);
         return { state: "ok", prob };
       }

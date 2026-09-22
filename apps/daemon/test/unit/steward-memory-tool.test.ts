@@ -68,6 +68,7 @@ function fakeMemory(opts: { available?: boolean; recallSection?: string | undefi
       enabled: true,
       available: opts.available ?? true,
       endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
+      judgeEndpoint: null,
       entryCount: state.remembers.length,
       dim: 1024,
     }),
@@ -181,7 +182,7 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
     // 未装配 → 降级缺省
     const bare = makeService({ llm: fakeLlm([]) });
     const bareCfg = bare.getConfig();
-    expect(bareCfg.memory).toEqual({ enabled: false, available: false, endpoint: null, entryCount: 0, dim: null });
+    expect(bareCfg.memory).toEqual({ enabled: false, available: false, endpoint: null, judgeEndpoint: null, entryCount: 0, dim: null });
     // 装配 → 真实现态透传
     const memory = fakeMemory();
     const svc = makeService({ llm: fakeLlm([]), memory });
