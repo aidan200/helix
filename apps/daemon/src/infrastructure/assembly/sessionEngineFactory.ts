@@ -11,7 +11,6 @@
  */
 
 import type { AgentOrchestrationPort } from "../../application/ports/inbound/AgentOrchestrationPort";
-import { NodeExecutionEnv, BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 import type { AgentEnginePort } from "../../application/ports/outbound/AgentEnginePort";
 import type { SessionRepositoryPort } from "../../application/ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../../application/ports/outbound/EventPublisherPort";
@@ -214,24 +213,10 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       ctx.coordination === undefined
         ? undefined
         : { service: ctx.coordination, sessionId, instanceId: bind?.mainInstanceId ?? "main" };
-    // 提权申请批：裸执行面独立构造（与 executor 同参 NodeExecutionEnv——
-    // 自引用闭包拆环：permissionRequest 槽在构造 options 内消费，不能反向
-    // 引用 toolExecutor 自身）。
-    const rawExecEnv = new NodeExecutionEnv({ cwd: ctx.toolCwdOf(), shellEnv: {
-      HELIX_SESSION_ID: sessionId,
-      ...(ctx.writeFactsManifestDir !== undefined ? { HELIX_WRITE_FACTS_DIR: ctx.writeFactsManifestDir() } : {}),
-    } });
-    const unsandboxedExec = async (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
-      let text = "";
-      const res = await rawExecEnv.exec(command, {
-        onUpdate: (update: { kind: string; text?: string; output?: { text: string } }) => {
-          if (update.kind === "append") text += update.text ?? "";
-          else if (update.kind === "replace") text = update.output?.text ?? "";
-        },
-      }, BACKGROUND_CONTEXT);
-      if (!res.ok) throw new Error(res.error.message);
-      return { stdout: text, stderr: "", exitCode: res.value.exitCode };
-    };
+    // 提权申请批：裸执行面 = executor.unsandboxedExec（executor 内构造
+    // 沙箱装饰前的原始 NodeExecutionEnv 通道——AG-04：pi 符号不出 driven
+    // 域，装配面经惰性闭包取 executor 公开成员；permissionRequest 槽仅在
+    // 批准后的工具执行期调用，构造期不消费，自引用闭包安全）。
     const toolExecutor = new CoreToolExecutor({
       cwd: ctx.toolCwdOf(),
       // U1 护栏：bash 子进程携带会话标识 + manifest 根（pre-commit hook
@@ -305,7 +290,8 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
               ask: ctx.askService,
               sessionId,
               instanceId: bind?.mainInstanceId ?? "main",
-              unsandboxedExec,
+              unsandboxedExec: (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> =>
+                toolExecutor.unsandboxedExec(command),
             },
           }
         : {}),

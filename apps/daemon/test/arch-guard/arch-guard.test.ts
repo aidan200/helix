@@ -612,11 +612,24 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // duck-typing err.code，不引运行时类）。diff 批（T3+T4 轮次
           // diff 协议与 UI 闭环）：diff.get 查询面回口同口径
           //（application/services/TurnDiffService，仅限 type-only——服务在
-          // services 根非子目录，按文件名单列）。
+          // services 根非子目录，按文件名单列）。ask/提权申请批：ask 回口
+          // 同口径（application/services/AskService，仅限 type-only——依赖
+          // 面注入经组合根，批准后裸执行走 executor.unsandboxedExec）。
+          // stt/tts/steward/embedding 四批（V1~V3b-1 语音与管家线）：流式/
+          // 记忆/向量配置服务回口同口径（application/{stt,tts,steward,
+          // embedding}/ 下按文件名单列，仅限 type-only——批落地时漏登记，
+          // AG-12 曾长期红，pi-0.87 批收口补齐）。
           const serviceTypeOnly =
-            (/\/services\/(kg|workspace|task)\//.test(spec) || /\/services\/TurnDiffService$/.test(spec)) &&
+            (/\/services\/(kg|workspace|task)\//.test(spec) ||
+              /\/services\/(TurnDiffService|AskService)$/.test(spec) ||
+              /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec)) &&
             typeOnly(spec, src);
-          if (!serviceTypeOnly) {
+          // stt 批显式例外：VocabularyBuilder = 纯函数词汇表工具面
+          //（BASE_VOCABULARY 常量 + buildAsrContext/extractSessionTokens
+          // 无状态纯函数）——运行时直调零服务状态耦合，注入无收益；
+          // 非 type-only 白名单（新增运行时例外须逐文件单列并说明）。
+          const pureUtilRuntimeSpec = /\/stt\/VocabularyBuilder$/.test(spec);
+          if (!serviceTypeOnly && !pureUtilRuntimeSpec) {
             expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
           }
         }
@@ -627,10 +640,14 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
       // task 批：application/services/task/ 同口径——task 批命令回口）
       for (const spec of importSpecifiers(src)) {
         if (
-          (/\/services\/(kg|workspace|task)\//.test(spec) || /\/services\/TurnDiffService$/.test(spec)) &&
+          (/\/services\/(kg|workspace|task)\//.test(spec) ||
+            /\/services\/(TurnDiffService|AskService)$/.test(spec) ||
+            /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec)) &&
           typeOnly(spec, src)
         )
           continue;
+        // 纯函数工具面运行时例外（口径见正面 pureUtilRuntimeSpec 注释）
+        if (/\/stt\/VocabularyBuilder$/.test(spec)) continue;
         expect(spec, `ws-server/${rel} 不得依赖 service/infra/driven：${spec}`).not.toMatch(/services\/|infrastructure\/|\/driven\//);
       }
     }
