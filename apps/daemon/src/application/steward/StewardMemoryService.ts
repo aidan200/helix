@@ -50,6 +50,21 @@ export const STEWARD_MEMORY_EMBEDDING_KEY = "steward.memory.embedding";
 export const STEWARD_MEMORY_ENDPOINT_ID_KEY = "steward.memory.endpointId";
 /** 召回 topK（B1 定格 5——system prompt 预算纪律，与对话 16k 窗口同族）。 */
 export const STEWARD_MEMORY_RECALL_TOP_K = 5;
+/**
+ * 召回相似度下限（B3：score < 此值的命中不注入——语义无关条目污染
+ * system prompt 的噪音闸；bge-m3 cosine 经验值 0.30，近似主题即可达标，
+ * 纯噪音明显低于此）。
+ */
+export const STEWARD_MEMORY_RECALL_MIN_SCORE = 0.3;
+/**
+ * 写入去重阈值（B3：remember 前语义查重 top1 ≥ 此值 → 覆盖更新原条目
+ * 而非新增——同一偏好反复表述（「回复要简洁」/「回复务必简短」）收敛为
+ * 单条，记忆库不随使用膨胀。中间相似度（阈值下沿~0.92 区间外）自然
+ * 共存：同主题不同侧面不是矛盾（「回复简洁」+「代码解释详细」），真
+ * 矛盾由召回段既有纪律消化——「与本轮指令冲突时以本轮指令为准」+
+ * remember 覆盖路径刷新认知）。
+ */
+export const STEWARD_MEMORY_DEDUP_THRESHOLD = 0.92;
 /** 维度重建分批大小（embedding 批量调用——端点速率防御）。 */
 const REBUILD_BATCH_SIZE = 32;
 
@@ -162,7 +177,9 @@ export class StewardMemoryService {
     try {
       const { vectors, dim } = await this.deps.embedding.embed([queryText]);
       await this.ensureDim(dim);
-      const hits = this.deps.store!.search(vectors[0]!, STEWARD_MEMORY_RECALL_TOP_K);
+      const hits = this.deps
+        .store!.search(vectors[0]!, STEWARD_MEMORY_RECALL_TOP_K)
+        .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE);
       if (hits.length === 0) return undefined;
       const lines = hits.map(
         (h) => `- [${h.kind === "preference" ? "偏好" : "事实"}] ${h.text}`,
@@ -178,7 +195,11 @@ export class StewardMemoryService {
    * 写入（confirm 闸执行体调用）：条目 embed → 维度对齐 → append。
    * 失败原样上抛（确认卡回执展示失败详情——写路径不静默）。
    */
-  async remember(text: string, kind: "fact" | "preference", source: string): Promise<{ id: number }> {
+  async remember(
+    text: string,
+    kind: "fact" | "preference",
+    source: string,
+  ): Promise<{ id: number; updated: boolean }> {
     if (!this.isAvailable()) {
       throw new Error("记忆功能未启用或未配置（设置 → 通用 → 管家 → 记忆）");
     }
@@ -187,9 +208,16 @@ export class StewardMemoryService {
     const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
     await this.ensureDim(dim);
     const store = this.deps.store!;
+    // B3 写入去重：语义查重 top1 ≥ 阈值 → 覆盖更新原条目（id/createdAt/
+    // kind 保留首记形态——同一条记忆被刷新而非新记）。
+    const top = store.search(vectors[0]!, 1)[0];
+    if (top !== undefined && top.score >= STEWARD_MEMORY_DEDUP_THRESHOLD) {
+      store.updateEntry(top.id, trimmed, vectors[0]!);
+      return { id: top.id, updated: true };
+    }
     store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]! }]);
     const entries = store.list();
-    return { id: entries[entries.length - 1]!.id };
+    return { id: entries[entries.length - 1]!.id, updated: false };
   }
 
   /** 条目只读列表（配置面展示数据源）。 */

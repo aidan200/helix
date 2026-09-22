@@ -1043,7 +1043,10 @@ export class StewardService {
       try {
         const memo = action.memorize!;
         const saved = await this.deps.memory.remember(memo.text, memo.kind, "steward-turn");
-        return { ok: true, detail: `已沉淀长期记忆（#${saved.id}）：${memo.text}` };
+        return {
+          ok: true,
+          detail: `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${memo.text}`,
+        };
       } catch (err) {
         return { ok: false, detail: `记忆沉淀失败：${(err as Error).message}` };
       }
