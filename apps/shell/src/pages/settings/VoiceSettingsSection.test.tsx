@@ -4,7 +4,7 @@
  * - 识别服务偏好（lang-switch 三选按钮）：默认 auto；点击写 localStorage
  *   （helix.stt.provider）+ aria-pressed 翻转；
  * - 配置态区分（语音服务卡退役批：状态卡整体移除）：具名服务未配 key →
- *   选择钮标灰（opt-nokey）+ 「未配置」后缀；已配 → 无标记；auto 恒无标记；
+ *   选择钮禁选（disabled）+ 「未配置」后缀；已配 → 可选无标记；auto 恒可选；
  *   密码输入框零残留（key 管理唯一入口归「模型」分区，不做第二入口）；
  * - 播报开关（checkbox 形态）：默认关；切换写 localStorage
  *   （helix.voice.broadcast）+ 即时订阅/退订；
@@ -111,6 +111,8 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
     );
 
   it("识别服务偏好：默认自动（推荐）选中；点「只用 DashScope」写偏好 + aria-pressed 翻转", () => {
+    // 点击而要生效的前置：dashscope 已配 key（未配的钮禁选，点不动）
+    mockAuth = { dashscope: authEntry("dashscope", true, "sk-abcd1234") };
     const r = rig();
     const auto = r.container.querySelector('[data-stt-option="auto"]') as HTMLButtonElement;
     // 嵌套对象键解析（UX 重排批修复：旧点分字面量键经 t() 逐段下钻不解析，
@@ -129,7 +131,7 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
     expect(localStorage.getItem("helix.stt.provider")).toBeNull();
   });
 
-  it("配置态区分（语音服务卡退役批）：未配 key 的服务钮标灰 + 后缀标记；已配/auto 无标记", () => {
+  it("配置态区分（语音服务卡退役批）：未配 key 的服务钮禁选 + 后缀标记；已配/auto 可选无标记", () => {
     mockAuth = {
       dashscope: authEntry("dashscope", true, "sk-abcd1234"),
       siliconflow: authEntry("siliconflow", false),
@@ -138,11 +140,13 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
     const auto = r.container.querySelector('[data-stt-option="auto"]') as HTMLButtonElement;
     const ds = r.container.querySelector('[data-stt-option="dashscope"]') as HTMLButtonElement;
     const sf = r.container.querySelector('[data-stt-option="siliconflow"]') as HTMLButtonElement;
-    // 已配 key 与 auto：无标记
-    expect(auto.classList.contains("opt-nokey")).toBe(false);
+    // 已配 key 与 auto：可选、无标记
+    expect(auto.disabled).toBe(false);
+    expect(ds.disabled).toBe(false);
     expect(ds.classList.contains("opt-nokey")).toBe(false);
     expect(ds.querySelector(".opt-nokey-tag")).toBeNull();
-    // 未配 key：标灰 + 「未配置」后缀
+    // 未配 key：禁选（浏览器不派发 click，偏好写不进去）+ 「未配置」后缀
+    expect(sf.disabled).toBe(true);
     expect(sf.classList.contains("opt-nokey")).toBe(true);
     expect(sf.textContent).toContain("未配置");
     // 状态卡整体退役：零残留

@@ -1168,10 +1168,10 @@ html.light .bubble code.inline { color: var(--accent); }
 .diff-view .dl-ctx { display: block; color: var(--text-dim); padding-left: 14px; }
 
 /* ══ 语音输入设置分区（语音服务卡退役批：状态卡整体移除，配置态区分
-   落在识别服务选择钮上——未配 key 的服务标灰 + 「· 未配置」后缀标记；
-   卡片骨架/开关/下拉全收敛 workbench.css 通用类：hud-card/set-check/
-   set-inline/sel-wrap）══ */
-.opt-nokey { opacity: 0.55; }
+   落在识别服务选择钮上——未配 key 的服务禁选：hud-btn:disabled 自带
+   变暗 + default cursor，opt-nokey 仅作标记钩子（测试/语义）+ 
+   「· 未配置」后缀；卡片骨架/开关/下拉全收敛 workbench.css 通用类：
+   hud-card/set-check/set-inline/sel-wrap）══ */
 .opt-nokey-tag { font-size: var(--text-micro); color: var(--text-faint); margin-left: 4px; }
 
 /* ── 管家全局弹层（管家全局化批：stp-* 语义族重做——chat 右缘列退役，

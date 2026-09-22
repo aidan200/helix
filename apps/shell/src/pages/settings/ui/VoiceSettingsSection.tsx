@@ -10,10 +10,11 @@
  * - 识别服务偏好：偏好存 localStorage（helix.stt.provider；缺省 auto =
  *   daemon 装配序自动选首个已配 key 的——dashscope 主选、siliconflow 兜底）；
  *   Composer 转写命令随偏好携带 payload.provider（auto 不带）；
- * - 配置态区分（语音服务卡退役批）：未配 key 的服务在选择钮上标灰 +
- *   「· 未配置」后缀——不配 key 的服务选了也用不了，区分落在按钮上，
- *   不做第二状态卡、不指路；key 管理唯一入口归「模型」分区。数据复用
- *   进入分区即发的 requestAuthList，无新拉取。
+ * - 配置态区分（语音服务卡退役批）：未配 key 的服务选择钮直接禁选
+ *   （disabled）+ 「· 未配置」后缀——不配 key 的服务选了也用不了，与其
+ *   留一个点了转写必报错的选项，不如入口处就不给选；不做第二状态卡、
+ *   不指路；key 管理唯一入口归「模型」分区。数据复用进入分区即发的
+ *   requestAuthList，无新拉取。
  *
  * TTS（V2 播报）：
  * - 播报开关：默认 **off**（helix.voice.broadcast；不偷偷发音频花钱）——
@@ -147,7 +148,8 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
           <div className="lang-switch" role="group" aria-label={t("chat.settings.voice.provider")}>
             {(["auto", ...STT_PROVIDERS] as const).map((id) => {
               // 配置态区分（语音服务卡退役批）：auto 恒可选；具名服务未配 key
-              // → 标灰 + 后缀标记（选了也用不了——daemon 侧会回 key 未配错误）
+              // → 禁选（disabled + 标灰 + 后缀）——不配 key 选了也用不了，
+              // 入口处不给选，不留一个转写必报错的选项
               const unconfigured = id !== "auto" && auth[id]?.configured !== true;
               return (
                 <button
@@ -156,6 +158,7 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
                   className={cn("hud-btn sm", provider === id ? "hud-btn-cyan" : "hud-btn-ghost", unconfigured && "opt-nokey")}
                   data-stt-option={id}
                   aria-pressed={provider === id}
+                  disabled={unconfigured}
                   onClick={() => onPickProvider(id)}
                 >
                   {t(`chat.settings.voice.providerOpt.${id}`)}
