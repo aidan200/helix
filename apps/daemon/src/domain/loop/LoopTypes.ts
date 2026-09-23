@@ -50,12 +50,52 @@ export interface LoopStreamInput {
   readonly tools: readonly LoopToolSchema[];
 }
 
-/** 流式回调面（与 StewardAskEvents 过程面同语义）。 */
+/** 流式回调面（与 StewardAskEvents 过程面同语义；onBlockEnd = E-198 块边界
+ *  扩展——pi 三段式 *_start/delta/end 中 end 的块级帧）。 */
 export interface LoopStreamCallbacks {
   /** 文本生成段增量（仅 text chunk；工具调用段静默）。 */
   readonly onDelta?: (chunk: string) => void;
   /** thinking 段级（一个完成态块一帧全量文本）。 */
   readonly onThinking?: (block: string) => void;
+  /** 块级完整收尾帧（text/thinking/toolCall 块 *_end）——E-198 打断善后的
+   *  收集面：块 end 是完整性唯一凭证（I1），半截块无此帧（天然在丢弃面）。 */
+  readonly onBlockEnd?: (block: LoopStreamBlock) => void;
+}
+
+/** E-198：流块完整收尾帧（pi AssistantMessageEvent 的 text_end/thinking_end/
+ *  toolcall_end 同构载荷）——打断时已收 end 的块可安全入账（I1），未收 end
+ *  的半截块不进下轮上下文（I2）。domain 零 pi import：adapter 映射真体。 */
+export type LoopStreamBlock =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "thinking"; readonly text: string; readonly signature?: string }
+  | { readonly kind: "toolCall"; readonly id: string; readonly name: string; readonly args: Record<string, unknown> };
+
+/** E-198：打断截断标记（turn 级「此处被掐」）——固定常量文本的 user 角色
+ *  合成消息（外部中断事件的模型面：三角色 schema 下 user 是外部事件的唯一
+ *  合法通道；固定常量 = KV/审计/sediment 过滤的同源识别凭据；provider 面
+ *  user 消息恒合法）。 */
+export const LOOP_INTERRUPTED_MARKER_TEXT =
+  "[loop:interrupt] 上一条回复被用户中断，此处截断（完整内容块已保留，未完成内容已丢弃）";
+
+/** E-198：完整收尾但未执行的 toolCall 合成结果（I3 配对不变量——pi 判例①
+ *  同族：孤儿 toolCall 必有对应 toolResult，合成也算）。 */
+export const LOOP_INTERRUPTED_TOOL_RESULT_TEXT = "【已中断】该工具调用未执行（回复被用户中断）";
+
+/** E-198 audit：完成但被策略丢弃的块（I6 审计面——丢弃内容日志必留，
+ *  审计面与模型面分离：丢弃原因不入上下文，只入调用方日志）。 */
+export interface LoopAbortDroppedBlock {
+  readonly kind: "thinking" | "text" | "toolCall";
+  readonly reason: string;
+  readonly summary: string;
+}
+
+/** E-198 audit：aborted 轮善后摘要（LoopRunResult.aborted 携带——调用方
+ *  日志面；无入账且无丢弃时缺席 = 形状零漂移）。 */
+export interface LoopAbortAudit {
+  /** 入账消息数（安全块；截断标记在外）。 */
+  readonly keptMessages: number;
+  /** 完成但不可回传被丢弃的块清单。 */
+  readonly droppedBlocks: readonly LoopAbortDroppedBlock[];
 }
 
 /** LLM 单步响应判别（与 StewardLlmResponse 同构 + aborted 判别——

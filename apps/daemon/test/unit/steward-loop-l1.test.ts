@@ -4,6 +4,7 @@ import type { RuntimeConfigPort } from "../../src/application/ports/outbound/Run
 import type { StewardAskResultPayload, StewardHistoryRecord } from "@helix/protocol";
 import { StewardService } from "../../src/application/steward/StewardService";
 import { StewardDialogMemory } from "../../src/application/steward/StewardDialogMemory";
+import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/loop";
 import type { LoopEvent } from "../../src/domain/loop";
 
 /**
@@ -263,7 +264,13 @@ describe("件二：输入缓冲（忙碌态入队不拒绝，收口后自动进�
     expect(delivered.length).toBe(1);
     expect(delivered[0]!.status).toBe("answer");
     const history = await svc.getHistory();
-    expect(history.filter((r) => r.kind === "user").map((r) => (r as { text: string }).text)).toEqual(["第一问", "第二问"]);
+    // E-198 打断善后：被中断轮入账截断标记（固定常量 user 记录）——
+    // 首问无完整块（fake 直挂起无 onBlockEnd）故仅标记无 assistant partial
+    expect(history.filter((r) => r.kind === "user").map((r) => (r as { text: string }).text)).toEqual([
+      "第一问",
+      LOOP_INTERRUPTED_MARKER_TEXT,
+      "第二问",
+    ]);
     expect(seenSignals[0]!.aborted).toBe(true);
     // 幂等：无在途时 abortInFlight no-op
     expect(svc.abortInFlight("again")).toBe(false);

@@ -17,11 +17,14 @@
  * （LoopTypes.ts），执行体在 driven adapter 装配注入。
  */
 import type {
+  LoopAbortAudit,
+  LoopAbortDroppedBlock,
   LoopCompactionInfo,
   LoopCompactionOptions,
   LoopMessage,
   LoopResumeDecision,
   LoopRunInput,
+  LoopStreamBlock,
   LoopStreamFn,
   LoopThinking,
   LoopToolCallContext,
@@ -30,8 +33,19 @@ import type {
 import type { LoopEvent } from "./LoopEvent";
 import { loopToolArgsSummary } from "./LoopEvent";
 import { estimateLoopTokens, planCompactionWindow } from "./LoopCompaction";
+import { LOOP_INTERRUPTED_MARKER_TEXT, LOOP_INTERRUPTED_TOOL_RESULT_TEXT } from "./LoopTypes";
 import type { LoopEventEmitter } from "./LoopTypes";
 import type { ToolRegistry } from "./ToolRegistry";
+
+/** abort 原因提取（E-198：interrupted 事件 reason 面；AbortController.abort
+ *  幂等——首个 reason 定格，重复信号零漂移，I5）。 */
+function abortReasonOf(signal: AbortSignal | undefined): string {
+  if (signal === undefined) return "aborted";
+  const reason: unknown = signal.reason;
+  if (typeof reason === "string" && reason !== "") return reason;
+  if (reason instanceof Error && reason.message !== "") return reason.message;
+  return "aborted";
+}
 
 /** run 收口判别（对外终态面）。 */
 export type LoopRunResult =
@@ -51,8 +65,9 @@ export type LoopRunResult =
   | { readonly kind: "roundLimit"; readonly maxRounds: number }
   /** 错误收口（LLM 失败 / 工具 terminate / 超限详情文案）。 */
   | { readonly kind: "error"; readonly message: string }
-  /** signal abort（新 ask 取代类——KV 已收尾，无 partial 入账）。 */
-  | { readonly kind: "aborted" };
+  /** signal abort（新 ask 取代类）——E-198 partial 保留：安全块已入账 +
+   *  截断标记、半截块丢弃（audit = I6 审计摘要，无入账且无丢弃时缺席）。 */
+  | { readonly kind: "aborted"; readonly audit?: LoopAbortAudit };
 
 /** startRun 返回句柄。 */
 export interface LoopRunHandle {
@@ -181,8 +196,10 @@ export class LoopEngine {
 
   private async driveLoop(state: RunState, input: LoopRunInput): Promise<LoopRunResult> {
     for (;;) {
-      // abort 检查（工具段不打断——本轮工具已收尾入账，此处安全退出）
+      // abort 检查（工具段不打断——本轮工具已收尾入账，此处安全退出；轮已
+      // 完整记账无 partial，E-198：interrupted 事件照发——run 终态序不变量）
       if (input.signal?.aborted === true) {
+        this.emit({ type: "loop.run.interrupted", runId: state.runId, reason: abortReasonOf(input.signal) });
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
         return { kind: "aborted" };
       }
@@ -199,6 +216,8 @@ export class LoopEngine {
       this.emit({ type: "loop.message.started", runId: state.runId, turn: state.turn });
 
       let response: Awaited<ReturnType<LoopStreamFn>>;
+      // E-198：本轮流块完整收尾缓冲（块 end 凭证收集面——半截块无帧不进此）
+      const blocks: LoopStreamBlock[] = [];
       try {
         response = await this.streamFn(
           {
@@ -212,6 +231,9 @@ export class LoopEngine {
               input.callbacks?.onDelta?.(chunk);
             },
             onThinking: (block) => input.callbacks?.onThinking?.(block),
+            onBlockEnd: (block) => {
+              blocks.push(block);
+            },
             ...(input.signal !== undefined ? { signal: input.signal } : {}),
           },
         );
@@ -224,8 +246,12 @@ export class LoopEngine {
       // 注：message.started 在 streamFn 调用前发射——消费面约定序
       // started → delta* → finished（单步 streamFn 契约下 delta 经回调透传）。
       if (response.kind === "aborted") {
+        // E-198 打断善后：安全块入账 + 截断标记 + 不安全块丢弃（§2.1）——
+        // 模型知道自己说过什么、被掐在哪；interrupted 事件先于 finished。
+        this.emit({ type: "loop.run.interrupted", runId: state.runId, reason: abortReasonOf(input.signal) });
+        const audit = await this.settleAbortedTurn(state, input, blocks);
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
-        return { kind: "aborted" };
+        return { kind: "aborted", ...(audit !== undefined ? { audit } : {}) };
       }
       const stopReason = response.kind === "toolCall" ? "toolUse" : "text";
       this.emit({ type: "loop.message.finished", runId: state.runId, turn: state.turn, stopReason });
@@ -404,5 +430,82 @@ export class LoopEngine {
   private async recordMessage(state: RunState, input: LoopRunInput, message: LoopMessage): Promise<void> {
     state.messages.push(message);
     await input.onNewMessage?.(message);
+  }
+
+  /** E-198 打断善后内核（§2.1 partial 保留）：安全块入账 + 截断标记 +
+   *  不安全块丢弃。
+   *  - 完整性唯一凭证 = 块 end（I1）：入参 blocks 只含已收 end 的块；半截块
+   *    （无 end 的 thinking/toolCall/text）无帧，天然在丢弃面（I2）；
+   *  - 策略丢弃（完成但不可回传）：无签名 thinking（pi 判例③）与尾部悬挂
+   *    thinking（无后继内容块——单独回传 = "reasoning without following
+   *    item" 类 provider 拒绝，pi 判例①同族）→ audit 记录（I6）；
+   *  - 完整 toolCall 未执行 → 合成中断 toolResult 配对（I3，pi 判例①同族）；
+   *  - 截断标记（turn 级）永远落一枚：零安全块时也告知模型被掐（连续性），
+   *    多次打断跨 run 各自累积不重复（T6）。 */
+  private async settleAbortedTurn(
+    state: RunState,
+    input: LoopRunInput,
+    blocks: readonly LoopStreamBlock[],
+  ): Promise<LoopAbortAudit | undefined> {
+    const dropped: LoopAbortDroppedBlock[] = [];
+    let pendingThinking: LoopThinking | undefined;
+    let textParts: string[] = [];
+    let keptCount = 0;
+    const flushText = async (): Promise<void> => {
+      if (textParts.length === 0) return;
+      const assistant: LoopMessage = {
+        role: "assistant",
+        text: textParts.join("\n\n"),
+        ...(pendingThinking !== undefined ? { thinking: pendingThinking } : {}),
+      };
+      pendingThinking = undefined;
+      textParts = [];
+      await this.recordMessage(state, input, assistant);
+      keptCount += 1;
+    };
+    for (const block of blocks) {
+      if (block.kind === "thinking") {
+        await flushText(); // thinking 后置于文本时归属切分：先落前文（thinking 归属后续块）
+        if (block.signature === undefined || block.signature === "") {
+          dropped.push({ kind: "thinking", reason: "无签名不可回传（pi 判例③）", summary: block.text.slice(0, 80) });
+          continue;
+        }
+        pendingThinking =
+          pendingThinking === undefined
+            ? { text: block.text, signature: block.signature }
+            : { text: `${pendingThinking.text}\n${block.text}`, signature: pendingThinking.signature };
+        continue;
+      }
+      if (block.kind === "text") {
+        if (block.text !== "") textParts.push(block.text);
+        continue;
+      }
+      // toolCall：完整收尾但未执行（打断在流式段——工具段不打断，§6.2）
+      await flushText();
+      const assistant: LoopMessage = {
+        role: "assistant",
+        ...(pendingThinking !== undefined ? { thinking: pendingThinking } : {}),
+        toolCall: { id: block.id, name: block.name, args: block.args },
+      };
+      pendingThinking = undefined;
+      await this.recordMessage(state, input, assistant);
+      await this.recordMessage(state, input, {
+        role: "toolResult",
+        toolCallId: block.id,
+        name: block.name,
+        text: LOOP_INTERRUPTED_TOOL_RESULT_TEXT,
+      });
+      keptCount += 2;
+    }
+    await flushText();
+    if (pendingThinking !== undefined) {
+      dropped.push({
+        kind: "thinking",
+        reason: "尾部悬挂（无后继内容块——thinking 单独回传非法）",
+        summary: pendingThinking.text.slice(0, 80),
+      });
+    }
+    await this.recordMessage(state, input, { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT });
+    return keptCount === 0 && dropped.length === 0 ? undefined : { keptMessages: keptCount, droppedBlocks: dropped };
   }
 }

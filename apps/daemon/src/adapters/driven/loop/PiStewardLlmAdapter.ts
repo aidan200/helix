@@ -33,6 +33,7 @@ import type {
   StewardLlmRequest,
   StewardLlmResponse,
   StewardLlmThinking,
+  StewardLlmBlock,
 } from "../../../application/ports/outbound/StewardLlmPort";
 
 /** 管家默认模型槽位（建议最强模型——A1 批定位改写；deepseek 键位目录内
@@ -42,6 +43,29 @@ export const STEWARD_DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
 /** 管家 thinking 档位（A1 批：默认开启不暴露开关——管家定位最强模型配
  *  强推理；能力判据不过（model.reasoning ≠ true）时不带参走 provider 默认）。 */
 export const STEWARD_THINKING_LEVEL: ThinkingLevel = "high";
+
+/** E-198：块级收尾帧安全发射（消费者异常不阻断流——与 onDelta/onThinking
+ *  同口径）。 */
+function emitBlockEndSafe(onBlockEnd: ((block: StewardLlmBlock) => void) | undefined, block: StewardLlmBlock): void {
+  if (onBlockEnd === undefined) return;
+  try {
+    onBlockEnd(block);
+  } catch {
+    /* 消费者异常不阻断流 */
+  }
+}
+
+/** E-198：thinking_end 时点的签名提取（pi 事件不直接携带签名——终态凭据
+ *  在 partial.content[contentIndex].thinkingSignature；未到/无签名 = undefined
+ *  → 块帧不带 signature（引擎侧按无签名不可回传丢弃，pi 判例③）；
+ *  partial 缺席（伪造流/防御）= undefined）。 */
+function thinkingSignatureAt(partial: AssistantMessage | null, contentIndex: number): string | undefined {
+  if (partial === null || partial === undefined) return undefined;
+  const block = partial.content[contentIndex];
+  if (block === undefined || block === null || block.type !== "thinking") return undefined;
+  const signature = block.thinkingSignature;
+  return typeof signature === "string" && signature !== "" ? signature : undefined;
+}
 
 export interface PiStewardLlmDeps {
   /** pi-ai 静态+用户目录（组合根 buildModels 产物）。 */
@@ -70,6 +94,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     onDelta?: (chunk: string) => void,
     onThinking?: (block: string) => void,
     signal?: AbortSignal,
+    onBlockEnd?: (block: StewardLlmBlock) => void,
   ): Promise<StewardLlmResponse> {
     const modelStr = this.modelId;
     let model: Model<any>;
@@ -92,17 +117,17 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
       ...(model.reasoning === true ? { reasoning: STEWARD_THINKING_LEVEL } : {}),
       ...(signal !== undefined ? { signal } : {}),
     });
-    if (onDelta === undefined && onThinking === undefined) {
+    if (onDelta === undefined && onThinking === undefined && onBlockEnd === undefined) {
       const assistant = await stream.result();
       return this.toResponse(assistant);
     }
-    // 流式透传（V2.5 体验批 + A1 thinking 段级）：pi-ai EventStream 队列单
-    // 消费者——本 for-await 是唯一迭代器，result() 只等 final promise（不
-    // 消费队列），两者并存安全；仅透传 text_delta（工具段静默）与段级
-    // thinking_end（整块文本——thinking_delta 聚积后块末一次性回调，折叠
-    // 显示用段级粒度）；回调异常不阻断流。await 迭代完成后再返回：保证
-    // 全部回调先于 complete resolve（否则终态帧可早于末尾回调下发，前端
-    // 清缓冲后迟到增量残留）。
+    // 流式透传（V2.5 体验批 + A1 thinking 段级 + E-198 块级收尾）：pi-ai
+    // EventStream 队列单消费者——本 for-await 是唯一迭代器，result() 只等
+    // final promise（不消费队列），两者并存安全；透传 text_delta（工具段静
+    // 默）、段级 thinking_end（整块文本）与块级 *_end 收尾帧（E-198：abort
+    // 前 已收 end 的块经此帧入 engine 缓冲——半截块无帧天然丢弃；回调异常
+    // 不阻断流）；await 迭代完成后再返回：保证全部回调先于 complete resolve
+    // （否则终态帧可早于末尾回调下发，前端清缓冲后迟到增量残留）。
     const consume = (async () => {
       let thinkingBuf = "";
       for await (const ev of stream) {
@@ -122,6 +147,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
           // 块终态内容为权威（ev.content；redacted 块可能空 delta 直达 end）
           const block = ev.content !== "" ? ev.content : thinkingBuf;
           thinkingBuf = "";
+          const sig = thinkingSignatureAt(ev.partial, ev.contentIndex);
           if (block !== "") {
             try {
               onThinking?.(block);
@@ -129,6 +155,24 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
               /* 消费者异常不阻断流 */
             }
           }
+          emitBlockEndSafe(onBlockEnd, {
+            kind: "thinking",
+            text: block,
+            ...(sig !== undefined ? { signature: sig } : {}),
+          });
+          continue;
+        }
+        if (ev.type === "text_end") {
+          emitBlockEndSafe(onBlockEnd, { kind: "text", text: ev.content });
+          continue;
+        }
+        if (ev.type === "toolcall_end") {
+          emitBlockEndSafe(onBlockEnd, {
+            kind: "toolCall",
+            id: ev.toolCall.id,
+            name: ev.toolCall.name,
+            args: ev.toolCall.arguments as Record<string, unknown>,
+          });
         }
       }
     })().catch(() => {

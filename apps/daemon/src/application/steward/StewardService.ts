@@ -66,7 +66,7 @@ import type {
   LoopToolCallContext,
   LoopToolOutcome,
 } from "../../domain/loop";
-import { LOOP_COMPACTION_SUMMARY_PROMPT } from "../../domain/loop";
+import { LOOP_COMPACTION_SUMMARY_PROMPT, LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/loop";
 import { LoopEngine as LoopEngineImpl, ToolRegistry } from "../../domain/loop";
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
@@ -778,6 +778,7 @@ export class StewardService {
         callbacks?.onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
         callbacks?.onThinking, // thinking 段级（一个完成态块一帧）
         callbacks?.signal,
+        callbacks?.onBlockEnd, // E-198 块级收尾帧（打断 partial 收集面；LoopStreamBlock 与 StewardLlmBlock 结构同构）
       );
     } catch (err) {
       this.deps.logger?.warn(`管家 LLM 调用失败：${(err as Error).message}`);
@@ -961,7 +962,9 @@ export class StewardService {
   /** 未判定尾部补判（重启补偿 + 清空兜底复用；snapshot 同步取定）。 */
   private sedimentUnjudgedTail(): Promise<void> {
     const watermark = this.dialog.judgedWatermark();
-    const tail = this.dialog.snapshot().filter((r) => r.kind === "user" && r.at > watermark);
+    const tail = this.dialog
+      .snapshot()
+      .filter((r) => r.kind === "user" && r.at > watermark && r.text !== LOOP_INTERRUPTED_MARKER_TEXT); // E-198：截断标记非用户输入不参与判定
     if (tail.length === 0) return Promise.resolve();
     const latest = tail[tail.length - 1]!;
     return this.judgeAndPropose(tail.map((r) => r.text).join("\n"), "", latest.at);
@@ -1064,6 +1067,16 @@ export class StewardService {
       };
     }
     if (result.kind === "aborted") {
+      // E-198 audit（I6：丢弃内容日志必留——审计面与模型面分离）
+      if (result.audit !== undefined) {
+        const dropped =
+          result.audit.droppedBlocks.length > 0
+            ? `，丢弃 ${result.audit.droppedBlocks.map((b) => `${b.kind}（${b.reason}）`).join("；")}`
+            : "";
+        this.deps.logger?.warn(
+          `管家对话被中断：入账 ${result.audit.keptMessages} 条安全块${dropped}（截断标记已落）`,
+        );
+      }
       return { status: "error", reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）" };
     }
     if (result.kind === "resolved") {
@@ -1426,7 +1439,8 @@ export class StewardService {
   }
 
   /** LoopMessage → 工作记忆 KV 记录（onNewMessage 持久化回调——空文本兜底
-   *  「（无回答）」与迁移前行为等价；user 不经此面，初始窗口注入）。 */
+   *  「（无回答）」与迁移前行为等价；user 不经此面，初始窗口注入——唯一
+   *  例外：E-198 打断截断标记（engine 侧合成的固定常量 user 消息）。 */
   private async recordLoopMessage(message: LoopMessage): Promise<void> {
     if (message.role === "toolResult") {
       await this.pushRecord({
@@ -1436,6 +1450,12 @@ export class StewardService {
         text: message.text,
         at: this.now(),
       });
+      return;
+    }
+    if (message.role === "user") {
+      // E-198 截断标记（engine 打断善后专用通道——固定常量文本，非用户真实
+      // 输入；sediment 判定面按常量过滤）
+      await this.pushRecord({ kind: "user", text: message.text, at: this.now() });
       return;
     }
     if (message.role === "assistant") {
