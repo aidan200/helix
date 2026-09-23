@@ -384,8 +384,11 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .diff-chip-group[data-phase="frozen"] .diff-chip.del { color: var(--text-dim); }
 .diff-chip-group[data-phase="frozen"] { opacity: 0.75; }
 
-/* 消息行 */
+/* 消息行 —— 对齐契约：user 行右对齐（row-reverse，头像居右，气泡右上小角
+   朝向头像侧）；assistant 行左对齐（头像居左，气泡左上小角朝向头像侧）；
+   系统侧内联状态卡（engine-error/network-retry/ask/ee-group）左对齐。 */
 .msg { display: flex; gap: 10px; animation: log-rise 0.24s ease-out; }
+.msg.user { flex-direction: row-reverse; } /* row-reverse 下 flex-start=右缘：整组贴右 */
 @keyframes log-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .msg .avatar {
   margin-top: 2px; flex-shrink: 0; width: 28px; height: 28px;
@@ -395,6 +398,7 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .msg.user .avatar { border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1); color: var(--violet); }
 .msg.assistant .avatar { border: 1px solid rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); box-shadow: var(--glow-cyan); }
 .msg .col { min-width: 0; max-width: 76%; display: flex; flex-direction: column; gap: 2px; }
+.msg.user .col { align-items: flex-end; } /* meta/徽标行/气泡按内容宽右贴齐（与行右对齐配套） */
 .msg .meta { display: flex; align-items: baseline; gap: 8px; }
 .msg .who { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.1em; text-transform: uppercase; }
 .msg .ts { font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
@@ -517,6 +521,8 @@ html.light .bubble code.inline { color: var(--accent); }
 /* F4.1/AD-9 compaction 变体：⇄ violet 区分 💭 accent */
 .fb-wrap.compact .flow-bar .glyph { color: var(--violet); }
 
+/* 气泡徽标行（steer 两态 + 管家来源徽标）：横排一行，不随 .col 竖向堆叠 */
+.bubble-badges { display: flex; flex-direction: row; align-items: center; gap: 6px; }
 /* steer 徽标（F(7).3：queued → drained 两态）*/
 .steer-badge {
   display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
@@ -832,7 +838,7 @@ html.light .bubble code.inline { color: var(--accent); }
 .engine-error-card {
   margin: 8px 0; border: 1px solid rgb(var(--error-rgb) / 0.3); border-radius: 10px;
   background: rgb(var(--error-rgb) / 0.05); padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 6px; max-width: 72%; margin-left: auto;
+  display: flex; flex-direction: column; gap: 6px; max-width: 72%; margin-right: auto;
 }
 .ee-head {
   display: flex; align-items: center; gap: 8px;
@@ -848,10 +854,11 @@ html.light .bubble code.inline { color: var(--accent); }
 }
 .ee-hint { font-size: var(--text-small); color: var(--text-faint); }
 
-/* 轮次错误组（引擎错误体验批）：历史轮折叠徽标 + 展开态逐条红条 */
+/* 轮次错误组（引擎错误体验批）：历史轮折叠徽标 + 展开态逐条红条
+   （系统侧产出——左对齐，与 assistant 气泡同侧） */
 .ee-group {
-  margin: 8px 0; max-width: 72%; margin-left: auto;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  margin: 8px 0; max-width: 72%; margin-right: auto;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
 }
 .ee-badge {
   display: inline-flex; align-items: center; gap: 6px;
@@ -872,7 +879,7 @@ html.light .bubble code.inline { color: var(--accent); }
 .network-retry-card {
   margin: 8px 0; border: 1px solid rgb(var(--warning-rgb) / 0.3); border-radius: 10px;
   background: rgb(var(--warning-rgb) / 0.05); padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 6px; max-width: 72%; margin-left: auto;
+  display: flex; flex-direction: column; gap: 6px; max-width: 72%; margin-right: auto;
 }
 .nr-head {
   display: flex; align-items: center; gap: 8px;
@@ -892,7 +899,7 @@ html.light .bubble code.inline { color: var(--accent); }
 .ask-card {
   margin: 8px 0; border: 1px solid rgb(var(--warning-rgb) / 0.35); border-radius: 10px;
   background: rgb(var(--warning-rgb) / 0.06); padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 8px; max-width: 72%; margin-left: auto;
+  display: flex; flex-direction: column; gap: 8px; max-width: 72%; margin-right: auto;
 }
 .ak-head {
   display: flex; align-items: center; gap: 8px;

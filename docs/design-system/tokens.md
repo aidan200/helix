@@ -211,8 +211,8 @@ Tailwind 映射：`text-micro / text-cap / text-body / text-main / text-title / 
 
 ## 14. 聊天页组件形态契约（首迭代直接引用）
 
-- **用户气泡**：`rounded-lg` + 右上角 2px 小角；边框 `cyber-violet/20`，底 `cyber-violet/[0.06]`；28px violet 描边头像。
-- **助手气泡**：`rounded-lg` + 左上角 2px 小角；边框 `cyber-cyan/20`，底 `panelSolid/35`；28px cyan 头像 + glow-cyan。
+- **用户气泡**：`rounded-lg` + 右上角 2px 小角；边框 `cyber-violet/20`，底 `cyber-violet/[0.06]`；28px violet 描边头像。整行右对齐（头像居右，小角朝头像侧）。
+- **助手气泡**：`rounded-lg` + 左上角 2px 小角；边框 `cyber-cyan/20`，底 `panelSolid/35`；28px cyan 头像 + glow-cyan。左对齐（头像居左）；系统侧内联状态卡（错误/重试/提权申请）同左侧对齐。
 - **工具调用卡**：全宽 `rounded-lg`，底 `void/40`；三态边框：running `cyan/30`（+ 脉冲点）/ done `ok/25`（+ done 徽标）/ error `err/40`；头部 20px 方图标格 + mono 名 + 参数省略行；参数 / 结果用 `pre` 块（`cyan/15` 边 + `void/60` 底 + text-body）。
 - **输入区**：`hud-input` 风格复合条（`cyan/20` 边 + `void/50` 底 + 内置 SEND 按钮）。
 - **空态**：`hud-empty` + 呼吸文案 + violet 方块光标闪烁。

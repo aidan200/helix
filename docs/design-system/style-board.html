@@ -447,6 +447,7 @@ body {
   padding: 20px; display: flex; flex-direction: column; gap: 14px;
 }
 .msg { display: flex; gap: 10px; }
+.msg.user { flex-direction: row-reverse; } /* 对齐契约：user 行右对齐，头像居右 */
 .msg .avatar {
   margin-top: 2px; flex-shrink: 0; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center; border-radius: 6px;
@@ -848,7 +849,7 @@ done in 12.97s</pre>
         <button class="hud-btn hud-btn-cyan">SEND</button>
       </div>
     </div>
-    <p style="font-size:var(--text-cap); color:var(--text-dim); margin-top:10px">气泡契约：user = violet 描边 + 右上小角；assistant = accent 描边 + 左上小角 + panel-solid 底。工具卡三态：running（accent 边 + 脉冲点）/ done（ok 边 + badge）/ error（err 边 40%）。</p>
+    <p style="font-size:var(--text-cap); color:var(--text-dim); margin-top:10px">气泡契约：user = violet 描边 + 右上小角，整行右对齐（头像居右）；assistant = accent 描边 + 左上小角 + panel-solid 底，左对齐。系统侧内联状态卡（错误/重试/提权）同左对齐。工具卡三态：running（accent 边 + 脉冲点）/ done（ok 边 + badge）/ error（err 边 40%）。</p>
   </section>
 
   <!-- ═══ 7. 主题注册表总览（只读，读当前主题解析值，切主题联动）═══ -->

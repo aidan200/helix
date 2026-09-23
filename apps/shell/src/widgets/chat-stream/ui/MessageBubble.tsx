@@ -1,7 +1,9 @@
 /**
  * 消息气泡（F(7).1；tokens.md 14 节形态契约）：
- * user = violet 气泡（右上角 2px 小角）+ U 头像；assistant = cyan 气泡（左上角
- * 2px 小角）+ HX 头像 + glow；steer 消息带队列徽标（两态，SM-3）。
+ * user = violet 气泡（右上角 2px 小角）+ U 头像，整行右对齐（头像居右，
+ * 小角朝向头像侧）；assistant = cyan 气泡（左上角 2px 小角）+ HX 头像
+ * + glow，左对齐；steer 消息带队列徽标（两态，SM-3）；气泡附带徽标
+ * （steer 两态/管家来源）横排一行（.bubble-badges），不随 .col 竖向堆叠。
  * 时间轴语义分层：source=closure/progress 的系统注入条目不进气泡面
  * （MessageFlow EntryView 分发为 SystemInjectBar 细条），气泡徽标只剩
  * 用户 steer 两态。
@@ -96,8 +98,12 @@ const MessageBubble = memo(function MessageBubble({
             </span>
           )}
         </div>
-        {entry.steerState && <SteerBadge state={entry.steerState} />}
-        {entry.source === "steward" && <StewardSourceBadge />}
+        {(entry.steerState || entry.source === "steward") && (
+          <div className="bubble-badges">
+            {entry.steerState && <SteerBadge state={entry.steerState} />}
+            {entry.source === "steward" && <StewardSourceBadge />}
+          </div>
+        )}
         <div className="bubble" ref={bubbleRef}>
           {streaming ? (
             <>

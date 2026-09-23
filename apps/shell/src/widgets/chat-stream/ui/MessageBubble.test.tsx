@@ -64,6 +64,33 @@ describe("MessageBubble 用户 steer 徽标（两态）", () => {
   });
 });
 
+// ═══ 气泡徽标横排（对齐一致性批）：steer 两态徽标与管家来源徽标同现时
+// 共享同一横排行容器 .bubble-badges（flex-direction:row），不随 .col
+// 竖向堆叠；任一在场才渲染容器，都不在则零渲染。═══
+describe("MessageBubble 气泡徽标横排（.bubble-badges）", () => {
+  it("双徽标同现（管家投递 steer）→ 同一横排容器内两个 .steer-badge", () => {
+    const { container } = ui(
+      <MessageBubble entry={entry({ source: "steward", steerState: "drained" })} />,
+    );
+    const row = container.querySelector(".bubble-badges");
+    expect(row).not.toBeNull();
+    const badges = row!.querySelectorAll(":scope > .steer-badge");
+    expect(badges.length).toBe(2); // STEER 已注入 + 管家来源，横排不堆叠
+    expect(badges[0]!.className).toContain("drained");
+    expect(badges[1]!.className).toContain("steward-src");
+  });
+
+  it("单徽标（仅 steerState）→ 容器在场只含一枚；无徽标 → 零容器", () => {
+    const one = ui(<MessageBubble entry={entry({ steerState: "queued" })} />);
+    const row1 = one.container.querySelector(".bubble-badges");
+    expect(row1).not.toBeNull();
+    expect(row1!.querySelectorAll(":scope > .steer-badge").length).toBe(1);
+    cleanup();
+    const none = ui(<MessageBubble entry={entry()} />);
+    expect(none.container.querySelector(".bubble-badges")).toBeNull();
+  });
+});
+
 describe("MessageBubble 轮末 token 用量（assistant meta 行 · who·ts 同行右侧）", () => {
   const turnUsage = {
     input: 1234,

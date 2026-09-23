@@ -174,6 +174,8 @@
 .skel-av.cyan { background: rgb(var(--accent-rgb) / 0.12); }
 .skel-col { display: flex; flex-direction: column; gap: 18px; padding-top: 6px; max-width: 860px; width: 100%; margin: 0 auto; }
 .skel-row { display: flex; gap: 10px; }
+/* user 骨架与终态同构：右对齐（头像居右，气泡右上小角朝头像侧） */
+.skel-row.user { flex-direction: row-reverse; }
 .skel-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .skel-row.user .skel-stack { align-items: flex-end; }
 .skel.bubble-user { border-radius: 8px 2px 8px 8px; }
