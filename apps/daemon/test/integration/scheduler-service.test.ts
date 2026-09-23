@@ -18,6 +18,7 @@ import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { Session } from "../../src/domain/session/Session";
 import { LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
+import type { RestoredInstance } from "../../src/application/services/RestoreService";
 
 /**
  * T2.1 SchedulerService integration（test-design §1.1 integration-① + §2.1 F1.3/F1.9）：
@@ -596,6 +597,117 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
       const terminal = agentEvents(h.events, id).filter((t) => t !== "agent.spawned" && t !== "agent.started");
       expect(terminal.length).toBe(1);
     }
+  });
+});
+
+describe("CAND-399 终态保留窗口（注册表有界：销户超窗终态实例）", () => {
+  /** 串行 spawn→收口 n 轮（maxConcurrent=1：spawn 一个收口一个，全链走真实收口链）。 */
+  function spawnAndClose(h: Harness, n: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const id = spawnId(h, `窗口任务${i}`);
+      h.runner.forceClosure(id, { result: "done", closure: DONE_CLOSURE(`窗口任务${i} 完成`) });
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  test("红测1：连续 spawn+收口 (N+5) 个后，status() 全量终态条目 ≤ N（保留最近 N 条）", () => {
+    const h = (current = makeHarness({
+      policy: () => new SchedulingPolicy({ maxConcurrent: 1, terminalRetainCount: 3 }),
+    }));
+    const ids = spawnAndClose(h, 3 + 5);
+
+    const rows = h.scheduler.status();
+    const terminal = rows.filter((r) => r.state === "done" || r.state === "failed" || r.state === "cancelled");
+    expect(terminal.length).toBeLessThanOrEqual(3); // 窗口 N=3
+    // 保留最近 3 条（后收口者存活）；超窗 5 条销户
+    expect(rows.map((r) => r.agentId)).toEqual([ids[5]!, ids[6]!, ids[7]!]);
+    expect(h.scheduler.instance(ids[0]!)).toBeUndefined(); // 超窗销户：单查不可见
+    // 超窗实例 kill/幂等面不崩
+    expect(h.scheduler.kill(ids[0]!).killed).toBe(false);
+  });
+
+  test("红测2：窗口内最近终态条目保留可查（status(agentId) 命中 + closure 摘要在档）", () => {
+    const h = (current = makeHarness({
+      policy: () => new SchedulingPolicy({ maxConcurrent: 1, terminalRetainCount: 3 }),
+    }));
+    const ids = spawnAndClose(h, 3 + 5);
+
+    const last = h.scheduler.status(ids[7]!);
+    expect(last.length).toBe(1);
+    expect(last[0]!.state).toBe("done");
+    expect(last[0]!.summary).toBe("窗口任务7 完成");
+    expect(h.scheduler.status(ids[2]!)).toEqual([]); // 窗口外：空（销户）
+  });
+
+  test("红测3：restoreInstances 注入 (N+5) 条终态后注册表终态数 ≤ N（重启不回膨胀）", () => {
+    const h = (current = makeHarness({
+      policy: () => new SchedulingPolicy({ terminalRetainCount: 3 }),
+    }));
+    const mk = (i: number): RestoredInstance => ({
+      instanceId: `agent-restore${i}`,
+      kind: "subagent",
+      profileKind: "subagent-worker",
+      sessionId: SESSION_ID,
+      state: "done",
+      createdAt: FIXED_NOW,
+      task: `恢复任务${i}`,
+      closure: DONE_CLOSURE(`恢复任务${i} 完成`),
+    });
+    h.scheduler.restoreInstances(Array.from({ length: 3 + 5 }, (_, i) => mk(i)));
+
+    const rows = h.scheduler.status();
+    expect(rows.length).toBeLessThanOrEqual(3); // 注入 8 条 → 窗口裁剪至 3
+    // 保留注入序最近 3 条；task/closure 留档随销户对齐清理（快照面有界）
+    expect(rows.map((r) => r.agentId)).toEqual(["agent-restore5", "agent-restore6", "agent-restore7"]);
+    expect(rows[0]!.summary).toBe("恢复任务5 完成");
+    expect(h.scheduler.snapshotInstances().length).toBe(3);
+  });
+
+  test("缺省窗口 50：常规规模（≤50 终态）零销户——既有观测语义不变", () => {
+    const h = (current = makeHarness({ policy: () => new SchedulingPolicy({ maxConcurrent: 1 }) }));
+    const ids = spawnAndClose(h, 4);
+    expect(h.scheduler.status().length).toBe(4); // 全部在册（未超窗）
+    expect(h.scheduler.instance(ids[0]!)?.state).toBe("done");
+  });
+
+  test("cancelSession queued→cancelled 也进窗口：会话取消超窗同样销户（他会被占预算场景）", () => {
+    const h = (current = makeHarness({
+      policy: () => new SchedulingPolicy({ maxConcurrent: 1, terminalRetainCount: 2 }),
+    }));
+    // 窗口先垫 2 条终态（已满）；另一会话占满全局预算 → 目标会话 spawn 只能 queued
+    spawnAndClose(h, 2);
+    spawnId(h, "他会被占运行位"); // running（挂起剧本不自动收口）
+    const q = h.scheduler.spawn("s-cancel", "排队后被取消");
+    if (q.status === "rejected") throw new Error(`spawn 被拒：${q.error}`);
+    expect(q.status).toBe("queued");
+    h.scheduler.cancelSession("s-cancel"); // 会话内只有 queued → cancelled 分支（无 kill 不出队）
+    const rows = h.scheduler.status();
+    // 垫的最旧 done 销户：剩余 = 最近 done + 占位 running + 本次 cancelled（共 3）
+    expect(rows.map((r) => r.state)).toEqual(["done", "running", "cancelled"]);
+    expect(h.scheduler.instance(q.agentId)?.state).toBe("cancelled");
+  });
+
+  test("restore 后运行期新收口：混合序下窗口仍保留最近（重启历史先淘汰）", () => {
+    const h = (current = makeHarness({
+      policy: () => new SchedulingPolicy({ maxConcurrent: 1, terminalRetainCount: 3 }),
+    }));
+    const mk = (i: number): RestoredInstance => ({
+      instanceId: `agent-r${i}`,
+      kind: "subagent",
+      profileKind: "subagent-worker",
+      sessionId: SESSION_ID,
+      state: "done",
+      createdAt: FIXED_NOW,
+      task: `恢复${i}`,
+      closure: DONE_CLOSURE(`恢复${i} 完成`),
+    });
+    h.scheduler.restoreInstances([mk(0), mk(1), mk(2)]); // 窗口满
+    const fresh = spawnId(h, "重启后新任务"); // restore 后窗口满仍可 spawn（终态不占预算）
+    h.runner.forceClosure(fresh, { result: "done", closure: DONE_CLOSURE("新任务完成") });
+    const rows = h.scheduler.status();
+    expect(rows.map((r) => r.agentId)).toEqual(["agent-r1", "agent-r2", fresh]); // 最旧 restore 条销户
   });
 });
 

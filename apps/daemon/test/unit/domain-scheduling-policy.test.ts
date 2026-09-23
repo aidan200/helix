@@ -78,18 +78,25 @@ describe("③ isStalled 阈值判定（毫秒注入，K1）", () => {
 });
 
 describe("④ 缺省值与非法参数 fail-fast", () => {
-  test("缺省 maxConcurrent=3 / maxQueued=8 / stalledThresholdMs=300_000", () => {
+  test("缺省 maxConcurrent=3 / maxQueued=8 / stalledThresholdMs=300_000 / terminalRetainCount=50（CAND-399）", () => {
     const policy = new SchedulingPolicy();
     expect(policy.maxConcurrent).toBe(3);
     expect(policy.maxQueued).toBe(8);
     expect(policy.stalledThresholdMs).toBe(300_000);
-    expect(DEFAULT_SCHEDULING).toEqual({ maxConcurrent: 3, maxQueued: 8, stalledThresholdMs: 300_000 });
+    expect(policy.terminalRetainCount).toBe(50);
+    expect(DEFAULT_SCHEDULING).toEqual({ maxConcurrent: 3, maxQueued: 8, stalledThresholdMs: 300_000, terminalRetainCount: 50 });
   });
 
-  test("非法参数抛错：maxConcurrent=0、maxQueued=-1、stalledThresholdMs=0", () => {
+  test("非法参数抛错：maxConcurrent=0、maxQueued=-1、stalledThresholdMs=0、terminalRetainCount=0（CAND-399）", () => {
     expect(() => new SchedulingPolicy({ maxConcurrent: 0 })).toThrow();
     expect(() => new SchedulingPolicy({ maxQueued: -1 })).toThrow();
     expect(() => new SchedulingPolicy({ stalledThresholdMs: 0 })).toThrow();
     expect(() => new SchedulingPolicy({ maxConcurrent: 1.5 })).toThrow(); // 非整数
+    expect(() => new SchedulingPolicy({ terminalRetainCount: 0 })).toThrow(); // 窗口至少保留 1 条
+    expect(() => new SchedulingPolicy({ terminalRetainCount: 2.5 })).toThrow(); // 非整数
+  });
+
+  test("CAND-399：terminalRetainCount 可注入小值（测试窗口控制）", () => {
+    expect(new SchedulingPolicy({ terminalRetainCount: 3 }).terminalRetainCount).toBe(3);
   });
 });

@@ -21,6 +21,11 @@ import type { AgentInstance } from "./AgentInstance";
  * 注册/出册不依赖会话按序推进（非线性红线）；注册表与主实例会话运行态
  * （上述五态矩阵）彼此独立——实例窗口生命周期由 AgentInstance 状态机承载。
  * 投影面：agent_lifecycle 表 PK (session_id, instance_id)。
+ *
+ * 【终态保留窗口（CAND-399）】注册表内终态实例只保留最近 N 条
+ * （terminalOrder 序，noteTerminal 登记），超窗者销户（trimTerminalWindow）
+ * ——daemon 生命周期内注册表内存占用与 status() 全量序列化体量有界；
+ * 持久化观测面（closure_records/agent_lifecycle 投影）不随销户变化。
  */
 export type AgentLifecycleState = "idle" | "running" | "steering" | "aborting" | "stopped";
 
@@ -37,6 +42,12 @@ export class AgentLifecycle {
   private _state: AgentLifecycleState = "idle";
   /** 会话内实例注册表（instanceId → 实例；注册即入册，出册即销毁窗口）。 */
   private readonly instances = new Map<string, AgentInstance>();
+  /**
+   * 转终态登记序（instanceId 按转终态先后；CAND-399 终态保留窗口的序源）。
+   * 编排层在实例收口后调 noteTerminal 登记；restore 原样恢复的终态实例按
+   * 注册序入列（重启场景近似序）。非终态实例不进序。
+   */
+  private readonly terminalOrder: string[] = [];
 
   get current(): AgentLifecycleState {
     return this._state;
@@ -72,6 +83,8 @@ export class AgentLifecycle {
       throw new DomainError(`实例 ${instance.instanceId} 已在会话内注册，不可重复注册`);
     }
     this.instances.set(instance.instanceId, instance);
+    // restore 链终态原样恢复：注册即入终态序（注入序近似重启前终态序）
+    if (instance.isTerminal) this.terminalOrder.push(instance.instanceId);
   }
 
   /**
@@ -81,7 +94,51 @@ export class AgentLifecycle {
   unregisterInstance(instanceId: string): AgentInstance | undefined {
     const instance = this.instances.get(instanceId);
     this.instances.delete(instanceId);
+    const idx = this.terminalOrder.indexOf(instanceId);
+    if (idx >= 0) this.terminalOrder.splice(idx, 1); // 终态序同步摘除（防陈旧 id 累积）
     return instance;
+  }
+
+  /**
+   * 转终态登记（CAND-399）：编排层在实例收口链完成后调用——终态保留窗口的
+   * 序源（保留「最近」N 条以本序为准）。不在册/重复登记忽略（幂等）。
+   */
+  noteTerminal(instanceId: string): void {
+    if (!this.instances.has(instanceId)) return;
+    if (this.terminalOrder.includes(instanceId)) return;
+    this.terminalOrder.push(instanceId);
+  }
+
+  /**
+   * 终态保留窗口裁剪（CAND-399）：保留最近 keep 条终态 subagent 实例，超窗者
+   * 出册销户（返回被销户实例，旧→新序，调用方据此对齐清理门面侧留档）。
+   * 主实例与非终态实例永不裁剪（防御位：终态序里只应有终态 subagent）。
+   * 陈旧序 id（已出册）随裁剪丢弃；未超窗时 no-op。幂等。
+   */
+  trimTerminalWindow(keep: number): AgentInstance[] {
+    // 第一遍：过滤陈旧 id（已出册）得在册序；终态 subagent 计数定裁剪起点
+    const live = this.terminalOrder.filter((id) => this.instances.has(id));
+    const terminalIds = live.filter((id) => {
+      const instance = this.instances.get(id)!;
+      return instance.isTerminal && instance.kind !== "main";
+    });
+    // 保留最近 keep 条 = 最旧（terminalIds.length - keep）条销户
+    const cutoff = Math.max(0, terminalIds.length - Math.max(0, keep));
+    const evictSet = new Set(terminalIds.slice(0, cutoff));
+    const evicted: AgentInstance[] = [];
+    const retained: string[] = [];
+    for (const id of live) {
+      if (evictSet.has(id)) {
+        const removed = this.instances.get(id)!;
+        this.instances.delete(id);
+        evicted.push(removed);
+        continue;
+      }
+      retained.push(id);
+    }
+    this.terminalOrder.length = 0;
+    this.terminalOrder.push(...retained);
+    return evicted;
   }
 
   /** 按 id 查实例。 */

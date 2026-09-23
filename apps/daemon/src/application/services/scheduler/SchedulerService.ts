@@ -367,6 +367,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
         this.translator.forgetLastEventAt(instance.instanceId);
         this.clearProgressReporting(instance.instanceId); // T3-A：queued 取消不走收口链，定点清定时器
         this.persistLifecycle(instance);
+        this.evictBeyondTerminalWindow(instance.instanceId); // CAND-399：cancelled 也是终态，与收口链同一保留窗口
       } else {
         this.kill(instance.instanceId);
       }
@@ -406,6 +407,10 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       //（快照 instances[] 组装面透出；数据源 = agent.spawned 载荷 model）
       if (item.model !== undefined) this.spawnModels.set(item.instanceId, item.model);
     }
+    // CAND-399：重启回灌按终态保留窗口裁剪——原样恢复会整段历史回膨胀
+    //（生产实测 list_instances 单次 537k 字符）；裁剪在 task/closure/model 回填
+    // 之后，被销户键随窗口对齐清理。
+    this.evictWindowOverflow();
   }
 
   // ── 编排入口 ──────────────────────────────────────────────
@@ -743,6 +748,36 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
 
     // 空位释放 → FIFO 出队（queued 收口不释放运行位，maybeDequeue 自会按预算判定）
     this.maybeDequeue();
+
+    // CAND-399 终态保留窗口：收口链全部完成后登记终态序并按窗口裁剪——
+    // 超窗终态实例销户（不触发出队/预算变化：超窗者已终态，本就不占运行位
+    // 与队列；销户不影响持久化——closure 行/投影已落盘）
+    this.evictBeyondTerminalWindow(instanceId);
+  }
+
+  // ── 终态保留窗口（CAND-399：注册表无界累积修复） ──────────────
+
+  /**
+   * 终态登记 + 窗口裁剪（实例刚转终态：onInstanceClosure / cancelSession
+   * cancelled 分支）。窗口 = SchedulingPolicy.terminalRetainCount（缺省 50，
+   * 测试可注入小值）。销户 = unregisterInstance + 门面侧留档 Map 对齐清理
+   * （tasks/spawnModels/spawnAnchors/closures——收口链消费完毕的观测留档，
+   * 现状收口不清；其余 per-instance 状态已随收口链/清理序列清空，无残留）。
+   */
+  private evictBeyondTerminalWindow(justClosedId: string): void {
+    this.registry.noteTerminal(justClosedId);
+    this.evictWindowOverflow();
+  }
+
+  /** 按窗口裁剪超窗终态实例（restoreInstances 回灌后直接调用；幂等）。 */
+  private evictWindowOverflow(): void {
+    for (const evicted of this.registry.trimTerminalWindow(this.deps.policy().terminalRetainCount)) {
+      const id = evicted.instanceId;
+      this.tasks.delete(id);
+      this.spawnModels.delete(id);
+      this.spawnAnchors.delete(id);
+      this.closures.delete(id);
+    }
   }
 
   /**

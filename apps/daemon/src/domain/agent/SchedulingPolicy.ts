@@ -21,6 +21,13 @@ export const DEFAULT_SCHEDULING = {
   maxQueued: 8,
   /** stalled 阈值：idle > 5min 无事件增量（§4.1）。 */
   stalledThresholdMs: 300_000,
+  /**
+   * 终态保留窗口（CAND-399）：注册表内保留最近 N 条终态（done/failed/
+   * cancelled/killed 收口）实例，超窗者销户（unregisterInstance + 门面
+   * 侧留档 Map 对齐清理）——注册表内存与 status() 全量序列化体量有界；
+   * 持久化观测面（closure_records/agent_lifecycle）不受影响。测试可注入小值。
+   */
+  terminalRetainCount: 50,
 } as const;
 
 export interface SchedulingPolicyOptions {
@@ -30,6 +37,8 @@ export interface SchedulingPolicyOptions {
   readonly maxQueued?: number;
   /** stalled 判定阈值 ms；缺省 300_000（5min）。测试可注入小值。 */
   readonly stalledThresholdMs?: number;
+  /** 终态保留窗口（CAND-399）；缺省 50（最近 N 条终态在册，超窗销户）。 */
+  readonly terminalRetainCount?: number;
 }
 
 /** 预算判定结果：run=预算内直跑；enqueue=超限入队；reject=队列满报错回 LLM。 */
@@ -42,15 +51,18 @@ export class SchedulingPolicy {
   readonly maxConcurrent: number;
   readonly maxQueued: number;
   readonly stalledThresholdMs: number;
+  readonly terminalRetainCount: number;
 
   constructor(options: SchedulingPolicyOptions = {}) {
     this.maxConcurrent = options.maxConcurrent ?? DEFAULT_SCHEDULING.maxConcurrent;
     this.maxQueued = options.maxQueued ?? DEFAULT_SCHEDULING.maxQueued;
     this.stalledThresholdMs = options.stalledThresholdMs ?? DEFAULT_SCHEDULING.stalledThresholdMs;
+    this.terminalRetainCount = options.terminalRetainCount ?? DEFAULT_SCHEDULING.terminalRetainCount;
 
     assertIntAtLeast(this.maxConcurrent, "maxConcurrent", 1);
     assertIntAtLeast(this.maxQueued, "maxQueued", 0);
     assertIntAtLeast(this.stalledThresholdMs, "stalledThresholdMs", 1);
+    assertIntAtLeast(this.terminalRetainCount, "terminalRetainCount", 1);
   }
 
   /**

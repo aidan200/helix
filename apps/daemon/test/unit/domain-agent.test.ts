@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentLifecycle, type AgentLifecycleState } from "../../src/domain/agent/AgentLifecycle";
 import { SteerQueue } from "../../src/domain/agent/SteerQueue";
-import { LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
+import { AgentInstance, LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 
 /**
@@ -99,6 +99,67 @@ function forceState(lc: AgentLifecycle, target: AgentLifecycleState): void {
     if (lc.current !== s) lc.transition(s);
   }
 }
+
+describe("CAND-399 终态保留窗口（注册表销户序源与裁剪）", () => {
+  const now = "2024-01-01T00:00:00.000Z";
+  /** 注册一个可直接收口为终态的实例（simulate spawn→收口链尾登记）。 */
+  function spawnAndClose(lc: AgentLifecycle, i: number): string {
+    const id = `agent-w${i}`;
+    const inst = AgentInstance.create({ instanceId: id, kind: "subagent", profileKind: "subagent-worker", sessionId: "s-w", createdAt: now });
+    lc.registerInstance(inst);
+    inst.markRunning();
+    inst.complete();
+    lc.noteTerminal(id);
+    return id;
+  }
+
+  test("超窗销户保留最近 keep 条（旧→新序淘汰）；未超窗 no-op", () => {
+    const lc = new AgentLifecycle();
+    for (let i = 0; i < 5; i++) spawnAndClose(lc, i);
+    const evicted = lc.trimTerminalWindow(3);
+    expect(evicted.map((i) => i.instanceId)).toEqual(["agent-w0", "agent-w1"]); // 最旧 2 条销户
+    expect(lc.listInstances().map((i) => i.instanceId)).toEqual(["agent-w2", "agent-w3", "agent-w4"]);
+    expect(lc.instanceCount).toBe(3);
+    // 未超窗再裁：no-op（幂等）
+    expect(lc.trimTerminalWindow(3)).toEqual([]);
+    expect(lc.instanceCount).toBe(3);
+  });
+
+  test("restore 终态原样恢复：注册即入终态序，裁剪同样生效", () => {
+    const lc = new AgentLifecycle();
+    for (let i = 0; i < 4; i++) {
+      lc.registerInstance(
+        AgentInstance.restore({ instanceId: `agent-r${i}`, kind: "subagent", profileKind: "subagent-worker", sessionId: "s-w", state: "failed", createdAt: now }),
+      );
+    }
+    const evicted = lc.trimTerminalWindow(2);
+    expect(evicted.map((i) => i.instanceId)).toEqual(["agent-r0", "agent-r1"]);
+    expect(lc.listInstances().map((i) => i.instanceId)).toEqual(["agent-r2", "agent-r3"]);
+  });
+
+  test("非终态实例永不裁剪（未登记终态序）", () => {
+    const lc = new AgentLifecycle();
+    lc.registerInstance(
+      AgentInstance.create({ instanceId: "agent-run", kind: "subagent", profileKind: "subagent-worker", sessionId: "s-w", createdAt: now }),
+    );
+    for (let i = 0; i < 3; i++) spawnAndClose(lc, i);
+    lc.trimTerminalWindow(1);
+    expect(lc.findInstance("agent-run")?.current).toBe("queued"); // 在册且非终态
+    expect(lc.instanceCount).toBe(2); // 1 running + 最近 1 条终态
+  });
+
+  test("unregisterInstance 同步摘终态序（陈旧 id 不残留）；noteTerminal 幂等", () => {
+    const lc = new AgentLifecycle();
+    const w0 = spawnAndClose(lc, 0);
+    spawnAndClose(lc, 1);
+    lc.unregisterInstance(w0); // 手动销户：序同步摘除
+    expect(lc.trimTerminalWindow(1)).toEqual([]); // 剩 1 条未超窗
+    expect(lc.instanceCount).toBe(1);
+    lc.noteTerminal("agent-w1"); // 重复登记幂等
+    lc.trimTerminalWindow(1);
+    expect(lc.instanceCount).toBe(1);
+  });
+});
 
 describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   test("pending→running→completed，结果附加", () => {
