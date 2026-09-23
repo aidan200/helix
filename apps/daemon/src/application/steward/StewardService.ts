@@ -169,12 +169,12 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 ② 递话（SubAgent 补充通道）：用户明确想给正在运行的 agent 实例（agent-xxx）补充指示/催进度时——调用 propose_send 工具提案；系统会向用户请求确认（确认按钮），用户确认后才执行。每次只提案一条递话。向会话传达消息不走本通道——用 deliver_to_session（见意图路由）。
 ③ 拒绝越权：
 - 不代答工作上下文问题（如「就按刚才聊的改」）——工作上下文留在各会话/agent，请建议用户把话投递到持有该上下文的会话（可提议 deliver_to_session）或递给该 agent（可提议 propose_send）。
-- 不执行未过闸的写操作：唯一写原语 = propose_send / deliver_to_session / create_session / spawn_review_task，且必须等用户在面板确认后才执行。
+- 不执行未过闸的写操作：唯一写原语 = propose_send / deliver_to_session / create_session / start_session / spawn_review_task，且必须等用户在面板确认后才执行。
 - 不伪装用户身份、不代替用户做决策。
 
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
 - 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数）。
-- 开新会话：用户想开新 session/新话题（可带标题）→ create_session 提案；用户想**带着话题**开始时必须传 initial_message（用户原话，不改写——建成即作为首条消息投递到新会话，不要再让用户去空会话里重新输入）；建成后界面会自动切到新会话。
+- 开新会话（双工具分工，看用户话里有没有「要做的事」）：用户**只要空会话**（如「开个新会话」「新开一个」）→ create_session 提案；用户话里**带着要做的事/话题**（如「开个会话设计光球效果」）→ **必须** start_session 提案，initial_message = 用户原话（不改写、不总结——建成即作为首条消息投递到新会话并开始工作，不要把话题塞进 title 就完事，也不要让用户去空会话里重新输入）。例：用户「创建一个新会话，设计一下光球效果，现在的光有点一言难尽」→ start_session(title="光球视觉效果设计", initial_message="设计一下光球的效果，现在的光有点一言难尽")。两个工具建成后界面都会自动切到新会话。
 - 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → remember 提案（写操作——确认后才真正入库）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
 - 给运行中的 agent 实例递话（SubAgent 补充通道）：用户明确点名某个正在跑的 agent-xxx（补充指示/催进度）→ propose_send 提案（agentId 必须运行中）。用户没点名具体 agent 实例时不要走本通道。
@@ -623,18 +623,33 @@ const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
 const TOOL_CREATE_SESSION: StewardLlmTool = {
   name: "create_session",
   description:
-    "提案创建新会话（写操作——仅提案，系统会请求用户确认后才执行）。用户想开新会话/新话题时使用；用户想带着话题开始时传 initial_message（确认后建成会话即作为首条消息投递，将向用户全文展示以供确认）。",
+    "提案创建新会话（写操作——仅提案，系统会请求用户确认后才执行）。**只在用户只要一个空会话时使用**；用户话里带着任何要做的事/话题时必须改用 start_session（话题是用户要在新会话里开始的内容，不是标题——塞进 title 会丢）",
   parameters: {
     type: "object",
     properties: {
       title: { type: "string", description: "会话主题标题（可选，缺省自动生成；仅作显示标题，不派生消息）" },
       project: { type: "string", description: "关联项目名（可选——织入标题标注）" },
+    },
+    additionalProperties: false,
+  },
+};
+
+const TOOL_START_SESSION: StewardLlmTool = {
+  name: "start_session",
+  description:
+    "提案创建新会话并带着话题开局（写操作——仅提案，系统会请求用户确认后才执行）。用户想开新会话且话里带着要做的事/话题时使用：initial_message = 用户原话（不改写、不总结——确认后建成会话即作为首条消息投递并在新会话开启工作，将向用户全文展示以供确认）；话题可另提炼 title",
+  parameters: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "会话主题标题（可选，可从话题提炼；仅作显示标题）" },
+      project: { type: "string", description: "关联项目名（可选——织入标题标注）" },
       initial_message: {
         type: "string",
         description:
-          "初始话题/首条消息（可选——用户想带着话题开始新会话时传，原文投递不经改写；不带则建空会话）",
+          "初始话题/首条消息（必填——用户想在 新会话里开始的内容，用户原话，原文投递不经改写）",
       },
     },
+    required: ["initial_message"],
     additionalProperties: false,
   },
 };
@@ -692,6 +707,7 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_PROPOSE_SEND,
   TOOL_DELIVER_TO_SESSION,
   TOOL_CREATE_SESSION,
+  TOOL_START_SESSION,
   TOOL_SPAWN_REVIEW_TASK,
   TOOL_REMEMBER,
 ];
@@ -701,6 +717,7 @@ const GATED_TOOLS: ReadonlySet<string> = new Set([
   "propose_send",
   "deliver_to_session",
   "create_session",
+  "start_session",
   "spawn_review_task",
   "remember",
 ]);
@@ -1449,12 +1466,13 @@ export class StewardService {
         return { kind: "result", text: resultText, summary: summarizeForFrame(resultText.slice(0, 120)) };
       },
     });
-    // 写注入四件：handler = approve 决策执行体（重新过闸校验 + 执行——与
+    // 写注入五件：handler = approve 决策执行体（重新过闸校验 + 执行——与
     // confirm 的 executePending 同源动作体）
     for (const [tool, actionOf] of [
       [TOOL_PROPOSE_SEND, this.pendingActionOfProposeSend.bind(this)],
       [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
       [TOOL_CREATE_SESSION, this.pendingActionOfCreateSession.bind(this)],
+      [TOOL_START_SESSION, this.pendingActionOfStartSession.bind(this)],
       [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
       [TOOL_REMEMBER, this.pendingActionOfRemember.bind(this)],
     ] as const) {
@@ -1565,8 +1583,10 @@ export class StewardService {
       if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
       return { pause: true, action: gated };
     }
-    if (name === "create_session") {
-      const gated = await this.pendingActionOfCreateSession(args);
+    if (name === "create_session" || name === "start_session") {
+      const gated = await this.pendingActionOfCreateSession(args, {
+        requireInitialMessage: name === "start_session",
+      });
       if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
       return { pause: true, action: gated };
     }
@@ -1616,6 +1636,13 @@ export class StewardService {
     };
   }
 
+  /** start_session 提案判定（同 create_session 动作体，initial_message 必填兑底）。 */
+  private async pendingActionOfStartSession(
+    args: Record<string, unknown>,
+  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+    return this.pendingActionOfCreateSession(args, { requireInitialMessage: true });
+  }
+
   /** deliver_to_session 提案判定（驾驶舱批逻辑平移：参数 → 装配面 → 会话存在性）。 */
   private async pendingActionOfDeliverToSession(
     args: Record<string, unknown>,
@@ -1648,9 +1675,10 @@ export class StewardService {
     };
   }
 
-  /** create_session 提案判定（项目参数校验 → title 缺省生成 → initial_message 解析）。 */
+  /** create_session / start_session 提案判定（项目参数校验 → title 缺省生成 → initial_message 解析；start_session 必填服务端兑底）。 */
   private async pendingActionOfCreateSession(
     args: Record<string, unknown>,
+    opts: { readonly requireInitialMessage?: boolean } = {},
   ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
     const titleRaw = typeof args["title"] === "string" ? args["title"].trim() : "";
     const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
@@ -1669,8 +1697,15 @@ export class StewardService {
         : `${project !== undefined ? `${project} ` : ""}新会话 ${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
     // 带着话题开新会话：initial_message 全文进确认卡（确认前用户可审，写安全
     // 同 deliver_to_session 的「全文展示供确认」惯例）；原文透传零改写。
+    // start_session = 必填兑底（schema required 之外的服务端二次防线——k3 级
+    // 模型可选参数遵从弱，打回重提案而非静默建空会话）。
     const initialMessageRaw = typeof args["initial_message"] === "string" ? args["initial_message"].trim() : "";
     const initialMessage = initialMessageRaw !== "" ? initialMessageRaw : undefined;
+    if (initialMessage === undefined && opts.requireInitialMessage === true) {
+      return this.guideOutcome(
+        "start_session 需要 initial_message（用户原话，不改写）——请带上用户想在新会话开始的话题重新提案；用户只要空会话时才用 create_session",
+      );
+    }
     return {
       kind: "createSession",
       displayTarget: "新会话",

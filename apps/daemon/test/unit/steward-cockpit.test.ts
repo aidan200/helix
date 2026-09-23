@@ -224,19 +224,19 @@ describe("驾驶舱：create_session 建完即切", () => {
   });
 });
 
-describe("驾驶舱：create_session 初始话题投递（建成即作为首条消息送达）", () => {
-  test("主链：initial_message 全链透传 → confirm 后建成 + 投递恰一次（新 sessionId + 原文）+ navigate + ok 回执", async () => {
+describe("驾驶舱：start_session 带话题开局（工具拆分——initial_message 必填）", () => {
+  test("主链：start_session → 确认卡含话题全文 → confirm 后建成 + 投递恰一次（新 sessionId + 原文）+ navigate + ok 回执", async () => {
     const llm = fakeLlm([
-      toolCall("call-1", "create_session", {
-        title: "管家记忆逻辑",
-        initial_message: "处理管家记忆逻辑问题：排查 recall 召回空段",
+      toolCall("call-1", "start_session", {
+        title: "光球视觉效果设计",
+        initial_message: "设计一下光球的效果，现在的光有点一言难尽",
       }),
     ]);
     const sessions = fakeCockpitSessions();
     const { svc, navigates } = makeService({ llm, sessions });
-    const res = await svc.ask("开个新会话带着这个话题开始");
+    const res = await svc.ask("创建一个新的会话，设计一下这个光球的效果");
     if (res.status !== "confirm_required") throw new Error("unreachable");
-    expect(res.message).toContain("处理管家记忆逻辑问题：排查 recall 召回空段"); // 确认卡全文可见（确认前用户可审）
+    expect(res.message).toContain("设计一下光球的效果，现在的光有点一言难尽"); // 确认卡全文可见（确认前用户可审）
     expect(sessions.titled.length).toBe(0); // 未确认零执行
     expect(sessions.deliveries.length).toBe(0);
     const completed: import("@helix/protocol").StewardActionCompletedPayload[] = [];
@@ -247,14 +247,33 @@ describe("驾驶舱：create_session 初始话题投递（建成即作为首条�
     expect(completed[0]!.ok).toBe(true);
     expect(completed[0]!.detail).toContain("sess-new-1");
     expect(completed[0]!.detail).toContain("初始话题");
-    expect(sessions.titled).toEqual(["管家记忆逻辑"]); // 建成恰一次，title 原样（meta 列非消息）
+    expect(sessions.titled).toEqual(["光球视觉效果设计"]); // 建成恰一次，title 原样（meta 列非消息）
     expect(sessions.deliveries).toEqual([
-      { sessionId: "sess-new-1", text: "处理管家记忆逻辑问题：排查 recall 召回空段" }, // 投递恰一次，原文不经改写
+      { sessionId: "sess-new-1", text: "设计一下光球的效果，现在的光有点一言难尽" }, // 投递恰一次，原文不经改写
     ]);
     expect(navigates).toEqual([{ sessionId: "sess-new-1" }]); // 建完即切不变
   });
 
-  test("不带 initial_message：纯建会话零投递（向后兼容——title 仍不派生消息）", async () => {
+  test("服务端必填兜底：start_session 缺 initial_message → 引导式打回（无确认卡，提示带用户原话重新提案）", async () => {
+    const llm = fakeLlm([
+      toolCall("call-1", "start_session", { title: "光球视觉效果设计" }),
+      { kind: "text", text: "好的，我重新提案" },
+    ]);
+    const sessions = fakeCockpitSessions();
+    const { svc } = makeService({ llm, sessions });
+    const res = await svc.ask("开个新会话设计光球效果");
+    expect(res.status).toBe("answer"); // 引导式收口直答——不产生确认卡
+    const history = await svc.getHistory();
+    const guidance = history.find((r) => r.kind === "toolResult" && r.name === "start_session");
+    expect(guidance).toBeDefined();
+    if (guidance?.kind !== "toolResult") throw new Error("unreachable");
+    expect(guidance.text).toContain("initial_message"); // 打回提示含补参指引
+    expect(guidance.text).toContain("用户原话");
+    expect(sessions.titled.length).toBe(0); // 零执行
+    expect(sessions.deliveries.length).toBe(0);
+  });
+
+  test("create_session 单一职责：纯建会话零投递（不带话题开局 = 空会话，title 仍不派生消息）", async () => {
     const llm = fakeLlm([
       toolCall("call-1", "create_session", { title: "调研" }),
     ]);
@@ -265,12 +284,12 @@ describe("驾驶舱：create_session 初始话题投递（建成即作为首条�
     await svc.confirm(res.actionId);
     await new Promise((r) => setTimeout(r, 10));
     expect(sessions.titled).toEqual(["调研"]);
-    expect(sessions.deliveries).toEqual([]); // 修复批①语义保留：无初始话题 = 空会话
+    expect(sessions.deliveries).toEqual([]); // 修复批①语义保留：create_session 无初始话题参数
   });
 
   test("投递失败交代：会话已建成（navigate 照发）+ ok=false + detail 含 sessionId 与失败原因", async () => {
     const llm = fakeLlm([
-      toolCall("call-1", "create_session", {
+      toolCall("call-1", "start_session", {
         title: "调研",
         initial_message: "带着这个话题开始",
       }),
@@ -292,26 +311,34 @@ describe("驾驶舱：create_session 初始话题投递（建成即作为首条�
     expect(navigates).toEqual([{ sessionId: "sess-new-1" }]); // 建成即切仍发
   });
 
-  test("工具契约：create_session schema 含 initial_message 可选参数（LLM 面可见）", async () => {
+  test("工具契约：create_session 与 start_session 分工（前者无 initial_message，后者 required）", async () => {
     const llm = fakeLlm([{ kind: "text", text: "好的" }]);
     const sessions = fakeCockpitSessions();
     const { svc } = makeService({ llm, sessions });
     await svc.ask("在吗");
     const tools = llm.calls[0]!.request.tools;
-    const tool = tools.find((t) => t.name === "create_session");
-    expect(tool).toBeDefined();
-    const params = (tool?.parameters ?? {}) as {
+    const create = tools.find((t) => t.name === "create_session");
+    expect(create).toBeDefined();
+    const createParams = (create?.parameters ?? {}) as {
       properties?: Record<string, unknown>;
       required?: string[];
     };
-    expect(params.properties?.["initial_message"]).toBeDefined();
-    expect(params.required ?? []).not.toContain("initial_message"); // 可选——不带话题仍可用
+    expect(createParams.properties?.["initial_message"]).toBeUndefined(); // 话题开局不在此工具——防 LLM 把话题做成 title 的老路径
+    const start = tools.find((t) => t.name === "start_session");
+    expect(start).toBeDefined();
+    const startParams = (start?.parameters ?? {}) as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    expect(startParams.properties?.["initial_message"]).toBeDefined();
+    expect(startParams.required ?? []).toContain("initial_message"); // schema 级强制——选此工具必须带话题
   });
 
-  test("prompt 契约：意图路由段引导「带着话题开新会话 → initial_message」", () => {
+  test("prompt 契约：意图路由段「开新会话」双工具分工 + 用户原话不改写 + 示例", () => {
     const routingSection = STEWARD_SYSTEM_PROMPT.slice(STEWARD_SYSTEM_PROMPT.indexOf("意图路由"));
-    expect(routingSection).toContain("initial_message");
-    expect(routingSection).toContain("带着话题");
+    expect(routingSection).toContain("start_session");
+    expect(routingSection).toContain("用户原话");
+    expect(routingSection).toContain("例："); // few-shot 示例——k3 级模型对示例的遵从远高于散文规则
   });
 });
 
