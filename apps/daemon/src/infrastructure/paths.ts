@@ -44,9 +44,19 @@ export interface HelixPaths {
 /**
  * 解析 helix 主目录：优先显式覆盖（`--home <dir>`），否则 `~/.helix`。
  * 本函数是全仓唯一 `os.homedir()` 调用点。
+ *
+ * 防护（2026-09-23）：显式值一律 `path.resolve` 绝对化、空串/纯空白抛错。
+ * 缺口背景：argv `--home ""` 曾让 home 变成 `""`，`path.join("", "helix.db")`
+ * 解析成 cwd 相对位——daemon 一打开 SQLite 即在当时 cwd 留下 0 字节
+ * helix.db 残留（仓库根/apps/daemon 各中过一次）。home 派生的 db/锁/配置
+ * 绝不允许落回 cwd 相对位，故在此单点收口。
  */
 export function resolveHome(explicitHome?: string): string {
-  return explicitHome ?? path.join(os.homedir(), ".helix");
+  if (explicitHome === undefined) return path.join(os.homedir(), ".helix");
+  if (explicitHome.trim() === "") {
+    throw new Error("--home 不可为空（缺省请勿传该参数——将回落 ~/.helix）");
+  }
+  return path.resolve(explicitHome);
 }
 
 /**

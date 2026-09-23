@@ -47,6 +47,19 @@ describe("paths（TP-CL1-3，AD-14）", () => {
     }
   });
 
+  test("⑤ --home 相对值 → 按 cwd 绝对化（db/锁不落 cwd 相对位）", () => {
+    const p = createPaths("tmp-home");
+    expect(p.home).toBe(path.resolve("tmp-home"));
+    expect(path.isAbsolute(p.home)).toBe(true);
+    expect(path.isAbsolute(p.dbPath())).toBe(true);
+    expect(path.isAbsolute(p.lockPath())).toBe(true);
+  });
+
+  test("⑥ --home 空串/纯空白 → 抛错（拒绝回落 cwd/静默用真 home）", () => {
+    expect(() => resolveHome("")).toThrow("--home 不可为空");
+    expect(() => resolveHome("   ")).toThrow("--home 不可为空");
+  });
+
   test("④ T5 builtinSkillsDir：apps/daemon/resources/skills 单点派生（import.meta.dir 相对解析，bun 从 src 运行）", () => {
     const dir = builtinSkillsDir();
     expect(path.isAbsolute(dir)).toBe(true);
