@@ -8,8 +8,8 @@
  * 自然触发（整行快照含 topic），shell 刷新复用 session.list_changed 出海。
  *
  * 演进策略（用户裁决 2026-09-24）：以 LLM 轮次为节拍——
- * - 锚点 = 第 1 / 10 / 20 / 30… 个完成轮（turn.completed reason="done"）：
- *   首轮矫正把「首条用户消息」升格为一句话主题；此后每 10 轮矫正一次；
+ * - 锚点 = 第 1 / 3 / 6 / 9… 个完成轮（turn.completed reason="done"）：
+ *   首轮矫正把「首条用户消息」升格为一句话主题；此后每 3 轮矫正一次；
  * - 分类判断恒开（用户裁决 2026-09-24）：选中分类模型（topic_config.
  *   classifyEndpointId，Jev 等按端点 variant 区分实现）→ 判官先判
  *   「主题是否实质漂移」（零生成 token），未漂移直接短路省掉生成调用；
@@ -62,9 +62,9 @@ export interface SessionTitleServiceDeps {
 
 // ── 纯函数（导出供单测） ────────────────────────────────────
 
-/** 矫正锚点判定：第 1 轮（首条消息 → 主题句）与每 10 轮（10/20/30…）。 */
+/** 矫正锚点判定：第 1 轮（首条消息 → 主题句）与每 3 轮（3/6/9…）。 */
 export function isAnchorTurn(turnCount: number): boolean {
-  return turnCount === 1 || (turnCount > 1 && turnCount % 10 === 0);
+  return turnCount === 1 || (turnCount > 1 && turnCount % 3 === 0);
 }
 
 /** 新主题长度上限（Unicode 码点——与会话清单首条消息推导同口径）。 */
@@ -148,7 +148,7 @@ export function buildDriftJudgeInput(input: {
 
 export class SessionTitleService {
   private readonly deps: SessionTitleServiceDeps;
-  /** 同会话演进防抖（锚点间隔 10 轮常态不重叠；turn1→turn10 紧贴场景防御）。 */
+  /** 同会话演进防抖（锚点间隔 3 轮常态不重叠；turn1→turn3 紧贴场景防御）。 */
   private readonly inFlight = new Set<string>();
 
   constructor(deps: SessionTitleServiceDeps) {
@@ -184,8 +184,11 @@ export class SessionTitleService {
     try {
       const displayTitle = target.topic ?? deriveTitle(target.firstUserText);
       // 分类判断恒开：选中分类模型 → 两段式（判官先判漂移）；未选 → 生成
-      // 模型兼任（一次调用自带「保持 | 新主题」判别）
-      const driftJudged = (config.classifyEndpointId ?? "") !== "" && this.deps.judge !== undefined;
+      // 模型兼任（一次调用自带「保持 | 新主题」判别）。首次命名（topic
+      // 未定——首轮矫正升格首条消息）跳过判官：「尚无主题」不构成漂移命题
+      const firstNaming = target.topic === undefined;
+      const driftJudged =
+        !firstNaming && (config.classifyEndpointId ?? "") !== "" && this.deps.judge !== undefined;
       if (driftJudged) {
         const { state, question } = buildDriftJudgeInput({ displayTitle, recentUserTexts: target.recentUserTexts });
         const probability = await this.deps.judge.noul(state, question);
@@ -200,7 +203,7 @@ export class SessionTitleService {
               displayTitle,
               recentUserTexts: target.recentUserTexts,
               firstAssistantText: target.firstAssistantText,
-              skipJudge: driftJudged,
+              skipJudge: driftJudged || firstNaming, // 定论产出面：判官已判漂移 / 首次命名升格——不给「保持」出口
             }),
           },
         ],

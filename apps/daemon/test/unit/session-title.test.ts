@@ -109,10 +109,10 @@ async function settle(): Promise<void> {
 
 // ── 纯函数 ─────────────────────────────────────────────────
 
-describe("isAnchorTurn（轮次锚点：1 + 每 10）", () => {
-  test("1/10/20/30 是锚点；2/9/11/15/0 非", () => {
-    for (const n of [1, 10, 20, 30]) expect(isAnchorTurn(n)).toBe(true);
-    for (const n of [0, 2, 9, 11, 15, 100 + 5]) expect(isAnchorTurn(n)).toBe(false);
+describe("isAnchorTurn（轮次锚点：1 + 每 3）", () => {
+  test("1/3/6/9/12 是锚点；0/2/4/5/7/8/10/11 非", () => {
+    for (const n of [1, 3, 6, 9, 12]) expect(isAnchorTurn(n)).toBe(true);
+    for (const n of [0, 2, 4, 5, 7, 8, 10, 11]) expect(isAnchorTurn(n)).toBe(false);
   });
 });
 
@@ -195,7 +195,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
     expect(llm.calls.length).toBe(0);
   });
 
-  test("锚点外轮次（2/9/11）短路零调用", async () => {
+  test("锚点外轮次（2/4/5）短路零调用", async () => {
     const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
     const target = makeTarget({ turnCount: 2 });
     const { service } = makeService({ llm, target });
@@ -206,7 +206,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
 
   test("显式标题锁定：title 存在 → 零演进（域守卫前置）", async () => {
     const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
-    const target = makeTarget({ title: "用户命名的会话", turnCount: 10 });
+    const target = makeTarget({ title: "用户命名的会话", turnCount: 3 });
     const { service } = makeService({ llm, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
@@ -224,20 +224,20 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
 
   test("一段式成功：新主题 → updateTopic + 广播；previous = topic ?? 推导", async () => {
     const llm = fakeLlm([{ kind: "text", text: "「会话主题演进设计」。" }]);
-    const target = makeTarget({ turnCount: 10, topic: "旧主题" });
+    const target = makeTarget({ turnCount: 3, topic: "旧主题" });
     const announced: string[] = [];
     const { service } = makeService({ llm, target, announced });
     service.onDomainEvent(turnDone("s1"));
     await settle();
     expect(llm.calls.length).toBe(1);
     expect(llm.calls[0]!.messages[0]).toMatchObject({ role: "user" });
-    expect(target.updates).toEqual([{ topic: "会话主题演进设计", previous: "旧主题", anchorTurn: 10 }]);
+    expect(target.updates).toEqual([{ topic: "会话主题演进设计", previous: "旧主题", anchorTurn: 3 }]);
     expect(announced).toEqual(["s1"]);
   });
 
   test("一段式「保持」→ 不更新不广播", async () => {
     const llm = fakeLlm([{ kind: "text", text: "保持" }]);
-    const target = makeTarget({ turnCount: 10, topic: "旧主题" });
+    const target = makeTarget({ turnCount: 3, topic: "旧主题" });
     const announced: string[] = [];
     const { service } = makeService({ llm, target, announced });
     service.onDomainEvent(turnDone("s1"));
@@ -249,20 +249,20 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   test("两段式：noul ≥ 阈值 → 进生成；prompt 不含「保持」出口", async () => {
     const llm = fakeLlm([{ kind: "text", text: "新主题短语" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.1]);
-    const target = makeTarget({ turnCount: 20, topic: "旧主题" });
+    const target = makeTarget({ turnCount: 6, topic: "旧主题" });
     const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
     expect(judge.calls.length).toBe(1);
     expect(llm.calls.length).toBe(1);
     expect((llm.calls[0]!.messages[0] as { text: string }).text).not.toContain(TOPIC_KEEP_SENTINEL);
-    expect(target.updates).toEqual([{ topic: "新主题短语", previous: "旧主题", anchorTurn: 20 }]);
+    expect(target.updates).toEqual([{ topic: "新主题短语", previous: "旧主题", anchorTurn: 6 }]);
   });
 
   test("两段式：noul < 阈值 → 短路省生成调用", async () => {
     const llm = fakeLlm([{ kind: "text", text: "新主题短语" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD - 0.1]);
-    const target = makeTarget({ turnCount: 20, topic: "旧主题" });
+    const target = makeTarget({ turnCount: 6, topic: "旧主题" });
     const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
@@ -274,13 +274,28 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   test("未选分类模型（classifyEndpointId null）→ 判官能力在场也不启用，生成模型兼任判断", async () => {
     const llm = fakeLlm([{ kind: "text", text: TOPIC_KEEP_SENTINEL }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.1]);
-    const target = makeTarget({ turnCount: 20, topic: "旧主题" });
+    const target = makeTarget({ turnCount: 6, topic: "旧主题" });
     const { service } = makeService({ config: { classifyEndpointId: null }, llm, judge, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
     expect(judge.calls.length).toBe(0); // 判官零调用（生成模型一次调用自带判别）
     expect(llm.calls.length).toBe(1);
     expect((llm.calls[0]!.messages[0] as { text: string }).text).toContain(TOPIC_KEEP_SENTINEL); // 「保持」出口在场
+  });
+
+  test("首次命名（topic 未定）→ 跳过判官直接升格（「尚无主题」不构成漂移命题）", async () => {
+    const llm = fakeLlm([{ kind: "text", text: "项目结构梳理" }]);
+    const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.5]); // 剧本若被消费会判漂移——用例断言它根本不被调用
+    const target = makeTarget({ turnCount: 3 }); // topic undefined（默认）= 首次命名
+    const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
+    service.onDomainEvent(turnDone("s1"));
+    await settle();
+    expect(judge.calls.length).toBe(0); // 判官零调用
+    expect(llm.calls.length).toBe(1);
+    expect((llm.calls[0]!.messages[0] as { text: string }).text).not.toContain(TOPIC_KEEP_SENTINEL); // 无「保持」出口
+    expect(target.updates.length).toBe(1);
+    expect(target.updates[0]).toMatchObject({ topic: "项目结构梳理", anchorTurn: 3 });
+    expect(target.updates[0]!.previous).toContain("帮我看看"); // previous = firstUserText 推导标题
   });
 
   test("LLM 失败 → 静默降级（保留旧 topic 零更新）", async () => {
@@ -293,7 +308,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
         throw new Error("网络炸了");
       },
     };
-    const target = makeTarget({ turnCount: 10, topic: "旧主题" });
+    const target = makeTarget({ turnCount: 3, topic: "旧主题" });
     const { service } = makeService({ llm, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
@@ -308,7 +323,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
         release = () => resolve({ kind: "text", text: "新主题" });
       }) as never as StewardLlmResponse,
     ]);
-    const target = makeTarget({ turnCount: 10 });
+    const target = makeTarget({ turnCount: 3 });
     const { service } = makeService({ llm, target });
     service.onDomainEvent(turnDone("s1"));
     await settle(); // 第一演进挂起中
