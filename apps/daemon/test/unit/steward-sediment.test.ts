@@ -175,7 +175,7 @@ describe("管家记忆 B4a：自动沉淀判定管线", () => {
     expect(proposals[0]!.text).toBe("以后别用 bun test");
     expect(proposals[0]!.kind).toBe("preference");
     const confirmResult = await svc.confirm(proposals[0]!.actionId);
-    expect(confirmResult.status).toBe("ok");
+    expect(confirmResult.status).toBe("accepted"); // B1 两段式：受理即回
     expect(remembers).toHaveLength(1);
     expect(remembers[0]!.source).toBe("auto-sediment");
     // 单次消费

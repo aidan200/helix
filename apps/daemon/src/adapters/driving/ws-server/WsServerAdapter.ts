@@ -128,6 +128,7 @@ import {
 import {
   handleAgentStewardProfileGet,
   handleStewardAsk,
+  handleStewardCancel,
   handleStewardConfirm,
   handleStewardGetConfig,
   handleStewardHistory,
@@ -750,6 +751,11 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardConfirm(this.contexts.stewardContext(ws, type, payload));
+      // ── B1 两段式确认批：确认卡作废（pending 簿记同步；无回执帧）──
+      case "steward.cancel":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardCancel(this.contexts.stewardContext(ws, type, payload));
       case "steward.subscribe":
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)

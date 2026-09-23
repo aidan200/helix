@@ -14,7 +14,7 @@
  */
 
 /** 注入来源四值枚举（helix 自有；与协议面 SteerSource 同值域，adapter 层映射）。coord = 占用冲突通知（U6）。 */
-export type SteerSource = "user" | "closure" | "progress" | "coord";
+export type SteerSource = "user" | "closure" | "progress" | "coord" | "steward"; // B1 管家投递（与 protocol types/chat.ts 同步 additive）
 
 export interface SteerItem {
   readonly entryId: string;

@@ -53,6 +53,7 @@ import {
   stewardConfirmCommand,
   stewardGetConfigCommand,
   stewardHistoryCommand,
+  stewardCancelCommand,
   stewardInterruptCommand,
   stewardMemoryAppendCommand,
   stewardMemoryDeleteCommand,
@@ -283,6 +284,10 @@ export const COMMAND_SURFACE = {
   /** 确认闸放行（actionId 单次消费；回执 steward.confirm.result）。 */
   sendStewardConfirm: (deps) =>
     (actionId: string): boolean => deps.send(stewardConfirmCommand(actionId)),
+  /** 确认卡作废（B1 两段式确认批；无回执帧——放弃是本地即时收场，daemon 侧
+   *  pending 簿记同步；返回 false = 未连接——作废尽力而为）。 */
+  sendStewardCancel: (deps) =>
+    (actionId: string): boolean => deps.send(stewardCancelCommand(actionId)),
   /** feed 订阅（连接级闸门登记；面板开时发送，重连重放由 useSteward 驱动）。 */
   sendStewardSubscribe: (deps) =>
     (): boolean => deps.send(stewardSubscribeCommand()),
@@ -974,6 +979,7 @@ export const LISTEN_SURFACE = {
       type === "steward.ask.result" ||
       type === "steward.ask.delta" ||
       type === "steward.confirm.result" ||
+      type === "steward.action.completed" ||
       type === "steward.feed" ||
       type === "steward.config.result" ||
       type === "steward.history.result" ||

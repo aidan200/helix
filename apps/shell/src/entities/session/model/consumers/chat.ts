@@ -45,13 +45,19 @@ export const CHAT_EVENT_TYPES = [
 
 /** steer.queued：主线 echo 对账——队列坞最早未确认项换 daemon 预分配
  *  entryId（drain 落盘语义：queued 不上时间轴，对账面 = 队列坞非 entries）。
+ *  **create-if-no-echo**（B1，设计稿 §3.6）：无匹配 echo 的跨源注入（管家
+ *  投递等他端/后台发送）直接建队列坞条目（id=entryId、confirmed=true、
+ *  source/text 透传）——补齐「停留目标会话观看实时流」场景的排队期可见
+ *  性（G3；快照 pendingSteer 权威重建语义零改动——TR-105）。
  *  定向 steer（信封 instanceId=目标）仍走 entries echo 对账（定向即时落
  *  时间轴，不经主线队列）。 */
 function confirmSteerEcho(
   s: SessionState,
   entryId: string,
-  instanceId?: string,
-  source?: SteerSource,
+  instanceId: string | undefined,
+  source: SteerSource | undefined,
+  text: string | undefined,
+  at: number | undefined,
 ): SessionState {
   // 定向分支（entries echo；契约 §3.2 Q-3a）
   if (instanceId !== undefined) {
@@ -70,7 +76,18 @@ function confirmSteerEcho(
   }
   // 主线分支（队列坞 echo）
   const idx = s.steerQueue.findIndex((item) => item.id.startsWith(LOCAL_PREFIX) && !item.confirmed);
-  if (idx === -1) return s; // 无 echo：等快照对账
+  if (idx === -1) {
+    // create-if-no-echo：无本地 echo（跨源注入——管家投递/closure/progress
+    // 后台发送）→ 建条目入坞（confirmed=true——daemon 权威 id 直用；text
+    // 缺席防御空串，不拼接猜测）
+    if (text === undefined || text === "") return s; // 旧 daemon 无 text 位：等快照对账
+    // 时间戳经 action.ts 注入（SessionContext dispatch Date.now 单点——AG-14
+    // reducer 纯函数面零 Date.now）
+    return {
+      ...s,
+      steerQueue: [...s.steerQueue, { id: entryId, text, confirmed: true, ts: at ?? 0, ...(source !== undefined ? { source } : {}) }],
+    };
+  }
   const next = s.steerQueue.slice();
   next[idx] = { ...next[idx]!, id: entryId, confirmed: true, ...(source !== undefined ? { source } : {}) };
   return { ...s, steerQueue: next };
@@ -159,13 +176,15 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: numbe
       return { ...s, streaming: null, engineRetrying: null, currentTurnId: null };
     case "steer.queued": {
       // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省/主实例 id
-      //（kind 判别）= 主线 echo（队列坞对账）
+      //（kind 判别）= 主线 echo（队列坞对账 / create-if-no-echo 建条目）
       const iid = event.instanceId;
       return confirmSteerEcho(
         s,
         event.payload.entryId,
         iid !== undefined && !isMainChannel(iid, s.mainInstanceId) ? iid : undefined,
         event.payload.source,
+        event.payload.text,
+        ts,
       );
     }
     case "steer.drained":

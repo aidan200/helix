@@ -5,27 +5,26 @@
  * 链路：
  * - 配置面：mount → steward.get_config → config.result（enabled/model 态；
  *   daemon 侧 RuntimeConfig 持久化——开关默认关）；
- * - 订阅闸门：面板开 + conn=connected + enabled → steward.subscribe（daemon
- *   连接级 feed 闸门登记；断连自动清位，重连由 conn 依赖重放——
- *   useVoiceBroadcast 先例同构）；面板关/未启用 → unsubscribe；
+ * - 订阅闸门（B1 订阅解绑，设计稿 §3.5）：connected + enabled →
+ *   steward.subscribe（daemon 连接级 feed 闸门登记；断连自动清位，重连
+ *   由 conn 依赖重放）——**面板开合不再影响订阅**（消灭「关面板=关耳朵」
+ *   的 G2 错位：navigate/提案/feed 帧照达）；money gate 语义不变（开关关
+ *   仍零订阅零推送）；
  * - 对话面：ask(text) → steward.ask → steward.ask.delta 流式增量帧
  *   （streamingText 增量聚合；终态权威覆盖）+ steward.thinking 段级 /
- *   steward.tool 两相过程帧（A1：工具/thinking 过程屏幕可见——条目追加，
- *   TTS 播报链路零接入：useStewardVoice 只听 ask.result answer 文本）→
- *   steward.ask.result 三判别（answer 直答入条目流并清 streamingText /
- *   confirm_required 入 pending 确认闸 / error 入条目流——零静默失败）；
+ *   steward.tool 两相过程帧 → steward.ask.result（answer 直答入条目流 /
+ *   error 入条目流；confirm_required 的确认卡归全局 ConfirmStack
+ *   （useStewardActions，B1 卡栈移出面板）——本面零处理）→
+ *   steward.action.completed 执行回执入条目流（历史留痕）；
  * - 回放面（A1）：conn=connected → steward.history → history.result →
- *   items 从记录数组同源重建（UI 显示的 = LLM 记得的——daemon KV 单源）；
+ *   items 从记录数组同源重建；
  * - 新对话（A1）：newDialog() → steward.history {clear:true}（daemon 清 KV
- *   + LLM 窗口）+ 本地 items 清空（回执空数组幂等覆盖）——三处同步清；
- * - 确认闸（§5.2 防火墙客户端面）：pending 携带 actionId + 递话全文，
- *   confirmPending() → steward.confirm（actionId 单次消费——daemon 侧
- *   权威）；confirm.result ok/error 均入条目流；
+ *   + LLM 窗口）+ 本地 items 清空——三处同步清；
  * - feed 面：steward.feed 文本行 → 滚动窗口（上限截尾保最新）。
  *
- * 防自激纪律（TR-169）：订阅 effect 只按 [conn, open, enabled] 离散依赖
- * 发命令，不在 effect 体内因 send 失败复位任何守卫 ref；send 返回值消费
- * 一律 === false 严格判（TR-168）——面板对未连接态静默不重试。
+ * 防自激纪律（TR-169）：订阅 effect 只按 [conn, enabled] 离散依赖发命令，
+ * 不在 effect 体内因 send 失败复位任何守卫 ref；send 返回值消费一律
+ * === false 严格判（TR-168）——未连接态静默不重试。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
@@ -51,13 +50,6 @@ export type StewardPanelItem =
       readonly resultSummary: string | null;
     };
 
-/** 待确认写动作（确认闸面板态；执行权威在 daemon——actionId 单次消费）。 */
-export interface StewardPendingAction {
-  readonly actionId: string;
-  readonly agentId: string;
-  readonly message: string;
-}
-
 interface FeedLine {
   readonly kind: string;
   readonly agentId: string;
@@ -76,8 +68,6 @@ export interface UseSteward {
   /** 在途流式文本（null = 无流；增量聚合——终态 result 权威覆盖后清空；
    *  不落盘不持久化，与主聊天 streaming 槽同语义）。 */
   readonly streamingText: string | null;
-  /** 待确认写动作（null = 无）。 */
-  readonly pending: StewardPendingAction | null;
   /** feed 文本行（新序，截尾保最新）。 */
   readonly feed: readonly FeedLine[];
   /** ask 在途（面板禁用输入面）。 */
@@ -86,10 +76,6 @@ export interface UseSteward {
   readonly config: StewardConfig | null;
   /** 发送一轮对话（未连接返回 false——零静默丢消息，submit 同语义）。 */
   ask(text: string): boolean;
-  /** 确认闸放行（发送 steward.confirm；未连接返回 false）。 */
-  confirmPending(): boolean;
-  /** 放弃当前待确认动作（仅本地清卡——daemon 侧动作过期自然失效）。 */
-  dismissPending(): void;
   /** 新对话（A1：三处同步清——本地条目 + daemon KV + LLM 窗口）。 */
   newDialog(): boolean;
 }
@@ -147,11 +133,12 @@ export function recordsToItems(records: readonly StewardHistoryRecord[]): Stewar
   return items;
 }
 
-export function useSteward(open: boolean): UseSteward {
+/** open 参数退役（B1 订阅解绑：订阅闸不再随面板开合——设计稿 §3.5）；
+ * 签名保留无参形态，调用方（useStewardVoice）透传面同步瘦身。 */
+export function useSteward(): UseSteward {
   const {
     topology,
     sendStewardAsk,
-    sendStewardConfirm,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
@@ -160,7 +147,6 @@ export function useSteward(open: boolean): UseSteward {
   } = useSession() as {
     topology?: { active?: { conn?: string } };
     sendStewardAsk?: (text: string) => boolean;
-    sendStewardConfirm?: (actionId: string) => boolean;
     sendStewardSubscribe?: () => boolean;
     sendStewardUnsubscribe?: () => boolean;
     sendStewardGetConfig?: () => boolean;
@@ -170,7 +156,6 @@ export function useSteward(open: boolean): UseSteward {
 
   const [items, setItems] = useState<readonly StewardPanelItem[]>([]);
   const [streamingText, setStreamingText] = useState<string | null>(null);
-  const [pending, setPending] = useState<StewardPendingAction | null>(null);
   const [feed, setFeed] = useState<readonly FeedLine[]>([]);
   const [askInFlight, setAskInFlight] = useState(false);
   const [config, setConfig] = useState<StewardConfig | null>(null);
@@ -210,17 +195,19 @@ export function useSteward(open: boolean): UseSteward {
     sendStewardHistory();
   }, [conn, sendStewardHistory]);
 
-  // ── 订阅闸门：面板开 + connected + enabled → subscribe；否则 unsubscribe ──
-  // （依赖均为离散态（conn/open/config.enabled），无数据流回写——不自激）
+  // ── 订阅闸门（B1 订阅解绑，设计稿 §3.5）：connected + enabled →
+  //    subscribe；connected + 未启用 → unsubscribe（money gate 语义不变：
+  //    开关关零订阅零推送）。面板开合不再影响订阅——navigate/提案/feed
+  //    帧在面板关闭时照达（G2 解耦；依赖均为离散态，无数据流回写——不自激）──
   const enabled = config?.enabled === true;
   useEffect(() => {
     if (typeof sendStewardSubscribe !== "function" || typeof sendStewardUnsubscribe !== "function") return;
-    if (conn === "connected" && open && enabled) {
+    if (conn === "connected" && enabled) {
       sendStewardSubscribe();
     } else if (conn === "connected") {
       sendStewardUnsubscribe();
     }
-  }, [conn, open, enabled, sendStewardSubscribe, sendStewardUnsubscribe]);
+  }, [conn, enabled, sendStewardSubscribe, sendStewardUnsubscribe]);
 
   // ── 帧消费：ask/confirm/config/history 回执 + tool/thinking 过程帧 + feed ──
   const askInFlightRef = useRef(false);
@@ -292,38 +279,23 @@ export function useSteward(open: boolean): UseSteward {
           pushItem({ kind: "assistant", text: t("steward.askQueued", { position: payload.position }) });
           return;
         }
-        setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error/confirm 同口径）
+        setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error 同口径）
         if (payload.status === "answer") {
           pushItem({ kind: "assistant", text: payload.text });
-        } else if (payload.status === "confirm_required") {
-          setPending({ actionId: payload.actionId, agentId: payload.agentId, message: payload.message });
         } else {
-          pushItem({ kind: "assistant", text: payload.reason });
+          // confirm_required 的确认卡归全局 ConfirmStack（useStewardActions
+          // 订阅同一帧入栈——B1 卡栈移出面板）；error 入条目流零静默失败
+          if (payload.status === "error") pushItem({ kind: "assistant", text: payload.reason });
         }
         markAskInFlight(false);
         return;
       }
-      if (event.type === "steward.sediment_proposal") {
-        // B4a 自动沉淀提案：确认卡与 confirm_required 同构合流（agentId 用
-        // 动作标识「长期记忆」——确认卡「目标」行渲染语义重载先例同构）
-        const payload = event.payload as { actionId: string; text: string; kind: string };
-        setPending({
-          actionId: payload.actionId,
-          agentId: t("steward.sedimentTarget"),
-          message: t("steward.sedimentProposalMessage", { text: payload.text }),
-        });
-        return;
-      }
-      if (event.type === "steward.confirm.result") {
-        const payload = event.payload as
-          | { status: "ok"; agentId: string; detail: string }
-          | { status: "error"; reason: string };
-        setPending(null);
-        if (payload.status === "ok") {
-          pushItem({ kind: "assistant", text: `${payload.agentId}：${payload.detail}` });
-        } else {
-          pushItem({ kind: "assistant", text: payload.reason });
-        }
+      if (event.type === "steward.action.completed") {
+        // B1 两段式第二段：执行回执历史留痕（卡栈态流转/结果 toast 归
+        // useStewardActions——多听众扇出各取所需）
+        const payload = event.payload as { actionId?: unknown; ok?: unknown; detail?: unknown };
+        if (typeof payload.detail !== "string") return;
+        pushItem({ kind: "assistant", text: payload.ok === true ? payload.detail : payload.detail });
         return;
       }
       if (event.type === "steward.config.result") {
@@ -359,24 +331,13 @@ export function useSteward(open: boolean): UseSteward {
     [sendStewardAsk, pushItem],
   );
 
-  const confirmPending = useCallback((): boolean => {
-    if (pending === null) return false;
-    if (typeof sendStewardConfirm !== "function") return false;
-    const ok = sendStewardConfirm(pending.actionId);
-    if (ok === false) return false;
-    return true;
-  }, [pending, sendStewardConfirm]);
-
-  const dismissPending = useCallback(() => setPending(null), []);
-
   const newDialog = useCallback((): boolean => {
     if (typeof sendStewardHistory !== "function") return false;
     const ok = sendStewardHistory(true);
     if (ok === false) return false; // 未连接：不清（三处一致以 daemon 为准）
     setItems([]); // 本地先行清（回执空数组幂等覆盖）
-    setPending(null);
     return true;
   }, [sendStewardHistory]);
 
-  return { items, streamingText, pending, feed, askInFlight, config, ask, confirmPending, dismissPending, newDialog };
+  return { items, streamingText, feed, askInFlight, config, ask, newDialog };
 }

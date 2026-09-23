@@ -43,6 +43,7 @@ import type {
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { AgentOrchestrationPort } from "../ports/inbound/AgentOrchestrationPort";
 import type {
+  StewardActionCompletedPayload,
   StewardAskResultPayload,
   StewardConfirmResultPayload,
   StewardFeedPayload,
@@ -1105,36 +1106,66 @@ export class StewardService {
     await this.dialog.clear();
   }
 
-  /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行。
-   *  A2：动作分派（send / createSession / spawnReview 判别联合）；执行结果
-   *  （成败均）回灌工作记忆 toolResult——下一轮 ask LLM 可见真实回执
-   *  （同时闭环 buildLlmWindow 配对防御：缺结果 toolCall 不再补合成占位）。
-   *  helix-loop L0：回灌经暂停点 resumeWith(resolve) 走 LoopEngine
-   *  （run_resumed 事件 + appendToolResult 入账——与迁移前 confirm 直接
-   *  pushRecord 等价）。 */
-  async confirm(actionId: string): Promise<StewardConfirmResultPayload> {
+  /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行——
+   *  **B1 两段式**（设计稿 §3.4）：
+   *  ①受理即回：消费 actionId 后立即返 accepted（不 await 执行体——
+   *    deliverSession 入 idle 会话的全轮 await 不再阻塞确认链，G1 主根
+   *    消除；卡片即时转 accepted 态防双击）；
+   *  ②异步执行：executePending 收口后经 onCompleted 回携
+   *    {actionId, ok, detail}（点对点 steward.action.completed 帧，成败
+   *    两路均发——错误交代面从 confirm.result 迁出）；回灌（resumeWith
+   *    resolve）与工作记忆 toolResult 入账语义照旧，仅时点移入执行体。
+   *  A2：动作分派（send / createSession / deliverSession / memorize /
+   *  spawnReview 判别联合）。helix-loop L0：回灌经 LoopEngine 暂停点
+   *  （run_resumed 事件 + appendToolResult 入账）。 */
+  async confirm(
+    actionId: string,
+    onCompleted?: (payload: StewardActionCompletedPayload) => void,
+  ): Promise<StewardConfirmResultPayload> {
     const entry = this.pending.get(actionId);
     if (entry === undefined) {
       return { status: "error", reason: `待确认动作不存在或已消费（actionId=${actionId}）` };
     }
     this.pending.delete(actionId); // 先消费（单次语义：执行失败也不可重放）
-    const outcome = await this.executePending(entry.action);
-    // 回灌经 LoopEngine 暂停点（resolve 决策：toolResult 入账 + run 终结）；
-    // B4a 轮外提案无暂停点（resume 缺席）——跳过回灌直接收口。
-    if (entry.resume !== undefined) {
-      await entry.resume({
-        kind: "resolve",
-        text: capToolResultText(outcome.detail),
-        isError: !outcome.ok,
-      });
+    // 受理时即广播 navigate（deliverSession——sessionId 提案已知，不再等
+    // 执行体全轮；createSession 的 navigate 仍在执行体（sessionId 执行后才
+    // 产生））。
+    if (entry.action.kind === "deliverSession") {
+      this.deps.emitNavigate?.({ sessionId: entry.action.deliverSession!.sessionId });
     }
-    if (!outcome.ok) return { status: "error", reason: outcome.detail };
-    return { status: "ok", agentId: entry.action.displayTarget, detail: outcome.detail };
+    // 异步执行体（受理后启动；错误经 onCompleted 交代，不浮出确认链）
+    void (async () => {
+      const outcome = await this.executePending(entry.action);
+      // 回灌经 LoopEngine 暂停点（resolve 决策：toolResult 入账 + run 终结）；
+      // B4a 轮外提案无暂停点（resume 缺席）——跳过回灌直接收口。
+      if (entry.resume !== undefined) {
+        await entry.resume({
+          kind: "resolve",
+          text: capToolResultText(outcome.detail),
+          isError: !outcome.ok,
+        });
+      }
+      onCompleted?.({ actionId, ok: outcome.ok, detail: outcome.detail });
+    })().catch((err: unknown) => {
+      // 防御面：执行体异常不该静默（与 outcome.ok=false 同构交代）
+      const detail = `确认动作执行异常：${(err as Error).message}`;
+      this.deps.logger?.warn(detail);
+      onCompleted?.({ actionId, ok: false, detail });
+    });
+    return { status: "accepted", actionId };
+  }
+
+  /** 确认卡作废（B1 steward.cancel）：pending 删除即作废——幂等（不存在/
+   *  已消费静默）；作废后同 actionId 再 confirm 报「已消费」。卡片「放弃」
+   *  的 daemon 侧簿记同步（消灭孤儿 actionId），零执行零回执。 */
+  cancel(actionId: string): void {
+    this.pending.delete(actionId);
   }
 
   /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的
-   *  回执文本）。驾驶舱批：deliverSession 投递成功 / createSession 建成后
-   *  广播 steward.navigate（切页指令——仅成功路径）。 */
+   *  回执文本）。B1：createSession 建成后广播 steward.navigate（sessionId
+   *  执行后才产生，仍在执行体；deliverSession 的 navigate 已提前到受理时——
+   *  设计稿 §3.4）。 */
   private async executePending(action: PendingAction): Promise<{ ok: boolean; detail: string }> {
     if (action.kind === "send") {
       const outcome = this.deps.orchestration.send(action.send!.agentId, action.send!.message);
@@ -1165,7 +1196,6 @@ export class StewardService {
         if (!outcome.delivered) {
           return { ok: false, detail: `投递未送达：${outcome.detail}` };
         }
-        this.deps.emitNavigate?.({ sessionId: action.deliverSession!.sessionId }); // 投递成功 → 切页
         return { ok: true, detail: outcome.detail };
       } catch (err) {
         return { ok: false, detail: `投递执行失败：${(err as Error).message}` };
@@ -1428,11 +1458,16 @@ export class StewardService {
       hiddenFromLlm: true,
       handler: async (args) => {
         const actionId = typeof args.actionId === "string" ? args.actionId : "";
+        // B1 两段式：confirm 受理即回（accepted/error）——执行回执经
+        // onCompleted 另发 steward.action.completed（handler 命令面同构）
         const outcome = await this.confirm(actionId);
         return {
           kind: "result",
-          text: capToolResultText(outcome.status === "ok" ? outcome.detail : outcome.reason),
-          isError: outcome.status !== "ok",
+          text:
+            outcome.status === "accepted"
+              ? `已受理（actionId=${actionId}；执行回执经 steward.action.completed 另发）`
+              : capToolResultText(outcome.status === "error" ? outcome.reason : `${outcome.agentId}：${outcome.detail}`),
+          isError: outcome.status !== "accepted",
         };
       },
     });

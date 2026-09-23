@@ -73,9 +73,17 @@ export interface StewardAskDeltaEvent extends EventFrame<StewardAskDeltaPayload>
   type: "steward.ask.delta";
 }
 
-/** steward.confirm.result payload：两判别——ok = 已执行（detail 含投递结果
- *  说明）；error = 业务失败（actionId 未知/已消费或注入通道拒绝）。 */
+/** steward.confirm.result payload：三判别——accepted = **已受理**（B1 两段式：
+ *  消费 actionId 后立即回——执行体异步启动，完成另发
+ *  steward.action.completed；idle 目标全轮不再阻塞确认链）；ok = 已执行
+ *  （B1 前旧判别——类型保留 additive 兼容，新 daemon 不再产出）；error =
+ *  业务失败（actionId 未知/已消费/已作废）。 */
 export type StewardConfirmResultPayload =
+  | {
+      status: "accepted";
+      /** 已受理动作 id 回显（卡片三态 awaiting→accepted 的判别锚）。 */
+      actionId: string;
+    }
   | {
       status: "ok";
       /** 递话目标实例回显。 */
@@ -93,6 +101,26 @@ export type StewardConfirmResultPayload =
 export interface StewardConfirmResultEvent extends EventFrame<StewardConfirmResultPayload> {
   channel?: "steward";
   type: "steward.confirm.result";
+}
+
+/** steward.action.completed payload（B1 两段式第二段）：确认动作执行完成
+ *  回执——confirm 受理（accepted）后异步执行体收口时点对点下发；成败两路
+ *  均发（ok=false 时 detail 含失败原因——错误交代面从 confirm.result 的
+ *  error 判别迁出，受理后不再复用 error 通道）。 */
+export interface StewardActionCompletedPayload {
+  /** 已完成动作 id（与 confirm_required/sediment_proposal 的 actionId 同源）。 */
+  actionId: string;
+  /** 执行成败（executePending outcome.ok）。 */
+  ok: boolean;
+  /** 结果说明（用户与 LLM 共同可见的回执文本——成功详情/失败原因）。 */
+  detail: string;
+}
+
+/** steward.action.completed：确认动作执行完成帧（channel = "steward"；
+ *  点对点——发回发起 steward.confirm 的连接）。 */
+export interface StewardActionCompletedEvent extends EventFrame<StewardActionCompletedPayload> {
+  channel?: "steward";
+  type: "steward.action.completed";
 }
 
 /** 触发 feed 行的领域事件判别（agent 生命周期事件流子集）。 */

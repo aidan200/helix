@@ -476,3 +476,108 @@ describe("fake-transport 自动应答 gate（hold 挂起 / release 直发放行�
     }
   });
 });
+
+// ── B1：steward 族 mock 镜像（TR-142——daemon 锚点整面对齐）──────────
+
+describe("fake-transport steward 族镜像（B1 两段式确认批；daemon 锚点：handleStewardConfirm/StewardService.confirm/EventStream.stewardSubscribed）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** steward.confirm 完成帧延迟（fake-transport STEWARD_MOCK_LATENCY_MS）。 */
+  const STEWARD_LATENCY_MS = 40;
+
+  async function setupSocket(): Promise<{ transport: Transport; replies: EventEnvelope[] }> {
+    const replies: EventEnvelope[] = [];
+    const transport = createFakeTransport("1")(WS_URL, {
+      onOpen: () => {},
+      onMessage: (data) => replies.push(JSON.parse(data) as EventEnvelope),
+      onClose: () => {},
+      onError: () => {},
+    });
+    await window.__helixMock!.open();
+    return { transport, replies };
+  }
+
+  function send(transport: Transport, type: string, payload: Record<string, unknown> = {}): void {
+    transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type, payload }));
+  }
+
+  const types = (replies: EventEnvelope[]): string[] => replies.map((f) => f.type);
+
+  it("confirm 两段式应答：①accepted 受理即回（零延迟）→ ②action.completed 延迟到达", async () => {
+    const { transport, replies } = await setupSocket();
+    send(transport, "steward.confirm", { actionId: "act-1" });
+    // ①段：受理即回（同 tick——不依赖延迟窗；镜像 daemon confirm 受理毫秒级）
+    expect(types(replies)).toEqual(["steward.confirm.result"]);
+    expect(replies[0]!.payload).toEqual({ status: "accepted", actionId: "act-1" });
+    // ②段：执行完成帧（延迟窗内时序形态）
+    vi.advanceTimersByTime(STEWARD_LATENCY_MS);
+    expect(types(replies)).toEqual(["steward.confirm.result", "steward.action.completed"]);
+    expect(replies[1]!.payload).toMatchObject({ actionId: "act-1", ok: true });
+    transport.close();
+  });
+
+  it("单次消费镜像：同 actionId 二次 confirm → error「不存在或已消费」", async () => {
+    const { transport, replies } = await setupSocket();
+    send(transport, "steward.confirm", { actionId: "act-1" });
+    vi.advanceTimersByTime(STEWARD_LATENCY_MS);
+    send(transport, "steward.confirm", { actionId: "act-1" });
+    expect(types(replies)[2]).toBe("steward.confirm.result");
+    expect(replies[2]!.payload).toMatchObject({ status: "error" });
+    expect((replies[2]!.payload as { reason: string }).reason).toContain("already consumed"); // daemon 「不存在或已消费」语义镜像（AG-16 前端零 CJK）
+    transport.close();
+  });
+
+  it("cancel 作废镜像：steward.cancel 后同 actionId confirm 报已消费；cancel 零回执", async () => {
+    const { transport, replies } = await setupSocket();
+    send(transport, "steward.cancel", { actionId: "act-2" });
+    expect(types(replies)).toEqual([]); // 无回执（interrupt 同构——daemon handleStewardCancel 镜像）
+    send(transport, "steward.confirm", { actionId: "act-2" });
+    expect(replies[0]!.payload).toMatchObject({ status: "error" });
+    transport.close();
+  });
+
+  it("steward 广播闸镜像：未订阅连接 emit 广播帧整帧丢弃；订阅后放行", async () => {
+    const { transport, replies } = await setupSocket();
+    const feed = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.feed",
+      payload: { kind: "agent.completed", agentId: "a-1", text: "完工", seq: 1 },
+    } as EventEnvelope;
+    await window.__helixMock!.emit(feed);
+    expect(types(replies)).toEqual([]); // 未订阅：广播帧丢弃（daemon broadcastStewardFeed 过滤镜像）
+    send(transport, "steward.subscribe", {});
+    await window.__helixMock!.emit(feed);
+    expect(types(replies)).toEqual(["steward.feed"]); // 订阅后放行
+    // 退订后再发：再次拦截（对称语义）
+    send(transport, "steward.unsubscribe", {});
+    await window.__helixMock!.emit(feed);
+    expect(types(replies)).toEqual(["steward.feed"]);
+    transport.close();
+  });
+
+  it("点对点回执不经广播闸：confirm.result/action.completed 无订阅照达", async () => {
+    const { transport, replies } = await setupSocket();
+    send(transport, "steward.confirm", { actionId: "act-3" }); // 零订阅状态
+    vi.advanceTimersByTime(STEWARD_LATENCY_MS);
+    expect(types(replies)).toEqual(["steward.confirm.result", "steward.action.completed"]);
+    transport.close();
+  });
+
+  it("断连即清：netClose 后新连接零 steward 簿记（daemon 内存态镜像）", async () => {
+    const { transport } = await setupSocket();
+    send(transport, "steward.confirm", { actionId: "act-1" });
+    vi.advanceTimersByTime(STEWARD_LATENCY_MS);
+    await window.__helixMock!.netClose(1006); // fireClose：断连即清（连接保持 alive 供其寻址——task 族同构）
+    const { transport: second, replies } = await setupSocket();
+    send(second, "steward.confirm", { actionId: "act-1" }); // 同 id 新连接可再消费
+    expect(replies[0]!.payload).toEqual({ status: "accepted", actionId: "act-1" });
+    second.close();
+  });
+});

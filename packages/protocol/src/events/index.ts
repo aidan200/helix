@@ -162,6 +162,7 @@ import type {
   StewardNavigateEvent,
   StewardSedimentProposalEvent,
   StewardMemoryListResultEvent,
+  StewardActionCompletedEvent,
 } from "./steward";
 import type {
   EmbeddingListResultEvent,
@@ -323,6 +324,7 @@ export type EventEnvelope =
   | StewardAskResultEvent
   | StewardAskDeltaEvent
   | StewardConfirmResultEvent
+  | StewardActionCompletedEvent
   | StewardFeedEvent
   | StewardConfigResultEvent
   | StewardHistoryResultEvent
@@ -478,6 +480,9 @@ export const EVENT_TYPES = [
   "steward.navigate",
   // 管家记忆 B4a 批 +steward.sediment_proposal（自动沉淀提案——与 feed 同订阅闸）
   "steward.sediment_proposal",
+  // B1 两段式确认批 +steward.action.completed（确认动作执行完成帧——
+  // confirm 受理即回后异步执行体收口时点对点下发）
+  "steward.action.completed",
   // 流式转写批（V3b-1）：开流回执/实时中间帧/终帧（点对点；streamId 门控）
   "stt.stream.started",
   "stt.stream.interim",
@@ -645,6 +650,7 @@ export const EVENT_CHANNELS = {
   "steward.thinking": "steward",
   "steward.navigate": "steward",
   "steward.sediment_proposal": "steward",
+  "steward.action.completed": "steward",
   "steward.memory_list.result": "steward",
   "embedding.list.result": "embedding",
   "embedding.verify.result": "embedding",

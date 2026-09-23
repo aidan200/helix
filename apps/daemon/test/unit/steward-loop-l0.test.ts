@@ -188,9 +188,8 @@ describe("确认闸经 LoopEngine 暂停点全链", () => {
     expect(mid.some((r) => r.kind === "toolResult")).toBe(false);
     // confirm → 执行 + 回灌 + 单次消费
     const confirmed = await svc.confirm(r1.actionId);
-    expect(confirmed.status).toBe("ok");
-    if (confirmed.status !== "ok") throw new Error("应 ok");
-    expect(confirmed.agentId).toBe("agent-1");
+    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回（执行体异步）
+    await new Promise((r) => setTimeout(r, 10));
     expect(sendCalls).toEqual(["agent-1:快一点"]);
     const again = await svc.confirm(r1.actionId);
     expect(again.status).toBe("error"); // 单次消费

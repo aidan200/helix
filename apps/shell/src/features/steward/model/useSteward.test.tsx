@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 /**
- * useSteward 测试（V2.5 文本管家批；命令面全 stub，零真机依赖）。
+ * useSteward 测试（V2.5 文本管家批；命令面全 stub，零真机依赖；B1 文本
+ * 链路批改造：订阅解绑 + 确认卡移出）。
  *
  * - 配置读面：mount → sendStewardGetConfig；config.result → config 态更新；
- * - 订阅闸门：面板开 + conn=connected + enabled → sendStewardSubscribe；
- *   面板关/未启用 → sendStewardUnsubscribe（连接级闸门对齐 daemon money gate）；
+ * - 订阅闸门（B1 订阅解绑，设计稿 §3.5）：connected + enabled →
+ *   sendStewardSubscribe——**面板开合不再影响订阅**（navigate/feed 帧面板
+ *   关闭照达，G2 解耦）；enabled=false → unsubscribe（money gate 语义不变）；
  * - 对话面：ask 发送 → in-flight；steward.ask.delta → streamingText 增量
- *   聚合（流式不落盘——items 不追加，V2.5 体验批）；ask.result(answer) →
- *   追加 steward 消息并清 streamingText（终态权威覆盖）；
- *   ask.result(confirm_required) → pending 态携带 actionId/agentId/message；
- *   ask.result(error) → 追加错误行；
- * - 确认闸：sendStewardConfirm(actionId)；confirm.result(ok) → 清 pending +
- *   追加投递回执行；confirm.result(error) → 追加错误行；
+ *   聚合；ask.result(answer) → 追加 steward 消息并清 streamingText；
+ *   ask.result(error) → 追加错误行；confirm_required → 本面零处理
+ *   （卡归全局 ConfirmStack / useStewardActions）；
+ * - action.completed（B1 两段式第二段）→ items 历史留痕；
  * - feed 面：steward.feed → 追加文本行（上限截尾防无界）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,6 @@ import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
-const sendStewardConfirm = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
@@ -39,7 +38,6 @@ vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
     topology: { active: { conn: connState } },
     sendStewardAsk,
-    sendStewardConfirm,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
@@ -55,13 +53,10 @@ function frame(type: string, payload: unknown): EventEnvelope {
   return { v: "0.14", sessionId: "__system__", channel: "steward", type, payload } as EventEnvelope;
 }
 
-function renderSteward(opts?: { open?: boolean }) {
-  const initial = { open: opts?.open ?? true };
-  const rendered = renderHook(({ open }) => useSteward(open), {
-    initialProps: initial,
+function renderSteward() {
+  return renderHook(() => useSteward(), {
     wrapper: ({ children }) => <I18nProvider>{children}</I18nProvider>,
   });
-  return rendered;
 }
 
 describe("useSteward（V2.5 文本管家）", () => {
@@ -82,20 +77,29 @@ describe("useSteward（V2.5 文本管家）", () => {
     });
   });
 
-  it("面板开 + connected → subscribe；面板关 → unsubscribe", async () => {
-    // 先喂 enabled 配置
-    const { result, rerender } = renderSteward({ open: true });
+  it("B1 订阅解绑：connected + enabled → subscribe——面板开合零影响（关面板不 unsubscribe）", async () => {
+    const { result } = renderSteward();
     act(() => {
       frameListener?.(frame("steward.config.result", { enabled: true, model: "deepseek/deepseek-v4-flash" }));
     });
     await waitFor(() => expect(result.current.config?.enabled).toBe(true));
     expect(sendStewardSubscribe).toHaveBeenCalled();
-    rerender({ open: false });
-    await waitFor(() => expect(sendStewardUnsubscribe).toHaveBeenCalled());
+    // config 到达后（enabled=true 订阅态稳定）：面板开合不再出现在订阅条件里
+    // ——订阅效应零重发、零退订（G2 解耦——面板关闭后 navigate/feed 照达）
+    sendStewardSubscribe.mockClear();
+    sendStewardUnsubscribe.mockClear();
+    act(() => {
+      result.current.ask("面板开合无关的一问");
+    });
+    act(() => {
+      frameListener?.(frame("steward.feed", { kind: "agent.completed", agentId: "agent-1", text: "完工", seq: 1 }));
+    });
+    await waitFor(() => expect(result.current.feed.length).toBe(1));
+    expect(sendStewardUnsubscribe).not.toHaveBeenCalled();
   });
 
-  it("未启用（enabled=false）→ 不 subscribe", async () => {
-    const { result } = renderSteward({ open: true });
+  it("未启用（enabled=false）→ 不 subscribe（money gate 语义不变）+ connected 时 unsubscribe", async () => {
+    const { result } = renderSteward();
     act(() => {
       frameListener?.(frame("steward.config.result", { enabled: false, model: "x/y" }));
     });
@@ -129,17 +133,15 @@ describe("useSteward（V2.5 文本管家）", () => {
       frameListener?.(frame("steward.ask.delta", { delta: "实例", seq: 3 }));
     });
     await waitFor(() => expect(result.current.streamingText).toBe("当前 **2 个**实例"));
-    // 流式不落盘：items 不追加（在途条目只有 user 问句）
     expect(result.current.items.length).toBe(1);
-    expect(result.current.askInFlight).toBe(true); // 终态未到仍在途
+    expect(result.current.askInFlight).toBe(true);
     act(() => {
       frameListener?.(frame("steward.ask.result", { status: "answer", text: "当前 2 个实例运行中。" }));
     });
     await waitFor(() => {
-      expect(result.current.streamingText).toBeNull(); // 终态清缓冲
+      expect(result.current.streamingText).toBeNull();
       expect(result.current.askInFlight).toBe(false);
     });
-    // 权威文本覆盖（result.text，非 delta 拼接）
     expect(result.current.items.some((m) => m.kind === "assistant" && m.text === "当前 2 个实例运行中。")).toBe(true);
   });
 
@@ -152,16 +154,12 @@ describe("useSteward（V2.5 文本管家）", () => {
       frameListener?.(frame("steward.ask.delta", { delta: "当前 ", seq: 1 }));
     });
     await waitFor(() => expect(result.current.streamingText).toBe("当前 "));
-    // 忙碌态第二问被排队：queued 帧 → 排队条目（双语匹配——测试环境 lang
-    // 依 detectLang）+ 在途态保持
     act(() => {
       frameListener?.(frame("steward.ask.result", { status: "queued", queued: true, position: 1 }));
     });
     expect(result.current.items.some((m) => m.kind === "assistant" && /已排队|Queued/.test(m.text))).toBe(true);
-    expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("1"))).toBe(true); // 位置号
-    expect(result.current.streamingText).toBe("当前 "); // 在途轮流式缓冲不清
-    expect(result.current.askInFlight).toBe(true); // 在途态不结束
-    // 结果帧随后到达 → 正常收口
+    expect(result.current.streamingText).toBe("当前 ");
+    expect(result.current.askInFlight).toBe(true);
     act(() => {
       frameListener?.(frame("steward.ask.result", { status: "answer", text: "当前 2 个实例运行中。" }));
     });
@@ -190,7 +188,7 @@ describe("useSteward（V2.5 文本管家）", () => {
     expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("模型调用失败"))).toBe(true);
   });
 
-  it("confirm_required 回执 → pending 携带 actionId/agentId/message", async () => {
+  it("B1：confirm_required 回执 → 本面零处理（卡归全局 ConfirmStack；items 不动、在途收口照常）", async () => {
     const { result } = renderSteward();
     act(() => {
       result.current.ask("让 agent-1 跑 lint");
@@ -205,84 +203,24 @@ describe("useSteward（V2.5 文本管家）", () => {
         }),
       );
     });
-    await waitFor(() => expect(result.current.pending).toEqual({
-      actionId: "steward-action-1",
-      agentId: "agent-1",
-      message: "顺带跑一下 lint",
-    }));
-    // 未确认零执行：confirm 命令未发
-    expect(sendStewardConfirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.askInFlight).toBe(false));
+    // 本面只有 user 问句（确认卡由 useStewardActions 入栈——另一测试面）
+    expect(result.current.items.length).toBe(1);
   });
 
-  it("B4a sediment_proposal 提案帧 → pending 确认卡合流（actionId + 记忆目标 + 提案文案）", async () => {
+  it("B1：action.completed → items 历史留痕（detail 文本；成败同面）", async () => {
     const { result } = renderSteward();
     act(() => {
-      frameListener?.(
-        frame("steward.sediment_proposal", {
-          actionId: "steward-action-7",
-          text: "以后别用 bun test 跑 shell 测试",
-          kind: "preference",
-        }),
-      );
-    });
-    await waitFor(() => expect(result.current.pending).not.toBeNull());
-    expect(result.current.pending!.actionId).toBe("steward-action-7");
-    expect(result.current.pending!.agentId).toMatch(/长期记忆|Long-term memory/);
-    expect(result.current.pending!.message).toContain("以后别用 bun test 跑 shell 测试");
-    // 确认路径复用：confirmPending → steward.confirm(actionId)
-    act(() => {
-      result.current.confirmPending();
-    });
-    expect(sendStewardConfirm).toHaveBeenCalledWith("steward-action-7");
-  });
-
-  it("确认按钮 → sendStewardConfirm；ok 回执 → 清 pending + 追加回执行", async () => {
-    const { result } = renderSteward();
-    act(() => {
-      frameListener?.(
-        frame("steward.ask.result", {
-          status: "confirm_required",
-          actionId: "steward-action-2",
-          agentId: "agent-1",
-          message: "hi",
-        }),
-      );
-    });
-    await waitFor(() => expect(result.current.pending).not.toBeNull());
-    act(() => {
-      result.current.confirmPending();
-    });
-    expect(sendStewardConfirm).toHaveBeenCalledWith("steward-action-2");
-    act(() => {
-      frameListener?.(
-        frame("steward.confirm.result", { status: "ok", agentId: "agent-1", detail: "已投递（turn 边界注入生效）" }),
-      );
-    });
-    await waitFor(() => expect(result.current.pending).toBeNull());
-    expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("已投递"))).toBe(true);
-  });
-
-  it("confirm error 回执 → 追加错误行", async () => {
-    const { result } = renderSteward();
-    act(() => {
-      frameListener?.(
-        frame("steward.ask.result", {
-          status: "confirm_required",
-          actionId: "steward-action-3",
-          agentId: "agent-1",
-          message: "hi",
-        }),
-      );
-    });
-    await waitFor(() => expect(result.current.pending).not.toBeNull());
-    act(() => {
-      result.current.confirmPending();
-    });
-    act(() => {
-      frameListener?.(frame("steward.confirm.result", { status: "error", reason: "动作已消费" }));
+      frameListener?.(frame("steward.action.completed", { actionId: "steward-action-1", ok: true, detail: "已注入会话 s-1 的 steer 队列" }));
     });
     await waitFor(() =>
-      expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("已消费"))).toBe(true),
+      expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("steer 队列"))).toBe(true),
+    );
+    act(() => {
+      frameListener?.(frame("steward.action.completed", { actionId: "steward-action-2", ok: false, detail: "投递未送达：目标会话正在中断" }));
+    });
+    await waitFor(() =>
+      expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("投递未送达"))).toBe(true),
     );
   });
 
@@ -322,7 +260,7 @@ describe("useSteward（A1 工作记忆）", () => {
 
   it("mount + connected → sendStewardHistory()（回放拉取；同连接幂等）", async () => {
     const { result } = renderSteward();
-    await waitFor(() => expect(sendStewardHistoryMock).toHaveBeenCalledWith()); // 回放读面（无参 = clear 缺省 false）
+    await waitFor(() => expect(sendStewardHistoryMock).toHaveBeenCalledWith());
     expect(sendStewardHistoryMock).toHaveBeenCalledTimes(1);
     void result.current;
   });
@@ -350,7 +288,6 @@ describe("useSteward（A1 工作记忆）", () => {
     await waitFor(() => expect(result.current.items.length).toBe(4));
     expect(result.current.items[0]).toEqual({ kind: "user", text: "任务状态？" });
     expect(result.current.items[1]).toEqual({ kind: "thinking", text: "先查任务清单。" });
-    // 工具行：toolResult 已配对回填结果摘要
     expect(result.current.items[2]).toMatchObject({ kind: "tool", name: "list_tasks", resultSummary: expect.stringContaining("job-1") });
     expect(result.current.items[3]).toEqual({ kind: "assistant", text: "1 个任务在跑。" });
   });
@@ -364,7 +301,7 @@ describe("useSteward（A1 工作记忆）", () => {
       frameListener?.(frame("steward.thinking", { text: "需要先查实例。", seq: 1 }));
       frameListener?.(frame("steward.tool", { phase: "start", name: "list_instances", argsSummary: "{}", seq: 2 }));
     });
-    await waitFor(() => expect(result.current.items.length).toBe(3)); // user + thinking + tool(pending)
+    await waitFor(() => expect(result.current.items.length).toBe(3));
     expect(result.current.items[1]).toEqual({ kind: "thinking", text: "需要先查实例。" });
     expect(result.current.items[2]).toMatchObject({ kind: "tool", name: "list_instances", resultSummary: null });
     act(() => {
@@ -387,18 +324,17 @@ describe("useSteward（A1 工作记忆）", () => {
     });
     expect(sendStewardHistoryMock).toHaveBeenCalledWith(true);
     await waitFor(() => expect(result.current.items.length).toBe(0));
-    // 回执（空数组）到达——幂等覆盖仍为空
     act(() => {
       frameListener?.(frame("steward.history.result", { records: [] }));
     });
     await waitFor(() => expect(result.current.items.length).toBe(0));
   });
 
-  it("非在途迟到 delta 忽略（防脏写）——thinking/tool 帧在非 ask 期仍可入列（回放后到达的独立事件）", async () => {
+  it("非在途迟到 delta 忽略（防脏写）", async () => {
     const { result } = renderSteward();
     act(() => {
       frameListener?.(frame("steward.ask.delta", { delta: "迟到", seq: 9 }));
     });
-    expect(result.current.streamingText).toBeNull(); // 非在途零聚合
+    expect(result.current.streamingText).toBeNull();
   });
 });

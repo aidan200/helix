@@ -85,7 +85,7 @@ import { requestOpenSteward } from "@/shared/lib/steward-open-signal";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 import type { EventEnvelope } from "@helix/protocol";
-import { useSteward, type StewardPanelItem, type StewardPendingAction } from "./useSteward";
+import { useSteward, type StewardPanelItem } from "./useSteward";
 import { StewardSpeechOut } from "./steward-speech-out";
 import {
   deriveStewardVoicePhase,
@@ -132,13 +132,10 @@ export interface UseStewardVoice {
   // ── useSteward 整面透传（面板数据面不二开；A1：messages → items 过程条目）──
   readonly items: readonly StewardPanelItem[];
   readonly streamingText: string | null;
-  readonly pending: StewardPendingAction | null;
   readonly feed: ReturnType<typeof useSteward>["feed"];
   readonly askInFlight: boolean;
   readonly config: ReturnType<typeof useSteward>["config"];
   ask(text: string): boolean;
-  confirmPending(): boolean;
-  dismissPending(): void;
   newDialog(): boolean;
   // ── 双模（互斥；打开默认 voice）──
   readonly mode: StewardInputMode;
@@ -203,7 +200,7 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
     sendStewardInterrupt?: (reason?: string) => boolean;
   };
-  const steward = useSteward(open);
+  const steward = useSteward(); // B1 订阅解绑：无参（订阅不随面板开合）
 
   // ── 双模（打开默认语音模式——brief 口径；unsupported 自动回退文本态）──
   const [mode, setModeState] = useState<StewardInputMode>("voice");

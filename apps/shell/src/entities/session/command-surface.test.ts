@@ -343,11 +343,12 @@ describe("COMMAND_SURFACE setSessionModel 返回值（code-review 族A，TR-168�
 describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
   const { match } = LISTEN_SURFACE.subscribeStewardFrames;
 
-  it("转发 steward 族回执/广播全清单（含 B4a sediment_proposal 提案帧）", () => {
+  it("转发 steward 族回执/广播全清单（含 B1 action.completed 完成帧 + B4a sediment_proposal 提案帧）", () => {
     for (const type of [
       "steward.ask.result",
       "steward.ask.delta",
       "steward.confirm.result",
+      "steward.action.completed",
       "steward.feed",
       "steward.config.result",
       "steward.history.result",

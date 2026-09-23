@@ -104,7 +104,7 @@ describe("StewardPanel（V2.5 管家面板）", () => {
     await waitFor(() => expect(screen.getByTestId("steward-msg-user").textContent).toContain("在跑"));
   });
 
-  it("确认闸路径：confirm_required → 全文确认卡；点确认 → sendStewardConfirm(actionId)；未点零发送", async () => {
+  it("B1：确认卡移出面板——confirm_required 到达面板零卡渲染（全局 ConfirmStack 承载）", async () => {
     renderPanel();
     act(() => {
       emitSteward(frame("steward.config.result", { enabled: true, model: "x/y" }));
@@ -119,12 +119,9 @@ describe("StewardPanel（V2.5 管家面板）", () => {
         }),
       );
     });
-    const card = await waitFor(() => screen.getByTestId("steward-confirm-card"));
-    expect(card.textContent).toContain("agent-1");
-    expect(card.textContent).toContain("顺带跑一下 lint");
-    expect(sendStewardConfirm).not.toHaveBeenCalled(); // 未点确认零执行
-    fireEvent.click(screen.getByTestId("steward-confirm-yes"));
-    expect(sendStewardConfirm).toHaveBeenCalledWith("steward-action-9");
+    // 面板不再承载卡（B1 移出——左下角全局卡栈）；确认/放弃按钮零发送
+    await waitFor(() => expect(screen.queryByTestId("steward-confirm-card")).toBeNull());
+    expect(sendStewardConfirm).not.toHaveBeenCalled();
   });
 
   it("feed 行渲染：steward.feed → 事件流区文本行", async () => {

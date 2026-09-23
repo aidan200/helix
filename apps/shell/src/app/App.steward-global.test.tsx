@@ -125,7 +125,7 @@ describe("管家全局常驻（app 壳级能力）", () => {
     expect(document.querySelector(".stp-dock")).not.toBeNull(); // 常驻不卸载
   });
 
-  it("驾驶舱切页（steward.navigate）：非工作台路由 → 先切回工作台 + switchSession(sessionId)（侧栏同路径）", () => {
+  it("B1 建议导航（steward.navigate）：帧到达不强切——toast 通知 + [去看看] 点按才切（navigate + switchSession 侧栏同路径）", () => {
     ui();
     expect(stewardListeners.size).toBeGreaterThan(0);
     act(() => {
@@ -133,11 +133,19 @@ describe("管家全局常驻（app 壳级能力）", () => {
         l({ type: "steward.navigate", payload: { sessionId: "sess-target" } });
       }
     });
+    // 不点按钮：零切页（G5——不打断当前操作）
+    expect(navigate).not.toHaveBeenCalled();
+    expect(switchSession).not.toHaveBeenCalled();
+    // toast 通知在场（含会话短 id 回退——topology.list 空）
+    const action = document.querySelector('[data-testid="toast-action"]') as HTMLButtonElement | null;
+    expect(action).not.toBeNull();
+    fireEvent.click(action!);
+    // 点按才切：工作台路由 + switchSession（侧栏同路径）
     expect(navigate).toHaveBeenCalledWith("/"); // ROUTE_WORKBENCH
     expect(switchSession).toHaveBeenCalledWith("sess-target");
   });
 
-  it("驾驶舱切页：已在工作台路由 → 零路由导航，仅 switchSession", () => {
+  it("B1 建议导航：已在工作台路由 → 点按仅 switchSession，零路由导航", () => {
     route = "/";
     ui();
     act(() => {
@@ -145,7 +153,27 @@ describe("管家全局常驻（app 壳级能力）", () => {
         l({ type: "steward.navigate", payload: { sessionId: "sess-2" } });
       }
     });
+    const action = document.querySelector('[data-testid="toast-action"]') as HTMLButtonElement | null;
+    expect(action).not.toBeNull();
+    fireEvent.click(action!);
     expect(navigate).not.toHaveBeenCalled();
     expect(switchSession).toHaveBeenCalledWith("sess-2");
+  });
+
+  it("B1 确认卡栈：confirm_required 帧 → 左下角全局卡栈（面板外），面板不承载卡", () => {
+    ui();
+    act(() => {
+      for (const l of stewardListeners) {
+        l({
+          type: "steward.ask.result",
+          payload: { status: "confirm_required", actionId: "act-1", agentId: "agent-1", message: "递话全文" },
+        });
+      }
+    });
+    const card = document.querySelector('[data-testid="steward-confirm-card"]');
+    expect(card).not.toBeNull(); // app 壳级卡栈在场
+    expect(document.querySelector(".page-area")!.contains(card!)).toBe(false); // 页面域之外
+    // 面板不承载卡（B1 移出——面板未开也照常出现）
+    expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
   });
 });

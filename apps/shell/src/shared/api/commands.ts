@@ -114,6 +114,7 @@ import type {
   SttStreamStopCommand,
   SttTranscribeCommand,
   StewardAskCommand,
+  StewardCancelCommand,
   StewardConfirmCommand,
   StewardGetConfigCommand,
   StewardHistoryCommand,
@@ -559,6 +560,12 @@ export function stewardAskCommand(text: string): StewardAskCommand {
 /** steward.confirm：确认闸放行（actionId 单次消费；全局命令）。 */
 export function stewardConfirmCommand(actionId: string): StewardConfirmCommand {
   return { v: PROTOCOL_VERSION, type: "steward.confirm", payload: { actionId } };
+}
+
+/** steward.cancel：确认卡作废（B1 两段式确认批；全局命令；无回执帧——
+ *  放弃是本地即时收场，daemon 侧 pending 簿记同步，interrupt 同构先例）。 */
+export function stewardCancelCommand(actionId: string): StewardCancelCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.cancel", payload: { actionId } };
 }
 
 /** steward.subscribe：事件 feed 连接级订阅登记（全局命令）。 */

@@ -54,6 +54,7 @@ import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 import StewardDock from "@/features/steward/ui/StewardDock";
+import ConfirmStack from "@/features/steward/ui/ConfirmStack";
 import StewardMemoryPage from "@/pages/steward-memory/StewardMemoryPage";
 import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
 
@@ -133,9 +134,9 @@ export function AppRoutes() {
   // 语音播报批 V2：全局播放钩子（连接就绪 + 偏好开 → voice.subscribe；
   // voice.broadcast → seq 去重保序 Audio 播放）——App 根单份，与会话无关
   useVoiceBroadcast();
-  // 管家驾驶舱批：steward.navigate 页面切换指令（投递成功/建会话即切）——
-  // 不在工作台路由先切回工作台，再 switchSession（与侧栏点击同一路径）；
-  // 帧仅在管家面板开且已订阅时到达（daemon 侧订阅闸门），无自激面。
+  // B1 建议导航（§3.7）：steward.navigate → toast「已投递到会话 X · [去看
+  // 看]」——点按钮才切页（不强切不打断）；切页动作与侧栏点击同一路径。
+  // 帧经订阅闸（enabled∧connected，B1 起不随面板开合），无自激面。
   const { switchSession } = useSession();
   useStewardNavigate(
     useCallback(
@@ -179,6 +180,9 @@ export function AppRoutes() {
       {/* 管家全局弹层（管家全局化批）：rail 右缘 fixed 浮动面板，页面域之外
           ——路由切换不卸载（app 生命周期态）；B2-④ 记忆钮注入开页回调 */}
       <StewardDock open={stewardOpen} onClose={closeSteward} onOpenMemory={openStewardMemory} />
+      {/* B1 确认卡栈（左下角全局 fixed 视口层——E-135 真全屏语义）：多卡并存
+          独立于面板开合/光球（纯文本期照常出现）；数据面单实例挂载于此 */}
+      <ConfirmStack />
       {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；各页历史副本已随 AppLayout 迁移全数清理） */}
       <div className="scanline-overlay" aria-hidden="true" />
       {/* W2-D kg sync 提示全局 toast（task.changed 随行 syncHint 直渲；页面无关常驻） */}

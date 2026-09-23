@@ -23,7 +23,7 @@ export type TurnCompletionReason = "completed" | "aborted";
  *（U6 CoordinationService 同通道，escalated 随文案）。可选 additive：
  * 老事件/老快照缺省 = undefined，消费侧按 user 渲染。
  */
-export type SteerSource = "user" | "closure" | "progress" | "coord";
+export type SteerSource = "user" | "closure" | "progress" | "coord" | "steward";
 
 /**
  * 消息条目（EntryDto 的 message 变体）。

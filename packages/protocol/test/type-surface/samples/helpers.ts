@@ -266,8 +266,15 @@ export function summarizeEvent(event: EventEnvelope): string {
       // 管家流式体验批（V2.5）：增量帧窄化（delta 增量 + seq 单调）
       return `steward-ask-delta:${event.payload.delta}:${event.payload.seq}`;
     case "steward.confirm.result":
-      // 文本管家批（V2.5）：确认闸回执两判别窄化（ok 含注入回执 detail / error 原因）
-      return `steward-confirm-result:${event.payload.status}:${event.payload.status === "ok" ? `${event.payload.agentId}:${event.payload.detail}` : event.payload.reason}`;
+      // 文本管家批（V2.5）+ B1 两段式：三判别窄化（accepted 受理 / ok 旧执行
+      // 回执 / error 原因）
+      return `steward-confirm-result:${event.payload.status}:${
+        event.payload.status === "accepted"
+          ? event.payload.actionId
+          : event.payload.status === "ok"
+            ? `${event.payload.agentId}:${event.payload.detail}`
+            : event.payload.reason
+      }`;
     case "steward.feed":
       // 文本管家批（V2.5）：feed 文本行窄化（kind/agentId/seq）
       return `steward-feed:${event.payload.kind}:${event.payload.agentId}:${event.payload.seq}`;
@@ -354,6 +361,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "session.instanceChannels.result":
       // channels 惰性化批：实例通道历史回执（打开抽屉重建完整时间线）
       return `instance-channels-result:${event.payload.instanceId}:${String(event.payload.hasMore)}:${event.payload.nextCursor ?? "-"}`;
+    case "steward.action.completed":
+      // B1 两段式确认批：确认动作执行完成帧（点对点）
+      return `steward-action-completed:${event.payload.actionId}:${String(event.payload.ok)}:${event.payload.detail}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -610,6 +620,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `voice-syn-stream:${cmd.payload.utterId}:${cmd.payload.voice ?? "-"}:${cmd.payload.text}`;
     case "voice.synthesize.stop":
       return `voice-syn-stop:${cmd.payload.utterId ?? "-"}`;
+    case "steward.cancel":
+      // B1 两段式确认批：确认卡作废（无回执）
+      return `steward-cancel:${cmd.payload.actionId}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

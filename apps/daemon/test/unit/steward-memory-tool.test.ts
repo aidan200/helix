@@ -138,7 +138,7 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
     const result = await svc.ask("记住项目在 helix 仓");
     if (result.status !== "confirm_required") throw new Error("unreachable");
     const confirmed = await svc.confirm(result.actionId);
-    expect(confirmed.status).toBe("ok");
+    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回
     expect(memory.remembers).toEqual([{ text: "项目在 helix 仓", kind: "fact", source: "steward-turn" }]);
     if (confirmed.status === "ok") expect(confirmed.detail).toContain("项目在 helix 仓");
     // 单次消费：二次 confirm → error，remember 仍恰一次

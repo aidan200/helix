@@ -446,10 +446,13 @@ describe("A2-3 create_session（确认闸）", () => {
     expect(askResult.message).toContain("调度器重构");
     expect(sessions.titled.length).toBe(0); // 未确认零执行
     expect(sessions.created.length).toBe(0); // 旧入口 startDraftSession 零调用（死锁链根因封堵）
-    const confirmed = await svc.confirm(askResult.actionId);
-    expect(confirmed.status).toBe("ok");
-    if (confirmed.status !== "ok") throw new Error("unreachable");
-    expect(confirmed.detail).toContain("sess-new-1");
+    const completed: import("@helix/protocol").StewardActionCompletedPayload[] = [];
+    const confirmed = await svc.confirm(askResult.actionId, (p2) => completed.push(p2));
+    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回
+    await new Promise((r) => setTimeout(r, 10)); // 异步执行体收口
+    expect(completed.length).toBe(1);
+    expect(completed[0]!.ok).toBe(true);
+    expect(completed[0]!.detail).toContain("sess-new-1");
     expect(sessions.titled).toEqual(["调度器重构"]); // 新入口恰一次，title 原样
     expect(sessions.created.length).toBe(0);
   });
@@ -460,6 +463,7 @@ describe("A2-3 create_session（确认闸）", () => {
     const { svc } = makeA2Service({ llm, sessions, now: fixedClock });
     const askResult = await svc.ask("开个会话");
     await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "");
+    await new Promise((r) => setTimeout(r, 10)); // 执行体收口
     const second = await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "");
     expect(second.status).toBe("error");
     expect(sessions.titled.length).toBe(1);
@@ -525,7 +529,8 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     expect(askResult.message).toContain("helix");
     expect(taskEngine.created.length).toBe(0); // 未确认零执行
     const confirmed = await svc.confirm(askResult.actionId);
-    expect(confirmed.status).toBe("ok");
+    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回
+    await new Promise((r) => setTimeout(r, 10)); // 异步执行体收口
     expect(taskEngine.created.length).toBe(1);
     expect(taskEngine.created[0]!.type).toBe("code-review");
     expect(taskEngine.created[0]!.projects).toEqual(["helix"]);
@@ -627,10 +632,13 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     });
     const askResult = await svc.ask("给 helix 开个 code-review");
     expect(askResult.status).toBe("confirm_required"); // 前置校验过（引擎 paramsSchema 在确认后）
-    const confirmed = await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "");
-    expect(confirmed.status).toBe("error");
-    if (confirmed.status !== "error") throw new Error("unreachable");
-    expect(confirmed.reason).toContain("KG_E_PARAM");
+    const completed: import("@helix/protocol").StewardActionCompletedPayload[] = [];
+    const confirmed = await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "", (p2) => completed.push(p2));
+    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回——引擎错误经 action.completed 交代
+    await new Promise((r) => setTimeout(r, 10));
+    expect(completed.length).toBe(1);
+    expect(completed[0]!.ok).toBe(false);
+    expect(completed[0]!.detail).toContain("KG_E_PARAM");
     // 回灌工作记忆：LLM 下轮可见违规原文（可转述）
     const history = await svc.getHistory();
     const tr = history.find((r) => r.kind === "toolResult" && r.name === "spawn_review_task");
@@ -654,6 +662,7 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     expect(askResult.status).toBe("confirm_required");
     const actionId = askResult.status === "confirm_required" ? askResult.actionId : "";
     await svc.confirm(actionId);
+    await new Promise((r) => setTimeout(r, 10)); // 执行体收口
     const second = await svc.confirm(actionId);
     expect(second.status).toBe("error");
     expect(taskEngine.created.length).toBe(1);

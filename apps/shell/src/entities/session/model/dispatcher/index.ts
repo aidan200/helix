@@ -175,6 +175,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
+  // B1 两段式确认批 +steward.action.completed（确认动作执行完成帧——点对点，
+  // ConfirmStack 卡片 done 态 / useSteward 历史留痕两消费面）
+  "steward.action.completed",
   "steward.feed",
   "steward.config.result",
   "steward.history.result",

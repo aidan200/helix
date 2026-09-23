@@ -829,11 +829,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // 会话 steer 机制）、空闲 → 新轮次——与用户在该会话页直接输入同语义）。
       // 冷会话经 registry.get 懒加载（不存在抛 SessionNotFoundError → 引导式
       // detail）；chatRouter 不在此处接（构建序在其后，且 registry 即同一路由源）。
+      // B1 两段式（设计稿 §3.4）：source="steward"（投递与手动输入可辨）+
+      // fireAndForget 受理即回（对齐手动 chat.send handler void 模式——idle
+      // 全轮不再阻塞确认链；同步拒绝段照常抛错经 action.completed 交代，
+      // 轮次内失败走会话事件面）。
       sessionExists: (sessionId) => registry.sessionExists(sessionId),
       deliverToSession: async (sessionId, text) => {
         try {
           const runtime = registry.peek(sessionId) ?? (await registry.get(sessionId));
-          const outcome = await runtime.chatService.sendMessage(text);
+          const outcome = await runtime.chatService.sendMessage(text, undefined, "steward", { fireAndForget: true });
           return {
             delivered: true,
             detail:

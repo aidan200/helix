@@ -6,17 +6,25 @@ import type { ReactNode } from "react";
 
 export type ToastKind = "ok" | "warn" | "err" | "violet";
 
+/** toast 行内动作钮（B1 建议导航批：「已投递到会话 X · [去看看]」——点按才
+ *  切页不强切；additive，不携带钮的既有调用面零变化）。 */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastItem {
   id: number;
   kind: ToastKind;
   text: string;
   sub?: string;
+  action?: ToastAction;
 }
 
 const TOAST_LIFE_MS = 4_200;
 
 interface ToastContextValue {
-  push: (kind: ToastKind, text: string, sub?: string) => void;
+  push: (kind: ToastKind, text: string, sub?: string, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -34,9 +42,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const push = useCallback((kind: ToastKind, text: string, sub?: string) => {
+  const push = useCallback((kind: ToastKind, text: string, sub?: string, action?: ToastAction) => {
     const id = nextId.current++;
-    setToasts((prev) => [...prev, { id, kind, text, sub }]);
+    setToasts((prev) => [...prev, { id, kind, text, sub, action }]);
     const timer = window.setTimeout(() => {
       timers.current.delete(timer);
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -57,6 +65,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               {t.text}
               {t.sub ? <span className="t-sub">{t.sub}</span> : null}
             </span>
+            {t.action && (
+              <button type="button" className="t-action" data-testid="toast-action" onClick={t.action.onClick}>
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

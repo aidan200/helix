@@ -130,6 +130,7 @@ export const enUS = {
       drained: "Injected · turn ended",
       closureBadge: "CLOSURE",
       progressBadge: "PROGRESS",
+      stewardBadge: "STEWARD",
       directedChip: "steer → {id}",
       dockTitle: "{n} injection(s) queued",
       dockPending: "confirming",
@@ -1234,6 +1235,14 @@ export const enUS = {
     confirmBody: "Message",
     confirmYes: "Confirm",
     confirmNo: "Dismiss",
+    // ── B1 global confirm stack (bottom-left ConfirmStack) + navigate toast ──
+    cardAccepted: "Accepted…",
+    cardDone: "Done",
+    cardMore: "{n} more",
+    actionDone: "Action completed",
+    actionFailed: "Action failed",
+    navigateToast: "Delivered to session \"{title}\"",
+    navigateGo: "View",
     // ── Voice mode (V3a: dual-mode switch + talk loop panel face; text mode never speaks) ──
     voice: {
       modeLabel: "Input mode",

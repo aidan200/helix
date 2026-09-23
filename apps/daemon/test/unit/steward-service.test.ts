@@ -266,11 +266,13 @@ describe("③ 闸内确认后执行一次（§5.2 确认 → 执行）", () => {
     const { svc, orchestration } = makeService({ llm });
     const askResult = await svc.ask("让 agent-1 顺带跑 lint");
     if (askResult.status !== "confirm_required") throw new Error("应过闸");
-    const confirmed = await svc.confirm(askResult.actionId);
-    expect(confirmed.status).toBe("ok");
-    if (confirmed.status !== "ok") throw new Error("unreachable");
-    expect(confirmed.agentId).toBe("agent-1");
-    expect(confirmed.detail).toContain("已投递");
+    const completed: import("@helix/protocol").StewardActionCompletedPayload[] = [];
+    const confirmed = await svc.confirm(askResult.actionId, (p2) => completed.push(p2));
+    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回
+    await new Promise((r) => setTimeout(r, 10)); // 异步执行体收口
+    expect(completed.length).toBe(1);
+    expect(completed[0]!.ok).toBe(true);
+    expect(completed[0]!.detail).toContain("已投递");
     expect(orchestration.sends).toEqual([{ agentId: "agent-1", message: "顺带跑一下 lint" }]);
     // 单次消费：二次 confirm → error，send 仍恰一次
     const second = await svc.confirm(askResult.actionId);

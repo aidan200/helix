@@ -5,8 +5,8 @@
  *
  * 结构：头部（标题 + 在线状态 chip + 关闭钮）三段主体：事件流区
  * （steward.feed 文本行滚动窗）/ 对话区（user/steward 两方气泡 + ask 在途态）
- * / 确认卡（confirm_required 全文过目——agentId + 递话全文，确认/放弃两键；
- * §5.2 防火墙客户端面：未点确认零发送）+ 底部输入区（双模）。
+ * + 底部输入区（双模）。确认卡 B1 起移出面板——左下角全局 ConfirmStack
+ * （useStewardActions）承载，面板是纯记录与文字发送面（§2 职责重划）。
  *
  * 双模输入区（V3a）：modebar（语音/文本 切换排 + speaking 态静音钮）之下
  * 二选一互斥渲染——
@@ -172,7 +172,7 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
   // 内容增长贴底（仅吸附态）：条目流/流式文本/确认卡出入/输入面可用性变化。
   useLayoutEffect(() => {
     sticky.stickIfAttached();
-  }, [sticky, sv.items, sv.streamingText, sv.askInFlight, sv.pending]);
+  }, [sticky, sv.items, sv.streamingText, sv.askInFlight]);
 
   // 打开面板（active 升起）→ 强制贴底 + 吸附复位（面板隐藏不卸载——重开
   // 应回到最新消息，不吃隐藏期残留滚动位置）。
@@ -270,27 +270,7 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
               )
             )}
           </div>
-          {sv.pending !== null && (
-            <div className="stp-confirm" data-testid="steward-confirm-card">
-              <span className="stp-confirm-title">{t("steward.confirmTitle")}</span>
-              <span className="stp-confirm-row">
-                <span className="stp-confirm-k">{t("steward.confirmTarget")}</span>
-                <span className="stp-confirm-v">{sv.pending.agentId}</span>
-              </span>
-              <span className="stp-confirm-row">
-                <span className="stp-confirm-k">{t("steward.confirmBody")}</span>
-                <span className="stp-confirm-v">{sv.pending.message}</span>
-              </span>
-              <div className="stp-confirm-actions">
-                <button type="button" className="stp-confirm-yes" data-testid="steward-confirm-yes" onClick={() => sv.confirmPending()}>
-                  {t("steward.confirmYes")}
-                </button>
-                <button type="button" className="stp-confirm-no" data-testid="steward-confirm-no" onClick={sv.dismissPending}>
-                  {t("steward.confirmNo")}
-                </button>
-              </div>
-            </div>
-          )}
+          {/* B1：确认卡移出面板——左下角全局 ConfirmStack 承载（useStewardActions） */}
           {/* 双模切换排（V3a）：语音/文本互斥 + 朗读中静音钮（一键停读） */}
           <div className="stp-modebar">
             <div className="stp-mode" data-testid="steward-mode" role="group" aria-label={t("steward.voice.modeLabel")}>

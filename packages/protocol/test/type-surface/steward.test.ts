@@ -93,6 +93,7 @@ type _StewardFamily = Expect<
     | "steward.ask.result"
       | "steward.ask.delta"
       | "steward.confirm.result"
+      | "steward.action.completed"
       | "steward.feed"
       | "steward.config.result"
       | "steward.history.result"

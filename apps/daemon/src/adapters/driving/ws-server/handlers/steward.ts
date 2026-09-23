@@ -117,15 +117,30 @@ export function handleStewardAsk(ctx: StewardCommandContext): void {
     });
 }
 
-/** steward.confirm（全局命令）：确认闸放行 + 点对点回执（ok/error）。 */
+/** steward.confirm（全局命令）：确认闸放行 + 点对点回执——**B1 两段式**：
+ *  ①受理即回 confirm.result {status:"accepted", actionId}（handler 拿到
+ *  promise 即发，不等执行体）；②执行完成帧 steward.action.completed
+ *  {actionId, ok, detail} 经 onCompleted 闭包点对点发回本连接（成败两路
+ *  均发）。旧 ok 判别（执行结果承载在 confirm.result）不再产出。 */
 export function handleStewardConfirm(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const actionId = ctx.payload.actionId;
   if (typeof actionId !== "string" || actionId === "") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.actionId 应为非空 string");
   }
+  // ②段发送闭包（点对点——发回发起 confirm 的连接；设计稿 §3.4）
+  const sendCompleted = (payload: import("@helix/protocol").StewardActionCompletedPayload): void => {
+    const frame: import("@helix/protocol").StewardActionCompletedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.action.completed",
+      payload,
+    };
+    ctx.sendNow(sender, frame);
+  };
   void ctx.steward.service
-    .confirm(actionId)
+    .confirm(actionId, sendCompleted)
     .then((payload) => {
       const frame: StewardConfirmResultEvent = {
         v: PROTOCOL_VERSION,
@@ -142,10 +157,21 @@ export function handleStewardConfirm(ctx: StewardCommandContext): void {
         sessionId: SYSTEM_SESSION_ID,
         channel: "steward",
         type: "steward.confirm.result",
-        payload: { status: "error", reason: `确认闸执行异常：${(err as Error).message}` },
+        payload: { status: "error", reason: `确认闸受理异常：${(err as Error).message}` },
       };
       ctx.sendNow(sender, frame);
     });
+}
+
+/** steward.cancel（全局命令；B1 两段式确认批）：确认卡作废——pending 删除
+ *  即作废（幂等），零执行零回执（放弃是本地即时收场，作废是 daemon 侧
+ *  簿记同步，steward.interrupt 同构先例）。 */
+export function handleStewardCancel(ctx: StewardCommandContext): void {
+  const actionId = ctx.payload.actionId;
+  if (typeof actionId !== "string" || actionId === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.actionId 应为非空 string");
+  }
+  ctx.steward.service.cancel(actionId);
 }
 
 /** steward.subscribe（全局命令）：事件 feed 连接级订阅登记。 */
@@ -292,19 +318,8 @@ function respondMemoryList(ctx: StewardCommandContext): void {
   ctx.sendNow(sender, frame);
 }
 
-/** 记忆面缺席回执（daemon 装配缺 memory 源——vec0 不可解析等降级面；
- *  条目清单空回执但不报 error：记忆是可选项，缺位是合法状态）。 */
-function respondMemoryUnavailable(ctx: StewardCommandContext): void {
-  const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const frame: import("@helix/protocol").StewardMemoryListResultEvent = {
-    v: PROTOCOL_VERSION,
-    sessionId: SYSTEM_SESSION_ID,
-    channel: "steward",
-    type: "steward.memory_list.result",
-    payload: { entries: [] },
-  };
-  ctx.sendNow(sender, frame);
-}
+/** 记忆面缺席回执已删（B1 卫生项：respondMemoryUnavailable 无调用点——
+ *  记忆面缺席时 service.listMemoryEntries 空清单等价，死代码移除）。 */
 
 /** steward.memory_list（全局命令；管家记忆 B2）：条目读面 + 点对点回执。 */
 export function handleStewardMemoryList(ctx: StewardCommandContext): void {

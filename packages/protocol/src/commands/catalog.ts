@@ -115,6 +115,7 @@ import type {
   StewardSetConfigCommand,
   StewardHistoryCommand,
   StewardInterruptCommand,
+  StewardCancelCommand,
   StewardMemoryListCommand,
   StewardMemoryAppendCommand,
   StewardMemoryUpdateCommand,
@@ -231,6 +232,7 @@ export type CommandEnvelope =
   | StewardSetConfigCommand
   | StewardHistoryCommand
   | StewardInterruptCommand
+  | StewardCancelCommand
   | StewardMemoryListCommand
   | StewardMemoryAppendCommand
   | StewardMemoryUpdateCommand
@@ -275,6 +277,9 @@ export const COMMAND_TYPES = [
   "steward.history",
   // B2 barge-in 批：在途轮打断（V3b-3 全双工触发面；无回执——事件面已够）
   "steward.interrupt",
+  // B1 两段式确认批：确认卡作废（无回执——放弃是本地即时收场，作废是
+  // daemon 侧簿记同步，interrupt 同构先例）
+  "steward.cancel",
   // 管家记忆 B2：长期记忆条目管理（读/人工新增/重嵌更新/行级删除）
   "steward.memory_list",
   "steward.memory_append",

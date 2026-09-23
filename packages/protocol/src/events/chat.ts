@@ -62,7 +62,11 @@ export interface ErrorEntryPayload {
 /** 消息入 steer 队列（前端徽标「STEER·已入队」依据） */
 export interface SteerQueuedPayload {
   entryId: string;
-  /** 注入来源（v0.11 批内补登 T11a）：user/closure/progress；缺省 = 老事件按 user */
+  /** 注入文本（B1 create-if-no-echo：无本地 echo 的跨源注入（管家投递
+   *  等）据此建队列坞条目；daemon publish 恒携带，旧 shell 忽略无害）。 */
+  text?: string;
+  /** 注入来源（v0.11 批内补登 T11a）：user/closure/progress/steward；
+   *  缺省 = 老事件按 user */
   source?: SteerSource;
 }
 

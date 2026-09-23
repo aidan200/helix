@@ -35,13 +35,13 @@ type _SteerInstanceOptional = Expect<
 // T11a（v0.11 批内补登）：steer 两事件载荷 + MessageEntryDto 贯通注入来源三值枚举
 // （user=用户 steer / closure=SubAgent 收口注入 / progress=周期进展报告；缺省 = 老数据按 user）
 type _SteerSource = Expect<
-  Equal<SteerQueuedPayload["source"], "user" | "closure" | "progress" | "coord" | undefined>
+  Equal<SteerQueuedPayload["source"], "user" | "closure" | "progress" | "coord" | "steward" | undefined> // B1 管家投递
 >;
 type _SteerDrainedSource = Expect<
-  Equal<SteerDrainedPayload["source"], "user" | "closure" | "progress" | "coord" | undefined>
+  Equal<SteerDrainedPayload["source"], "user" | "closure" | "progress" | "coord" | "steward" | undefined>
 >;
 type _MessageEntrySource = Expect<
-  Equal<MessageEntryDto["source"], "user" | "closure" | "progress" | "coord" | undefined>
+  Equal<MessageEntryDto["source"], "user" | "closure" | "progress" | "coord" | "steward" | undefined>
 >;
 
 describe("chat：chat.steer 定向寻址（源 TP-v0.3-①）", () => {

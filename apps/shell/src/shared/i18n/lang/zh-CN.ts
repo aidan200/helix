@@ -137,6 +137,7 @@ export const zhCN = {
       drained: "已注入 · 本轮结束",
       closureBadge: "CLOSURE",
       progressBadge: "PROGRESS",
+      stewardBadge: "管家",
       directedChip: "steer → {id}",
       dockTitle: "{n} 条注入排队中",
       dockPending: "待确认",
@@ -1241,6 +1242,14 @@ export const zhCN = {
     confirmBody: "内容",
     confirmYes: "确认执行",
     confirmNo: "放弃",
+    // ── B1 全局确认卡栈（左下角 ConfirmStack）+ 建议导航 toast ──
+    cardAccepted: "受理中…",
+    cardDone: "已完成",
+    cardMore: "还有 {n} 张",
+    actionDone: "动作已完成",
+    actionFailed: "动作执行失败",
+    navigateToast: "已投递到会话「{title}」",
+    navigateGo: "去看看",
     // ── 语音模式（V3a：双模切换 + 说话闭环面板面；文本模式零发声）──
     voice: {
       modeLabel: "输入方式",

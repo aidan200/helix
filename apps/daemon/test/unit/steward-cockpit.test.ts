@@ -154,7 +154,7 @@ describe("驾驶舱：deliver_to_session（session 级 steer 投递）", () => {
     expect(sessions.deliveries.length).toBe(0);
   });
 
-  test("confirm 放行：投递到达 sessions 源（sessionId + 原文）+ steward.navigate 广播目标会话", async () => {
+  test("confirm 放行：受理即回 accepted + 投递到达 sessions 源（sessionId + 原文）+ steward.navigate 受理时广播（B1 两段式）", async () => {
     const llm = fakeLlm([
       toolCall("call-1", "deliver_to_session", { sessionId: "sess-2", text: "把测试补上" }),
     ]);
@@ -162,13 +162,17 @@ describe("驾驶舱：deliver_to_session（session 级 steer 投递）", () => {
     const { svc, navigates } = makeService({ llm, sessions });
     const res = await svc.ask("对第二个会话说：把测试补上");
     if (res.status !== "confirm_required") throw new Error(`expect confirm_required, got ${res.status}`);
-    const confirmed = await svc.confirm(res.actionId);
-    expect(confirmed.status).toBe("ok");
+    const completed: import("@helix/protocol").StewardActionCompletedPayload[] = [];
+    const confirmed = await svc.confirm(res.actionId, (p) => completed.push(p));
+    expect(confirmed.status).toBe("accepted");
+    // navigate 受理时已发（不再等执行体）
+    expect(navigates).toEqual([{ sessionId: "sess-2" }]);
+    await new Promise((r) => setTimeout(r, 10)); // 异步执行体收口
     expect(sessions.deliveries).toEqual([{ sessionId: "sess-2", text: "把测试补上" }]);
-    expect(navigates).toEqual([{ sessionId: "sess-2" }]); // 投递成功 → 切页指令
+    expect(completed).toEqual([{ actionId: res.actionId, ok: true, detail: "已注入目标会话 steer 队列" }]);
   });
 
-  test("投递失败：confirm 回 error 回执 + 零 navigate（切页只在成功后）", async () => {
+  test("投递失败：受理即回 accepted，失败经 action.completed 交代（B1：错误面从 confirm.result 迁出）", async () => {
     const llm = fakeLlm([
       toolCall("call-1", "deliver_to_session", { sessionId: "sess-1", text: "hi" }),
     ]);
@@ -176,10 +180,15 @@ describe("驾驶舱：deliver_to_session（session 级 steer 投递）", () => {
     const { svc, navigates } = makeService({ llm, sessions });
     const res = await svc.ask("递话");
     if (res.status !== "confirm_required") throw new Error("unreachable");
-    const confirmed = await svc.confirm(res.actionId);
-    expect(confirmed.status).toBe("error");
+    const completed: import("@helix/protocol").StewardActionCompletedPayload[] = [];
+    const confirmed = await svc.confirm(res.actionId, (p) => completed.push(p));
+    expect(confirmed.status).toBe("accepted"); // 受理即回——拒收不阻塞回执
+    await new Promise((r) => setTimeout(r, 10));
     expect(sessions.deliveries.length).toBe(1); // 执行面被调（结果 = 拒绝）
-    expect(navigates.length).toBe(0);
+    expect(completed.length).toBe(1);
+    expect(completed[0]!.ok).toBe(false);
+    expect(completed[0]!.detail).toContain("目标会话正在中断");
+    expect(navigates.length).toBe(1); // B1：navigate 受理时已发（提前广播的既定权衡——失败经 action.completed 交代）
   });
 
   test("确认闸单次消费：actionId 二次 confirm → error（既有语义不回退）", async () => {
@@ -200,7 +209,7 @@ describe("驾驶舱：deliver_to_session（session 级 steer 投递）", () => {
 // ── 2. create_session：建完即切 ───────────────────────────
 
 describe("驾驶舱：create_session 建完即切", () => {
-  test("confirm 成功 → steward.navigate 携新建 sessionId", async () => {
+  test("confirm 受理即回 → 异步建成 → navigate 携新建 sessionId（建完即切——sessionId 执行后才产生）", async () => {
     const llm = fakeLlm([
       toolCall("call-1", "create_session", { title: "重构调度器" }),
     ]);
@@ -209,7 +218,8 @@ describe("驾驶舱：create_session 建完即切", () => {
     const res = await svc.ask("开个新会话，主题重构调度器");
     if (res.status !== "confirm_required") throw new Error("unreachable");
     const confirmed = await svc.confirm(res.actionId);
-    expect(confirmed.status).toBe("ok");
+    expect(confirmed.status).toBe("accepted");
+    await new Promise((r) => setTimeout(r, 10));
     expect(navigates).toEqual([{ sessionId: "sess-new-1" }]); // 建完即切（用户语义）
   });
 });

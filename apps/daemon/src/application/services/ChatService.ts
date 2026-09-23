@@ -247,8 +247,18 @@ export class ChatService implements ChatPort {
 
   // ── ChatPort 实现 ────────────────────────────────────────
 
-  /** 发送用户消息：空闲开新轮次并驱动引擎；生成中转 steer 注入（返回值告诉 driving 侧去向——CLI/WS 据此回执）。图片上行：images 可选（base64 data URL）——入口统一校验（parseDataUrlImages：≤4 张/格式/单张 ≤2MB）；仅 idle 分支消费；生成中携带抛错（steer 不带图，不静默丢图）。 */
-  async sendMessage(text: string, images?: readonly string[], source?: SteerSource): Promise<SendOutcome> {
+  /** 发送用户消息：空闲开新轮次并驱动引擎；生成中转 steer 注入（返回值告诉 driving 侧去向——CLI/WS 据此回执）。图片上行：images 可选（base64 data URL）——入口统一校验（parseDataUrlImages：≤4 张/格式/单张 ≤2MB）；仅 idle 分支消费；生成中携带抛错（steer 不带图，不静默丢图）。
+   *
+   *  B1 管家投递链：source 透传（SteerSource +"steward"——徽标渲染数据源，
+   *  idle 落 Entry/message.completed、running 转 steer 均携带）；opts.fireAndForget
+   *  = 受理即回（对齐手动 chat.send 的 handler void 模式——idle 分支不 await
+   *  全轮，同步校验/状态拒绝段照常同步抛，引擎轮次照常驱动）。 */
+  async sendMessage(
+    text: string,
+    images?: readonly string[],
+    source?: SteerSource,
+    opts?: { readonly fireAndForget?: boolean },
+  ): Promise<SendOutcome> {
     if (text.trim() === "") {
       throw new Error("消息内容不能为空");
     }
@@ -287,6 +297,15 @@ export class ChatService implements ChatPort {
           }
         })();
         this.activeRun = run; // 在飞 run 登记（whenSettled 等待面）
+        if (opts?.fireAndForget === true) {
+          // B1 受理即回：不 await 全轮（引擎闭包内已自收口——recordEngineError
+          // + settleRunEnd；轮次失败走会话事件面不进调用方回执）——仅清理
+          // activeRun 登记，保持 whenSettled 语义不残留。
+          void run.then(() => {
+            if (this.activeRun === run) this.activeRun = null;
+          });
+          return { mode: "turn", turnId: turn.id, entryId: entry.id };
+        }
         try {
           await run;
         } finally {
@@ -301,7 +320,8 @@ export class ChatService implements ChatPort {
           throw new ImageValidationError("生成中发送图片暂不支持（注入不带图），请等待本轮结束后再发");
         }
         // ④ 生成中的输入 = steer 注入（domain 队列可观测 + 引擎即时入队）
-        const { entryId } = await this.steer(text);
+        //    B1：source 透传（管家投递与手动输入可辨）
+        const { entryId } = await this.steer(text, undefined, source);
         return { mode: "steered", entryId };
       }
       case "aborting":
@@ -311,17 +331,18 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** 显式 steer 注入：instanceId 缺省/显式 main = 主实例路径（要求运行中）——applySteer 落 isSteer entry + SteerQueue.enqueue（domain 权威）+ 引擎 steer（执行机制）；instanceId = SubAgent id = 定向分支。 */
-  async steer(text: string, instanceId?: string): Promise<{ entryId: string }> {
+  /** 显式 steer 注入：instanceId 缺省/显式 main = 主实例路径（要求运行中）——applySteer 落 isSteer entry + SteerQueue.enqueue（domain 权威）+ 引擎 steer（执行机制）；instanceId = SubAgent id = 定向分支。B1：source 透传（缺省 user——手动输入老口径不变）。 */
+  async steer(text: string, instanceId?: string, source?: SteerSource): Promise<{ entryId: string }> {
     if (instanceId !== undefined && !isMainInstanceId(instanceId, this.session.mainInstanceId)) {
       return this.steerInstance(instanceId, text);
     }
     this.lifecycle.assertIn("running", "steering");
-    const entryId = this.session.applySteer(text, this.now(), "user");
+    const src = source ?? "user";
+    const entryId = this.session.applySteer(text, this.now(), src);
     if (this.lifecycle.current === "running") {
       this.setLifecycle("steering"); // running→steering：有注入待 drain
     }
-    this.publish<SteerPayload>("steer.queued", { entryId, text, source: "user" });
+    this.publish<SteerPayload>("steer.queued", { entryId, text, source: src });
     this.deps.engine.steer(text);
     return { entryId };
   }

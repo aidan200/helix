@@ -27,9 +27,14 @@ const SteerQueueDock = memo(function SteerQueueDock() {
         <div className="sdq-list">
           {queue.map((item) => (
             <div className="sdq-item" key={item.id} data-source={item.source}>
-              {(item.source === "closure" || item.source === "progress") && (
+              {(item.source === "closure" || item.source === "progress" || item.source === "steward") && (
                 <span className={cn("sdq-src", item.source)}>
-                  {item.source === "closure" ? t("chat.steer.closureBadge") : t("chat.steer.progressBadge")}
+                  {item.source === "closure"
+                    ? t("chat.steer.closureBadge")
+                    : item.source === "progress"
+                      ? t("chat.steer.progressBadge")
+                      : t("chat.steer.stewardBadge")}{" "}
+                  {/* B1 管家投递来源徽标（SteerSource +"steward"——G7） */}
                 </span>
               )}
               <span className="sdq-text">{item.text}</span>

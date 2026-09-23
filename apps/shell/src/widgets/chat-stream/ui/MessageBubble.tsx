@@ -28,6 +28,13 @@ function SteerBadge({ state }: { state: "queued" | "drained" }) {
   );
 }
 
+/** 管家投递来源徽标（B1：source="steward" 的 user 条目——SteerBadge 旁并
+ *  排，与手动输入可辨（G7）。 */
+function StewardSourceBadge() {
+  const { t } = useI18n();
+  return <span className="steer-badge steward-src">{t("chat.steer.stewardBadge")}</span>;
+}
+
 interface MessageBubbleProps {
   entry: MessageEntryDto;
   /** 流式中的 assistant 气泡（尾部光标 + 边框提亮） */
@@ -90,6 +97,7 @@ const MessageBubble = memo(function MessageBubble({
           )}
         </div>
         {entry.steerState && <SteerBadge state={entry.steerState} />}
+        {entry.source === "steward" && <StewardSourceBadge />}
         <div className="bubble" ref={bubbleRef}>
           {streaming ? (
             <>

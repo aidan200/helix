@@ -529,6 +529,7 @@ html.light .bubble code.inline { color: var(--accent); }
 /* T11b source 变体：closure = amber 族（与用户 steer violet 脉冲视觉分离）；progress = cyan 族。 */
 .steer-badge.closure { border-color: rgb(var(--warning-rgb) / 0.4); background: rgb(var(--warning-rgb) / 0.1); color: var(--warning); }
 .steer-badge.progress { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
+.steer-badge.steward-src { border-color: rgb(var(--violet-rgb) / 0.45); background: rgb(var(--violet-rgb) / 0.1); color: var(--violet); }
 .steer-badge .q-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; animation: hud-pulse 2s ease-in-out infinite; }
 
 /* ═══ 定向 steer 细条（CL-3，Q-3a 双处同构物种：时间轴主轴 + 抽屉实例 feed；
@@ -618,6 +619,8 @@ html.light .bubble code.inline { color: var(--accent); }
   border: 1px solid rgb(var(--warning-rgb) / 0.4); background: rgb(var(--warning-rgb) / 0.1); color: var(--warning);
 }
 .steer-dock .sdq-src.progress { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
+.steer-dock .sdq-src.steward { border-color: rgb(var(--violet-rgb) / 0.5); background: rgb(var(--violet-rgb) / 0.12); color: var(--violet); }
+.steer-dock .sdq-item[data-source="steward"] { border-left-color: rgb(var(--violet-rgb) / 0.55); background: rgb(var(--violet-rgb) / 0.05); }
 .steer-dock .sdq-text { color: var(--text); min-width: 0; word-break: break-word; }
 .steer-dock .sdq-state { flex-shrink: 0; margin-left: auto; font-size: var(--text-micro); color: var(--text-dim); white-space: nowrap; }
 
@@ -1055,6 +1058,14 @@ html.light .bubble code.inline { color: var(--accent); }
 .toast.violet .t-dot { background: var(--violet); }
 .toast .t-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
 .toast .t-sub { display: block; font-size: var(--text-cap); color: var(--text-dim); margin-top: 1px; }
+/* B1 建议导航：toast 行内动作钮（「去看看」——点按才切页） */
+.toast .t-action {
+  flex-shrink: 0; margin-left: auto; padding: 3px 10px;
+  border-radius: 6px; border: 1px solid rgb(var(--violet-rgb) / 0.45);
+  background: rgb(var(--violet-rgb) / 0.12); color: var(--violet);
+  font-size: var(--text-cap); cursor: pointer; white-space: nowrap;
+}
+.toast .t-action:hover { background: rgb(var(--violet-rgb) / 0.22); }
 
 /* reduced-motion 全局兜底（tokens.md 11 节：全部动效 honor prefers-reduced-motion）*/
 @media (prefers-reduced-motion: reduce) {
@@ -1173,6 +1184,70 @@ html.light .bubble code.inline { color: var(--accent); }
    「· 未配置」后缀；卡片骨架/开关/下拉全收敛 workbench.css 通用类：
    hud-card/set-check/set-inline/sel-wrap）══ */
 .opt-nokey-tag { font-size: var(--text-micro); color: var(--text-faint); margin-left: 4px; }
+
+/* ── B1 全局确认卡栈（stf-*：左下角 fixed 视口层——E-135 真全屏语义，
+   独立于面板/光球；玻璃族弹层皮（popover-fill 0.8 + blur + shadow-pop，
+   tokens.md §02/§07/§10）；动效仅 transform/opacity——E-124 WKWebView 纪律）── */
+.stf-stack {
+  position: fixed; left: 16px; bottom: 16px; z-index: 65;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  width: min(340px, calc(100vw - 32px));
+  pointer-events: none; /* 容器透传——仅卡本体收事件（不挡底层交互） */
+}
+.stf-card {
+  pointer-events: auto;
+  width: 100%; border-radius: 10px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.35);
+  background: var(--popover-fill);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+  box-shadow: var(--shadow-pop);
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 5px;
+  animation: stf-in 0.18s ease-out;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+html.light .stf-card {
+  backdrop-filter: blur(10px) saturate(115%); -webkit-backdrop-filter: blur(10px) saturate(115%);
+}
+@keyframes stf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.stf-card.done { opacity: 0; transform: translateY(4px); }
+.stf-card.accepted { border-color: rgb(var(--accent-rgb) / 0.4); }
+.stf-head { display: flex; align-items: center; gap: 7px; }
+.stf-seq {
+  flex-shrink: 0; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.5); background: rgb(var(--violet-rgb) / 0.12);
+  color: var(--violet); font-size: var(--text-micro); font-variant-numeric: tabular-nums;
+}
+.stf-title { font-size: var(--text-cap); font-weight: 600; color: var(--text); }
+.stf-phase { margin-left: auto; font-size: var(--text-micro); color: var(--text-dim); }
+.stf-row { display: flex; align-items: baseline; gap: 8px; font-size: var(--text-body); }
+.stf-k { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); }
+.stf-v { color: var(--text); min-width: 0; word-break: break-word; }
+.stf-body .stf-v { max-height: 108px; overflow: hidden; }
+.stf-actions { display: flex; gap: 8px; margin-top: 2px; }
+.stf-yes {
+  flex: 1 1 auto; padding: 5px 0; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgb(var(--success-rgb) / 0.45); background: rgb(var(--success-rgb) / 0.14); color: var(--success);
+  font-size: var(--text-cap);
+}
+.stf-yes:hover:not(:disabled) { background: rgb(var(--success-rgb) / 0.22); }
+.stf-no {
+  flex: 0 0 auto; padding: 5px 14px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+  font-size: var(--text-cap);
+}
+.stf-no:hover:not(:disabled) { color: var(--text); border-color: rgb(var(--error-rgb) / 0.4); }
+.stf-yes:disabled, .stf-no:disabled { opacity: 0.45; cursor: default; }
+.stf-more {
+  pointer-events: auto; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--popover-fill);
+  color: var(--text-dim); font-size: var(--text-micro);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+.stf-more:hover { color: var(--text); }
+@media (prefers-reduced-motion: reduce) {
+  .stf-card { animation: none; transition: none; }
+}
 
 /* ── 管家全局弹层（管家全局化批：stp-* 语义族重做——chat 右缘列退役，
    rail 右缘 fixed 浮动面板；hud-popover 弹层语义：tokens.md §02

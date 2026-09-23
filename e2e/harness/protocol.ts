@@ -142,12 +142,21 @@ export function messageCompleted(entry: MessageEntryDto, opts: { instanceId?: st
   };
 }
 
-export function steerQueued(entryId: string, opts: { instanceId?: string } = {}): EventEnvelope {
+export function steerQueued(
+  entryId: string,
+  opts: { instanceId?: string; source?: string; text?: string } = {},
+): EventEnvelope {
   // v0.3（契约 §3.2，T2.3）：定向 steer 的 steer.queued 帧信封挂 instanceId=目标
+  // B1：source/text 透传（daemon ChatService.steer publish {entryId, text, source}
+  // 的镜像——create-if-no-echo 建条目剧本依赖 text 位）
   return {
     v: V,
     type: "steer.queued",
-    payload: { entryId },
+    payload: {
+      entryId,
+      ...(opts.source !== undefined ? { source: opts.source } : {}),
+      ...(opts.text !== undefined ? { text: opts.text } : {}),
+    },
     ...(opts.instanceId !== undefined ? { instanceId: opts.instanceId } : {}),
   };
 }

@@ -139,6 +139,9 @@ const TRACE_MOCK_BASE_MS = Date.parse("2026-08-19T13:47:57.802+08:00");
 export const WORKSPACE_MOCK_ROOT = "/workspace";
 /** workspace 族自动应答延迟（kg 族同构）。 */
 const WORKSPACE_MOCK_LATENCY_MS = 60;
+/** steward 确认动作完成帧延迟（B1 两段式：accepted 即回后异步执行体收口
+ *  形态的时序镜像——e2e 剧本可观测两段间隔）。 */
+const STEWARD_MOCK_LATENCY_MS = 40;
 
 /** workspace 命令自动应答（点对点回执；mock 无校验，open 回显 root）。 */
 function workspaceMockReply(type: string, payload: unknown): EventEnvelope {
@@ -373,6 +376,22 @@ class FakeSocket {
    */
   private taskSubs: Set<string> | null = null;
 
+  /**
+   * steward 订阅位（B1 两段式确认批；daemon EventStream.stewardSubscribed
+   * 镜像——连接级布尔闸，断连即清）。广播帧（feed/navigate/sediment_
+   * proposal）按此过滤投递（对齐 daemon broadcastStewardFeed 族）。
+   */
+  private stewardSubscribed = false;
+
+  /**
+   * steward 确认闸簿记（B1；daemon StewardService.pending Map 的 mock 镜像）:
+   * consumed = 已消费 actionId（confirm 单次消费语义）；canceled = 已作废
+   * （steward.cancel——作废后 confirm 报「已消费」）。断连即清（daemon 内存
+   * 态语义同构）。
+   */
+  private stewardConsumed = new Set<string>();
+  private stewardCanceled = new Set<string>();
+
   constructor(
     url: string,
     private readonly handlers: TransportHandlers,
@@ -417,6 +436,59 @@ class FakeSocket {
         this.taskSubs?.delete(specific);
       } else {
         this.taskSubs = new Set();
+      }
+    }
+    // steward 订阅位（镜像 daemon EventStream.subscribeSteward/unsubscribeSteward：
+    // steward.subscribe 幂等置位 / unsubscribe 清位）
+    if (frame?.type === "steward.subscribe") this.stewardSubscribed = true;
+    else if (frame?.type === "steward.unsubscribe") this.stewardSubscribed = false;
+    // steward.cancel 簿记（镜像 daemon handleStewardCancel → StewardService.cancel：
+    // pending 作废幂等，零回执——interrupt 同构先例）
+    if (frame?.type === "steward.cancel") {
+      const actionId = (frame.payload as { actionId?: unknown } | undefined)?.actionId;
+      if (typeof actionId === "string" && actionId !== "") this.stewardCanceled.add(actionId);
+    }
+    // steward.confirm 两段式应答（镜像 daemon handleStewardConfirm +
+    // StewardService.confirm：①受理即回 confirm.result{accepted}（毫秒级
+    // ——不阻塞）；②延迟 action.completed{ok:true}——执行体异步收口形态。
+    // 单次消费镜像：已消费/已作废 actionId 回 error「不存在或已消费」）。
+    if (frame?.type === "steward.confirm") {
+      const actionId = (frame.payload as { actionId?: unknown } | undefined)?.actionId;
+      if (typeof actionId === "string" && actionId !== "") {
+        const acceptNow = (): void => {
+          this.fireMessage({
+            v: PROTOCOL_VERSION,
+            sessionId: SYSTEM_SESSION_ID,
+            channel: "steward",
+            type: "steward.confirm.result",
+            payload: { status: "accepted", actionId },
+          } satisfies EventEnvelope);
+        };
+        const sendCompleted = (): void => {
+          this.fireMessage({
+            v: PROTOCOL_VERSION,
+            sessionId: SYSTEM_SESSION_ID,
+            channel: "steward",
+            type: "steward.action.completed",
+            payload: { actionId, ok: true, detail: "(mock) confirmed action executed" },
+          } satisfies EventEnvelope);
+        };
+        if (this.stewardConsumed.has(actionId) || this.stewardCanceled.has(actionId)) {
+          this.fireMessage({
+            v: PROTOCOL_VERSION,
+            sessionId: SYSTEM_SESSION_ID,
+            channel: "steward",
+            type: "steward.confirm.result",
+            // daemon 中文文案镜像（AG-16 前端零 CJK——语义判别对齐：error 判别 + reason 非空）
+            payload: { status: "error", reason: `pending action missing or already consumed (actionId=${actionId})` },
+          } satisfies EventEnvelope);
+        } else {
+          this.stewardConsumed.add(actionId); // 先消费（单次语义镜像）
+          acceptNow();
+          setTimeout(() => {
+            if (this.readyState === FakeSocket.OPEN) sendCompleted();
+          }, STEWARD_MOCK_LATENCY_MS);
+        }
       }
     }
     const hit: ClientWaiter[] = [];
@@ -484,6 +556,18 @@ class FakeSocket {
     return typeof jobId === "string" && this.taskSubs.has(jobId);
   }
 
+  /**
+   * steward 广播帧投递准入（B1；daemon EventStream.broadcastStewardFeed /
+   * broadcastStewardNavigate / broadcastStewardSedimentProposal 的
+   * stewardSubscribed 连接级过滤镜像——未订阅连接广播帧整帧丢弃）。
+   * 点对点回执（*.result / action.completed）不走此闸（sendNow 直发镜像）。
+   */
+  stewardBroadcastAllowed(frame: EventEnvelope): boolean {
+    if (frame.channel !== "steward") return true;
+    if (frame.type !== "steward.feed" && frame.type !== "steward.navigate" && frame.type !== "steward.sediment_proposal") return true;
+    return this.stewardSubscribed;
+  }
+
   /** 控制面读：连接 task 订阅簿记投影（spec 断言面；null=未订阅）。 */
   taskSubsSnapshot(): string[] | null {
     return this.taskSubs === null ? null : [...this.taskSubs];
@@ -493,6 +577,9 @@ class FakeSocket {
   close(): void {
     this.readyState = FakeSocket.CLOSED;
     this.taskSubs = null; // 断连即清连接级订阅表（TR-AD-23③ 镜像）
+    this.stewardSubscribed = false; // daemon detach 清位镜像
+    this.stewardConsumed.clear(); // daemon 内存 pending 态镜像
+    this.stewardCanceled.clear();
   }
 
   // ── 控制面驱动（spec 侧）─────────────────────────────────
@@ -515,6 +602,9 @@ class FakeSocket {
     this.registry.sessionTiers.clear();
     this.registry.lastFullSessionId = null;
     this.taskSubs = null; // task 族连接级订阅表同规清除（D-2）
+    this.stewardSubscribed = false; // steward 订阅位同规清除（B1）
+    this.stewardConsumed.clear();
+    this.stewardCanceled.clear();
     this.handlers.onClose({ code, reason: "" });
   }
 
@@ -640,6 +730,9 @@ const mockApi: HelixMockApi = {
     registry.trackScenarioSession(frame);
     const inst = await registry.nextActive();
     ensureAccepted(inst);
+    // steward 广播闸（B1；daemon EventStream.broadcastSteward* 的
+    // stewardSubscribed 连接级过滤镜像——未订阅连接广播帧丢弃）
+    if (!inst.stewardBroadcastAllowed(frame)) return;
     inst.fireMessage(frame);
   },
   async emitAll(frames) {
@@ -649,6 +742,7 @@ const mockApi: HelixMockApi = {
       applyHandshakeBinding(f);
       if (!registry.passTierFilter(f)) continue; // monitor 档白名单过滤
       registry.trackScenarioSession(f);
+      if (!inst.stewardBroadcastAllowed(f)) continue; // steward 广播闸（B1 同上）
       inst.fireMessage(f);
     }
   },

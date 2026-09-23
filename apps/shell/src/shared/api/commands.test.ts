@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardSetConfigCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
+import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardCancelCommand, stewardSetConfigCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -181,6 +181,16 @@ describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）
 });
 
 // ── 管家记忆 B2：memory_* 四命令 + embedding 四命令构造器 ──
+
+describe("stewardCancelCommand（B1 两段式确认批）", () => {
+  it("最小帧：type + actionId 透传", () => {
+    expect(stewardCancelCommand("act-9")).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "steward.cancel",
+      payload: { actionId: "act-9" },
+    });
+  });
+});
 
 describe("steward memory_* / embedding.* 构造器（管家记忆 B2）", () => {
   it("steward.memory_list：零载荷", () => {

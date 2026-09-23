@@ -40,6 +40,20 @@ export interface StewardConfirmCommand extends CommandFrame<StewardConfirmPayloa
   type: "steward.confirm";
 }
 
+/** steward.cancel 载荷（B1 两段式确认批，additive）。 */
+export interface StewardCancelPayload {
+  /** 待作废动作 id（卡片「放弃」时同步 daemon 侧 pending 作废——消灭孤儿
+   *  actionId；不存在/已消费 = 幂等静默）。 */
+  actionId: string;
+}
+
+/** steward.cancel：确认卡作废（全局命令；**无回执帧**——放弃是本地即时
+ *  收场，daemon 侧作废是尽力而为的簿记同步，steward.interrupt 同构先例）。
+ *  作废后同 actionId 再 confirm 报「已消费」（单次消费语义不变）。 */
+export interface StewardCancelCommand extends CommandFrame<StewardCancelPayload> {
+  type: "steward.cancel";
+}
+
 /** steward.subscribe：事件 feed 连接级订阅登记（断连自动等效）。 */
 export interface StewardSubscribeCommand extends CommandFrame<Record<string, never>> {
   type: "steward.subscribe";

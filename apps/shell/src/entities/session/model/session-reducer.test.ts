@@ -436,6 +436,51 @@ describe("T11b steer 事件 source 对账（queued/drained 载荷 → 队列坞/
     expect(s.steerQueue[0]!.confirmed).toBe(true);
   });
 
+  // ── B1 create-if-no-echo（设计稿 §3.6：跨源注入无 echo → 建队列坞条目）──
+  it("B1：steer.queued 无本地 echo（管家投递）→ 建条目入坞（id=entryId、confirmed=true、source/text 透传）", () => {
+    const base = ready(); // running 态、本地零 echo（他端/管家投递场景）
+    const s = run(
+      [
+        ev({
+          v: 0,
+          type: "steer.queued",
+          payload: { entryId: "st-x1", text: "继续修登录超时", source: "steward" },
+        }),
+      ],
+      base,
+    );
+    expect(s.steerQueue).toHaveLength(1);
+    expect(s.steerQueue[0]).toMatchObject({
+      id: "st-x1",
+      text: "继续修登录超时",
+      confirmed: true,
+      source: "steward",
+    });
+    // 建条目照常 drain 出账（TR-105 语义内）
+    const drained = run([ev({ v: 0, type: "steer.drained", payload: { entryId: "st-x1" } })], s);
+    expect(drained.steerQueue).toHaveLength(0);
+  });
+
+  it("B1：create-if-no-echo 与本地 echo 对账共存——先 echo 对账、后跨源建条目互不干扰", () => {
+    const sent = run([{ type: "ui/send", text: "本地输入", mode: "steer", ts: 10 }], ready());
+    const both = run(
+      [
+        ev({ v: 0, type: "steer.queued", payload: { entryId: "st-echo" } }), // 本地 echo 对账
+        ev({ v: 0, type: "steer.queued", payload: { entryId: "st-cross", text: "管家投递", source: "steward" } }), // 跨源建条目
+      ],
+      sent,
+    );
+    expect(both.steerQueue).toHaveLength(2);
+    expect(both.steerQueue[0]).toMatchObject({ id: "st-echo", confirmed: true });
+    expect(both.steerQueue[1]).toMatchObject({ id: "st-cross", source: "steward", confirmed: true });
+  });
+
+  it("B1 防御：无 echo 且 payload 无 text（旧 daemon 帧）→ 不建条目（等快照对账——缺省行为保持）", () => {
+    const base = ready();
+    const s = run([ev({ v: 0, type: "steer.queued", payload: { entryId: "st-legacy" } })], base);
+    expect(s.steerQueue).toHaveLength(0);
+  });
+
   it("steer.drained → 队列坞出账；旧数据兼容面：entries 里旧版落盘的 queued entry 徽标转 drained + source 更新", () => {
     const sent = run([{ type: "ui/send", text: "进展", mode: "steer", ts: 10 }], ready());
     const confirmed = run(
