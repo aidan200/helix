@@ -570,6 +570,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.history":
       // 管家工作记忆批（A1）：读/清同命令（clear 缺省 = 回放）
       return `steward-history:${String(cmd.payload.clear ?? false)}`;
+    case "steward.interrupt":
+      // B2 barge-in 批：在途轮打断（reason 缺省 = daemon 归一 "barge-in"）
+      return `steward-interrupt:${cmd.payload.reason ?? "barge-in"}`;
     case "steward.memory_list":
       // 管家记忆 B2：条目读面
       return "steward-memory_list";

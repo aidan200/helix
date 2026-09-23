@@ -10,9 +10,14 @@
  * - mdToSpeechText：Markdown 回复 → 语音文本（代码块剥离——读代码无意义；
  *   标记剥离；daemon voice.synthesize 500 字符硬上限对齐截断）；
  * - planTranscript：转写出路——ask 发出即续语音链；发送失败回填草稿
- *   （文本态可重试，零静默丢话——submit 同语义）。
+ *   （文本态可重试，零静默丢话——submit 同语义）；
+ * - barge-in 门面（B2，V3b-3 全双工触发面）：isBargeInArmed（可打断相位
+ *   判定）+ stepBargeInGate（RMS 帧驱动门——阈值 + 持续时长双条件防单帧
+ *   尖峰，停播残响静默窗 + fired 闩锁防重复触发）+ openBargeInSilenceWindow
+ *   （停播即开窗）——打断序本体在消费端（stopSpeaking → steward.interrupt
+ *   → 新转写流），本面只裁决「这一帧算不算人声插话」。
  */
-import type { VoiceState } from "@/shared/lib/useVoiceInput";
+import { VOICE_MIN_DURATION_MS, VOICE_RMS_THRESHOLD, type VoiceState } from "@/shared/lib/useVoiceInput";
 
 /** 面板输入双模（互斥；打开默认语音模式——mic 不可用自动回退文本态）。 */
 export type StewardInputMode = "voice" | "text";
@@ -104,4 +109,94 @@ export type TranscriptOutcome =
 export function planTranscript(text: string, askSent: boolean): TranscriptOutcome {
   if (askSent) return { kind: "asked" };
   return { kind: "fallback", draft: text };
+}
+
+// ── B2 barge-in 门判定（V3b-3 全双工触发面；fake meter 帧驱动可测）──────
+
+/** 停播残响静默窗（ms）：停播/触发后窗口内零再触发（防 TTS 残响自触发）。
+ *  双条件时长档（B3 门限分档/双参判定另批）。 */
+export const BARGE_IN_SILENCE_WINDOW_MS = 300;
+
+/** barge-in 门状态（纯数据；帧间递推）。 */
+export interface BargeInGateState {
+  /** 连续超阈段起点（ms；null = 当前静音/未起算）。 */
+  readonly loudSinceMs: number | null;
+  /** 静默窗截止（ms；此前零触发——残响防线）。 */
+  readonly muteUntilMs: number;
+  /** fired 闩锁：本轮已触发（武装续帧零二次触发——重复触发幂等）；
+   *  解除武装帧复位（下一轮可再触发）。 */
+  readonly fired: boolean;
+}
+
+/** 门初态。 */
+export const INITIAL_BARGE_IN_GATE: BargeInGateState = { loudSinceMs: null, muteUntilMs: 0, fired: false };
+
+/** 门输入（单帧；阈值/时长缺省 = useVoiceInput 现成常量同源）。 */
+export interface BargeInGateInput {
+  /** 本帧 RMS（0..1，rms-meter 节流 ~100ms/帧）。 */
+  readonly rms: number;
+  /** 本帧时戳（ms）。 */
+  readonly atMs: number;
+  /** 门已武装（speaking/asking 相位 × 语音模式——isBargeInArmed）。 */
+  readonly armed: boolean;
+  /** 有声阈值（缺省 VOICE_RMS_THRESHOLD）。 */
+  readonly threshold?: number;
+  /** 最短持续（ms；缺省 VOICE_MIN_DURATION_MS）。 */
+  readonly minDurationMs?: number;
+  /** 触发/停播静默窗（ms；缺省 BARGE_IN_SILENCE_WINDOW_MS）。 */
+  readonly silenceWindowMs?: number;
+}
+
+/** 门输出（新状态 + 本帧是否触发）。 */
+export interface BargeInGateOutcome {
+  readonly state: BargeInGateState;
+  readonly trigger: boolean;
+}
+
+/**
+ * barge-in 门单帧递推（纯函数）：
+ * - 解除武装帧：闩锁复位（下一轮可再触发）；静默窗保留（残响防线跨轮）；
+ * - fired 闩锁置位：武装续帧零二次触发（幂等），直到解除武装复位；
+ * - 静默窗内：零触发且累积清零（窗内声不计持续——残响不计人声）；
+ * - 双条件：rms ≥ 阈值且持续 ≥ minDurationMs 的帧才触发（单帧尖峰不触发
+ *   ——敲键/瞬时噪声）；触发帧自带静默窗（触发即停播）。
+ */
+export function stepBargeInGate(state: BargeInGateState, input: BargeInGateInput): BargeInGateOutcome {
+  const threshold = input.threshold ?? VOICE_RMS_THRESHOLD;
+  const minDurationMs = input.minDurationMs ?? VOICE_MIN_DURATION_MS;
+  const silenceWindowMs = input.silenceWindowMs ?? BARGE_IN_SILENCE_WINDOW_MS;
+  const carry = { muteUntilMs: state.muteUntilMs, fired: state.fired };
+  if (!input.armed) {
+    return { state: { loudSinceMs: null, muteUntilMs: state.muteUntilMs, fired: false }, trigger: false };
+  }
+  if (state.fired) return { state, trigger: false };
+  if (input.atMs < state.muteUntilMs) {
+    return { state: { loudSinceMs: null, ...carry, fired: false }, trigger: false };
+  }
+  if (input.rms < threshold) {
+    return { state: { loudSinceMs: null, ...carry }, trigger: false };
+  }
+  if (state.loudSinceMs === null) {
+    return { state: { loudSinceMs: input.atMs, ...carry }, trigger: false };
+  }
+  if (input.atMs - state.loudSinceMs < minDurationMs) return { state, trigger: false };
+  return {
+    state: { loudSinceMs: null, muteUntilMs: input.atMs + silenceWindowMs, fired: true },
+    trigger: true,
+  };
+}
+
+/** 停播即开静默窗（静音钮/打断停播共用——残响防线）；闩锁同帧复位。 */
+export function openBargeInSilenceWindow(
+  state: BargeInGateState,
+  atMs: number,
+  windowMs = BARGE_IN_SILENCE_WINDOW_MS,
+): BargeInGateState {
+  return { loudSinceMs: null, muteUntilMs: atMs + windowMs, fired: false };
+}
+
+/** 门武装判定（相位派生扩展）：仅「语音模式 ×（speaking | asking）」可打断
+ *  ——text 模式/mic 不可用/idle/listening/transcribing 行为不变。 */
+export function isBargeInArmed(input: { mode: StewardInputMode; phase: StewardVoicePhase }): boolean {
+  return input.mode === "voice" && (input.phase === "speaking" || input.phase === "asking");
 }

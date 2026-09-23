@@ -53,6 +53,7 @@ import {
   stewardConfirmCommand,
   stewardGetConfigCommand,
   stewardHistoryCommand,
+  stewardInterruptCommand,
   stewardMemoryAppendCommand,
   stewardMemoryDeleteCommand,
   stewardMemoryListCommand,
@@ -303,6 +304,10 @@ export const COMMAND_SURFACE = {
    *  新对话三处同清）。 */
   sendStewardHistory: (deps) =>
     (clear?: boolean): boolean => deps.send(stewardHistoryCommand(clear)),
+  /** 在途轮打断（B2 barge-in 批：daemon abortInFlight 幂等；无回执——事件面
+   *  loop.run.interrupted + ask 终态已够；返回 false = 未连接）。 */
+  sendStewardInterrupt: (deps) =>
+    (reason?: string): boolean => deps.send(stewardInterruptCommand(reason)),
   // ── 管家记忆 B2：长期记忆条目管理四命令（回执 steward.memory_list.result
   //    四命令共用——写后即回新清单）────────────────────────────
   /** 条目读面（记忆页列表数据源）。 */

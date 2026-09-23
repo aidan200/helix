@@ -1229,6 +1229,8 @@ export const enUS = {
       phaseSpeaking: "Reading aloud…",
       micUnavailable: "Recording is not supported in this environment; switched back to text input",
       streamDegraded: "Live transcription unavailable; using full-clip fallback",
+      headsetHint: "Headphones recommended with speakers (prevents the reply voice from being heard as an interruption)",
+      headsetHintDismiss: "Got it",
     },
   },
 } satisfies Translations;

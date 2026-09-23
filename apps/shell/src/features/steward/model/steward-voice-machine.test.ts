@@ -16,7 +16,13 @@ import {
   shouldSpeakReply,
   mdToSpeechText,
   planTranscript,
+  stepBargeInGate,
+  openBargeInSilenceWindow,
+  isBargeInArmed,
+  INITIAL_BARGE_IN_GATE,
+  BARGE_IN_SILENCE_WINDOW_MS,
   STEWARD_SPEECH_TEXT_MAX,
+  type BargeInGateState,
   type StewardVoiceSnapshot,
 } from "./steward-voice-machine";
 
@@ -105,5 +111,110 @@ describe("planTranscript（转写出路）", () => {
 
   it("发送失败（未连接）→ fallback：转写文本回填草稿（文本态可重试，零静默丢话）", () => {
     expect(planTranscript("现在有什么在跑？", false)).toEqual({ kind: "fallback", draft: "现在有什么在跑？" });
+  });
+});
+
+// ── B2 barge-in 门判定（fake meter 帧驱动——纯函数面，AG-14）────────────
+
+/** 帧驱动辅助：把 rms 帧序列喂给门，返回触发点序列（atMs 单调递增）。 */
+function driveFrames(
+  start: BargeInGateState,
+  frames: readonly { rms: number; atMs: number; armed?: boolean }[],
+): { state: BargeInGateState; firedAt: number[] } {
+  let state = start;
+  const firedAt: number[] = [];
+  for (const f of frames) {
+    const out = stepBargeInGate(state, { rms: f.rms, atMs: f.atMs, armed: f.armed ?? true });
+    state = out.state;
+    if (out.trigger) firedAt.push(f.atMs);
+  }
+  return { state, firedAt };
+}
+
+const LOUD = 0.05; // ≥ VOICE_RMS_THRESHOLD 0.012
+const QUIET = 0.001;
+
+/** 每 100ms 一帧（rms-meter 节流同构）的帧序列生成。 */
+function every100ms(from: number, count: number, rms: number, armed?: boolean): { rms: number; atMs: number; armed?: boolean }[] {
+  return Array.from({ length: count }, (_, i) => ({ rms, atMs: from + i * 100, ...(armed !== undefined ? { armed } : {}) }));
+}
+
+describe("stepBargeInGate（barge-in 门判定——RMS 帧驱动）", () => {
+  it("阈值下不触发：连续低于阈值帧（长时）零触发", () => {
+    const { firedAt } = driveFrames(INITIAL_BARGE_IN_GATE, every100ms(0, 20, QUIET));
+    expect(firedAt).toEqual([]);
+  });
+
+  it("短脉冲不触发：单帧尖峰后回落（持续 < VOICE_MIN_DURATION_MS）零触发——双条件防单帧尖峰", () => {
+    const { firedAt } = driveFrames(INITIAL_BARGE_IN_GATE, [
+      { rms: LOUD, atMs: 0 },
+      { rms: QUIET, atMs: 100 },
+      { rms: QUIET, atMs: 200 },
+      { rms: LOUD, atMs: 300 }, // 第二个孤立尖峰（与前段不连续——loudSince 已被静音帧清零）
+      { rms: QUIET, atMs: 400 },
+    ]);
+    expect(firedAt).toEqual([]);
+  });
+
+  it("达标触发：持续超阈 ≥ VOICE_MIN_DURATION_MS 恰触发一次，触发帧自带静默窗", () => {
+    const { state, firedAt } = driveFrames(INITIAL_BARGE_IN_GATE, [
+      { rms: LOUD, atMs: 1000 }, // 开口（loudSince 起算，不触发）
+      { rms: LOUD, atMs: 1100 }, // 持续 200ms——不触发
+      { rms: LOUD, atMs: 1200 }, // 持续 200ms——不触发
+      { rms: LOUD, atMs: 1300 }, // 持续 300ms ≥ 300 → 触发
+    ]);
+    expect(firedAt).toEqual([1300]);
+    expect(state.muteUntilMs).toBe(1300 + BARGE_IN_SILENCE_WINDOW_MS);
+  });
+
+  it("触发后武装续帧零二次触发（fired 闩锁——重复触发幂等）", () => {
+    const { firedAt } = driveFrames(
+      INITIAL_BARGE_IN_GATE,
+      every100ms(0, 4, LOUD).concat(every100ms(400, 10, LOUD)), // 触发后继续满 loud 帧到 1300ms（含出窗段）
+    );
+    expect(firedAt).toEqual([300]);
+  });
+
+  it("静默窗内不触发：openBargeInSilenceWindow 后窗内持续超阈零触发（停播残响防线）；出窗重新累积", () => {
+    const opened = openBargeInSilenceWindow(INITIAL_BARGE_IN_GATE, 0);
+    expect(opened.muteUntilMs).toBe(BARGE_IN_SILENCE_WINDOW_MS);
+    const { firedAt } = driveFrames(opened, [
+      ...every100ms(0, 3, LOUD), // 窗内 0/100/200 全 loud——零触发且累积清零
+      { rms: LOUD, atMs: 400 }, // 出窗首帧：重新起算 loudSince
+      { rms: LOUD, atMs: 500 },
+      { rms: LOUD, atMs: 600 },
+      { rms: LOUD, atMs: 700 }, // 出窗后持续 300ms → 触发
+    ]);
+    expect(firedAt).toEqual([700]);
+  });
+
+  it("未武装（idle/listening/text 模式）零触发；解除武装帧复位闩锁（下一轮可再触发）", () => {
+    // 武装段：300ms 触发
+    const first = driveFrames(INITIAL_BARGE_IN_GATE, every100ms(0, 4, LOUD));
+    expect(first.firedAt).toEqual([300]);
+    // 解除武装帧（如进 listening）→ 闩锁复位
+    const rearmed = stepBargeInGate(first.state, { rms: QUIET, atMs: 500, armed: false });
+    expect(rearmed.trigger).toBe(false);
+    // 下一轮武装段可再触发
+    const second = driveFrames(rearmed.state, every100ms(9000, 4, LOUD));
+    expect(second.firedAt).toEqual([9300]);
+    // 未武装段满 loud 帧零触发
+    const unarmed = driveFrames(INITIAL_BARGE_IN_GATE, every100ms(0, 10, LOUD, false));
+    expect(unarmed.firedAt).toEqual([]);
+  });
+});
+
+describe("isBargeInArmed（门武装判定——相位派生扩展）", () => {
+  it("语音模式 ×（speaking | asking）→ 武装（全双工可打断相位）", () => {
+    expect(isBargeInArmed({ mode: "voice", phase: "speaking" })).toBe(true);
+    expect(isBargeInArmed({ mode: "voice", phase: "asking" })).toBe(true);
+  });
+
+  it("其余相位/文本模式/unsupported → 不武装（text 模式与 mic 不可用行为不变）", () => {
+    expect(isBargeInArmed({ mode: "voice", phase: "idle" })).toBe(false);
+    expect(isBargeInArmed({ mode: "voice", phase: "listening" })).toBe(false);
+    expect(isBargeInArmed({ mode: "voice", phase: "transcribing" })).toBe(false);
+    expect(isBargeInArmed({ mode: "voice", phase: "unsupported" })).toBe(false);
+    expect(isBargeInArmed({ mode: "text", phase: "speaking" })).toBe(false);
   });
 });

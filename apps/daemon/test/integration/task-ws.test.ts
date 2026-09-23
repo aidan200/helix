@@ -616,6 +616,6 @@ describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
     // task.retry 为白名单例外：job 级生命周期人工复活，非批次重试/内容干预（AD-2 保持）
     const forbidden = family.filter((t) => t !== "task.retry" && /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
     expect(forbidden).toEqual([]);
-    expect(COMMAND_TYPES.length).toBe(109); // 动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1 后当前值（session.instanceChannels）
+    expect(COMMAND_TYPES.length).toBe(110); // B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
   });
 });

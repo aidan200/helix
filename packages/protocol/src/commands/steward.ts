@@ -137,3 +137,18 @@ export interface StewardMemoryDeletePayload {
 export interface StewardMemoryDeleteCommand extends CommandFrame<StewardMemoryDeletePayload> {
   type: "steward.memory_delete";
 }
+
+/** steward.interrupt 载荷（B2 barge-in 批，additive）。 */
+export interface StewardInterruptPayload {
+  /** 中断原因（可选；缺省 daemon 归一 "barge-in"——审计/trace 语义）。 */
+  reason?: string;
+}
+
+/** steward.interrupt：在途 steward 轮打断（barge-in 触发面，shell→daemon）——
+ *  daemon 侧 StewardService.abortInFlight(reason ?? "barge-in")（幂等 +
+ *  abort-and-drain + settleAbortedTurn 截断记账——E-198 语义零改动）。
+ *  **无回执帧**（事件面 loop.run.interrupted + steward.ask.result 终态已够
+ *  ——设计 docs/temp/helix-duplex-v3-design.md §3.2）。 */
+export interface StewardInterruptCommand extends CommandFrame<StewardInterruptPayload> {
+  type: "steward.interrupt";
+}

@@ -185,6 +185,44 @@ describe("StewardPanel 语音模式面（V3a）", () => {
 
 // ── V3b-1 流式面渲染：interim 浮字 + 降级提示 ────────────────────
 
+describe("StewardPanel 耳机提示（B2 随附：扬声器场景一次性明示）", () => {
+  beforeEach(() => {
+    mode = "voice";
+    interim = null;
+    streamDegraded = false;
+    phase = "idle";
+    level = 0;
+    speaking = false;
+    voiceError = null;
+    localStorage.removeItem("helix.steward.headsetHintSeen");
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mode = "voice"; // 模块态复位（防 text 泄漏进后续 describe）
+  });
+
+  it("语音模式首次进入一次性明示「戴耳机」；关闭后持久不再现", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-headset-hint")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("steward-headset-hint-dismiss"));
+    expect(screen.queryByTestId("steward-headset-hint")).toBeNull();
+    expect(localStorage.getItem("helix.steward.headsetHintSeen")).toBe("1");
+    // 一次性语义：重挂面板不再现（持久 flag 已消费）
+    cleanup();
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-mic")).toBeTruthy());
+    expect(screen.queryByTestId("steward-headset-hint")).toBeNull();
+  });
+
+  it("文本模式不显示耳机提示（仅语音模式面）", async () => {
+    mode = "text";
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    expect(screen.queryByTestId("steward-headset-hint")).toBeNull();
+  });
+});
+
 describe("StewardPanel 流式转写面（V3b-1）", () => {
   const startListening2 = startListening;
   const stopListening2 = stopListening;

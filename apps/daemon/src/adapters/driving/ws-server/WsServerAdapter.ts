@@ -131,6 +131,7 @@ import {
   handleStewardConfirm,
   handleStewardGetConfig,
   handleStewardHistory,
+  handleStewardInterrupt,
   handleStewardMemoryAppend,
   handleStewardMemoryDelete,
   handleStewardMemoryList,
@@ -769,6 +770,11 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardHistory(this.contexts.stewardContext(ws, type, payload));
+      // ── B2 barge-in 批：在途轮打断（abortInFlight 幂等；无回执帧）──
+      case "steward.interrupt":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardInterrupt(this.contexts.stewardContext(ws, type, payload));
       // ── 管家记忆 B2：长期记忆条目管理四命令（memory 服务缺席时零记忆
       //    降级形态——读面空清单/写面 error 判别，不走 unimplemented）──
       case "steward.memory_list":

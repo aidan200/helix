@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 109 个 type（… + 三方平台批 provider.list/set/delete + 动态主题批 config.get/set_topic）", () => {
+  test("命令目录恰为 110 个 type（… + B2 barge-in 批 steward.interrupt + 三方平台批 provider.list/set/delete + 动态主题批 config.get/set_topic）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -239,6 +239,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "steward.confirm",
         "steward.get_config",
         "steward.history",
+        "steward.interrupt",
         "steward.memory_append",
         "steward.memory_delete",
         "steward.memory_list",
@@ -665,7 +666,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(EVENT_TYPES.length).toBe(140); // 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B4a 批 +1（steward.sediment_proposal）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
     expect(new Set(EVENT_TYPES).size).toBe(140); // 无重复
     expect(Object.keys(EVENT_CHANNELS).length).toBe(140); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(109); // 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
+    expect(COMMAND_TYPES.length).toBe(110); // B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });

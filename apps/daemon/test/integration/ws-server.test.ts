@@ -350,6 +350,28 @@ describe("命令错误回执（不关连接）", () => {
     }
   });
 
+  test("steward.interrupt 已路由（B2 barge-in）：无在途静默零回执，非 command.unknown/unimplemented", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+      await client.expect("session.snapshot");
+
+      client.send({ v: 0, type: "steward.interrupt", payload: { reason: "barge-in" } });
+      await new Promise((r) => setTimeout(r, 80));
+      const routed = client.frames.filter(
+        (f) =>
+          f.type === "connection.error" &&
+          (f.payload.code === "command.unknown" || f.payload.code === "command.unimplemented"),
+      );
+      expect(routed).toHaveLength(0);
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  }, 10000);
+
   test("v0.2 model/auth 族真行为回执（T2.3）：非法载荷回 invalid_payload；目录外仍 command.unknown", async () => {
     const rig = await makeRig();
     const client = new TestClient(rig.url);

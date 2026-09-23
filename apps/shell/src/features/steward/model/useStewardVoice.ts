@@ -27,6 +27,15 @@
  * 开流失败/终帧超时/error → transcribeNow 回落（blob 上传整段转写，
  * V3a 同构——零静默丢话）。
  *
+ * B2 barge-in（V3b-3 全双工核心）：语音模式全程 RMS 采样（耳 meter 常开
+ * ——rms-meter 注入面从「仅录音期」扩展全程，text 模式/面板关即收）；
+ * speaking/asking 相位人声门（RMS 超阈 + 持续 ≥ VOICE_MIN_DURATION_MS
+ * 双条件 + 停播后 300ms 静默窗 + fired 闩锁，判定全在 steward-voice-machine
+ * 纯函数面）→ 打断序 = ①stopSpeaking 立即停播（UX 零延迟）②
+ * steward.interrupt（daemon abortInFlight 幂等善后——E-198 截断记账零改动）
+ * ③listening 开 stt.stream.start 新流；新转写 final → steward.ask 新轮。
+ * asking 相位可打断（旧轮让位新输入）；text 模式/mic 不可用行为完全不变。
+ *
  * 异常回退（纯面 planTranscript）：ask 发送失败（未连接）→ 转写文本回填
  * voiceDraft（面板采纳进输入框——文本态可重试，零静默丢话）；转写失败 →
  * useVoiceInput error 面（面板 toast，Composer 同构）。
@@ -40,7 +49,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
-import type { RmsMeterFactory } from "@/shared/lib/rms-meter";
+import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";
 import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
 import type { SpeechPlayerFactory } from "@/shared/lib/pcm-player";
@@ -54,6 +63,11 @@ import {
   shouldSpeakReply,
   mdToSpeechText,
   planTranscript,
+  stepBargeInGate,
+  openBargeInSilenceWindow,
+  isBargeInArmed,
+  INITIAL_BARGE_IN_GATE,
+  type BargeInGateState,
   type StewardInputMode,
   type StewardVoicePhase,
 } from "./steward-voice-machine";
@@ -128,6 +142,7 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     sendVoiceSynthesizeStop,
     subscribeVoiceFrames,
     subscribeStewardFrames,
+    sendStewardInterrupt,
   } = useSession() as {
     sendSttTranscribe?: (audio: string, opts?: { language?: string; provider?: string }) => boolean;
     sendSttStreamStart?: (opts?: { language?: string; provider?: string }) => boolean;
@@ -140,6 +155,7 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     sendVoiceSynthesizeStop?: (utterId?: string) => boolean;
     subscribeVoiceFrames?: (listener: (e: EventEnvelope) => void) => () => void;
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
+    sendStewardInterrupt?: (reason?: string) => boolean;
   };
   const steward = useSteward(open);
 
@@ -154,6 +170,10 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   const [streamSpeaking, setStreamSpeaking] = useState(false);
   const speaking = legacySpeaking || streamSpeaking;
   const speakPendingRef = useRef(false);
+  // ── B2 barge-in 触发面（V3b-3）：门状态 + 相位镜像 + 触发闭包转发 ──
+  const bargeInGateRef = useRef<BargeInGateState>(INITIAL_BARGE_IN_GATE);
+  const phaseRef = useRef<StewardVoicePhase>("idle");
+  const bargeInRef = useRef<() => void>(() => {});
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // 发送面 ref 转发（speechOut 单例构造——发送器随连接态重绑，streamSenders 先例）
@@ -196,6 +216,8 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   }, [speechOut]);
 
   const stopSpeaking = useCallback(() => {
+    // 停播即开残响静默窗（B2：防 TTS 残响被耳 meter 再触发——静音钮/打断同径）
+    bargeInGateRef.current = openBargeInSilenceWindow(bargeInGateRef.current, Date.now());
     speakPendingRef.current = false;
     const audio = audioRef.current;
     audioRef.current = null;
@@ -235,6 +257,54 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   // 模式按 result 时点读（ref 免 listener 重绑）。
   const modeRef = useRef(mode);
   modeRef.current = mode;
+
+  // ── B2 barge-in 门帧消费（耳 meter 回调；armed = 相位派生）──
+  const onBargeInLevel = useCallback((rms: number) => {
+    const armed = isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current });
+    const out = stepBargeInGate(bargeInGateRef.current, { rms, atMs: Date.now(), armed });
+    bargeInGateRef.current = out.state;
+    if (out.trigger) bargeInRef.current();
+  }, []);
+
+  // ── B2 barge-in 耳朵：语音模式全程 RMS 采样（rms-meter 注入面复用——
+  //    createMeter 同注入面；面板开 × voice 模式才开麦，text/面板关即收；
+  //    mic 不可用/被拒 → barge-in 降级关闭，语音主链不受影响）──
+  const earMeterFactoryRef = useRef(options?.createMeter ?? createWorkletRmsMeter);
+  earMeterFactoryRef.current = options?.createMeter ?? createWorkletRmsMeter;
+  useEffect(() => {
+    if (!open || mode !== "voice") return;
+    if (typeof navigator === "undefined" || navigator.mediaDevices === undefined) return;
+    let cancelled = false;
+    let meter: RmsMeter | null = null;
+    let stream: MediaStream | null = null;
+    void (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        const created = await earMeterFactoryRef.current(stream);
+        if (created === null || cancelled) {
+          created?.close();
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        meter = created;
+        created.onLevel((rms) => {
+          if (cancelled) return;
+          onBargeInLevel(rms);
+        });
+      } catch {
+        // 麦不可用/被拒：barge-in 降级关闭（环境面——语音主链不受影响）
+      }
+    })();
+    return () => {
+      cancelled = true;
+      meter?.close();
+      if (stream !== null) for (const track of stream.getTracks()) track.stop();
+    };
+  }, [open, mode, onBargeInLevel]);
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return;
     return subscribeStewardFrames((event: EventEnvelope) => {
@@ -439,9 +509,9 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     });
   }, [subscribeSttFrames, clearFallbackTimer]);
 
-  // 新一轮说话 = 停上轮朗读 + 流式复位（开流同步发——失败静默降级）
-  const startListening = useCallback(async () => {
-    stopSpeaking();
+  // 听音本体（手动点击与 barge-in 共用）：流式复位 + 开流（同步发——失败
+  // 静默降级）+ 录音启动；不带停播序（调用方按打断序安排）
+  const beginListening = useCallback(async () => {
     clearFallbackTimer();
     setInterim(null);
     setStreamDegraded(false);
@@ -455,7 +525,27 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     streamArmedRef.current =
       typeof sendStart === "function" && (pref === undefined || pref === "dashscope") && sendStart({ language: "zh" });
     await voiceRef.current.start();
-  }, [stopSpeaking, clearFallbackTimer]);
+  }, [clearFallbackTimer]);
+
+  // B2 barge-in 打断序（①②③不可换序——UX 与一致性分离）：①立即停播
+  // （零延迟）②steward.interrupt（daemon abortInFlight 幂等善后）③进
+  // listening 开 stt.stream.start 新流；新转写 final → steward.ask 新轮。
+  const bargeIn = useCallback(() => {
+    stopSpeaking(); // ①（含残响静默窗）
+    const interruptOk = sendStewardInterrupt?.("barge-in") ?? false; // ②
+    if (interruptOk === false) {
+      // 未连接：打断帧未达 daemon——本地停播即事实（零回滚）；后续 ask
+      // 发送失败走 voiceDraft 回填既有降级（零静默丢话）
+    }
+    void beginListening(); // ③
+  }, [stopSpeaking, beginListening, sendStewardInterrupt]);
+  bargeInRef.current = bargeIn;
+
+  // 新一轮说话 = 停上轮朗读 + 听音本体（手动 barge-in 同构先序）
+  const startListening = useCallback(async () => {
+    stopSpeaking();
+    await beginListening();
+  }, [stopSpeaking, beginListening]);
 
   const stopListening = useCallback(() => {
     voiceRef.current.stop();
@@ -477,6 +567,14 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
 
   // unsupported 自动回退文本态（mic 环境不可用——语音模式不可达）
   const phase = deriveStewardVoicePhase({ voiceState: voice.state, askInFlight: steward.askInFlight, speaking });
+  // B2：相位镜像（耳帧回调读实时态）+ 离开可打断相位复位门闩锁（下一轮可
+  // 再触发；静默窗跨轮保留——残响防线）
+  phaseRef.current = phase;
+  useEffect(() => {
+    if (!isBargeInArmed({ mode, phase })) {
+      bargeInGateRef.current = stepBargeInGate(bargeInGateRef.current, { rms: 0, atMs: Date.now(), armed: false }).state;
+    }
+  }, [mode, phase]);
   useEffect(() => {
     if (phase === "unsupported") setModeState("text");
   }, [phase]);

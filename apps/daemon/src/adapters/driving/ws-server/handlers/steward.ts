@@ -368,3 +368,16 @@ export function handleStewardMemoryDelete(ctx: StewardCommandContext): void {
   ctx.steward.service.forgetMemoryEntry(id);
   respondMemoryList(ctx);
 }
+
+/** steward.interrupt（全局命令；B2 barge-in 批）：在途轮打断 →
+ *  StewardService.abortInFlight(reason ?? "barge-in")（现成方法，幂等 +
+ *  drain 序 + settleAbortedTurn 截断记账——E-198 语义零改动）。
+ *  回执帧省（设计 §3.2：loop.run.interrupted + ask 终态事件面已够）；
+ *  无在途时 abortInFlight 返回 false 照常静默（重复触发幂等）。 */
+export function handleStewardInterrupt(ctx: StewardCommandContext): void {
+  const reason = ctx.payload.reason;
+  if (reason !== undefined && typeof reason !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.reason 应为 string");
+  }
+  ctx.steward.service.abortInFlight(reason ?? "barge-in");
+}

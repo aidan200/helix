@@ -37,6 +37,7 @@ import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
 import type { StewardVoicePhase } from "../model/steward-voice-machine";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
+import { readPersistedFlag, writePersistedFlag } from "@/shared/lib/persisted-flag";
 import { useI18n } from "@/shared/i18n";
 
 interface StewardPanelProps {
@@ -50,6 +51,10 @@ interface StewardPanelProps {
 
 /** 波形条高型（7 条对称阵列；listening 态 = level × 型值，他态贴底）。 */
 const WAVE_PATTERN = [0.45, 0.75, 1, 0.6, 1, 0.75, 0.45] as const;
+
+/** 耳机提示一次性 flag（B2 随附：扬声器场景建议戴耳机——防自声触发；
+ *  persisted-flag 白名单抽象，AG-14 零业务状态持久化口径）。 */
+const HEADSET_HINT_KEY = "helix.steward.headsetHintSeen";
 
 /** thinking 折叠条目（默认折叠可展开——屏幕通道完整显示，样式对齐主会话
  *  thinking 条目密度但更紧凑；A1 批）。 */
@@ -122,6 +127,8 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
   const { t } = useI18n();
   const sv = useStewardVoice(true);
   const [draft, setDraft] = useState("");
+  // 耳机提示（B2 随附）：语音模式首次进入一次性明示（扬声器场景防自声触发）
+  const [headsetHintSeen, setHeadsetHintSeen] = useState(() => readPersistedFlag(HEADSET_HINT_KEY, false));
 
   // 历史锚底（驾驶舱批①：chat 页 MessageFlow 滚动语义同构）：吸附态新内容
   // 贴底；上滚脱附不拽回；回底 1s 驻留恢复吸附；打开面板强制贴底。
@@ -351,6 +358,23 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
                 {sv.voiceError !== null && (
                   <span className="stp-voice-err" data-testid="steward-voice-err">
                     {sv.voiceError}
+                  </span>
+                )}
+                {/* B2 随附耳机提示：一次性（flag 持久，关闭后不再现） */}
+                {!headsetHintSeen && (
+                  <span className="stp-headset-hint" data-testid="steward-headset-hint">
+                    <span className="stp-headset-hint-text">{t("steward.voice.headsetHint")}</span>
+                    <button
+                      type="button"
+                      className="stp-headset-hint-dismiss"
+                      data-testid="steward-headset-hint-dismiss"
+                      onClick={() => {
+                        writePersistedFlag(HEADSET_HINT_KEY, true);
+                        setHeadsetHintSeen(true);
+                      }}
+                    >
+                      {t("steward.voice.headsetHintDismiss")}
+                    </button>
                   </span>
                 )}
               </div>

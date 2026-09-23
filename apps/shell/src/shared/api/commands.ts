@@ -117,6 +117,7 @@ import type {
   StewardConfirmCommand,
   StewardGetConfigCommand,
   StewardHistoryCommand,
+  StewardInterruptCommand,
   StewardMemoryAppendCommand,
   StewardMemoryDeleteCommand,
   StewardMemoryListCommand,
@@ -602,6 +603,17 @@ export function stewardHistoryCommand(clear?: boolean): StewardHistoryCommand {
     v: PROTOCOL_VERSION,
     type: "steward.history",
     payload: clear === true ? { clear: true } : {},
+  };
+}
+
+/** steward.interrupt：在途轮打断（B2 barge-in 批；payload.reason 可选——缺省
+ *  daemon 归一 "barge-in"；无回执帧，事件面 loop.run.interrupted + ask 终态
+ *  已够）。 */
+export function stewardInterruptCommand(reason?: string): StewardInterruptCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.interrupt",
+    payload: reason === undefined ? {} : { reason },
   };
 }
 

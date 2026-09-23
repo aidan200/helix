@@ -24,6 +24,12 @@ import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
 const sendStewardConfirm = vi.fn(() => true);
+// B2：调用序观测面（打断序时序断言——stopSpeaking → interrupt → stream.start）
+const callOrder: string[] = [];
+const sendStewardInterrupt = vi.fn(() => {
+  callOrder.push("interrupt");
+  return true;
+});
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
@@ -35,7 +41,10 @@ const sendVoiceSynthesizeStop = vi.fn(() => true);
 // ── V3b-1 流式面（streamStartEnabled 开关：false = 开流不可达，既有 V3a
 //    回落路径回归不受串扰；true = 流式链路）──
 let streamStartEnabled = false;
-const sendSttStreamStart = vi.fn(() => streamStartEnabled);
+const sendSttStreamStart = vi.fn(() => {
+  callOrder.push("streamStart");
+  return streamStartEnabled;
+});
 const sendSttStreamChunk = vi.fn(() => true);
 const sendSttStreamFinish = vi.fn(() => true);
 const sendSttStreamStop = vi.fn(() => true);
@@ -65,6 +74,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     topology: { active: { conn: "connected" } },
     sendStewardAsk,
     sendStewardConfirm,
+    sendStewardInterrupt,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
@@ -124,6 +134,7 @@ class FakeAudio {
   }
   pause(): void {
     this.paused = true;
+    callOrder.push("stopSpeaking"); // 停播可观察点（B2 打断序①）
   }
 }
 
@@ -844,5 +855,168 @@ describe("useStewardVoice（V3b-2 流式朗读接线）", () => {
     });
     expect(sendVoiceSynthesizeStream).not.toHaveBeenCalled();
     expect(sendVoiceSynthesize).not.toHaveBeenCalled();
+  });
+});
+
+// ── B2 barge-in 打断面（V3b-3 核心：speaking/asking 期人声检出即打断）──
+
+/** Fake RmsMeter（rms-meter.ts 注入面契约；帧驱动——emit 驱动门判定）。 */
+class FakeMeter {
+  static instances: FakeMeter[] = [];
+  cb: ((rms: number) => void) | null = null;
+  closed = false;
+  onLevel(cb: (rms: number) => void): void {
+    this.cb = cb;
+  }
+  close(): void {
+    this.closed = true;
+  }
+  emit(rms: number): void {
+    if (!this.closed) this.cb?.(rms);
+  }
+}
+describe("useStewardVoice（B2 barge-in 打断面）", () => {
+  let restoreEnv: (() => void) | null = null;
+  let nowMs = 0;
+  let nowSpy: ReturnType<typeof vi.spyOn> | null = null;
+  /** 耳朵 meter（语音模式全程采样——mount 即开，实例[0]；录音 meter 是后开的）。 */
+  const ear = (): FakeMeter => FakeMeter.instances[0]!;
+  const createMeter = async () => {
+    const m = new FakeMeter();
+    FakeMeter.instances.push(m);
+    return m;
+  };
+  function renderBargeIn() {
+    return renderHook(() => useStewardVoice(true, { createMeter }), { wrapper: I18nProvider }).result;
+  }
+  /** 人声帧驱动：连续超阈帧（默认 100ms 节流同构）——达标即返回触发点帧序。 */
+  function humanVoice(count: number, rms = 0.05): void {
+    for (let i = 0; i < count; i += 1) {
+      act(() => {
+        ear().emit(rms);
+      });
+      nowMs += 100;
+    }
+  }
+  /** 走到 speaking 相位（直喂 ask——不涉录音链；answer 终态 →一次性合成回执 → 播放）。 */
+  async function reachSpeaking(r: { current: ReturnType<typeof useStewardVoice> }): Promise<void> {
+    act(() => {
+      r.current.ask("现在什么情况");
+    });
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "一切正常" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/wav;base64,QUJD", provider: "dashscope" }, "voice"));
+    });
+    expect(r.current.phase).toBe("speaking");
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    for (const s of Object.values(listeners)) s.clear();
+    FakeMeter.instances = [];
+    streamStartEnabled = true;
+    callOrder.length = 0;
+    nowMs = Date.now();
+    nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    FakeAudio.instances = [];
+    nowSpy?.mockRestore();
+    nowSpy = null;
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  it("speaking 相位人声达标 → 打断序：stopSpeaking 先于 steward.interrupt 先于 stt.stream.start（UX 零延迟）", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick(); // 耳朵异步开麦+挂 meter
+    expect(FakeMeter.instances.length).toBeGreaterThanOrEqual(1);
+    await reachSpeaking(r);
+    humanVoice(4); // 持续超阈 ≥ 300ms（100ms/帧）→ 门触发
+    // ①②③ 时序：停播 → steward.interrupt → stt.stream.start（调用序单计数器钉死）
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in");
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    const stopIdx = callOrder.indexOf("stopSpeaking");
+    const interruptIdx = callOrder.indexOf("interrupt");
+    const startIdx = callOrder.indexOf("streamStart");
+    expect(stopIdx).toBeGreaterThanOrEqual(0);
+    expect(stopIdx).toBeLessThan(interruptIdx);
+    expect(interruptIdx).toBeLessThan(startIdx);
+    expect(FakeAudio.instances[0]!.paused).toBe(true); // 停播即时发生
+    await waitFor(() => expect(r.current.phase).toBe("listening"));
+  });
+
+  it("asking 相位可打断（打断旧轮让位新输入）：新转写 stt.stream.final → steward.ask 新轮", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    act(() => {
+      r.current.ask("在吗");
+    });
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
+    expect(r.current.phase).toBe("asking");
+    humanVoice(4); // asking 期人声门同样武装 → 打断旧轮
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(r.current.phase).toBe("listening"));
+    // 新转写流收口 → 新输入入 ask（新轮）
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-b2", provider: "dashscope", model: "m" }, "stt"));
+    });
+    nowMs += 500; // 过最短录音窗
+    await tick();
+    act(() => {
+      r.current.stopListening();
+    });
+    expect(sendSttStreamFinish).toHaveBeenCalledTimes(1);
+    act(() => {
+      emit("stt", frame("stt.stream.final", { status: "ok", streamId: "str-b2", text: "换个问题问", provider: "dashscope" }, "stt"));
+    });
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("换个问题问"));
+  });
+
+  it("重复触发幂等：触发后持续人声帧（含出静默窗段）零二次打断", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    await reachSpeaking(r);
+    humanVoice(14); // 触发后继续 1.4s 满 loud 帧（跨静默窗）——闩锁+窗双防线
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("text 模式零行为：人声帧零打断（耳朵随模式关）；mic 不可用零耳零打断", async () => {
+    // text 模式：切模式后耳朵关闭，帧面零消费者
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    act(() => {
+      r.current.setMode("text");
+    });
+    expect(ear().closed).toBe(true);
+    act(() => {
+      ear().emit(0.05);
+    });
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    expect(sendSttStreamStart).not.toHaveBeenCalled();
+    restoreEnv?.();
+    restoreEnv = null;
+    // mic 不可用：零耳零打断（降级文本态行为不变）
+    Object.defineProperty(navigator, "mediaDevices", { value: undefined, configurable: true });
+    FakeMeter.instances = [];
+    const r2 = renderBargeIn();
+    await tick();
+    expect(FakeMeter.instances.length).toBe(0);
+    expect(r2.current.mode).toBe("text");
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
   });
 });

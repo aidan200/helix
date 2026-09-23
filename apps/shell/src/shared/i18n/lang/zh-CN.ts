@@ -1236,6 +1236,8 @@ export const zhCN = {
       phaseSpeaking: "朗读中…",
       micUnavailable: "当前环境不支持录音，已切回文本输入",
       streamDegraded: "实时转写不可用，已用整段转写",
+      headsetHint: "扬声器场景建议戴耳机（防止朗读声被误听成插话）",
+      headsetHintDismiss: "知道了",
     },
   },
 };

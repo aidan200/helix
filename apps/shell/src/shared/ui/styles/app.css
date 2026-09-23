@@ -1440,6 +1440,19 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 .stp-voice-err {
   font-size: var(--text-micro); color: var(--error); line-height: 1.5; overflow-wrap: anywhere;
 }
+/* 耳机提示（B2 随附一次性明示：扬声器场景防自声触发） */
+.stp-headset-hint {
+  display: flex; align-items: center; gap: 8px; margin-top: 2px;
+  padding: 2px 6px; border-radius: 6px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14);
+  font-size: var(--text-micro); color: var(--text-faint); line-height: 1.5;
+}
+.stp-headset-hint-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.stp-headset-hint-dismiss {
+  flex: 0 0 auto; padding: 1px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14); background: none;
+  font-size: var(--text-micro); color: var(--text-faint);
+}
 @media (prefers-reduced-motion: reduce) {
   .stp-voice[data-phase] .stp-wave { animation: none; }
   .stp-wave-bar { transition: none; }
