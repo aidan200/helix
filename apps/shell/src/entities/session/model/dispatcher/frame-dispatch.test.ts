@@ -103,6 +103,36 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(thinking.background[B]!.unread).toBe(0);
   });
 
+  it("后台 subagent_running 不被主线帧踩掉（bug 修复：closure/进展报告轮收口 ≠ SubAgent 终了）", () => {
+    // 权威同步定格 subagent_running（daemon runStateOf：活跃实例优先于主线状态）
+    let topo = topologyWithBackground();
+    const meta: SessionMeta = { sessionId: B, title: "后台会话", lastActivityAt: 600, runState: "subagent_running", loaded: true };
+    topo = dispatchFrame(topo, frame("session.list_changed", { kind: "state_changed", sessionId: B, session: meta }, { sessionId: SYSTEM_SESSION_ID, channel: "session" }), 0);
+    expect(topo.background[B]!.runState).toBe("subagent_running");
+    // main 主线 closure/进展报告注入的轮收口帧（monitor 白名单，必达后台）→ 徽标保持跑 SUBAGENT
+    const turnDone = dispatchFrame(topo, frame("chat.turn.completed", { turnId: "t-main", reason: "completed" }, { sessionId: B, channel: "chat" }), 0);
+    expect(turnDone.background[B]!.runState).toBe("subagent_running"); // 现缺陷：被踩成 idle（空闲）
+    // 主线生命周期帧（降级竞态窗口 full 档存量）同判：idle 不踩、running 不降 streaming
+    const idlePulse = dispatchFrame(topo, frame("agent.state.changed", { state: "idle" }, { sessionId: B, channel: "agent" }), 0);
+    expect(idlePulse.background[B]!.runState).toBe("subagent_running");
+    const runningPulse = dispatchFrame(topo, frame("agent.state.changed", { state: "running" }, { sessionId: B, channel: "agent" }), 0);
+    expect(runningPulse.background[B]!.runState).toBe("subagent_running");
+    // 主线流式存量帧同判（daemon 优先序：subagent_running > streaming）
+    const delta = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "b1", delta: "主线流式" }, { sessionId: B, channel: "chat" }), 0);
+    expect(delta.background[B]!.runState).toBe("subagent_running");
+    // 权威同步仍可退出 subagent_running（SubAgent 终了 → daemon state_changed{idle}）
+    const synced = dispatchFrame(topo, frame("session.list_changed", { kind: "state_changed", sessionId: B, session: { ...meta, lastActivityAt: 700, runState: "idle" } }, { sessionId: SYSTEM_SESSION_ID, channel: "session" }), 0);
+    expect(synced.background[B]!.runState).toBe("idle");
+  });
+
+  it("无 SubAgent 的后台会话：主线 turn 收口 → idle 脉冲语义不变（回归卫兵）", () => {
+    let topo = topologyWithBackground();
+    const meta: SessionMeta = { sessionId: B, title: "后台会话", lastActivityAt: 600, runState: "streaming", loaded: true };
+    topo = dispatchFrame(topo, frame("session.list_changed", { kind: "state_changed", sessionId: B, session: meta }, { sessionId: SYSTEM_SESSION_ID, channel: "session" }), 0);
+    const next = dispatchFrame(topo, frame("chat.turn.completed", { turnId: "t-main", reason: "completed" }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.runState).toBe("idle");
+  });
+
   it("未知会话帧（既非活跃也非后台）→ 状态原样（多会话隔离）", () => {
     const topo = topologyWithBackground();
     const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "x", delta: "陌生会话" }, { sessionId: "sess-unknown", channel: "chat" }), 0);

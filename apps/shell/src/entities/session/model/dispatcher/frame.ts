@@ -162,21 +162,36 @@ function consumeBackground(bg: BackgroundSessionState, frame: EventEnvelope): Ba
 }
 
 /**
- * 后台运行态徽标投影（帧驱动）：流式 → streaming；编排族 → subagent_running；
- * 回 idle → idle。权威覆盖面 = session.list_changed{state_changed} 元数据同步
- * （directory 消费者），本投影作为帧间即时脉冲补充。
+ * 后台运行态徽标投影（帧驱动）：编排族 → subagent_running（提升）；主线
+ * 流式/turn/生命周期帧 → streaming/idle 脉冲。权威覆盖面 =
+ * session.list_changed{state_changed} 元数据同步（directory 消费者），本投影
+ * 作为帧间即时脉冲补充。
+ *
+ * 优先序（与 daemon SessionRegistry.runStateOf / selectActiveRunState 同序）：
+ * subagent_running 高于主线任何中间态——主线帧只描述 main 实例（closure/
+ * 进展报告注入的轮收口恰是 chat.turn.completed，monitor 档必达后台），不得
+ * 踩掉 SubAgent 运行态；退出 subagent_running 只由 session.list_changed 权威
+ * 元数据同步（daemon 在 SubAgent 终态必发 state_changed，去重只压同值重发
+ * 不漏变化）。bug 修复钉子：旧实现无条件 chat.turn.completed→idle 把跑
+ * SUBAGENT 踩成空闲，daemon 侧去重不重发 → 错值滞留（间歇回正靠 topic
+ * 演进等必发广播，时序不定）。
  */
 function backgroundRunStateOf(
   frame: EventEnvelope,
   current: BackgroundSessionState["runState"],
 ): BackgroundSessionState["runState"] {
   switch (frame.type) {
-    case "chat.stream.delta":
-      return "streaming";
     case "agent.spawned":
     case "agent.queued":
     case "agent.started":
       return "subagent_running";
+    default:
+      break;
+  }
+  if (current === "subagent_running") return current; // 优先序守卫：只随权威同步退出
+  switch (frame.type) {
+    case "chat.stream.delta":
+      return "streaming";
     case "agent.state.changed":
       return frame.payload.state === "idle" ? "idle" : "streaming";
     case "chat.turn.completed":
