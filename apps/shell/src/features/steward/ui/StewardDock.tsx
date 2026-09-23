@@ -2,8 +2,9 @@
  * StewardDock —— 管家全局弹层壳（管家全局化批：chat 页 top-bar 挂件退役，
  * 管家升格 app 壳级常驻能力；A1 工作记忆批：关闭 = 隐藏不卸载）。
  *
- * 形态：IconRail（app 生命周期唯一常驻壳）右侧 fixed 浮动面板（hud-popover
- * 族：popover-fill 0.8 档 + blur + shadow-pop——tokens.md §07 弹层语义）；
+ * 形态：IconRail（app 生命周期唯一常驻壳）右侧 fixed 浮动面板（满窗口
+ * 高直角壳——UI 显示优化批用户裁决：零圆角 / 无边框 / top+bottom 贴满
+ * 视口；底/雾/投影仍 tokens.md：popover-fill 0.8 档 + blur + shadow-pop）；
  * 入口 = IconRail 管家位（.rail-steward-btn，WebStatus 能力钮先例同构，
  * props 注入纯展示），开合态由 app 层（AppRoutes）持有。
  *

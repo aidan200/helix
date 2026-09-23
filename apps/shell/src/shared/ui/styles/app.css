@@ -1250,14 +1250,15 @@ html.light .stf-card {
 }
 
 /* ── 管家全局弹层（管家全局化批：stp-* 语义族重做——chat 右缘列退役，
-   rail 右缘 fixed 浮动面板；hud-popover 弹层语义：tokens.md §02
-   popover-fill 0.8 档 / §07 blur 14px·亮色降 10px / §10 shadow-pop；
-   token 单源，零散 hex 零容忍；动效仅 transform/opacity）── */
+   rail 右缘 fixed 浮动面板；UI 显示优化批：满窗口高直角壳——直角（零
+   圆角）/ 无边框 / top+bottom 贴满视口（用户裁决，css 测试锁死）；底/雾/
+   投影仍走 tokens.md：§02 popover-fill 0.8 档 / §07 blur 14px·亮色降
+   10px / §10 shadow-pop；token 单源，零散 hex 零容忍；动效仅 transform/opacity）── */
 .stp-dock {
-  position: fixed; left: 64px; top: 12px; bottom: 12px; z-index: 60;
+  position: fixed; left: 64px; top: 0; bottom: 0; z-index: 60;
   width: 344px; max-width: calc(100vw - 76px); min-width: 0;
   display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--border); border-radius: 10px;
+  border-radius: 0;
   background: var(--popover-fill);
   backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
   box-shadow: var(--shadow-pop);

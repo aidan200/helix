@@ -5,7 +5,9 @@
  * 钉纪律（Cyber HUD 铁律：所有色值/字号/透明度走 token 注册表变量，
  * 零散 hex 零容忍；动效仅 transform/opacity）：
  * - .stp-dock 弹层语义：fixed 定位 + popover-fill 0.8 档底 + blur 14px
- *   （亮色降 10px，html.light 覆盖）+ shadow-pop 投影 + 10px 圆角；
+ *   （亮色降 10px，html.light 覆盖）+ shadow-pop 投影；
+ * - UI 显示优化批（用户裁决）：直角（border-radius: 0）+ 无边框 +
+ *   top/bottom 贴满视口（满窗口高）——勿加回圆角/边框/上下缝隙；
  * - stp 段零内联 hex / 零裸 rgb() 三元色字面量（通道变量 rgb(var(--x-rgb)) 除外）；
  * - 字号全走 --text-* 语义阶梯（无 px 字号字面量）；
  * - 入场动效只动 transform/opacity；reduced-motion 关停。
@@ -27,11 +29,14 @@ expect(SEG_END).toBeGreaterThan(SEG_START);
 const seg = css.slice(SEG_START, SEG_END);
 
 describe("管家全局弹层 CSS 纪律（Cyber HUD token 合规）", () => {
-  it("弹层语义：fixed + popover-fill + blur 14px + shadow-pop + 10px 圆角 + z 层", () => {
+  it("弹层语义：fixed + popover-fill + blur 14px + shadow-pop + z 层；UI 显示优化批：直角 + 无边框 + 满窗口高", () => {
     expect(seg).toMatch(/\.stp-dock\s*\{[^}]*position:\s*fixed/);
     expect(seg).toMatch(/\.stp-dock\s*\{[^}]*background:\s*var\(--popover-fill\)/);
     expect(seg).toMatch(/\.stp-dock\s*\{[^}]*backdrop-filter:\s*blur\(14px\)/);
-    expect(seg).toMatch(/\.stp-dock\s*\{[^}]*border-radius:\s*10px/);
+    expect(seg).toMatch(/\.stp-dock\s*\{[^}]*border-radius:\s*0/); // 直角
+    expect(seg).not.toMatch(/\.stp-dock\s*\{[^}]*\bborder:/); // 无边框
+    expect(seg).toMatch(/\.stp-dock\s*\{[^}]*top:\s*0/); // 满高：上贴满
+    expect(seg).toMatch(/\.stp-dock\s*\{[^}]*bottom:\s*0/); // 满高：下贴满
     expect(seg).toMatch(/\.stp-dock\s*\{[^}]*box-shadow:\s*var\(--shadow-pop\)/);
     expect(seg).toMatch(/\.stp-dock\s*\{[^}]*z-index:\s*60/);
   });
