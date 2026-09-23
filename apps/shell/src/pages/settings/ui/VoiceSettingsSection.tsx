@@ -24,6 +24,11 @@
  * - 音量：helix.voice.volume（0–100，播放侧 Audio.volume）；
  * - 试听按钮：voice.synthesize 固定短句（点对点回执）→ Audio 播放——
  *   key/链路/音色一次性验证面。
+ *
+ * 插话检测组（B3 回声防线）：barge-in 门参数四件 + 双参判定开关——
+ * 灵敏度（0-100 映射 RMS 阈值）/最短发声时长/停播静默窗/人声防误触
+ *（双参开关 + 容忍带强度）；写偏好即生效（useStewardVoice 逐帧读偏好，
+ * 下一次门判定即用新值——不必重开麦）。
  * 纯展示 + 命令转发（TR-AD-8）：数据零权威，全部结果帧驱动。
  */
 import { useEffect, useRef, useState } from "react";
@@ -35,13 +40,27 @@ import { cn } from "@/shared/lib/cn";
 import { readSttProviderPref, writeSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import {
   DEFAULT_TTS_VOICE,
+  MIN_DURATION_RANGE,
+  SILENCE_WINDOW_RANGE,
   TTS_VOICE_OPTIONS,
+  VAD_SENSITIVITY_RANGE,
+  ZCR_TOLERANCE_RANGE,
   readTtsVoicePref,
   readVoiceBroadcastPref,
+  readVoiceCheckPref,
+  readVoiceMinDurationPref,
+  readVoiceSilenceWindowPref,
+  readVoiceVadSensitivityPref,
   readVoiceVolumePref,
+  readZcrTolerancePref,
   writeTtsVoicePref,
   writeVoiceBroadcastPref,
+  writeVoiceCheckPref,
+  writeVoiceMinDurationPref,
+  writeVoiceSilenceWindowPref,
+  writeVoiceVadSensitivityPref,
   writeVoiceVolumePref,
+  writeZcrTolerancePref,
 } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
@@ -66,6 +85,12 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
   const [broadcastOn, setBroadcastOn] = useState<boolean>(() => readVoiceBroadcastPref());
   const [voice, setVoice] = useState<string>(() => readTtsVoicePref());
   const [volume, setVolume] = useState<number>(() => readVoiceVolumePref());
+  // ── 插话检测参数组（B3 回声防线；初值 localStorage，写 = 偏好即时生效）──
+  const [sensitivity, setSensitivity] = useState<number>(() => readVoiceVadSensitivityPref());
+  const [minDuration, setMinDuration] = useState<number>(() => readVoiceMinDurationPref());
+  const [silenceWindow, setSilenceWindow] = useState<number>(() => readVoiceSilenceWindowPref());
+  const [voiceCheck, setVoiceCheck] = useState<boolean>(() => readVoiceCheckPref());
+  const [tolerance, setTolerance] = useState<number>(() => readZcrTolerancePref());
   const [auditioning, setAuditioning] = useState(false);
   const auditionPendingRef = useRef(false);
 
@@ -123,6 +148,28 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
     writeVoiceVolumePref(v);
   };
 
+  // 插话检测参数写面（写偏好即即时生效——门逐帧读偏好）
+  const onSensitivity = (v: number) => {
+    setSensitivity(v);
+    writeVoiceVadSensitivityPref(v);
+  };
+  const onMinDuration = (v: number) => {
+    setMinDuration(v);
+    writeVoiceMinDurationPref(v);
+  };
+  const onSilenceWindow = (v: number) => {
+    setSilenceWindow(v);
+    writeVoiceSilenceWindowPref(v);
+  };
+  const onVoiceCheck = (on: boolean) => {
+    setVoiceCheck(on);
+    writeVoiceCheckPref(on);
+  };
+  const onTolerance = (v: number) => {
+    setTolerance(v);
+    writeZcrTolerancePref(v);
+  };
+
   const onAudition = () => {
     if (auditionPendingRef.current) return;
     const sent = sendVoiceSynthesize(t(AUDITION_TEXT_KEY), { voice, language: "zh" });
@@ -169,6 +216,101 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
           </div>
         </div>
         <span className="ag-note">{t("chat.settings.voice.providerHint")}</span>
+      </div>
+
+      {/* ── 插话检测组（B3 回声防线：barge-in 门参数）──────────── */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.voice.groupGate")}</h3>
+      <div className="hud-card" data-voice-gate>
+        <p className="ag-note">{t("chat.settings.voice.gate.note")}</p>
+        <div className="fld">
+          <label className="hud-label" htmlFor="gate-sensitivity">
+            {t("chat.settings.voice.gate.sensitivity")}
+          </label>
+          <div className="set-inline">
+            <input
+              id="gate-sensitivity"
+              data-gate-sensitivity
+              type="range"
+              min={VAD_SENSITIVITY_RANGE.min}
+              max={VAD_SENSITIVITY_RANGE.max}
+              value={sensitivity}
+              onChange={(e) => onSensitivity(Number(e.target.value))}
+            />
+            <span className={cn("hud-chip tabular-nums min-w-[4rem] justify-center")} data-gate-sensitivity-value>
+              {sensitivity}
+            </span>
+          </div>
+        </div>
+        <div className="fld">
+          <label className="hud-label" htmlFor="gate-min-duration">
+            {t("chat.settings.voice.gate.minDuration")}
+          </label>
+          <div className="set-inline">
+            <input
+              id="gate-min-duration"
+              data-gate-min-duration
+              type="range"
+              min={MIN_DURATION_RANGE.min}
+              max={MIN_DURATION_RANGE.max}
+              step={50}
+              value={minDuration}
+              onChange={(e) => onMinDuration(Number(e.target.value))}
+            />
+            <span className={cn("hud-chip tabular-nums min-w-[4.5rem] justify-center")} data-gate-min-duration-value>
+              {minDuration} ms
+            </span>
+          </div>
+        </div>
+        <div className="fld">
+          <label className="hud-label" htmlFor="gate-silence-window">
+            {t("chat.settings.voice.gate.silenceWindow")}
+          </label>
+          <div className="set-inline">
+            <input
+              id="gate-silence-window"
+              data-gate-silence-window
+              type="range"
+              min={SILENCE_WINDOW_RANGE.min}
+              max={SILENCE_WINDOW_RANGE.max}
+              step={50}
+              value={silenceWindow}
+              onChange={(e) => onSilenceWindow(Number(e.target.value))}
+            />
+            <span className={cn("hud-chip tabular-nums min-w-[4.5rem] justify-center")} data-gate-silence-window-value>
+              {silenceWindow} ms
+            </span>
+          </div>
+        </div>
+        <label className="set-check" data-voice-check>
+          <input
+            data-gate-voice-check
+            type="checkbox"
+            checked={voiceCheck}
+            onChange={(e) => onVoiceCheck(e.target.checked)}
+          />
+          {t("chat.settings.voice.gate.voiceCheck")}
+        </label>
+        <div className="fld">
+          <label className="hud-label" htmlFor="gate-tolerance">
+            {t("chat.settings.voice.gate.tolerance")}
+          </label>
+          <div className="set-inline">
+            <input
+              id="gate-tolerance"
+              data-gate-tolerance
+              type="range"
+              min={ZCR_TOLERANCE_RANGE.min}
+              max={ZCR_TOLERANCE_RANGE.max}
+              value={tolerance}
+              disabled={!voiceCheck}
+              onChange={(e) => onTolerance(Number(e.target.value))}
+            />
+            <span className={cn("hud-chip tabular-nums min-w-[4rem] justify-center")} data-gate-tolerance-value>
+              {tolerance}
+            </span>
+          </div>
+        </div>
+        <span className="ag-note">{t("chat.settings.voice.gate.hint")}</span>
       </div>
 
       {/* ── TTS 播报段（语音播报批 V2）────────────────────── */}

@@ -29,12 +29,14 @@
  *
  * B2 barge-in（V3b-3 全双工核心）：语音模式全程 RMS 采样（耳 meter 常开
  * ——rms-meter 注入面从「仅录音期」扩展全程，text 模式/面板关即收）；
- * speaking/asking 相位人声门（RMS 超阈 + 持续 ≥ VOICE_MIN_DURATION_MS
- * 双条件 + 停播后 300ms 静默窗 + fired 闩锁，判定全在 steward-voice-machine
- * 纯函数面）→ 打断序 = ①stopSpeaking 立即停播（UX 零延迟）②
- * steward.interrupt（daemon abortInFlight 幂等善后——E-198 截断记账零改动）
- * ③listening 开 stt.stream.start 新流；新转写 final → steward.ask 新轮。
- * asking 相位可打断（旧轮让位新输入）；text 模式/mic 不可用行为完全不变。
+ * speaking/asking 相位人声门（B3 双参：RMS 分档超阈 + ZCR 人声带 + 持续
+ * ≥ 最短发声时长 + 停播后静默窗 + fired 闩锁，判定全在 steward-voice-machine
+ * 纯函数面；门参数逐帧读偏好——设置面改参即时生效）→ 打断序 = ①stopSpeaking
+ * 立即停播（UX 零延迟）②steward.interrupt（daemon abortInFlight 幂等善后
+ * ——E-198 截断记账零改动）③listening 开 stt.stream.start 新流；新转写
+ * final → steward.ask 新轮。触发帧特征入误触埋点（barge-in-trace 环形缓冲
+ * ——校准数据面）。asking 相位可打断（旧轮让位新输入）；text 模式/mic
+ * 不可用行为完全不变。
  *
  * 异常回退（纯面 planTranscript）：ask 发送失败（未连接）→ 转写文本回填
  * voiceDraft（面板采纳进输入框——文本态可重试，零静默丢话）；转写失败 →
@@ -49,12 +51,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
-import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";
-import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
+import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
 import type { SpeechPlayerFactory } from "@/shared/lib/pcm-player";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
-import { readTtsVoicePref, readVoiceVolumePref, readStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
+import {
+  readTtsVoicePref,
+  readVoiceVolumePref,
+  readStewardSpeakReplyPref,
+  readVoiceVadSensitivityPref,
+  readVoiceMinDurationPref,
+  readVoiceSilenceWindowPref,
+  readVoiceCheckPref,
+  readZcrTolerancePref,
+  voiceRmsThresholdFromSensitivity,
+} from "@/shared/lib/voice-pref";
+import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
+import type { MeterFrame } from "@/shared/lib/rms-meter";
 import type { EventEnvelope } from "@helix/protocol";
 import { useSteward, type StewardPanelItem, type StewardPendingAction } from "./useSteward";
 import { StewardSpeechOut } from "./steward-speech-out";
@@ -216,8 +229,9 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   }, [speechOut]);
 
   const stopSpeaking = useCallback(() => {
-    // 停播即开残响静默窗（B2：防 TTS 残响被耳 meter 再触发——静音钮/打断同径）
-    bargeInGateRef.current = openBargeInSilenceWindow(bargeInGateRef.current, Date.now());
+    // 停播即开残响静默窗（B2：防 TTS 残响被耳 meter 再触发——静音钮/打断同径；
+    // B3：窗长取偏好值，设置面改参即时生效）
+    bargeInGateRef.current = openBargeInSilenceWindow(bargeInGateRef.current, Date.now(), readVoiceSilenceWindowPref());
     speakPendingRef.current = false;
     const audio = audioRef.current;
     audioRef.current = null;
@@ -259,11 +273,29 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   modeRef.current = mode;
 
   // ── B2 barge-in 门帧消费（耳 meter 回调；armed = 相位派生）──
-  const onBargeInLevel = useCallback((rms: number) => {
+  // B3：门参数逐帧读偏好（灵敏度→阈值映射/最短发声/静默窗/双参判定/容忍带）
+  // + 门限分档（phase 抬档防 TTS 自声回灌）——设置面改偏好，下一次门判定即用
+  // 新值（不必重开麦）；触发帧特征入误触埋点环形缓冲（校准数据面）。
+  const onBargeInLevel = useCallback((frame: MeterFrame) => {
     const armed = isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current });
-    const out = stepBargeInGate(bargeInGateRef.current, { rms, atMs: Date.now(), armed });
+    const atMs = Date.now();
+    const out = stepBargeInGate(bargeInGateRef.current, {
+      rms: frame.rms,
+      zcr: frame.zcr,
+      atMs,
+      armed,
+      phase: phaseRef.current,
+      threshold: voiceRmsThresholdFromSensitivity(readVoiceVadSensitivityPref()),
+      minDurationMs: readVoiceMinDurationPref(),
+      silenceWindowMs: readVoiceSilenceWindowPref(),
+      voiceCheck: readVoiceCheckPref(),
+      zcrTolerance: readZcrTolerancePref(),
+    });
     bargeInGateRef.current = out.state;
-    if (out.trigger) bargeInRef.current();
+    if (out.trigger) {
+      recordBargeInTrace({ at: atMs, rms: frame.rms, zcr: frame.zcr, phase: phaseRef.current });
+      bargeInRef.current();
+    }
   }, []);
 
   // ── B2 barge-in 耳朵：语音模式全程 RMS 采样（rms-meter 注入面复用——
@@ -291,9 +323,9 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
           return;
         }
         meter = created;
-        created.onLevel((rms) => {
+        created.onLevel((frame) => {
           if (cancelled) return;
-          onBargeInLevel(rms);
+          onBargeInLevel(frame);
         });
       } catch {
         // 麦不可用/被拒：barge-in 降级关闭（环境面——语音主链不受影响）

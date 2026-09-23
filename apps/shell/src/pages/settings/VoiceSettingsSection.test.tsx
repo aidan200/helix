@@ -48,6 +48,8 @@ vi.mock("@/entities/session/SessionContext", () => ({
 }));
 
 import VoiceSettingsSection from "./ui/VoiceSettingsSection";
+import { zhCN } from "@/shared/i18n/lang/zh-CN";
+import { enUS } from "@/shared/i18n/lang/en-US";
 
 /** 可控 Audio fake。 */
 class FakeAudio {
@@ -274,5 +276,110 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）
       frameListener!(AUDITION_OK);
     });
     expect(FakeAudio.instances.length).toBe(0);
+  });
+});
+
+describe("VoiceSettingsSection B3 插话检测参数组（回声防线）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    mockAuth = {};
+    FakeAudio.instances = [];
+    (globalThis as { Audio?: unknown }).Audio = FakeAudio;
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    frameListener = null;
+  });
+
+  const rig = () =>
+    render(
+      <I18nProvider>
+        <ToastProvider>
+          <VoiceSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+
+  const input = (r: ReturnType<typeof rig>, sel: string): HTMLInputElement =>
+    r.container.querySelector(sel) as HTMLInputElement;
+
+  it("四参数控件渲染：灵敏度/最短发声/静默窗滑条 + 双参 checkbox + 容忍带滑条，默认值回显", () => {
+    const r = rig();
+    const sens = input(r, "[data-gate-sensitivity]");
+    const minDur = input(r, "[data-gate-min-duration]");
+    const silence = input(r, "[data-gate-silence-window]");
+    const check = input(r, "[data-gate-voice-check]");
+    const tol = input(r, "[data-gate-tolerance]");
+    expect(sens.type).toBe("range");
+    expect(minDur.type).toBe("range");
+    expect(silence.type).toBe("range");
+    expect(check.type).toBe("checkbox");
+    expect(check.checked).toBe(true); // 双参判定缺省开
+    expect(tol.type).toBe("range");
+    expect(sens.value).toBe("50");
+    expect(minDur.value).toBe("300");
+    expect(silence.value).toBe("300");
+    expect(tol.value).toBe("50");
+    // 数值展示（防溢出：定宽 + 等宽数字类在场）
+    const chip = r.container.querySelector("[data-gate-min-duration-value]") as HTMLElement;
+    expect(chip.textContent).toContain("300");
+    expect(chip.classList.contains("tabular-nums")).toBe(true);
+  });
+
+  it("滑条改动即时写偏好 + chip 数值跟随", () => {
+    const r = rig();
+    fireEvent.change(input(r, "[data-gate-sensitivity]"), { target: { value: "80" } });
+    expect(localStorage.getItem("helix.voice.vadSensitivity")).toBe("80");
+    fireEvent.change(input(r, "[data-gate-min-duration]"), { target: { value: "550" } });
+    expect(localStorage.getItem("helix.voice.minDuration")).toBe("550");
+    expect((r.container.querySelector("[data-gate-min-duration-value]") as HTMLElement).textContent).toContain("550");
+    fireEvent.change(input(r, "[data-gate-silence-window]"), { target: { value: "800" } });
+    expect(localStorage.getItem("helix.voice.silenceWindow")).toBe("800");
+    fireEvent.change(input(r, "[data-gate-tolerance]"), { target: { value: "20" } });
+    expect(localStorage.getItem("helix.voice.zcrTolerance")).toBe("20");
+  });
+
+  it("偏好已写时进入分区 → 控件回显（localStorage 读面）", () => {
+    localStorage.setItem("helix.voice.vadSensitivity", "25");
+    localStorage.setItem("helix.voice.minDuration", "700");
+    localStorage.setItem("helix.voice.silenceWindow", "150");
+    localStorage.setItem("helix.voice.voiceCheck", "0");
+    localStorage.setItem("helix.voice.zcrTolerance", "90");
+    const r = rig();
+    expect(input(r, "[data-gate-sensitivity]").value).toBe("25");
+    expect(input(r, "[data-gate-min-duration]").value).toBe("700");
+    expect(input(r, "[data-gate-silence-window]").value).toBe("150");
+    expect(input(r, "[data-gate-voice-check]").checked).toBe(false);
+    expect(input(r, "[data-gate-tolerance]").value).toBe("90");
+  });
+
+  it("双参开关 checkbox 写偏好（关=落键 0 / 开=移除）+ 容忍带滑条 disabled 联动", () => {
+    const r = rig();
+    const check = input(r, "[data-gate-voice-check]");
+    const tol = input(r, "[data-gate-tolerance]");
+    expect(tol.disabled).toBe(false);
+    fireEvent.click(check);
+    expect(localStorage.getItem("helix.voice.voiceCheck")).toBe("0");
+    expect(tol.disabled).toBe(true);
+    fireEvent.click(check);
+    expect(localStorage.getItem("helix.voice.voiceCheck")).toBeNull();
+    expect(tol.disabled).toBe(false);
+  });
+
+  it("文案键齐备（i18n 双语）：zh/en 词条都有插话检测组全键且非空；界面渲染真文案非裸 key", () => {
+    const r = rig();
+    for (const dict of [zhCN, enUS]) {
+      const gate = dict.chat.settings.voice.gate;
+      for (const v of [gate.note, gate.sensitivity, gate.minDuration, gate.silenceWindow, gate.voiceCheck, gate.tolerance, gate.hint]) {
+        expect(v.length).toBeGreaterThan(0);
+      }
+      expect(dict.chat.settings.voice.groupGate.length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText(/插话检测/)).toBeTruthy();
+    expect(screen.getByText("最短发声时长", { selector: "label" })).toBeTruthy();
+    expect(r.container.textContent).not.toContain("chat.settings.voice.gate");
   });
 });

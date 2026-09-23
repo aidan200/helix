@@ -19,10 +19,18 @@ import {
   stepBargeInGate,
   openBargeInSilenceWindow,
   isBargeInArmed,
+  zcrInVoiceBand,
+  zcrVoiceBandCeiling,
+  bargeInThreshold,
   INITIAL_BARGE_IN_GATE,
   BARGE_IN_SILENCE_WINDOW_MS,
+  BARGE_IN_ECHO_THRESHOLD_SCALE,
+  VOICE_ZCR_MIN,
+  VOICE_ZCR_MAX_STRICT,
+  VOICE_ZCR_MAX_LENIENT,
   STEWARD_SPEECH_TEXT_MAX,
   type BargeInGateState,
+  type StewardVoicePhase,
   type StewardVoiceSnapshot,
 } from "./steward-voice-machine";
 
@@ -216,5 +224,141 @@ describe("isBargeInArmed（门武装判定——相位派生扩展）", () => {
     expect(isBargeInArmed({ mode: "voice", phase: "transcribing" })).toBe(false);
     expect(isBargeInArmed({ mode: "voice", phase: "unsupported" })).toBe(false);
     expect(isBargeInArmed({ mode: "text", phase: "speaking" })).toBe(false);
+  });
+});
+
+// ── B3 回声防线：双参判定（RMS + ZCR）+ 门限分档 + 容忍带（TDD 红测）────
+
+/** B3 帧驱动辅助（带 zcr/相位/双参开关的全量输入直喂）。 */
+function driveFrames3(
+  start: BargeInGateState,
+  frames: readonly {
+    rms: number;
+    zcr?: number;
+    atMs: number;
+    armed?: boolean;
+    phase?: StewardVoicePhase;
+    voiceCheck?: boolean;
+    zcrTolerance?: number;
+  }[],
+): { state: BargeInGateState; firedAt: number[] } {
+  let state = start;
+  const firedAt: number[] = [];
+  for (const f of frames) {
+    const out = stepBargeInGate(state, {
+      rms: f.rms,
+      atMs: f.atMs,
+      armed: f.armed ?? true,
+      ...(f.zcr !== undefined ? { zcr: f.zcr } : {}),
+      ...(f.phase !== undefined ? { phase: f.phase } : {}),
+      ...(f.voiceCheck !== undefined ? { voiceCheck: f.voiceCheck } : {}),
+      ...(f.zcrTolerance !== undefined ? { zcrTolerance: f.zcrTolerance } : {}),
+    });
+    state = out.state;
+    if (out.trigger) firedAt.push(f.atMs);
+  }
+  return { state, firedAt };
+}
+
+/** 人声带内低 ZCR（浊音谐波结构）与带外高 ZCR（键盘声宽带脉冲）标定帧。 */
+const ZCR_VOICE = 0.08;
+const ZCR_KEYBOARD = 0.5;
+
+describe("zcrInVoiceBand（人声带判定——容忍带强度驱动）", () => {
+  it("人声带内（低 ZCR）判过；键盘声高 ZCR 判拒", () => {
+    expect(zcrInVoiceBand(ZCR_VOICE)).toBe(true);
+    expect(zcrInVoiceBand(ZCR_KEYBOARD)).toBe(false);
+  });
+
+  it("容忍带边界：恰在上界判过、越界判拒（默认强度 50 = 严格/宽容中档）", () => {
+    const ceil = zcrVoiceBandCeiling();
+    expect(zcrInVoiceBand(ceil)).toBe(true);
+    expect(zcrInVoiceBand(ceil + 0.01)).toBe(false);
+    expect(ceil).toBeCloseTo((VOICE_ZCR_MAX_STRICT + VOICE_ZCR_MAX_LENIENT) / 2, 5);
+  });
+
+  it("强度 0 = 严格档上界；强度 100 = 宽容档上界（容忍齿音清音偏高 ZCR）", () => {
+    expect(zcrVoiceBandCeiling(0)).toBe(VOICE_ZCR_MAX_STRICT);
+    expect(zcrInVoiceBand(VOICE_ZCR_MAX_STRICT, 0)).toBe(true);
+    expect(zcrInVoiceBand(VOICE_ZCR_MAX_STRICT + 0.01, 0)).toBe(false);
+    expect(zcrVoiceBandCeiling(100)).toBe(VOICE_ZCR_MAX_LENIENT);
+    expect(zcrInVoiceBand(VOICE_ZCR_MAX_LENIENT, 100)).toBe(true);
+    expect(zcrInVoiceBand(VOICE_ZCR_MAX_LENIENT + 0.01, 100)).toBe(false);
+    // 越界强度钳制（150 与 100 同档）
+    expect(zcrVoiceBandCeiling(150)).toBe(VOICE_ZCR_MAX_LENIENT);
+  });
+
+  it("带下界：过低 ZCR（直流/低频隆隆）判拒", () => {
+    expect(zcrInVoiceBand(VOICE_ZCR_MIN)).toBe(true);
+    expect(zcrInVoiceBand(VOICE_ZCR_MIN - 0.005)).toBe(false);
+  });
+});
+
+describe("bargeInThreshold（门限分档——B3 回声防护）", () => {
+  it("speaking 相位阈值高于 listening（自声回灌窗口抬档防误触）", () => {
+    const base = 0.012;
+    expect(bargeInThreshold("speaking", base)).toBeCloseTo(base * BARGE_IN_ECHO_THRESHOLD_SCALE, 6);
+    expect(bargeInThreshold("speaking", base)).toBeGreaterThan(bargeInThreshold("listening", base));
+  });
+
+  it("asking 相位同抬档（TTS 残响/回灌窗口）；listening/他相位/缺省维持基准灵敏度", () => {
+    const base = 0.012;
+    expect(bargeInThreshold("asking", base)).toBe(bargeInThreshold("speaking", base));
+    expect(bargeInThreshold("listening", base)).toBe(base);
+    expect(bargeInThreshold("idle", base)).toBe(base);
+    expect(bargeInThreshold(undefined, base)).toBe(base);
+  });
+});
+
+describe("stepBargeInGate 双参判定（RMS × ZCR 人声带）", () => {
+  it("人声帧（低 ZCR + RMS 超阈）持续达标 → 触发", () => {
+    const frames = [
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 0, phase: "speaking" as const },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 100, phase: "speaking" as const },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 200, phase: "speaking" as const },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 300, phase: "speaking" as const },
+    ];
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, frames).firedAt).toEqual([300]);
+  });
+
+  it("键盘帧（高 ZCR 超带）持续超阈零触发——双参判定拒宽带脉冲", () => {
+    const frames = Array.from({ length: 6 }, (_, i) => ({ rms: LOUD, zcr: ZCR_KEYBOARD, atMs: i * 100 }));
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, frames).firedAt).toEqual([]);
+  });
+
+  it("RMS 不足拒（ZCR 合格也不触发）；高 ZCR 帧不计持续（人声段重新起算）", () => {
+    const quietFrames = Array.from({ length: 6 }, (_, i) => ({ rms: QUIET, zcr: ZCR_VOICE, atMs: i * 100 }));
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, quietFrames).firedAt).toEqual([]);
+    // 2 帧键盘声 + 3 帧人声：持续时长自人声段重新起算（3 帧仅跨 200ms——不触发）
+    const mixed = [
+      { rms: LOUD, zcr: ZCR_KEYBOARD, atMs: 0 },
+      { rms: LOUD, zcr: ZCR_KEYBOARD, atMs: 100 },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 200 },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 300 },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 400 },
+    ];
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, mixed).firedAt).toEqual([]);
+    // 人声段续帧：自 200ms 起算，500ms 处持续满 300ms → 触发
+    const continued = [...mixed, { rms: LOUD, zcr: ZCR_VOICE, atMs: 500 }, { rms: LOUD, zcr: ZCR_VOICE, atMs: 600 }];
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, continued).firedAt).toEqual([500]);
+  });
+
+  it("zcr 缺省放行（兼容旧帧载荷——计量缺 ZCR 不挡打断）", () => {
+    const frames = Array.from({ length: 4 }, (_, i) => ({ rms: LOUD, atMs: i * 100 }));
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, frames).firedAt).toEqual([300]);
+  });
+
+  it("双参判定开关关（voiceCheck=false）→ ZCR 不参与（B2 行为等价）", () => {
+    const frames = Array.from({ length: 4 }, (_, i) => ({ rms: LOUD, zcr: ZCR_KEYBOARD, atMs: i * 100, voiceCheck: false }));
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, frames).firedAt).toEqual([300]);
+  });
+
+  it("门限分档入档：介于基准与抬档阈值之间的 RMS 在 speaking 相位不触发、listening 相位触发", () => {
+    const mid = 0.02; // ≥ 0.012 基准、< 0.012 × 3 抬档
+    const band = (phase: StewardVoicePhase) =>
+      Array.from({ length: 4 }, (_, i) => ({ rms: mid, zcr: ZCR_VOICE, atMs: i * 100, phase }));
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("speaking")).firedAt).toEqual([]);
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("asking")).firedAt).toEqual([]);
+    expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("listening")).firedAt).toEqual([300]);
   });
 });

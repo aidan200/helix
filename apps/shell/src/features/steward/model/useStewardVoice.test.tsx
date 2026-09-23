@@ -20,6 +20,9 @@ import { cleanup, renderHook, act, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { StrictMode } from "react";
 import { I18nProvider } from "@/shared/i18n";
+import type { MeterFrame } from "@/shared/lib/rms-meter";
+import { readBargeInTrace } from "@/shared/lib/barge-in-trace";
+import { VOICE_VOICE_CHECK_PREF_KEY, VOICE_VAD_SENSITIVITY_PREF_KEY, VOICE_ZCR_TOLERANCE_PREF_KEY } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
@@ -860,19 +863,20 @@ describe("useStewardVoice（V3b-2 流式朗读接线）", () => {
 
 // ── B2 barge-in 打断面（V3b-3 核心：speaking/asking 期人声检出即打断）──
 
-/** Fake RmsMeter（rms-meter.ts 注入面契约；帧驱动——emit 驱动门判定）。 */
+/** Fake RmsMeter（rms-meter.ts 注入面契约；帧驱动——emit 驱动门判定）。
+ *  B3 帧载荷扩 ZCR（emit 第二参，缺省人声带内值——存量断言行为不变）。 */
 class FakeMeter {
   static instances: FakeMeter[] = [];
-  cb: ((rms: number) => void) | null = null;
+  cb: ((frame: MeterFrame) => void) | null = null;
   closed = false;
-  onLevel(cb: (rms: number) => void): void {
+  onLevel(cb: (frame: MeterFrame) => void): void {
     this.cb = cb;
   }
   close(): void {
     this.closed = true;
   }
-  emit(rms: number): void {
-    if (!this.closed) this.cb?.(rms);
+  emit(rms: number, zcr = 0.08): void {
+    if (!this.closed) this.cb?.({ rms, zcr });
   }
 }
 describe("useStewardVoice（B2 barge-in 打断面）", () => {
@@ -1018,5 +1022,123 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
     expect(FakeMeter.instances.length).toBe(0);
     expect(r2.current.mode).toBe("text");
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
+  });
+});
+
+// ── B3 回声防线（双参判定/门限分档偏好注入 + 误触埋点）────────────────
+
+describe("useStewardVoice（B3 回声防线）", () => {
+  let restoreEnv: (() => void) | null = null;
+  let nowMs = 0;
+  let nowSpy: ReturnType<typeof vi.spyOn> | null = null;
+  const ear = (): FakeMeter => FakeMeter.instances[0]!;
+  const createMeter = async () => {
+    const m = new FakeMeter();
+    FakeMeter.instances.push(m);
+    return m;
+  };
+  function renderBargeIn() {
+    return renderHook(() => useStewardVoice(true, { createMeter }), { wrapper: I18nProvider }).result;
+  }
+  /** 帧驱动（rms/zcr 可控；默认 100ms 节流同构）。 */
+  function frames(count: number, rms: number, zcr: number): void {
+    for (let i = 0; i < count; i += 1) {
+      act(() => {
+        ear().emit(rms, zcr);
+      });
+      nowMs += 100;
+    }
+  }
+  /** 走到 speaking 相位（同 B2：直喂 answer → 一次性合成回执 → 播放）。 */
+  async function reachSpeaking(r: { current: ReturnType<typeof useStewardVoice> }): Promise<void> {
+    act(() => {
+      r.current.ask("现在什么情况");
+    });
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "一切正常" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/wav;base64,QUJD", provider: "dashscope" }, "voice"));
+    });
+    expect(r.current.phase).toBe("speaking");
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    for (const s of Object.values(listeners)) s.clear();
+    FakeMeter.instances = [];
+    streamStartEnabled = true;
+    callOrder.length = 0;
+    nowMs = Date.now();
+    nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    FakeAudio.instances = [];
+    nowSpy?.mockRestore();
+    nowSpy = null;
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  it("灵敏度偏好即时生效：高阈值下人声帧不触发，改偏好后下一轮门判定即用新值触发（不必重开麦）", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    await reachSpeaking(r);
+    // 灵敏度 0（钝档）→ speaking 抬档阈值 > 0.05：人声帧零触发
+    localStorage.setItem(VOICE_VAD_SENSITIVITY_PREF_KEY, "0");
+    frames(6, 0.05, 0.08);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    // 改偏好（灵敏度 100）后继续喂帧：下一轮门判定即用新阈值 → 触发
+    localStorage.setItem(VOICE_VAD_SENSITIVITY_PREF_KEY, "100");
+    frames(4, 0.05, 0.08);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in");
+  });
+
+  it("双参判定偏好注入：容忍带外高 ZCR 零触发，调宽容忍带强度后触发", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    await reachSpeaking(r);
+    // zcr 0.4：默认容忍带（上界 0.35）外 → 拒；rms 超阈但持续不计
+    frames(6, 0.05, 0.4);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    // 容忍带强度 100（上界 0.45）→ 放行，下一轮判定生效
+    localStorage.setItem(VOICE_ZCR_TOLERANCE_PREF_KEY, "100");
+    frames(4, 0.05, 0.4);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("双参开关偏好：关（voiceCheck=0）后高 ZCR 宽带帧照常触发（B2 行为可回退）", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    await reachSpeaking(r);
+    frames(6, 0.05, 0.5);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    localStorage.setItem(VOICE_VOICE_CHECK_PREF_KEY, "0");
+    frames(4, 0.05, 0.5);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("误触埋点：触发帧特征（rms/zcr/phase/时间戳）入 localStorage 环形缓冲", async () => {
+    restoreEnv = installEnv();
+    const r = renderBargeIn();
+    await tick();
+    await reachSpeaking(r);
+    frames(4, 0.05, 0.08);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    const trace = readBargeInTrace();
+    expect(trace.length).toBe(1);
+    expect(trace[0]!.rms).toBe(0.05);
+    expect(trace[0]!.zcr).toBe(0.08);
+    expect(trace[0]!.phase).toBe("speaking");
+    expect(trace[0]!.at).toBeGreaterThan(0);
   });
 });

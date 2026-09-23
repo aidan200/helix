@@ -331,7 +331,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
         const meter = await createMeterRef.current(stream);
         if (meter !== null && isRecording()) {
           meterRef.current = meter;
-          meter.onLevel((rms) => {
+          meter.onLevel(({ rms }) => {
             if (!isRecording()) return;
             // 电平显示平滑（loud 抬升/静音衰减——电平条数据源）
             const shown = Math.min(1, Math.max(rms * VOICE_LEVEL_GAIN, levelRef.current * VOICE_LEVEL_DECAY));

@@ -12,10 +12,11 @@
  * - planTranscript：转写出路——ask 发出即续语音链；发送失败回填草稿
  *   （文本态可重试，零静默丢话——submit 同语义）；
  * - barge-in 门面（B2，V3b-3 全双工触发面）：isBargeInArmed（可打断相位
- *   判定）+ stepBargeInGate（RMS 帧驱动门——阈值 + 持续时长双条件防单帧
- *   尖峰，停播残响静默窗 + fired 闩锁防重复触发）+ openBargeInSilenceWindow
- *   （停播即开窗）——打断序本体在消费端（stopSpeaking → steward.interrupt
- *   → 新转写流），本面只裁决「这一帧算不算人声插话」。
+ *   判定）+ stepBargeInGate（RMS×ZCR 帧驱动门——阈值 + 持续时长 + 人声带
+ *   判据防单帧尖峰/敲键，B3 双参判定 + 门限分档；停播残响静默窗 + fired
+ *   闩锁防重复触发）+ openBargeInSilenceWindow（停播即开窗）——打断序本体
+ *   在消费端（stopSpeaking → steward.interrupt → 新转写流），本面只裁决
+ *   「这一帧算不算人声插话」。
  */
 import { VOICE_MIN_DURATION_MS, VOICE_RMS_THRESHOLD, type VoiceState } from "@/shared/lib/useVoiceInput";
 
@@ -114,8 +115,43 @@ export function planTranscript(text: string, askSent: boolean): TranscriptOutcom
 // ── B2 barge-in 门判定（V3b-3 全双工触发面；fake meter 帧驱动可测）──────
 
 /** 停播残响静默窗（ms）：停播/触发后窗口内零再触发（防 TTS 残响自触发）。
- *  双条件时长档（B3 门限分档/双参判定另批）。 */
+ *  可参数化（设置面 silence-window 偏好）；双条件时长档见 B3 门限分档/双参判定。 */
 export const BARGE_IN_SILENCE_WINDOW_MS = 300;
+
+// ── B3 回声防线（双参判定 + 门限分档）────────────────────────
+
+/** 门限分档系数（B3 ②线）：speaking/asking 相位（TTS 自声经空气/机身回灌
+ *  窗口）基准阈值抬档防自触发；listening 相位维持基准灵敏度。固定档位
+ *  （不暴露强度参数——灵敏度基准已可调，档位系数属内部回声防护逻辑）。 */
+export const BARGE_IN_ECHO_THRESHOLD_SCALE = 3;
+
+/** 人声带下界（ZCR 每样本过零率）：低于此 = 直流/低频隆隆，非浊音带。 */
+export const VOICE_ZCR_MIN = 0.01;
+
+/** 容忍带强度 0（严格档）人声带上界：宽带脉冲/键盘声主要落此上。 */
+export const VOICE_ZCR_MAX_STRICT = 0.25;
+
+/** 容忍带强度 100（宽容档）人声带上界：清音/齿音 ZCR 偏高不误杀。 */
+export const VOICE_ZCR_MAX_LENIENT = 0.45;
+
+/** ZCR 判定缺省容忍带强度（0-100；严格/宽容中档）。 */
+export const VOICE_ZCR_TOLERANCE_DEFAULT = 50;
+
+/** 容忍带强度 → 人声带上界（线性映射；越界强度钳制）。 */
+export function zcrVoiceBandCeiling(tolerance: number = VOICE_ZCR_TOLERANCE_DEFAULT): number {
+  const t = Math.max(0, Math.min(100, tolerance)) / 100;
+  return VOICE_ZCR_MAX_STRICT + t * (VOICE_ZCR_MAX_LENIENT - VOICE_ZCR_MAX_STRICT);
+}
+
+/** 双参判定人声带判据：ZCR 落 [VOICE_ZCR_MIN, 上界（容忍带强度驱动）]。 */
+export function zcrInVoiceBand(zcr: number, tolerance: number = VOICE_ZCR_TOLERANCE_DEFAULT): boolean {
+  return zcr >= VOICE_ZCR_MIN && zcr <= zcrVoiceBandCeiling(tolerance);
+}
+
+/** 门限分档（B3）：speaking/asking 相位阈值 × 档位系数；他相位/缺省 = 基准。 */
+export function bargeInThreshold(phase: StewardVoicePhase | undefined, base: number): number {
+  return phase === "speaking" || phase === "asking" ? base * BARGE_IN_ECHO_THRESHOLD_SCALE : base;
+}
 
 /** barge-in 门状态（纯数据；帧间递推）。 */
 export interface BargeInGateState {
@@ -135,16 +171,25 @@ export const INITIAL_BARGE_IN_GATE: BargeInGateState = { loudSinceMs: null, mute
 export interface BargeInGateInput {
   /** 本帧 RMS（0..1，rms-meter 节流 ~100ms/帧）。 */
   readonly rms: number;
+  /** 本帧过零率 ZCR（0..1；B3 双参判定用；缺省 = 判定放行——
+   *  计量缺 ZCR 不挡打断，fail-open）。 */
+  readonly zcr?: number;
   /** 本帧时戳（ms）。 */
   readonly atMs: number;
   /** 门已武装（speaking/asking 相位 × 语音模式——isBargeInArmed）。 */
   readonly armed: boolean;
-  /** 有声阈值（缺省 VOICE_RMS_THRESHOLD）。 */
+  /** 门限分档相位（B3：speaking/asking 抬档；缺省 = 基准灵敏度）。 */
+  readonly phase?: StewardVoicePhase;
+  /** 有声阈值基准（缺省 VOICE_RMS_THRESHOLD；实际阈值 = bargeInThreshold 分档）。 */
   readonly threshold?: number;
   /** 最短持续（ms；缺省 VOICE_MIN_DURATION_MS）。 */
   readonly minDurationMs?: number;
   /** 触发/停播静默窗（ms；缺省 BARGE_IN_SILENCE_WINDOW_MS）。 */
   readonly silenceWindowMs?: number;
+  /** 双参判定开关（人声防误触：ZCR 人声带判据参与；缺省开）。 */
+  readonly voiceCheck?: boolean;
+  /** ZCR 容忍带强度 0-100（缺省 VOICE_ZCR_TOLERANCE_DEFAULT）。 */
+  readonly zcrTolerance?: number;
 }
 
 /** 门输出（新状态 + 本帧是否触发）。 */
@@ -158,11 +203,13 @@ export interface BargeInGateOutcome {
  * - 解除武装帧：闩锁复位（下一轮可再触发）；静默窗保留（残响防线跨轮）；
  * - fired 闩锁置位：武装续帧零二次触发（幂等），直到解除武装复位；
  * - 静默窗内：零触发且累积清零（窗内声不计持续——残响不计人声）；
- * - 双条件：rms ≥ 阈值且持续 ≥ minDurationMs 的帧才触发（单帧尖峰不触发
- *   ——敲键/瞬时噪声）；触发帧自带静默窗（触发即停播）。
+ * - 人声判据（B3 双参）：rms ≥ 分档阈值（bargeInThreshold——speaking/asking
+ *   抬档防自声回灌）× ZCR 落人声带（voiceCheck 开时；zcr 缺省放行）；
+ * - 持续 ≥ minDurationMs 的人声判据帧才触发（单帧尖峰/敲键不触发）；
+ *   非人声判据帧（高 ZCR 宽带脉冲/RMS 不足）不计持续；触发帧自带静默窗。
  */
 export function stepBargeInGate(state: BargeInGateState, input: BargeInGateInput): BargeInGateOutcome {
-  const threshold = input.threshold ?? VOICE_RMS_THRESHOLD;
+  const threshold = bargeInThreshold(input.phase, input.threshold ?? VOICE_RMS_THRESHOLD);
   const minDurationMs = input.minDurationMs ?? VOICE_MIN_DURATION_MS;
   const silenceWindowMs = input.silenceWindowMs ?? BARGE_IN_SILENCE_WINDOW_MS;
   const carry = { muteUntilMs: state.muteUntilMs, fired: state.fired };
@@ -173,7 +220,10 @@ export function stepBargeInGate(state: BargeInGateState, input: BargeInGateInput
   if (input.atMs < state.muteUntilMs) {
     return { state: { loudSinceMs: null, ...carry, fired: false }, trigger: false };
   }
-  if (input.rms < threshold) {
+  const voiceLike =
+    input.rms >= threshold &&
+    (input.voiceCheck === false || input.zcr === undefined || zcrInVoiceBand(input.zcr, input.zcrTolerance ?? VOICE_ZCR_TOLERANCE_DEFAULT));
+  if (!voiceLike) {
     return { state: { loudSinceMs: null, ...carry }, trigger: false };
   }
   if (state.loudSinceMs === null) {

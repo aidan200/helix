@@ -298,6 +298,16 @@ export const enUS = {
         },
         providerHint: "Auto (recommended) uses whichever service has a key configured; you can also pin one.",
         notConfigured: "No key",
+        groupGate: "Barge-in detection",
+        gate: {
+          note: "You can interrupt helix while it is talking. These parameters decide what counts as human speech, so key clicks and echo cause fewer false breaks.",
+          sensitivity: "Sensitivity",
+          minDuration: "Min speech duration",
+          silenceWindow: "Silence window after stop",
+          voiceCheck: "Voice-only check (dual criteria)",
+          tolerance: "Tolerance band",
+          hint: "Higher sensitivity hears breaks more easily. Min duration filters short bursts like key clicks. The silence window ignores residual echo right after playback stops. The voice-only check rejects broadband noise like keyboards via the zero-crossing rate. Changes take effect immediately.",
+        },
       },
       voiceTts: {
         title: "Voice Broadcast",

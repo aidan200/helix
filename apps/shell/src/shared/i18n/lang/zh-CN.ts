@@ -301,6 +301,16 @@ export const zhCN = {
         providerOpt: { auto: "自动（推荐）", dashscope: "只用 DashScope", siliconflow: "只用 SiliconFlow" },
         providerHint: "自动（推荐）= 哪个服务配了密钥就用哪个；也可以固定只用一个。",
         notConfigured: "未配置",
+        groupGate: "插话检测",
+        gate: {
+          note: "管家说话时你可以直接开口插话。下面的参数决定什么算「有人在说话」，减少敲键、回声造成的误打断。",
+          sensitivity: "灵敏度",
+          minDuration: "最短发声时长",
+          silenceWindow: "停播静默窗",
+          voiceCheck: "人声防误触（双参判定）",
+          tolerance: "容忍带强度",
+          hint: "灵敏度越高，越容易被听成插话；最短发声时长过滤敲键这类短促噪声；停播静默窗忽略播放刚停时的残响；人声防误触用过零率排除键盘声这类宽带噪声。改动立即生效。",
+        },
       },
       voiceTts: {
         title: "语音播报",

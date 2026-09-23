@@ -38,7 +38,7 @@ vi.mock("@/shared/lib/stt-provider-pref", () => ({
 }));
 
 import { useVoiceInput, VOICE_MIN_DURATION_MS, VOICE_SILENCE_STOP_MS, VOICE_LEAD_IN_MS } from "./useVoiceInput";
-import type { RmsMeter } from "./rms-meter";
+import type { MeterFrame, RmsMeter } from "./rms-meter";
 
 /** fake MediaRecorder（jsdom 无实现——start/stop/ondataavailable/onstop 时序 stub）。 */
 class FakeMediaRecorder {
@@ -67,15 +67,16 @@ class FakeMediaRecorder {
   }
 }
 
-/** fake RMS meter（VAD 帧注入面：emit(rms) 模拟 worklet/Analyser 帧回调）。 */
+/** fake RMS meter（VAD 帧注入面：emit(rms) 模拟 worklet/Analyser 帧回调；
+ *  B3 帧载荷扩 ZCR——本面只消费 rms，zcr 补 0）。 */
 function makeFakeMeter(): RmsMeter & { emit: (rms: number) => void } {
-  let cb: ((rms: number) => void) | null = null;
+  let cb: ((frame: MeterFrame) => void) | null = null;
   return {
-    onLevel: (fn: (rms: number) => void) => {
+    onLevel: (fn: (frame: MeterFrame) => void) => {
       cb = fn;
     },
     close: vi.fn(),
-    emit: (rms: number) => cb?.(rms),
+    emit: (rms: number) => cb?.({ rms, zcr: 0 }),
   };
 }
 
