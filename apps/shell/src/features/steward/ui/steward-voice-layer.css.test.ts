@@ -5,8 +5,12 @@
  * 钉纪律（Cyber HUD 铁律：色值/字号走 token 注册表变量零内联 hex；动效
  * 仅 transform/opacity，animation 简写禁 calc()/var()——E-124 WKWebView）：
  * - .stv 真全屏语义：fixed 视口层 + z 序压过 StewardDock（z-index 68）；
- * - 字幕条玻璃族：popover-fill + blur 14px（亮色降 10px）+ shadow-pop +
- *   10px 圆角（E-135 面板视觉基准）；
+ * - 字幕条玻璃族（用户裁决视觉例外）：popover-fill + blur 14px（亮色降
+ *   10px）+ shadow-pop 保持；**直角（radius 0）+ 无边框**（用户裁决，
+ *   E-135 玻璃族 border/10px 圆角条款对管家族例外——候选台账留痕）；
+ *   满窗高（max-height = 100vh - 126px：扣 bottom 20 + 光球 96 + 间距 10）
+ *   + justify-content: flex-end（溢出裁最旧行于顶，最新行恒完整——
+ *   「最下面一行显示不全」根修）；
  * - 光球径向渐变全走通道 token（accent/violet——零散 hex 零容忍）；
  * - 堆叠渐隐纯 opacity（nth-last-child 阶梯）；
  * - 呼吸动画仅 transform/opacity；reduced-motion 全关停。
@@ -32,12 +36,16 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规）", () => {
     expect(seg).toMatch(/\.stv-orb\s*\{[^}]*pointer-events:\s*auto/); // 光球本体可点（D5）
   });
 
-  it("字幕条玻璃族：popover-fill + blur 14px（亮色降 10px）+ shadow-pop + 10px 圆角", () => {
+  it("字幕条玻璃族（用户裁决）：直角 + 无边框 + 满窗高 + 溢出裁顶保最新行", () => {
+    const caption = seg.match(/\.stv-caption\s*\{[^}]*\}/)![0];
     expect(seg).toMatch(/\.stv-caption\s*\{[^}]*background:\s*var\(--popover-fill\)/);
     expect(seg).toMatch(/\.stv-caption\s*\{[^}]*backdrop-filter:\s*blur\(14px\)/);
     expect(seg).toMatch(/html\.light \.stv-caption\s*\{[^}]*backdrop-filter:\s*blur\(10px\)/);
     expect(seg).toMatch(/\.stv-caption\s*\{[^}]*box-shadow:\s*var\(--shadow-pop\)/);
-    expect(seg).toMatch(/\.stv-caption\s*\{[^}]*border-radius:\s*10px/);
+    expect(caption).toMatch(/border-radius:\s*0/); // 直角（用户裁决）
+    expect(caption).not.toMatch(/border:/); // 无边框（用户裁决）
+    expect(caption).toMatch(/max-height:\s*calc\(100vh - 126px\)/); // 满窗高（扣 bottom 20 + 光球 96 + gap 10）
+    expect(caption).toMatch(/justify-content:\s*flex-end/); // 溢出裁最旧行于顶，最新行恒完整
   });
 
   it("零内联 hex / 零裸 rgb 三元字面量（通道变量模式唯一合法）", () => {

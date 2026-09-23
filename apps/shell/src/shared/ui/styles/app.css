@@ -1553,15 +1553,18 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 }
 .stv-fading { opacity: 0; }
 
-/* 字幕条（光球上方，玻璃族——tokens.md §07 弹层语义）*/
+/* 字幕条（光球上方，玻璃族——用户裁决视觉例外：直角 + 无边框 + 满窗高；
+   fill/blur/shadow 玻璃族其余条款保持。max-height = 100vh - 126（扣
+   .stv bottom 20 + 光球 96 + gap 10）——内容增长向上摊满整窗高；
+   justify-content: flex-end 使溢出裁最旧行于顶，最新行恒完整
+   （「最下面一行显示不全」根修））*/
 .stv-caption {
-  max-width: 380px; max-height: 200px; overflow: hidden;
-  padding: 8px 12px; border-radius: 10px;
-  border: 1px solid var(--border);
+  max-width: 380px; max-height: calc(100vh - 126px); overflow: hidden;
+  padding: 8px 12px; border-radius: 0;
   background: var(--popover-fill);
   backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
   box-shadow: var(--shadow-pop);
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
   text-align: right;
 }
 html.light .stv-caption {

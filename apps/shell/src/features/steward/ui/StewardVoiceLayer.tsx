@@ -12,6 +12,8 @@
  * - **StewardCaption** 字幕条（光球上方，玻璃族）：用户行（interim 灰/
  *   final 实）与管家行（ask.delta 聚合）弱区分，堆叠渐隐最新在下（上限
  *   4 行）；纯 fixed 文本层零滚动容器（E-124 WKWebView sticky 坑）；
+ *   视觉=用户裁决例外（直角/无边框/满窗高，溢出裁顶保最新行——
+ *   详见 app.css .stv-caption 段注）；
  * - 点击行为（D5）：speaking 点击 = 停读；listening/muted 点击 = 临时
  *   静音切换；
  * - 欢迎语：进入双工字幕同步（TTS 归 hook say 链）；
