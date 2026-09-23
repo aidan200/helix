@@ -12,8 +12,8 @@
  * 直接消费 streamSimple 事件流），LoopEngine 契约面不动。
  */
 import type { StewardLlmPort } from "../../../application/ports/outbound/StewardLlmPort";
-import type { LoopStreamFn, LoopStreamResult } from "../../../domain/loop/LoopTypes";
-import type { StewardLlmResponse } from "../../../application/ports/outbound/StewardLlmPort";
+import type { LoopStreamFn, LoopStreamResult, LoopStreamBlock } from "../../../domain/loop/LoopTypes";
+import type { StewardLlmResponse, StewardLlmBlock } from "../../../application/ports/outbound/StewardLlmPort";
 
 // ── 结构同构编译锚（零运行时成本——形状漂移即编译断） ──────────
 
@@ -25,9 +25,14 @@ type _StewardResponseMatchesLoopResult = AssertSameShape<
 >;
 const _stewardResponseMatchesLoopResult: _StewardResponseMatchesLoopResult = true;
 
+/** E-198：块级收尾帧同构（StewardLlmBlock ↔ LoopStreamBlock）。 */
+type _StewardBlockMatchesLoopBlock = AssertSameShape<StewardLlmBlock, LoopStreamBlock>;
+const _stewardBlockMatchesLoopBlock: _StewardBlockMatchesLoopBlock = true;
+
 // ── 装配面 ────────────────────────────────────────────────
 
-/** StewardLlmPort → LoopStreamFn（散参回调面 → callbacks 收拢面）。 */
+/** StewardLlmPort → LoopStreamFn（散参回调面 → callbacks 收拢面；E-198：
+ *  onBlockEnd 第五参透传——块级收尾帧经 port 直达 engine 缓冲）。 */
 export function piAdapterAsStreamFn(llm: StewardLlmPort): LoopStreamFn {
   return async (input, callbacks) => {
     const response: StewardLlmResponse = await llm.complete(
@@ -39,6 +44,7 @@ export function piAdapterAsStreamFn(llm: StewardLlmPort): LoopStreamFn {
       callbacks?.onDelta,
       callbacks?.onThinking,
       callbacks?.signal,
+      callbacks?.onBlockEnd, // 块级收尾帧（E-198——两型结构同构，编译锚锁定）
     );
     return response as LoopStreamResult; // 结构同构经上方编译锚保证
   };

@@ -21,7 +21,10 @@
  *   回传；provider 差异由 pi-ai convertMessages 收口）；
  * - complete 返回值 text 分支可选 thinking（本轮 thinking 块终态）；
  * - complete 第三参 onThinking = 段级回调（一个完成态 thinking 块一帧——
- *   探明定案：折叠显示用段级粒度，token 级 delta 高频帧无增益）。
+ *   探明定案：折叠显示用段级粒度，token 级 delta 高频帧无增益）；
+ * - complete 第五参 onBlockEnd = 块级完整收尾回调（E-198 打断善后：pi
+ *   text_end/thinking_end/toolcall_end 的块帧——块 end 是完整性唯一凭证，
+ *   abort 时已收 end 的块可安全入账，半截块无此帧）。
  */
 
 /** 工具声明（LLM function calling 面；parameters = JSON Schema 对象）。 */
@@ -36,6 +39,13 @@ export interface StewardLlmThinking {
   readonly text: string;
   readonly signature?: string;
 }
+
+/** E-198：流块完整收尾帧（块 end = 完整性唯一凭证，与 domain LoopStreamBlock
+ *  同构——adapter 编译锚锁定形状）。 */
+export type StewardLlmBlock =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "thinking"; readonly text: string; readonly signature?: string }
+  | { readonly kind: "toolCall"; readonly id: string; readonly name: string; readonly args: Record<string, unknown> };
 
 /** 对话消息（port 窄面：user / assistant（文本或工具调用，可携 thinking）/
  * 工具结果；与协议 StewardHistoryRecord 同构——KV 工作记忆同源形态）。 */
@@ -90,5 +100,6 @@ export interface StewardLlmPort {
     onDelta?: (chunk: string) => void,
     onThinking?: (block: string) => void,
     signal?: AbortSignal,
+    onBlockEnd?: (block: StewardLlmBlock) => void,
   ): Promise<StewardLlmResponse>;
 }
