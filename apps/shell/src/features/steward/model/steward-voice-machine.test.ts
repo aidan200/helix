@@ -33,6 +33,7 @@ import {
   type StewardVoicePhase,
   type StewardVoiceSnapshot,
   matchWakeWord,
+  deriveOrbPhase,
 } from "./steward-voice-machine";
 
 const snap = (over: Partial<StewardVoiceSnapshot>): StewardVoiceSnapshot => ({
@@ -395,5 +396,58 @@ describe("deriveStewardVoicePhase × wake-armed（B4 状态机新增态）", () 
   it("unsupported 优先于待命态；wakeStandby 缺省 = 既有派生不变", () => {
     expect(deriveStewardVoicePhase(snap({ voiceState: "unsupported", wakeStandby: true }))).toBe("unsupported");
     expect(deriveStewardVoicePhase(snap({ voiceState: "recording" }))).toBe("listening");
+  });
+});
+
+// ── B2 光球相位派生（OrbPhase：waking→welcome→listening→thinking→speaking→closing）──
+
+describe("deriveOrbPhase（B2 光球相位状态机）", () => {
+  it("不在场：duplex=false 且无淡出 → null（零 DOM）", () => {
+    expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: false, welcome: false })).toBeNull();
+  });
+
+  it("waking：wake_armed 待命（等唤醒词命中）", () => {
+    expect(deriveOrbPhase({ phase: "wake_armed", duplex: true, fading: false, welcome: false })).toBe("waking");
+  });
+
+  it("welcome：欢迎语播报期优先于一切在途相位", () => {
+    expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: true })).toBe("welcome");
+    expect(deriveOrbPhase({ phase: "wake_armed", duplex: true, fading: false, welcome: true })).toBe("welcome");
+  });
+
+  it("listening：listening/transcribing/unsupported 外待听呼吸（duplex 中 idle 是瞬态）", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false })).toBe("listening");
+    expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: false })).toBe("listening");
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("listening");
+  });
+
+  it("thinking：ask 在途（asking）", () => {
+    expect(deriveOrbPhase({ phase: "asking", duplex: true, fading: false, welcome: false })).toBe("thinking");
+  });
+
+  it("speaking：TTS 朗读回复中（非欢迎语）", () => {
+    expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: false })).toBe("speaking");
+  });
+
+  it("closing：关麦淡出窗（duplex 已落 + fading）——淡出压过一切在途相位", () => {
+    expect(deriveOrbPhase({ phase: "speaking", duplex: false, fading: true, welcome: false })).toBe("closing");
+    expect(deriveOrbPhase({ phase: "asking", duplex: false, fading: true, welcome: false })).toBe("closing");
+  });
+
+  it("迁移链钉子：waking →（命中）listening →（final 喂 ask）thinking →（delta 到达）speaking →（读完）listening →（关麦）closing → null", () => {
+    // waking（待命）
+    expect(deriveOrbPhase({ phase: "wake_armed", duplex: true, fading: false, welcome: false })).toBe("waking");
+    // 唤醒命中 → listening（转写在途同相）
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false })).toBe("listening");
+    expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: false })).toBe("listening");
+    // final 喂 ask → thinking
+    expect(deriveOrbPhase({ phase: "asking", duplex: true, fading: false, welcome: false })).toBe("thinking");
+    // delta 到达 TTS 出声 → speaking
+    expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: false })).toBe("speaking");
+    // 读完回 idle（duplex 中自动续听呼吸）→ listening
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("listening");
+    // 关麦 → closing →（淡出结束）null
+    expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: true, welcome: false })).toBe("closing");
+    expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: false, welcome: false })).toBeNull();
   });
 });

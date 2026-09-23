@@ -62,7 +62,17 @@ vi.mock("@/pages/chat/ChatPage", () => ({
 vi.mock("@/pages/settings/SettingsPage", () => ({
   default: () => <div data-settings-page="on" />,
 }));
+// B2 光球层桩（重链路 mock——记录 wakeSignal 接线即可，本体归
+// StewardVoiceLayer.test）
+const layerProps: number[] = [];
+vi.mock("@/features/steward/ui/StewardVoiceLayer", () => ({
+  default: ({ wakeSignal }: { wakeSignal?: number }) => {
+    layerProps.push(wakeSignal ?? 0);
+    return <div data-voice-layer={wakeSignal ?? 0} />;
+  },
+}));
 
+import { requestOpenSteward } from "@/shared/lib/steward-open-signal";
 import { AppRoutes } from "./App";
 
 function ui() {
@@ -82,6 +92,7 @@ describe("管家全局常驻（app 壳级能力）", () => {
     vi.clearAllMocks();
     route = "/settings";
     stewardListeners.clear();
+    layerProps.length = 0;
     // jsdom navigator.language 默认 en-US：钉 zh-CN（AG-14 白名单键）
     localStorage.setItem("helix-lang", "zh-CN");
   });
@@ -123,6 +134,23 @@ describe("管家全局常驻（app 壳级能力）", () => {
     route = "/";
     fireEvent.click(document.querySelector('[data-page="chat"]')!);
     expect(document.querySelector(".stp-dock")).not.toBeNull(); // 常驻不卸载
+  });
+
+  it("B2 光球层常驻挂载（.app-shell 兄弟位，页面域外）+ steward-open-signal 接线：信号 → 唤起光球（wakeSignal 递进）**不弹面板**", () => {
+    ui();
+    const layer = document.querySelector("[data-voice-layer]");
+    expect(layer).not.toBeNull(); // app 壳级独立 root 常驻
+    expect(document.querySelector(".page-area")!.contains(layer!)).toBe(false); // 页面域外
+    // 面板初始关闭
+    expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
+    // 信号触发（B4 原接线 = setStewardOpen(true) 升面板；B2 改 = 唤起光球）
+    act(() => {
+      requestOpenSteward();
+    });
+    // wakeSignal 递进送达光球层
+    expect(layerProps[layerProps.length - 1]).toBe(1);
+    // **不弹面板**（D1/A：唤醒 = 光球浮现 + 欢迎语 + 持续麦双工，非弹窗）
+    expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
   });
 
   it("B1 建议导航（steward.navigate）：帧到达不强切——toast 通知 + [去看看] 点按才切（navigate + switchSession 侧栏同路径）", () => {

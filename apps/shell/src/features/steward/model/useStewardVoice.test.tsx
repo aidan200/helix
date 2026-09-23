@@ -97,6 +97,15 @@ vi.mock("@/entities/session/SessionContext", () => ({
 
 vi.mock("@/shared/lib/stt-provider-pref", () => ({ readSttProviderPref: () => undefined }));
 
+// ── B2 唤醒链 mock（耳面采样门改 duplex 会话活跃——测试经组合键进入）──
+let fireWakeHotkey: (() => void) | null = null;
+vi.mock("@/shared/lib/wake-hotkey", () => ({
+  setWakeHotkeyFireHandler: (h: (() => void) | null) => {
+    fireWakeHotkey = h;
+  },
+  syncWakeHotkeyRegistration: async () => "ok" as const,
+}));
+
 import { useStewardVoice } from "./useStewardVoice";
 
 /** FakeMediaRecorder（useVoiceInput.test 同款时序 stub）。 */
@@ -174,7 +183,7 @@ async function tick(): Promise<void> {
 
 function renderVoice() {
   // 返回 result ref（r.current = 钩子面）——renderHook 返回值解构常见坑钉死
-  return renderHook(() => useStewardVoice(true), { wrapper: I18nProvider }).result;
+  return renderHook(() => useStewardVoice(), { wrapper: I18nProvider }).result;
 }
 
 /** 走完一轮「点击说话 → 强制停 → 转写回执」到指定文本（含 fake clock 推进
@@ -414,7 +423,7 @@ describe("useStewardVoice（V3b-1 流式转写面）", () => {
   });
 
   function renderStream(opts?: { streamFinalTimeoutMs?: number }) {
-    return renderHook(() => useStewardVoice(true, { createPump, streamFinalTimeoutMs: opts?.streamFinalTimeoutMs }), {
+    return renderHook(() => useStewardVoice({ createPump, streamFinalTimeoutMs: opts?.streamFinalTimeoutMs }), {
       wrapper: I18nProvider,
     }).result;
   }
@@ -704,13 +713,13 @@ describe("useStewardVoice（V3b-2 流式朗读接线）", () => {
   });
 
   function renderVoiceStream() {
-    return renderHook(() => useStewardVoice(true, { createPlayer }), { wrapper: I18nProvider }).result;
+    return renderHook(() => useStewardVoice({ createPlayer }), { wrapper: I18nProvider }).result;
   }
 
   it("StrictMode 双效应不毒死朗读链（生产事故回归锚）：mount→cleanup→remount 后 delta/result 照发流式", async () => {
     restoreEnv = installEnv();
     // StrictMode 包裹：React18 dev 下 effect setup→cleanup→setup（useRef 实例跨重挂保留）
-    const r = renderHook(() => useStewardVoice(true, { createPlayer }), {
+    const r = renderHook(() => useStewardVoice({ createPlayer }), {
       wrapper: ({ children }: { children?: ReactNode }) => (
         <I18nProvider>
           <StrictMode>{children}</StrictMode>
@@ -883,15 +892,31 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
   let restoreEnv: (() => void) | null = null;
   let nowMs = 0;
   let nowSpy: ReturnType<typeof vi.spyOn> | null = null;
-  /** 耳朵 meter（语音模式全程采样——mount 即开，实例[0]；录音 meter 是后开的）。 */
-  const ear = (): FakeMeter => FakeMeter.instances[0]!;
+  /** 耳朵 meter（duplex 会话活跃期全程采样；toggleMute 已关录音面——取未关闭者）。 */
+  const ear = (): FakeMeter => FakeMeter.instances.find((m) => !m.closed) ?? FakeMeter.instances[0]!;
   const createMeter = async () => {
     const m = new FakeMeter();
     FakeMeter.instances.push(m);
     return m;
   };
-  function renderBargeIn() {
-    return renderHook(() => useStewardVoice(true, { createMeter }), { wrapper: I18nProvider }).result;
+  /** B2 耳面 = duplex 会话活跃：组合键进双工（空串直通）+ 临时静音停录音留耳
+   *  （duplex 保持——reachSpeaking 直喂 ask 需 voiceState 离开 recording）。 */
+  async function renderBargeIn(opts?: { readonly noMeters?: boolean }) {
+    const r = renderHook(() => useStewardVoice({ createMeter }), { wrapper: I18nProvider }).result;
+    await act(async () => {
+      fireWakeHotkey?.();
+    });
+    if (opts?.noMeters !== true) {
+      // 耳 meter（duplex 采样窗）+ 录音 meter 双就位（挂载序不定——计数等齐）
+      await waitFor(() => expect(FakeMeter.instances.length).toBeGreaterThanOrEqual(2));
+    } else {
+      await tick();
+    }
+    act(() => {
+      r.current.toggleMute();
+    });
+    await tick();
+    return r;
   }
   /** 人声帧驱动：连续超阈帧（默认 100ms 节流同构）——达标即返回触发点帧序。 */
   function humanVoice(count: number, rms = 0.05): void {
@@ -920,6 +945,7 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem("helix.steward.wakeWord", ""); // 空串直通：组合键即入 listening
     for (const s of Object.values(listeners)) s.clear();
     FakeMeter.instances = [];
     streamStartEnabled = true;
@@ -940,18 +966,18 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
 
   it("speaking 相位人声达标 → 打断序：stopSpeaking 先于 steward.interrupt 先于 stt.stream.start（UX 零延迟）", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick(); // 耳朵异步开麦+挂 meter
     expect(FakeMeter.instances.length).toBeGreaterThanOrEqual(1);
     await reachSpeaking(r);
-    humanVoice(4); // 持续超阈 ≥ 300ms（100ms/帧）→ 门触发
+    humanVoice(8); // 持续超阈（duplex 开场 stopSpeaking 开 300ms 残响窗——前 3 帧窗内吞，其后 4 帧达标触发）
     // ①②③ 时序：停播 → steward.interrupt → stt.stream.start（调用序单计数器钉死）
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
     expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in");
-    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(2); // duplex 开场 1 + 打断新流 1
     const stopIdx = callOrder.indexOf("stopSpeaking");
     const interruptIdx = callOrder.indexOf("interrupt");
-    const startIdx = callOrder.indexOf("streamStart");
+    const startIdx = callOrder.lastIndexOf("streamStart"); // 开场流在前——打断新流取末次
     expect(stopIdx).toBeGreaterThanOrEqual(0);
     expect(stopIdx).toBeLessThan(interruptIdx);
     expect(interruptIdx).toBeLessThan(startIdx);
@@ -961,16 +987,16 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
 
   it("asking 相位可打断（打断旧轮让位新输入）：新转写 stt.stream.final → steward.ask 新轮", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     act(() => {
       r.current.ask("在吗");
     });
     await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
     expect(r.current.phase).toBe("asking");
-    humanVoice(4); // asking 期人声门同样武装 → 打断旧轮
+    humanVoice(8); // asking 期人声门同样武装 → 打断旧轮（含残响窗余量）
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
-    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(2); // duplex 开场 1 + 打断新流 1
     await waitFor(() => expect(r.current.phase).toBe("listening"));
     // 新转写流收口 → 新输入入 ask（新轮）
     act(() => {
@@ -990,18 +1016,18 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
 
   it("重复触发幂等：触发后持续人声帧（含出静默窗段）零二次打断", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     await reachSpeaking(r);
     humanVoice(14); // 触发后继续 1.4s 满 loud 帧（跨静默窗）——闩锁+窗双防线
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
-    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(2); // duplex 开场 1 + 打断新流 1（零二次）
   });
 
   it("text 模式零行为：人声帧零打断（耳朵随模式关）；mic 不可用零耳零打断", async () => {
     // text 模式：切模式后耳朵关闭，帧面零消费者
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     act(() => {
       r.current.setMode("text");
@@ -1011,13 +1037,13 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
       ear().emit(0.05);
     });
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
-    expect(sendSttStreamStart).not.toHaveBeenCalled();
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1); // duplex 开场基线——模式关后零新增
     restoreEnv?.();
     restoreEnv = null;
     // mic 不可用：零耳零打断（降级文本态行为不变）
     Object.defineProperty(navigator, "mediaDevices", { value: undefined, configurable: true });
     FakeMeter.instances = [];
-    const r2 = renderBargeIn();
+    const r2 = await renderBargeIn({ noMeters: true }); // mic 不可用：零 meter（跳过就位等待）
     await tick();
     expect(FakeMeter.instances.length).toBe(0);
     expect(r2.current.mode).toBe("text");
@@ -1031,14 +1057,30 @@ describe("useStewardVoice（B3 回声防线）", () => {
   let restoreEnv: (() => void) | null = null;
   let nowMs = 0;
   let nowSpy: ReturnType<typeof vi.spyOn> | null = null;
-  const ear = (): FakeMeter => FakeMeter.instances[0]!;
+  const ear = (): FakeMeter => FakeMeter.instances.find((m) => !m.closed) ?? FakeMeter.instances[0]!;
   const createMeter = async () => {
     const m = new FakeMeter();
     FakeMeter.instances.push(m);
     return m;
   };
-  function renderBargeIn() {
-    return renderHook(() => useStewardVoice(true, { createMeter }), { wrapper: I18nProvider }).result;
+  /** B2 耳面 = duplex 会话活跃：组合键进双工（空串直通）+ 临时静音停录音留耳
+   *  （duplex 保持——reachSpeaking 直喂 ask 需 voiceState 离开 recording）。 */
+  async function renderBargeIn(opts?: { readonly noMeters?: boolean }) {
+    const r = renderHook(() => useStewardVoice({ createMeter }), { wrapper: I18nProvider }).result;
+    await act(async () => {
+      fireWakeHotkey?.();
+    });
+    if (opts?.noMeters !== true) {
+      // 耳 meter（duplex 采样窗）+ 录音 meter 双就位（挂载序不定——计数等齐）
+      await waitFor(() => expect(FakeMeter.instances.length).toBeGreaterThanOrEqual(2));
+    } else {
+      await tick();
+    }
+    act(() => {
+      r.current.toggleMute();
+    });
+    await tick();
+    return r;
   }
   /** 帧驱动（rms/zcr 可控；默认 100ms 节流同构）。 */
   function frames(count: number, rms: number, zcr: number): void {
@@ -1067,6 +1109,7 @@ describe("useStewardVoice（B3 回声防线）", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem("helix.steward.wakeWord", ""); // 空串直通：组合键即入 listening
     for (const s of Object.values(listeners)) s.clear();
     FakeMeter.instances = [];
     streamStartEnabled = true;
@@ -1087,7 +1130,7 @@ describe("useStewardVoice（B3 回声防线）", () => {
 
   it("灵敏度偏好即时生效：高阈值下人声帧不触发，改偏好后下一轮门判定即用新值触发（不必重开麦）", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     await reachSpeaking(r);
     // 灵敏度 0（钝档）→ speaking 抬档阈值 > 0.05：人声帧零触发
@@ -1096,14 +1139,14 @@ describe("useStewardVoice（B3 回声防线）", () => {
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
     // 改偏好（灵敏度 100）后继续喂帧：下一轮门判定即用新阈值 → 触发
     localStorage.setItem(VOICE_VAD_SENSITIVITY_PREF_KEY, "100");
-    frames(4, 0.05, 0.08);
+    frames(8, 0.05, 0.08);
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
     expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in");
   });
 
   it("双参判定偏好注入：容忍带外高 ZCR 零触发，调宽容忍带强度后触发", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     await reachSpeaking(r);
     // zcr 0.4：默认容忍带（上界 0.35）外 → 拒；rms 超阈但持续不计
@@ -1117,7 +1160,7 @@ describe("useStewardVoice（B3 回声防线）", () => {
 
   it("双参开关偏好：关（voiceCheck=0）后高 ZCR 宽带帧照常触发（B2 行为可回退）", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     await reachSpeaking(r);
     frames(6, 0.05, 0.5);
@@ -1129,10 +1172,10 @@ describe("useStewardVoice（B3 回声防线）", () => {
 
   it("误触埋点：触发帧特征（rms/zcr/phase/时间戳）入 localStorage 环形缓冲", async () => {
     restoreEnv = installEnv();
-    const r = renderBargeIn();
+    const r = await renderBargeIn();
     await tick();
     await reachSpeaking(r);
-    frames(4, 0.05, 0.08);
+    frames(8, 0.05, 0.08); // 含残响窗余量（duplex 开场 stopSpeaking 开窗）
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
     const trace = readBargeInTrace();
     expect(trace.length).toBe(1);

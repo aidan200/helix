@@ -92,6 +92,23 @@ describe("StewardPanel（V2.5 管家面板）", () => {
     expect(screen.queryByTestId("steward-input")).toBeNull();
   });
 
+  it("B2 键位照抄 Composer：Alt+Enter 发送；Enter 不拦截（原生换行零发送）", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", { enabled: true, model: "x/y" }));
+    });
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    const ta = screen.getByTestId("steward-input") as HTMLTextAreaElement;
+    // Enter：不拦截（换行语义——零发送，preventDefault 未调用）
+    fireEvent.change(ta, { target: { value: "第一行" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(sendStewardAsk).not.toHaveBeenCalled();
+    // Alt+Enter：发送（草稿清空）
+    fireEvent.keyDown(ta, { key: "Enter", altKey: true });
+    expect(sendStewardAsk).toHaveBeenCalledWith("第一行");
+    await waitFor(() => expect((screen.getByTestId("steward-input") as HTMLTextAreaElement).value).toBe(""));
+  });
+
   it("发送路径：输入 + 点击发送 → sendStewardAsk + user 气泡", async () => {
     renderPanel();
     act(() => {

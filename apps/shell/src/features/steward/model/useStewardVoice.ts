@@ -40,28 +40,39 @@
  *
  * B4 唤醒链（全局组合键手动开麦 + 唤醒词门槛入对话）：全局组合键（壳
  * tauri-plugin-global-shortcut，wake-hotkey 注册面单点）→ 唤醒待命
- * （wake_armed——显式用户手势触发的新采集态：开麦 + 流式转写 + 本地匹配，
- * 面板升起保可见待命指示）→ interim 命中唤醒词（matchWakeWord 大小写不敏感，
- * webview 本地判定零后置花费）→ 剥离唤醒词前缀，剩余话语（含本轮续句）
- * 走既有 ask 链入对话（命中前内容不入对话零 ask）；命中 → 转入既有
- * listening→transcribing→asking 流（语音模式同链）。待命超时（可配 30s）
- * 自动关麦收场（隐私兜底）；组合键再按 / Esc = 手动退出会话并关麦（cancelWake
- * ——track.stop 即刻，零转写零 ask）；面板关闭 = 唤醒会话取消收场（采集与
- * 可见指示同生命周期，ed508171 纪律）。唤醒词空串 = 关门槛直通（组合键
- * 直入 listening）。
+ * （wake_armed——显式用户手势触发的新采集态：开麦 + 流式转写 + 本地匹配）
+ * → interim 命中唤醒词（matchWakeWord 大小写不敏感，webview 本地判定
+ * 零后置花费）→ 剥离唤醒词前缀，剩余话语（含本轮续句）走既有 ask 链
+ * 入对话（命中前内容不入对话零 ask）；命中 → 转入既有 listening→
+ * transcribing→asking 流（语音模式同链）。待命超时（可配 30s）自动关麦
+ * 收场（隐私兜底）；组合键再按 / Esc = 手动退出会话并关麦（cancelWake
+ * ——track.stop 即刻，零转写零 ask）。唤醒词空串 = 关门槛直通（组合键
+ * 直入 listening）。（B2 起「面板关闭即收场」随 open 参数退役：可见
+ * 指示改光球层，采样窗由 duplex 态内聚。）
+ *
+ * B2 双工会话（全局语音批，设计稿 §3.2/§3.3）：挂载点从 StewardPanel 迁
+ * 至 StewardVoiceLayer（光球层，app 壳级常驻）——open 参数（面板活跃）退
+ * 役，采样/耳 meter 注入面改「双工会话活跃」（duplex 态内聚，语义同构平移
+ * ——E-200 判据零改动）。组合键 → duplex=true + 欢迎语（speechOut 流式链
+ * 复用，TR-200 闸不动）→ 待命/直通 listening → 终帧喂 ask → delta 字幕 +
+ * TTS → 播毕自动续听（直到关麦）。关麦（组合键再按，D2 单键 toggle）=
+ * 停采集（track.stop 即刻零转写，ed508171 同纪律）+ 停朗读（synthesize stop
+ * + 队列清空）+ duplex=false 光球淡出；**不动在途 ask 轮**（零 interrupt/
+ * abortInFlight，结果照常落历史，D6）。临时静音（D5）：listening 点击
+ * toggleMute → 续听挂起（停采集），再按恢复。口令拦截（D3=b）：终帧文本
+ * 先过 onFinalText 钩子——返回 consumed 即前端本地消费（零 ask，语音口令
+ * 面 voice-command.ts）。
  *
  * 异常回退（纯面 planTranscript）：ask 发送失败（未连接）→ 转写文本回填
  * voiceDraft（面板采纳进输入框——文本态可重试，零静默丢话）；转写失败 →
  * useVoiceInput error 面（面板 toast，Composer 同构）。
  *
- * 双模（mode）：面板打开默认 voice；mic 不可用（unsupported）自动回退
- * text。切 text = 停朗读 + 在录即强制停（转写链照常走完，answer 不朗读
- * ——money 闸按 result 时点模式判）。LISTEN_SURFACE 多听众扇出是官方
- * 形态（Set fan-out）：本钩子与 useSteward/useVoiceInput 各自订阅 stt
- * 帧，各取所需（流式帧本面消费、回执面 useVoiceInput 消费）。
+ * 双模（mode）：面板双模 UI 已随 B2 面板语音退役——mode 恒 voice；mic 不可用
+ * （unsupported）自动回退 text（朗读闸零合成防御保留）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
+import { useI18n } from "@/shared/i18n";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
 import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
@@ -81,7 +92,6 @@ import {
   voiceRmsThresholdFromSensitivity,
 } from "@/shared/lib/voice-pref";
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
-import { requestOpenSteward } from "@/shared/lib/steward-open-signal";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 import type { EventEnvelope } from "@helix/protocol";
@@ -126,6 +136,11 @@ export interface UseStewardVoiceOptions {
   readonly wakeTimeoutMs?: number;
   /** 流式朗读播放器工厂（缺省 Web Audio；测试注入 fake——jsdom 无音频设备）。 */
   readonly createPlayer?: SpeechPlayerFactory;
+  /** B2 欢迎语文本（缺省 i18n 常量；Layer 注入）。 */
+  readonly welcomeText?: string;
+  /** B2 终帧拦截钩（D3=b 语音口令）：返回 "consumed" = 前端本地消费零 ask
+   *  （口令解析/执行面 voice-command.ts + StewardVoiceLayer）；"pass" = 照发。 */
+  readonly onFinalText?: (text: string) => "consumed" | "pass";
 }
 
 export interface UseStewardVoice {
@@ -168,11 +183,25 @@ export interface UseStewardVoice {
   /** 唤醒会话态（B4）：off 无 / standby 唤醒待命中（命中前）/ round 唤醒轮
    *  （命中后——既有 listening 同链）。 */
   readonly wakeState: StewardWakeState;
-  /** 手动退出唤醒会话（Esc / 组合键再按 / mic 钮）：取消收场关麦，零 ask。 */
+  /** 手动退出唤醒会话（Esc / 组合键再按）：取消收场关麦，零 ask。B2 起
+   *  = duplex 会话收口（停采集 + 停朗读 + duplex 落）。 */
   cancelWake(): void;
+  // ── B2 双工会话面（光球层数据源）──
+  /** 双工会话活跃（组合键开 → 关麦收口落；光球可见性/耳 meter 采样窗）。 */
+  readonly duplexActive: boolean;
+  /** 欢迎语期（duplex 开启后、用户第一句定稿前——光球 welcome 相位）。 */
+  readonly welcomeActive: boolean;
+  /** 临时静音（D5：listening 点击切换——静音期续听挂起，duplex 会话保持）。 */
+  readonly muted: boolean;
+  /** D5 点击行为：listening 点击 = 临时静音切换（speaking 停读归 stopSpeaking）。 */
+  toggleMute(): void;
+  /** B2 光球唤起入口（wake-hotkey / steward-open-signal 接线共径——Layer 消费）。 */
+  toggleWake(): void;
+  /** B2 主动发言（欢迎语/口令回读同链；money 闸内判——偏好关零合成）。 */
+  say(text: string): void;
 }
 
-export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions): UseStewardVoice {
+export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoice {
   const {
     sendSttTranscribe,
     sendSttStreamStart,
@@ -201,6 +230,24 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     sendStewardInterrupt?: (reason?: string) => boolean;
   };
   const steward = useSteward(); // B1 订阅解绑：无参（订阅不随面板开合）
+
+  // ── B2 双工会话态（open 参数退役——采样/耳面改 duplex 会话活跃驱动；
+  //    duplexRef = 回调面镜像（listener 闭包读实时态），duplexActive = 光球
+  //    可见性呈现面；两处同点写归 markDuplex（TR-173 禁渲染体裸写镜像 ref）──
+  const [duplexActive, setDuplexActive] = useState(false);
+  const duplexRef = useRef(false);
+  const markDuplex = useCallback((v: boolean) => {
+    duplexRef.current = v;
+    setDuplexActive(v);
+  }, []);
+  /** 欢迎语期标记（duplex 开启置位；用户第一句终帧定稿清位——光球 welcome 相位）。 */
+  const [welcomeActive, setWelcomeActive] = useState(false);
+  /** B2 临时静音（D5）：静音期续听挂起（自动重听闸），duplex 会话保持。 */
+  const [muted, setMuted] = useState(false);
+  const mutedRef = useRef(false);
+  /** 终帧拦截钩（D3=b 口令）：ref 转发实时读（onTranscript 闭包不随重渲染刷新）。 */
+  const onFinalTextRef = useRef(options?.onFinalText);
+  onFinalTextRef.current = options?.onFinalText;
 
   // ── 双模（打开默认语音模式——brief 口径；unsupported 自动回退文本态）──
   const [mode, setModeState] = useState<StewardInputMode>("voice");
@@ -275,6 +322,27 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     speechOut.stopSpeaking(); // stop 命令 + 队列清空 + 分句缓冲 reset + 本轮静音
   }, [speechOut]);
 
+  // ── B2 欢迎语（进入双工时 TTS；字幕同步归 Layer）：speechOut 主动发言
+  //    入口 sayNow（切句发流——闸/播放队列全复用，TR-200 播放闸零改动）；
+  //    money 闸同构（偏好关零合成，字幕照显）。──
+  const { t } = useI18n();
+  const say = useCallback(
+    (text: string) => {
+      if (
+        !shouldSpeakReply({ mode: "voice", speakEnabled: readStewardSpeakReplyPref(), askResult: { status: "answer" } })
+      ) {
+        return;
+      }
+      speechOut.sayNow(text);
+    },
+    [speechOut],
+  );
+  const welcomeTextRef = useRef(options?.welcomeText);
+  welcomeTextRef.current = options?.welcomeText;
+  const speakWelcome = useCallback(() => {
+    say(welcomeTextRef.current ?? t("steward.voice.welcome"));
+  }, [say, t]);
+
   // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频/孤儿在途句。
   // StrictMode 双效应兼容：cleanup 先跑 close() 毒死 useRef 实例，重挂 setup
   // 必须显式 reopen()（否则 disposed 永真 → 朗读全链静默）。
@@ -328,13 +396,14 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     }
   }, []);
 
-  // ── B2 barge-in 耳朵：语音模式全程 RMS 采样（rms-meter 注入面复用——
-  //    createMeter 同注入面；面板开 × voice 模式才开麦，text/面板关即收；
-  //    mic 不可用/被拒 → barge-in 降级关闭，语音主链不受影响）──
+  // ── B2 barge-in 耳朵：双工会话期 RMS 采样（duplex 活跃 × 语音模式；
+  //    meter 注入面从「面板活跃」平移「双工会话活跃」——语义同构，判据
+  //    零改动 E-200；duplex 落即刻 track.stop。mic 不可用/被拒 → barge-in
+  //    降级关闭，语音主链不受影响）──
   const earMeterFactoryRef = useRef(options?.createMeter ?? createWorkletRmsMeter);
   earMeterFactoryRef.current = options?.createMeter ?? createWorkletRmsMeter;
   useEffect(() => {
-    if (!open || mode !== "voice") return;
+    if (!duplexActive || mode !== "voice") return;
     if (typeof navigator === "undefined" || navigator.mediaDevices === undefined) return;
     let cancelled = false;
     let meter: RmsMeter | null = null;
@@ -366,7 +435,7 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
       meter?.close();
       if (stream !== null) for (const track of stream.getTracks()) track.stop();
     };
-  }, [open, mode, onBargeInLevel]);
+  }, [duplexActive, mode, onBargeInLevel]);
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return;
     return subscribeStewardFrames((event: EventEnvelope) => {
@@ -533,9 +602,12 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
   const askRef = useRef(steward.ask);
   askRef.current = steward.ask;
 
-  // 唤醒会话取消收场（B4：组合键再按 / Esc / 待命超时 / 面板关闭共径）：
-  // 关麦（track.stop 即刻）+ 废流（stt.stream.stop）+ 零转写零 ask（cancel
-  // ——不看 spoke 不入链）。流 refs 收位防孤儿 timer/上行（money 纪律）。
+  // 双工会话收口（B2 扩展：组合键再按（D2 单键 toggle 关麦）/ Esc / 待命
+  // 超时 / 口令期收场共径）：关麦（track.stop 即刻零转写，ed508171 同纪律）
+  // + 废流（stt.stream.stop）+ 停朗读（synthesize stop + 队列清空）+
+  // duplex 落（光球淡出数据面）+ 静音/欢迎语位复位。**不动在途 ask 轮**
+  //（零 interrupt/abortInFlight——结果照常落历史，D6）。流 refs 收位防孤儿
+  // timer/上行（money 纪律）。
   const cancelWake = useCallback(() => {
     clearWakeTimer();
     markWakeSession(null);
@@ -549,10 +621,26 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     streamDeadRef.current = true;
     setInterim(null);
     voiceRef.current.cancel();
-  }, [clearWakeTimer, markWakeSession, clearFallbackTimer]);
+    if (duplexRef.current) {
+      stopSpeaking(); // D6 停朗读（队列清空 + 残响静默窗）
+      markDuplex(false);
+      setWelcomeActive(false);
+      mutedRef.current = false;
+      setMuted(false);
+    }
+  }, [clearWakeTimer, markWakeSession, clearFallbackTimer, stopSpeaking, markDuplex]);
 
   const handleTranscript = useCallback(
     (text: string) => {
+      // B2 welcome 相位收口：用户第一句定稿（VAD 静音丢弃轮不至此）
+      setWelcomeActive(false);
+      /** 即将 ask 的文本路由：口令拦截（D3=b）优先——consumed 零 ask。 */
+      const routeToAsk = (utterance: string) => {
+        if (onFinalTextRef.current?.(utterance) === "consumed") return;
+        const sent = askRef.current(utterance);
+        const plan = planTranscript(utterance, sent);
+        if (plan.kind === "fallback") setVoiceDraft(plan.draft);
+      };
       const wake = wakeRef.current;
       if (wake !== null) {
         // B4 唤醒轮收口：剥离唤醒词前缀（命中前内容不入对话）；未命中防御面
@@ -562,14 +650,10 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
         const m = matchWakeWord(text, wake.word);
         const rest = m.hit ? m.rest.trim() : "";
         if (rest === "") return; // 只剩唤醒词/未命中：零 ask（空弃同构零计费）
-        const sent = askRef.current(rest);
-        const plan = planTranscript(rest, sent);
-        if (plan.kind === "fallback") setVoiceDraft(plan.draft);
+        routeToAsk(rest);
         return;
       }
-      const sent = askRef.current(text);
-      const plan = planTranscript(text, sent);
-      if (plan.kind === "fallback") setVoiceDraft(plan.draft);
+      routeToAsk(text);
     },
     [markWakeSession, clearWakeTimer],
   );
@@ -689,36 +773,59 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     voiceRef.current.stop();
   }, []);
 
-  // ── B4 唤醒链 toggle（全局组合键唯一入口）：无会话 → 进唤醒待命；
-  //    有会话（待命/唤醒轮）→ 取消收场（组合键再按 = 手动退出并关麦）──
+  // ── B2 双工听音锁（重入防护）：beginListening 的 getUserMedia 窗口内
+  //    stateRef 仍 idle——自动续听 effect 与 toggleWake 并发触发会双开麦；
+  //    锁内串行（useVoiceInput 自身 stateRef 守卫在 await 后才生效）。──
+  const beginListeningLockRef = useRef(false);
+  const guardedBeginListening = useCallback(async () => {
+    if (beginListeningLockRef.current) return;
+    beginListeningLockRef.current = true;
+    try {
+      await beginListening();
+    } finally {
+      beginListeningLockRef.current = false;
+    }
+  }, [beginListening]);
+
+  // ── B2 唤醒链 toggle（全局组合键唯一入口；D2 单键 toggle）：无会话 →
+  //    进双工（光球浮现 + 欢迎语 + 持续麦）；duplex 在途（待命/对话链）→
+  //    关麦收口（D6）。──
   const toggleWake = useCallback(async () => {
-    const prior = wakeRef.current;
-    if (prior !== null) {
+    // 关麦收口（D2 再按）：duplex 在途或唤醒会话在途 → cancelWake 收场
+    if (duplexRef.current || wakeRef.current !== null) {
       cancelWake();
       return;
     }
     const phase = phaseRef.current;
-    // mic 不可用 / 录音链在途 no-op（与 mic 鈕 micBusy 禁用面同规）；
-    // speaking 相位进待命 = 手动开麦同构先序（先停播）
+    // mic 不可用 / 录音链在途 no-op；speaking 相位进待命 = 手动开麦同构先序
+    // （先停播——duplex 外的残留朗读）
     if (phase === "unsupported" || phase === "listening" || phase === "transcribing" || phase === "asking") {
       return;
     }
-    // 显式用户手势新采集态（ed508171 例外面）：面板升起保可见待命指示 +
-    // 回答同屏（跨层信号 = steward-open-signal，TR-203 定式）
-    requestOpenSteward();
     stopSpeaking();
     setModeState("voice");
+    // B2 双工开場：duplex 置位（光球可见/耳 meter 采样窗）+ 欢迎语
+    //（speechOut 流式链复用——TR-200 闸不动；money 闸：偏好关零合成字幕照显）
+    markDuplex(true);
+    setWelcomeActive(true);
+    speakWelcome();
     const word = readWakeWordPref().trim();
-    // 空串直通：唤醒词关 = 零门槛，组合键即入既有 listening 流
-    markWakeSession({ word, hit: word === "" });
-    await beginListening();
-    if (wakeRef.current !== null && !wakeRef.current.hit) {
-      // 待命超时（可配 30s）隐私兜底：静默无人声即关麦收场
+    // 空串直通：唤醒词关 = 零门槛，组合键即入既有 listening 流（hit 判据
+    // 与 markWakeSession 同参本地字面——函数体开头 null 窄化不污染 ref 读取）
+    const wordHit = word === "";
+    markWakeSession({ word, hit: wordHit });
+    await guardedBeginListening();
+    if (!wordHit) {
+      // 待命超时（可配 30s）隐私兜底：静默无人声即关麦收场（duplex 随 cancelWake 落）
       wakeTimerRef.current = setTimeout(() => cancelWake(), wakeTimeoutMsRef.current ?? readWakeTimeoutPref());
     }
-  }, [cancelWake, beginListening, stopSpeaking, markWakeSession]);
+  }, [cancelWake, guardedBeginListening, stopSpeaking, markWakeSession, markDuplex, speakWelcome]);
   const toggleWakeRef = useRef(toggleWake);
   toggleWakeRef.current = toggleWake;
+  /** 光球入口（ref 定格——Layer 接线稳定引用）。 */
+  const toggleWakeStable = useCallback(() => {
+    void toggleWakeRef.current();
+  }, []);
 
   // 全局组合键注册面（wake-hotkey 单点）：挂载即读偏好注册（壳不读
   // ~/.helix/，偏好读取全在前端——红线不破）；卸载清位。
@@ -730,8 +837,8 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     return () => setWakeHotkeyFireHandler(null);
   }, []);
 
-  // Esc = 手动退出唤醒会话并关麦（仅会话在途挂监听；StewardPanel 的 Esc
-  // 关面板分流由 wakeState 判据让位——同键双听，各听各的域）
+  // Esc = 手动退出唤醒会话并关麦（仅会话在途挂监听——面板 Esc 已随语音
+  // UI 退役回归纯关面板，同键双听各听各的域）
   useEffect(() => {
     if (wakeState === "off") return;
     const onKey = (e: KeyboardEvent) => {
@@ -740,12 +847,6 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [wakeState, cancelWake]);
-
-  // 面板关闭 = 唤醒会话取消收场（麦克风生命周期纪律：采集与可见指示同
-  // 生命周期；面板升起期才是显式手势采集窗）
-  useEffect(() => {
-    if (!open && wakeRef.current !== null) cancelWake();
-  }, [open, cancelWake]);
 
   // 面板卸载/路由退场：在录强制停链路自然走完之外，废弃未收口的流（abort
   // 上游——money 纪律零孤儿连接；final 已 pending 时 timer 兑底回落后停）
@@ -786,6 +887,25 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     if (phase !== "listening" && phase !== "transcribing" && phase !== "wake_armed") setInterim(null);
   }, [phase]);
 
+  // ── B2 双工循环（设计稿 §3.3）：duplex 中说完（回 idle 且无唤醒会话）
+  //    → 自动续听（新 stt.stream.start，VAD 分段继续听直到关麦）；边沿触发
+  //    （离开 idle 重新武装防重复）+ muted 挂起（D5）+ 重入锁。──
+  const relistenArmedRef = useRef(true);
+  useEffect(() => {
+    if (!duplexActive) {
+      relistenArmedRef.current = true; // 会话外重置（下双工首轮武装）
+      return;
+    }
+    const idle = phase === "idle" && wakeState === "off";
+    if (!idle) {
+      relistenArmedRef.current = true;
+      return;
+    }
+    if (!relistenArmedRef.current || mutedRef.current) return;
+    relistenArmedRef.current = false;
+    void guardedBeginListening();
+  }, [duplexActive, phase, wakeState, muted, guardedBeginListening]);
+
   // 切模式：进 text = 停朗读 + 在录强制停（转写链照常走完；answer 不再朗读）
   const setMode = useCallback(
     (next: StewardInputMode) => {
@@ -797,6 +917,25 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     },
     [stopSpeaking, stopListening],
   );
+
+  // ── B2 临时静音（D5 光球点击）：listening 点击 = 静音（停采集——麦克风
+  //    指示落地，duplex 会话保持，自动续听挂起）；再点恢复（自动续听边沿
+  //    重启）。speaking 相位点击归 stopSpeaking（Layer 按相位分发）。──
+  const toggleMute = useCallback(() => {
+    const next = !mutedRef.current;
+    mutedRef.current = next;
+    setMuted(next);
+    if (!next) return; // 恢复路径：muted 落 → 自动续听 effect 边沿重启
+    voiceRef.current.cancel(); // 静音即停采集（track.stop 即刻）
+    if (streamArmedRef.current && !streamDeadRef.current) {
+      streamSendersRef.current.sendSttStreamStop?.();
+    }
+    streamArmedRef.current = false;
+    streamDeadRef.current = true;
+    streamIdRef.current = null; // 单飞门控同步收位（静音期迟到 final 零消费）
+    setInterim(null);
+    relistenArmedRef.current = true; // 恢复后首轮武装
+  }, []);
 
   return {
     ...steward,
@@ -815,5 +954,11 @@ export function useStewardVoice(open: boolean, options?: UseStewardVoiceOptions)
     stopListening,
     stopSpeaking,
     clearVoiceDraft: useCallback(() => setVoiceDraft(null), []),
+    duplexActive,
+    welcomeActive,
+    muted,
+    toggleMute,
+    toggleWake: toggleWakeStable,
+    say,
   };
 }

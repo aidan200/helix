@@ -281,3 +281,52 @@ export function openBargeInSilenceWindow(
 export function isBargeInArmed(input: { mode: StewardInputMode; phase: StewardVoicePhase }): boolean {
   return input.mode === "voice" && (input.phase === "speaking" || input.phase === "asking");
 }
+
+// ── B2 光球相位（StewardOrb 呈现面；waking→welcome→listening→thinking→speaking→closing）──
+
+/** 光球相位（B2 全局语音批，设计稿 §3.2）：
+ *  - waking：唤醒待命（wake_armed——等唤醒词命中）；
+ *  - welcome：欢迎语播报期（进入双工的问候）；
+ *  - listening：聆听中（含转写在途；duplex 中 idle 是续听瞬态，视觉同相呼吸）；
+ *  - thinking：ask 在途；
+ *  - speaking：TTS 朗读回复中；
+ *  - closing：关麦淡出窗（duplex 已落 + 淡出动画在途）。 */
+export type OrbPhase = "waking" | "welcome" | "listening" | "thinking" | "speaking" | "closing";
+
+/** 光球相位派生输入（duplex = 双工会话活跃；fading = 关麦淡出窗；
+ *  welcome = 欢迎语播报期标记）。 */
+export interface OrbPhaseInput {
+  readonly phase: StewardVoicePhase;
+  readonly duplex: boolean;
+  readonly fading: boolean;
+  readonly welcome: boolean;
+}
+
+/**
+ * 光球相位派生（纯函数；null = 光球不在场零 DOM）：
+ * - 不在场：duplex=false 且无淡出；
+ * - closing 压过一切（关麦淡出窗——duplex 已落但动画在途）；
+ * - welcome 优先于在途相位（欢迎语期即使已经在听也呈问候相）；
+ * - wake_armed → waking；listening/transcribing/idle → listening（呼吸待听）；
+ * - asking → thinking；speaking → speaking。
+ */
+export function deriveOrbPhase(input: OrbPhaseInput): OrbPhase | null {
+  if (!input.duplex && !input.fading) return null;
+  if (input.fading && !input.duplex) return "closing";
+  if (input.welcome) return "welcome";
+  switch (input.phase) {
+    case "wake_armed":
+      return "waking";
+    case "asking":
+      return "thinking";
+    case "speaking":
+      return "speaking";
+    case "listening":
+    case "transcribing":
+    case "idle":
+      return "listening";
+    default:
+      // unsupported 等：duplex 在场但链路不可用——待听呼吸（呈现退化不缺席）
+      return "listening";
+  }
+}

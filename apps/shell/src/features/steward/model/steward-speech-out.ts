@@ -260,6 +260,24 @@ export class StewardSpeechOut {
     this.beginAnswer();
   }
 
+  /** B2 主动发言（欢迎语/口令回读）：整段文本直接切句发流（闸/播放队列/
+   * 回退链全复用——TR-200 播放闸零改动）；money 闸归调用方判（偏好关零
+   * 调用）。与 answer 轮互斥收口：在途轮关闭（迟到 delta 零消费）+ 静音
+   * 位复位（主动发言不受上轮 stopSpeaking 静音影响）。 */
+  sayNow(text: string): void {
+    if (this.disposed) return;
+    this.answerActive = false;
+    this.muted = false;
+    this.streamDead = false; // 上轮 stopSpeaking 链死位复位（主动发言独立开流）
+    this.fallbackText = "";
+    this.clearCutTimer();
+    const speech = mdToSpeechText(text, SPEECH_AGGREGATE_MAX);
+    if (speech === "") return;
+    for (const sentence of this.buffer.push(speech)) this.issue(sentence);
+    const tail = this.buffer.flush();
+    if (tail !== null) this.issue(tail);
+  }
+
   /** 释放（面板卸载）。 */
   close(): void {
     this.disposed = true;

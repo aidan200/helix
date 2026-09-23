@@ -1425,7 +1425,7 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 .stp-composer { flex: 0 0 auto; display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid rgb(var(--accent-rgb) / 0.08); }
 .stp-input {
   flex: 1; min-width: 0; padding: 6px 10px; font-size: var(--text-body);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono); resize: none; line-height: 1.5;
   background: rgb(var(--void-rgb) / 0.5); border: 1px solid rgb(var(--edge-rgb) / 0.2); border-radius: 6px; color: var(--text);
   transition: border-color 0.15s;
 }
@@ -1540,3 +1540,85 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .stp-stream-degraded { font-size: var(--text-cap); color: var(--text-dim); }
+
+/* ── 管家全局光球层（B2：StewardVoiceLayer——光球 + 字幕；E-135 真全屏
+   语义 fixed 视口层，z 序压过 StewardDock(60)/ConfirmStack(65)；
+   token 单源零内联 hex；动效仅 transform/opacity，E-124）────────── */
+.stv {
+  position: fixed; right: 20px; bottom: 20px; z-index: 68;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+  pointer-events: none; /* 字幕条不挡页面点击；光球本体单独放开 */
+  transition: opacity 0.18s ease-out;
+}
+.stv-fading { opacity: 0; }
+
+/* 字幕条（光球上方，玻璃族——tokens.md §07 弹层语义）*/
+.stv-caption {
+  max-width: 380px; max-height: 200px; overflow: hidden;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--popover-fill);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: 2px;
+  text-align: right;
+}
+html.light .stv-caption {
+  backdrop-filter: blur(10px) saturate(115%); -webkit-backdrop-filter: blur(10px) saturate(115%);
+}
+.stv-line { font-size: var(--text-body); color: var(--text); overflow-wrap: anywhere; }
+.stv-line[data-kind="user"] { color: var(--text-faint); } /* 用户行弱区分（final 实色偏弱） */
+.stv-interim { font-style: italic; color: var(--text-dim); } /* interim 灰（未定稿） */
+/* 堆叠渐隐：最新在下最实，往上逐行淡出（纯 opacity，E-124） */
+.stv-line:nth-last-child(5) { opacity: 0.35; }
+.stv-line:nth-last-child(4) { opacity: 0.55; }
+.stv-line:nth-last-child(3) { opacity: 0.75; }
+.stv-line:nth-last-child(2) { opacity: 0.9; }
+.stv-line:nth-last-child(1) { opacity: 1; }
+
+/* 光球（~96px 径向渐变球 + 呼吸 + RMS 波形环）*/
+.stv-orb {
+  position: relative; width: 96px; height: 96px; border-radius: 999px;
+  border: none; cursor: pointer; pointer-events: auto; padding: 0;
+  background:
+    radial-gradient(circle at 32% 30%, rgb(var(--accent-rgb) / 0.85), rgb(var(--accent-rgb) / 0.22) 58%, rgb(var(--accent-rgb) / 0.06) 82%);
+  box-shadow: var(--glow-cyan);
+  animation: stv-breathe 3.2s ease-in-out infinite;
+  transition: opacity 0.18s ease-out;
+}
+.stv-orb:focus-visible { outline: 1px solid rgb(var(--accent-rgb) / 0.6); outline-offset: 4px; }
+.stv-orb:active { transform: scale(0.97); }
+/* 相位色彩（accent/violet 通道 token——waking/listening 待听 accent，
+   thinking/speaking 管家输出 violet，closing 收场暗淡） */
+.stv-orb.stv-phase-thinking, .stv-orb.stv-phase-speaking {
+  background:
+    radial-gradient(circle at 32% 30%, rgb(var(--violet-rgb) / 0.85), rgb(var(--violet-rgb) / 0.22) 58%, rgb(var(--violet-rgb) / 0.06) 82%);
+  box-shadow: var(--glow-violet);
+  animation: stv-breathe 1.6s ease-in-out infinite; /* 输出期快呼吸（有动机：声律动） */
+}
+.stv-orb.stv-phase-welcome { animation: stv-breathe 2.2s ease-in-out infinite; }
+.stv-orb.stv-phase-waking { animation: stv-breathe 4.2s ease-in-out infinite; } /* 待命慢呼吸 */
+.stv-orb.stv-phase-closing { opacity: 0.35; animation: none; }
+.stv-orb.stv-muted { opacity: 0.55; animation: none; } /* 临时静音：暗淡驻息 */
+/* RMS 波形环（电平环放大——level 驱动 scale 变量，var 不入 animation 简写） */
+.stv-orb-ring {
+  position: absolute; inset: -7px; border-radius: 999px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.55);
+  transform: scale(var(--stv-lv, 0.6));
+  transition: transform 0.1s linear;
+}
+.stv-orb-core {
+  position: absolute; inset: 34%;
+  border-radius: 999px;
+  background: rgb(var(--void-rgb) / 0.7);
+  transition: opacity 0.18s;
+}
+@keyframes stv-breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.88; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stv { transition: none; }
+  .stv-orb { animation: none; transition: none; }
+  .stv-orb-ring { transition: none; }
+}

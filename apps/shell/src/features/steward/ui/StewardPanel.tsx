@@ -1,25 +1,16 @@
 /**
- * StewardPanel —— 管家对话面板（features/steward 消费端 UI；全局化批重做：
- * 由 chat 右缘 300px 列改 rail 右缘全局弹层内芯；V3a 语音模式：面板内
- * 双模切换，打开默认语音——「跟管家说话」闭环的呈现面）。
+ * StewardPanel —— 管家对话面板（纯记录面，B2 全局语音批瘦身定稿：设计稿
+ * §2 职责重划 / §3.5，D4）。
  *
- * 结构：头部（标题 + 在线状态 chip + 关闭钮）三段主体：事件流区
- * （steward.feed 文本行滚动窗）/ 对话区（user/steward 两方气泡 + ask 在途态）
- * + 底部输入区（双模）。确认卡 B1 起移出面板——左下角全局 ConfirmStack
- * （useStewardActions）承载，面板是纯记录与文字发送面（§2 职责重划）。
+ * B2 起语音能力整体移交全局光球层（StewardVoiceLayer——useStewardVoice
+ * 挂载点迁移）；本面板 = 历史流 + 文本输入（Enter 换行 / alt+enter 发送
+ * ——Composer 键位照抄）+ 顶部按钮（记忆/新对话/关闭）。语音区组件
+ * （mic 钮/波形/相位文案/interim 浮字/双模切换/voiceDraft 采纳路径/
+ * 耳机提示）已退役；Esc 让位逻辑（wake 会话在途不关面板）随语音 UI
+ * 一起退役——Esc 回归纯关面板。
  *
- * 双模输入区（V3a）：modebar（语音/文本 切换排 + speaking 态静音钮）之下
- * 二选一互斥渲染——
- * - 语音面（默认）：mic 钮（idle 点击开始 / listening 点击强制停 / 在途禁用）
- *   + 电平波形（level 驱动 scaleY，phase 容器态脉冲）+ 阶段文案行
- *   （idle/listening/transcribing/asking/speaking）+ 行内错误行（转写失败）；
- * - 文本面（既有）：输入框 + 发送钮（Enter 同义）。
- *
- * 状态面（useStewardVoice 单点，V2.5 useSteward 全面透传 + 语音组合）：
- * config null 或 enabled=false → 关闭引导占位（不渲染输入面——daemon
- * money gate 客户端同构，头部状态 chip 同步「未开启」）。
- * 语音转写 ask 发送失败 → voiceDraft 采纳进草稿并切文本态（可重试，
- * 零静默丢话）。
+ * 状态面（useSteward 单点）：config null 或 enabled=false → 关闭引导
+ * 占位（daemon money gate 客户端同构，头部状态 chip 同步「未开启」）。
  *
  * Markdown 渲染：steward 气泡复用主聊天 MarkdownMessage（react-markdown +
  * gfm + breaks）；user 气泡纯文本（主聊天同口径）。流式期间（askInFlight +
@@ -31,30 +22,21 @@
  * （A1：隐藏不卸载但全局监听归活跃态）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Brain, ChevronDown, ChevronRight, Mic, Square, Wrench } from "lucide-react";
-import { useStewardVoice } from "../model/useStewardVoice";
+import { Brain, ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { useSteward } from "../model/useSteward";
 import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
-import type { StewardVoicePhase } from "../model/steward-voice-machine";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
-import { readPersistedFlag, writePersistedFlag } from "@/shared/lib/persisted-flag";
 import { useI18n } from "@/shared/i18n";
 
 interface StewardPanelProps {
   onClose: () => void;
   /** 面板活跃（可见）态；false = Dock 隐藏期（组件树驻留但不可见）——
- *  Esc 窗口监听挂载归活跃态（隐藏期零全局监听，A1）。 */
+   *  Esc 窗口监听挂载归活跃态（隐藏期零全局监听，A1）。 */
   readonly active?: boolean;
   /** B2-④ 入口①：头部记忆钮 → 记忆独立页 /steward/memory（app 层注入）。 */
   readonly onOpenMemory?: () => void;
 }
-
-/** 波形条高型（7 条对称阵列；listening 态 = level × 型值，他态贴底）。 */
-const WAVE_PATTERN = [0.45, 0.75, 1, 0.6, 1, 0.75, 0.45] as const;
-
-/** 耳机提示一次性 flag（B2 随附：扬声器场景建议戴耳机——防自声触发；
- *  persisted-flag 白名单抽象，AG-14 零业务状态持久化口径）。 */
-const HEADSET_HINT_KEY = "helix.steward.headsetHintSeen";
 
 /** thinking 折叠条目（默认折叠可展开——屏幕通道完整显示，样式对齐主会话
  *  thinking 条目密度但更紧凑；A1 批）。 */
@@ -125,10 +107,8 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
 
 const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory }: StewardPanelProps) {
   const { t } = useI18n();
-  const sv = useStewardVoice(active);
+  const sv = useSteward();
   const [draft, setDraft] = useState("");
-  // 耳机提示（B2 随附）：语音模式首次进入一次性明示（扬声器场景防自声触发）
-  const [headsetHintSeen, setHeadsetHintSeen] = useState(() => readPersistedFlag(HEADSET_HINT_KEY, false));
 
   // 历史锚底（驾驶舱批①：chat 页 MessageFlow 滚动语义同构）：吸附态新内容
   // 贴底；上滚脱附不拽回；回底 1s 驻留恢复吸附；打开面板强制贴底。
@@ -141,35 +121,19 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  // Esc = 纯关面板（B2 语音退役后回归——wake 会话让位逻辑随语音 UI 拆除）
   useEffect(() => {
     if (!active) return; // 隐藏期零全局监听（A1：隐藏不卸载但监听归活跃态）
-    const wakeActive = sv.wakeState !== "off";
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // B4：唤醒会话在途时 Esc = 手动退出会命并关麦（useStewardVoice 同键
-      // 监听双听消费，此处只让位不关面板）；否则 = 既有关面板语义
-      if (wakeActive) return;
-      onCloseRef.current();
+      if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, sv.wakeState]);
-
-  // ask 发送失败的转写文本采纳：回填草稿 + 切文本态（可重试，零静默丢话）
-  const voiceDraft = sv.voiceDraft;
-  const setMode = sv.setMode;
-  const clearVoiceDraft = sv.clearVoiceDraft;
-  useEffect(() => {
-    if (voiceDraft === null) return;
-    setDraft(voiceDraft);
-    setMode("text");
-    clearVoiceDraft();
-  }, [voiceDraft, setMode, clearVoiceDraft]);
+  }, [active]);
 
   const enabled = sv.config?.enabled === true;
-  const { mode, phase, level } = sv;
 
-  // 内容增长贴底（仅吸附态）：条目流/流式文本/确认卡出入/输入面可用性变化。
+  // 内容增长贴底（仅吸附态）：条目流/流式文本/输入面可用性变化。
   useLayoutEffect(() => {
     sticky.stickIfAttached();
   }, [sticky, sv.items, sv.streamingText, sv.askInFlight]);
@@ -186,21 +150,6 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
     if (ok === false) return;
     setDraft("");
   };
-
-  const phaseCaption: Record<StewardVoicePhase, string> = {
-    unsupported: t("steward.voice.micUnavailable"),
-    idle: t("steward.voice.phaseIdle"),
-    wake_armed: t("steward.voice.phaseWakeArmed"),
-    listening: t("steward.voice.phaseListening"),
-    transcribing: t("steward.voice.phaseTranscribing"),
-    asking: t("steward.voice.phaseAsking"),
-    speaking: t("steward.voice.phaseSpeaking"),
-  };
-  const listening = phase === "listening";
-  // B4 唤醒待命（可见待命指示）：mic 鈕 = 手动退出会话并关麦（cancelWake）
-  const wakeArmed = phase === "wake_armed";
-  const micLive = listening || wakeArmed;
-  const micBusy = phase === "transcribing" || phase === "asking";
 
   return (
     <aside className="stp" data-testid="steward-panel" role="complementary" aria-label={t("steward.title")}>
@@ -270,123 +219,30 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
               )
             )}
           </div>
-          {/* B1：确认卡移出面板——左下角全局 ConfirmStack 承载（useStewardActions） */}
-          {/* 双模切换排（V3a）：语音/文本互斥 + 朗读中静音钮（一键停读） */}
-          <div className="stp-modebar">
-            <div className="stp-mode" data-testid="steward-mode" role="group" aria-label={t("steward.voice.modeLabel")}>
-              <button
-                type="button"
-                className={`stp-mode-btn${mode === "voice" ? " on" : ""}`}
-                data-testid="steward-mode-voice"
-                aria-pressed={mode === "voice"}
-                title={phase === "unsupported" ? t("steward.voice.micUnavailable") : undefined}
-                onClick={() => sv.setMode("voice")}
-              >
-                {t("steward.voice.modeVoice")}
-              </button>
-              <button
-                type="button"
-                className={`stp-mode-btn${mode === "text" ? " on" : ""}`}
-                data-testid="steward-mode-text"
-                aria-pressed={mode === "text"}
-                onClick={() => sv.setMode("text")}
-              >
-                {t("steward.voice.modeText")}
-              </button>
-            </div>
-            {sv.speaking && (
-              <button type="button" className="stp-mute" data-testid="steward-mute" onClick={sv.stopSpeaking}>
-                {t("steward.voice.speakStop")}
-              </button>
-            )}
+          {/* B1：确认卡移出面板——左下角全局 ConfirmStack 承载（useStewardActions）。
+              B2：语音区退役——全局光球层（StewardVoiceLayer）承载语音 */}
+          <div className="stp-composer">
+            <textarea
+              className="stp-input"
+              data-testid="steward-input"
+              value={draft}
+              rows={2}
+              placeholder={t("steward.inputPlaceholder")}
+              disabled={sv.askInFlight}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // Alt+Enter 发送；Enter / Shift+Enter 不拦截（原生换行）——
+                // Composer 键位照抄（设计稿 §1.4）
+                if (e.key === "Enter" && e.altKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            <button type="button" className="stp-send" data-testid="steward-send" disabled={sv.askInFlight} onClick={submit}>
+              {t("steward.send")}
+            </button>
           </div>
-          {mode === "voice" ? (
-            /* 语音面：mic 钮 + 电平波形 + 阶段文案（phase 容器态驱动视觉） */
-            <div className="stp-voice" data-testid="steward-voice" data-phase={phase}>
-              <button
-                type="button"
-                className={`stp-mic${micLive ? " listening" : ""}`}
-                data-testid="steward-mic"
-                disabled={micBusy}
-                aria-label={micLive ? t("steward.voice.micStop") : t("steward.voice.micStart")}
-                onClick={() => (wakeArmed ? sv.cancelWake() : listening ? sv.stopListening() : void sv.startListening())}
-              >
-                {micLive ? <Square size={15} strokeWidth={1.75} /> : <Mic size={16} strokeWidth={1.75} />}
-              </button>
-              <div className="stp-wave" aria-hidden="true">
-                {WAVE_PATTERN.map((shape, i) => (
-                  <i
-                    key={i}
-                    className="stp-wave-bar"
-                    style={{ transform: `scaleY(${micLive ? Math.max(0.12, level * shape).toFixed(3) : 0.12})` }}
-                  />
-                ))}
-              </div>
-              <div className="stp-voice-status">
-                <span className="stp-voice-phase" data-testid="steward-voice-phase">
-                  {phaseCaption[phase]}
-                </span>
-                {/* V3b-1 流式 interim 浮字：淡色斜体，波形下方实时上屏（listening
-                    态随帧刷新；transcribing 态短暂保留至 final 转正；B4 唤醒待命期
-                    = 唤醒匹配进度可视，命中前内容只上屏不入对话）；final 到达
-                    由 ask 气泡接管 */}
-                {(micLive || phase === "transcribing") && sv.interim !== null && sv.interim !== "" && (
-                  <span className="stp-interim" data-testid="steward-interim" aria-live="polite">
-                    {sv.interim}
-                  </span>
-                )}
-                {phase === "idle" && (
-                  <span className="stp-voice-hint" data-testid="steward-voice-hint">
-                    {t("steward.voice.phaseIdleHint")}
-                  </span>
-                )}
-                {sv.streamDegraded && (listening || phase === "transcribing") && (
-                  <span className="stp-stream-degraded" data-testid="steward-stream-degraded">
-                    {t("steward.voice.streamDegraded")}
-                  </span>
-                )}
-                {sv.voiceError !== null && (
-                  <span className="stp-voice-err" data-testid="steward-voice-err">
-                    {sv.voiceError}
-                  </span>
-                )}
-                {/* B2 随附耳机提示：一次性（flag 持久，关闭后不再现） */}
-                {!headsetHintSeen && (
-                  <span className="stp-headset-hint" data-testid="steward-headset-hint">
-                    <span className="stp-headset-hint-text">{t("steward.voice.headsetHint")}</span>
-                    <button
-                      type="button"
-                      className="stp-headset-hint-dismiss"
-                      data-testid="steward-headset-hint-dismiss"
-                      onClick={() => {
-                        writePersistedFlag(HEADSET_HINT_KEY, true);
-                        setHeadsetHintSeen(true);
-                      }}
-                    >
-                      {t("steward.voice.headsetHintDismiss")}
-                    </button>
-                  </span>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="stp-composer">
-              <input
-                className="stp-input"
-                data-testid="steward-input"
-                value={draft}
-                placeholder={t("steward.inputPlaceholder")}
-                disabled={sv.askInFlight}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                }}
-              />
-              <button type="button" className="stp-send" data-testid="steward-send" disabled={sv.askInFlight} onClick={submit}>
-                {t("steward.send")}
-              </button>
-            </div>
-          )}
         </>
       )}
     </aside>

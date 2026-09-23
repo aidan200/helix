@@ -55,6 +55,7 @@ import CoordNoticeToast from "./CoordNoticeToast";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 import StewardDock from "@/features/steward/ui/StewardDock";
 import ConfirmStack from "@/features/steward/ui/ConfirmStack";
+import StewardVoiceLayer from "@/features/steward/ui/StewardVoiceLayer";
 import StewardMemoryPage from "@/pages/steward-memory/StewardMemoryPage";
 import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
 
@@ -83,9 +84,14 @@ export function AppRoutes() {
   const [stewardOpen, setStewardOpen] = useState(false);
   const toggleSteward = useCallback(() => setStewardOpen((v) => !v), []);
   const closeSteward = useCallback(() => setStewardOpen(false), []);
-  // B4 唤醒链：全局组合键触发即升起面板（可见待命指示 + 回答同屏；
-  // steward-open-signal 跨层信号，TR-203 定式——已在开 = 无感幂等）
-  useEffect(() => subscribeOpenSteward(() => setStewardOpen(true)), []);
+  // B2 全局语音层（steward-open-signal 接线方改唤起光球，D1=A：唤醒=
+  // 光球浮现+欢迎语+持续麦双工，不弹面板）：app 层计数信号递进 → Layer
+  // 消费唤起（已在会话无感幂等；热键路径在 hook 内直连 wake-hotkey 零经信号）
+  const [voiceWakeSignal, setVoiceWakeSignal] = useState(0);
+  useEffect(
+    () => subscribeOpenSteward(() => setVoiceWakeSignal((n) => n + 1)),
+    [],
+  );
   // B2-④ 入口①：StewardPanel 头部记忆钮 → 记忆独立页（关面板 + 导航）
   const openStewardMemory = useCallback(() => {
     setStewardOpen(false);
@@ -183,6 +189,10 @@ export function AppRoutes() {
       {/* B1 确认卡栈（左下角全局 fixed 视口层——E-135 真全屏语义）：多卡并存
           独立于面板开合/光球（纯文本期照常出现）；数据面单实例挂载于此 */}
       <ConfirmStack />
+      {/* B2 管家全局光球层（app 壳级独立 root——E-135 真全屏语义，D1=A）：
+          光球+字幕+语音双工常驻挂载（duplex 期渲染，不在场零 DOM）；z 序
+          压过 StewardDock/scanline */}
+      <StewardVoiceLayer wakeSignal={voiceWakeSignal} />
       {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；各页历史副本已随 AppLayout 迁移全数清理） */}
       <div className="scanline-overlay" aria-hidden="true" />
       {/* W2-D kg sync 提示全局 toast（task.changed 随行 syncHint 直渲；页面无关常驻） */}

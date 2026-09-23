@@ -160,11 +160,11 @@ async function tick(): Promise<void> {
 
 type HookResult = { current: ReturnType<typeof useStewardVoice> };
 
-function renderVoice(open = true, options?: { readonly wakeTimeoutMs?: number }): HookResult {
-  // 返回 result ref（r.current = 钩子面）——renderHook 返回值解构常见坑钉死
-  return renderHook(({ active }: { active: boolean }) => useStewardVoice(active, { createMeter: fakeCreateMeter, ...options }), {
+function renderVoice(options?: { readonly wakeTimeoutMs?: number }): HookResult {
+  // 返回 result ref（r.current = 钩子面）——renderHook 返回值解构常见坑钉死；
+  // B2：open 参数退役（耳面采样门改 duplex 会话活跃——面板语音已随 B2 退役）
+  return renderHook(() => useStewardVoice({ createMeter: fakeCreateMeter, ...options }), {
     wrapper: I18nProvider,
-    initialProps: { active: open },
   }).result;
 }
 
@@ -267,7 +267,7 @@ describe("useStewardVoice 唤醒链（B4：组合键 → 唤醒词 → 对话）
     const env = installEnv();
     restoreEnv = env.restore;
     trackStop = env.trackStop;
-    const r = renderVoice(true, { wakeTimeoutMs: 50 });
+    const r = renderVoice({ wakeTimeoutMs: 50 });
     await pressHotkey();
     expect(r.current.phase).toBe("wake_armed");
     // 命中前的转写内容不入对话（interim 有话语但无唤醒词）
@@ -317,22 +317,6 @@ describe("useStewardVoice 唤醒链（B4：组合键 → 唤醒词 → 对话）
     expect(sendStewardAsk).toHaveBeenCalledWith("今天有什么任务在跑");
   });
 
-  it("面板关闭即关麦（麦克风生命周期纪律）：唤醒会话随面板关闭取消收场", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    trackStop = env.trackStop;
-    const hook = renderHook(({ active }: { active: boolean }) => useStewardVoice(active, { createMeter: fakeCreateMeter }), {
-      wrapper: I18nProvider,
-      initialProps: { active: true },
-    });
-    await act(async () => {
-      fireWakeHotkey?.();
-    });
-    await tick();
-    expect(hook.result.current.wakeState).toBe("standby");
-    hook.rerender({ active: false });
-    expect(hook.result.current.wakeState).toBe("off");
-    expect(trackStop).toHaveBeenCalled();
-    expect(sendStewardAsk).not.toHaveBeenCalled();
-  });
+  // B2「面板关闭即关麦」随 open 参数退役：duplex 会话收口（关麦/超时/Esc）
+  // 共径 cancelWake 已在 useStewardVoice.duplex.test 钉（track.stop 断言面）。
 });
