@@ -163,6 +163,9 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   const lastLoudAtRef = useRef(0);
   const levelRef = useRef(0);
   const stateRef = useRef<VoiceState>(state);
+  /** 取消代数（修复排查）：cancel 递增——start 在 await getUserMedia 窗口内
+   *  被 cancel 时，迟归 stream 凭代数失配立即释放，零孤儿开麦。 */
+  const cancelGenRef = useRef(0);
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
   const createMeter = options?.createMeter ?? createWorkletRmsMeter;
@@ -316,6 +319,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
 
   const start = useCallback(async () => {
     if (stateRef.current !== "idle") return;
+    const startGen = ++cancelGenRef.current; // 领当代（窗口内 cancel 即失配）
     setError(null);
     if (typeof navigator === "undefined" || navigator.mediaDevices === undefined) {
       setStateSafe("unsupported");
@@ -323,6 +327,11 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 窗口内已取消（cancelWake/toggleMute/Esc…）：即刻释放迟归麦，零孤儿开麦
+      if (startGen !== cancelGenRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
       const mime = pickMimeType();
       if (mime === undefined) throw new Error(t("chat.voice.noMime"));
       const recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
@@ -393,6 +402,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
 
   /** 取消收口（B4）：关麦零转写（同步收场——track.stop 即刻断言面）。 */
   const cancel = useCallback(() => {
+    cancelGenRef.current += 1; // 迟归 getUserMedia 作废（代数失配即弃）
     const recorder = recorderRef.current;
     const wasRecording = isRecording();
     closeMeter();
