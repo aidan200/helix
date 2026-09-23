@@ -121,6 +121,9 @@ export default function StewardCard({
             <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
           </span>
         </div>
+        <span className="ag-note" data-steward-model-note>
+          {t("agents.stewardModelNote")}
+        </span>
       </div>
 
       {/* system prompt 折叠面板：默认收起显示首行任务描述；展开全文（数据随档案

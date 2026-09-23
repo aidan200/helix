@@ -365,7 +365,7 @@ export function configGetTopicCommand(): ConfigGetTopicCommand {
 /** config.set_topic：动态主题配置写面（全局命令；运行期即热）。
  * 部分更新语义：携带项写入，未携带项保留现值。 */
 export function configSetTopicCommand(
-  patch: { enabled?: boolean; model?: string | null; classifyEnabled?: boolean; classifyEndpointId?: string | null },
+  patch: { enabled?: boolean; model?: string | null; classifyEndpointId?: string | null },
 ): ConfigSetTopicCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_topic", payload: patch };
 }

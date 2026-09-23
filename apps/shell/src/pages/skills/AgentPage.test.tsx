@@ -1314,7 +1314,8 @@ describe("管家公民权批 + 管家配置并轨批：常驻服务分组 + 管�
     const select = card.querySelector("[data-steward-model-select]") as HTMLSelectElement;
     expect(select).not.toBeNull();
     expect(select.value).toBe("deepseek/deepseek-v4-flash");
-    expect(card.querySelector("[data-steward-model-note]")).toBeNull();
+    // 模型用途一句话（用户裁决 2026-09-24：说明模型在什么环节使用，简短不冗余）
+    expect(card.querySelector("[data-steward-model-note]")?.textContent).toContain("管家回复与长对话压缩摘要所用模型");
     // 八工具清单：名称 + 一句话描述
     const rows = [...card.querySelectorAll("[data-steward-tool-row]")];
     expect(rows.map((r) => r.getAttribute("data-steward-tool-row"))).toEqual(STEWARD_PROFILE_PAYLOAD.tools.map((t) => t.name));

@@ -70,7 +70,7 @@ import {
 } from "../application/embedding/EmbeddingConfigService";
 import { CustomProviderService } from "../application/services/CustomProviderService";
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
-import { JevJudgeAdapter } from "../adapters/driven/embedding/JevJudgeAdapter";
+import { makeJudgeAdapter } from "../adapters/driven/embedding/JudgeAdapterFactory";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0";
 import { getLoadablePath as sqliteVecLoadablePath } from "sqlite-vec";
@@ -716,9 +716,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const embeddingConfig = new EmbeddingConfigService({
     config: persistence.runtimeConfig,
     createProbe: (cfg) => new OpenAiCompatEmbeddingAdapter({ getConfig: () => cfg }),
-    // B4a：classifier 端点 verify 探测面（Jev /systemone noul）——与
-    // createProbe 同构（按目标端点现配一次性构造，探测完即奔）
-    createJudgeProbe: (cfg) => new JevJudgeAdapter({ getConfig: () => cfg }),
+    // B4a：classifier 端点 verify 探测面（分类模型注册表分派——variant
+    // 区分实现）——与 createProbe 同构（按目标端点现配一次性构造，探测完即弃）
+    createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg),
   });
   void embeddingConfig
     .migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)
@@ -774,17 +774,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         embedding,
         embeddingConfig,
         store,
-        // B4a 判官真体：judgeEndpointId 惰性解析 + kind 校验（误指 embedding
-        // 端点 → null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
+        // B4a 判官真体（分类模型注册表分派，variant 区分实现）：
+        // judgeEndpointId 惰性解析 + kind 校验（误指 embedding 端点 →
+        // null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
         // 同一 service 上语义正确：vec0 缺席时判了也存不了，不如不判。
-        judge: new JevJudgeAdapter({
-          getConfig: () => {
-            const judgeEndpointId = persistence.runtimeConfig.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY);
-            if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
-            const record = embeddingConfig.resolveRecord(judgeEndpointId);
-            if (record === null || record.kind !== "classifier") return null;
-            return record;
-          },
+        judge: makeJudgeAdapter(() => {
+          const judgeEndpointId = persistence.runtimeConfig.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY);
+          if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
+          const record = embeddingConfig.resolveRecord(judgeEndpointId);
+          if (record === null || record.kind !== "classifier") return null;
+          return record;
         }),
         logger: { warn: (message) => logger.warn(message) },
       });
@@ -971,9 +970,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // ── 动态主题批：SessionTitleService（fanout 目标 session-topic-bridge
   //    的服务体）。配置面 = TopicConfigStore 单键 JSON（读写单点）；生成面
   //    复用管家 LLM 适配器形态（独立实例——模型槽位 = topic_config.model，
-  //    未设置 = flash 级默认，换模型换 key 热生效）；两段式判官 =
-  //    classifyEndpointId 实时解析 kind=classifier 端点构造（端点删除/改型
-  //    → 抛错退化一段式）；money gate：开关关 = 锚点短路零 LLM 调用。──
+  //    未设置 = flash 级默认，换模型换 key 热生效）；分类判断恒开：
+  //    classifyEndpointId 选中 = 分类模型注册表分派判官（variant 区分实现，
+  //    端点删除/改型 → 抛错降级），未选 = 生成模型兼任判断；money gate：
+  //    开关关 = 锚点短路零 LLM 调用。──
   const topicConfig = new TopicConfigStore(persistence.runtimeConfig);
   const sessionTitleService =
     deps.sessionTitleOverride ??
@@ -985,17 +985,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         defaultModel: STEWARD_DEFAULT_MODEL,
         getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
       }),
-      // 两段式判官（懒构造：每次判定实时解析端点——换端点/删端点零重启跟随；
-      // 与管家记忆 B4a 判官同构，端点 id 独立）
-      judge: {
-        noul: async (state: string, question: string) => {
-          const endpointId = topicConfig.current().classifyEndpointId;
-          if (endpointId === undefined || endpointId === null || endpointId === "") throw new Error("分类端点未配置（动态主题两段式退化）");
-          const record = embeddingConfig.resolveRecord(endpointId);
-          if (record === null || record.kind !== "classifier") throw new Error(`分类端点无效：${endpointId}`);
-          return new JevJudgeAdapter({ getConfig: () => record }).noul(state, question);
-        },
-      },
+      // 两段式判官（懒解析：每次判定实时取端点——换端点/删端点零重启跟随；
+      // 分类模型注册表分派，variant 区分实现；与管家记忆 B4a 判官同构，端点 id 独立）
+      judge: makeJudgeAdapter(() => {
+        const endpointId = topicConfig.current().classifyEndpointId;
+        if (endpointId === undefined || endpointId === null || endpointId === "") return null;
+        const record = embeddingConfig.resolveRecord(endpointId);
+        if (record === null || record.kind !== "classifier") throw new Error(`分类端点无效：${endpointId}`);
+        return record;
+      }),
       resolveTarget: (sessionId) => {
         const runtime = registry.peekHotRuntime(sessionId);
         if (runtime === undefined) return undefined;

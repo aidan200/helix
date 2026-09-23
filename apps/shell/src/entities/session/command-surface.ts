@@ -624,7 +624,7 @@ export const COMMAND_SURFACE = {
   /** 动态主题配置写入（运行期即热——下一次锚点按新配置执行）。
    *  部分更新语义：携带项写入，未携带项保留现值。send 返回值透传（code-review H8）。 */
   setTopicConfig: (deps) =>
-    (patch: { enabled?: boolean; model?: string | null; classifyEnabled?: boolean; classifyEndpointId?: string | null }): boolean =>
+    (patch: { enabled?: boolean; model?: string | null; classifyEndpointId?: string | null }): boolean =>
       deps.send(configSetTopicCommand(patch)),
   /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
    *  恢复发送前凭据条目 + 返回 false。 */

@@ -157,11 +157,11 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       break;
     case "config.get_topic.result":
       // 动态主题读回执（动态主题批；get = 现态 + judge 端点清单）
-      next = { ...mc, topic: { enabled: frame.payload.enabled, model: frame.payload.model, classifyEnabled: frame.payload.classifyEnabled, classifyEndpointId: frame.payload.classifyEndpointId, judgeEndpoints: [...(frame.payload.judgeEndpoints ?? [])] } };
+      next = { ...mc, topic: { enabled: frame.payload.enabled, model: frame.payload.model, classifyEndpointId: frame.payload.classifyEndpointId, judgeEndpoints: [...(frame.payload.judgeEndpoints ?? [])] } };
       break;
     case "config.set_topic.result":
       // 动态主题写回执（state = 写入后新现态回读）
-      next = { ...mc, topic: { enabled: frame.payload.state.enabled, model: frame.payload.state.model, classifyEnabled: frame.payload.state.classifyEnabled, classifyEndpointId: frame.payload.state.classifyEndpointId, judgeEndpoints: [...(frame.payload.state.judgeEndpoints ?? [])] } };
+      next = { ...mc, topic: { enabled: frame.payload.state.enabled, model: frame.payload.state.model, classifyEndpointId: frame.payload.state.classifyEndpointId, judgeEndpoints: [...(frame.payload.state.judgeEndpoints ?? [])] } };
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);

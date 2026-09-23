@@ -355,11 +355,11 @@ export interface SandboxConfigState {
 }
 
 /** 动态主题配置（与协议 ConfigTopicStatePayload 同构，动态主题批）。
- *  judgeEndpoints 缺省 []（旧 daemon 回执缺键兑底——子开关可用性判据）。 */
+ *  分类判断恒开（分类模型可选，null = 生成模型兼任）；judgeEndpoints 缺省
+ *  []（旧 daemon 回执缺键兑底——分类模型下拉数据源）。 */
 export interface TopicConfigState {
   enabled: boolean;
   model: string | null;
-  classifyEnabled: boolean;
   classifyEndpointId: string | null;
   judgeEndpoints: readonly { id: string; name: string }[];
 }

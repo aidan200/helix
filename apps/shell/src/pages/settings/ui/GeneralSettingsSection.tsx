@@ -31,14 +31,15 @@
  * 本地校验失败（空串/非整数/越界）的行内提示归本组件三卡独立位，
  * 输入变更即清（code-review 低危：不再静默 return）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
 import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
-import type { EmbeddingEndpointView } from "@helix/protocol";
+import { filterAvailableModels } from "@/features/model-switch/model/available-models";
+import type { CatalogModel, EmbeddingEndpointView } from "@helix/protocol";
 
 /** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
 const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
@@ -56,7 +57,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenModelsEmbeddingTab: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestTopicConfig, setTopicConfig, requestModelConfig, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestTopicConfig, setTopicConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -175,12 +176,35 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   };
 
   // 动态主题（动态主题批）：result 帧驱动回填（与沙箱同构——无乐观更新）。
-  // 模型目录 = modelConfig.catalog（进入分区时未请求态拉取）；judge 端点
-  // 清单随 config.get/set_topic 回执携带（daemon 侧 kind=classifier 过滤）。
+  // 主题模型下拉 = 管家模型选择同款口径（filterAvailableModels 只列已配置
+  // provider 的模型 + provider optgroup，现值兑底 select 不说谎）；分类模型
+  // 下拉恒显可选（判定恒开：选中 = 两段式判官，空 = 生成模型兼任），清单
+  // 随 config.get/set_topic 回执携带（daemon 侧 kind=classifier 过滤）。
   const topicCfg = topology.modelConfig.topic;
   const [topicError, setTopicError] = useState<string | null>(null);
-  const topicModels = topology.modelConfig.catalog?.models ?? null;
   const topicJudgeList = topicCfg?.judgeEndpoints ?? [];
+  const { auth, authLoaded } = topology.modelConfig;
+  const topicModelsByProvider = useMemo(() => {
+    const visible = filterAvailableModels({
+      models: topology.modelConfig.catalog?.models ?? [],
+      auth,
+      authLoaded,
+      currentModel: topicCfg?.model ?? undefined,
+      query: "",
+    });
+    const current = topicCfg?.model ?? null;
+    const withCurrent =
+      current !== null && !visible.some((m) => m.id === current)
+        ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
+        : visible;
+    const map = new Map<string, CatalogModel[]>();
+    for (const m of withCurrent) {
+      const list = map.get(m.providerId);
+      if (list) list.push(m);
+      else map.set(m.providerId, [m]);
+    }
+    return map;
+  }, [topology.modelConfig.catalog, auth, authLoaded, topicCfg?.model]);
   const toggleTopic = (enabled: boolean): void => {
     if (setTopicConfig({ enabled }) === false) {
       setTopicError(t("chat.settings.general.sendFail"));
@@ -190,18 +214,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   };
   const selectTopicModel = (value: string): void => {
     if (setTopicConfig({ model: value === "" ? null : value }) === false) {
-      setTopicError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setTopicError(null);
-  };
-  const toggleTopicClassify = (enabled: boolean): void => {
-    // 清单空 → checkbox 已禁用；开启时未选端点自动选首个（后端校验同步拦）
-    const patch =
-      enabled && topicCfg?.classifyEndpointId == null && topicJudgeList.length > 0
-        ? { classifyEnabled: true, classifyEndpointId: topicJudgeList[0]!.id }
-        : { classifyEnabled: enabled };
-    if (setTopicConfig(patch) === false) {
       setTopicError(t("chat.settings.general.sendFail"));
       return;
     }
@@ -256,7 +268,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     [subscribeConfigFrames],
   );
 
-  // 进入分区拉取现值（未请求态才发）；模型目录为空时顺带拉取（主题模型下拉数据源）
+  // 进入分区拉取现值（未请求态才发）；模型目录 + auth（主题模型下拉
+  // 可用性过滤数据源，管家模型选择同款）
   useEffect(() => {
     requestCompactionConfig();
     requestSchedulingConfig();
@@ -264,7 +277,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     requestSandboxConfig();
     requestTopicConfig();
     requestModelConfig();
-  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestTopicConfig, requestModelConfig]);
+    requestAuthList();
+  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestTopicConfig, requestModelConfig, requestAuthList]);
 
   // 本地校验失败行内提示（code-review 低危：空串/非整数/越界不再静默
   // return）；三卡各自独立位——提示随本卡输入变更/保存成功清，与
@@ -436,6 +450,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                 {t("chat.settings.general.stewardMemoryGoConfig")}
               </button>
             )}
+            <span className="ag-note">{t("chat.settings.general.stewardMemoryEndpointNote")}</span>
           </div>
         )}
         {/* 判官端点下拉（B4a：kind=classifier 端点；未配 = 自动沉淀静默不挂） */}
@@ -469,6 +484,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                 {t("chat.settings.general.stewardMemoryGoConfig")}
               </button>
             )}
+            <span className="ag-note">{t("chat.settings.general.stewardMemoryJudgeNote")}</span>
           </div>
         )}
         {/* 入口②：管理记忆链接（跳记忆独立页 /steward/memory——mock 内嵌区退役） */}
@@ -718,8 +734,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
       </div>
 
-      {/* 会话（动态主题批）：阶段演进主题——开关 + 主题生成模型 + 分类判断
-          子开关（依赖 classifier 端点；清单随回执携带）；运行期即热 */}
+      {/* 会话（动态主题批）：阶段演进主题——开关 + 主题生成模型 + 分类模型
+          （判定恒开：选中 = 两段式判官，空 = 生成模型兼任）；运行期即热 */}
       <h3 className="section-label gen-group-label">{t("chat.settings.general.groupSession")}</h3>
       <div className="hud-card" data-topic-card>
         <div className="fld">
@@ -765,47 +781,44 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                   onChange={(e) => selectTopicModel(e.target.value)}
                 >
                   <option value="">{t("chat.settings.general.topicModelDefault")}</option>
-                  {(topicModels ?? []).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.id}
-                    </option>
+                  {[...topicModelsByProvider.entries()].map(([providerId, models]) => (
+                    <optgroup label={providerId} key={providerId}>
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>
               <span className="ag-note">{t("chat.settings.general.topicModelNote")}</span>
             </div>
             <div className="fld fld-sub" data-topic-classify>
-              <span className="hud-label">{t("chat.settings.general.topicClassify")}</span>
-              <label className="set-check" data-topic-classify-enabled>
-                <input
-                  type="checkbox"
-                  checked={topicCfg.classifyEnabled === true}
-                  disabled={topicJudgeList.length === 0}
-                  onChange={(e) => toggleTopicClassify(e.target.checked)}
-                />
-                {t("chat.settings.general.topicClassifyOn")}
+              <label className="hud-label" htmlFor="topic-classify-select">
+                {t("chat.settings.general.topicClassify")}
               </label>
+              <div className="sel-wrap">
+                <select
+                  id="topic-classify-select"
+                  className="hud-input"
+                  data-topic-endpoint-select
+                  value={topicCfg.classifyEndpointId ?? ""}
+                  onChange={(e) => selectTopicEndpoint(e.target.value)}
+                >
+                  <option value="">{t("chat.settings.general.topicClassifyDefault")}</option>
+                  {topicJudgeList.map((ep) => (
+                    <option key={ep.id} value={ep.id}>
+                      {ep.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="ag-note">{t("chat.settings.general.topicClassifyNote")}</span>
               {topicJudgeList.length === 0 && (
                 <span className="ag-note" data-topic-classify-empty>
                   {t("chat.settings.general.topicClassifyEmpty")}
                 </span>
-              )}
-              {topicCfg.classifyEnabled === true && topicJudgeList.length > 0 && (
-                <div className="sel-wrap">
-                  <select
-                    className="hud-input"
-                    data-topic-endpoint-select
-                    value={topicCfg.classifyEndpointId ?? ""}
-                    onChange={(e) => selectTopicEndpoint(e.target.value)}
-                  >
-                    <option value="">{t("chat.settings.general.topicEndpointPlaceholder")}</option>
-                    {topicJudgeList.map((ep) => (
-                      <option key={ep.id} value={ep.id}>
-                        {ep.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               )}
             </div>
           </>

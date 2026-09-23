@@ -86,7 +86,6 @@ function makeService(deps: {
       readConfig: () => ({
         enabled: true,
         model: null,
-        classifyEnabled: false,
         classifyEndpointId: null,
         ...(deps.config ?? {}),
       }),
@@ -251,7 +250,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
     const llm = fakeLlm([{ kind: "text", text: "新主题短语" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.1]);
     const target = makeTarget({ turnCount: 20, topic: "旧主题" });
-    const { service } = makeService({ config: { classifyEnabled: true, classifyEndpointId: "jev-1" }, llm, judge, target });
+    const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
     expect(judge.calls.length).toBe(1);
@@ -264,12 +263,24 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
     const llm = fakeLlm([{ kind: "text", text: "新主题短语" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD - 0.1]);
     const target = makeTarget({ turnCount: 20, topic: "旧主题" });
-    const { service } = makeService({ config: { classifyEnabled: true, classifyEndpointId: "jev-1" }, llm, judge, target });
+    const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
     service.onDomainEvent(turnDone("s1"));
     await settle();
     expect(judge.calls.length).toBe(1);
     expect(llm.calls.length).toBe(0);
     expect(target.updates.length).toBe(0);
+  });
+
+  test("未选分类模型（classifyEndpointId null）→ 判官能力在场也不启用，生成模型兼任判断", async () => {
+    const llm = fakeLlm([{ kind: "text", text: TOPIC_KEEP_SENTINEL }]);
+    const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.1]);
+    const target = makeTarget({ turnCount: 20, topic: "旧主题" });
+    const { service } = makeService({ config: { classifyEndpointId: null }, llm, judge, target });
+    service.onDomainEvent(turnDone("s1"));
+    await settle();
+    expect(judge.calls.length).toBe(0); // 判官零调用（生成模型一次调用自带判别）
+    expect(llm.calls.length).toBe(1);
+    expect((llm.calls[0]!.messages[0] as { text: string }).text).toContain(TOPIC_KEEP_SENTINEL); // 「保持」出口在场
   });
 
   test("LLM 失败 → 静默降级（保留旧 topic 零更新）", async () => {

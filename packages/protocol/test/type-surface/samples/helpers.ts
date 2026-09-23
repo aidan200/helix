@@ -112,7 +112,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "config.set_sandbox.result":
       return `config-set-sandbox-result:${event.payload.enabled}`;
     case "config.get_topic.result":
-      return `config-get-topic-result:${String(event.payload.enabled)}:${event.payload.model ?? "-"}:${String(event.payload.classifyEnabled)}:${event.payload.classifyEndpointId ?? "-"}`;
+      return `config-get-topic-result:${String(event.payload.enabled)}:${event.payload.model ?? "-"}:${event.payload.classifyEndpointId ?? "-"}`;
     case "config.set_topic.result":
       return `config-set-topic-result:${String(event.payload.state.enabled)}`;
     case "auth.list.result":

@@ -8,7 +8,7 @@ import { makeKvConfigStore } from "./KvConfigStore";
  * 上 topic_config 单键 JSON 读写，缺省回落全关——失败安全方向是「不演进」
  * 而非「意外花钱」）。写面经 RuntimeConfigPort → WriteQueue 单写通道（AG-06）。
  *
- * 单键 JSON 而非多布尔键：四字段同源同读（开关+模型+分类开关+端点是同一
+ * 单键 JSON 而非多布尔键：三字段同源同读（开关+生成模型+分类模型是同一
  * 决策面），部分更新合并逻辑在 handler 侧单点，本存储只整存整取。
  *
  * 生效语义：运行期即热——锚点判定前实时读（SessionTitleService），设置
@@ -21,8 +21,8 @@ export class TopicConfigStore implements TopicConfigPort {
     this.store = makeKvConfigStore<TopicConfig>(runtimeConfig, {
       key: "topic_config",
       parse: parseTopicConfig,
-      fallback: { enabled: false, model: null, classifyEnabled: false, classifyEndpointId: null },
-      clone: (v) => ({ enabled: v.enabled, model: v.model, classifyEnabled: v.classifyEnabled, classifyEndpointId: v.classifyEndpointId }),
+      fallback: { enabled: false, model: null, classifyEndpointId: null },
+      clone: (v) => ({ enabled: v.enabled, model: v.model, classifyEndpointId: v.classifyEndpointId }),
       serialize: (v) => JSON.stringify(v),
       warnLabel: "TopicConfigStore",
     });
@@ -40,8 +40,9 @@ export class TopicConfigStore implements TopicConfigPort {
 }
 
 /** 解析 KV JSON 值 → TopicConfig；非法/缺失 → undefined（调用方保缺省全关）。
- * 逐字段防御：enabled/classifyEnabled 布尔顿判（缺省 false）、model 与
- * classifyEndpointId 字符串或 null（非字符串视为 null）。 */
+ * 逐字段防御：enabled 布尔顿判（缺省 false）、model 与 classifyEndpointId
+ * 字符串或 null（非字符串视为 null）；历史键 classifyEnabled（分类判断
+ * 子开关，已退役——判定恒开）忽略不读。 */
 function parseTopicConfig(raw: string | undefined): TopicConfig | undefined {
   if (raw === undefined) return undefined;
   try {
@@ -50,7 +51,6 @@ function parseTopicConfig(raw: string | undefined): TopicConfig | undefined {
     return {
       enabled: parsed["enabled"] === true,
       model: str(parsed["model"]),
-      classifyEnabled: parsed["classifyEnabled"] === true,
       classifyEndpointId: str(parsed["classifyEndpointId"]),
     };
   } catch {

@@ -47,6 +47,11 @@ export interface EmbeddingEndpointRecord {
   readonly model: string;
   /** 端点用途（缺席 = embedding——存量兼容）。 */
   readonly kind?: EndpointKind;
+  /** 分类端点协议变体（kind=classifier 专用；缺席 = "jev"——存量兼容）。
+   *  makeJudgeAdapter 注册表按此分派适配器，新分类模型（非 Jev 协议）
+   *  接入时新增变体值 + 注册表条目，不改配置域形状（TR-159：parseRecords
+   *  逐字段显式透传，set 更新缺省保留）。 */
+  readonly variant?: string;
   /** 最近一次连通验证通过时间（epoch ms；从未验证 = 缺席）。 */
   readonly verifiedAt?: number;
 }
@@ -94,6 +99,7 @@ function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
         baseUrl: r.baseUrl,
         model: r.model,
         ...(r.kind === "embedding" || r.kind === "classifier" ? { kind: r.kind } : {}),
+        ...(typeof r.variant === "string" && r.variant !== "" ? { variant: r.variant } : {}),
         ...(typeof r.apiKey === "string" && r.apiKey !== "" ? { apiKey: r.apiKey } : {}),
         ...(typeof r.verifiedAt === "number" ? { verifiedAt: r.verifiedAt } : {}),
       });
@@ -148,6 +154,7 @@ export class EmbeddingConfigService {
     apiKey?: string;
     model: string;
     kind?: EndpointKind;
+    variant?: string;
   }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
     const name = input.name.trim();
     const baseUrl = input.baseUrl.trim();
@@ -164,6 +171,7 @@ export class EmbeddingConfigService {
         baseUrl,
         model,
         ...(input.kind !== undefined ? { kind: input.kind } : {}),
+        ...(input.variant !== undefined && input.variant !== "" ? { variant: input.variant } : {}),
         ...(input.apiKey !== undefined && input.apiKey !== "" ? { apiKey: input.apiKey } : {}),
       });
       await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
@@ -180,6 +188,12 @@ export class EmbeddingConfigService {
       // kind 缺省 = 保留现值（与 apiKey 同款——编辑面不改用途不丢分类）；
       // 显式传则覆盖
       ...(input.kind !== undefined ? { kind: input.kind } : prev.kind !== undefined ? { kind: prev.kind } : {}),
+      // variant 缺省 = 保留现值（与 kind 同款——编辑面不换协议变体不丢）
+      ...(input.variant !== undefined && input.variant !== ""
+        ? { variant: input.variant }
+        : prev.variant !== undefined
+          ? { variant: prev.variant }
+          : {}),
       // apiKey 空串 = 清除；缺省 = 保留现值（凭据只进不出——编辑面无原值可回填）
       ...(input.apiKey !== undefined
         ? input.apiKey !== ""

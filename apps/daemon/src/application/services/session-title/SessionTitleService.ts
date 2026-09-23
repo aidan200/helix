@@ -10,9 +10,10 @@
  * 演进策略（用户裁决 2026-09-24）：以 LLM 轮次为节拍——
  * - 锚点 = 第 1 / 10 / 20 / 30… 个完成轮（turn.completed reason="done"）：
  *   首轮矫正把「首条用户消息」升格为一句话主题；此后每 10 轮矫正一次；
- * - 两段式可配：开启「分类模型判断」（judge 端点，如 jev）→ 判官先判
+ * - 分类判断恒开（用户裁决 2026-09-24）：选中分类模型（topic_config.
+ *   classifyEndpointId，Jev 等按端点 variant 区分实现）→ 判官先判
  *   「主题是否实质漂移」（零生成 token），未漂移直接短路省掉生成调用；
- *   未开启 → 生成模型一次调用自带「保持 | 新主题」判别；
+ *   未选 → 生成模型一次调用自带「保持 | 新主题」判别（生成模型兼任判断）；
  * - 显式标题保护（域守卫双保险）：title 已定格（用户/管家显式命名）的
  *   会话零演进——读面优先级 title > topic > firstUserText；
  * - 失败降级：LLM/判官失败保留旧 topic 静默过掉，下个锚点自然重试。
@@ -49,7 +50,8 @@ export interface SessionTitleServiceDeps {
   readonly readConfig: () => SessionTopicRuntimeConfig;
   /** 生成面（单步补全；模型槽位 = SESSION_TOPIC_MODEL_KEY，解析失败中文 fail-fast）。 */
   readonly llm: StewardLlmPort;
-  /** 分类判官（可选——装配层按 classifyEndpointId 实时解析构造；缺席/端点失效 = 退化为一段式）。 */
+  /** 分类判官能力位（可选——装配层按 classifyEndpointId 实时解析构造；
+   *  classifyEndpointId 未选/端点失效 = 退化为生成模型兼任判断）。 */
   readonly judge?: { noul(state: string, question: string): Promise<number> };
   /** 热会话目标解析（冷会话/已删除 → undefined；锚点事件必热——冷会话无轮可完成）。 */
   readonly resolveTarget: (sessionId: string) => SessionTitleEvolveTarget | undefined;
@@ -181,7 +183,9 @@ export class SessionTitleService {
     this.inFlight.add(sessionId);
     try {
       const displayTitle = target.topic ?? deriveTitle(target.firstUserText);
-      const driftJudged = config.classifyEnabled && this.deps.judge !== undefined;
+      // 分类判断恒开：选中分类模型 → 两段式（判官先判漂移）；未选 → 生成
+      // 模型兼任（一次调用自带「保持 | 新主题」判别）
+      const driftJudged = (config.classifyEndpointId ?? "") !== "" && this.deps.judge !== undefined;
       if (driftJudged) {
         const { state, question } = buildDriftJudgeInput({ displayTitle, recentUserTexts: target.recentUserTexts });
         const probability = await this.deps.judge.noul(state, question);

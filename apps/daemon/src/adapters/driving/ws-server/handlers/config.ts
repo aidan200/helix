@@ -240,7 +240,7 @@ function topicJudgeEndpoints(ctx: WsCommandContext): readonly ConfigTopicStatePa
   return ctx.topicJudgeEndpoints();
 }
 
-/** config.get_topic：动态主题配置读面（点对点回执；恒带 judge 端点清单）。 */
+/** config.get_topic：动态主题配置读面（点对点回执；恒带分类端点清单）。 */
 export function handleConfigGetTopic(ctx: WsCommandContext): void {
   if (ctx.topicConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（topicConfig）");
@@ -255,7 +255,6 @@ export function handleConfigGetTopic(ctx: WsCommandContext): void {
     payload: {
       enabled: c.enabled,
       model: c.model,
-      classifyEnabled: c.classifyEnabled,
       classifyEndpointId: c.classifyEndpointId,
       judgeEndpoints: topicJudgeEndpoints(ctx),
     },
@@ -264,27 +263,19 @@ export function handleConfigGetTopic(ctx: WsCommandContext): void {
 }
 
 /** config.set_topic：动态主题配置写面（点对点回执；部分更新合并写）。
- * 校验单点：分类开关开启时 classifyEndpointId 必须指向清单内 classifier 端点
- *（清单空 = 开启被拒——前端同步禁用，服务端再拦一道）。 */
+ * 校验单点：classifyEndpointId 非空时必须指向清单内 classifier 端点
+ *（分类判断恒开：null = 生成模型兼任判断，无端点也可用）。 */
 export function handleConfigSetTopic(ctx: WsCommandContext): void {
   if (ctx.topicConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（topicConfig）");
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model, classifyEnabled, classifyEndpointId } = ctx.payload;
-  if (
-    enabled === undefined &&
-    model === undefined &&
-    classifyEnabled === undefined &&
-    classifyEndpointId === undefined
-  ) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload 至少携带一项（enabled/model/classifyEnabled/classifyEndpointId）");
+  const { enabled, model, classifyEndpointId } = ctx.payload;
+  if (enabled === undefined && model === undefined && classifyEndpointId === undefined) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload 至少携带一项（enabled/model/classifyEndpointId）");
   }
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
-  }
-  if (classifyEnabled !== undefined && typeof classifyEnabled !== "boolean") {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.classifyEnabled 应为 boolean");
   }
   if (model !== undefined && model !== null && typeof model !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string 或 null");
@@ -296,18 +287,12 @@ export function handleConfigSetTopic(ctx: WsCommandContext): void {
   const next = {
     enabled: enabled ?? cur.enabled,
     model: model === undefined ? cur.model : model === null || model === "" ? null : model,
-    classifyEnabled: classifyEnabled ?? cur.classifyEnabled,
     classifyEndpointId:
       classifyEndpointId === undefined ? cur.classifyEndpointId : classifyEndpointId === null || classifyEndpointId === "" ? null : classifyEndpointId,
   };
   const endpoints = topicJudgeEndpoints(ctx);
-  if (next.classifyEnabled) {
-    if (endpoints.length === 0) {
-      return ctx.commandError(ctx.type, "command.invalid_payload", "无可用分类端点（kind=classifier）——先在模型页配置分类端点");
-    }
-    if (next.classifyEndpointId === null || !endpoints.some((e) => e.id === next.classifyEndpointId)) {
-      return ctx.commandError(ctx.type, "command.invalid_payload", "分类开关开启时 classifyEndpointId 必须指向清单内分类端点");
-    }
+  if (next.classifyEndpointId !== null && !endpoints.some((e) => e.id === next.classifyEndpointId)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "classifyEndpointId 必须指向清单内分类端点（kind=classifier）");
   }
   void ctx.topicConfig
     .set(next)
@@ -321,7 +306,6 @@ export function handleConfigSetTopic(ctx: WsCommandContext): void {
           state: {
             enabled: next.enabled,
             model: next.model,
-            classifyEnabled: next.classifyEnabled,
             classifyEndpointId: next.classifyEndpointId,
             judgeEndpoints: endpoints,
           },

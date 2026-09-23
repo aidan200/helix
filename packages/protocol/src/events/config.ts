@@ -91,19 +91,20 @@ export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandbox
 
 /**
  * config.get_topic / config.set_topic 回执同形载荷（get = 现态读面；
- * set = 校验通过写入后的新现态回读）。judgeEndpoints 恒携带——设置页
- * 「分类模型判断」子开关可用性判定与下拉数据源（无可用端点 = 子开关禁用）。
+ * set = 校验通过写入后的新现态回读）。分类判断恒开：classifyEndpointId
+ * 选中分类模型 = 两段式（先判漂移再生成）；null = 由主题生成模型兼任判断。
+ * judgeEndpoints 恒携带——设置页分类模型下拉数据源（可选项恒为已配置的
+ * 分类端点，Jev 等按端点 variant 区分实现，UI 不感知具体实现）。
  */
 export interface ConfigTopicStatePayload {
   /** 动态主题开关（默认关）。 */
   enabled: boolean;
   /** 主题生成模型（"provider/model-id"；null = 未配置，回退全局兜底模型）。 */
   model: string | null;
-  /** 分类模型判断开关（两段式：先判漂移再生成；依赖 judge 端点）。 */
-  classifyEnabled: boolean;
-  /** 分类端点 id（embedding 配置域 kind=judge 条目；null = 未选）。 */
+  /** 分类模型端点 id（embedding 配置域 kind=classifier 条目；null = 不选，
+   *  生成模型兼任判断）。 */
   classifyEndpointId: string | null;
-  /** 可选 judge 端点清单（id + 显示名；空数组 = 无可用端点，子开关禁用）。 */
+  /** 可选分类端点清单（id + 显示名；空数组 = 暂无可选分类模型）。 */
   judgeEndpoints: readonly ConfigTopicJudgeEndpoint[];
 }
 export interface ConfigTopicJudgeEndpoint {

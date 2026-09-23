@@ -146,16 +146,15 @@ export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
 
 /**
  * config.set_topic 载荷：动态主题配置（部分更新语义：携带项写入，未携带项
- * 保留现值；分类开关开启时 classifyEndpointId 必填且指向 kind=judge 端点）。
+ * 保留现值；classifyEndpointId 非空时须指向 kind=classifier 端点——分类
+ * 判断恒开，选中 = 两段式判官，null = 主题生成模型兼任判断）。
  */
 export interface ConfigSetTopicPayload {
   /** 动态主题开关。 */
   enabled?: boolean;
   /** 主题生成模型（"provider/model-id"；空串 = 清除回落全局兑底）。 */
   model?: string | null;
-  /** 分类模型判断开关（两段式漂移判定）。 */
-  classifyEnabled?: boolean;
-  /** 分类端点 id（embedding 配置域 kind=judge 条目）。 */
+  /** 分类模型端点 id（embedding 配置域 kind=classifier 条目；null/空串 = 清除）。 */
   classifyEndpointId?: string | null;
 }
 export interface ConfigSetTopicCommand extends CommandFrame<ConfigSetTopicPayload> {
