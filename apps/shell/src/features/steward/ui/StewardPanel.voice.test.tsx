@@ -26,6 +26,7 @@ const ask = vi.fn(() => true);
 const confirmPending = vi.fn(() => true);
 const dismissPending = vi.fn();
 const clearVoiceDraft = vi.fn();
+const cancelWake = vi.fn();
 
 let mode: StewardInputMode = "voice";
 let phase: StewardVoicePhase = "idle";
@@ -35,6 +36,7 @@ let level = 0;
 let speaking = false;
 let voiceError: string | null = null;
 let interim: string | null = null;
+let wakeState: "off" | "standby" | "round" = "off";
 let streamDegraded = false;
 
 vi.mock("../model/useStewardVoice", () => ({
@@ -63,6 +65,8 @@ vi.mock("../model/useStewardVoice", () => ({
       speaking,
       voiceError,
       voiceDraft: null,
+      wakeState,
+      cancelWake,
       startListening,
       stopListening,
       stopSpeaking,
@@ -91,6 +95,7 @@ describe("StewardPanel 语音模式面（V3a）", () => {
     mode = "voice";
     phase = "idle";
     level = 0;
+    wakeState = "off";
     speaking = false;
     voiceError = null;
     hookOpenCalls = [];
@@ -294,5 +299,44 @@ describe("StewardPanel 流式转写面（V3b-1）", () => {
     );
     const hint = screen.getByTestId("steward-stream-degraded");
     expect(hint.textContent).toContain("整段转写");
+  });
+});
+
+describe("StewardPanel 唤醒待命面（B4）", () => {
+  beforeEach(() => {
+    phase = "wake_armed";
+    wakeState = "standby";
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("wake_armed：待命指示文案上屏（可见指示）+ data-phase 反映", () => {
+    renderPanel();
+    expect(screen.getByTestId("steward-voice").getAttribute("data-phase")).toBe("wake_armed");
+    expect(screen.getByTestId("steward-voice-phase").textContent).toContain("唤醒词");
+  });
+
+  it("wake_armed 态 mic 钮 = 手动退出待命（cancelWake）", () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId("steward-mic"));
+    expect(cancelWake).toHaveBeenCalledTimes(1);
+    expect(startListening).not.toHaveBeenCalled();
+    expect(stopListening).not.toHaveBeenCalled();
+  });
+
+  it("Esc 在唤醒会话内 = 让位不关面板（取消归 useStewardVoice Esc 监听单点，零重复触发）", () => {
+    const onClose = vi.fn();
+    render(
+      <I18nProvider>
+        <StewardPanel onClose={onClose} active={true} />
+      </I18nProvider>,
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    // 取消动作单点在 hook 自有 Esc 监听（useStewardVoice.wake.test 钉）；
+    // 面板只让位——不重复触发 cancelWake（双听防自双打）
+    expect(cancelWake).not.toHaveBeenCalled();
   });
 });

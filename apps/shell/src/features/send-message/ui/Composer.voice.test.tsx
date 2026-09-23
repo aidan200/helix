@@ -52,6 +52,8 @@ vi.mock("@/shared/lib/useVoiceInput", () => ({
     // V3b-1 additive 面：Composer 不消费——stub 保持接口完整
     resolveStreaming: () => false,
     transcribeNow: () => undefined,
+    // B4 additive 面（唤醒链取消收口）：Composer 不消费——stub 保持接口完整
+    cancel: () => undefined,
   }),
 }));
 

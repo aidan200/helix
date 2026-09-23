@@ -32,6 +32,7 @@ import {
   type BargeInGateState,
   type StewardVoicePhase,
   type StewardVoiceSnapshot,
+  matchWakeWord,
 } from "./steward-voice-machine";
 
 const snap = (over: Partial<StewardVoiceSnapshot>): StewardVoiceSnapshot => ({
@@ -360,5 +361,39 @@ describe("stepBargeInGate 双参判定（RMS × ZCR 人声带）", () => {
     expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("speaking")).firedAt).toEqual([]);
     expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("asking")).firedAt).toEqual([]);
     expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("listening")).firedAt).toEqual([300]);
+  });
+});
+
+describe("matchWakeWord（B4 唤醒词本地文本匹配）", () => {
+  it("命中：剥离唤醒词前缀（命中前内容不带出——不入对话）", () => {
+    expect(matchWakeWord("helix 明天天气怎么样", "helix")).toEqual({ hit: true, rest: " 明天天气怎么样" });
+    // 命中前有前言：整段前缀（含唤醒词）剥掉，只留剩余话语
+    expect(matchWakeWord("嗯哼 helix 帮我查下", "helix")).toEqual({ hit: true, rest: " 帮我查下" });
+  });
+
+  it("大小写不敏感命中", () => {
+    expect(matchWakeWord("HeLiX 你好", "helix")).toEqual({ hit: true, rest: " 你好" });
+    expect(matchWakeWord("说 HELIX 了吗", "Helix")).toEqual({ hit: true, rest: " 了吗" });
+  });
+
+  it("未命中：hit=false（命中前的转写内容不入对话）", () => {
+    expect(matchWakeWord("今天天气不错", "helix")).toEqual({ hit: false, rest: "" });
+  });
+
+  it("空串直通：唤醒词关 = 零门槛，全文作为剩余话语", () => {
+    expect(matchWakeWord("今天有什么任务", "")).toEqual({ hit: true, rest: "今天有什么任务" });
+    expect(matchWakeWord("", "")).toEqual({ hit: true, rest: "" });
+  });
+});
+
+describe("deriveStewardVoicePhase × wake-armed（B4 状态机新增态）", () => {
+  it("录音 + 唤醒待命 → wake_armed（命中前）；待命结束 → listening（命中后同链）", () => {
+    expect(deriveStewardVoicePhase(snap({ voiceState: "recording", wakeStandby: true }))).toBe("wake_armed");
+    expect(deriveStewardVoicePhase(snap({ voiceState: "recording", wakeStandby: false }))).toBe("listening");
+  });
+
+  it("unsupported 优先于待命态；wakeStandby 缺省 = 既有派生不变", () => {
+    expect(deriveStewardVoicePhase(snap({ voiceState: "unsupported", wakeStandby: true }))).toBe("unsupported");
+    expect(deriveStewardVoicePhase(snap({ voiceState: "recording" }))).toBe("listening");
   });
 });

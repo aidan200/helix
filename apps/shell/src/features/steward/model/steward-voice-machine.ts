@@ -16,7 +16,10 @@
  *   判据防单帧尖峰/敲键，B3 双参判定 + 门限分档；停播残响静默窗 + fired
  *   闩锁防重复触发）+ openBargeInSilenceWindow（停播即开窗）——打断序本体
  *   在消费端（stopSpeaking → steward.interrupt → 新转写流），本面只裁决
- *   「这一帧算不算人声插话」。
+ *   「这一帧算不算人声插话」；
+ * - matchWakeWord（B4 唤醒词门槛）：待命态流式转写文本的本地匹配——命中
+ *   （大小写不敏感）→ 剥离唤醒词前缀返剩余话语；未命中零产出；空串 = 关
+ *   门槛直通（命中判定在 webview 本地，命中前内容不入对话）。
  */
 import { VOICE_MIN_DURATION_MS, VOICE_RMS_THRESHOLD, type VoiceState } from "@/shared/lib/useVoiceInput";
 
@@ -27,6 +30,7 @@ export type StewardInputMode = "voice" | "text";
 export type StewardVoicePhase =
   | "unsupported" // mic 环境不可用（getUserMedia/MediaRecorder 缺失）
   | "idle" // 待命（可点 mic 开始说话）
+  | "wake_armed" // 唤醒待命（B4：组合键开麦，等唤醒词命中；命中前内容不入对话）
   | "listening" // 录音中（VAD 静音 ~1.8s 自动停）
   | "transcribing" // 音频上传 + 转写在途
   | "asking" // steward.ask 在途（流式 Markdown 回答中）
@@ -37,15 +41,20 @@ export interface StewardVoiceSnapshot {
   readonly voiceState: VoiceState;
   readonly askInFlight: boolean;
   readonly speaking: boolean;
+  /** B4 唤醒待命位（命中前 true——录音 × wakeStandby → wake_armed；缺省
+   *  false 既有派生不变）。 */
+  readonly wakeStandby?: boolean;
 }
 
 /**
  * 阶段派生（优先级 = 录音链在途 > ask 在途 > 朗读 > 待命）：
  * 新一轮说话压过上轮残留态（录音/转写期间旧朗读已由消费端停读）。
+ * B4：录音 × 唤醒待命 → wake_armed（命中后同为 recording 但待命位落下
+ * → 转入既有 listening 流——「命中 → listening → transcribing → asking」同链）。
  */
 export function deriveStewardVoicePhase(s: StewardVoiceSnapshot): StewardVoicePhase {
   if (s.voiceState === "unsupported") return "unsupported";
-  if (s.voiceState === "recording") return "listening";
+  if (s.voiceState === "recording") return s.wakeStandby === true ? "wake_armed" : "listening";
   if (s.voiceState === "transcribing") return "transcribing";
   if (s.askInFlight) return "asking";
   if (s.speaking) return "speaking";
@@ -110,6 +119,28 @@ export type TranscriptOutcome =
 export function planTranscript(text: string, askSent: boolean): TranscriptOutcome {
   if (askSent) return { kind: "asked" };
   return { kind: "fallback", draft: text };
+}
+
+// ── B4 唤醒词门槛（本地文本匹配；命中判定在 webview 零后置花费）────────
+
+/** 唤醒匹配结果：hit=false 零产出；hit=true 携剥离唤醒词前缀后的剩余话语。 */
+export type WakeMatch =
+  | { readonly hit: false; readonly rest: "" }
+  | { readonly hit: true; readonly rest: string };
+
+/**
+ * 唤醒词本地匹配（纯函数）：
+ * - 唤醒词空（trim 后）= 关门槛直通：hit 恒真、全文即剩余话语；
+ * - 命中 = 文本内首次出现（大小写不敏感）：剥离唤醒词**及其之前**的全部
+ *   内容（命中前的转写内容不入对话），余下为剩余话语；
+ * - 未命中 → hit=false（消费端据此零 ask）。
+ */
+export function matchWakeWord(text: string, wakeWord: string): WakeMatch {
+  const word = wakeWord.trim();
+  if (word === "") return { hit: true, rest: text };
+  const idx = text.toLowerCase().indexOf(word.toLowerCase());
+  if (idx === -1) return { hit: false, rest: "" };
+  return { hit: true, rest: text.slice(idx + word.length) };
 }
 
 // ── B2 barge-in 门判定（V3b-3 全双工触发面；fake meter 帧驱动可测）──────

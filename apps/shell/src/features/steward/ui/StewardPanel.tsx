@@ -143,12 +143,17 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
 
   useEffect(() => {
     if (!active) return; // 隐藏期零全局监听（A1：隐藏不卸载但监听归活跃态）
+    const wakeActive = sv.wakeState !== "off";
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key !== "Escape") return;
+      // B4：唤醒会话在途时 Esc = 手动退出会命并关麦（useStewardVoice 同键
+      // 监听双听消费，此处只让位不关面板）；否则 = 既有关面板语义
+      if (wakeActive) return;
+      onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active]);
+  }, [active, sv.wakeState]);
 
   // ask 发送失败的转写文本采纳：回填草稿 + 切文本态（可重试，零静默丢话）
   const voiceDraft = sv.voiceDraft;
@@ -185,12 +190,16 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
   const phaseCaption: Record<StewardVoicePhase, string> = {
     unsupported: t("steward.voice.micUnavailable"),
     idle: t("steward.voice.phaseIdle"),
+    wake_armed: t("steward.voice.phaseWakeArmed"),
     listening: t("steward.voice.phaseListening"),
     transcribing: t("steward.voice.phaseTranscribing"),
     asking: t("steward.voice.phaseAsking"),
     speaking: t("steward.voice.phaseSpeaking"),
   };
   const listening = phase === "listening";
+  // B4 唤醒待命（可见待命指示）：mic 鈕 = 手动退出会话并关麦（cancelWake）
+  const wakeArmed = phase === "wake_armed";
+  const micLive = listening || wakeArmed;
   const micBusy = phase === "transcribing" || phase === "asking";
 
   return (
@@ -316,20 +325,20 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
             <div className="stp-voice" data-testid="steward-voice" data-phase={phase}>
               <button
                 type="button"
-                className={`stp-mic${listening ? " listening" : ""}`}
+                className={`stp-mic${micLive ? " listening" : ""}`}
                 data-testid="steward-mic"
                 disabled={micBusy}
-                aria-label={listening ? t("steward.voice.micStop") : t("steward.voice.micStart")}
-                onClick={() => (listening ? sv.stopListening() : void sv.startListening())}
+                aria-label={micLive ? t("steward.voice.micStop") : t("steward.voice.micStart")}
+                onClick={() => (wakeArmed ? sv.cancelWake() : listening ? sv.stopListening() : void sv.startListening())}
               >
-                {listening ? <Square size={15} strokeWidth={1.75} /> : <Mic size={16} strokeWidth={1.75} />}
+                {micLive ? <Square size={15} strokeWidth={1.75} /> : <Mic size={16} strokeWidth={1.75} />}
               </button>
               <div className="stp-wave" aria-hidden="true">
                 {WAVE_PATTERN.map((shape, i) => (
                   <i
                     key={i}
                     className="stp-wave-bar"
-                    style={{ transform: `scaleY(${listening ? Math.max(0.12, level * shape).toFixed(3) : 0.12})` }}
+                    style={{ transform: `scaleY(${micLive ? Math.max(0.12, level * shape).toFixed(3) : 0.12})` }}
                   />
                 ))}
               </div>
@@ -338,9 +347,10 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
                   {phaseCaption[phase]}
                 </span>
                 {/* V3b-1 流式 interim 浮字：淡色斜体，波形下方实时上屏（listening
-                    态随帧刷新；transcribing 态短暂保留至 final 转正）；final 到达
+                    态随帧刷新；transcribing 态短暂保留至 final 转正；B4 唤醒待命期
+                    = 唤醒匹配进度可视，命中前内容只上屏不入对话）；final 到达
                     由 ask 气泡接管 */}
-                {(listening || phase === "transcribing") && sv.interim !== null && sv.interim !== "" && (
+                {(micLive || phase === "transcribing") && sv.interim !== null && sv.interim !== "" && (
                   <span className="stp-interim" data-testid="steward-interim" aria-live="polite">
                     {sv.interim}
                   </span>

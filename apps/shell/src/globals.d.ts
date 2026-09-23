@@ -30,3 +30,15 @@ declare var helixPickDirectory:
 declare var helixThemeHint:
   | ((theme: "dark" | "light") => void)
   | undefined;
+
+/**
+ * B4 壳注入的全局组合键能力挂载点（W6a 同构形态）：src-tauri
+ * initialization_script 在页面脚本前挂 helixHotkeyRegister / helixHotkeyUnregister
+ *（tauri-plugin-global-shortcut 自带命令面 + ShortcutJsEvent 通道）。纯浏览器
+ * dev 无挂载点 → undefined，消费面经 shared/api/native-capability.ts seam
+ * 受控访问（前端零 Tauri 内部形态词，AG-17）。
+ */
+declare var helixHotkeyRegister:
+  | ((accel: string, onFire: () => void) => Promise<void>)
+  | undefined;
+declare var helixHotkeyUnregister: ((accel: string) => Promise<void>) | undefined;

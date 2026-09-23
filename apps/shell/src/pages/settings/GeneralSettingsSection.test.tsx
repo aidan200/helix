@@ -10,7 +10,7 @@
  * vi.mock SessionContext 先例（SettingsPage.test.tsx）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
@@ -129,6 +129,8 @@ afterEach(() => {
   stewardListeners = [];
   embeddingListeners = [];
   localStorage.removeItem("helix.steward.speakReply");
+  localStorage.removeItem("helix.steward.wakeWord");
+  localStorage.removeItem("helix.steward.wakeHotkey");
   vi.clearAllMocks();
 });
 
@@ -771,5 +773,24 @@ describe("动态主题卡（动态主题批）", () => {
     const { container } = ui();
     container.querySelector<HTMLElement>('[data-topic-option="on"]')!.click();
     expect(setTopicConfig).toHaveBeenCalledWith({ enabled: true });
+  });
+});
+
+describe("B4 唤醒链设置（管家组：快捷键（组合键）+ 唤醒词，本地偏好）", () => {
+  it("管家启用后渲染两行从属项；唤醒词输入写本地偏好（voice-pref 同构）", () => {
+    ui();
+    feedStewardConfig(true);
+    expect(screen.getByTestId("hotkey-record")).toBeTruthy();
+    const input = screen.getByTestId("steward-wake-word-input") as HTMLInputElement;
+    expect(input.value).toBe("helix"); // 缺省唤醒词
+    fireEvent.change(input, { target: { value: "hey there" } });
+    expect(localStorage.getItem("helix.steward.wakeWord")).toBe("hey there");
+  });
+
+  it("管家未启用：两行从属项不渲染（从属项形态同 speakReply）", () => {
+    ui();
+    feedStewardConfig(false);
+    expect(screen.queryByTestId("hotkey-record")).toBeNull();
+    expect(screen.queryByTestId("steward-wake-word-input")).toBeNull();
   });
 });

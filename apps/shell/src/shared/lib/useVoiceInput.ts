@@ -99,6 +99,11 @@ export interface UseVoiceInputOptions {
   readonly deferredTranscribe?: boolean;
   /** deferred 态 blob 就位回调（每轮 stop 恰一次；消费方读自家流式 refs 决策）。 */
   readonly onDeferredHold?: () => void;
+  /**
+   * VAD 静音自动停闸（逐帧读，B4 唤醒待命用）：false = 静音自动停挂起
+   *（待命期等唤醒词，不被 ~1.8s 静音误收）；缺省恒 true = V2 行为不变。
+   */
+  readonly allowSilenceStop?: () => boolean;
 }
 
 export interface VoiceInput {
@@ -122,6 +127,12 @@ export interface VoiceInput {
    * 链（回执消费照旧）。他态 no-op。
    */
   transcribeNow(): void;
+  /**
+   * 取消收口（B4 唤醒待命超时/手动退出）：立即关麦（track.stop）+ 废弃
+   * 录音/持有 blob/在途回执位，零转写零计费（不看 spoke 不入转写链——
+   * 与 stop 的「显式收口宁转写不丢话」语义分道）。
+   */
+  cancel: () => void;
 }
 
 export function useVoiceInput(onTranscript: (text: string) => void, options?: UseVoiceInputOptions): VoiceInput {
@@ -164,6 +175,8 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   onPcmFrameRef.current = onPcmFrame;
   const onDeferredHoldRef = useRef(options?.onDeferredHold);
   onDeferredHoldRef.current = options?.onDeferredHold;
+  const allowSilenceStopRef = useRef(options?.allowSilenceStop);
+  allowSilenceStopRef.current = options?.allowSilenceStop;
 
   // 状态 ref 镜像（meter 帧回调闭包不随渲染刷新——帧回调读实时态；
   //  读画封装为函数：tsc 对 ref.current 的直线窄化不因跨函数调用重置，
@@ -344,7 +357,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
               lastLoudAtRef.current = now;
             }
             const silenceSince = Math.max(startedAtRef.current + VOICE_LEAD_IN_MS, lastLoudAtRef.current);
-            if (now - silenceSince >= VOICE_SILENCE_STOP_MS) stop(true);
+            if (now - silenceSince >= VOICE_SILENCE_STOP_MS && (allowSilenceStopRef.current?.() ?? true)) stop(true);
           });
         } else {
           meter?.close(); // 环境不支持/窗口已过：VAD 降级（不早退——pump 仍挂）
@@ -378,6 +391,29 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     }
   }, [cleanupMedia, setStateSafe, t]);
 
+  /** 取消收口（B4）：关麦零转写（同步收场——track.stop 即刻断言面）。 */
+  const cancel = useCallback(() => {
+    const recorder = recorderRef.current;
+    const wasRecording = isRecording();
+    closeMeter();
+    closePump();
+    pendingBlobRef.current = null;
+    uploadInFlightRef.current = false;
+    chunksRef.current = [];
+    recorderRef.current = null;
+    for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+    streamRef.current = null;
+    if (wasRecording && recorder !== null && recorder !== undefined) {
+      try {
+        recorder.onstop = null; // 废弃链：不走 stop 收口（零转写零计费）
+        recorder.stop();
+      } catch {
+        // recorder 已停等边界：媒体轨已收，静默兜底
+      }
+    }
+    setStateSafe("idle");
+  }, [closeMeter, closePump, setStateSafe]);
+
   /** 流式终帧收口（V3b-1；仅 deferred 态生效）：非空 → onTranscript；空 → 丢弃回 idle。 */
   const resolveStreaming = useCallback(
     (text: string): boolean => {
@@ -400,5 +436,5 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     uploadBlob(blob);
   }, [uploadBlob]);
 
-  return { state, level, error, start, stop, resolveStreaming, transcribeNow };
+  return { state, level, error, start, stop, cancel, resolveStreaming, transcribeNow };
 }

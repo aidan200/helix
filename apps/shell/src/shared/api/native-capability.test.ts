@@ -7,7 +7,13 @@
  * 未授予等）→ null（取消语义，输入框仍可手输）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hasNativePicker, nativePickDirectory } from "./native-capability";
+import {
+  hasNativePicker,
+  nativePickDirectory,
+  hasHotkeyCapability,
+  nativeHotkeyRegister,
+  nativeHotkeyUnregister,
+} from "./native-capability";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -64,5 +70,38 @@ describe("nativePickDirectory（调用面）", () => {
       throw new Error("plugin:dialog|open not allowed");
     }));
     await expect(nativePickDirectory()).rejects.toThrow("plugin:dialog|open not allowed");
+  });
+});
+
+describe("B4 全局组合键能力 seam（W6a 同构：挂载点受控访问）", () => {
+  it("hasHotkeyCapability：无挂载点 → false；双挂载点齐备 → true；脏注入容错", () => {
+    expect(hasHotkeyCapability()).toBe(false);
+    vi.stubGlobal("helixHotkeyRegister", "not-a-function");
+    vi.stubGlobal("helixHotkeyUnregister", vi.fn(async () => undefined));
+    expect(hasHotkeyCapability()).toBe(false);
+    vi.stubGlobal("helixHotkeyRegister", vi.fn(async () => undefined));
+    expect(hasHotkeyCapability()).toBe(true);
+  });
+
+  it("注册/注销透传（accel + 触发回调）；无能力静默 no-op（纯浏览器 dev 降级）", async () => {
+    const reg = vi.fn(async () => undefined);
+    const unreg = vi.fn(async () => undefined);
+    vi.stubGlobal("helixHotkeyRegister", reg);
+    vi.stubGlobal("helixHotkeyUnregister", unreg);
+    const onFire = vi.fn();
+    await nativeHotkeyRegister("CommandOrControl+Shift+K", onFire);
+    expect(reg).toHaveBeenCalledWith("CommandOrControl+Shift+K", onFire);
+    await nativeHotkeyUnregister("CommandOrControl+Shift+K");
+    expect(unreg).toHaveBeenCalledWith("CommandOrControl+Shift+K");
+    vi.unstubAllGlobals();
+    await expect(nativeHotkeyRegister("Alt+A", onFire)).resolves.toBeUndefined();
+  });
+
+  it("底层异常（组合键被占用/能力未授予）→ 上抛供注册面 failed 交代", async () => {
+    vi.stubGlobal("helixHotkeyRegister", vi.fn(async () => {
+      throw new Error("shortcut taken");
+    }));
+    vi.stubGlobal("helixHotkeyUnregister", vi.fn(async () => undefined));
+    await expect(nativeHotkeyRegister("Alt+A", vi.fn())).rejects.toThrow("shortcut taken");
   });
 });

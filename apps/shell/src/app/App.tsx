@@ -24,6 +24,7 @@ import { I18nProvider, useI18n } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider, useToast } from "@/shared/ui/Toast";
 import { subscribeOpenSettings } from "@/shared/lib/open-settings-signal";
+import { subscribeOpenSteward } from "@/shared/lib/steward-open-signal";
 import { requestSettingsSection } from "@/pages/settings/settings-section-bus";
 import { SessionProvider } from "@/entities/session/SessionContext";
 import { useSession } from "@/entities/session/SessionContext";
@@ -81,6 +82,9 @@ export function AppRoutes() {
   const [stewardOpen, setStewardOpen] = useState(false);
   const toggleSteward = useCallback(() => setStewardOpen((v) => !v), []);
   const closeSteward = useCallback(() => setStewardOpen(false), []);
+  // B4 唤醒链：全局组合键触发即升起面板（可见待命指示 + 回答同屏；
+  // steward-open-signal 跨层信号，TR-203 定式——已在开 = 无感幂等）
+  useEffect(() => subscribeOpenSteward(() => setStewardOpen(true)), []);
   // B2-④ 入口①：StewardPanel 头部记忆钮 → 记忆独立页（关面板 + 导航）
   const openStewardMemory = useCallback(() => {
     setStewardOpen(false);

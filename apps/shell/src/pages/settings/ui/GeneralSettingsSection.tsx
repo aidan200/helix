@@ -35,7 +35,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
-import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
+import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref, readWakeWordPref, writeWakeWordPref, DEFAULT_WAKE_WORD } from "@/shared/lib/voice-pref";
+import HotkeyRecorder from "./HotkeyRecorder";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
@@ -88,6 +89,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [stewardEnabled, setStewardEnabled] = useState<boolean | null>(null);
   const [stewardError, setStewardError] = useState<string | null>(null);
   const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
+  // B4 唤醒链两项本地偏好（voice-pref 同构）：组合键归 HotkeyRecorder 自持，
+  // 唤醒词 = 本组件受控输入（即改即写——朗读开关同规）
+  const [wakeWord, setWakeWord] = useState<string>(() => readWakeWordPref());
   // 记忆（管家记忆 B2 瘦身）：daemon 权威现态（config.result 回执回填，不乐观）；
   // 端点选择 = embedding 配置域引用（下拉写 endpointId，回执引用态回填）
   const [memoryCfg, setMemoryCfg] = useState<{
@@ -392,6 +396,33 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               />
               {t("chat.settings.general.stewardSwitchOn")}
             </label>
+          </div>
+        )}
+        {/* B4 唤醒链（组合键手动开麦 + 唤醒词门槛）：两项均本地偏好（启用后
+            从属项）——组合键注册面在 wake-hotkey（设置改动热更新），唤醒词
+            判定在 webview 本地（matchWakeWord） */}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-wake-hotkey>
+            <span className="hud-label">{t("chat.settings.general.stewardHotkey")}</span>
+            <HotkeyRecorder />
+            <span className="ag-note">{t("chat.settings.general.stewardHotkeyNote")}</span>
+          </div>
+        )}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-wake-word>
+            <span className="hud-label">{t("chat.settings.general.stewardWakeWord")}</span>
+            <input
+              className="hud-input"
+              data-testid="steward-wake-word-input"
+              data-steward-wake-word-input
+              value={wakeWord}
+              placeholder={DEFAULT_WAKE_WORD}
+              onChange={(e) => {
+                setWakeWord(e.target.value);
+                writeWakeWordPref(e.target.value);
+              }}
+            />
+            <span className="ag-note">{t("chat.settings.general.stewardWakeWordNote")}</span>
           </div>
         )}
         {/* 记忆（管家记忆 B2 瘦身）：启用管家的从属项（缩进一层）——开关 +

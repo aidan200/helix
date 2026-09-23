@@ -42,3 +42,49 @@ export async function nativePickDirectory(initial?: string): Promise<string | nu
   if (pick === undefined) return null;
   return await pick(initial);
 }
+
+// ── B4 全局组合键（W6a 同构 seam：壳注入挂载点受控访问）──────────
+//
+// 壳（src-tauri）另经 initialization_script 挂 `window.helixHotkeyRegister` /
+// `window.helixHotkeyUnregister`（内部走 tauri-plugin-global-shortcut 自带命令面
+// + ShortcutJsEvent 通道，平台差异由插件消化）。`accel` 形态 = 插件约定
+// （如 "CommandOrControl+Shift+K"，由 shared/lib/hotkey-combo comboToAccel
+// 单点换算）；触发回调仅在按下（Pressed）时被壳侧调用。纯浏览器 dev 无挂载点
+// → 探测 false，注册面自然降级（快捷键特性在纯浏览器形态休眠）。
+
+/** 壳注入的全局组合键注册函数形态（挂载点声明见 globals.d.ts）。 */
+type HotkeyRegister = (accel: string, onFire: () => void) => Promise<void>;
+type HotkeyUnregister = (accel: string) => Promise<void>;
+
+function hotkeyRegisterFn(): HotkeyRegister | undefined {
+  const fn = globalThis.helixHotkeyRegister;
+  return typeof fn === "function" ? fn : undefined;
+}
+
+function hotkeyUnregisterFn(): HotkeyUnregister | undefined {
+  const fn = globalThis.helixHotkeyUnregister;
+  return typeof fn === "function" ? fn : undefined;
+}
+
+/** 全局组合键能力探测（注册面降级判据；双挂载点齐备才算有能力）。 */
+export function hasHotkeyCapability(): boolean {
+  return hotkeyRegisterFn() !== undefined && hotkeyUnregisterFn() !== undefined;
+}
+
+/**
+ * 注册全局组合键：`accel` 零变换透传（格式正确性由插件裁决）；`onFire` 为
+ * 按下触发回调。无能力 → 静默 no-op（纯浏览器 dev）；底层异常（组合键被
+ * 占用/能力未授予）**上抛**供注册面 failed 交代（W6j 同规：不吞错）。
+ */
+export async function nativeHotkeyRegister(accel: string, onFire: () => void): Promise<void> {
+  const reg = hotkeyRegisterFn();
+  if (reg === undefined) return;
+  await reg(accel, onFire);
+}
+
+/** 注销全局组合键（无能力静默 no-op；异常上抛）。 */
+export async function nativeHotkeyUnregister(accel: string): Promise<void> {
+  const unreg = hotkeyUnregisterFn();
+  if (unreg === undefined) return;
+  await unreg(accel);
+}
