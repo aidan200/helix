@@ -29,6 +29,8 @@ const clearVoiceDraft = vi.fn();
 
 let mode: StewardInputMode = "voice";
 let phase: StewardVoicePhase = "idle";
+/** useStewardVoice 收到的 open 入参（面板活跃态接线钉——A 修复：active 透传）。 */
+let hookOpenCalls: boolean[] = [];
 let level = 0;
 let speaking = false;
 let voiceError: string | null = null;
@@ -36,8 +38,10 @@ let interim: string | null = null;
 let streamDegraded = false;
 
 vi.mock("../model/useStewardVoice", () => ({
-  useStewardVoice: (): UseStewardVoice =>
-    ({
+  useStewardVoice: (open: boolean): UseStewardVoice => {
+    hookOpenCalls.push(open);
+    return (
+      ({
       items: [],
       streamingText: null,
       pending: null,
@@ -63,7 +67,8 @@ vi.mock("../model/useStewardVoice", () => ({
       stopListening,
       stopSpeaking,
       clearVoiceDraft,
-    }) as unknown as UseStewardVoice,
+    }) as unknown as UseStewardVoice);
+  },
 }));
 
 import StewardPanel from "./StewardPanel";
@@ -71,10 +76,10 @@ import StewardPanel from "./StewardPanel";
 // jsdom navigator.language 默认 en-US：钉 zh-CN（AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
 
-function renderPanel() {
+function renderPanel(opts?: { active?: boolean }) {
   return render(
     <I18nProvider>
-      <StewardPanel onClose={() => undefined} />
+      <StewardPanel onClose={() => undefined} active={opts?.active} />
     </I18nProvider>,
   );
 }
@@ -88,10 +93,23 @@ describe("StewardPanel 语音模式面（V3a）", () => {
     level = 0;
     speaking = false;
     voiceError = null;
+    hookOpenCalls = [];
   });
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("active 透传 hook：active=false 时 useStewardVoice 收 open=false（面板隐藏期耳麦关）；默认收 true", async () => {
+    renderPanel({ active: false });
+    await waitFor(() => expect(hookOpenCalls.length).toBeGreaterThan(0));
+    expect(hookOpenCalls.every((v) => v === false)).toBe(true);
+
+    cleanup();
+    hookOpenCalls = [];
+    renderPanel();
+    await waitFor(() => expect(hookOpenCalls.length).toBeGreaterThan(0));
+    expect(hookOpenCalls.every((v) => v === true)).toBe(true);
   });
 
   it("打开默认语音模式：mic 面在、文本输入面不在（双模互斥）；mode 钮 aria-pressed 互斥", async () => {

@@ -125,7 +125,7 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
 
 const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory }: StewardPanelProps) {
   const { t } = useI18n();
-  const sv = useStewardVoice(true);
+  const sv = useStewardVoice(active);
   const [draft, setDraft] = useState("");
   // 耳机提示（B2 随附）：语音模式首次进入一次性明示（扬声器场景防自声触发）
   const [headsetHintSeen, setHeadsetHintSeen] = useState(() => readPersistedFlag(HEADSET_HINT_KEY, false));
