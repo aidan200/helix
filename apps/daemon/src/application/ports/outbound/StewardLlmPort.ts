@@ -75,7 +75,9 @@ export interface StewardLlmRequest {
 /** 单轮补全响应：文本直答（可携本轮 thinking 块）/ 首个工具调用（服务层
  * 裁决执行或过闸；工具调用轮的 thinking 随后续 assistant 记录入史）；
  * aborted = signal 取代收口（helix-loop L0 批——duplex-truncation §6.3：
- * aborted 不再混在 throw 里，调用方按门控语义分流）。 */
+ * aborted 不再混在 throw 里，调用方按门控语义分流；G1（§3.3 text 行定稿）：
+ * 可选携 partialText = 未关账 text 块累积增量——不得含已经 onBlockEnd
+ * 关账的完成块，防重复入账；缺席/空 = 无半截 text）。 */
 export type StewardLlmResponse =
   | { readonly kind: "text"; readonly text: string; readonly thinking?: StewardLlmThinking }
   | {
@@ -85,7 +87,7 @@ export type StewardLlmResponse =
       readonly args: Record<string, unknown>;
       readonly thinking?: StewardLlmThinking;
     }
-  | { readonly kind: "aborted" };
+  | { readonly kind: "aborted"; readonly partialText?: string };
 
 export interface StewardLlmPort {
   /** 模型槽位现值（"provider/model-id"；设置页显示/诊断面）。 */

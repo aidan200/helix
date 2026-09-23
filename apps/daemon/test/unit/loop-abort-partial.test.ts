@@ -15,8 +15,12 @@ import { StewardService } from "../../src/application/steward/StewardService";
 
 /**
  * E-198 打断善后（partial 保留）单测——aborted 轮从「整轮丢弃」升级为
- * 「安全块入账 + 截断标记 + 不安全块丢弃」：
- * - T1 text 流中段打断：完整块入账 + 标记在、半截丢、下轮上下文形状合法；
+ * 「安全块入账 + 截断标记 + 不安全块丢弃」（G1 定稿对齐：无 text_end 的
+ * 半截 text 经 aborted 判别 partialText 入账 + 截断标记——duplex-truncation
+ * §3.3 text 行；partialText 缺席/空 = 行为与 G1 前完全一致）：
+ * - T1 text 流中段打断：完整块 + 半截 text（partialText）同批入账 + 标记在、零重复；
+ * - T1b 仅半截 text：入账 + 截断标记（G1 语义翻转——原丢弃）；
+ * - T1c/T1d abort 于 text_end 之后 / partialText 空串：无未关账块，行为不变；
  * - T2 thinking 流中段打断：半截丢（无签名不可回传；悬挂 thinking 亦不可
  *   单独回传——"reasoning without following item"）；
  * - T3 toolcall 参数流中段打断：半截丢、无孤儿 toolCall（完整收尾但未执行
@@ -33,8 +37,13 @@ function tick(ms = 5): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** 子串出现次数（零重复入账断言面）。 */
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
 describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
-  test("T1 text 流中段打断：第一块完整入账 + 截断标记；第二块半截丢弃；audit 携带", async () => {
+  test("T1 text 流中段打断：完整块 + 半截 text（partialText，G1）同批入账 + 截断标记；零重复；audit 携带", async () => {
     const controller = new AbortController();
     const events: LoopEvent[] = [];
     const recorded: LoopMessage[] = [];
@@ -42,10 +51,11 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       streamFn: async (_input, callbacks) => {
         // 块 1 完整（text_end 凭证）
         callbacks?.onBlockEnd?.({ kind: "text", text: "第一块完整内容" });
-        // 块 2 半截：text_start 后只有 delta，无 end
+        // 块 2 半截：text_start 后只有 delta，无 end——adapter 只把未关账增量
+        // 累积为 partialText（不得含已关账块，防重复入账）
         callbacks?.onDelta?.("第二块半截");
         controller.abort("barge-in");
-        return { kind: "aborted" };
+        return { kind: "aborted", partialText: "第二块半截" };
       },
       registry: new ToolRegistry(),
       emit: (e) => events.push(e),
@@ -64,11 +74,15 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(result.kind).toBe("aborted");
-    // 安全块入账（verbatim）+ 截断标记；半截内容零残留
+    // 完成块 + 半截 text 同批入账（G1：与完成块同批记录）+ 截断标记
     expect(recorded).toEqual([
-      { role: "assistant", text: "第一块完整内容" },
+      { role: "assistant", text: "第一块完整内容\n\n第二块半截" },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
+    // 零重复入账：完成块与 partialText 各恰一次（partialText 只携未关账增量）
+    const flat = recorded.map((m) => m.text ?? "").join("\n");
+    expect(countOccurrences(flat, "第一块完整内容")).toBe(1);
+    expect(countOccurrences(flat, "第二块半截")).toBe(1);
     // 事件序：interrupted 先于 finished(aborted)，各一次
     const types = events.map((e) => e.type);
     expect(types.filter((t) => t === "loop.run.interrupted").length).toBe(1);
@@ -81,6 +95,104 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     // audit：入账 1 条（I6 审计面）
     if (result.kind !== "aborted") throw new Error("应 aborted");
     expect(result.audit?.keptMessages).toBe(1);
+  });
+
+  test("T1b 仅半截 text（无完成块）：入账 + 截断标记（G1 语义翻转——原「半截 text 丢弃」）", async () => {
+    const controller = new AbortController();
+    const recorded: LoopMessage[] = [];
+    const engine = new LoopEngine({
+      streamFn: async (_input, callbacks) => {
+        // 单 text 块长回答中途被掐：text_start 后只有 delta，无 end
+        callbacks?.onDelta?.("只有半截句");
+        controller.abort("barge-in");
+        return { kind: "aborted", partialText: "只有半截句" };
+      },
+      registry: new ToolRegistry(),
+      emit: () => undefined,
+      newRunId: () => "t1b",
+    });
+    const result = await engine
+      .startRun({
+        systemPrompt: "s",
+        messages: [{ role: "user", text: "问" }],
+        tools: [],
+        maxRounds: 6,
+        signal: controller.signal,
+        onNewMessage: async (m) => {
+          recorded.push(m);
+        },
+      })
+      .promise;
+    expect(result.kind).toBe("aborted");
+    // 半截 text 入账（模型记得被掐断的已播半句——P2）+ 截断标记照落
+    expect(recorded).toEqual([
+      { role: "assistant", text: "只有半截句" },
+      { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
+    ]);
+    if (result.kind !== "aborted") throw new Error("应 aborted");
+    expect(result.audit?.keptMessages).toBe(1);
+  });
+
+  test("T1c abort 于 text_end 之后（无未关账块，partialText 缺席）：行为与 G1 前完全一致", async () => {
+    const controller = new AbortController();
+    const recorded: LoopMessage[] = [];
+    const engine = new LoopEngine({
+      streamFn: async (_input, callbacks) => {
+        callbacks?.onBlockEnd?.({ kind: "text", text: "完整收尾" });
+        controller.abort("barge-in");
+        return { kind: "aborted" }; // 无未关账块——不携 partialText
+      },
+      registry: new ToolRegistry(),
+      emit: () => undefined,
+      newRunId: () => "t1c",
+    });
+    await engine
+      .startRun({
+        systemPrompt: "s",
+        messages: [{ role: "user", text: "问" }],
+        tools: [],
+        maxRounds: 6,
+        signal: controller.signal,
+        onNewMessage: async (m) => {
+          recorded.push(m);
+        },
+      })
+      .promise;
+    expect(recorded).toEqual([
+      { role: "assistant", text: "完整收尾" },
+      { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
+    ]);
+  });
+
+  test("T1d partialText 空串视同缺席：行为与 G1 前完全一致", async () => {
+    const controller = new AbortController();
+    const recorded: LoopMessage[] = [];
+    const engine = new LoopEngine({
+      streamFn: async (_input, callbacks) => {
+        callbacks?.onBlockEnd?.({ kind: "text", text: "完整" });
+        controller.abort("barge-in");
+        return { kind: "aborted", partialText: "" };
+      },
+      registry: new ToolRegistry(),
+      emit: () => undefined,
+      newRunId: () => "t1d",
+    });
+    await engine
+      .startRun({
+        systemPrompt: "s",
+        messages: [{ role: "user", text: "问" }],
+        tools: [],
+        maxRounds: 6,
+        signal: controller.signal,
+        onNewMessage: async (m) => {
+          recorded.push(m);
+        },
+      })
+      .promise;
+    expect(recorded).toEqual([
+      { role: "assistant", text: "完整" },
+      { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
+    ]);
   });
 
   test("T2 thinking 流中段打断：半截丢弃（无 end 凭证）——无 assistant 内容入账，仅标记", async () => {

@@ -17,7 +17,8 @@ import type { StewardLlmResponse, StewardLlmBlock } from "../../../application/p
 
 // ── 结构同构编译锚（零运行时成本——形状漂移即编译断） ──────────
 
-/** StewardLlmResponse 与 LoopStreamResult 判别面同构（kind 集合 + 载荷形状）。 */
+/** StewardLlmResponse 与 LoopStreamResult 判别面同构（kind 集合 + 载荷形状——
+ *  含 aborted 判别可选 partialText，G1）。 */
 type AssertSameShape<T, U> = [T] extends [U] ? ([U] extends [T] ? true : never) : never;
 type _StewardResponseMatchesLoopResult = AssertSameShape<
   StewardLlmResponse,
@@ -32,7 +33,8 @@ const _stewardBlockMatchesLoopBlock: _StewardBlockMatchesLoopBlock = true;
 // ── 装配面 ────────────────────────────────────────────────
 
 /** StewardLlmPort → LoopStreamFn（散参回调面 → callbacks 收拢面；E-198：
- *  onBlockEnd 第五参透传——块级收尾帧经 port 直达 engine 缓冲）。 */
+ *  onBlockEnd 第五参透传——块级收尾帧经 port 直达 engine 缓冲；G1：aborted
+ *  判别 partialText 随结构同构零成本透传）。 */
 export function piAdapterAsStreamFn(llm: StewardLlmPort): LoopStreamFn {
   return async (input, callbacks) => {
     const response: StewardLlmResponse = await llm.complete(

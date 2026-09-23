@@ -274,3 +274,72 @@ describe("PiStewardLlmAdapter（A1 thinking 面）", () => {
     expect(assistant.content[2]!.type).toBe("toolCall");
   });
 });
+
+// ══════════════════════════════════════════════════════════
+// E-198/G1 partial text 面：aborted 判别携 partialText（未关账 text 块累积）
+// ══════════════════════════════════════════════════════════
+
+/** aborted 终态 AssistantMessage fake（stopReason=aborted，partial 内容随流终态保留）。 */
+function abortedReply(text: string): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: "openai-completions",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0 } },
+    stopReason: "aborted",
+  } as unknown as AssistantMessage;
+}
+
+describe("PiStewardLlmAdapter（E-198/G1 partial text 面）", () => {
+  test("aborted 携 partialText：text_start 开档 / delta 累积 / 无 text_end → resolve {kind:'aborted', partialText}", async () => {
+    const models = fakeModels({
+      reply: abortedReply("已播半"),
+      events: [
+        { type: "start", partial: null },
+        { type: "text_start", contentIndex: 0, partial: null },
+        { type: "text_delta", contentIndex: 0, delta: "已播", partial: null },
+        { type: "toolcall_delta", contentIndex: 1, delta: "{\"x\":1}", partial: null },
+        { type: "text_delta", contentIndex: 0, delta: "半", partial: null },
+      ],
+    });
+    const adapter = makeAdapter(models, undefined);
+    const res = await adapter.complete(REQ, () => undefined, undefined, undefined, () => undefined);
+    expect(res).toEqual({ kind: "aborted", partialText: "已播半" }); // toolcall_delta 不入档（仅 text delta）
+  });
+
+  test("零重复：text_end 关账块经 onBlockEnd 交付且不进 partialText（只携未关账增量）", async () => {
+    const models = fakeModels({
+      reply: abortedReply("第一块完整内容"),
+      events: [
+        { type: "start", partial: null },
+        { type: "text_start", contentIndex: 0, partial: null },
+        { type: "text_delta", contentIndex: 0, delta: "第一块", partial: null },
+        { type: "text_end", contentIndex: 0, content: "第一块完整内容", partial: null },
+        { type: "text_start", contentIndex: 1, partial: null },
+        { type: "text_delta", contentIndex: 1, delta: "第二块半", partial: null },
+      ],
+    });
+    const adapter = makeAdapter(models, undefined);
+    const closed: { kind: string; text?: string }[] = [];
+    const res = await adapter.complete(REQ, () => undefined, undefined, undefined, (b) => closed.push(b));
+    expect(closed).toEqual([{ kind: "text", text: "第一块完整内容" }]); // 关账块唯一交付面
+    expect(res).toEqual({ kind: "aborted", partialText: "第二块半" }); // 不含已关账块（防重复入账）
+  });
+
+  test("abort 于 text_end 之后（无未关账块）：不携 partialText（行为不变）", async () => {
+    const models = fakeModels({
+      reply: abortedReply("完整"),
+      events: [
+        { type: "start", partial: null },
+        { type: "text_start", contentIndex: 0, partial: null },
+        { type: "text_delta", contentIndex: 0, delta: "完整", partial: null },
+        { type: "text_end", contentIndex: 0, content: "完整", partial: null },
+      ],
+    });
+    const adapter = makeAdapter(models, undefined);
+    const res = await adapter.complete(REQ, () => undefined, undefined, undefined, () => undefined);
+    expect(res).toEqual({ kind: "aborted" });
+  });
+});

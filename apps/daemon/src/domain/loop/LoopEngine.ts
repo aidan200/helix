@@ -66,7 +66,8 @@ export type LoopRunResult =
   /** 错误收口（LLM 失败 / 工具 terminate / 超限详情文案）。 */
   | { readonly kind: "error"; readonly message: string }
   /** signal abort（新 ask 取代类）——E-198 partial 保留：安全块已入账 +
-   *  截断标记、半截块丢弃（audit = I6 审计摘要，无入账且无丢弃时缺席）。 */
+   *  截断标记；半截 text 入账（G1：partialText 并入尾批文本），半截
+   *  thinking/toolCall 丢弃（audit = I6 审计摘要，无入账且无丢弃时缺席）。 */
   | { readonly kind: "aborted"; readonly audit?: LoopAbortAudit };
 
 /** startRun 返回句柄。 */
@@ -247,9 +248,10 @@ export class LoopEngine {
       // started → delta* → finished（单步 streamFn 契约下 delta 经回调透传）。
       if (response.kind === "aborted") {
         // E-198 打断善后：安全块入账 + 截断标记 + 不安全块丢弃（§2.1）——
-        // 模型知道自己说过什么、被掐在哪；interrupted 事件先于 finished。
+        // 模型知道自己说过什么、被掐在哪；G1：半截 text（response.partialText）
+        // 同批入账；interrupted 事件先于 finished。
         this.emit({ type: "loop.run.interrupted", runId: state.runId, reason: abortReasonOf(input.signal) });
-        const audit = await this.settleAbortedTurn(state, input, blocks);
+        const audit = await this.settleAbortedTurn(state, input, blocks, response.partialText);
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
         return { kind: "aborted", ...(audit !== undefined ? { audit } : {}) };
       }
@@ -434,11 +436,17 @@ export class LoopEngine {
 
   /** E-198 打断善后内核（§2.1 partial 保留）：安全块入账 + 截断标记 +
    *  不安全块丢弃。
-   *  - 完整性唯一凭证 = 块 end（I1）：入参 blocks 只含已收 end 的块；半截块
-   *    （无 end 的 thinking/toolCall/text）无帧，天然在丢弃面（I2）；
-   *  - 策略丢弃（完成但不可回传）：无签名 thinking（pi 判例③）与尾部悬挂
-   *    thinking（无后继内容块——单独回传 = "reasoning without following
-   *    item" 类 provider 拒绝，pi 判例①同族）→ audit 记录（I6）；
+   *  - 完整性唯一凭证 = 块 end（I1）：入参 blocks 只含已收 end 的块；
+   *  - G1（duplex-truncation §3.3 text 行定稿）：未关账半截 text 经 partialText
+   *    入账（与完成块同批，流序恒尾部）——文本无配对/签名约束全 provider
+   *    安全，模型须记得被掐断的已播半句（P2）；partialText 缺席/空 = 无半截
+   *    text，行为与 G1 前完全一致；partialText 只含未关账增量（adapter 保证
+   *    不含已关账块，防重复入账）；
+   *  - 半截 thinking/toolCall（无 end）无帧不入账（I2）；策略丢弃（完成但不可
+   *    回传）：无签名 thinking（pi 判例③）与尾部悬挂 thinking（无后继内容块
+   *    ——单独回传 = "reasoning without following item" 类 provider 拒绝，pi
+   *    判例①同族；半截 text 作为后继内容块可合法承接签名 thinking）→ audit
+   *    记录（I6）；
    *  - 完整 toolCall 未执行 → 合成中断 toolResult 配对（I3，pi 判例①同族）；
    *  - 截断标记（turn 级）永远落一枚：零安全块时也告知模型被掐（连续性），
    *    多次打断跨 run 各自累积不重复（T6）。 */
@@ -446,6 +454,7 @@ export class LoopEngine {
     state: RunState,
     input: LoopRunInput,
     blocks: readonly LoopStreamBlock[],
+    partialText?: string,
   ): Promise<LoopAbortAudit | undefined> {
     const dropped: LoopAbortDroppedBlock[] = [];
     let pendingThinking: LoopThinking | undefined;
@@ -497,6 +506,8 @@ export class LoopEngine {
       });
       keptCount += 2;
     }
+    // G1：未关账半截 text 追加到尾批文本（与完成块同批记录，流序恒尾部）
+    if (partialText !== undefined && partialText !== "") textParts.push(partialText);
     await flushText();
     if (pendingThinking !== undefined) {
       dropped.push({

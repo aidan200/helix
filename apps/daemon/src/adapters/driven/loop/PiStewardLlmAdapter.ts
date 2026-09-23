@@ -10,7 +10,10 @@
  * - key：组合根 getter（auth.json provider 位，与主引擎同一键位——显式传入
  *   不走环境变量；缺 key fail-fast 中文错误指向设置页录入路径）；
  * - 补全面：models.streamSimple（单轮 AssistantMessage 聚合）→ 首个 toolCall
- *   或文本直答（port 单步语义，循环归 StewardService）。
+ *   或文本直答（port 单步语义，循环归 StewardService）；G1（duplex-truncation
+ *   §3.3 text 行定稿）：abort 时未关账 text 块增量随 aborted 判别 partialText
+ *   携出（text_start 开档 / delta 累积 / text_end 关档清档——已关账块经
+ *   onBlockEnd 交付不进 partialText，防重复入账）。
  *
  * thinking 开启（A1 批：管家「全场最智能 agent」定位——thinking 默认开启，
  * 不暴露开关）：
@@ -130,8 +133,18 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     // （否则终态帧可早于末尾回调下发，前端清缓冲后迟到增量残留）。
     const consume = (async () => {
       let thinkingBuf = "";
+      // G1（duplex-truncation §3.3 text 行）：未关账 text 块累积档（text_start
+      // 开档 / delta 累积 / text_end 关档清档）——终态时作为 aborted 判别的
+      // partialText 携出；已关账块经 onBlockEnd 交付，不进此档（防重复入账）。
+      let openText: string | undefined;
       for await (const ev of stream) {
+        if (ev.type === "text_start") {
+          openText = "";
+          continue;
+        }
         if (ev.type === "text_delta") {
+          // 防御：无 text_start 的 delta 隐式开档（provider 帧型差异兑底）
+          openText = (openText ?? "") + ev.delta;
           try {
             onDelta?.(ev.delta);
           } catch {
@@ -163,6 +176,8 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
           continue;
         }
         if (ev.type === "text_end") {
+          // 关档清档——完成块经 onBlockEnd 关账入账（verbatim），不进 partialText
+          openText = undefined;
           emitBlockEndSafe(onBlockEnd, { kind: "text", text: ev.content });
           continue;
         }
@@ -175,20 +190,23 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
           });
         }
       }
-    })().catch(() => {
-      /* 迭代异常由 result() 主路径收口（stopReason=error → throw） */
-    });
-    const [assistant] = await Promise.all([stream.result(), consume]);
-    return this.toResponse(assistant);
+      return openText;
+    })().catch(() => undefined);
+    // 迭代异常由 result() 主路径收口（stopReason=error → throw）；consume 失败
+    // 仅损失 partialText（防御降级，不阻断终态判别）。
+    const [assistant, openText] = await Promise.all([stream.result(), consume]);
+    return this.toResponse(assistant, openText);
   }
 
   /** 终态消息 → port 响应判别（text 直答 / 首个 toolCall；thinking 块随
    *  终态携出——signature 透传；错误统一 throw；aborted 判别收口——
-   *  helix-loop L0：signal abort 后 partial 留在流内不入账，resolve
-   *  { kind: "aborted" } 而非 throw（duplex-truncation §6.3 port 面扩展）。 */
-  private toResponse(assistant: AssistantMessage): StewardLlmResponse {
+   *  helix-loop L0：signal abort 后 resolve { kind: "aborted" } 而非 throw
+   *  （duplex-truncation §6.3 port 面扩展）；G1（§3.3 text 行定稿）：aborted
+   *  携 partialText = 未关账 text 块增量（openText——模型须记得被掐断的已播
+   *  半句，P2）；空/缺席 = 无半截 text（行为不变）。 */
+  private toResponse(assistant: AssistantMessage, openText?: string): StewardLlmResponse {
     if (assistant.stopReason === "aborted") {
-      return { kind: "aborted" };
+      return { kind: "aborted", ...(openText !== undefined && openText !== "" ? { partialText: openText } : {}) };
     }
     if (assistant.stopReason === "error") {
       throw new Error(assistant.errorMessage ?? "管家模型返回错误（无错误详情）");
