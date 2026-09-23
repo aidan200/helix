@@ -17,6 +17,13 @@ class FakeCtx implements AudioContextLike {
   readonly sources: FakeSource[] = [];
   readonly gainNode = { gain: { value: 1 }, connect: () => {} };
   closed = false;
+  /** B2-hotfix 唤醒防御面：可切 suspended（默认 running——既有测试零感知）。 */
+  state: "running" | "suspended" = "running";
+  resumeCalls = 0;
+  resume(): void {
+    this.resumeCalls += 1;
+    this.state = "running";
+  }
   createBuffer(_channels: number, length: number, _sampleRate: number): { getChannelData(): Float32Array } {
     return { getChannelData: () => new Float32Array(length) };
   }
@@ -124,6 +131,21 @@ describe("createWebAudioSpeechPlayer（Web Audio PCM 播放队列）", () => {
     const boom = createWebAudioSpeechPlayer({ ctxFactory: () => { throw new Error("no audio"); } });
     expect(boom.enqueue("u1", pcmBlock(2400))).toBe(false);
     expect(boom.enqueue("u2", pcmBlock(2400))).toBe(false);
+  });
+
+  it("B2-hotfix：suspended ctx → enqueue 唤醒（resume）——恢复会话有声（WKWebView 挂起防御）；running 零冗余", () => {
+    ctx.state = "suspended";
+    const ok = player.enqueue("u1", pcmBlock(2400));
+    expect(ok).toBe(true);
+    expect(ctx.resumeCalls).toBe(1); // 唤醒而非静默丢声
+    expect(ctx.state).toBe("running");
+    // running 期再入队：零重复 resume（幂等无冗余）
+    player.enqueue("u1", pcmBlock(2400));
+    expect(ctx.resumeCalls).toBe(1);
+    // 长时间空闲后再挂起 → 恢复轮再次入队再唤醒
+    ctx.state = "suspended";
+    player.enqueue("u2", pcmBlock(2400));
+    expect(ctx.resumeCalls).toBe(2);
   });
 
   it("close()：停播 + 关 ctx", () => {

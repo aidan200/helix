@@ -30,6 +30,13 @@ export interface AudioContextLike {
   createBufferSource(): AudioBufferSourceLike;
   createGain(): GainNodeLike;
   close(): Promise<void> | void;
+  /** 上下文状态（"suspended" = 系统挂起：WKWebView 无近期手势/长空闲后
+   *  自动播放策略把 running 的 ctx 挂起——B2-hotfix「恢复无语音」根因面；
+   *  可选：旧 fake 可不带，缺省视为 running）。 */
+  readonly state?: string;
+  /** 唤醒挂起的上下文（Web Audio autoplay 标准防御：入队前 resume，时间线
+   *  从冻结点续走、已调度块照常播出）；可选同上。 */
+  resume?(): Promise<void> | void;
 }
 
 export interface AudioNodeLike {
@@ -127,6 +134,22 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
     }
   };
 
+  // B2-hotfix 唤醒防御：suspended ctx（WKWebView 无近期手势/长空闲挂起——
+  // 全局热键手势在壳进程，webview 无感知）入队前 resume——不唤醒则
+  // currentTime 冻结、调度永不发声（零报错纯静默）。resume 异步 promise 静默
+  // 吞（唤醒失败不炸队列；running 后续块照常调度）。
+  const wakeCtx = (): void => {
+    if (ctx === null || ctx.state !== "suspended" || typeof ctx.resume !== "function") return;
+    try {
+      const r = ctx.resume();
+      if (r !== undefined && typeof (r as Promise<void>).catch === "function") {
+        void (r as Promise<void>).catch(() => undefined);
+      }
+    } catch {
+      // 幂等（已 running/构造失败等）
+    }
+  };
+
   const retireSource = (utterId: string, source: AudioBufferSourceLike): void => {
     const set = byUtter.get(utterId);
     if (set === undefined) return;
@@ -138,6 +161,7 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
   return {
     enqueue(utterId: string, base64Pcm: string): boolean {
       if (!ensureCtx() || ctx === null || gain === null) return false;
+      wakeCtx();
       try {
         const samples = base64PcmToFloat32(base64Pcm, sampleRate);
         if (samples.length === 0) return true; // 空块——no-op（不视为失败）
