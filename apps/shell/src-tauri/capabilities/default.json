@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "helix 壳默认能力面（W6a）：core 默认集 + dialog open（原生目录选择，F3 裁决的壳唯一原生 UX 能力；窗口按标签授予 main/error）",
+  "description": "helix 壳默认能力面（W6a + B4）：core 默认集 + dialog open（原生目录选择）+ global-shortcut register/unregister（全局组合键）——F3 裁定的壳原生 UX 能力族（窗口按标签授予 main/error）",
   "windows": ["main", "error"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": ["core:default", "dialog:allow-open", "global-shortcut:allow-register", "global-shortcut:allow-unregister"]
 }

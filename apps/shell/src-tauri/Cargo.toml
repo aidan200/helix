@@ -23,6 +23,12 @@ tauri = { version = "2", features = ["macos-private-api"] }
 # IFileOpenDialog / Linux GTK），平台差异全由插件消化——壳唯一原生 UX 能力
 # （architecture F3 裁决：目录选择属窗口/原生 UX 能力族，壳只返回路径字符串）。
 tauri-plugin-dialog = "2"
+# B4 全局组合键（W6a 先例同族扩面，论证见 main.rs HOTKEY_INIT_SCRIPT 注释）：
+# 官方全局快捷键插件自带注册/注销命令面（macOS RegisterEventHotKey / Windows
+# RegisterHotKey / Linux X11），平台差异全由插件消化——F3 裁定的壳原生
+# UX 能力族：OS 级热键监听只能由壳侧持有（webview 无全局键盘钩子），注册面
+# 零业务数据（accel 进、触发事件出，不触 daemon、不读 ~/.helix/）。
+tauri-plugin-global-shortcut = "2"
 serde_json = "1"
 
 # Unix 进程看护原语（SIGTERM/SIGKILL/setpgid 进程组）；Windows 关停分支走

@@ -52,6 +52,45 @@ window.helixThemeHint = (theme) =>
 
 "#;
 
+/// B4 全局组合键注入脚本（W6a 同形态：挂 `window.helixHotkeyRegister` /
+/// `window.helixHotkeyUnregister`）。
+///
+/// 扩面论证（对照 W6a 先例，F3「壳原生 UX 能力族」延伸）：全局快捷键属
+/// 窗口/原生 UX 能力族——OS 级热键监听只能由壳侧持有（webview 无全局键盘
+/// 钩子），且注册面零业务数据（accel 字符串进、触发事件出，不触 daemon、
+/// 不读 ~/.helix/ 任何文件），与 tauri-plugin-dialog 目录选择同类边界。
+///
+/// 调 tauri-plugin-global-shortcut 自带命令面（plugin:global-shortcut|
+/// register/unregister）+ ShortcutJsEvent 通道。通道线格式（`__CHANNEL__:<id>`
+/// + transformCallback/unregisterCallback）是 tauri IPC 公开契约
+/// （@tauri-apps/api Channel 同构实现）——照 W6a dialog|open 先例在注入面
+/// 直调插件命令，前端零 Tauri 内部形态词（AG-17：该字样只许在本 Rust 字符串
+/// 里，消费面经 shared/api/native-capability.ts seam 受控访问）。触发回调仅在
+/// 按下（Pressed）时投递（松开帧忽略——toggle 语义只需要按下）。
+const HOTKEY_INIT_SCRIPT: &str = r#"
+window.helixHotkeyRegister = (accel, onFire) => {
+  const id = window.__TAURI_INTERNALS__.transformCallback((raw) => {
+    const ev = raw && raw.message;
+    if (ev && ev.state === 'Pressed') onFire();
+  });
+  window.__helixHotkeyCbId = id;
+  return window.__TAURI_INTERNALS__.invoke('plugin:global-shortcut|register', {
+    shortcuts: [accel],
+    handler: '__CHANNEL__:' + id,
+  });
+};
+window.helixHotkeyUnregister = (accel) =>
+  window.__TAURI_INTERNALS__.invoke('plugin:global-shortcut|unregister', { shortcuts: [accel] })
+    .finally(() => {
+      // 回调槽单点回收（注册/注销配对；热更新差分由前端 wake-hotkey 面收敛）
+      if (typeof window.__helixHotkeyCbId === 'number') {
+        window.__TAURI_INTERNALS__.unregisterCallback(window.__helixHotkeyCbId);
+        window.__helixHotkeyCbId = undefined;
+      }
+    });
+
+"#;
+
 // ── 窗口底色主题感知（W6e：先导页方案退役后的简化方案）──────────
 // webview 冷启动首帧前只能显示背景色（WebKit 无 pre-document 内容面）；
 // 先导页时间窗口过短不可靠（用户实证），改为让底色与当前主题一致。
@@ -194,6 +233,8 @@ fn build_main_window(app: &AppHandle) {
         // （前端挂载时+主题变更时回写提示；纯浏览器 dev 无挂载点 → 浏览钮
         // 不渲染，输入框仍可用）
         .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
+        // B4：追加全局组合键挂载点（纯浏览器 dev 无挂载点 → 注册面休眠）
+        .initialization_script(HOTKEY_INIT_SCRIPT)
         .build();
     set_native_window_background(app, "main", bg);
     set_native_window_appearance(app, "main", is_dark_background(bg));
@@ -208,6 +249,10 @@ fn main() {
     let app = tauri::Builder::default()
         // W6a 原生目录选择：官方三平台对话框插件（能力面见 capabilities/default.json）
         .plugin(tauri_plugin_dialog::init())
+        // B4 全局组合键：官方 global-shortcut 插件（扩面论证见 HOTKEY_INIT_SCRIPT
+        // 注释；能力面 = capabilities/default.json 的 register/unregister 两条；
+        // 插件无 init() 快捷面——Builder 形态，触发回调逐注册走命令面 Channel）
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // W6e：主题提示回写命令（前端挂载时+主题变更时调用；缓存下次启动的窗口底色）
         .invoke_handler(tauri::generate_handler![theme_hint])
         .setup({
