@@ -361,10 +361,10 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
     await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("帮我确认一下")); // 聊天句照发
   });
 
-  it("唤醒待命超时收场：duplex 随之落（短窗注入）——光球淡出数据面", async () => {
+  it("B2-hotfix：热键直通无待命超时——唤醒词非空 + 短窗注入 duplex 也不落（旧待命超时收场语义退役）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
-    localStorage.setItem("helix.steward.wakeWord", "helix"); // 门槛在：待命态
+    localStorage.setItem("helix.steward.wakeWord", "helix"); // 唤醒词在也直通（热键=显式手势）
     const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer, wakeTimeoutMs: 50 });
     await act(async () => {
       fireWakeHotkey?.();
@@ -374,7 +374,10 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
       emit("stt", frame("stt.stream.started", { status: "ok", streamId: "s1" }, "stt"));
     });
     expect(r.current.duplexActive).toBe(true);
-    await waitFor(() => expect(r.current.duplexActive).toBe(false), { timeout: 2000 });
+    expect(r.current.phase).toBe("listening"); // 直通待听（非 wake_armed）
+    // 短窗 50ms × 8 倍余量：无超时计时器（duplex 只随关麦/Esc 收口）
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(r.current.duplexActive).toBe(true);
   });
 
   it("steward-open-signal 零消费（B2：唤醒不弹面板——requestOpenSteward 零调用面）", async () => {

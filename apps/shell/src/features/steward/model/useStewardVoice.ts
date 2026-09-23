@@ -38,17 +38,15 @@
  * ——校准数据面）。asking 相位可打断（旧轮让位新输入）；text 模式/mic
  * 不可用行为完全不变。
  *
- * B4 唤醒链（全局组合键手动开麦 + 唤醒词门槛入对话）：全局组合键（壳
- * tauri-plugin-global-shortcut，wake-hotkey 注册面单点）→ 唤醒待命
- * （wake_armed——显式用户手势触发的新采集态：开麦 + 流式转写 + 本地匹配）
- * → interim 命中唤醒词（matchWakeWord 大小写不敏感，webview 本地判定
- * 零后置花费）→ 剥离唤醒词前缀，剩余话语（含本轮续句）走既有 ask 链
- * 入对话（命中前内容不入对话零 ask）；命中 → 转入既有 listening→
- * transcribing→asking 流（语音模式同链）。待命超时（可配 30s）自动关麦
- * 收场（隐私兜底）；组合键再按 / Esc = 手动退出会话并关麦（cancelWake
- * ——track.stop 即刻，零转写零 ask）。唤醒词空串 = 关门槛直通（组合键
- * 直入 listening）。（B2 起「面板关闭即收场」随 open 参数退役：可见
- * 指示改光球层，采样窗由 duplex 态内聚。）
+ * B4 唤醒链（全局组合键手动开麦；B2-hotfix 语义修订：热键直通双工）：
+ * 全局组合键（壳 tauri-plugin-global-shortcut，wake-hotkey 注册面单点）
+ * → **直通双工对话**（listening 开麦即听——热键是显式用户手势，身份已
+ * 确认；唤醒词门槛仅属未来「被动监听唤起」场景：麦克风常开等词防误
+ * 触才需要词，热键会话二次确认语义冗余——B2-hotfix 修复「说完话零回应
+ * + 待命 30s 超时光球消失」）。待命机制（wakeSession/超时收场/词剥离/
+ * matchWakeWord）保留待被动监听批复用（热键路径 wakeRef 恒 null = 零行为）。
+ * 组合键再按 / Esc = 关麦收场（cancelWake——duplex 落，在途 ask 轮不动）。
+ * 唤醒词偏好仍可配置（被动监听批消费面）。
  *
  * B2 双工会话（全局语音批，设计稿 §3.2/§3.3）：挂载点从 StewardPanel 迁
  * 至 StewardVoiceLayer（光球层，app 壳级常驻）——open 参数（面板活跃）退
@@ -87,8 +85,6 @@ import {
   readVoiceSilenceWindowPref,
   readVoiceCheckPref,
   readZcrTolerancePref,
-  readWakeWordPref,
-  readWakeTimeoutPref,
   voiceRmsThresholdFromSensitivity,
 } from "@/shared/lib/voice-pref";
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
@@ -809,16 +805,10 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     markDuplex(true);
     setWelcomeActive(true);
     speakWelcome();
-    const word = readWakeWordPref().trim();
-    // 空串直通：唤醒词关 = 零门槛，组合键即入既有 listening 流（hit 判据
-    // 与 markWakeSession 同参本地字面——函数体开头 null 窄化不污染 ref 读取）
-    const wordHit = word === "";
-    markWakeSession({ word, hit: wordHit });
+    // B2-hotfix：热键 = 显式用户手势，直通双工——不设唤醒词门槛、不启动
+    // 待命超时（门槛仅属未来「被动监听唤起」场景；待命机制保留零行为）。
+    markWakeSession(null);
     await guardedBeginListening();
-    if (!wordHit) {
-      // 待命超时（可配 30s）隐私兜底：静默无人声即关麦收场（duplex 随 cancelWake 落）
-      wakeTimerRef.current = setTimeout(() => cancelWake(), wakeTimeoutMsRef.current ?? readWakeTimeoutPref());
-    }
   }, [cancelWake, guardedBeginListening, stopSpeaking, markWakeSession, markDuplex, speakWelcome]);
   const toggleWakeRef = useRef(toggleWake);
   toggleWakeRef.current = toggleWake;
@@ -837,16 +827,16 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     return () => setWakeHotkeyFireHandler(null);
   }, []);
 
-  // Esc = 手动退出唤醒会话并关麦（仅会话在途挂监听——面板 Esc 已随语音
-  // UI 退役回归纯关面板，同键双听各听各的域）
+  // Esc = 手动退出并关麦（B2-hotfix：直通后 wakeState 恒 off——监听挂 duplex
+  // 会话期；待命态遗留条件保留：被动监听批复用时待命期 Esc 仍可用）
   useEffect(() => {
-    if (wakeState === "off") return;
+    if (wakeState === "off" && !duplexActive) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") cancelWake();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [wakeState, cancelWake]);
+  }, [wakeState, duplexActive, cancelWake]);
 
   // 面板卸载/路由退场：在录强制停链路自然走完之外，废弃未收口的流（abort
   // 上游——money 纪律零孤儿连接；final 已 pending 时 timer 兑底回落后停）

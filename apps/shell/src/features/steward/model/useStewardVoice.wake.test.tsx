@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
 /**
- * useStewardVoice 唤醒链集成测试（B4 全局组合键手动开麦 + 唤醒词门槛入对话；
- * TDD 红→绿）。
+ * useStewardVoice 唤醒链集成测试（B4 全局组合键手动开麦；B2-hotfix 语义
+ * 修订：热键直通双工——唤醒词门槛退役出热键会话；TDD 红→绿）。
  *
- * 链路集成点（brief 测试要求）：
- * - 组合键 → 唤醒待命（wake_armed）：开麦 + 流式开流（stt.stream.start）；
- * - 唤醒匹配：interim 命中唤醒词（大小写不敏感）→ 剥离唤醒词前缀 → 转入
- *   listening → 终帧 → sendStewardAsk 恰一次携带剥离后剩余话语（既有 ask 链）；
- * - 未命中不入 ask：命中前的转写内容零入对话（超时/手动退出后 ask 零调用）；
- * - 空串直通：唤醒词空串 = 关门槛——组合键即入 listening，终帧全文进 ask；
- * - 待命超时自动关麦收场（可配 30s——测试用短窗偏好）：track.stop 断言
- *   （ed508171 同款）+ stt.stream.stop 废流 + 零 ask；
- * - 手动退出关麦：Esc / 组合键再按 = 退出待命并关麦（track.stop 断言 + 零 ask）；
- * - 面板关闭即关麦（麦克风生命周期纪律）：唤醒会话随面板关闭取消收场。
+ * 链路集成点（brief 测试要求）:
+ * - 组合键 → 直通双工 listening（wakeState off——无待命态、无唤醒词门槛）:
+ *   开麦 + 流式开流（stt.stream.start）；唤醒词偏好非空（默认 "helix"）也
+ *   直通（B2-hotfix 回归钉子——热键是显式手势，门槛仅属未来被动监听场景);
+ * - 说任意话（不含唤醒词）→ 终帧全文进 ask（既有 ask 链——修复「说完零
+ *   回应 + 待命 30s 超时光球消失」报障）；
+ * - 无待命超时收场：短窗注入后 duplex 会话不因超时消失（待命超时机制随
+ *   门槛退役出热键路径）；
+ * - 手动退出关麦：Esc / 组合键再按 = duplex 收口关麦（track.stop 断言）;
+ * - 面板关闭即关麦（麦克风生命周期纪律）：duplex 会话随面板关闭取消收场。
+ *
+ * 机制面（wakeSession 结构/matchWakeWord/deriveOrbPhase wake_armed 分支）
+ * 保留待未来「被动监听唤起」批复用——纯函数面测试不动（machine.test）。
  *
  * mock 面：SessionContext（同 useStewardVoice.test）+ FakeMediaRecorder +
  * wake-hotkey 注册面（fire handler 捕获 = 全局组合键触发模拟）。
@@ -179,17 +182,6 @@ async function pressHotkey(): Promise<void> {
   });
 }
 
-/** 待命 → interim 命中唤醒词 → 唤醒轮（listening）。 */
-async function wakeHit(r: HookResult, interimText: string): Promise<void> {
-  await pressHotkey();
-  expect(r.current.wakeState).toBe("standby");
-  act(() => {
-    emit("stt", frame("stt.stream.interim", { streamId: "s1", prior: "", text: interimText, stash: "" }, "stt"));
-  });
-  expect(r.current.wakeState).toBe("round");
-  expect(r.current.phase).toBe("listening");
-}
-
 /** 过最短录音窗 + 强制停 + 终帧（useVoiceInput.test speakOnce 同款时钟手法）。 */
 async function finishRound(r: HookResult, finalText: string): Promise<void> {
   let nowMs = Date.now();
@@ -208,7 +200,7 @@ async function finishRound(r: HookResult, finalText: string): Promise<void> {
   });
 }
 
-describe("useStewardVoice 唤醒链（B4：组合键 → 唤醒词 → 对话）", () => {
+describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）", () => {
   let restoreEnv: (() => void) | null = null;
   let trackStop: ReturnType<typeof vi.fn> | null = null;
 
@@ -226,95 +218,71 @@ describe("useStewardVoice 唤醒链（B4：组合键 → 唤醒词 → 对话）
     trackStop = null;
   });
 
-  it("组合键 → 唤醒待命（wake_armed）：开麦 + 流式开流；再按组合键 = 手动退出关麦（track.stop + 废流 + 零 ask）", async () => {
+  it("组合键 → 直通双工 listening（无待命态零门槛）：开麦 + 流式开流；再按组合键 = 关麦收口（track.stop + 废流）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     trackStop = env.trackStop;
     const r = renderVoice();
     await pressHotkey();
-    expect(r.current.wakeState).toBe("standby");
-    expect(r.current.phase).toBe("wake_armed");
+    // 直通：无待命会话（wakeState off）、相位即 listening、双工活跃
+    expect(r.current.wakeState).toBe("off");
+    expect(r.current.phase).toBe("listening");
+    expect(r.current.duplexActive).toBe(true);
     expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
     expect(trackStop).not.toHaveBeenCalled();
-    // 再按组合键 = 手动退出待命并关麦（toggle）
+    // 再按组合键 = 关麦收口（toggle，D2 单键）
     await act(async () => {
       fireWakeHotkey?.();
     });
     await tick();
     expect(r.current.wakeState).toBe("off");
     expect(r.current.phase).toBe("idle");
+    expect(r.current.duplexActive).toBe(false);
     expect(trackStop).toHaveBeenCalled();
     expect(sendSttStreamStop).toHaveBeenCalled();
-    expect(sendStewardAsk).not.toHaveBeenCalled();
   });
 
-  it("Esc = 手动退出待命并关麦（track.stop 断言 + 零 ask）", async () => {
+  it("回归钉子（B2-hotfix 报障修复）：唤醒词默认非空（helix）也直通——说任意话（不含唤醒词）→ 终帧全文进 ask", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
-    trackStop = env.trackStop;
     const r = renderVoice();
+    // 不设 wakeWord 偏好：readWakeWordPref 缺省 "helix"（非空）——旧语义下
+    // 此配置 = 待命态等词（报障现场：说完零回应 + 30s 超时光球消失）
     await pressHotkey();
-    expect(r.current.phase).toBe("wake_armed");
-    act(() => {
-      fireEvent.keyDown(window, { key: "Escape" });
-    });
-    expect(r.current.wakeState).toBe("off");
-    expect(trackStop).toHaveBeenCalled();
-    expect(sendStewardAsk).not.toHaveBeenCalled();
+    expect(r.current.phase).toBe("listening"); // 直通待听（非 wake_armed）
+    await finishRound(r, "今天有什么任务在跑");
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
+    expect(sendStewardAsk).toHaveBeenCalledWith("今天有什么任务在跑");
+    // 会话仍在（无超时收场）
+    expect(r.current.duplexActive).toBe(true);
   });
 
-  it("待命超时自动关麦收场（测试短窗注入）：track.stop + 废流 + 未命中零 ask", async () => {
+  it("无待命超时收场（短窗注入后 duplex 不因超时消失）：修复「说完话等 30s 光球自灭」路径", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     trackStop = env.trackStop;
     const r = renderVoice({ wakeTimeoutMs: 50 });
     await pressHotkey();
-    expect(r.current.phase).toBe("wake_armed");
-    // 命中前的转写内容不入对话（interim 有话语但无唤醒词）
-    act(() => {
-      emit("stt", frame("stt.stream.interim", { streamId: "s1", prior: "", text: "随便说点什么", stash: "" }, "stt"));
-    });
-    await waitFor(() => expect(r.current.wakeState).toBe("off"), { timeout: 2000 });
-    expect(trackStop).toHaveBeenCalled();
-    expect(sendSttStreamStop).toHaveBeenCalled();
-    expect(sendStewardAsk).not.toHaveBeenCalled();
+    expect(r.current.phase).toBe("listening");
+    // 短窗 50ms × 4 倍余量：直通会话无超时计时器（旧语义待命超时收场）
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(r.current.duplexActive).toBe(true);
+    expect(trackStop).not.toHaveBeenCalled();
   });
 
-  it("命中后走既有 ask 链：唤醒词大小写不敏感 + 前缀剥离 → sendStewardAsk 载荷 = 剩余话语", async () => {
+  it("Esc 在 duplex 期 = 关麦收口（track.stop 断言；直通后 Esc 面向双工会话）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
-    const r = renderVoice();
-    await wakeHit(r, "HeLiX 明天");
-    // 命中前内容（含唤醒词）不入对话——ask 尚未发生
-    expect(sendStewardAsk).not.toHaveBeenCalled();
-    await finishRound(r, "HeLiX 明天天气怎么样");
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
-    expect(sendStewardAsk).toHaveBeenCalledWith("明天天气怎么样");
-  });
-
-  it("未命中不入 ask：终帧无唤醒词 → 零 ask（防御面——命中前内容不入对话）", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    const r = renderVoice();
-    await wakeHit(r, "helix 明天");
-    // 终帧重写差异丢失唤醒词：仍未命中 → 不入 ask
-    await finishRound(r, "明天天气怎么样");
-    await tick();
-    expect(sendStewardAsk).not.toHaveBeenCalled();
-    expect(r.current.wakeState).toBe("off");
-  });
-
-  it("空串直通：唤醒词关（空串）= 组合键即入 listening，终帧全文进 ask", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    localStorage.setItem("helix.steward.wakeWord", "");
+    trackStop = env.trackStop;
     const r = renderVoice();
     await pressHotkey();
-    expect(r.current.wakeState).toBe("round"); // 无门槛：直通唤醒轮
     expect(r.current.phase).toBe("listening");
-    await finishRound(r, "今天有什么任务在跑");
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
-    expect(sendStewardAsk).toHaveBeenCalledWith("今天有什么任务在跑");
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(r.current.wakeState).toBe("off");
+    expect(r.current.duplexActive).toBe(false);
+    expect(trackStop).toHaveBeenCalled();
   });
 
   // B2「面板关闭即关麦」随 open 参数退役：duplex 会话收口（关麦/超时/Esc）
