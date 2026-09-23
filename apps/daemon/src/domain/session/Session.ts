@@ -56,6 +56,13 @@ export class Session {
     readonly title?: string,
   ) {}
 
+  /**
+   * 阶段演进主题（动态主题批）：可变状态——与 title/mode 的「定格只读」
+   * 语义分野，唯一写路径 = updateTopic（轮次锚点矫正）；不进 constructor
+   * （建会话无主题，restoreFrom 从快照恢复）。
+   */
+  private topic?: string;
+
   static create(id?: string, at?: string, mode?: string, title?: string): Session {
     // 缺省 now（非 epoch 0）：生产恒传 at/session，兑底误用时避免 createdAt=1970 落盘
     return new Session(id ?? crypto.randomUUID(), at ?? new Date().toISOString(), newInstanceId(), mode, title);
@@ -330,6 +337,31 @@ export class Session {
   isEmpty(): boolean {
     return this.entries.length === 0;
   }
+
+  // ── 阶段演进主题（动态主题批） ──────────────────────
+
+  /** 当前演进主题（未演进/未开启 = undefined；读面优先级 title > topic > 首条消息推导）。 */
+  currentTopic(): string | undefined {
+    return this.topic;
+  }
+
+  /**
+   * 更新演进主题（SessionTitleService 轮次锚点矫正的唯一写路径）。
+   * 域守卫（结构性保证，不依赖 service 层自律）：
+   * - 显式标题保护：title 已定格（用户/管家 createTitledSession）→ 拒绝
+   *   （演进永不覆盖用户显式命名）；
+   * - 空串/纯空白拒绝（主题是有实义的短语）。
+   */
+  updateTopic(text: string): void {
+    if (this.title !== undefined) {
+      throw new DomainError(`会话 ${this.id} 已有显式标题（${this.title}），演进主题永不覆盖`);
+    }
+    const trimmed = text.trim();
+    if (trimmed === "") {
+      throw new DomainError(`会话 ${this.id} 演进主题不能为空`);
+    }
+    this.topic = trimmed;
+  }
   turnList(): TurnData[] {
     return this.turns.map((t) => t.toData());
   }
@@ -343,6 +375,7 @@ export class Session {
       mainInstanceId: this.mainInstanceId,
       ...(this.mode !== undefined ? { mode: this.mode } : {}),
       ...(this.title !== undefined ? { title: this.title } : {}),
+      ...(this.topic !== undefined ? { topic: this.topic } : {}),
       entries: this.entryList(),
       turns: this.turnList(),
       pendingSteer: this.steerQueue.toData(),
@@ -379,6 +412,11 @@ export class Session {
       snapshot.pendingSteer.reduce((acc, item) => maxSeq("e")(acc, { id: item.entryId }), 0),
     ) + 1;
     s.nextTurnSeq = s.turns.reduce(maxSeq("t"), 0) + 1;
+    // 演进主题恢复（动态主题批）：快照携带即重建；旧快照无值 → 保持
+    // undefined（读面回落首条消息推导）；空串防御跳过
+    if (typeof snapshot.topic === "string" && snapshot.topic.trim() !== "") {
+      s.topic = snapshot.topic;
+    }
     // open turn（generating/toolRunning）恢复后仍是 open——由恢复方决定收口方式
     s.currentTurn = [...s.turns].reverse().find((t) => t.status === "generating" || t.status === "toolRunning") ?? null;
     return s;

@@ -89,6 +89,9 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       // 修复批①：显式会话标题随状态行落盘（createTitledSession 定格；
       // 快照不携带 → null，读取侧键不携带——清单读面回落首条消息截断推导）
       title: state.session.title ?? null,
+      // 动态主题批：阶段演进主题随状态行落盘（轮次锚点矫正；快照不携带
+      // → null；读面优先级 title > topic > firstUserText）
+      topic: state.session.topic ?? null,
     },
     lifecycle: { session_id: sessionId, instance_id: LEGACY_MAIN_INSTANCE_ID, state: state.agentState, updated_at: now },
     steer: state.session.pendingSteer.map((item) => ({
@@ -138,6 +141,9 @@ export function rowsToPersistedState(
       // 修复批①：title 列往返（列前时代旧行 NULL → 键不携带，读侧回落
       // 首条用户消息截断推导——旧行无值兼容）
       ...(session.title !== null && session.title !== undefined ? { title: session.title } : {}),
+      // 动态主题批：topic 列往返（列前时代旧行 NULL → 键不携带，读侧回落
+      // title/首条消息推导——旧行无值兼容）
+      ...(session.topic !== null && session.topic !== undefined ? { topic: session.topic } : {}),
       // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填该会话
       // 主实例 id（TR-AD-14；NULL 主 id 列 = legacy "main"）；entries 为
       // message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId

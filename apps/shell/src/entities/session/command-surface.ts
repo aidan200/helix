@@ -97,6 +97,8 @@ import {
   configGetPortCommand,
   configGetSandboxCommand,
   configSetSandboxCommand,
+  configGetTopicCommand,
+  configSetTopicCommand,
   configSetPortCommand,
   diffGetCommand,
   kgBootstrapCreateCommand,
@@ -612,6 +614,18 @@ export const COMMAND_SURFACE = {
    * 部分更新语义：enabled/extraRoots 任选至少一项。send 返回值透传（code-review H8）。 */
   setSandboxConfig: (deps) =>
     (patch: { enabled?: boolean; extraRoots?: string[] }): boolean => deps.send(configSetSandboxCommand(patch)),
+  /** 动态主题配置拉取（通用配置分区进入；未请求态才发；动态主题批）。 */
+  requestTopicConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.topic === null) {
+        deps.send(configGetTopicCommand());
+      }
+    },
+  /** 动态主题配置写入（运行期即热——下一次锚点按新配置执行）。
+   *  部分更新语义：携带项写入，未携带项保留现值。send 返回值透传（code-review H8）。 */
+  setTopicConfig: (deps) =>
+    (patch: { enabled?: boolean; model?: string | null; classifyEnabled?: boolean; classifyEndpointId?: string | null }): boolean =>
+      deps.send(configSetTopicCommand(patch)),
   /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
    *  恢复发送前凭据条目 + 返回 false。 */
   verifyProvider: (deps) =>

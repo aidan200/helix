@@ -44,6 +44,14 @@ export interface SessionSnapshot {
    * 列前时代旧行无值 → 键不携带（读侧回落首条用户消息截断推导）。
    */
   readonly title?: string;
+  /**
+   * 阶段演进主题（动态主题批）：SessionTitleService 轮次锚点矫正产生
+   * （第 1/10/20… 轮末，LLM 一句话重述会话主题）；与 title 语义分野——
+   * title 是用户显式定格（存在即锁定，演进永不覆盖），topic 是自动演进
+   * （后续锚点可覆盖）。可空——旧快照/未开启动态主题的会话不携带；
+   * 清单读面优先级 title > topic > 首条用户消息截断推导。
+   */
+  readonly topic?: string;
   /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction/error 混排，每条挂 instanceId，AD-3）。 */
   readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */

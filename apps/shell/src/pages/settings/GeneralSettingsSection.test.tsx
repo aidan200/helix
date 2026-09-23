@@ -23,6 +23,12 @@ const setSchedulingConfig = vi.fn();
 const requestPortConfig = vi.fn();
 const requestSandboxConfig = vi.fn();
 const setSandboxConfig = vi.fn();
+/** 动态主题批：config.topic 族命令面 mock（结果帧驱动，与沙箱同构）。 */
+const requestTopicConfig = vi.fn();
+const setTopicConfig = vi.fn(() => true);
+let mockTopic: { enabled: boolean; model: string | null; classifyEnabled: boolean; classifyEndpointId: string | null; judgeEndpoints: { id: string; name: string }[] } | null = null;
+/** 动态主题批：模型目录拉取 mock（主题模型下拉数据源）。 */
+const requestModelConfig = vi.fn();
 /** 沙箱开关状态（结果帧驱动回填用可变位）。 */
 let mockSandbox: { enabled: boolean; extraRoots: string[] } | null = null;
 /** stale-indicator 批：daemonFreshness 可变位（welcome 承接面——设置页人话时间数据源）。 */
@@ -50,7 +56,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [], daemonFreshness: mockDaemonFreshness },
-      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox }, list: [] },
+      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, topic: mockTopic, catalog: null }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
       requestSchedulingConfig,
@@ -58,6 +64,9 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       requestPortConfig,
       requestSandboxConfig,
       setSandboxConfig,
+      requestTopicConfig,
+      setTopicConfig,
+      requestModelConfig,
       setPortConfig,
       subscribeConfigFrames: (listener: (e: EventEnvelope) => void) => {
         configListeners.push(listener);
@@ -677,5 +686,62 @@ describe("stale-indicator 批：关于 daemon 卡（daemon 启动时间人话显
     expect(row).not.toBeNull();
     expect(row!.textContent).not.toContain("1975");
     expect(row!.textContent).toContain("未连接");
+  });
+});
+
+
+describe("动态主题卡（动态主题批）", () => {
+  it("进入分区拉取现值：requestTopicConfig 在场调用（模型目录顺带拉取）", () => {
+    ui();
+    expect(requestTopicConfig).toHaveBeenCalled();
+    expect(requestModelConfig).toHaveBeenCalled();
+  });
+
+  it("开关双按钮组在场（未请求态均不激活）", () => {
+    const { container } = ui();
+    expect(container.querySelector("[data-topic-switch]")).not.toBeNull();
+    expect(container.querySelector('[data-topic-option="on"]')).not.toBeNull();
+    expect(container.querySelector('[data-topic-option="off"]')).not.toBeNull();
+  });
+
+  it("enabled=true 结果帧驱动：显示主题模型下拉 + 分类子开关（judgeEndpoints 空 → 子开关禁用 + 引导提示）", () => {
+    mockTopic = { enabled: true, model: null, classifyEnabled: false, classifyEndpointId: null, judgeEndpoints: [] };
+    try {
+      const { container } = ui();
+      expect(container.querySelector("[data-topic-model-select]")).not.toBeNull();
+      const classify = container.querySelector<HTMLInputElement>("[data-topic-classify-enabled] input");
+      expect(classify).not.toBeNull();
+      expect(classify!.disabled).toBe(true);
+      expect(container.querySelector("[data-topic-classify-empty]")).not.toBeNull();
+    } finally {
+      mockTopic = null;
+    }
+  });
+
+  it("judgeEndpoints 非空：子开关可用 + 分类端点下拉（开启态）在场", () => {
+    mockTopic = {
+      enabled: true,
+      model: "deepseek/deepseek-v4-flash",
+      classifyEnabled: true,
+      classifyEndpointId: "jev-1",
+      judgeEndpoints: [{ id: "jev-1", name: "jev 判官" }],
+    };
+    try {
+      const { container } = ui();
+      const classify = container.querySelector<HTMLInputElement>("[data-topic-classify-enabled] input");
+      expect(classify!.disabled).toBe(false);
+      expect(classify!.checked).toBe(true);
+      const select = container.querySelector<HTMLSelectElement>("[data-topic-endpoint-select]");
+      expect(select).not.toBeNull();
+      expect(select!.value).toBe("jev-1");
+    } finally {
+      mockTopic = null;
+    }
+  });
+
+  it("点击开启 → setTopicConfig({enabled:true}) 部分更新（无乐观更新，结果帧驱动回填）", () => {
+    const { container } = ui();
+    container.querySelector<HTMLElement>('[data-topic-option="on"]')!.click();
+    expect(setTopicConfig).toHaveBeenCalledWith({ enabled: true });
   });
 });

@@ -86,3 +86,39 @@ export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandbox
   channel?: "model";
   type: "config.set_sandbox.result";
 }
+
+// ── config.topic 族（动态主题批；会话阶段演进主题配置，全局命令）──
+
+/**
+ * config.get_topic / config.set_topic 回执同形载荷（get = 现态读面；
+ * set = 校验通过写入后的新现态回读）。judgeEndpoints 恒携带——设置页
+ * 「分类模型判断」子开关可用性判定与下拉数据源（无可用端点 = 子开关禁用）。
+ */
+export interface ConfigTopicStatePayload {
+  /** 动态主题开关（默认关）。 */
+  enabled: boolean;
+  /** 主题生成模型（"provider/model-id"；null = 未配置，回退全局兜底模型）。 */
+  model: string | null;
+  /** 分类模型判断开关（两段式：先判漂移再生成；依赖 judge 端点）。 */
+  classifyEnabled: boolean;
+  /** 分类端点 id（embedding 配置域 kind=judge 条目；null = 未选）。 */
+  classifyEndpointId: string | null;
+  /** 可选 judge 端点清单（id + 显示名；空数组 = 无可用端点，子开关禁用）。 */
+  judgeEndpoints: readonly ConfigTopicJudgeEndpoint[];
+}
+export interface ConfigTopicJudgeEndpoint {
+  id: string;
+  name: string;
+}
+export interface ConfigGetTopicResultEvent extends EventFrame<ConfigTopicStatePayload> {
+  channel?: "model";
+  type: "config.get_topic.result";
+}
+export interface ConfigSetTopicResultPayload {
+  /** 写入后的新现态（与 get 同形）。 */
+  state: ConfigTopicStatePayload;
+}
+export interface ConfigSetTopicResultEvent extends EventFrame<ConfigSetTopicResultPayload> {
+  channel?: "model";
+  type: "config.set_topic.result";
+}

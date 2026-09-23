@@ -55,6 +55,11 @@ import { TtsStreamService } from "../application/tts/TtsStreamService";
 import { BroadcastService } from "../application/voice/BroadcastService";
 import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
 import {
+  SessionTitleService,
+  recentUserTextsOf,
+} from "../application/services/session-title/SessionTitleService";
+import { TopicConfigStore } from "../adapters/driven/sqlite-session/TopicConfigStore";
+import type { DomainEvent } from "../domain/events/DomainEvent";import {
   StewardMemoryService,
   STEWARD_MEMORY_EMBEDDING_KEY,
   STEWARD_MEMORY_ENDPOINT_ID_KEY,
@@ -232,6 +237,11 @@ export interface AssembleDaemonDeps {
    * 缺省 = PiStewardLlmAdapter 真体）。
    */
   readonly stewardLlmOverride?: StewardLlmPort;
+  /**
+   * 动态主题服务覆盖（动态主题批：测试注入 fake 驱动锚点演进全链；
+   * 缺省 = SessionTitleService 真体）。
+   */
+  readonly sessionTitleOverride?: { onDomainEvent(event: DomainEvent): void };
   /**
    * findings 落账管道覆盖（F3.0，T4.1 测试注入替身；缺省 = kg 栈真体：
    * KgWriteService 唯一写入口 + workspace 项目扫描）。
@@ -804,8 +814,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           createdAt: r.createdAt,
           updatedAt: r.updatedAt,
           // L1 投影修复批：显式标题列透传（此前在此断链——repo 已返回、
-          // 管家投影拿不到，标题会话全部显示「（无主题）」）。
+          // 管家投影拿不到，标题会话全部显示「（无主题）」）；动态主题批：
+          // 演进主题 topic 同步透传（displayTitle 管家侧组装 title > topic > firstUserText）。
           ...(r.title != null ? { title: r.title } : {}),
+          ...(r.topic != null ? { topic: r.topic } : {}),
           firstUserText: r.firstUserText,
           entryCount: r.entryCount ?? null,
         })),
@@ -956,6 +968,57 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     cliOutput: deps.cliOutput,
   });
 
+  // ── 动态主题批：SessionTitleService（fanout 目标 session-topic-bridge
+  //    的服务体）。配置面 = TopicConfigStore 单键 JSON（读写单点）；生成面
+  //    复用管家 LLM 适配器形态（独立实例——模型槽位 = topic_config.model，
+  //    未设置 = flash 级默认，换模型换 key 热生效）；两段式判官 =
+  //    classifyEndpointId 实时解析 kind=classifier 端点构造（端点删除/改型
+  //    → 抛错退化一段式）；money gate：开关关 = 锚点短路零 LLM 调用。──
+  const topicConfig = new TopicConfigStore(persistence.runtimeConfig);
+  const sessionTitleService =
+    deps.sessionTitleOverride ??
+    new SessionTitleService({
+      readConfig: () => topicConfig.current(),
+      llm: new PiStewardLlmAdapter({
+        models: modelStack.catalog.modelsView(),
+        modelSlot: () => topicConfig.current().model ?? undefined,
+        defaultModel: STEWARD_DEFAULT_MODEL,
+        getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+      }),
+      // 两段式判官（懒构造：每次判定实时解析端点——换端点/删端点零重启跟随；
+      // 与管家记忆 B4a 判官同构，端点 id 独立）
+      judge: {
+        noul: async (state: string, question: string) => {
+          const endpointId = topicConfig.current().classifyEndpointId;
+          if (endpointId === undefined || endpointId === null || endpointId === "") throw new Error("分类端点未配置（动态主题两段式退化）");
+          const record = embeddingConfig.resolveRecord(endpointId);
+          if (record === null || record.kind !== "classifier") throw new Error(`分类端点无效：${endpointId}`);
+          return new JevJudgeAdapter({ getConfig: () => record }).noul(state, question);
+        },
+      },
+      resolveTarget: (sessionId) => {
+        const runtime = registry.peekHotRuntime(sessionId);
+        if (runtime === undefined) return undefined;
+        const view = runtime.chatService.sessionView;
+        const entries = view.entryList();
+        const firstUser = entries.find((e): e is (typeof e) & { role?: string; text?: string } => "role" in e && e.role === "user");
+        const firstAssistant = entries.find((e): e is (typeof e) & { role?: string; text?: string } => "role" in e && e.role === "assistant");
+        return {
+          title: view.title,
+          topic: view.currentTopic(),
+          turnCount: view.turnCount,
+          recentUserTexts: recentUserTextsOf(entries, 10),
+          ...(firstAssistant !== undefined && typeof firstAssistant.text === "string"
+            ? { firstAssistantText: [...firstAssistant.text].slice(0, 500).join("") }
+            : {}),
+          firstUserText: firstUser?.text ?? null,
+          updateTopic: (topic, previous, anchorTurn) => runtime.chatService.updateTopic(topic, previous, anchorTurn),
+        };
+      },
+      announceTopicChanged: (sessionId) => registry.announceTopicChanged(sessionId),
+      logger: { warn: (message) => logger.warn(message) },
+    });
+
   // ── fan-out 六目标装配（装配序步 5；带名注册表序 = 语义唯一权威，§4.2.4） ──
   wireEventFanout(fanoutPublisher, {
     registry,
@@ -969,6 +1032,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     voice: voiceBroadcast,
     // 文本管家批（V2.5）：生命周期事件 → 粗筛/模板文本行/feed 帧桥
     steward: stewardService,
+    // 动态主题批：主实例完成轮 → 锚点演进桥（末位旁路面）
+    sessionTitle: sessionTitleService,
   });
 
   // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环
@@ -1053,6 +1118,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
+    topicConfig, // config.get/set_topic 回口（动态主题批；同容器单例，与 SessionTitleService 同源）
+    topicJudgeEndpoints: () =>
+      embeddingConfig
+        .list()
+        .filter((e) => e.kind === "classifier")
+        .map((e) => ({ id: e.id, name: e.name })),
     askService, // ask.answer 命令回口（提权申请批；同容器单例，与工具装配同源）
     registry,
     scheduler,

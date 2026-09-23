@@ -29,6 +29,7 @@ export interface SessionStateRow {
   readonly main_instance_id: string | null;
   readonly mode: string | null;
   readonly title: string | null;
+  readonly topic: string | null;
 }
 
 /** agent_lifecycle 行（每会话每实例一行，复合 PK (session_id, instance_id)）。 */

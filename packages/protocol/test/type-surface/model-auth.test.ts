@@ -27,6 +27,8 @@ type _ModelFamily = Expect<
     | "config.set_port.result"
     | "config.get_sandbox.result"
     | "config.set_sandbox.result"
+    | "config.get_topic.result"
+    | "config.set_topic.result"
     | "auth.list.result"
     | "auth.set_key.result"
     | "auth.delete_key.result"

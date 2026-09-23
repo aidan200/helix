@@ -56,7 +56,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenModelsEmbeddingTab: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestTopicConfig, setTopicConfig, requestModelConfig, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -174,6 +174,47 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     setSandboxError(null);
   };
 
+  // 动态主题（动态主题批）：result 帧驱动回填（与沙箱同构——无乐观更新）。
+  // 模型目录 = modelConfig.catalog（进入分区时未请求态拉取）；judge 端点
+  // 清单随 config.get/set_topic 回执携带（daemon 侧 kind=classifier 过滤）。
+  const topicCfg = topology.modelConfig.topic;
+  const [topicError, setTopicError] = useState<string | null>(null);
+  const topicModels = topology.modelConfig.catalog?.models ?? null;
+  const topicJudgeList = topicCfg?.judgeEndpoints ?? [];
+  const toggleTopic = (enabled: boolean): void => {
+    if (setTopicConfig({ enabled }) === false) {
+      setTopicError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setTopicError(null);
+  };
+  const selectTopicModel = (value: string): void => {
+    if (setTopicConfig({ model: value === "" ? null : value }) === false) {
+      setTopicError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setTopicError(null);
+  };
+  const toggleTopicClassify = (enabled: boolean): void => {
+    // 清单空 → checkbox 已禁用；开启时未选端点自动选首个（后端校验同步拦）
+    const patch =
+      enabled && topicCfg?.classifyEndpointId == null && topicJudgeList.length > 0
+        ? { classifyEnabled: true, classifyEndpointId: topicJudgeList[0]!.id }
+        : { classifyEnabled: enabled };
+    if (setTopicConfig(patch) === false) {
+      setTopicError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setTopicError(null);
+  };
+  const selectTopicEndpoint = (value: string): void => {
+    if (setTopicConfig({ classifyEndpointId: value === "" ? null : value }) === false) {
+      setTopicError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setTopicError(null);
+  };
+
   // 额外可写目录（B 全局清单）：本地编辑态 null = 未编辑（展示现值）；
   // 保存走部分更新（仅 extraRoots），结果帧回填后清编辑态。
   const [extraRootsDraft, setExtraRootsDraft] = useState<string | null>(null);
@@ -215,13 +256,15 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     [subscribeConfigFrames],
   );
 
-  // 进入分区拉取现值（未请求态才发）
+  // 进入分区拉取现值（未请求态才发）；模型目录为空时顺带拉取（主题模型下拉数据源）
   useEffect(() => {
     requestCompactionConfig();
     requestSchedulingConfig();
     requestPortConfig();
     requestSandboxConfig();
-  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig]);
+    requestTopicConfig();
+    requestModelConfig();
+  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestTopicConfig, requestModelConfig]);
 
   // 本地校验失败行内提示（code-review 低危：空串/非整数/越界不再静默
   // return）；三卡各自独立位——提示随本卡输入变更/保存成功清，与
@@ -673,6 +716,101 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         )}
         <span className="ag-note">{t("chat.settings.general.sandboxExtraRootsNote")}</span>
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
+      </div>
+
+      {/* 会话（动态主题批）：阶段演进主题——开关 + 主题生成模型 + 分类判断
+          子开关（依赖 classifier 端点；清单随回执携带）；运行期即热 */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupSession")}</h3>
+      <div className="hud-card" data-topic-card>
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.topicEnable")}</span>
+          <div className="lang-switch" data-topic-switch role="group" aria-label={t("chat.settings.general.topicEnable")}>
+            <button
+              type="button"
+              className={cn("hud-btn sm", topicCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-topic-option="on"
+              aria-pressed={topicCfg?.enabled === true}
+              onClick={() => toggleTopic(true)}
+            >
+              {t("chat.settings.general.sandboxOn")}
+            </button>
+            <button
+              type="button"
+              className={cn("hud-btn sm", topicCfg?.enabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-topic-option="off"
+              aria-pressed={topicCfg?.enabled === false}
+              onClick={() => toggleTopic(false)}
+            >
+              {t("chat.settings.general.sandboxOff")}
+            </button>
+          </div>
+          {topicError !== null && (
+            <span className="mcp-err" data-topic-save-error role="alert">
+              {topicError}
+            </span>
+          )}
+        </div>
+        {topicCfg?.enabled === true && (
+          <>
+            <div className="fld fld-sub" data-topic-model>
+              <label className="hud-label" htmlFor="topic-model-select">
+                {t("chat.settings.general.topicModelLabel")}
+              </label>
+              <div className="sel-wrap">
+                <select
+                  id="topic-model-select"
+                  className="hud-input"
+                  data-topic-model-select
+                  value={topicCfg.model ?? ""}
+                  onChange={(e) => selectTopicModel(e.target.value)}
+                >
+                  <option value="">{t("chat.settings.general.topicModelDefault")}</option>
+                  {(topicModels ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="ag-note">{t("chat.settings.general.topicModelNote")}</span>
+            </div>
+            <div className="fld fld-sub" data-topic-classify>
+              <span className="hud-label">{t("chat.settings.general.topicClassify")}</span>
+              <label className="set-check" data-topic-classify-enabled>
+                <input
+                  type="checkbox"
+                  checked={topicCfg.classifyEnabled === true}
+                  disabled={topicJudgeList.length === 0}
+                  onChange={(e) => toggleTopicClassify(e.target.checked)}
+                />
+                {t("chat.settings.general.topicClassifyOn")}
+              </label>
+              {topicJudgeList.length === 0 && (
+                <span className="ag-note" data-topic-classify-empty>
+                  {t("chat.settings.general.topicClassifyEmpty")}
+                </span>
+              )}
+              {topicCfg.classifyEnabled === true && topicJudgeList.length > 0 && (
+                <div className="sel-wrap">
+                  <select
+                    className="hud-input"
+                    data-topic-endpoint-select
+                    value={topicCfg.classifyEndpointId ?? ""}
+                    onChange={(e) => selectTopicEndpoint(e.target.value)}
+                  >
+                    <option value="">{t("chat.settings.general.topicEndpointPlaceholder")}</option>
+                    {topicJudgeList.map((ep) => (
+                      <option key={ep.id} value={ep.id}>
+                        {ep.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        <span className="ag-note">{t("chat.settings.general.topicNote")}</span>
       </div>
 
       {/* 关于 daemon（stale-indicator 批，§17.15）：连接信息区——welcome

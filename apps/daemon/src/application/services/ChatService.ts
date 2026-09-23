@@ -13,7 +13,7 @@ import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/Tool
 import { parseDataUrlImages, ImageValidationError } from "./images";
 import type {
   AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, AgentThinkingChangedPayload, CompactionCompletedPayload,
-  DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SteerPayload, ThinkingCompletedPayload,
+  DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SessionTopicUpdatedPayload, SteerPayload, ThinkingCompletedPayload,
   ToolCallPayload, ToolResultPayload, TurnCompletedPayload, UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 
@@ -216,6 +216,19 @@ export class ChatService implements ChatPort {
   get sessionView() {
     return this.session;
   }
+
+  /**
+   * 演进主题更新（动态主题批）：topic 面唯一写入口（单一写路径口径——
+   * SessionTitleService 经组合根闭包调用，不直接碰聚合）；聚合变更 +
+   * session.topic.updated 领域事件（落盘经投影 write-through、广播经
+   * registry.announceTopicChanged，本方法不重复触达）。域守卫（显式标题
+   * 保护/空串拒绝）在 Session.updateTopic。
+   */
+  updateTopic(topic: string, previous: string, anchorTurn: number): void {
+    this.session.updateTopic(topic);
+    this.publish<SessionTopicUpdatedPayload>("session.topic.updated", { topic, previous, anchorTurn });
+  }
+
   get sessionSnapshot() {
     return this.session.toSnapshot();
   }

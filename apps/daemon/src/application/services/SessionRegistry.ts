@@ -448,6 +448,27 @@ export class SessionRegistry implements SessionDirectoryPort {
     return this.current;
   }
 
+  /**
+   * 热会话运行时直读（动态主题批：SessionTitleService 取聚合/ChatService
+   * 演进面；观测性读面——无副作用，冷会话/已删除/未加载 → undefined，
+   * 不触懒加载）。锚点事件必热（turn 完成只发生在热会话），冷返回安全。
+   */
+  peekHotRuntime(sessionId: string): SessionRuntime | undefined {
+    return this.sessions.get(sessionId)?.runtime;
+  }
+
+  /**
+   * 演进主题变更广播（动态主题批）：复用 list_changed{state_changed}
+   * 出海（metaFromRuntime 的 title 已含新 topic——displayTitle 单源），
+   * shell 会话列表实时刷；冷会话跳过（无运行时可观测面，与
+   * broadcastRunStateIfChanged 同口径；不去重——主题变更必发）。
+   */
+  announceTopicChanged(sessionId: string): void {
+    const record = this.sessions.get(sessionId);
+    if (record?.runtime === undefined) return;
+    this.deps.onListChanged({ kind: "state_changed", sessionId, session: this.metaFromRuntime(record.runtime) });
+  }
+
   currentSessionId(): string {
     if (this.current === undefined) {
       // initialize 前的防御：daemon 存续期恒有当前会话
@@ -769,13 +790,17 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   /** 热会话元数据（title 优先级：显式建会话即知 override > 会话定格 title
-   *  > 聚合首条用户消息推导；override 供建会话即知场景）。 */
+   *  > 演进主题 topic > 聚合首条用户消息推导；override 供建会话即知场景）。 */
   private metaFromRuntime(runtime: SessionRuntime, titleOverride?: string): SessionMetaView {
     const entries = runtime.chatService.sessionView.entryList();
     const firstUser = entries.find((e): e is (typeof e) & { role?: string; text?: string } => "role" in e && e.role === "user");
     return {
       sessionId: runtime.sessionId,
-      title: titleOverride ?? runtime.chatService.sessionView.title ?? deriveTitle(firstUser?.text ?? null),
+      title:
+        titleOverride ??
+        runtime.chatService.sessionView.title ??
+        runtime.chatService.sessionView.currentTopic() ??
+        deriveTitle(firstUser?.text ?? null),
       lastActivityAt: this.sessions.get(runtime.sessionId)?.lastActivityMs ?? this.deps.clock.nowMs(),
       runState: this.runStateOf(runtime.sessionId),
       loaded: true,

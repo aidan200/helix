@@ -44,6 +44,9 @@
  *
  * 列演进补充（修复批①）：session_state.title（显式会话标题，createTitledSession
  * 定格——可空无默认；旧行 NULL = 首条用户消息截断推导，与 mode 同构）。
+ * 列演进补充（动态主题批）：session_state.topic（阶段演进主题，LLM 轮次锚点
+ * 矫正——可空无默认；与 title 语义分野：title = 用户显式定格只读，topic =
+ * 自动演进可更新，清单读面 title > topic > firstUserText）。
  *
  * 列演进（守护式列级演进，不进迁移框架）：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id，与旧行回填常量同源。
@@ -72,7 +75,8 @@ CREATE TABLE IF NOT EXISTS session_state (
   updated_at TEXT NOT NULL,
   main_instance_id TEXT,
   mode TEXT,
-  title TEXT
+  title TEXT,
+  topic TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agent_lifecycle (

@@ -19,6 +19,7 @@ import type { CompactionConfigPort } from "../../../application/ports/outbound/C
 import type { SchedulingConfigPort } from "../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../application/ports/outbound/PortConfigPort";
 import type { SandboxConfigPort } from "../../../application/ports/outbound/SandboxConfigPort";
+import type { TopicConfigPort } from "../../../application/ports/outbound/TopicConfigPort";
 import type { AskService } from "../../../application/services/AskService";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
@@ -104,6 +105,11 @@ export interface WsServerAdapterDeps {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
+  /** 动态主题配置读写面（config.get/set_topic 命令族；未装配 → undefined，
+   * handler 回 unimplemented）。 */
+  readonly topicConfig?: TopicConfigPort;
+  /** 分类端点清单读面（config.get/set_topic 回执携带；未装配 → 空清单）。 */
+  readonly topicJudgeEndpoints?: () => readonly { id: string; name: string }[];
   /** 提权申请仲裁面（ask.answer 命令回口；可选——测试缺省回 unimplemented）。 */
   readonly askService?: AskService;
   /**
@@ -340,6 +346,8 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       schedulingConfig: deps.schedulingConfig,
       portConfig: deps.portConfig,
       sandboxConfig: deps.sandboxConfig,
+      topicConfig: deps.topicConfig,
+      topicJudgeEndpoints: deps.topicJudgeEndpoints,
       askService: deps.askService,
       system: deps.system,
       commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),

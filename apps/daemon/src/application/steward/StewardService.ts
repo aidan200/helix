@@ -443,11 +443,14 @@ export interface StewardSessionMetaRow {
   readonly updatedAt: string;
   /** 首条用户消息全文（title 推导源）；无用户消息的持久化会话为 null。 */
   readonly firstUserText: string | null;
+  /** 显式会话标题（L1 投影修复批：createTitledSession 定格；投影优先于
+   * firstUserText 推导；additive——旧数据源缺省不携带）。 */
+  readonly title?: string;
+  /** 阶段演进主题（动态主题批：轮次锚点矫正产生；displayTitle 优先级
+   * title > topic > firstUserText；additive——旧数据源缺省不携带）。 */
+  readonly topic?: string;
   /** 消息条目量级（json_array_length(entries)；查询面不可得 = null）。 */
   readonly entryCount: number | null;
-  /** 显式会话标题（L1 投影修复批：createTitledSession 定格的显式列，
-  *  投影优先于 firstUserText 推导；additive——旧数据源缺省不携带）。 */
-  readonly title?: string;
 }
 
 /** A2：L1 感知面（情景快照 + query_recent_work 数据源；快照降级容忍缺席）。 */
@@ -1681,7 +1684,8 @@ export class StewardService {
         totalAgents: statuses.length,
         sessionCount: rows.length,
         recentSessions: rows.slice(0, SNAPSHOT_RECENT_SESSIONS).map((r) => ({
-          title: r.firstUserText ?? "（无主题会话）",
+          // displayTitle 单源（TR-205 口径 + 动态主题批）：title > topic > firstUserText
+          title: r.title ?? r.topic ?? r.firstUserText ?? "（无主题会话）",
           updatedAt: r.updatedAt,
         })),
       });
@@ -1716,7 +1720,8 @@ export class StewardService {
         const rowsAll = (await this.deps.sessions.listSessionMetadata()).filter((r) => inWindow(r.updatedAt));
         // 显示标题口径（与快照/会话页同语义）：显式标题列优先，旧行 NULL
         // 回落首条用户消息截断推导（repo 层注释的消费侧兑现——L1 投影修复批）。
-        const displayTitle = (r: StewardSessionMetaRow): string => r.title ?? r.firstUserText ?? "（无主题）";
+        // displayTitle 单源（TR-205 口径 + 动态主题批）：title > topic > firstUserText
+        const displayTitle = (r: StewardSessionMetaRow): string => r.title ?? r.topic ?? r.firstUserText ?? "（无主题）";
         // title_contains 过滤在投影前（计数同口径：段头【会话·N】= 过滤后
         // 剩余数；大小写不敏感包含匹配，判据 = 显示标题）。
         const rows =

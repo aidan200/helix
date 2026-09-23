@@ -39,6 +39,8 @@ import type {
   ConfigGetPortCommand,
   ConfigSetPortCommand,
   ConfigGetSandboxCommand,
+  ConfigGetTopicCommand,
+  ConfigSetTopicCommand,
   ConfigSetSandboxCommand,
   KgBootstrapCreateCommand,
   KgBootstrapCreatePayload,
@@ -353,6 +355,19 @@ export function configGetSandboxCommand(): ConfigGetSandboxCommand {
  * 部分更新语义：enabled/extraRoots 任选至少一项，未携带项保留现值。 */
 export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?: string[] }): ConfigSetSandboxCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: patch };
+}
+
+/** config.get_topic：动态主题配置读面（全局命令；动态主题批）。 */
+export function configGetTopicCommand(): ConfigGetTopicCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_topic", payload: {} };
+}
+
+/** config.set_topic：动态主题配置写面（全局命令；运行期即热）。
+ * 部分更新语义：携带项写入，未携带项保留现值。 */
+export function configSetTopicCommand(
+  patch: { enabled?: boolean; model?: string | null; classifyEnabled?: boolean; classifyEndpointId?: string | null },
+): ConfigSetTopicCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_topic", payload: patch };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

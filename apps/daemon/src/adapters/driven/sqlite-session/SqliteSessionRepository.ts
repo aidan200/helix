@@ -60,7 +60,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   async restore(sessionId: string): Promise<PersistedDomainState | undefined> {
     const db = this.queue.database;
     const session = db
-      .prepare("SELECT session_id, created_at, entries, turns, updated_at, main_instance_id, mode, title FROM session_state WHERE session_id = ?")
+      .prepare("SELECT session_id, created_at, entries, turns, updated_at, main_instance_id, mode, title, topic FROM session_state WHERE session_id = ?")
       .get(sessionId) as SessionStateRow | null;
     if (!session) return undefined;
     // agent_lifecycle 已是每实例一行（复合 PK）：主会话运行态取 main 实例行；
@@ -99,7 +99,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   async listSessionMetadata(): Promise<readonly SessionMetadataRow[]> {
     const rows = this.queue.database
       .prepare(
-        "SELECT session_id, created_at, updated_at, title, " +
+        "SELECT session_id, created_at, updated_at, title, topic, " +
           "json_extract(entries, '$[0].role') AS first_role, " +
           "json_extract(entries, '$[0].text') AS first_text, " +
           "json_array_length(entries) AS entry_count " +
@@ -110,6 +110,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
         created_at: string;
         updated_at: string;
         title: string | null;
+        topic: string | null;
         first_role: string | null;
         first_text: string | null;
         entry_count: number | null;
@@ -121,6 +122,9 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       // 修复批①：显式标题列优先（createTitledSession 定格；旧行 NULL =
       // 首条用户消息截断推导——消费单点 metaFromRow 兑现）
       ...(r.title !== null ? { title: r.title } : {}),
+      // 动态主题批：演进主题列（旧行 NULL = 不携带；消费单点 metaFromRow
+      // 按 title > topic > firstUserText 兑现）
+      ...(r.topic !== null ? { topic: r.topic } : {}),
       firstUserText: r.first_role === "user" ? r.first_text : null,
       entryCount: r.entry_count,
     }));

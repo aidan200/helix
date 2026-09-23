@@ -49,6 +49,7 @@ import { DEFAULT_PORT } from "../config";
 import type { Logger } from "../logging";
 import type { PersistenceStack } from "./buildPersistence";
 import type { SandboxConfigPort } from "../../application/ports/outbound/SandboxConfigPort";
+import type { TopicConfigPort } from "../../application/ports/outbound/TopicConfigPort";
 import type { PortConfigPort } from "../../application/ports/outbound/PortConfigPort";
 import type { ModelStack } from "./buildModelStack";
 import type { TaskStack } from "./buildTaskStack";
@@ -160,6 +161,10 @@ export interface WsDrivingDeps {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 回口；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
+  /** 动态主题配置读写面（config.get/set_topic 命令族；动态主题批）。 */
+  readonly topicConfig?: TopicConfigPort;
+  /** 分类端点清单读面（config.get/set_topic 回执携带）。 */
+  readonly topicJudgeEndpoints?: () => readonly { id: string; name: string }[];
   /** 提权申请仲裁面（ask.answer 命令回口；permission_request 批）。 */
   readonly askService?: AskService;
   readonly modelStack: ModelStack;
@@ -341,6 +346,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
     ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}), // config 族命令回口（沙箱开关；沙箱开关批）
+    ...(deps.topicConfig !== undefined ? { topicConfig: deps.topicConfig } : {}), // config 族命令回口（动态主题；动态主题批）
+    ...(deps.topicJudgeEndpoints !== undefined ? { topicJudgeEndpoints: deps.topicJudgeEndpoints } : {}), // 分类端点清单（config.topic 回执）
     ...(deps.askService !== undefined ? { askService: deps.askService } : {}), // ask.answer 命令回口（提权申请批）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）

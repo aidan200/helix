@@ -112,6 +112,9 @@ export interface WireEventFanoutDeps {
   readonly voice?: { onDomainEvent(event: DomainEvent): void };
   /** 文本管家批（V2.5，可选——纯调度测试形态不注入）：agent 生命周期事件 → 粗筛/模板文本行/feed 帧的 fanout 入口。 */
   readonly steward?: { onDomainEvent(event: DomainEvent): void };
+  /** 动态主题批（可选——纯调度测试形态不注入）：主实例完成轮 → 锚点演进
+   *（LLM 调用全部异步 fire-and-forget，不阻塞 fan-out 全序）的 fanout 入口。 */
+  readonly sessionTitle?: { onDomainEvent(event: DomainEvent): void };
 }
 
 /**
@@ -219,6 +222,20 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       name: "steward-feed-bridge",
       target: {
         publish: (event) => steward.onDomainEvent(event),
+        publishDelta: () => undefined,
+      },
+    });
+  }
+  // 动态主题桥：主实例完成轮 → SessionTitleService 锚点演进（粗筛在
+  // service 内单点；快进快出——LLM 调用异步 fire-and-forget，不阻塞全序；
+  // 产出 session.topic.updated 领域事件 + list_changed 广播，不回听本桥——
+  // 零自激环）。
+  if (deps.sessionTitle !== undefined) {
+    const sessionTitle = deps.sessionTitle;
+    publisher.add({
+      name: "session-topic-bridge",
+      target: {
+        publish: (event) => sessionTitle.onDomainEvent(event),
         publishDelta: () => undefined,
       },
     });

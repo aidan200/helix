@@ -111,6 +111,10 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `config-get-sandbox-result:${event.payload.enabled}`;
     case "config.set_sandbox.result":
       return `config-set-sandbox-result:${event.payload.enabled}`;
+    case "config.get_topic.result":
+      return `config-get-topic-result:${String(event.payload.enabled)}:${event.payload.model ?? "-"}:${String(event.payload.classifyEnabled)}:${event.payload.classifyEndpointId ?? "-"}`;
+    case "config.set_topic.result":
+      return `config-set-topic-result:${String(event.payload.state.enabled)}`;
     case "auth.list.result":
       return `auth-list-result:${event.payload.providers.length}:${event.payload.providers[0]?.configured ?? "-"}`;
     case "auth.set_key.result":
@@ -418,6 +422,10 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `config-set-sandbox:${cmd.payload.enabled}`;
     case "config.get_sandbox":
       return "config-get-sandbox";
+    case "config.set_topic":
+      return `config-set-topic:${String(cmd.payload.enabled ?? "-")}:${cmd.payload.model ?? "-"}`;
+    case "config.get_topic":
+      return "config-get-topic";
     // ── v0.2 auth 族 ──
     case "auth.list":
       return "auth-list";

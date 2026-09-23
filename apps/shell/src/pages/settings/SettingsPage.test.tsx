@@ -40,6 +40,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     scheduling: null,
     port: null,
     sandbox: null,
+    topic: null,
         } satisfies ModelConfigState,
       },
       requestModelConfig,

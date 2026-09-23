@@ -70,7 +70,9 @@ export type DomainEventType =
   | "loop.tool.finished"
   | "loop.run.paused"
   | "loop.run.resumed"
-  | "loop.run.interrupted";
+  | "loop.run.interrupted"
+  // ── session.* 会话级元数据族（动态主题批；落盘 + 广播 session.topic.changed）──
+  | "session.topic.updated";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -118,6 +120,17 @@ export interface SteerPayload {
 export interface TurnCompletedPayload {
   readonly reason: "done" | "aborted" | "steerDrained" | "daemon_restarted";
   readonly replyEntryId?: string;
+}
+
+/** session.topic.updated 载荷（动态主题批）：新主题 + 判定面上下文。 */
+export interface SessionTopicUpdatedPayload {
+  /** 新演进主题（一句话，≤30 字）。 */
+  readonly topic: string;
+  /** 演进前主题基准（判定时的 displayTitle：title ?? topic ?? 首条消息截断；
+   * 首轮矫正时 = 首条用户消息截断）。 */
+  readonly previous: string;
+  /** 触发锚点轮次号（1 = 首轮矫正；10/20… = 周期矫正）。 */
+  readonly anchorTurn: number;
 }
 
 export interface ToolCallPayload {

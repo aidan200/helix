@@ -184,6 +184,9 @@ export interface SessionMetadataRow {
   /** 显式会话标题（修复批①：createTitledSession 定格；additive——旧行/
    *  自动命名会话缺省不携带，读侧回落 firstUserText 截断推导）。 */
   readonly title?: string | null;
+  /** 阶段演进主题（动态主题批；additive——旧行/未开启动态主题的会话缺省
+   *  不携带，读面优先级 title > topic > firstUserText）。 */
+  readonly topic?: string | null;
 }
 
 /** 领域事件四维过滤查询（trace 数据面；v0 无对外 API——内部能力 + 测试证明）。 */

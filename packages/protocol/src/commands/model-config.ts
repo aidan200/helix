@@ -142,6 +142,31 @@ export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_sandbox";
 }
 
+// ── config.topic 族（动态主题批；会话阶段演进主题配置）──
+
+/**
+ * config.set_topic 载荷：动态主题配置（部分更新语义：携带项写入，未携带项
+ * 保留现值；分类开关开启时 classifyEndpointId 必填且指向 kind=judge 端点）。
+ */
+export interface ConfigSetTopicPayload {
+  /** 动态主题开关。 */
+  enabled?: boolean;
+  /** 主题生成模型（"provider/model-id"；空串 = 清除回落全局兑底）。 */
+  model?: string | null;
+  /** 分类模型判断开关（两段式漂移判定）。 */
+  classifyEnabled?: boolean;
+  /** 分类端点 id（embedding 配置域 kind=judge 条目）。 */
+  classifyEndpointId?: string | null;
+}
+export interface ConfigSetTopicCommand extends CommandFrame<ConfigSetTopicPayload> {
+  type: "config.set_topic";
+}
+
+/** config.get_topic 载荷：全局命令。 */
+export interface ConfigGetTopicCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_topic";
+}
+
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
 /** auth.list 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */
