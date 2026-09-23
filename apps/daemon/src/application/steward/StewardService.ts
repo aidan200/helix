@@ -174,7 +174,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
 - 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数）。
-- 开新会话：用户想开新 session/新话题（可带标题）→ create_session 提案；建成后界面会自动切到新会话。
+- 开新会话：用户想开新 session/新话题（可带标题）→ create_session 提案；用户想**带着话题**开始时必须传 initial_message（用户原话，不改写——建成即作为首条消息投递到新会话，不要再让用户去空会话里重新输入）；建成后界面会自动切到新会话。
 - 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → remember 提案（写操作——确认后才真正入库）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
 - 给运行中的 agent 实例递话（SubAgent 补充通道）：用户明确点名某个正在跑的 agent-xxx（补充指示/催进度）→ propose_send 提案（agentId 必须运行中）。用户没点名具体 agent 实例时不要走本通道。
@@ -556,8 +556,8 @@ interface PendingAction {
   readonly toolCall: { id: string; name: string };
   /** send 形态载荷。 */
   readonly send?: { agentId: string; message: string };
-  /** createSession 形态载荷。 */
-  readonly createSession?: { title: string };
+  /** createSession 形态载荷（initialMessage = 用户想带着话题开始的初始内容——建成即作为首条消息投递；缺省纯建空会话）。 */
+  readonly createSession?: { title: string; initialMessage?: string };
   /** deliverSession 形态载荷（驾驶舱批：session 级 steer 投递）。 */
   readonly deliverSession?: { sessionId: string; text: string };
   /** memorize 形态载荷（管家记忆 B1：remember 提案——确认后沉淀长期记忆）。 */
@@ -623,12 +623,17 @@ const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
 const TOOL_CREATE_SESSION: StewardLlmTool = {
   name: "create_session",
   description:
-    "提案创建新会话（写操作——仅提案，系统会请求用户确认后才执行）。用户想开新会话/新话题时使用。",
+    "提案创建新会话（写操作——仅提案，系统会请求用户确认后才执行）。用户想开新会话/新话题时使用；用户想带着话题开始时传 initial_message（确认后建成会话即作为首条消息投递，将向用户全文展示以供确认）。",
   parameters: {
     type: "object",
     properties: {
-      title: { type: "string", description: "会话主题标题（可选，缺省自动生成）" },
+      title: { type: "string", description: "会话主题标题（可选，缺省自动生成；仅作显示标题，不派生消息）" },
       project: { type: "string", description: "关联项目名（可选——织入标题标注）" },
+      initial_message: {
+        type: "string",
+        description:
+          "初始话题/首条消息（可选——用户想带着话题开始新会话时传，原文投递不经改写；不带则建空会话）",
+      },
     },
     additionalProperties: false,
   },
@@ -1182,6 +1187,33 @@ export class StewardService {
         // 被当首条用户消息发送，零引擎调用零幽灵 run；确认闸/回灌闭环不变。
         const created = await this.deps.sessions.createTitledSession(action.createSession!.title);
         this.deps.emitNavigate?.({ sessionId: created.sessionId }); // 建完即切（用户语义）
+        // 带着话题开始（本次批）：建成即把 initial_message 作为首条消息投递——
+        // 复用 deliver_to_session 同一执行面（idle→新轮次 / running→steer 入队；
+        // source=steward 与手动输入可辨）。修复批①封堵的是「title 被误当消息」
+        // 的幽灵 run，不是「用户显式给的初始话题」——两者语义正交。
+        const initialMessage = action.createSession!.initialMessage;
+        if (initialMessage !== undefined) {
+          try {
+            const outcome = await this.deps.sessions.deliverToSession(created.sessionId, initialMessage);
+            if (!outcome.delivered) {
+              // 会话已建成（主成果保留，不可重放）——投递失败如实交代，LLM
+              // 回灌后可向用户说明并提议 deliver_to_session 重试。
+              return {
+                ok: false,
+                detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，但初始话题投递失败：${outcome.detail}`,
+              };
+            }
+            return {
+              ok: true,
+              detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，初始话题已投递：${initialMessage}`,
+            };
+          } catch (err) {
+            return {
+              ok: false,
+              detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，但初始话题投递异常：${(err as Error).message}`,
+            };
+          }
+        }
         return { ok: true, detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」` };
       } catch (err) {
         return { ok: false, detail: `会话创建失败：${(err as Error).message}` };
@@ -1616,7 +1648,7 @@ export class StewardService {
     };
   }
 
-  /** create_session 提案判定（项目参数校验 → title 缺省生成）。 */
+  /** create_session 提案判定（项目参数校验 → title 缺省生成 → initial_message 解析）。 */
   private async pendingActionOfCreateSession(
     args: Record<string, unknown>,
   ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
@@ -1635,12 +1667,19 @@ export class StewardService {
       titleRaw !== ""
         ? titleRaw
         : `${project !== undefined ? `${project} ` : ""}新会话 ${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
+    // 带着话题开新会话：initial_message 全文进确认卡（确认前用户可审，写安全
+    // 同 deliver_to_session 的「全文展示供确认」惯例）；原文透传零改写。
+    const initialMessageRaw = typeof args["initial_message"] === "string" ? args["initial_message"].trim() : "";
+    const initialMessage = initialMessageRaw !== "" ? initialMessageRaw : undefined;
     return {
       kind: "createSession",
       displayTarget: "新会话",
-      message: `将创建会话「${title}」`,
+      message:
+        initialMessage !== undefined
+          ? `将创建会话「${title}」并投递初始话题：${initialMessage}`
+          : `将创建会话「${title}」`,
       toolCall: { id: "", name: "create_session" },
-      createSession: { title },
+      createSession: initialMessage !== undefined ? { title, initialMessage } : { title },
     };
   }
 
