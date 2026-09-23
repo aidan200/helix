@@ -105,6 +105,9 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
   return <ToolRow name={item.name} argsSummary={item.argsSummary} resultSummary={item.resultSummary} />;
 }
 
+/** 输入框自动长高上限（px）——主聊天 Composer 同值（超限内滚）。 */
+const TA_MAX_HEIGHT = 160;
+
 const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory }: StewardPanelProps) {
   const { t } = useI18n();
   const sv = useSteward();
@@ -132,6 +135,18 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
   }, [active]);
 
   const enabled = sv.config?.enabled === true;
+
+  // 输入框自动长高（UI 显示优化批：底部一行显示不全修复——rows=2 钉死高度
+  // 时多行末行被裁进滚动区；主聊天 Composer 先例同构：height:auto 先重置再取
+  // scrollHeight，封顶后内滚。jsdom 无布局（scrollHeight=0）不落内联高度，
+  // 交还 CSS rows=2 基线）。
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight > 0 ? `${Math.min(el.scrollHeight, TA_MAX_HEIGHT)}px` : "";
+  }, [draft]);
 
   // 内容增长贴底（仅吸附态）：条目流/流式文本/输入面可用性变化。
   useLayoutEffect(() => {
@@ -223,6 +238,7 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
               B2：语音区退役——全局光球层（StewardVoiceLayer）承载语音 */}
           <div className="stp-composer">
             <textarea
+              ref={taRef}
               className="stp-input"
               data-testid="steward-input"
               value={draft}
