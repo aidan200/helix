@@ -78,7 +78,7 @@ export type LoopStreamBlock =
  *  合法通道；固定常量 = KV/审计/sediment 过滤的同源识别凭据；provider 面
  *  user 消息恒合法）。 */
 export const LOOP_INTERRUPTED_MARKER_TEXT =
-  "[loop:interrupt] 上一条回复被用户中断，此处截断（完整内容块已保留，未完成内容已丢弃）";
+  "[loop:interrupt] 上一条回复被用户中断，此处截断（完整内容与未完句已保留，未完成的思考/工具调用已丢弃）";
 
 /** E-198：完整收尾但未执行的 toolCall 合成结果（I3 配对不变量——pi 判例①
  *  同族：孤儿 toolCall 必有对应 toolResult，合成也算）。 */
