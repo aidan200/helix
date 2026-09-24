@@ -248,11 +248,16 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     [closeMeter, closePump, cleanupMedia],
   );
 
-  /** 既有上传转写链（V3a 路径；deferred 回落 transcribeNow 复用同体）。 */
+  /** 既有上传转写链（V3a 路径；deferred 回落 transcribeNow 复用同体）。
+   *  取消代数守卫（4282f4ca 同根族）：关麦（cancel）落在 readAsDataURL
+   *  在途窗口时，onload/onerror 迟归凭代数失配全弃——零上行（音频不离
+   *  机）、零 transcribing 复活（否则回执守卫被复活值绕过 → 幽灵转写消费）。 */
   const uploadBlob = useCallback(
     (blob: Blob) => {
+      const gen = cancelGenRef.current;
       const reader = new FileReader();
       reader.onload = () => {
+        if (gen !== cancelGenRef.current) return; // 关麦已发生：零上行零状态复活
         if (sendSttTranscribe === undefined) {
           setStateSafe("idle");
           return;
@@ -265,6 +270,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
         if (!sent) setError(t("chat.voice.sendFail"));
       };
       reader.onerror = () => {
+        if (gen !== cancelGenRef.current) return; // 关麦已发生：error 面不拉起
         setStateSafe("idle");
         setError(t("chat.voice.readFail"));
       };
@@ -285,11 +291,16 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       }
       const spoke = spokeRef.current;
       const durationMs = Date.now() - startedAtRef.current;
+      const stopGen = cancelGenRef.current; // onstop 迟归守卫（4282f4ca 同根族）：
+      // 关麦落在 stop→onstop 异步窗口时，迟归 onstop 凭代数失配全弃。当前
+      // 实际被 cancel 清空 chunksRef + blob.size===0 守卫双重堵死（单线程下
+      // onstop 必在 cancel 后读空 chunks）——此守卫把「巧合安全」变为显式契约。
       closeMeter();
       closePump();
       recorder.onstop = () => {
         const chunks = chunksRef.current;
         cleanupMedia();
+        if (stopGen !== cancelGenRef.current) return; // 关麦已发生：零 blob 零状态复活零 deferred
         // VAD 丢弃：自动停且全程未开口 → 零转写零计费（静音片不值一次 ASR 调用）
         if (fromVad && !spoke) {
           setStateSafe("idle");

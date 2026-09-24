@@ -628,6 +628,18 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
 
   const handleTranscript = useCallback(
     (text: string) => {
+      // 转写消费门（幽灵 ask/TTS 防线）：duplex 双工活跃、唤醒会话（B4）、
+      // 或录音/转写在途相位（V3a 手动单轮）任一成立才消费；否则零 ask 零朗
+      // 读（4282f4ca 同根族：与 useVoiceInput 迟归代数守卫分层，状态面漏网时
+      // 行为面兕底——关掉的管家不开口）。拦截面含关麦后残影 asking/speaking
+      //（旧 ask 轮在途/在朗读——D6 不 abort，但迟到转写不得借道开新轮）。
+      if (
+        !duplexRef.current &&
+        wakeRef.current === null &&
+        phaseRef.current !== "listening" &&
+        phaseRef.current !== "transcribing"
+      )
+        return;
       // B2 welcome 相位收口：用户第一句定稿（VAD 静音丢弃轮不至此）
       setWelcomeActive(false);
       /** 即将 ask 的文本路由：口令拦截（D3=b）优先——consumed 零 ask。 */
