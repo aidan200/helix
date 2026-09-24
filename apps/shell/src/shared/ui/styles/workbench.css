@@ -306,6 +306,36 @@
 .set-inline > .sel-wrap { flex: 1; min-width: 0; }
 .set-inline > input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
 
+/* 设置页版心内的横向按钮组排（models tab 排等）：与下方内容拉开节奏——
+   .pg 是普通 block 无 gap，无此规则时 tab 排与工具卡零间距粘连 */
+.pg > .lang-switch { margin-bottom: 14px; }
+
+/* 设置页卡内纵向节奏：卡内含字段块（.fld/.set-check 直接子级）的卡改
+   flex column + gap（通用/语音分区表单卡）——此前 .fld 无样式、.hud-card
+   是普通 block，卡内字段/保存钮/注释全部零间距粘连。:has 限定只命中表单
+   形态卡；列表形态卡（.mcp-row / [data-skill-entry] 直接子级）与 models
+   工具卡（.toolbar 包裹，无直接 .fld 子级）不命中，紧凑列表行节奏不受影响 */
+.pg .hud-card:has(> .fld, > .set-check) {
+  display: flex; flex-direction: column; gap: 12px;
+}
+/* 同上：卡直接子级注释清 margin-top（.ag-note 通用 6px 会与 gap 叠加成
+   18px；fld 内部的 ag-note 不受影响——只选直接子级）。:has 双条件
+   （>.fld, >.set-check）覆盖 TTS 开关卡等「无 fld 直接子级」的表单卡 */
+.pg .hud-card:has(> .fld, > .set-check) > .ag-note { margin-top: 0; }
+
+/* 卡头（MCP/技能分区首卡：按钮行）：标题移出后按钮组推右 + 与下方副题
+   拉开节奏；wrap 保险窄视口 */
+.set-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.set-card-head > .hud-btn:first-of-type { margin-left: auto; }
+.set-card-head .section-label { margin: 0; }
+
+/* MCP server 行内注释与名称/徽标垂直对齐（.ag-note 通用 margin-top 6px
+   在 align-items:center 行内会整体下沉错位） */
+.mcp-row-main .ag-note { margin-top: 0; }
+
 /* ── MCP 分区（mcp 批：server 配置面——列表行/表单/五态徽标）── */
 .mcp-form { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); margin-top: 12px; }
 .mcp-form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -326,7 +356,6 @@
 .mcp-state-ok { border-color: rgb(var(--success-rgb) / 0.4); color: var(--success); background: rgb(var(--success-rgb) / 0.08); }
 .mcp-state-err { border-color: rgb(var(--error-rgb) / 0.4); color: var(--error); background: rgb(var(--error-rgb) / 0.08); }
 .mcp-err { font-size: var(--text-cap); color: var(--error); word-break: break-all; margin: 0; }
-.set-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* ── 工作空间分区（W4 设置页：当前绑定 + 切换；F2 活跃 agent 禁用态）── */
 .ws-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

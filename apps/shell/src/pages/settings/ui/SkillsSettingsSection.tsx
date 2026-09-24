@@ -1,6 +1,6 @@
 /**
  * 设置页「技能」分区（单源管理裁决批）：用户级技能（~/.helix/skills）的唯一
- * 管理面。
+ * 管理面。（UI 修复批：分区标题由 pg-title 承载，卡头只留按钮组——同 MCP 分区）
  *
  * 定位边界（与智能体页分工，裁决口径）：
  * - 本页 = 用户级技能资源管理面：清单总览（含双 kind 启停位只读展示）+
@@ -29,6 +29,8 @@ import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 import { FilePlus, Plus } from "lucide-react";
+/** 卡头/提交钮图标统一拖参（项目全局部件 strokeWidth=1.75 + 装饰性图标 aria-hidden）。 */
+const ICON_PROPS = { size: 14, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /** 用户级技能合并行（双 kind 启停位）。 */
 interface UserSkillRow {
@@ -306,16 +308,16 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
 
   return (
     <div className="pg" data-skills-settings-section>
+      <h2 className="pg-title">{t("chat.settings.skills.title")}</h2>
       <div className="hud-card">
         <div className="set-card-head">
-          <h2 className="section-label">{t("chat.settings.skills.title")}</h2>
           <button
             type="button"
             className={cn("hud-btn sm", formOpen ? "hud-btn-ghost" : "hud-btn-cyan")}
             data-skills-add-toggle
             onClick={() => setFormOpen((v) => !v)}
           >
-            <Plus size={14} />
+            <Plus {...ICON_PROPS} />
             {t("chat.settings.skills.addSkill")}
           </button>
         </div>
@@ -418,7 +420,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
                 disabled={addPending}
                 onClick={submitCreate}
               >
-                <FilePlus size={14} />
+                <FilePlus {...ICON_PROPS} />
                 {addPending ? t("chat.settings.skills.adding") : t("chat.settings.skills.addConfirm")}
               </button>
             </div>

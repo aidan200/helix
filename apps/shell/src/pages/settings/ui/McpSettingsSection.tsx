@@ -1,5 +1,7 @@
 /**
  * 设置页「MCP」分区（mcp 批：MCP server 标准接入配置面）。
+ * （UI 修复批：分区标题由 pg-title 承载，卡头只留按钮组——见 workbench.css
+ *  .set-card-head 注释）
  *
  * 数据面：mcp.servers.list 拉取（进入分区一次性；CRUD 回执后重拉对账）
  * + subscribeMcpFrames 域订阅（mcp.*.result 点对点回执 + mcp.status.changed
@@ -20,6 +22,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Plug, PlugZap, Trash2, FileDown } from "lucide-react";
+/** 卡头按钮图标统一拖参（项目全局部件 strokeWidth=1.75 + 装饰性图标 aria-hidden）。 */
+const ICON_PROPS = { size: 14, strokeWidth: 1.75, "aria-hidden": true } as const;
 import type {
   McpServerConfigDto,
   McpServerRuntimeState,
@@ -286,16 +290,16 @@ function parseArgs(input: string): string[] {
 
   return (
     <div className="pg" data-mcp-settings-section>
+      <h2 className="pg-title">{t("chat.settings.mcp.title")}</h2>
       <div className="hud-card">
         <div className="set-card-head">
-          <h2 className="section-label">{t("chat.settings.mcp.title")}</h2>
           <button
             type="button"
             className={cn("hud-btn sm", formOpen ? "hud-btn-ghost" : "hud-btn-cyan")}
             data-mcp-add-toggle
             onClick={() => setFormOpen((v) => !v)}
           >
-            <PlugZap size={14} />
+            <PlugZap {...ICON_PROPS} />
             {t("chat.settings.mcp.addServer")}
           </button>
           <button
@@ -304,7 +308,7 @@ function parseArgs(input: string): string[] {
             data-mcp-import
             onClick={() => fileInput.current?.click()}
           >
-            <FileDown size={14} />
+            <FileDown {...ICON_PROPS} />
             {t("chat.settings.mcp.importLabel")}
           </button>
           <input
@@ -397,7 +401,7 @@ function parseArgs(input: string): string[] {
                 disabled={test.kind === "testing"}
                 onClick={submitTest}
               >
-                <Plug size={14} />
+                <Plug {...ICON_PROPS} />
                 {test.kind === "testing"
                   ? t("chat.settings.mcp.testing")
                   : t("chat.settings.mcp.test")}
@@ -464,7 +468,7 @@ function parseArgs(input: string): string[] {
                   data-mcp-delete={row.config.name}
                   onClick={() => onDelete(row.config.name)}
                 >
-                  <Trash2 size={13} />
+                  <Trash2 size={13} strokeWidth={1.75} aria-hidden="true" />
                   {armedDelete === row.config.name
                     ? t("chat.settings.mcp.deleteConfirm")
                     : t("chat.settings.mcp.delete")}

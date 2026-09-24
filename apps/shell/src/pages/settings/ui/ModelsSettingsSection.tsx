@@ -1,5 +1,6 @@
 /**
  * 模型设置分区（S2：P-4 模型与厂商配置自独立路由页迁入设置页；T3.3 原稿）。
+ * （UI 修复批：分区标题层级修正 h2.section-label→h3，与通用/语音分区节奏一致）
  *
  * 数据零权威：目录/默认/provider 凭据全部来自 topology.modelConfig
  * （model.catalog / get_default / auth.list 结果帧驱动）；进入分区时拉取
@@ -374,7 +375,7 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                   {mc.defaultThinking !== null && (
                     <button
                       type="button"
-                      className="hud-btn hud-btn-ghost hud-btn sm"
+                      className="hud-btn hud-btn-ghost sm"
                       onClick={() => setThinkingDefault(null)}
                       data-global-thinking-clear
                     >
@@ -483,7 +484,7 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
         )}
       </div>
 
-      <h2 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h2>
+      <h3 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h3>
 
       {/* F(3.4).1 provider 字母分组列表 */}
       {providers.map((group) => (
