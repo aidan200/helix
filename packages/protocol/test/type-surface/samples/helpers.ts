@@ -278,9 +278,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.feed":
       // 文本管家批（V2.5）：feed 文本行窄化（kind/agentId/seq）
       return `steward-feed:${event.payload.kind}:${event.payload.agentId}:${event.payload.seq}`;
-    case "steward.sediment_proposal":
-      // 管家记忆 B4a：自动沉淀提案（actionId/kind/text）
-      return `steward-sediment:${event.payload.actionId}:${event.payload.kind}:${event.payload.text}`;
+    case "steward.memory_written":
+      // 管家记忆 B5 静默化：记忆落盘通知（mode: added/updated + 原文）
+      return `steward-memory:${event.payload.mode}:${event.payload.text}`;
     case "steward.config.result":
       // 文本管家批（V2.5）：设置回执窄化（enabled/model）
       return `steward-config:${event.payload.enabled}:${event.payload.model}`;

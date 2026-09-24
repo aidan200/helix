@@ -38,6 +38,7 @@ import {
   trimToBudget,
   isExpired,
 } from "../../src/application/steward/StewardDialogMemory";
+import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
 import {
   buildLlmWindow,
   capToolResultText,
@@ -159,6 +160,7 @@ function makeService(opts: {
     },
   ]);
   const config = opts.config ?? fakeConfig({ "steward.enabled": "1" });
+  const dialogStore = fakeDialogStore();
   const feeds: StewardFeedPayload[] = [];
   const svc = new StewardService({
     llm: opts.llm,
@@ -180,10 +182,11 @@ function makeService(opts: {
       ],
     },
     config,
+    dialog: new StewardDialogMemory(dialogStore),
     feedGate: { hasStewardSubscribers: () => (opts.feedSubscribers ?? 1) > 0 },
     emitFeed: (payload) => feeds.push(payload),
   });
-  return { svc, orchestration, config, feeds };
+  return { svc, orchestration, config, feeds, dialogStore };
 }
 
 const toolCall = (name: string, args: Record<string, unknown>, round = 0): StewardLlmResponse => ({
@@ -473,7 +476,7 @@ describe("⑨ A1：thinking 回传——多轮工具链上下文含 thinking 形
         },
       ]),
     );
-    const { svc, config } = makeService({ llm });
+    const { svc, dialogStore } = makeService({ llm });
     const result = await svc.ask("在跑什么？");
     expect(result.status).toBe("answer");
 
@@ -486,11 +489,8 @@ describe("⑨ A1：thinking 回传——多轮工具链上下文含 thinking 形
     expect(toolTurn!.thinking).toEqual({ text: "用户问全局状态，先查实例清单。", signature: "sig-opaque-1" });
     expect(toolTurn!.toolCall!.name).toBe("list_instances");
 
-    // KV 记录含 thinking（assistant 文本轮 + 工具轮）
-    const kv = JSON.parse((config as unknown as { kv: Map<string, string> }).kv.get("steward_dialog")!) as {
-      records: { kind: string; thinking?: unknown }[];
-    };
-    const withThinking = kv.records.filter((r) => r.thinking !== undefined);
+    // 落盘记录含 thinking（assistant 文本轮 + 工具轮）
+    const withThinking = dialogStore.inspect().records.filter((r) => (r as { thinking?: unknown }).thinking !== undefined);
     expect(withThinking.length).toBe(2);
   });
 
@@ -508,7 +508,7 @@ describe("⑨ A1：thinking 回传——多轮工具链上下文含 thinking 形
 describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一致", () => {
   test("预算闸：append 超预算丢最老记录（保序保留最新）", async () => {
     const kv = fakeConfig({ "steward.enabled": "1" });
-    const dialog = new StewardDialogMemory(kv, {
+    const dialog = new StewardDialogMemory(fakeDialogStore(), {
       budgetTokens: 40, // 极小预算：两三条即裁
       now: () => 1_000,
     });
@@ -542,7 +542,9 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
   test("TTL 闸：72h 无活动 → 懒加载时整 key 清空（daemon 重启恢复为空窗口）", async () => {
     let now = 1_000_000;
     const kv = fakeConfig({ "steward.enabled": "1" });
-    const dialogA = new StewardDialogMemory(kv, { now: () => now });
+    // B6：跨「重启」共享同一行式存储（同库语义）
+    const store = fakeDialogStore();
+    const dialogA = new StewardDialogMemory(store, { now: () => now });
     const svcA = new StewardService({
       llm: fakeLlm([{ kind: "text", text: "答" }]),
       orchestration: fakeOrchestration([]),
@@ -556,8 +558,8 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
     await svcA.ask("留下的对话");
     expect((await svcA.getHistory()).length).toBe(2);
 
-    now += 73 * 60 * 60 * 1000; // 73h 后重启（新实例同 KV）
-    const dialogB = new StewardDialogMemory(kv, { now: () => now });
+    now += 73 * 60 * 60 * 1000; // 73h 后重启（新实例同存储）
+    const dialogB = new StewardDialogMemory(store, { now: () => now });
     const svcB = new StewardService({
       llm: fakeLlm([{ kind: "text", text: "新答" }]),
       orchestration: fakeOrchestration([]),
@@ -611,8 +613,10 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
 });
 
 describe("⑪ A1：回放同源——重启恢复后 UI 与 LLM 窗口一致（同源数据）", () => {
-  test("daemon 重启（新 service 同 KV）→ getHistory 回放完整记录 + 下一轮 LLM 窗口 = KV 记录映射", async () => {
+  test("daemon 重启（新 service 同存储）→ getHistory 回放完整记录 + 下一轮 LLM 窗口 = 落盘记录映射", async () => {
     const kv = fakeConfig({ "steward.enabled": "1" });
+    // B6：跨「重启」共享同一行式存储（同库语义）
+    const store = fakeDialogStore();
     const svcA = new StewardService({
       llm: fakeLlm([
         {
@@ -637,6 +641,7 @@ describe("⑪ A1：回放同源——重启恢复后 UI 与 LLM 窗口一致（�
         ],
       },
       config: kv,
+      dialog: new StewardDialogMemory(store),
       clock: () => 5_000,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
@@ -650,6 +655,7 @@ describe("⑪ A1：回放同源——重启恢复后 UI 与 LLM 窗口一致（�
       orchestration: fakeOrchestration([]),
       tasks: { listTasks: () => [] },
       config: kv,
+      dialog: new StewardDialogMemory(store),
       clock: () => 6_000,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
@@ -833,38 +839,38 @@ describe("⑭ A1-hotfix：构建面防御（buildLlmWindow）", () => {
 });
 
 describe("⑮ A1-hotfix：脏 KV 回放自愈（端到端）", () => {
-  function dirtyKv(): ReturnType<typeof fakeConfig> {
+  function dirtyStore(): ReturnType<typeof fakeDialogStore> {
     const now = Date.now();
-    return fakeConfig({
-      "steward.enabled": "1",
-      steward_dialog: JSON.stringify({
-        records: [
-          // 旧裁剪器残留：孤儿 toolResult（配对头已不在窗内）
-          { kind: "toolResult", toolCallId: "call-cut", name: "list_instances", text: "[]", at: now - 2500 },
-          { kind: "user", text: "旧问", at: now - 5000 },
-          { kind: "assistant", toolCall: { id: "call-ok", name: "list_tasks", args: {} }, at: now - 4000 },
-          { kind: "toolResult", toolCallId: "call-ok", name: "list_tasks", text: "[]", at: now - 3000 },
-          // 确认闸挂起形态：toolCall 无结果
-          {
-            kind: "assistant",
-            toolCall: { id: "call-hang", name: "propose_send", args: { agentId: "agent-1", message: "递话" } },
-            at: now - 2000,
-          },
-          { kind: "user", text: "继续", at: now - 1000 },
-        ],
-        lastActiveAt: now - 1000,
-      }),
-    });
+    const store = fakeDialogStore();
+    store.replaceAll(
+      [
+        // 旧裁剪器残留：孤儿 toolResult（配对头已不在窗内）
+        { kind: "toolResult", toolCallId: "call-cut", name: "list_instances", text: "[]", at: now - 2500 },
+        { kind: "user", text: "旧问", at: now - 5000 },
+        { kind: "assistant", toolCall: { id: "call-ok", name: "list_tasks", args: {} }, at: now - 4000 },
+        { kind: "toolResult", toolCallId: "call-ok", name: "list_tasks", text: "[]", at: now - 3000 },
+        // 确认闸挂起形态：toolCall 无结果
+        {
+          kind: "assistant",
+          toolCall: { id: "call-hang", name: "propose_send", args: { agentId: "agent-1", message: "递话" } },
+          at: now - 2000,
+        },
+        { kind: "user", text: "继续", at: now - 1000 },
+      ],
+      now - 1000,
+    );
+    return store;
   }
 
   test("预置孤儿 + 挂起 toolCall → ask 窗口配对完整；读面回放原样（防御修复零写）", async () => {
-    const kv = dirtyKv();
+    const store = dirtyStore();
     const llm = fakeLlm([{ kind: "text", text: "新答" }]);
     const svc = new StewardService({
       llm,
       orchestration: fakeOrchestration([]),
       tasks: { listTasks: () => [] },
-      config: kv,
+      config: fakeConfig({ "steward.enabled": "1" }),
+      dialog: new StewardDialogMemory(store),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
     });
@@ -890,14 +896,15 @@ describe("⑮ A1-hotfix：脏 KV 回放自愈（端到端）", () => {
     expect(window.some((m) => m.role === "toolResult" && m.toolCallId === "call-ok")).toBe(true);
   });
 
-  test("append 路径自愈：ask 后 KV 内孤儿被裁剪器清除（窗口头配对头齐整）", async () => {
-    const kv = dirtyKv();
+  test("append 路径自愈：ask 后落盘内孤儿被裁剪器清除（窗口头配对头齐整）", async () => {
+    const store = dirtyStore();
     const llm = fakeLlm([{ kind: "text", text: "新答" }]);
     const svc = new StewardService({
       llm,
       orchestration: fakeOrchestration([]),
       tasks: { listTasks: () => [] },
-      config: kv,
+      config: fakeConfig({ "steward.enabled": "1" }),
+      dialog: new StewardDialogMemory(store),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
     });
@@ -913,7 +920,7 @@ describe("⑮ A1-hotfix：脏 KV 回放自愈（端到端）", () => {
 describe("⑯ A1-hotfix：预算裁剪切中配对（端到端小预算）", () => {
   test("小预算 + 工具轮 → 下一轮 LLM 窗口头无孤儿、配对完整", async () => {
     const kv = fakeConfig({ "steward.enabled": "1" });
-    const dialog = new StewardDialogMemory(kv, { budgetTokens: 40, now: () => 1_000 });
+    const dialog = new StewardDialogMemory(fakeDialogStore(), { budgetTokens: 40, now: () => 1_000 });
     const llm = fakeLlm([
       toolCall("list_instances", {}), // round 0 → call-0
       { kind: "text", text: "答" },

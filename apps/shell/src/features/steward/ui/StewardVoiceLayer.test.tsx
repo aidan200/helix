@@ -346,8 +346,8 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
         payload: { status: "confirm_required", actionId: "a1", agentId: "会话一", message: "m" },
       } as unknown as EventEnvelope);
       emitSteward({
-        type: "steward.sediment_proposal",
-        payload: { actionId: "a2", text: "沉淀文本" },
+        type: "steward.ask.result",
+        payload: { status: "confirm_required", actionId: "a2", agentId: "会话二", message: "m2" },
       } as unknown as EventEnvelope);
     });
     act(() => {

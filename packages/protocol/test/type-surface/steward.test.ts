@@ -43,7 +43,7 @@ import type {
   StewardMemoryUpdateCommand,
   StewardMemoryDeleteCommand,
   StewardMemoryListResultEvent,
-  StewardSedimentProposalEvent,
+  StewardMemoryWrittenEvent,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -100,7 +100,7 @@ type _StewardFamily = Expect<
       | "steward.tool"
       | "steward.thinking"
       | "steward.navigate"
-      | "steward.sediment_proposal"
+      | "steward.memory_written"
       | "steward.memory_list.result"
   >
 >;
@@ -517,17 +517,17 @@ describe("管家记忆 B2：memory_* 四命令 additive", () => {
   });
 });
 
-// ── 管家记忆 B4a：judgeEndpointId 引用 + sediment_proposal 提案帧 ──────────
+// ── 管家记忆 B5：judgeEndpointId 引用 + memory_written 通知帧 ──────────
 
-const sedimentProposalFrame: StewardSedimentProposalEvent = {
+const memoryWrittenFrame: StewardMemoryWrittenEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
   channel: "steward",
-  type: "steward.sediment_proposal",
-  payload: { actionId: "steward-action-7", text: "以后别用 bun test 跑 shell 测试", kind: "preference" },
+  type: "steward.memory_written",
+  payload: { text: "用户偏好 shell 测试用 vitest", mode: "added" },
 };
 
-describe("管家记忆 B4a：judgeEndpointId 引用 + sediment_proposal 提案帧", () => {
+describe("管家记忆 B5：judgeEndpointId 引用 + memory_written 通知帧", () => {
   test("set_config.memory 三槽位可选（judgeEndpointId = classifier 端点引用）", () => {
     const cmd: StewardSetConfigCommand = {
       v: PROTOCOL_VERSION,
@@ -546,12 +546,12 @@ describe("管家记忆 B4a：judgeEndpointId 引用 + sediment_proposal 提案�
     expect("baseUrl" in judge).toBe(false);
   });
 
-  test("sediment_proposal 事件目录登记 + payload 窄化（与 feed 同订阅闸）", () => {
-    expect(EVENT_TYPES).toContain("steward.sediment_proposal");
-    expect(EVENT_CHANNELS["steward.sediment_proposal"]).toBe("steward");
-    expect(summarizeEvent(sedimentProposalFrame)).toBe(
-      "steward-sediment:steward-action-7:preference:以后别用 bun test 跑 shell 测试",
+  test("memory_written 事件目录登记 + payload 窄化（与 feed 同订阅闸）", () => {
+    expect(EVENT_TYPES).toContain("steward.memory_written");
+    expect(EVENT_CHANNELS["steward.memory_written"]).toBe("steward");
+    expect(summarizeEvent(memoryWrittenFrame)).toBe(
+      "steward-memory:added:用户偏好 shell 测试用 vitest",
     );
-    expect(familyOf(sedimentProposalFrame)).toBe("steward/steward.sediment_proposal");
+    expect(familyOf(memoryWrittenFrame)).toBe("steward/steward.memory_written");
   });
 });

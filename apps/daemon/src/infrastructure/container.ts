@@ -72,6 +72,8 @@ import { CustomProviderService } from "../application/services/CustomProviderSer
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
 import { makeJudgeAdapter } from "../adapters/driven/embedding/JudgeAdapterFactory";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
+import { SqliteStewardDialogStore, migrateStewardDialogKv } from "../adapters/driven/steward-memory/SqliteStewardDialogStore";
+import { StewardDialogMemory } from "../application/steward/StewardDialogMemory";
 import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0";
 import { getLoadablePath as sqliteVecLoadablePath } from "sqlite-vec";
 import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
@@ -727,8 +729,25 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     })
     .catch((err) => logger.warn(`管家记忆迁移失败（旧配置保留，可重试）：${(err as Error).message}`));
 
+  // ── 管家记忆 B6：短期记忆消息落盘（steward_memory.db 行式 steward_messages
+  //    替代 helix.db runtime_config 整包 KV——append 单行写/可查询/水位独立，
+  //    与长期记忆同库不同表）；开库失败降级纯内存（对话照常，重启即失）；
+  //    A1 旧 KV 一次性拆行迁移（幂等墓碑）。
+  let dialog: StewardDialogMemory | undefined;
+  try {
+    const dialogStore = new SqliteStewardDialogStore(paths.stewardMemoryDbPath());
+    if (migrateStewardDialogKv(dialogStore, persistence.runtimeConfig)) {
+      logger.info("管家对话迁移：A1 KV 整包已拆行导入 steward_messages（旧键墓碑）");
+    }
+    dialog = new StewardDialogMemory(dialogStore);
+    logger.info(`管家对话存储就绪：${paths.stewardMemoryDbPath()}`);
+  } catch (err) {
+    logger.warn(`管家对话存储降级（纯内存，重启即失）：${(err as Error).message}`);
+  }
+
   const stewardService = new StewardService({
     llm: stewardLlm,
+    ...(dialog !== undefined ? { dialog } : {}),
     // 管家记忆 B1：长期记忆编排面装配（全部失败面降级为未装配/缺席——
     // 对话主链路零影响）：vec0 扩展路径二级解析（① 壳 env HELIX_VEC_PATH
     // 注入——AG-08 例外面同 HELIX_RG_PATH 收束本域；② dev 形态 node_modules
@@ -801,7 +820,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     feedGate: eventStream, // hasStewardSubscribers 窄接口（连接级订阅闸门）
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
     // B4a 自动沉淀提案帧出口（与 feed 同订阅闸——判官判定后轮外投递确认卡）
-    emitSedimentProposal: (payload) => eventStream.broadcastStewardSedimentProposal(payload),
+    emitMemoryWritten: (payload) => eventStream.broadcastStewardMemoryWritten(payload),
     // 驾驶舱批：页面切换指令帧出口（投递成功/建会话即切——仅已订阅 steward 连接收）
     emitNavigate: (payload) => eventStream.broadcastStewardNavigate(payload),
     // A2：L1 感知面（快照 + query_recent_work 读面 + create_session 执行面

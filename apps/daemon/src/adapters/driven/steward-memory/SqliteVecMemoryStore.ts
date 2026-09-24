@@ -10,8 +10,9 @@
  * 无跨面并发（WAL 防御性开启）。
  *
  * 表结构：
- * - entries(id/kind/text/source/created_at)：记忆条目——唯一 source of
- *   truth（维度切换只清向量面，条目零损失）；
+ * - entries(id/kind/text/source/created_at/updated_at)：记忆条目——唯一
+ *   source of truth（维度切换只清向量面，条目零损失）；updated_at B5 起
+ *   落盘（覆盖更新时刷新，append 时 = created_at——存量库幂等补列）；
  * - meta(key/value)：当前向量维度（"dim" 键）——建 vec0 表维度锁死，
  *   换 embedding 模型（dim 变）→ resetVectors 重建向量面；
  * - vec_items：vec0 虚拟表（rowid = entries.id 对齐——同事务写入保证）。
@@ -35,10 +36,11 @@ interface EntryRow {
   text: string;
   source: string;
   created_at: number;
+  updated_at: number;
 }
 
 function toEntry(row: EntryRow): StewardMemoryEntry {
-  return { id: row.id, kind: row.kind, text: row.text, source: row.source, createdAt: row.created_at };
+  return { id: row.id, kind: row.kind, text: row.text, source: row.source, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
 export class SqliteVecMemoryStore implements StewardMemoryPort {
@@ -66,6 +68,13 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
         value TEXT NOT NULL
       );
     `);
+    // B5 幂等补列：存量库无 updated_at（首记 = created_at；新库建表即含——
+    // CREATE TABLE IF NOT EXISTS 对已有表零动作，两形态统一在此补齐）。
+    const columns = this.db.prepare("PRAGMA table_info(entries)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "updated_at")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("UPDATE entries SET updated_at = created_at WHERE updated_at = 0");
+    }
   }
 
   storedDim(): number | null {
@@ -98,12 +107,12 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (items.length === 0) return;
     this.ensureVecTable(items[0]!.vector.length);
     const insertEntry = this.db.prepare(
-      "INSERT INTO entries(kind, text, source, created_at) VALUES (?, ?, ?, ?)",
+      "INSERT INTO entries(kind, text, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
     );
     const insertVec = this.db.prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)");
     const tx = this.db.transaction((rows: readonly StewardMemoryAppendItem[]) => {
       for (const item of rows) {
-        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt);
+        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt);
         // Bun NAPI better-sqlite3 把 JS number 绑定为 REAL——vec0 rowid 只
         // 收 INTEGER 字面类型（"Only integers are allowed" 实证），BigInt
         // 才绑定为 INTEGER（条目数 << 2^53 无精度问题）。
@@ -134,7 +143,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
   }
 
   list(): readonly StewardMemoryEntry[] {
-    const rows = this.db.prepare("SELECT id, kind, text, source, created_at FROM entries ORDER BY created_at ASC").all() as EntryRow[];
+    const rows = this.db.prepare("SELECT id, kind, text, source, created_at, updated_at FROM entries ORDER BY created_at ASC").all() as EntryRow[];
     return rows.map(toEntry);
   }
 
@@ -146,12 +155,12 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     return tx(id) > 0;
   }
 
-  updateEntry(id: number, text: string, vector: Float32Array): boolean {
+  updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number): boolean {
     // 维度对齐：新向量维度 ≠ 锁表维度时重建向量面（调用方 ensureDim 已保证，
     // 此处防御性兑底——重建清全表后旧行已亡，直接 INSERT）
     this.ensureVecTable(vector.length);
-    const tx = this.db.transaction((target: number, newText: string, vec: Float32Array) => {
-      const changed = this.db.prepare("UPDATE entries SET text = ? WHERE id = ?").run(newText, target).changes;
+    const tx = this.db.transaction((target: number, newText: string, vec: Float32Array, updated: number) => {
+      const changed = this.db.prepare("UPDATE entries SET text = ?, updated_at = ? WHERE id = ?").run(newText, updated, target).changes;
       if (changed === 0) return false;
       // 向量重写：先删旧行再插入（vec0 rowid 无 REPLACE 语义）
       this.db.prepare("DELETE FROM vec_items WHERE rowid = ?").run(BigInt(target));
@@ -160,7 +169,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
         .run(BigInt(target), Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength));
       return true;
     });
-    return tx(id, text, vector);
+    return tx(id, text, vector, updatedAt);
   }
 
   count(): number {

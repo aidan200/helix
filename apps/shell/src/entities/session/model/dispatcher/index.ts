@@ -170,8 +170,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // 切页钩子，App 装配层接线 navigate+switchSession）；
   // 管家记忆 B2 +steward.memory_list.result（条目清单回执——memory_list/
   // append/update/delete 四命令共用，真消费归记忆独立页）；
-  // 管家记忆 B4a +steward.sediment_proposal（自动沉淀提案帧——真消费归
-  // useSteward 确认卡合流，feed 同订阅闸广播）
+  // 管家记忆 B4a 批登记 +steward.sediment_proposal，B5 静默化改名
+  // +steward.memory_written（记忆落盘通知帧——真消费归 useStewardActions
+  // 通知卡合流，feed 同订阅闸广播）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
@@ -184,7 +185,7 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.tool",
   "steward.thinking",
   "steward.navigate",
-  "steward.sediment_proposal",
+  "steward.memory_written",
   "steward.memory_list.result",
   // embedding 配置域（管家记忆 B2）：两帧 = 连接私有（清单回执 list/set/
   // delete 共用 + 连通回执 verify），真消费归模型页向量 tab 与管家记忆区

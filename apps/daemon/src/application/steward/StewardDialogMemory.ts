@@ -1,40 +1,47 @@
 /**
- * StewardDialogMemory —— 管家工作记忆 KV（A1 工作记忆批）。
+ * StewardDialogMemory —— 管家工作记忆（A1 工作记忆批 → B6 消息落盘批）。
  *
  * 替代 StewardService 裸内存数组：完整记录（thinking/工具/对话全形态）
- * 持久化经 RuntimeConfigPort KV（runtime_config 表，WriteQueue 单写通道
- * AG-06——KvConfigStore 同仓先例，不自造表），daemon 重启后对话恢复。
+ * 落盘经 StewardDialogStorePort（steward_memory.db 行式 steward_messages 表
+ * ——一条记录一行），daemon 重启后对话恢复。
  *
- * KV 规格（任务书硬约束）：
- * - key = "steward_dialog"；值 = JSON { records, lastActiveAt }；
- * - 记录形态 = 协议 StewardHistoryRecord（回放链路同源 DTO——UI 显示的 =
- *   LLM 记得的）；
- * - 不存：feed 事件流（订阅态）、pending 确认卡（过期即失效不跨重启）。
+ * B6 弃用面（A1 旧形态，问题较大故换轨）：runtime_config 整包 KV——每次
+ * append 全窗 JSON 重写（写放大 + 与 helix.db 引擎库共 WriteQueue）、不可
+ * 查询（事故排查取证盲区）、单 JSON 损坏整窗报废。新形态：append 单行写、
+ * 裁剪 deleteHead、压缩/迁移 replaceAll、水位独立 meta 键（markJudged 零
+ * 重写）。旧 KV 数据一次性迁移（migrateStewardDialogKv，幂等墓碑）。
  *
- * 三闸清理：
+ * 记录形态 = 协议 StewardHistoryRecord（回放链路同源 DTO——UI 显示的 =
+ * LLM 记得的 = 落盘的）；不存：feed 事件流（订阅态）、通知卡（无操作面）。
+ *
+ * 三闸清理（策略层全保留）：
  * ① 预算闸——append 时 token 估算（chars/2 保守）超预算丢最老记录，且
  *    配对感知（A1-hotfix）：裁剪不切 toolCall/toolResult 配对——窗口头孤儿
  *    toolResult 连带丢弃（生产实证：孤儿直达 provider = 400
  *    "tool_call_id is not found"）；
- * ② TTL 闸——ensureLoaded 时 lastActiveAt 距今超 TTL（72h）整 key 清空；
+ * ② TTL 闸——ensureLoaded 时 lastActiveAt 距今超 TTL（72h）整库清空；
  * ③ 新对话闸——clear()（steward.history {clear:true} 三处同步清之一）。
  *
- * 纯函数（estimateTokens/trimToBudget/dropHeadOrphanToolResults/isExpired）
- * 导出供单测直测。
+ * store 缺席 = 纯内存模式（开库失败降级——对话照常，重启即失，观测面
+ * 可用性优先）。纯函数（estimateTokens/trimToBudget/dropHeadOrphanToolResults/
+ * isExpired/parseStewardDialogKv）导出供单测直测。
  */
 import type { StewardHistoryRecord } from "@helix/protocol";
-import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
+import type {
+  StewardDialogStorePort,
+  StewardDialogStoreSnapshot,
+} from "../ports/outbound/StewardDialogStorePort";
 
-/** 工作记忆 KV 键（daemon 级单键——管家唯一全局会话）。 */
+/** A1 旧 KV 键（迁移墓碑面；新代码不再读写——保留供迁移与旧代码共存期识别）。 */
 export const STEWARD_DIALOG_KEY = "steward_dialog";
 
 /** token 预算窗口起点（任务书：建议起点 16k token，实测后调）。 */
 export const STEWARD_DIALOG_BUDGET_TOKENS = 16384;
 
-/** TTL（72h 无活动 → 整 key 清空）。 */
+/** TTL（72h 无活动 → 整库清空）。 */
 export const STEWARD_DIALOG_TTL_MS = 72 * 60 * 60 * 1000;
 
-/** KV 序列化形态。 */
+/** KV 序列化形态（A1 旧形态——迁移读面）。 */
 interface StewardDialogKv {
   readonly records: readonly StewardHistoryRecord[];
   readonly lastActiveAt: number;
@@ -87,7 +94,7 @@ export function trimToBudget(
 
 /** 窗口头孤儿 toolResult 丢弃（A1-hotfix 纯函数，导出供单测）：孤儿 =
  *  toolCallId 在窗内无 assistant toolCall 配对（toolCall 恒先于 toolResult，
- *  配对头被切 → 孤儿只在头部连续出现；未触预算的脏 KV 头部孤儿同样清——
+ *  配对头被切 → 孤儿只在头部连续出现；未触预算的脏窗头部孤儿同样清——
  *  append 路径自愈）。允许清空（空窗口优于毒孤儿）。 */
 export function dropHeadOrphanToolResults(
   records: readonly StewardHistoryRecord[],
@@ -121,8 +128,9 @@ export function keepTailPairAware(
   return dropHeadOrphanToolResults(records.slice(Math.max(0, records.length - keepRecentCount)));
 }
 
-/** KV 原值 → 域值（形状防御：非法 JSON/字段缺失 → undefined = 不可用）。 */
-function parseDialog(raw: string | undefined): StewardDialogKv | undefined {
+/** A1 KV 原值 → 域值（迁移读面；形状防御：非法 JSON/字段缺失 → undefined
+ *  = 不可用）。 */
+export function parseStewardDialogKv(raw: string | undefined): StewardDialogKv | undefined {
   if (raw === undefined || raw === "") return undefined;
   try {
     const parsed = JSON.parse(raw) as { records?: unknown; lastActiveAt?: unknown; lastJudgedAt?: unknown };
@@ -155,7 +163,7 @@ export interface StewardDialogMemoryOptions {
 }
 
 export class StewardDialogMemory {
-  private readonly kv: RuntimeConfigPort;
+  private readonly store: StewardDialogStorePort | undefined;
   private readonly budgetTokens: number;
   private readonly ttlMs: number;
   private readonly now: () => number;
@@ -166,28 +174,29 @@ export class StewardDialogMemory {
   /** 载入的 lastActiveAt（水位缺省回落面——存量对话零打扰）。 */
   private loadedLastActiveAt = 0;
 
-  constructor(kv: RuntimeConfigPort, options: StewardDialogMemoryOptions = {}) {
-    this.kv = kv;
+  constructor(store?: StewardDialogStorePort, options: StewardDialogMemoryOptions = {}) {
+    this.store = store;
     this.budgetTokens = options.budgetTokens ?? STEWARD_DIALOG_BUDGET_TOKENS;
     this.ttlMs = options.ttlMs ?? STEWARD_DIALOG_TTL_MS;
     this.now = options.now ?? (() => Date.now());
   }
 
-  /** 懒加载（首次 ask / history 读面触发）：TTL 过期 → 整 key 清空；
-   *  KV 不可用（db 关闭/形状不符）→ 空窗口起步（不抛——观测面可用性优先）。 */
+  /** 懒加载（首次 ask / history 读面触发）：TTL 过期 → 整库清空；store
+   *  缺席 = 纯内存模式空窗起步（不抛——观测面可用性优先）。 */
   ensureLoaded(): void {
     if (this.loaded) return;
     this.loaded = true;
-    const parsed = parseDialog(this.kv.get(STEWARD_DIALOG_KEY));
-    if (parsed === undefined) return;
-    if (isExpired(parsed.lastActiveAt, this.now(), this.ttlMs)) {
-      // TTL 闸：72h 无活动整 key 清空（异步落盘不阻塞恢复路径）
-      void this.kv.set(STEWARD_DIALOG_KEY, this.serialize([], this.now())).catch(() => {});
+    if (this.store === undefined) return;
+    const snap: StewardDialogStoreSnapshot = this.store.loadRecent();
+    if (snap.records.length === 0 && snap.lastActiveAt === 0) return;
+    if (isExpired(snap.lastActiveAt, this.now(), this.ttlMs)) {
+      // TTL 闸：72h 无活动整库清空（同步清——better-sqlite3 无异步面）
+      this.store.clear();
       return;
     }
-    this.records = [...parsed.records];
-    this.loadedLastActiveAt = parsed.lastActiveAt;
-    if (parsed.lastJudgedAt !== undefined) this.lastJudgedAt = parsed.lastJudgedAt;
+    this.records = [...snap.records];
+    this.loadedLastActiveAt = snap.lastActiveAt;
+    if (snap.lastJudgedAt !== undefined) this.lastJudgedAt = snap.lastJudgedAt;
   }
 
   /** 现值（ensureLoaded 后镜像；未加载时先加载）。 */
@@ -196,20 +205,25 @@ export class StewardDialogMemory {
     return [...this.records];
   }
 
-  /** 追加一条（预算闸：写入时裁剪老记录先弃；lastActiveAt 随写更新）。 */
+  /** 追加一条（预算闸：写入时裁剪老记录先弃——镜像裁剪量同步 deleteHead，
+   *  落盘单行追加；活跃时间随写更新）。 */
   async append(record: StewardHistoryRecord): Promise<void> {
     this.ensureLoaded();
-    this.records = trimToBudget([...this.records, record], this.budgetTokens);
-    await this.kv.set(STEWARD_DIALOG_KEY, this.serialize(this.records, this.now()));
+    const next = trimToBudget([...this.records, record], this.budgetTokens);
+    const dropped = this.records.length + 1 - next.length;
+    this.records = next;
+    if (this.store === undefined) return;
+    if (dropped > 0) this.store.deleteHead(dropped);
+    this.store.append(record, this.now());
   }
 
-  /** 新对话闸：整 key 清空（回执面由 service 收口）；B4a 水位归零
+  /** 新对话闸：整库清空（回执面由 service 收口）；B4a 水位归零
    *  （空对话无可判——新对话记录从零点起算判定）。 */
   async clear(): Promise<void> {
     this.loaded = true;
     this.records = [];
     this.lastJudgedAt = 0;
-    await this.kv.set(STEWARD_DIALOG_KEY, this.serialize([], this.now()));
+    this.store?.clear();
   }
 
   /** 判定水位读面（B4a）：已设 = 现值；未设 = 载入的 lastActiveAt（存量对话
@@ -219,30 +233,22 @@ export class StewardDialogMemory {
     return this.lastJudgedAt ?? this.loadedLastActiveAt;
   }
 
-  /** 水位推进（B4a 判定落定后；单调增大防御——迟到判定不回拉水位）。 */
+  /** 水位推进（B4a 判定落定后；单调增大防御——迟到判定不回拉水位；meta
+   *  键独立写，零整窗重写）。 */
   async markJudged(at: number): Promise<void> {
     this.ensureLoaded();
     if (at <= (this.lastJudgedAt ?? 0)) return;
     this.lastJudgedAt = at;
-    await this.kv.set(STEWARD_DIALOG_KEY, this.serialize(this.records, this.now()));
+    this.store?.setWatermark(at);
   }
 
   /** 压缩替换（helix-loop L1 件一）：[summary, ...尾部 keepRecentCount 条原文]
    *  整窗替换（TR-47：压的是历史不是工作集——尾部滚动窗保留；头部孤儿
    *  toolResult 连带清理）。与 LoopEngine 侧窗口替换同步（onCompacted 回调
-   *  驱动——KV 与 LLM 窗口同源不变量）。 */
+   *  驱动——落盘与 LLM 窗口同源不变量）；低频全量写（单事务）。 */
   async compact(summary: StewardHistoryRecord, keepRecentCount: number): Promise<void> {
     this.ensureLoaded();
     this.records = [summary, ...keepTailPairAware(this.records, keepRecentCount)];
-    await this.kv.set(STEWARD_DIALOG_KEY, this.serialize(this.records, this.now()));
-  }
-
-  private serialize(records: readonly StewardHistoryRecord[], lastActiveAt: number): string {
-    const base: { records: readonly StewardHistoryRecord[]; lastActiveAt: number; lastJudgedAt?: number } = {
-      records,
-      lastActiveAt,
-    };
-    if (this.lastJudgedAt !== undefined) base.lastJudgedAt = this.lastJudgedAt;
-    return JSON.stringify(base);
+    this.store?.replaceAll(this.records, this.now());
   }
 }

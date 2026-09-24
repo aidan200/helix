@@ -35,7 +35,9 @@ import {
   STEWARD_MEMORY_ENDPOINT_ID_KEY,
   STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY,
   STEWARD_MEMORY_RECALL_TOP_K,
-  STEWARD_MEMORY_DEDUP_THRESHOLD,
+  STEWARD_MEMORY_DEDUP_RECALL_THRESHOLD,
+  STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD,
+  STEWARD_MEMORY_SAME_THRESHOLD,
   STEWARD_MEMORY_RECALL_MIN_SCORE,
   type EmbeddingConfigLookup,
 } from "../../src/application/steward/StewardMemoryService";
@@ -112,7 +114,7 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
           kind: item.kind,
           text: item.text,
           source: item.source,
-          createdAt: item.createdAt,
+          createdAt: item.createdAt, updatedAt: item.createdAt,
         });
       }
     },
@@ -149,11 +151,45 @@ const ENABLED_KV = {
   [STEWARD_MEMORY_ENDPOINT_ID_KEY]: EP_ID,
 };
 
+// ── 文件级判官 helper（B5 两段闸段与 B4a 判官面段共用）────────────────────
+
+const JUDGE_RECORD_TOP: EmbeddingEndpointRecord = {
+  id: "ep-jev",
+  name: "Jev",
+  baseUrl: "https://api.typesafe.ai/v1",
+  apiKey: "sk-judge",
+  model: "jev-latest",
+  kind: "classifier",
+};
+
+function fakeJudgeTop(probability = 0.8, fail = false) {
+  const calls: { state: string; question: string }[] = [];
+  return {
+    calls,
+    endpointLabel: () => "fake-judge",
+    async noul(state: string, question: string): Promise<number> {
+      calls.push({ state, question });
+      if (fail) throw new Error("判官 HTTP 500");
+      return probability;
+    },
+  };
+}
+
+function judgeLookup(): EmbeddingConfigLookup {
+  return {
+    resolveRecord: (endpointId) => {
+      if (endpointId === "ep-jev") return JUDGE_RECORD_TOP;
+      if (endpointId === EP_ID) return { id: EP_ID, name: "Ollama", baseUrl: "http://localhost:11434", model: "bge-m3" };
+      return null;
+    },
+  };
+}
+
 describe("StewardMemoryService", () => {
   test("① 召回注入：记忆段文本（kind 中文标注 + 参考性声明）；空命中 → undefined", async () => {
     const store = fakeStore();
-    store.entries.push({ id: 1, kind: "preference", text: "回复要简洁", source: "s", createdAt: 1 });
-    store.entries.push({ id: 2, kind: "fact", text: "项目在 helix 仓", source: "s", createdAt: 2 });
+    store.entries.push({ id: 1, kind: "preference", text: "回复要简洁", source: "s", createdAt: 1, updatedAt: 1 });
+    store.entries.push({ id: 2, kind: "fact", text: "项目在 helix 仓", source: "s", createdAt: 2, updatedAt: 2 });
     const svc = new StewardMemoryService({
       config: fakeConfig(ENABLED_KV),
       embedding: fakeEmbedding(),
@@ -246,8 +282,8 @@ describe("StewardMemoryService", () => {
 
   test("④ 维度切换重建：resetVectors + 全量条目重嵌入回填", async () => {
     const store = fakeStore(3);
-    store.entries.push({ id: 7, kind: "fact", text: "旧条目甲", source: "s", createdAt: 1 });
-    store.entries.push({ id: 8, kind: "fact", text: "旧条目乙", source: "s", createdAt: 2 });
+    store.entries.push({ id: 7, kind: "fact", text: "旧条目甲", source: "s", createdAt: 1, updatedAt: 1 });
+    store.entries.push({ id: 8, kind: "fact", text: "旧条目乙", source: "s", createdAt: 2, updatedAt: 2 });
     const embedding = fakeEmbedding(4); // 新模型 4 维
     const svc = new StewardMemoryService({ config: fakeConfig(ENABLED_KV), embedding, embeddingConfig: fakeLookup(), store });
     await svc.remember("新条目", "fact", "steward-turn");
@@ -335,26 +371,28 @@ describe("StewardMemoryService", () => {
   });
 });
 
-describe("StewardMemoryService B3：写入去重 + 召回阈值", () => {
-  /** B3 专用 fake：search 分数可控（去重/阈值判定素材）。 */
-  function scoreStore(topScore: number): StewardMemoryPort & { appended: StewardMemoryAppendItem[]; updated: { id: number; text: string }[] } {
+describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () => {
+  /** B5 专用 fake：search 分数可控 + 判官可选注入（两段闸判定素材）。 */
+  function scoreStore(
+    topScore: number,
+  ): StewardMemoryPort & { appended: StewardMemoryAppendItem[]; updated: { id: number; text: string; updatedAt: number }[] } {
     const entries: StewardMemoryEntry[] = [
-      { id: 7, kind: "preference", text: "回复要简洁", source: "steward-turn", createdAt: 1000 },
+      { id: 7, kind: "preference", text: "回复要简洁", source: "steward-turn", createdAt: 1000, updatedAt: 1000 },
     ];
     const appended: StewardMemoryAppendItem[] = [];
-    const updated: { id: number; text: string }[] = [];
+    const updated: { id: number; text: string; updatedAt: number }[] = [];
     return {
       appended,
       updated,
       append(items) {
         appended.push(...items);
-        entries.push({ id: 8, kind: items[0]!.kind, text: items[0]!.text, source: items[0]!.source, createdAt: items[0]!.createdAt });
+        entries.push({ id: 8, kind: items[0]!.kind, text: items[0]!.text, source: items[0]!.source, createdAt: items[0]!.createdAt, updatedAt: items[0]!.createdAt });
       },
       search: () => [{ ...entries[0]!, score: topScore }],
       list: () => entries,
       forget: () => true,
-      updateEntry(id, text) {
-        updated.push({ id, text });
+      updateEntry(id, text, _vector, updatedAt) {
+        updated.push({ id, text, updatedAt });
         return true;
       },
       count: () => entries.length,
@@ -365,38 +403,72 @@ describe("StewardMemoryService B3：写入去重 + 召回阈值", () => {
     };
   }
 
-  function b3Service(topScore: number) {
+  function b5Service(topScore: number, judge?: ReturnType<typeof fakeJudgeTop>) {
     return new StewardMemoryService({
-      config: fakeConfig(ENABLED_KV),
+      config: judge === undefined
+        ? fakeConfig(ENABLED_KV)
+        : fakeConfig({ ...ENABLED_KV, [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: "ep-jev" }),
       embedding: fakeEmbedding(3),
-      embeddingConfig: fakeLookup(),
+      embeddingConfig: judgeLookup(),
       store: scoreStore(topScore),
+      ...(judge === undefined ? {} : { judge }),
+      clock: () => 5000,
     });
   }
 
-  test("⑧ 写入去重：top1 ≥ 阈值 → updateEntry 覆盖（append 零调用），返回 updated:true", async () => {
-    const svc = b3Service(0.95);
-    const saved = await svc.remember("回复务必简短", "preference", "steward-turn");
-    expect(saved).toEqual({ id: 7, updated: true });
+  test("⑧ 判官缺席回退：top1 ≥ 0.92 高阈值 → 覆盖更新（updatedAt 刷新）；0.85~0.92 区间 → 保守新增", async () => {
+    // 0.95（≥ 0.92）→ 判重覆盖
+    const high = b5Service(0.95);
+    const savedHigh = await high.remember("回复务必简短", "preference", "steward-turn");
+    expect(savedHigh).toEqual({ id: 7, updated: true });
+    // 0.88（粗筛达标但无判官精判，< 0.92 回退线）→ 保守新增
+    const mid = b5Service(0.88);
+    const savedMid = await mid.remember("回复务必简短", "preference", "steward-turn");
+    expect(savedMid.updated).toBe(false);
   });
 
-  test("⑨ 非重复：top1 < 阈值 → append 正常路径，updated:false", async () => {
-    const svc = b3Service(0.5);
+  test("⑨ 判官在场精判：≥ 0.85 粗筛 + noul ≥ 0.5 → 覆盖；noul < 0.5 → 新增（不同侧面共存）", async () => {
+    const same = b5Service(0.88, fakeJudgeTop(0.9));
+    const savedSame = await same.remember("回复务必简短", "preference", "steward-turn");
+    expect(savedSame).toEqual({ id: 7, updated: true });
+    const diff = b5Service(0.88, fakeJudgeTop(0.2));
+    const savedDiff = await diff.remember("项目用 helix 仓", "fact", "steward-turn");
+    expect(savedDiff.updated).toBe(false);
+  });
+
+  test("⑩ 判官抛错降级：回退 0.92 纯向量（≥ 0.92 覆盖、< 0.92 新增），不挡写入", async () => {
+    const failHigh = b5Service(0.95, fakeJudgeTop(0.9, true));
+    expect((await failHigh.remember("回复务必简短", "preference", "steward-turn")).updated).toBe(true);
+    const failMid = b5Service(0.88, fakeJudgeTop(0.9, true));
+    expect((await failMid.remember("回复务必简短", "preference", "steward-turn")).updated).toBe(false);
+  });
+
+  test("⑪ 粗筛下沿：top1 < 0.85 → 零精判零判重，直接新增", async () => {
+    const judge = fakeJudgeTop(0.9);
+    const svc = b5Service(0.84, judge);
     const saved = await svc.remember("项目在 helix 仓", "fact", "steward-turn");
     expect(saved.updated).toBe(false);
+    expect(judge.calls).toHaveLength(0); // 粗筛未过零精判调用
   });
 
-  test("⑩ 边界：score 恰等于 DEDUP_THRESHOLD → 判重覆盖", async () => {
-    const svc = b3Service(STEWARD_MEMORY_DEDUP_THRESHOLD);
-    const saved = await svc.remember("回复要简洁明了", "preference", "steward-turn");
-    expect(saved.updated).toBe(true);
-  });
-
-  test("⑪ 召回阈值：score ≥ RECALL_MIN_SCORE 达标注入；全低于 → undefined", async () => {
-    const ok = await b3Service(0.8).recallSection("随便什么");
+  test("⑫ 召回阈值：score ≥ RECALL_MIN_SCORE 达标注入；全低于 → undefined", async () => {
+    const ok = await b5Service(0.8).recallSection("随便什么");
     expect(ok).toContain("回复要简洁");
-    const filtered = await b3Service(STEWARD_MEMORY_RECALL_MIN_SCORE - 0.01).recallSection("随便什么");
+    const filtered = await b5Service(STEWARD_MEMORY_RECALL_MIN_SCORE - 0.01).recallSection("随便什么");
     expect(filtered).toBeUndefined();
+  });
+
+  test("⑬ 覆盖更新时间：updateEntry 收到服务层时钟（updatedAt 刷新非 createdAt）", async () => {
+    const store = scoreStore(0.95);
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(3),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => 5000,
+    });
+    await svc.remember("回复务必简短", "preference", "steward-turn");
+    expect(store.updated).toEqual([{ id: 7, text: "回复务必简短", updatedAt: 5000 }]);
   });
 });
 
@@ -467,7 +539,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
     expect(noJudge.judgeSedimentAvailable()).toBe(false);
   });
 
-  test("④ judgeSediment：透传 state/question 返校准概率；判官抛错原样上抛", async () => {
+  test("④ judgeSame（B5 同一性精判）：state 含既有+新句，question 为同一性问句；判官抛错原样上抛", async () => {
     const judge = fakeJudge(0.7);
     const svc = new StewardMemoryService({
       config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
@@ -475,16 +547,19 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
       embeddingConfig: judgeLookup(),
       judge,
     });
-    expect(await svc.judgeSediment("用户：以后别用 bun test", "值得长期记忆吗？")).toBe(0.7);
+    expect(await svc.judgeSame("回复要简洁", "回复务必简短")).toBe(0.7);
+    expect(judge.calls[0]!.state).toContain("既有：回复要简洁");
+    expect(judge.calls[0]!.state).toContain("新写入：回复务必简短");
+    // question 为同一性问句（非增量判定——B5 重新定位）
+    expect(judge.calls[0]!.question).toContain("同一条用户偏好或事实");
     expect(judge.calls).toHaveLength(1);
-    expect(judge.calls[0]!.state).toContain("bun test");
     const failing = new StewardMemoryService({
       config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
       judge: fakeJudge(0.5, true),
     });
-    await expect(failing.judgeSediment("x", "y")).rejects.toThrow("判官 HTTP 500");
+    await expect(failing.judgeSame("x", "y")).rejects.toThrow("判官 HTTP 500");
   });
 
   test("⑤ 配置写面：judgeEndpointId 可选更新（空串 = 清除引用）；getMemoryState 判官引用态凭据卫生", async () => {

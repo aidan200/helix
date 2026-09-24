@@ -32,8 +32,8 @@ import type {
   SessionPlanChangedEvent,
   SessionPlanChangedPayload,
   StewardFeedEvent,
-  StewardSedimentProposalEvent,
-  StewardSedimentProposalPayload,
+  StewardMemoryWrittenEvent,
+  StewardMemoryWrittenPayload,
   StewardFeedPayload,
   StewardNavigateEvent,
   StewardNavigatePayload,
@@ -482,18 +482,18 @@ export class EventStream implements EventPublisherPort {
   }
 
   /**
-   * steward.sediment_proposal 自动沉淀提案帧广播（管家记忆 B4a）：daemon 级
-   * 全局帧（信封 sessionId = SYSTEM_SESSION_ID、channel = steward），投递按
-   * 连接级 steward 订阅位过滤（broadcastStewardFeed 同闸门同构）。触发面 =
-   * StewardService 判定管线（轮收口判官判定「值得记忆」→ 轮外提案）——shell
-   * 确认卡 UI 与 confirm_required 同构复用，steward.confirm 单次消费执行。
+   * steward.memory_written 记忆落盘通知帧广播（管家记忆 B5 静默化）：daemon
+   * 级全局帧（信封 sessionId = SYSTEM_SESSION_ID、channel = steward），投递
+   * 按连接级 steward 订阅位过滤（broadcastStewardFeed 同闸门同构）。触发面
+   * = remember 工具直写与自动沉淀管线（LLM 重写 → 两段查重 → 静默入库后
+   * 广播）——UI 通知卡展示（无确认语义、无操作面）。
    */
-  broadcastStewardSedimentProposal(payload: StewardSedimentProposalPayload): void {
-    const frame: StewardSedimentProposalEvent = {
+  broadcastStewardMemoryWritten(payload: StewardMemoryWrittenPayload): void {
+    const frame: StewardMemoryWrittenEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID,
       channel: "steward",
-      type: "steward.sediment_proposal",
+      type: "steward.memory_written",
       payload,
     };
     for (const [sender, conn] of this.connections) {

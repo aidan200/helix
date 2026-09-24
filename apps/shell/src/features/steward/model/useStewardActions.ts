@@ -3,8 +3,8 @@
  * docs/temp/helix-steward-global-redesign.md §3.4）。
  *
  * 取代 useSteward 单槽 pending 的多卡模型（解 G4 单槽覆盖/无在途态）：
- * - `steward.ask.result{confirm_required}` 与 `steward.sediment_proposal`
- *   各自入栈（pendingActions[]，actionId 键）——不再互相覆盖；
+ * - `steward.ask.result{confirm_required}` 确认卡与 `steward.memory_written`
+ *   记忆落盘通知卡同栈合流（kind 区分渲染——通知卡无操作面）；
  * - 卡片到手即编号（seq 单调递增，永不重排——B2 语音口令「确认N号」的
  *   指认锚点预留）；
  * - 三态流转：awaiting（确认/放弃）→ accepted（B1 受理即回——按钮禁用防
@@ -29,17 +29,27 @@ import type { EventEnvelope } from "@helix/protocol";
 /** 卡片生命周期态（B1 两段式：accepted = daemon 已受理执行中）。 */
 export type StewardCardState = "awaiting" | "accepted" | "done";
 
-/** 确认卡（confirm_required 与 sediment_proposal 同构合流）。 */
+/** 卡片种类：action = 确认卡（确认/放弃操作面）；memory = 记忆落盘通知卡
+ *  （B5 静默化：无操作面，自动淡出——大脑图标 + 新增主题色/更新警告色）。 */
+export type StewardCardKind = "action" | "memory";
+
+/** 确认卡（confirm_required；memory 通知卡同栈合流——kind 区分渲染）。 */
 export interface StewardActionCard {
   readonly actionId: string;
   /** 目标标识（递话实例 / 「长期记忆」等动作标识——渲染语义重载）。 */
   readonly agentId: string;
-  /** 递话/提案全文（确认闸透明性）。 */
+  /** 递话/提案/记忆文本全文。 */
   readonly message: string;
   /** 到手编号（1 起单调，永不重排）。 */
   readonly seq: number;
   state: StewardCardState;
+  readonly kind: StewardCardKind;
+  /** memory 卡渲染色面：added = 主题色 / updated = 警告色。 */
+  readonly memoryMode?: "added" | "updated";
 }
+
+/** memory 通知卡驻留窗（ms；无操作面——自动收场，仅信息交代）。 */
+export const STEWARD_MEMORY_CARD_LINGER_MS = 6000;
 
 /** done 态淡出驻留窗（ms；ConfirmStack CSS 淡出时长对齐——reduced-motion
  *  直切时同样经此时窗移除，动画缺席仅视觉差异）。 */
@@ -85,12 +95,12 @@ export function useStewardActions(): UseStewardActions {
     [],
   );
 
-  /** done 态淡出后移除。 */
-  const scheduleRemoval = useCallback((actionId: string) => {
+  /** done 态淡出后移除（memory 通知卡复用同机制——驻留窗独立）。 */
+  const scheduleRemoval = useCallback((actionId: string, lingerMs: number = STEWARD_CARD_DONE_LINGER_MS) => {
     const timer = setTimeout(() => {
       timersRef.current.delete(timer);
       setCards((prev) => prev.filter((c) => c.actionId !== actionId));
-    }, STEWARD_CARD_DONE_LINGER_MS);
+    }, lingerMs);
     timersRef.current.add(timer);
   }, []);
 
@@ -108,28 +118,23 @@ export function useStewardActions(): UseStewardActions {
         seqRef.current += 1;
         setCards((prev) => [
           ...prev,
-          { actionId, agentId, message, seq: seqRef.current, state: "awaiting" },
+          { actionId, agentId, message, seq: seqRef.current, state: "awaiting", kind: "action" },
         ]);
         return;
       }
-      if (event.type === "steward.sediment_proposal") {
-        // 自动沉淀提案：确认卡与 confirm_required 同构合流（agentId 语义重载
-        // 为动作标识——useSteward 旧 pending 先例）
-        const payload = event.payload as { actionId?: unknown; text?: unknown };
-        const actionId = payload.actionId;
-        if (typeof actionId !== "string" || actionId === "") return;
+      if (event.type === "steward.memory_written") {
+        // 记忆落盘通知（B5 静默化）：无操作面——展示后自动收场（新增/更新色阶）
+        const payload = event.payload as { text?: unknown; mode?: unknown };
         const text = typeof payload.text === "string" ? payload.text : "";
+        if (text === "") return;
+        const memoryMode = payload.mode === "updated" ? "updated" : "added";
         seqRef.current += 1;
+        const actionId = `memory-${seqRef.current}`;
         setCards((prev) => [
           ...prev,
-          {
-            actionId,
-            agentId: t("steward.sedimentTarget"),
-            message: t("steward.sedimentProposalMessage", { text }),
-            seq: seqRef.current,
-            state: "awaiting",
-          },
+          { actionId, agentId: "", message: text, seq: seqRef.current, state: "awaiting", kind: "memory", memoryMode },
         ]);
+        scheduleRemoval(actionId, STEWARD_MEMORY_CARD_LINGER_MS);
         return;
       }
       if (event.type === "steward.confirm.result") {

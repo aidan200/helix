@@ -61,7 +61,7 @@ describe("useStewardActions（B1 全局确认卡栈数据面）", () => {
     cleanup();
   });
 
-  it("多卡并存不覆盖：confirm_required 与 sediment_proposal 各自入栈 + 编号单调递增", async () => {
+  it("多卡并存不覆盖：confirm_required 与 memory_written 各自入栈 + 编号单调递增", async () => {
     const { result } = renderActions();
     act(() => {
       frameListener?.(
@@ -74,18 +74,23 @@ describe("useStewardActions（B1 全局确认卡栈数据面）", () => {
       );
     });
     act(() => {
-      frameListener?.(frame("steward.sediment_proposal", { actionId: "act-2", text: "记住这个偏好", kind: "preference" }));
+      frameListener?.(frame("steward.memory_written", { text: "用户偏好回复简洁", mode: "added" }));
     });
     await waitFor(() => expect(result.current.cards.length).toBe(2));
     // 互不覆盖（B1 前单槽 pending 会被后者挤掉——G4）
-    expect(result.current.cards[0]).toMatchObject({ actionId: "act-1", state: "awaiting" });
-    expect(result.current.cards[1]).toMatchObject({ actionId: "act-2", state: "awaiting" });
+    expect(result.current.cards[0]).toMatchObject({ actionId: "act-1", state: "awaiting", kind: "action" });
+    expect(result.current.cards[1]).toMatchObject({ actionId: "memory-2", state: "awaiting", kind: "memory", memoryMode: "added" });
     // 到手编号单调
     expect(result.current.cards[0]!.seq).toBe(1);
     expect(result.current.cards[1]!.seq).toBe(2);
-    // sediment 卡 agentId 语义重载（长期记忆目标）+ 提案文案
-    expect(result.current.cards[1]!.agentId).toMatch(/长期记忆|Long-term memory/);
-    expect(result.current.cards[1]!.message).toContain("记住这个偏好");
+    // memory 卡原文全文携带（截断归渲染面）
+    expect(result.current.cards[1]!.message).toContain("用户偏好回复简洁");
+    // updated 形态：覆盖更新色阶面
+    act(() => {
+      frameListener?.(frame("steward.memory_written", { text: "用户偏好 vitest", mode: "updated" }));
+    });
+    await waitFor(() => expect(result.current.cards.length).toBe(3));
+    expect(result.current.cards[2]).toMatchObject({ kind: "memory", memoryMode: "updated" });
   });
 
   it("三态流转：confirm → accepted（受理）→ action.completed → done + 淡出窗后移除", async () => {

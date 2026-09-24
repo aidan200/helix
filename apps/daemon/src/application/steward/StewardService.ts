@@ -49,7 +49,7 @@ import type {
   StewardFeedPayload,
   StewardHistoryRecord,
   StewardNavigatePayload,
-  StewardSedimentProposalPayload,
+  StewardMemoryWrittenPayload,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
@@ -86,17 +86,17 @@ export const STEWARD_MAX_TOOL_ROUNDS = 6;
 /** feed 文本行摘要截断上限（~80 字符——BroadcastService 先例同构）。 */
 export const FEED_SUMMARY_MAX_CHARS = 80;
 
-/** 自动沉淀跳过低档（B4a：判官校准概率 < 此值 = 高置信「无认知增量」→ 静默
- *  跳过。0.35 起步值——Jev 校准度真实数据攒够后调；确认卡全走（第一版
- *  不做高档自动入库——先验证校准再灰度放开）。 */
-export const STEWARD_SEDIMENT_SKIP_THRESHOLD = 0.35;
-
-/** 自动沉淀候选文本截断（B4a：用户消息原文——零 LLM 提取，可解释）。 */
-const SEDIMENT_CANDIDATE_MAX_CHARS = 200;
-
-/** 判官问题模板（B4a：noul 判定问句——只沉淀认知增量）。 */
-const SEDIMENT_QUESTION =
-  "这段对话是否包含值得跨会话长期记忆的用户偏好、习惯、纠正或新事实？（一次性上下文/本轮临时信息/寒暄/纯任务执行不算——只沉淀认知增量）";
+/** 记忆提取指令（B5：增量判定并入提取——近三轮滑动窗，单轮多是过程
+ *  对话无意义；提不出认知增量返回「无」，取代 B4a 的判官判增量 + 用户
+ *  原话截断方案）。 */
+const SEDIMENT_REWRITE_SYSTEM_PROMPT = `你负责从管家对话中提炼长期记忆。输入是最近的几轮对话（旧→新）：结合上下文判断，把其中值得跨会话记住的用户偏好、习惯、纠正或事实，重写成一条简单易懂、主题明确的记忆句。
+要求：
+- 主语明确（用户……），一句话，不超过 40 字
+- 简单易懂，去掉口语废话（嗯、呃、这个）与临时上下文
+- 结合多轮上下文理解意图（很多偏好隐含在过程对话里，单轮看不出）
+- 一次性上下文、本轮临时信息、寒暄、纯任务执行不算认知增量
+- 若这几轮对话没有任何值得记住的认知增量，只输出：无
+只输出记忆句本身或「无」，不要任何解释。`;
 
 /** 会话内对话滚动窗口（旧制；A1 批被工作记忆 KV token 预算闸取代——
  *  常量保留供历史注释面参照，不再参与裁剪）。 */
@@ -175,7 +175,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
 - 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数）。
 - 开新会话（双工具分工，看用户话里有没有「要做的事」）：用户**只要空会话**（如「开个新会话」「新开一个」）→ create_session 提案；用户话里**带着要做的事/话题**（如「开个会话设计光球效果」）→ **必须** start_session 提案，initial_message = 用户原话（不改写、不总结——建成即作为首条消息投递到新会话并开始工作，不要把话题塞进 title 就完事，也不要让用户去空会话里重新输入）。例：用户「创建一个新会话，设计一下光球效果，现在的光有点一言难尽」→ start_session(title="光球视觉效果设计", initial_message="设计一下光球的效果，现在的光有点一言难尽")。两个工具建成后界面都会自动切到新会话。
-- 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → remember 提案（写操作——确认后才真正入库）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。
+- 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → 调用 remember（立即静默入库并弹通知卡，无需确认——text 要提炼成一句简单易懂、主题明确的记忆句，不要照搬用户原话口语）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。系统也会在轮末自动提炼记忆，你主动记得准就轮不到自动提炼。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
 - 给运行中的 agent 实例递话（SubAgent 补充通道）：用户明确点名某个正在跑的 agent-xxx（补充指示/催进度）→ propose_send 提案（agentId 必须运行中）。用户没点名具体 agent 实例时不要走本通道。
 
@@ -183,7 +183,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。
 
-长期记忆（若 system prompt 末尾附「长期记忆」段）：那是按本轮输入语义召回的历史沉淀，仅供作答参考——与本轮指令冲突时以本轮指令为准。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知。`;
+长期记忆（若 system prompt 末尾附「长期记忆」段）：那是按本轮输入语义召回的历史沉淀，仅供作答参考——与本轮指令冲突时以本轮指令为准。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
 
 function truncateSummary(summary: string): string {
   if (summary.length <= FEED_SUMMARY_MAX_CHARS) return summary;
@@ -504,7 +504,7 @@ export interface StewardServiceDeps {
   readonly emitFeed: (payload: StewardFeedPayload) => void;
   /** 自动沉淀提案帧出口（B4a；组合根接 EventStream.broadcastStewardSedimentProposal
    *  ——与 feed 同订阅闸；缺席 = 提案挂 pending 但零广播，确认仍可经 actionId 直达）。 */
-  readonly emitSedimentProposal?: (payload: StewardSedimentProposalPayload) => void;
+  readonly emitMemoryWritten?: (payload: StewardMemoryWrittenPayload) => void;
   /** 页面切换指令帧出口（驾驶舱批；组合根接 EventStream.broadcastStewardNavigate
    *  ——deliver_to_session 投递成功 / create_session 建成后广播，shell 切页）。
    *  缺席 = 无切页指令（语义面零降级，仅行为缺席）。 */
@@ -546,7 +546,7 @@ export interface StewardServiceDeps {
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
  *  spawnReview = 动作标识；deliverSession = 递话目标会话——见各分支注释）。 */
 interface PendingAction {
-  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession" | "memorize";
+  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession";
   /** 面板确认卡「目标」行显示值（send = agentId；createSession = "新会话"；
    *  spawnReview = "<reviewType>@<project>"；deliverSession = sessionId）。 */
   readonly displayTarget: string;
@@ -560,8 +560,8 @@ interface PendingAction {
   readonly createSession?: { title: string; initialMessage?: string };
   /** deliverSession 形态载荷（驾驶舱批：session 级 steer 投递）。 */
   readonly deliverSession?: { sessionId: string; text: string };
-  /** memorize 形态载荷（管家记忆 B1：remember 提案——确认后沉淀长期记忆）。 */
-  readonly memorize?: { text: string; kind: "fact" | "preference"; source?: string };
+  // （B5：memorize 提案形态已删——记忆写入静默化，remember 工具与自动沉淀管线
+  //  均直写入库 + memory_written 通知，不再挂确认闸。）
   /** spawnReview 形态载荷。 */
   readonly spawnReview?: {
     reviewType: "code-review" | "kg-review";
@@ -688,7 +688,7 @@ const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
 const TOOL_REMEMBER: StewardLlmTool = {
   name: "remember",
   description:
-    "提案沉淀长期记忆（写操作——仅提案，系统会请求用户确认后才执行）。仅用于跨会话有持久价值的认知增量：用户明确表达的偏好/习惯（kind=preference）或对话中确认的事实（kind=fact）。一次性上下文、本轮临时信息、寒暄不记。",
+    "沉淀长期记忆（立即静默入库并弹通知卡，无需用户确认）。仅用于跨会话有持久价值的认知增量：用户明确表达的偏好/习惯（kind=preference）或对话中确认的事实（kind=fact）。text 要提炼成一句简单易懂、主题明确的记忆句（不要照搬用户原话口语）。一次性上下文、本轮临时信息、寒暄不记；语义重复会自动覆盖更新原条目。",
   parameters: {
     type: "object",
     properties: {
@@ -719,7 +719,8 @@ const GATED_TOOLS: ReadonlySet<string> = new Set([
   "create_session",
   "start_session",
   "spawn_review_task",
-  "remember",
+  // remember 已摘闸（B5：记忆写入静默化——工具调用即入库 + memory_written
+  // 通知，不再挂确认卡；防误吞闸仍由 directRemember 内校验承担）。
 ]);
 
 /** 挂闸中待确认项（pause 态的 resume 凭据 + 提案动作——actionId 单次消费）。 */
@@ -765,7 +766,7 @@ export class StewardService {
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
-    this.dialog = deps.dialog ?? new StewardDialogMemory(deps.config);
+    this.dialog = deps.dialog ?? new StewardDialogMemory();
     this.now = deps.clock ?? (() => Date.now());
     this.registry = new ToolRegistry();
     this.registerTools();
@@ -896,7 +897,7 @@ export class StewardService {
       }
       // B4a 主钩子：answer 轮收口 → 异步判定（fire-and-forget 不阻塞 drain；
       // error/confirm_required/aborted 半成品轮不判定）。
-      if (result?.status === "answer") this.maybeAutoSediment(item.text, result.text, userAt);
+      if (result?.status === "answer") this.maybeAutoSediment(userAt);
       // L1 件二：drain 完成后自动消费队列（下一轮输入）；abort/error 收口
       // 同样触发——队列保留不丢（duplex-truncation T9 同族序）。
       this.drainPendingAsks();
@@ -931,58 +932,97 @@ export class StewardService {
     await Promise.allSettled([...this.sedimentTasks]);
   }
 
-  /** 判定内核：money 闸（零订阅零判官调用但推水位）→ 判官可用闸（不可用推
-   *  水位静默跳过）→ 水位防御 → noul → 低档静默 / 高档挂 memorize 提案 +
-   *  sediment_proposal 广播。判官抛错不推水位（下轮重试面）。 */
-  private async judgeAndPropose(userText: string, assistantText: string, at: number): Promise<void> {
+  /** 沉淀内核（B5 静默化重构）：money 闸（零订阅零重写零入库但推水位——
+   *  通知无人看，LLM 成本省）→ 记忆可用闸（不可用推水位静默跳过）→ 水位
+   *  防御 → LLM 提取判定（近三轮滑动窗——单轮多是过程对话无意义；增量
+   *  判定并入提取：无增量返「无」）→ 静默入库（两段查重在 remember 内）→
+   *  memory_written 通知（新增/更新）。提取抛错不推水位（下轮重试面）；
+   *  入库失败水位已推（best-effort，warn 留痕）。 */
+  private async sedimentAndStore(at: number): Promise<void> {
     if (!this.deps.feedGate.hasStewardSubscribers()) {
       await this.dialog.markJudged(at);
       return;
     }
     const memory = this.deps.memory;
-    if (memory === undefined || !memory.judgeSedimentAvailable()) {
+    if (memory === undefined || !memory.isAvailable()) {
       await this.dialog.markJudged(at);
       return;
     }
     if (at <= this.dialog.judgedWatermark()) return; // 已判定（重复触发防御）
-    let probability: number;
+    const turns = this.recentTurnsText();
+    if (turns === "") {
+      await this.dialog.markJudged(at);
+      return;
+    }
+    let rewritten: string;
     try {
-      probability = await memory.judgeSediment(`用户：${userText}\n管家：${assistantText}`, SEDIMENT_QUESTION);
+      rewritten = await this.rewriteMemoryCandidate(turns);
     } catch (err) {
-      this.deps.logger?.warn(`自动沉淀判定降级（本轮跳过）：${(err as Error).message}`);
+      this.deps.logger?.warn(`自动沉淀提取降级（本轮跳过）：${(err as Error).message}`);
       return; // 不推水位——下轮重试
     }
     await this.dialog.markJudged(at);
-    if (probability < STEWARD_SEDIMENT_SKIP_THRESHOLD) return;
-    const text =
-      userText.length > SEDIMENT_CANDIDATE_MAX_CHARS
-        ? `${userText.slice(0, SEDIMENT_CANDIDATE_MAX_CHARS)}…`
-        : userText;
-    this.actionSeq += 1;
-    const actionId = `steward-action-${this.actionSeq}`;
-    this.pending.set(actionId, {
-      action: {
-        kind: "memorize",
-        displayTarget: "长期记忆",
-        message: `沉淀长期记忆：「${text}」`,
-        toolCall: { id: "", name: "remember" },
-        memorize: { text, kind: "preference", source: "auto-sediment" },
-      },
-      // resume 缺席——轮外提案无 LoopEngine 暂停点
-    });
-    this.deps.emitSedimentProposal?.({ actionId, text, kind: "preference" });
+    const candidate = rewritten.trim();
+    if (candidate === "" || candidate === "无") return; // 无认知增量
+    try {
+      const saved = await memory.remember(candidate, "preference", "auto-sediment");
+      this.deps.emitMemoryWritten?.({ text: candidate, mode: saved.updated ? "updated" : "added" });
+    } catch (err) {
+      // 入库 best-effort（水位已推——嵌入端点挂等不重试本轮，warn 留痕）
+      this.deps.logger?.warn(`自动沉淀入库降级：${(err as Error).message}`);
+    }
   }
 
-  /** 轮次主钩子（runAskPipeline finally；fire-and-forget 不阻塞 drain）。 */
-  private maybeAutoSediment(userText: string, assistantText: string, at: number): void {
+  /** 近三轮对话文本提取（B5：滑动窗——旧→新拼装 user/assistant 文本对；
+   *  跳过 toolResult/thinking/截断标记；取每轮末段 assistant 终答文本）。 */
+  private recentTurnsText(): string {
+    const records = this.dialog.snapshot();
+    const userIdx: number[] = [];
+    for (let i = records.length - 1; i >= 0 && userIdx.length < 3; i--) {
+      const r = records[i]!;
+      if (r.kind === "user" && r.text !== LOOP_INTERRUPTED_MARKER_TEXT) userIdx.unshift(i);
+    }
+    if (userIdx.length === 0) return "";
+    const turns: string[] = [];
+    for (const i of userIdx) {
+      const u = records[i]!;
+      if (u.kind !== "user") continue;
+      let assistantText = "";
+      for (let j = i + 1; j < records.length; j++) {
+        const r = records[j]!;
+        if (r.kind === "user") break;
+        if (r.kind === "assistant" && (r.text ?? "") !== "") assistantText = r.text ?? "";
+      }
+      turns.push(`用户：${u.text}\n管家：${assistantText}`);
+    }
+    return turns.join("\n\n");
+  }
+
+  /** 记忆提取重写（一次性 LLM 调用——voiceSummarizer 同模式：单发无状态、
+   *  tools 空；输入近三轮对话文本；toolCall/aborted 形态 fail-fast 抛错）。 */
+  private async rewriteMemoryCandidate(turns: string): Promise<string> {
+    const resp = await this.deps.llm.complete({
+      systemPrompt: SEDIMENT_REWRITE_SYSTEM_PROMPT,
+      messages: [{ role: "user", text: turns }],
+      tools: [],
+    });
+    if (resp.kind !== "text") {
+      throw new Error(`记忆提取面收到意外的 ${resp.kind} 响应（tools 为空不应发生）`);
+    }
+    return resp.text;
+  }
+
+  /** 轮末沉淀钩子（runAskPipeline finally；fire-and-forget 不阻塞 drain）。 */
+  private maybeAutoSediment(at: number): void {
     this.trackSediment(
-      this.judgeAndPropose(userText, assistantText, at).catch((err) =>
+      this.sedimentAndStore(at).catch((err) =>
         this.deps.logger?.warn(`自动沉淀管线异常：${(err as Error).message}`),
       ),
     );
   }
 
-  /** 未判定尾部补判（重启补偿 + 清空兜底复用；snapshot 同步取定）。 */
+  /** 未判定尾部补判（重启补偿 + 清空兜底复用；snapshot 同步取定）。输入取
+   *  全局近三轮（含已判轮上下文——提取增量自然去重 + 两段查重兑底）。 */
   private sedimentUnjudgedTail(): Promise<void> {
     const watermark = this.dialog.judgedWatermark();
     const tail = this.dialog
@@ -990,7 +1030,7 @@ export class StewardService {
       .filter((r) => r.kind === "user" && r.at > watermark && r.text !== LOOP_INTERRUPTED_MARKER_TEXT); // E-198：截断标记非用户输入不参与判定
     if (tail.length === 0) return Promise.resolve();
     const latest = tail[tail.length - 1]!;
-    return this.judgeAndPropose(tail.map((r) => r.text).join("\n"), "", latest.at);
+    return this.sedimentAndStore(latest.at);
   }
 
   /** L1 件一：压缩摘要执行体（StewardLlmPort 单轮无工具形态——与主对话
@@ -1250,21 +1290,6 @@ export class StewardService {
         return { ok: false, detail: `投递执行失败：${(err as Error).message}` };
       }
     }
-    if (action.kind === "memorize") {
-      if (this.deps.memory === undefined) {
-        return { ok: false, detail: "记忆面未装配（daemon 装配缺 memory 源）" };
-      }
-      try {
-        const memo = action.memorize!;
-        const saved = await this.deps.memory.remember(memo.text, memo.kind, memo.source ?? "steward-turn");
-        return {
-          ok: true,
-          detail: `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${memo.text}`,
-        };
-      } catch (err) {
-        return { ok: false, detail: `记忆沉淀失败：${(err as Error).message}` };
-      }
-    }
     // spawnReview：paramsSchema 校验在引擎（TaskError message 原样透传）
     if (this.deps.taskEngine === undefined) {
       return { ok: false, detail: "任务创建面未装配（daemon 装配缺 taskEngine）" };
@@ -1474,7 +1499,6 @@ export class StewardService {
       [TOOL_CREATE_SESSION, this.pendingActionOfCreateSession.bind(this)],
       [TOOL_START_SESSION, this.pendingActionOfStartSession.bind(this)],
       [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
-      [TOOL_REMEMBER, this.pendingActionOfRemember.bind(this)],
     ] as const) {
       this.registry.register({
         ...tool,
@@ -1494,6 +1518,11 @@ export class StewardService {
         },
       });
     }
+    // remember（B5 摘闸）：直接执行体——静默入库 + 通知，回执回灌续轮。
+    this.registry.register({
+      ...TOOL_REMEMBER,
+      handler: async (args) => this.directRemember(args),
+    });
     // steward_confirm：面板确认原语（hidden——LLM 不可见；actionId 单次消费
     // 语义与 handler 层 steward.confirm 命令等价）
     this.registry.register({
@@ -1592,11 +1621,6 @@ export class StewardService {
     }
     if (name === "spawn_review_task") {
       const gated = await this.pendingActionOfSpawnReview(args);
-      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
-      return { pause: true, action: gated };
-    }
-    if (name === "remember") {
-      const gated = await this.pendingActionOfRemember(args);
       if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
       return { pause: true, action: gated };
     }
@@ -1761,32 +1785,34 @@ export class StewardService {
     };
   }
 
-  /** remember 提案判定（管家记忆 B1：参数校验 + 可用性前置——记忆未启用
-   *  /未配置 → 引导式降级（不挂闸不提案，LLM 拿引导文本转述用户））。 */
-  private async pendingActionOfRemember(
-    args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+  /** remember 直接执行体（B5 摘闸静默化：参数校验 → 可用性闸 → 两段查重
+   *  入库 → memory_written 通知；回执回灌 LLM 续轮）。失败/不可用回执为
+   *  引导文本（LLM 转述用户）——与旧 guideOutcome 语义同构。 */
+  private async directRemember(args: Record<string, unknown>): Promise<LoopToolOutcome> {
     const text = typeof args.text === "string" ? args.text.trim() : "";
     const kindRaw = args.kind;
     if (text === "") {
-      return this.guideOutcome("参数缺失：text 必填（记忆文本）");
+      return this.guideOutcome("参数缺失：text 必填（记忆文本）").outcome;
     }
     if (kindRaw !== undefined && kindRaw !== "fact" && kindRaw !== "preference") {
-      return this.guideOutcome(`kind 非法：${JSON.stringify(kindRaw)}（应为 "fact" 或 "preference"）`);
+      return this.guideOutcome(`kind 非法：${JSON.stringify(kindRaw)}（应为 "fact" 或 "preference"）`).outcome;
     }
     const kind = (kindRaw as "fact" | "preference" | undefined) ?? "fact";
-    if (this.deps.memory === undefined || !this.deps.memory.isAvailable()) {
+    const memory = this.deps.memory;
+    if (memory === undefined || !memory.isAvailable()) {
       return this.guideOutcome(
         "记忆功能未启用或未配置——本次不沉淀（用户可在 设置 → 通用 → 管家 开启记忆并配置嵌入端点）",
-      );
+      ).outcome;
     }
-    return {
-      kind: "memorize",
-      displayTarget: "长期记忆",
-      message: `将沉淀${kind === "preference" ? "偏好" : "事实"}：${text}`,
-      toolCall: { id: "", name: "remember" },
-      memorize: { text, kind },
-    };
+    try {
+      const saved = await memory.remember(text, kind, "steward-turn");
+      this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
+      const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
+      return { kind: "result", text: capToolResultText(detail), summary: summarizeForFrame(detail) };
+    } catch (err) {
+      const detail = `记忆沉淀失败：${(err as Error).message}`;
+      return { kind: "result", text: capToolResultText(detail), summary: summarizeForFrame(detail) };
+    }
   }
 
   /** 引导式工具结果（toolResult 回灌 LLM 循环继续可转述/自纠——迁移前

@@ -22,6 +22,8 @@ export interface VoiceCardSnapshot {
   /** 到手编号（1 起单调，永不重排）。 */
   readonly seq: number;
   readonly state: "awaiting" | "accepted" | "done";
+  /** 卡种（memory 通知卡无 daemon 侧 pending——口令裁决不可指认/取消）。 */
+  readonly kind?: "action" | "memory";
 }
 
 /** 口令形态（解析产物；kind 与回读动作一一对应）。 */
@@ -103,19 +105,22 @@ export function parseVoiceCommand(rawText: string): VoiceCommand | null {
  * - 编号卡非 awaiting → settled（已被处理，不可二次确认/取消）。
  */
 export function resolveVoiceCommand(command: VoiceCommand, cards: readonly VoiceCardSnapshot[]): VoiceCommandResult {
+  // memory 通知卡无 daemon 侧 pending——口令面整面不可见（指认/栈顶/全部
+  // 取消均跳过，避免对不存在的 action 发 cancel）
+  const actionable = cards.filter((c) => c.kind !== "memory");
   if (command.kind === "cancelAll") {
-    const targets = cards.filter((c) => c.state === "awaiting").map(project);
+    const targets = actionable.filter((c) => c.state === "awaiting").map(project);
     if (targets.length === 0) return { kind: "none", reason: "noCards" };
     return { kind: "cancelAll", targets };
   }
   if (command.target === "top") {
-    const awaiting = cards.filter((c) => c.state === "awaiting");
+    const awaiting = actionable.filter((c) => c.state === "awaiting");
     if (awaiting.length === 0) return { kind: "none", reason: "noCards" };
     const top = awaiting.reduce((a, b) => (b.seq > a.seq ? b : a));
     return { kind: command.kind, targets: [project(top)] };
   }
   const seq = command.target.seq;
-  const hit = cards.find((c) => c.seq === seq);
+  const hit = actionable.find((c) => c.seq === seq);
   if (hit === undefined) return { kind: "none", reason: "notFound", seq };
   if (hit.state !== "awaiting") return { kind: "none", reason: "settled", seq };
   return { kind: command.kind, targets: [project(hit)] };

@@ -1235,8 +1235,8 @@ export const zhCN = {
     send: "发送",
     // L1 件二：排队确认帧文案（{position} 插值）
     askQueued: "已排队（第 {position} 位）——当前回答完成后自动接续",
-    sedimentTarget: "长期记忆",
-    sedimentProposalMessage: "沉淀这条记忆？「{text}」",
+    memoryAdded: "已记入长期记忆",
+    memoryUpdated: "记忆已更新（同一条覆盖）",
     confirmTitle: "写动作待确认",
     confirmTarget: "目标",
     confirmBody: "内容",

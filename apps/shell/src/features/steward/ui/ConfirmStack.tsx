@@ -14,9 +14,17 @@
  * 后的全局承载：无光球/纯文本期卡栈照常出现在左下角，关面板只影响语音。
  */
 import { useState } from "react";
+import { Brain } from "lucide-react";
 import { useStewardActions, STEWARD_CARD_COLLAPSE_AT } from "../model/useStewardActions";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
+
+/** 记忆通知卡文本上限（超长截「…」——用户规约：卡片内容限 100 字内）。 */
+const MEMORY_CARD_TEXT_MAX = 100;
+
+function truncateMemoryText(text: string): string {
+  return text.length > MEMORY_CARD_TEXT_MAX ? `${text.slice(0, MEMORY_CARD_TEXT_MAX)}…` : text;
+}
 
 const ConfirmStack = function ConfirmStack() {
   const { t } = useI18n();
@@ -29,7 +37,27 @@ const ConfirmStack = function ConfirmStack() {
   const visible = expanded ? ordered : ordered.slice(0, STEWARD_CARD_COLLAPSE_AT);
   return (
     <div className="stf-stack" data-testid="steward-confirm-stack" role="region" aria-label={t("steward.confirmTitle")}>
-      {visible.map((card) => (
+      {visible.map((card) =>
+        card.kind === "memory" ? (
+          // 记忆落盘通知卡（B5 静默化）：无操作面——大脑图标左上，新增主题色/
+          // 更新警告色（色阶挂 memoryMode 类），展示后自动收场（数据面定时）
+          <div
+            key={card.actionId}
+            className={cn("stf-card", "stf-memory", card.memoryMode ?? "added")}
+            data-testid="steward-memory-card"
+            data-memory-mode={card.memoryMode ?? "added"}
+          >
+            <div className="stf-head">
+              <Brain className="stf-memory-icon" size={14} aria-hidden />
+              <span className="stf-title">
+                {card.memoryMode === "updated" ? t("steward.memoryUpdated") : t("steward.memoryAdded")}
+              </span>
+            </div>
+            <div className="stf-row stf-body">
+              <span className="stf-v">{truncateMemoryText(card.message)}</span>
+            </div>
+          </div>
+        ) : (
         <div
           key={card.actionId}
           className={cn("stf-card", card.state)}
@@ -82,7 +110,8 @@ const ConfirmStack = function ConfirmStack() {
             </div>
           )}
         </div>
-      ))}
+        ),
+      )}
       {hidden > 0 && (
         <button
           type="button"

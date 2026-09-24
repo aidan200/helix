@@ -1228,8 +1228,8 @@ export const enUS = {
     send: "Send",
     // L1 queue batch: queued ack copy ({position} interpolation)
     askQueued: "Queued (position {position}) — starts right after the current reply finishes",
-    sedimentTarget: "Long-term memory",
-    sedimentProposalMessage: "Save this memory? \"{text}\"",
+    memoryAdded: "Saved to long-term memory",
+    memoryUpdated: "Memory updated (overwritten)",
     confirmTitle: "Write action needs confirmation",
     confirmTarget: "Target",
     confirmBody: "Message",

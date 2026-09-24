@@ -25,6 +25,8 @@ export interface StewardMemoryEntry {
   readonly source: string;
   /** 创建时间（epoch ms）。 */
   readonly createdAt: number;
+  /** 最后更新时间（epoch ms；B5 覆盖更新时刷新——append 时 = createdAt）。 */
+  readonly updatedAt: number;
 }
 
 /** 召回命中（条目 + 相似度分数——cosine distance 转 similarity，越大越像）。 */
@@ -50,8 +52,8 @@ export interface StewardMemoryPort {
   list(): readonly StewardMemoryEntry[];
   /** 按 id 删除（条目 + 向量同事务；id 不存在 → false）。 */
   forget(id: number): boolean;
-  /** 条目编辑重写（text + 向量单事务；id 不存在 → false）。 */
-  updateEntry(id: number, text: string, vector: Float32Array): boolean;
+  /** 条目编辑重写（text + 向量 + updatedAt 单事务；id 不存在 → false）。 */
+  updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number): boolean;
   /** 条目总数。 */
   count(): number;
   /** 当前向量维度（meta 表；向量面未初始化 → null）。 */

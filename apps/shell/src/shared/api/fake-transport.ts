@@ -558,13 +558,13 @@ class FakeSocket {
 
   /**
    * steward 广播帧投递准入（B1；daemon EventStream.broadcastStewardFeed /
-   * broadcastStewardNavigate / broadcastStewardSedimentProposal 的
+   * broadcastStewardNavigate / broadcastStewardMemoryWritten 的
    * stewardSubscribed 连接级过滤镜像——未订阅连接广播帧整帧丢弃）。
    * 点对点回执（*.result / action.completed）不走此闸（sendNow 直发镜像）。
    */
   stewardBroadcastAllowed(frame: EventEnvelope): boolean {
     if (frame.channel !== "steward") return true;
-    if (frame.type !== "steward.feed" && frame.type !== "steward.navigate" && frame.type !== "steward.sediment_proposal") return true;
+    if (frame.type !== "steward.feed" && frame.type !== "steward.navigate" && frame.type !== "steward.memory_written") return true;
     return this.stewardSubscribed;
   }
 

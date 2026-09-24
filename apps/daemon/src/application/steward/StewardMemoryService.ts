@@ -61,14 +61,20 @@ export const STEWARD_MEMORY_RECALL_TOP_K = 5;
  */
 export const STEWARD_MEMORY_RECALL_MIN_SCORE = 0.3;
 /**
- * 写入去重阈值（B3：remember 前语义查重 top1 ≥ 此值 → 覆盖更新原条目
- * 而非新增——同一偏好反复表述（「回复要简洁」/「回复务必简短」）收敛为
- * 单条，记忆库不随使用膨胀。中间相似度（阈值下沿~0.92 区间外）自然
- * 共存：同主题不同侧面不是矛盾（「回复简洁」+「代码解释详细」），真
- * 矛盾由召回段既有纪律消化——「与本轮指令冲突时以本轮指令为准」+
- * remember 覆盖路径刷新认知）。
+ * 写入查重两段闸（B5：Jev 判官从「判增量」改为「判同一」）：
+ * - 粗筛段：向量检索 top1 ≥ 0.85（放宽自 B3 的 0.92——召回更多候选交给判官精判）；
+ * - 精判段：Jev noul 判「既有条目 vs 新句是否同一条记忆」≥ 0.5 → 覆盖更新；
+ * - 降级：判官缺席/抛错 → 回退 0.92 纯向量高阈值（宁可不合并、不误合并
+ *   不同记忆——0.85 无精判太宽）。
  */
-export const STEWARD_MEMORY_DEDUP_THRESHOLD = 0.92;
+export const STEWARD_MEMORY_DEDUP_RECALL_THRESHOLD = 0.85;
+/** 判官缺席/抛错时的回退纯向量阈值（B3 原值保守段）。 */
+export const STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD = 0.92;
+/** 判官同一性判定阈值（noul 校准概率 ≥ 此值 = 同一条记忆）。 */
+export const STEWARD_MEMORY_SAME_THRESHOLD = 0.5;
+/** 同一性判官问句（B5：查重精判段——不再判增量）。 */
+export const STEWARD_MEMORY_SAME_QUESTION =
+  "这两段文本表达的是同一条用户偏好或事实吗？（措辞不同但语义相同 = 同一条；同主题不同侧面 = 不是同一条）";
 /** 维度重建分批大小（embedding 批量调用——端点速率防御）。 */
 const REBUILD_BATCH_SIZE = 32;
 
@@ -150,16 +156,15 @@ export class StewardMemoryService {
     return record;
   }
 
-  /** 自动沉淀可用性（B4a：记忆开关 ∧ 判官端点有效(classifier) ∧ judge port 已注入）。 */
+  /** 自动沉淀可用性（B4a 遗留命名——B5 起判官用途为查重精判：记忆开关 ∧ 判官端点有效(classifier) ∧ judge port 已注入）。 */
   judgeSedimentAvailable(): boolean {
     return this.isEnabled() && this.judgeEndpointRecord() !== null && this.deps.judge !== undefined;
   }
 
-  /** 判官二分类校准概率（B4a；失败原样上抛——调用面（StewardService 判定
-   *  管线）捕获降级为「本轮跳过」，不挡对话主链路）。 */
-  async judgeSediment(state: string, question: string): Promise<number> {
+  /** 同一性精判（B5 查重精判段；判官缺席/抛错由调用方回退纯向量阈值）。 */
+  async judgeSame(existingText: string, incomingText: string): Promise<number> {
     if (!this.judgeSedimentAvailable()) throw new Error("判官不可用（开关/端点/判官面未就绪）");
-    return this.deps.judge!.noul(state, question);
+    return this.deps.judge!.noul(`既有：${existingText}\n新写入：${incomingText}`, STEWARD_MEMORY_SAME_QUESTION);
   }
 
   /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库）。 */
@@ -247,16 +252,32 @@ export class StewardMemoryService {
     const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
     await this.ensureDim(dim);
     const store = this.deps.store!;
-    // B3 写入去重：语义查重 top1 ≥ 阈值 → 覆盖更新原条目（id/createdAt/
-    // kind 保留首记形态——同一条记忆被刷新而非新记）。
+    // B5 两段查重：0.85 向量粗筛 → Jev 精判同一性（缺席/抛错回退 0.92
+    // 纯向量——保守不合并）；同一 → 覆盖更新原条目（id/createdAt/kind 保留
+    // 首记形态，updatedAt 刷新——同一条记忆被更准确的重写刷新）。
     const top = store.search(vectors[0]!, 1)[0];
-    if (top !== undefined && top.score >= STEWARD_MEMORY_DEDUP_THRESHOLD) {
-      store.updateEntry(top.id, trimmed, vectors[0]!);
+    if (top !== undefined && top.score >= STEWARD_MEMORY_DEDUP_RECALL_THRESHOLD && await this.isSameMemory(top, trimmed)) {
+      store.updateEntry(top.id, trimmed, vectors[0]!, this.now());
       return { id: top.id, updated: true };
     }
     store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]! }]);
     const entries = store.list();
     return { id: entries[entries.length - 1]!.id, updated: false };
+  }
+
+  /**
+   * 同一性判定（两段闸精判段）：判官可用 → noul 精判；缺席/抛错 → 回退
+   * 纯向量 0.92 高阈值（宁可不合并不误合并——warn 留痕）。
+   */
+  private async isSameMemory(top: { text: string; score: number }, incoming: string): Promise<boolean> {
+    if (!this.judgeSedimentAvailable()) return top.score >= STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD;
+    try {
+      const p = await this.judgeSame(top.text, incoming);
+      return p >= STEWARD_MEMORY_SAME_THRESHOLD;
+    } catch (err) {
+      this.deps.logger?.warn(`记忆查重精判降级（回退纯向量 ${STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD}）：${(err as Error).message}`);
+      return top.score >= STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD;
+    }
   }
 
   /** 条目只读列表（配置面展示数据源）。 */
@@ -301,7 +322,7 @@ export class StewardMemoryService {
     try {
       const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
       await this.ensureDim(dim);
-      if (!store.updateEntry(id, trimmed, vectors[0]!)) {
+      if (!store.updateEntry(id, trimmed, vectors[0]!, this.now())) {
         return { ok: false, error: `记忆条目不存在：${id}` };
       }
       return { ok: true };

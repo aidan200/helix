@@ -160,7 +160,7 @@ import type {
   StewardToolEvent,
   StewardThinkingEvent,
   StewardNavigateEvent,
-  StewardSedimentProposalEvent,
+  StewardMemoryWrittenEvent,
   StewardMemoryListResultEvent,
   StewardActionCompletedEvent,
 } from "./steward";
@@ -331,7 +331,7 @@ export type EventEnvelope =
   | StewardToolEvent
   | StewardThinkingEvent
   | StewardNavigateEvent
-  | StewardSedimentProposalEvent
+  | StewardMemoryWrittenEvent
   | StewardMemoryListResultEvent
   | EmbeddingListResultEvent
   | EmbeddingVerifyResultEvent
@@ -478,8 +478,8 @@ export const EVENT_TYPES = [
   "steward.tool",
   "steward.thinking",
   "steward.navigate",
-  // 管家记忆 B4a 批 +steward.sediment_proposal（自动沉淀提案——与 feed 同订阅闸）
-  "steward.sediment_proposal",
+  // 管家记忆 B5 批 +steward.memory_written（记忆落盘通知——静默入库后广播，与 feed 同订阅闸）
+  "steward.memory_written",
   // B1 两段式确认批 +steward.action.completed（确认动作执行完成帧——
   // confirm 受理即回后异步执行体收口时点对点下发）
   "steward.action.completed",
@@ -649,7 +649,7 @@ export const EVENT_CHANNELS = {
   "steward.tool": "steward",
   "steward.thinking": "steward",
   "steward.navigate": "steward",
-  "steward.sediment_proposal": "steward",
+  "steward.memory_written": "steward",
   "steward.action.completed": "steward",
   "steward.memory_list.result": "steward",
   "embedding.list.result": "embedding",

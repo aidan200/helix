@@ -4,6 +4,7 @@ import type { RuntimeConfigPort } from "../../src/application/ports/outbound/Run
 import type { StewardAskResultPayload, StewardHistoryRecord } from "@helix/protocol";
 import { StewardService } from "../../src/application/steward/StewardService";
 import { StewardDialogMemory } from "../../src/application/steward/StewardDialogMemory";
+import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
 import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/loop";
 import type { LoopEvent } from "../../src/domain/loop";
 
@@ -151,7 +152,7 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
 describe("StewardDialogMemory.compact：KV 整窗替换（尾部保窗 + 头部孤儿清理）", () => {
   test("compact：[summary, ...尾部 N 条] 替换 + 头部孤儿 toolResult 清理", async () => {
     const config = fakeConfig();
-    const dialog = new StewardDialogMemory(config);
+    const dialog = new StewardDialogMemory(fakeDialogStore());
     const records: StewardHistoryRecord[] = [];
     for (let i = 0; i < 8; i += 1) {
       records.push({ kind: "user", text: `m${i}`, at: i });
@@ -169,7 +170,7 @@ describe("StewardDialogMemory.compact：KV 整窗替换（尾部保窗 + 头部�
 
   test("compact：尾部窗头若为孤儿 toolResult（配对 call 已在压掉区）→ 连带丢弃（空窗优于毒孤儿）", async () => {
     const config = fakeConfig();
-    const dialog = new StewardDialogMemory(config);
+    const dialog = new StewardDialogMemory(fakeDialogStore());
     await dialog.append({ kind: "assistant", toolCall: { id: "c1", name: "t", args: {} }, at: 1 });
     await dialog.append({ kind: "toolResult", toolCallId: "c1", name: "t", text: "r", at: 2 });
     await dialog.append({ kind: "user", text: "近话", at: 3 });

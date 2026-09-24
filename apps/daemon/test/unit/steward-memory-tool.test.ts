@@ -55,7 +55,9 @@ function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort & {
 }
 
 /** fake 记忆面（StewardMemoryService 形态——只实现本测试消费的方法子集）。 */
-function fakeMemory(opts: { available?: boolean; recallSection?: string | undefined; recallThrows?: boolean } = {}) {
+function fakeMemory(
+  opts: { available?: boolean; recallSection?: string | undefined; recallThrows?: boolean; rememberFails?: boolean } = {},
+) {
   const state = {
     remembers: [] as { text: string; kind: string; source: string }[],
     recalls: [] as string[],
@@ -78,6 +80,7 @@ function fakeMemory(opts: { available?: boolean; recallSection?: string | undefi
       return opts.recallSection;
     },
     remember: async (text: string, kind: "fact" | "preference", source: string) => {
+      if (opts.rememberFails === true) throw new Error("嵌入端点 503");
       state.remembers.push({ text, kind, source });
       return { id: state.remembers.length };
     },
@@ -101,6 +104,7 @@ function makeService(opts: {
   memory?: ReturnType<typeof fakeMemory>;
   config?: RuntimeConfigPort;
 }) {
+  const notes: import("@helix/protocol").StewardMemoryWrittenPayload[] = [];
   const svc = new StewardService({
     llm: opts.llm,
     orchestration: { status: () => [], send: () => ({ delivered: false, detail: "无实例" }) },
@@ -108,43 +112,45 @@ function makeService(opts: {
     config: opts.config ?? fakeConfig({ "steward.enabled": "1" }),
     feedGate: { hasStewardSubscribers: () => false },
     emitFeed: () => {},
+    emitMemoryWritten: (payload) => notes.push(payload),
     ...(opts.memory !== undefined ? { memory: opts.memory } : {}),
   });
-  return svc;
+  return { svc, notes };
 }
 
-describe("管家记忆 B1：remember 工具确认闸", () => {
-  test("① remember 提案 → confirm_required（长期记忆 + 全文展示）+ 零写入", async () => {
+describe("管家记忆 B5：remember 工具摘闸直写", () => {
+  test("① remember 直写：工具调用即入库 + 落盘通知 added + answer 收口（无确认卡）", async () => {
     const llm = fakeLlm([
       { kind: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } },
+      { kind: "text", text: "记好了。" },
     ]);
     const memory = fakeMemory();
-    const svc = makeService({ llm, memory });
+    const { svc, notes } = makeService({ llm, memory });
     const result = await svc.ask("记住：以后回复都简洁点");
-    expect(result.status).toBe("confirm_required");
-    if (result.status !== "confirm_required") throw new Error("unreachable");
-    expect(result.agentId).toBe("长期记忆");
-    expect(result.message).toContain("用户偏好简洁回复");
-    expect(result.message).toContain("偏好");
-    expect(memory.remembers.length).toBe(0); // 未确认 = 零写入（防火墙）
+    expect(result.status).toBe("answer"); // 摘闸：不挂确认直写（B5 静默化）
+    expect(memory.remembers).toEqual([{ text: "用户偏好简洁回复", kind: "preference", source: "steward-turn" }]);
+    // 工具结果回灌（LLM 第二轮可见入库交代）
+    const toolResult = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult");
+    expect(toolResult!.text).toContain("已沉淀长期记忆");
+    expect(toolResult!.text).toContain("用户偏好简洁回复");
+    // 落盘通知：mode = added（新增），原文携带
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ text: "用户偏好简洁回复", mode: "added" });
   });
 
-  test("② confirm → remember 恰一次 + ok 回执；actionId 单次消费", async () => {
+  test("② 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）", async () => {
     const llm = fakeLlm([
       { kind: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } },
+      { kind: "text", text: "记忆服务这会儿存不进去，稍后再试。" },
     ]);
-    const memory = fakeMemory();
-    const svc = makeService({ llm, memory });
+    const memory = fakeMemory({ rememberFails: true });
+    const { svc, notes } = makeService({ llm, memory });
     const result = await svc.ask("记住项目在 helix 仓");
-    if (result.status !== "confirm_required") throw new Error("unreachable");
-    const confirmed = await svc.confirm(result.actionId);
-    expect(confirmed.status).toBe("accepted"); // B1 两段式：受理即回
-    expect(memory.remembers).toEqual([{ text: "项目在 helix 仓", kind: "fact", source: "steward-turn" }]);
-    if (confirmed.status === "ok") expect(confirmed.detail).toContain("项目在 helix 仓");
-    // 单次消费：二次 confirm → error，remember 仍恰一次
-    const again = await svc.confirm(result.actionId);
-    expect(again.status).toBe("error");
-    expect(memory.remembers.length).toBe(1);
+    expect(result.status).toBe("answer"); // 故障被工具结果吸收，轮照常收口
+    expect(memory.remembers.length).toBe(0);
+    const toolResult = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult");
+    expect(toolResult!.text).toContain("记忆沉淀失败");
+    expect(notes).toHaveLength(0); // 未落盘零通知
   });
 
   test("③ 记忆不可用 → 引导式降级：不挂闸、循环继续、answer 转述", async () => {
@@ -153,7 +159,7 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
       { kind: "text", text: "记忆功能未开启——你可以在设置 → 通用 → 管家开启。" },
     ]);
     const memory = fakeMemory({ available: false });
-    const svc = makeService({ llm, memory });
+    const { svc } = makeService({ llm, memory });
     const result = await svc.ask("记住我偏好简洁");
     expect(result.status).toBe("answer");
     expect(memory.remembers.length).toBe(0);
@@ -166,7 +172,7 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
     // 命中面
     const llm = fakeLlm([{ kind: "text", text: "好的，简洁作答。" }]);
     const memory = fakeMemory({ recallSection: "## 长期记忆（…）\n- [偏好] 回复要简洁" });
-    const svc = makeService({ llm, memory });
+    const { svc } = makeService({ llm, memory });
     const result = await svc.ask("帮我写段话");
     expect(result.status).toBe("answer");
     expect(llm.calls[0]!.request.systemPrompt).toContain("[偏好] 回复要简洁");
@@ -174,18 +180,18 @@ describe("管家记忆 B1：remember 工具确认闸", () => {
     // 注：recallSection 服务内部已吞错降级——此处直接验证「无段 = 无注入」
     const llm2 = fakeLlm([{ kind: "text", text: "照常作答。" }]);
     const degraded = makeService({ llm: llm2, memory: fakeMemory({ recallSection: undefined }) });
-    expect((await degraded.ask("第二问")).status).toBe("answer");
+    expect((await degraded.svc.ask("第二问")).status).toBe("answer");
     expect(llm2.calls[0]!.request.systemPrompt).not.toContain("## 长期记忆（按本轮输入");
   });
 
   test("⑤ 配置面：getConfig 携 memory 现态（未装配 = 降级缺省）；setConfig 委托校验透传", async () => {
     // 未装配 → 降级缺省
     const bare = makeService({ llm: fakeLlm([]) });
-    const bareCfg = bare.getConfig();
+    const bareCfg = bare.svc.getConfig();
     expect(bareCfg.memory).toEqual({ enabled: false, available: false, endpoint: null, judgeEndpoint: null, entryCount: 0, dim: null });
     // 装配 → 真实现态透传
     const memory = fakeMemory();
-    const svc = makeService({ llm: fakeLlm([]), memory });
+    const { svc } = makeService({ llm: fakeLlm([]), memory });
     expect(svc.getConfig().memory.available).toBe(true);
     expect(svc.getConfig().memory.endpoint!.model).toBe("bge-m3");
     // setConfig memory 组委托（B2 瘦身形态 {enabled,endpointId}——服务层错误原样透传）

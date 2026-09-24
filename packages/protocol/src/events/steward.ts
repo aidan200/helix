@@ -150,23 +150,21 @@ export interface StewardFeedEvent extends EventFrame<StewardFeedPayload> {
   type: "steward.feed";
 }
 
-/** steward.sediment_proposal payload：自动沉淀提案（B4a——对话收口判官
- *  判定「值得记忆」后轮外投递；确认卡 UI 与 confirm_required 同构复用，
- *  steward.confirm 单次消费执行入库）。 */
-export interface StewardSedimentProposalPayload {
-  /** 提案动作 id（steward.confirm 消费凭据——单次语义）。 */
-  actionId: string;
-  /** 候选记忆文本（本轮用户消息原文截断——零 LLM 提取，可解释）。 */
+/** steward.memory_written payload：记忆落盘通知（B5 静默化——remember
+ *  工具与自动沉淀管线均直写入库，落盘后广播本通知；UI 通知卡展示，无确认
+ *  语义、无操作面）。 */
+export interface StewardMemoryWrittenPayload {
+  /** 落盘记忆文本（LLM 重写后的记忆句——通知卡展示全文或截断由 UI 定）。 */
   text: string;
-  /** 条目类别（判官不问类别——B4a 一律 "preference" 起步，人可后续编辑）。 */
-  kind: "preference";
+  /** 落盘形态：added = 新增条目 / updated = 覆盖更新既有条目（语义重复）。 */
+  mode: "added" | "updated";
 }
 
-/** steward.sediment_proposal：自动沉淀提案广播帧（channel = "steward"；
+/** steward.memory_written：记忆落盘通知广播帧（channel = "steward"；
  *  仅发已订阅连接——与 feed 同订阅闸）。 */
-export interface StewardSedimentProposalEvent extends EventFrame<StewardSedimentProposalPayload> {
+export interface StewardMemoryWrittenEvent extends EventFrame<StewardMemoryWrittenPayload> {
   channel?: "steward";
-  type: "steward.sediment_proposal";
+  type: "steward.memory_written";
 }
 
 /** steward.config.result payload：设置现态（读/写共用回执形态）。 */
