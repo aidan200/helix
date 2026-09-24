@@ -196,16 +196,15 @@ function layerNodes(): Record<string, unknown>[] {
   ];
 }
 
-/** 批次子进程工具轮（plan_create → plan_update 链式 → kg-update 批量落账 → plan_update 收尾）。 */
+/** 批次子进程工具轮（todo_write 首建 → kg-update 批量落账 → todo_write 收尾全量替换）。 */
 const BATCH_TOOL_CALLS = [
   {
-    name: "plan_create",
-    args: { items: ["探索范围内模块结构与符号", "产出知识节点并落账"] },
+    name: "todo_write",
+    args: { todos: [
+      { content: "探索范围内模块结构与符号", status: "in_progress" },
+      { content: "产出知识节点并落账", status: "pending" },
+    ] },
   },
-  // work_item 状态机链式（§3.2）：pending → in_progress → done/abandoned
-  //（直达终会被工具层拒绝——链条更新是 SOP 纪律，剧本如实模拟）
-  { name: "plan_update", args: { seq: 1, status: "in_progress" } },
-  { name: "plan_update", args: { seq: 1, status: "done", note: "结构已探索（fixture 两模块）" } },
   {
     name: "kg-update",
     args: {
@@ -218,14 +217,16 @@ const BATCH_TOOL_CALLS = [
       nodes: layerNodes(),
     },
   },
-  { name: "plan_update", args: { seq: 2, status: "in_progress" } },
-  { name: "plan_update", args: { seq: 2, status: "done", note: "节点已落库（kg-update 批量）" } },
+  { name: "todo_write", args: { todos: [
+      { content: "探索范围内模块结构与符号", status: "done", note: "结构已探索（fixture 两模块）" },
+      { content: "产出知识节点并落账", status: "done", note: "节点已落库（kg-update 批量）" },
+    ] } },
 ] as const;
 
 const BATCH_CLOSURE_REPLY =
   '批次探索完成，知识节点已落账。\n<<<CLOSURE\n{"status":"done","summary":"批次完成：知识节点已落库","reportPath":null,"findings":[],"taskId":null}\nCLOSURE>>>';
 
-/** 批次子进程剧本：plan_create → plan_update → kg-update 批量落账 → plan_update → closure。 */
+/** 批次子进程剧本：todo_write → kg-update 批量落账 → todo_write 收尾 → closure。 */
 export function batchChildEngineScript(): FakeEngineScript {
   return {
     chunkDelayMs: 2,

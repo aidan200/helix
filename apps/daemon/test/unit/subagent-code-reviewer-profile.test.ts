@@ -39,9 +39,8 @@ describe("D5 专用 profile：subagent-code-reviewer 工具面", () => {
       "browser",
       "kg", // 只读查询面（无 kg-update）
       "codegraph",
-      "plan_create",
-      "plan_update",
-      "plan_read",
+      "todo_write",
+      "todo_read",
     ]) {
       expect(SubAgentCodeReviewerProfile.tools).toContain(name);
     }

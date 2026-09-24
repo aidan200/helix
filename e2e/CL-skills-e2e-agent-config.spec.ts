@@ -88,7 +88,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await expect(mainCard.locator('[data-tool-row="grep"]')).toContainText("跨文件子串检索并列出匹配行"); // H11：snippet 随 rg 唯一化订正（子串语义非正则）
 
     // master-detail 系统派生组（真 daemon 独立装配，不从 worker 派生）：
-    // orchestrator 14 全集（编排六 task_* + bash/read/grep/write/agent_spawn/plan_read/kg）
+    // orchestrator 14 全集（编排六 task_* + bash/read/grep/write/agent_spawn/todo_read/kg）
     // + kg-writer 14 字面量（含 kg-update）+ reviewer 11（write/edit/edit-lines 恒摘）
     // TR-125 显示同构终态：data-ro-tool-row/derivedFrom/sop-note 退役——统一
     // data-tool-row + 开关在场置灰（写面只读）；系统块技能 builtin 播种五 kind 全开
@@ -104,9 +104,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await expect(kgwCard.locator("[data-tool-row]")).toHaveCount(14, { timeout: 10_000 });
     await expect(kgwCard.locator('[data-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
     await expect(kgwCard.locator("[data-derived-note]")).toHaveCount(0);
-    // 系统块技能 = 自身清单 + builtin 播种（plan-workflow 在场且开）
-    await expect(kgwCard.locator('[data-skill-row="plan-workflow"]')).toHaveCount(1);
-    await expect(kgwCard.locator('[data-skill-row="plan-workflow"] [data-switch="plan-workflow"]')).toHaveAttribute("aria-checked", "true");
+    // 系统块技能 = 自身清单 + builtin 播种（web-access 在场且开——plan-workflow 已退役）
     await page.locator('[data-agent-row="subagent-code-reviewer"]').click();
     const revCard = page.locator('[data-agent-card="subagent-code-reviewer"]');
     await expect(revCard.locator("[data-tool-row]")).toHaveCount(11, { timeout: 10_000 });

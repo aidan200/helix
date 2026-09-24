@@ -35,11 +35,10 @@ import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/Tas
 import { createTaskReportTool, type TaskReportToolDeps } from "./task-report/TaskReportTool";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "./task-ops/TaskOpsTools";
 import {
-  createPlanCreateTool,
-  createPlanReadTool,
-  createPlanUpdateTool,
-  type PlanToolDeps,
-} from "./plan/PlanTools";
+  createTodoReadTool,
+  createTodoWriteTool,
+  type TodoToolDeps,
+} from "./todo/TodoTools";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
@@ -188,15 +187,15 @@ export interface CoreToolExecutorOptions {
    */
   readonly codegraph?: CodegraphToolDeps;
   /**
-   * plan 三工具注入面（T1.4，AD-6①；main-session plan 批扩双宿主）：
-   * 实例工作台账写口（plan_create/plan_update/plan_read）。SubAgent 子进程
+   * todo 双工具注入面（plan 三工具改名批，C+B）：实例待办清单写口
+   * （todo_write 全量替换 / todo_read）。SubAgent 子进程
    * （ChildMain 本地栈）与主会话（buildSessionStack 主会话 executor——
    * instanceId = sessionId 作用域）均注入；instanceId 由装配面注入（工具
    * 参数零 instanceId，防伪造）。缺省不注册（既有测试形态——profile 声明
-   * 三名时必须注入，resolveTools fail-fast；主会话未注入时 engineFor 同步
-   * 剔除三名）。
+   * 两名时必须注入，resolveTools fail-fast；主会话未注入时 engineFor 同步
+   * 剔除两名）。
    */
-  readonly plan?: PlanToolDeps;
+  readonly plan?: TodoToolDeps;
   /**
    * task_create 工具注入面（T2.4，AD-7 chat 第二创建入口）：TaskEngine
    * createTask 面 + 回执读面。仅主会话（buildSessionStack engineFor）注入
@@ -365,12 +364,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
       tools.push(createCodegraphTool(options.codegraph));
     }
     if (options.plan !== undefined) {
-      // plan 三工具（T1.4，AD-6①）：实例工作台账（薄壳调 WorkLedgerService；
-      // 仅 SubAgent 子进程本地栈注入，两域同构）
+      // todo 双工具（plan 三工具改名批）：实例待办清单（薄壳调 WorkLedgerService；
+      // 子进程本地栈 + 主会话栈两域同构注入）
       tools.push(
-        createPlanCreateTool(options.plan),
-        createPlanUpdateTool(options.plan),
-        createPlanReadTool(options.plan),
+        createTodoWriteTool(options.plan),
+        createTodoReadTool(options.plan),
       );
     }
     if (options.taskCreate !== undefined) {

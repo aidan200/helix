@@ -65,8 +65,8 @@ export const OrchestratorProfile: AgentProfile = {
     "write",
     // 派批次 SubAgent（编排工具族既有面；批次实例占预算，编排 loop 不占）
     "agent_spawn",
-    // 读批次实例工作台账（编排者变体：按实例 id 参数读，非本实例）
-    "plan_read",
+    // 读批次实例待办清单（编排者变体：按实例 id 参数读，非本实例）
+    "todo_read",
     // 知识图谱只读查询（层间上下文锚定；AD-10：不持写面——无即时落账工具）
     "kg",
     // 任务引擎回口（TaskEnginePort inbound，内部 port 非 WS；批次成败收口

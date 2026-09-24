@@ -77,7 +77,7 @@ task:
 2. **锚定上层上下文段**：上层已产节点的 digest 清单 + kg get 指针（L1 批次注入 L0 产出；L2 批次注入 L0+L1 产出）——本批判断「归哪个域/谁的职责」时先查这些。
 3. **产出要求段**：本批应产出什么（节点类型与规模预期）+ 元数据要求（layer=本层、status=confirmed、scene=适用场景一句话必带——R23 必填，缺了写不进去；taskId/origin_batchId 接线层机械注入无需透传）+ 符号域锚要求（实体/契约必带，degraded 时如实降级；批量建点逐项直接带 anchors——形态同 createNode，锚非法整批拒绝零落库）+ 边要求（实体间关联系 addEdge 落库——先建点拿 id 再连边，verb 封闭词表）。
 4. **验收段**：写作规范六条逐条列出（批次 SubAgent 的产出验收条件，见④）+ 关联测试/边密度要求（L2 批次——关联以 addEdge 落库条数计）。
-5. **plan 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 plan_create 写计划再动手；阶段转换必更新 plan 项状态；closure 时 plan 须全部 resolve（done 或 abandoned 带理由）。台账项状态迁移按 pending→in_progress→done/abandoned，不可跳迁（引擎状态机拒绝 pending→done 直迁——首跑实测有批次 agent 被此拒后返工）。
+5. **todo 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 todo_write 写待办清单再动手；阶段转换必更新清单项状态；closure 时清单须全部 resolve（done 或 abandoned 带理由）。todo_write 全量替换——每次回传完整清单（序号由位置隐含），一次只推进一条 in_progress。
 6. **前序上下文段**（重跑/接力批次必含）：前序实例 plan 摘要（已完成项 + note 关键事实 + 产物指针）——从断点继续，不重做已完成探索；重跑批次先按 origin_batchId supersede 旧产出再产新。
 
 ## ④ 写作规范六条（批次产出验收条件）

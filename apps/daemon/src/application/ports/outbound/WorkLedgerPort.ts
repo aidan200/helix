@@ -26,22 +26,26 @@ export interface WorkItemData {
   readonly updatedAt: string;
 }
 
-/** insertItems 输入行（新 plan 项：状态机入口恒 pending、note 空）。 */
+/** replaceItems 输入行（todo_write 全量替换：可携带每项 status/note；缺省 pending/无 note——insertItems 仍恒 pending 入口）。 */
 export interface WorkItemInput {
   readonly seq: number;
   readonly content: string;
+  /** 该项状态（todo_write 全量替换携带；insertItems 调用方不传 = 恒 pending）。 */
+  readonly status?: WorkItemStatus;
+  /** 该项 note（todo_write 全量替换携带；缺省 null）。 */
+  readonly note?: string | null;
 }
 
 export interface WorkLedgerPort {
-  /** 批量插入实例 plan（plan_create；整批原子：零部分落库）。 */
+  /** 批量插入实例 plan 项（恒 pending 入口；整批原子：零部分落库）。 */
   insertItems(instanceId: string, items: readonly WorkItemInput[]): Promise<void>;
   /**
-   * 原子重建实例 plan（main-session plan 批：台账全部 resolved 后
-   * plan_create 重开 seq 1..n）：同事务清旧行 + 插新行（零残留零部分落库）。
+   * 原子全量替换实例 plan（todo_write：同事务清旧行 + 插新行，行可携带
+   * status/note；零残留零部分落库）。
    */
   replaceItems(instanceId: string, items: readonly WorkItemInput[]): Promise<void>;
   /**
-   * 单项状态迁移/记 note（plan_update；note undefined = 不动既有值，
+   * 单项状态迁移/记 note（收口兑底内部面；note undefined = 不动既有值，
    * 显式 null = 清空）。expectedStatus 携带时 UPDATE 带前态谓词
    *（code-review M16 TOCTOU 收口），未命中抛并发变更错误。
    */

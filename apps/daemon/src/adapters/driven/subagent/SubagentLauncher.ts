@@ -578,7 +578,7 @@ export class SubagentLauncher implements InstanceRunner {
       return;
     }
     if (line.type === "plan-changed") {
-      // 实例台账抽屉批：子进程 plan 三工具写后上报 → 注入回调（→ 装配层
+      // 实例台账抽屉批：子进程 todo 双工具写后上报 → 注入回调（→ 装配层
       // 广播 session.plan.changed；会话反查在回调内，与 onFileWrite 同构）
       this.deps.onPlanChange?.(id, line.rows);
       return;

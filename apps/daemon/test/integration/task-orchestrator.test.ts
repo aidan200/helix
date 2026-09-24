@@ -415,7 +415,7 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
 });
 
 describe("T2.2 closure 失败自动重试 + 接力 brief（CL-2-T5/T13）", () => {
-  test("closure failed → failBatch（retryCount+1）→ 自动重派：新实例 brief 含前序 plan 摘要（已完成项 + note 指针）+ supersede 指令", async () => {
+  test("closure failed → failBatch（retryCount+1）→ 自动重派：新实例 brief 含前序 todo 摘要（已完成项 + note 指针）+ supersede 指令", async () => {
     const script: ScriptEntry[] = [
       insertBatchEntry(1, "批次 1：探索 A 模块"),
       { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
@@ -458,9 +458,9 @@ describe("T2.2 closure 失败自动重试 + 接力 brief（CL-2-T5/T13）", () =
       expect(batch.status).toBe("running");
       expect(batch.instanceId).not.toBe(first);
 
-      // 重派 brief 断言：前序 plan 摘要段（已完成项 + note 事实/产物指针）+ supersede 指令 + plan 硬约束段
+      // 重派 brief 断言：前序 todo 摘要段（已完成项 + note 事实/产物指针）+ supersede 指令 + todo 硬约束段
       const retryBrief = env.recorder.call(2).brief;
-      expect(retryBrief).toContain("前序 plan 摘要");
+      expect(retryBrief).toContain("前序 todo 摘要");
       expect(retryBrief).toContain("探索 A 模块结构");
       expect(retryBrief).toContain("产物指针：node-L0-1");
       expect(retryBrief).toContain("supersede");
@@ -529,7 +529,7 @@ describe("T2.2 closure 失败自动重试 + 接力 brief（CL-2-T5/T13）", () =
 
 // ── RED 组 4：plan 未 resolve 硬约束（CL-2-T8） ──
 
-describe("T2.2 plan 硬约束判读（CL-2-T8）", () => {
+describe("T2.2 todo 硬约束判读（CL-2-T8）", () => {
   test("closure done 但 plan 未全 resolve → failBatch（retry_note 含未决项数）并自动重派", async () => {
     const script: ScriptEntry[] = [
       insertBatchEntry(1, "批次 1：探索 A 模块"),
@@ -557,7 +557,7 @@ describe("T2.2 plan 硬约束判读（CL-2-T8）", () => {
       expect(batch.retryNote).toContain("未决 1 项");
       // 自动重派发生
       await env.until(() => env.recorder.calls.length >= 2);
-      expect(env.recorder.call(2).brief).toContain("前序 plan 摘要");
+      expect(env.recorder.call(2).brief).toContain("前序 todo 摘要");
     });
   });
 });
@@ -606,20 +606,20 @@ describe("T2.2 pause 派发闸 + resume 续派（⑤ 链 A 升级：挂起期唤
 
 // ── RED 组 6/7 已并入组 1/2（聚合 artifact { summary }；完成判定机械复核） ──
 
-// ── RED 组 8：段库新增（批次 brief 模板段 + plan 硬约束段，CL-2-T13） ──
+// ── RED 组 8：段库新增（批次 brief 模板段 + todo 硬约束段，CL-2-T13） ──
 
-describe("T2.2 段库新增 + plan 硬约束机械追加（CL-2-T13）", () => {
-  test("段库目录含「批次 brief 模板」「plan 硬约束」两段（brief 场景 6→8）且段文件在位", () => {
+describe("T2.2 段库新增 + todo 硬约束机械追加（CL-2-T13）", () => {
+  test("段库目录含「批次 brief 模板」「todo 硬约束」两段（brief 场景 6→8）且段文件在位", () => {
     const briefTitles = SEGMENT_CATALOG.filter((s) => s.scenario === "brief").map((s) => s.title);
     expect(briefTitles).toContain("批次 brief 模板");
-    expect(briefTitles).toContain("plan 硬约束");
-    const planSeg = SEGMENT_CATALOG.find((s) => s.scenario === "brief" && s.title === "plan 硬约束")!;
+    expect(briefTitles).toContain("todo 硬约束");
+    const planSeg = SEGMENT_CATALOG.find((s) => s.scenario === "brief" && s.title === "todo 硬约束")!;
     const content = readFileSync(path.join(TEMPLATES_BRIEF_DIR, planSeg.file), "utf-8");
-    expect(content).toContain(`## plan 硬约束`);
+    expect(content).toContain(`## todo 硬约束`);
     expect(content).toContain(PLAN_HARD_CONSTRAINT_SEGMENT.replace(/^## [^\n]*\n/, ""));
   });
 
-  test("派发面机械追加：LLM brief 未含 plan 硬约束段时系统追加（LLM 剧本不可移除）", async () => {
+  test("派发面机械追加：LLM brief 未含 todo 硬约束段时系统追加（LLM 剧本不可移除）", async () => {
     const script: ScriptEntry[] = [
       insertBatchEntry(1, "批次 1：探索 A 模块"),
       spawnEntry(BRIEF_1), // 不含硬约束段文本
@@ -663,14 +663,14 @@ describe("T2.2 段库新增 + plan 硬约束机械追加（CL-2-T13）", () => {
 // ── Profile 契约（AD-10 边界：kg 写面禁入；工具集声明） ──
 
 describe("OrchestratorProfile 契约", () => {
-  test("工具集 = spawn + plan_read + kg 只读 + read/grep/bash + write（D6 任务产物落盘）+ task 引擎回口；不含 kg 写/edit（AD-10）", () => {
+  test("工具集 = spawn + todo_read + kg 只读 + read/grep/bash + write（D6 任务产物落盘）+ task 引擎回口；不含 kg 写/edit（AD-10）", () => {
     expect(OrchestratorProfile.tools).toEqual([
       "bash",
       "read",
       "grep",
       "write", // D6：任务级汇总报告固定落点（任务报告目录内产物），不加 edit——编排器写产物不改码
       "agent_spawn",
-      "plan_read",
+      "todo_read",
       "kg",
       "task_insert_batch",
       "task_assembly_done",
@@ -699,7 +699,7 @@ describe("OrchestratorProfile 契约", () => {
   });
 
   test("提示词静态工具名零命中（profile 瘦身契约）", () => {
-    for (const name of ["bash", "read", "write", "edit", "grep", "agent_spawn", "kg", "task_create", "plan_read"]) {
+    for (const name of ["bash", "read", "write", "edit", "grep", "agent_spawn", "kg", "task_create", "todo_read"]) {
       // kg = 概念词例外（段库指引）；write/edit = D6 产物落盘纪律句例外（「write 仅用于
       // 任务报告目录内产物落盘……不持 edit」——纪律措辞非清单枚举，与 worker 版 codegraph/kg 放行同构）
       if (name === "kg" || name === "write" || name === "edit") continue;

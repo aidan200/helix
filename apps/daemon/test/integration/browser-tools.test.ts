@@ -32,7 +32,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
     expect(executor.resolveTools(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"])).toHaveLength(7);
   });
 
-  test("② 有 browser：单名注册；main 全集 27 名一次装配成功", () => {
+  test("② 有 browser：单名注册；main 全集 26 名一次装配成功（todo 改名批 3→2）", () => {
     // 组合根 engineFor 同款接线：orchestration（会话门面）+ browser + ownerId
     //（注解 AgentOrchestrationPort：上下文化保留 resumed/parked 字面量窄类型）
     const orchestration: AgentOrchestrationPort = {
@@ -56,7 +56,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       plan: planToolStub(), // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
       coord: stubCoordDeps(), // U4：main 全集声明 coord 三名——stub 保持可装配
     });
-    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具 // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ D3 task_report + W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）+ main-session plan 批 plan 三名（两域同构）+ F4 接通批 edit-lines + 提权申请批 permission_request
+    expect(MainSessionProfile.tools).toHaveLength(26); // U4 +coord 三工具 // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ D3 task_report + W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）+ todo 双工具（plan 三工具改名批，两域同构）+ F4 接通批 edit-lines + 提权申请批 permission_request
     // 本 executor 未注 permissionRequest 槽——resolveTools 单名容忍跳过（提权批
     // 「声明恒在注册面门控」语义）；故解析结果 = 声明全集 − permission_request
     const resolved = executor.resolveTools(MainSessionProfile.tools);

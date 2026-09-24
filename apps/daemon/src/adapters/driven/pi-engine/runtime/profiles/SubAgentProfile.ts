@@ -70,9 +70,8 @@ export const SubAgentProfile: AgentProfile = {
     "browser", // H-3：+browser（经 wire 转发通道接 daemon CDP 单例；装配经 CoreToolExecutor.resolveTools）
     "kg", // T3.3：只读查询面（search→get；ChildMain 本地栈装配）；D8 W-R6：无 kg-update（写面收权——豁免面在 SubAgentKgWriterProfile）
     "codegraph", // W1-B（R5/R7）：代码索引只读查询（ChildMain 本地栈装配）
-    "plan_create", // T1.4（AD-6①）：实例工作台账——全量配给所有 SubAgent（chat/task 两域同构；main-session 后批同款声明，AD-6① 已扩展）
-    "plan_update",
-    "plan_read",
+    "todo_write", // 实例待办清单（plan 三工具改名批，C+B）——全量配给所有 SubAgent（chat/task 两域同构；main-session 同款声明）
+    "todo_read",
     // permission_request（提权申请批）：与主会话同面——SubAgent 经 wire
     // ask-request 行转发父进程仲裁（卡片弹在归属会话页；沙箱 on 时注册）
     "permission_request",

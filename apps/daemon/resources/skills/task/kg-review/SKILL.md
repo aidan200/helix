@@ -84,7 +84,7 @@ task:
 2. **L0 上下文段**：结构面预检清单中与本批节点相关的条目（腐烂锚/冲突涉及本批节点的优先评审）。
 3. **评审口径段**：四问逐条列出 + 数据源三面用法（kg get 取全量 → codegraph 验证 → affected 锚反查交叉）+ 证据要求（发现必带代码出处 file:line / 符号名；结构不合规发现指明缺哪段/哪条）。
 4. **产出纪律段**：③四条逐字列出（只提 candidate / scene 缺失可 updateNode 直补 / 禁直改 body/digest、禁 supersede / 不带 layer；taskId/origin_batchId 接线层机械注入无需透传）。
-5. **plan 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 plan_create 写计划再动手；阶段转换必更新 plan 项状态；closure 时 plan 须全部 resolve（done 或 abandoned 带理由）；台账项状态迁移按 pending→in_progress→done/abandoned，不可跳迁。
+5. **todo 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 todo_write 写待办清单再动手；阶段转换必更新清单项状态；closure 时清单须全部 resolve（done 或 abandoned 带理由）；todo_write 全量替换——每次回传完整清单（序号由位置隐含）。
 6. **前序上下文段**（重跑/接力批次必含）：前序实例 plan 摘要 + 已提候选清单——从断点继续，不重复评审已覆盖节点。
 
 ## ⑤ 完成判定

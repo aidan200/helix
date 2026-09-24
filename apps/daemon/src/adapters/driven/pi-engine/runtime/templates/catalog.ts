@@ -84,7 +84,7 @@ export const SEGMENT_CATALOG: readonly SegmentMeta[] = [
   {
     scenario: "brief",
     file: "plan-hard-constraint.md",
-    title: "plan 硬约束",
+    title: "todo 硬约束",
     purpose: "强制 plan 任务的模板层硬约束（先写 plan 再动手+阶段转换必更新+closure 全 resolve；T2.2 派发面机械追加，LLM 不可裁）",
   },
   // ── report 场景（F3.1：收口时 SubAgent 组任务完成报告）──
@@ -162,19 +162,20 @@ export const TEMPLATE_HARD_CONSTRAINTS: readonly HardConstraint[] = [
 ];
 
 /**
- * plan 硬约束段全文（AD-6⑥，T2.2）：强制 plan 的任务类型（manifest
- * plan=enforced）批次 brief 的模板层硬约束——任务编排派发面在 spawn 时
- * **机械追加**（LLM 装配的 brief 无论是否包含，系统都追加本段；模板层
- * 硬约束 LLM 不可裁）。文本与段文件 brief/plan-hard-constraint.md 同源
- * （存在性测试断言文件含本段正文——双源零漂移）。
+ * todo 硬约束段全文（AD-6⑥，T2.2；plan 三工具改名批措辞同步）：强制
+ * plan 的任务类型（manifest plan=enforced）批次 brief 的模板层硬约束
+ * ——任务编排派发面在 spawn 时**机械追加**（LLM 装配的 brief 无论是否
+ * 包含，系统都追加本段；模板层硬约束 LLM 不可裁）。文本与段文件
+ * brief/plan-hard-constraint.md 同源（存在性测试断言文件含本段正文
+ * ——双源零漂移）。
  */
 export const PLAN_HARD_CONSTRAINT_SEGMENT = [
-  "## plan 硬约束（任务系统追加，模板层强制——不可裁）",
+  "## todo 硬约束（任务系统追加，模板层强制——不可裁）",
   "",
-  "本批次为强制 plan（工作台账）任务，必须遵守：",
-  "1. 开工先建工作台账（一次给出全部计划条目）再动手执行；",
-  "2. 阶段转换必须同步更新台账项状态（in_progress/done/abandoned）；",
-  "3. 收口时台账须全部 resolve——每项 done，或 abandoned 且带非空理由 note；收口顺序固定：先 plan_update 将全部条目（含收口项自身）置 done/abandoned，再输出 CLOSURE 块；",
-  "4. 台账 note 记录关键事实与产物指针（文件路径/知识节点 id），供接力恢复与幂等重跑使用。",
-  "5. 按计划条目逐步提交（commit）——每条目完成且验证绿即提交一次；收尾前先提交，未提交的工作等于没做。",
+  "本批次为强制 todo（待办清单）任务，必须遵守：",
+  "1. 开工先用 todo_write 建待办清单（一次给出全部计划条目）再动手执行；",
+  "2. 阶段转换必须同步更新清单项状态（in_progress/done/abandoned）；",
+  "3. 收口时清单须全部 resolve——每项 done，或 abandoned 且带非空理由 note；收口顺序固定：先用 todo_write 将全部条目（含收口项自身）置 done/abandoned，再输出 CLOSURE 块；",
+  "4. 清单 note 记录关键事实与产物指针（文件路径/知识节点 id），供接力恢复与幂等重跑使用。",
+  "5. 按清单条目逐步提交（commit）——每条目完成且验证绿即提交一次；收尾前先提交，未提交的工作等于没做。",
 ].join("\n");

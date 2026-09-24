@@ -39,9 +39,8 @@ const TOOL_NAMES = [
   "codegraph", // W1-B（R5/R7）：codegraph 只读查询（status/search/node/callers/callees/impact）
   "task_create", // T2.4（AD-7）：chat 第二创建入口（仅 MainAgent 生效集）
   "task_report", // D3：chat 回流通用报告查询面（仅 MainAgent 生效集）
-  "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构——SubAgent 与 Main 共享）
-  "plan_update",
-  "plan_read",
+  "todo_write", // todo 双工具（plan 三工具改名批）：主会话同含 todo 两名（两域同构——SubAgent 与 Main 共享）
+  "todo_read",
   "coord_claim", // U4 占用协调三工具（仅 Main——决策主体；SubAgent 执行者不拿决策工具）
   "coord_release",
   "coord_query",

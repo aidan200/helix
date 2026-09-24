@@ -4,7 +4,7 @@
  * 真引擎 API 生效 + 页面状态联动；cancel 后 delete → helix.db 任务四表行
  * 清零 + work_item 零孤儿 + kg 产出不动（真库断言）。
  *
- * 现场构造：批次子进程为真子进程（realSubagent），工具轮全真（plan_create/
+ * 现场构造：批次子进程为真子进程（realSubagent），工具轮全真（todo_write/
  * kg-update 真落账），park-aware 三轮回复（慢速收口首演 ~19s 窗口 → PARK
  * 挂起轮 → RESUME 续跑 closure 终演）——链 A（⑤ park/resume 批）语义：
  * - pause 窗口：batch1 落账完成（kg 节点在库 = 工具轮收口，慢速收口轮在跑）

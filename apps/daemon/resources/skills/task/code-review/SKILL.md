@@ -91,7 +91,7 @@ task:
 1. **范围段**：本批评审的模块/文件清单（来自底账，含路径与规模）+ 目标阶段。
 2. **评审口径段**：四问逐条列出 + 数据源用法（codegraph 主通道 → read/grep 细读 → kg 规则对照）+ 证据纪律（四要素 + 严重度四级定义 + 无证据不写）。
 3. **产出纪律段**：产出纪律四条逐字列出（issue 进报告与 findings / sediment 唯一例外 / 禁改代码与 kg / taskId 接线层注入）+ 报告经 bash 写 HELIX_REPORT_PATH 的提醒（profile 无 write 工具）。
-4. **plan 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 plan_create 写计划再动手；阶段转换必更新 plan 项状态；closure 时 plan 须全部 resolve（done 或 abandoned 带理由）；台账项状态迁移按 pending→in_progress→done/abandoned，不可跳迁。
+4. **todo 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 todo_write 写待办清单再动手；阶段转换必更新清单项状态；closure 时清单须全部 resolve（done 或 abandoned 带理由）；todo_write 全量替换——每次回传完整清单（序号由位置隐含）。
 5. **前序上下文段**（重跑/接力批次必含）：前序实例 plan 摘要 + 已完成模块清单——从断点继续，不重复评审已覆盖模块。
 
 ## ⑤ 完成判定

@@ -25,13 +25,13 @@ import { AgentInstance } from "../../src/domain/agent/AgentInstance";
  * 「chat/task 两域派出的 SubAgent 写口逐字节一致」机械断言：
  * ① 装配面——chat 域 fixture 与 task 域 fixture 各自走子进程组合根工厂
  *   （buildLocalWorkLedgerStack，唯一装配面）+ resolveTools(SubAgentProfile.tools)，
- *   断言两 fixture 的工具名集与参数 schema JSON 相等，且 plan 三名在集；
- * ② 配给面——SubAgentProfile 与 MainSessionProfile 工具声明同含 plan 三名
+ *   断言两 fixture 的工具名集与参数 schema JSON 相等，且 todo 两名在集；
+ * ② 配给面——SubAgentProfile 与 MainSessionProfile 工具声明同含 todo 两名
  *   （main-session plan 批：两域同构——子进程 instanceId = agent-N、主会话
  *   instanceId = sessionId）；工具面零派发方语义词（SubAgent 不感知谁派发）；
  * ③ 子进程级——chat 域经 SchedulerService.spawn（chat MainAgent 既有派发路）、
  *   task 域经 launcher.launch（编排器将走的同一 InstanceRunner 面）各拉一个
- *   真子进程（fake 剧本 toolCall plan_create），断言两实例行落同一 work_item
+ *   真子进程（fake 剧本 toolCall todo_write），断言两实例行落同一 work_item
  *   表（同表同方法），父进程 getPlan 各读到各的。
  */
 
@@ -52,7 +52,7 @@ const fakeModel = {
   maxTokens: 8192,
 } as unknown as Model<any>;
 
-const PLAN_TOOL_NAMES = ["plan_create", "plan_update", "plan_read"] as const;
+const PLAN_TOOL_NAMES = ["todo_write", "todo_read"] as const;
 
 /** 装配面签名：名集 + 逐名 schema JSON（逐字节一致断言的载荷）。 */
 function assemblySignature(dbPath: string, instanceId: string): { names: string[]; schemas: Record<string, string> } {
@@ -69,8 +69,8 @@ function assemblySignature(dbPath: string, instanceId: string): { names: string[
   return { names: resolved.map((t) => t.name), schemas };
 }
 
-describe("① 装配统一：两域 fixture 的工具名集与 schema 逐字节相等（AD-6①）", () => {
-  test("chat 域 fixture 与 task 域 fixture 名集相等 + 逐名 schema JSON 相等 + plan 三名在集", () => {
+describe("① 装配统一：两域 fixture 的工具名集与 schema 逐字节相等", () => {
+  test("chat 域 fixture 与 task 域 fixture 名集相等 + 逐名 schema JSON 相等 + todo 两名在集", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "helix-plan-asm-"));
     const dbPath = path.join(dir, "helix.db");
     const queue = new WriteQueue(dbPath); // 父连接建表域（生产时序）
@@ -94,8 +94,8 @@ describe("① 装配统一：两域 fixture 的工具名集与 schema 逐字节�
   });
 });
 
-describe("② 配给面：plan 三工具两域同构配给（SubAgent 子进程 + 主会话，main-session plan 批）", () => {
-  test("SubAgentProfile 与 MainSessionProfile 声明同含 plan 三名（两域同构，AD-6① 扩展到主会话）", () => {
+describe("② 配给面：todo 双工具两域同构配给（SubAgent 子进程 + 主会话）", () => {
+  test("SubAgentProfile 与 MainSessionProfile 声明同含 todo 两名（两域同构）", () => {
     for (const name of PLAN_TOOL_NAMES) {
       expect(SubAgentProfile.tools).toContain(name);
       expect(MainSessionProfile.tools).toContain(name);
@@ -129,7 +129,7 @@ describe("② 配给面：plan 三工具两域同构配给（SubAgent 子进程 
   });
 });
 
-// ── ③ 子进程级：两域派发路各拉真子进程，plan_create 落同一表 ──────
+// ── ③ 子进程级：两域派发路各拉真子进程，todo_write 落同一表 ──────
 
 interface Harness {
   readonly launcher: SubagentLauncher;
@@ -148,9 +148,14 @@ function makeHarness(): Harness {
   writeFileSync(
     scriptPath,
     JSON.stringify({
-      toolCall: { name: "plan_create", args: { items: ["探索输入", "落账产出", "自查收口"] } },
+      toolCall: { name: "todo_write", args: { todos: [
+          { content: "探索输入", status: "pending" },
+          { content: "落账产出", status: "pending" },
+          { content: "自查收口", status: "pending" },
+        ] } },
       replies: [
-        "台账已建并推进。" +
+        "清单已建。"
+          + +
           "<<<CLOSURE\n" +
           JSON.stringify({ status: "done", summary: "台账建立完成", reportPath: null, findings: [], taskId: null }) +
           "\nCLOSURE>>>",
@@ -217,11 +222,11 @@ afterEach(async () => {
   }
 });
 
-describe("③ 子进程级：两域派发路 → plan_create 落同一 work_item 表（CL-2-T7）", () => {
-  test("chat 域（SchedulerService.spawn）与 task 域（launcher.launch）各自 plan_create 成功落同一表", async () => {
+describe("③ 子进程级：两域派发路 → todo_write 落同一 work_item 表", () => {
+  test("chat 域（SchedulerService.spawn）与 task 域（launcher.launch）各自 todo_write 成功落同一表", async () => {
     const h = (current = makeHarness());
     // chat 域派发路：chat MainAgent 经编排工具族 → SchedulerService.spawn
-    const chatSpawn = h.scheduler.spawn(SESSION_ID, "chat 域实例：建台账");
+    const chatSpawn = h.scheduler.spawn(SESSION_ID, "chat 域实例：建清单");
     expect(chatSpawn.status).toBe("run");
     if (chatSpawn.status !== "run") throw new Error("unreachable");
     const chatId = chatSpawn.agentId;
@@ -234,16 +239,16 @@ describe("③ 子进程级：两域派发路 → plan_create 落同一 work_item
         sessionId: SESSION_ID,
         createdAt: FIXED_NOW,
       }),
-      "task 域实例：建台账",
+      "task 域实例：建清单",
     );
 
     // 两子进程均收口（closure 行经 launcher onLine 面——两域共用同一观测位）
     await until(() => h.closures.length >= 2, 25000, "等待两子进程 closure 行");
 
-    // 两实例 plan_create 工具调用均成功（子进程真装配可用）
-    const planCreates = h.toolEnds.filter((t) => t.toolName === "plan_create");
-    expect(planCreates.length).toBe(2);
-    expect(planCreates.every((t) => !t.isError)).toBe(true);
+    // 两实例 todo_write 工具调用均成功（子进程真装配可用）
+    const todoWrites = h.toolEnds.filter((t) => t.toolName === "todo_write");
+    expect(todoWrites.length).toBe(2);
+    expect(todoWrites.every((t) => !t.isError)).toBe(true);
 
     // 同表同方法：两域实例行落同一 work_item 表，父进程读口各读到各的
     const parent = new WorkLedgerService({ reader: parentWorkLedger(h.writeQueue) });

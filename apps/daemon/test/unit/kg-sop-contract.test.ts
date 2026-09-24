@@ -147,13 +147,13 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
       ]);
     });
 
-    test("PLAN_HARD_CONSTRAINT_SEGMENT 原文（五条 + 模板层强制标题；第 5 条 = 按计划条目逐步 commit，2026-08-30 用户裁决补入）", () => {
-      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("## plan 硬约束（任务系统追加，模板层强制——不可裁）");
-      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("1. 开工先建工作台账（一次给出全部计划条目）再动手执行；");
-      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("2. 阶段转换必须同步更新台账项状态（in_progress/done/abandoned）；");
-      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("3. 收口时台账须全部 resolve——每项 done，或 abandoned 且带非空理由 note；");
-      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("4. 台账 note 记录关键事实与产物指针（文件路径/知识节点 id），供接力恢复与幂等重跑使用。");
-      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("5. 按计划条目逐步提交（commit）——每条目完成且验证绿即提交一次；收尾前先提交，未提交的工作等于没做。");
+    test("PLAN_HARD_CONSTRAINT_SEGMENT 原文（五条 + 模板层强制标题；todo 改名批措辞同步；第 5 条 = 按清单条目逐步 commit，2026-08-30 用户裁决补入）", () => {
+      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("## todo 硬约束（任务系统追加，模板层强制——不可裁）");
+      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("1. 开工先用 todo_write 建待办清单（一次给出全部计划条目）再动手执行；");
+      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("2. 阶段转换必须同步更新清单项状态（in_progress/done/abandoned）；");
+      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("3. 收口时清单须全部 resolve——每项 done，或 abandoned 且带非空理由 note；");
+      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("4. 清单 note 记录关键事实与产物指针（文件路径/知识节点 id），供接力恢复与幂等重跑使用。");
+      expect(PLAN_HARD_CONSTRAINT_SEGMENT).toContain("5. 按清单条目逐步提交（commit）——每条目完成且验证绿即提交一次；收尾前先提交，未提交的工作等于没做。");
     });
   });
 });

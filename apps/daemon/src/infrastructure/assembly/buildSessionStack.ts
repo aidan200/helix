@@ -57,7 +57,7 @@ import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor, type CoreToolExecutorOptions, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import { readSandboxRuntime } from "../../adapters/driven/tools/sandboxSetup";
-import type { PlanToolDeps } from "../../adapters/driven/tools/plan/PlanTools";
+import type { TodoToolDeps } from "../../adapters/driven/tools/todo/TodoTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
@@ -289,8 +289,8 @@ export interface BuildSessionStackDeps {
    */
   readonly findingsSink?: ClosureFindingsSink;
   /**
-   * 主会话 plan 三工具装配面（main-session plan 批）：提供则每会话 executor
-   * 注册 plan 三工具（instanceId = sessionId 作用域——主会话台账跨重启
+   * 主会话 todo 双工具装配面（plan 三工具改名批）：提供则每会话 executor
+   * 注册 todo 双工具（instanceId = sessionId 作用域——主会话清单跨重启
    * 稳定，不与 agent-N 实例撞名）；台账写面 = 父进程 LazyWorkLedger 直连
    *（dbPath 缺省 paths.dbPath()；同库 WAL + busy_timeout 跨进程安全）；
    * 执行成功后装配层广播 session.plan.changed（观察面即问责面）。缺省不
@@ -811,7 +811,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               facts.map((f) => ({ instanceId: agentId, sessionId, path: f.path, at: f.at, confidence: f.confidence })),
             );
           },
-          // 实例台账抽屉批：plan-changed 行分派（子进程 plan 三工具写后上报）
+          // 实例台账抽屉批：plan-changed 行分派（子进程 todo 双工具写后上报）
           // → 装配层广播 session.plan.changed（payload 携 instanceId——前端
           // 分实例路由；信封 sessionId = 归属会话，per-session 订阅路由）。
           // 会话反查同 onFileWrite；冷会话/无归属丢弃（重启后快照种子兜底）。
@@ -963,17 +963,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           const publish = (instanceId: string): void => {
             eventStream.broadcastPlanChanged(sessionPlanPayloadOf(instanceId, service.getPlan(instanceId)));
           };
-          /** 包装面：plan 三工具执行成功后发布 session.plan.changed（三工具
-           *  全量发布——plan_read 成功也发一帧幂等快照，观察面即问责面）。 */
-          const planToolService: PlanToolDeps["service"] = {
-            createPlan: async (instanceId, items) => {
-              const r = await service.createPlan(instanceId, items);
+          /** 包装面：todo 双工具执行成功后发布 session.plan.changed（写/读面
+           *  全量发布——todo_read 成功也发一帧幂等快照，观察面即问责面）。 */
+          const planToolService: TodoToolDeps["service"] = {
+            writeTodos: async (instanceId, items) => {
+              const r = await service.writeTodos(instanceId, items);
               publish(instanceId);
               return r;
-            },
-            updateItem: async (instanceId, seq, status, note) => {
-              await service.updateItem(instanceId, seq, status, note);
-              publish(instanceId);
             },
             getPlan: (instanceId) => {
               const rows = service.getPlan(instanceId);

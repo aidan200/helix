@@ -139,8 +139,8 @@ export function workItemInputsToRows(
     instance_id: instanceId,
     seq: item.seq,
     content: item.content,
-    status: "pending" as WorkItemStatus,
-    note: null,
+    status: item.status ?? ("pending" as WorkItemStatus),
+    note: item.note ?? null,
     updated_at: now,
   }));
 }

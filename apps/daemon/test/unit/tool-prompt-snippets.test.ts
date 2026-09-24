@@ -11,7 +11,7 @@ import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/run
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 三 profile 全集全覆盖：main 27 名 + subagent 15 名 + kg-writer 14 名均有非空 snippet（F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；提权申请批 +permission_request 进 main/worker）", () => {
+  test("① 三 profile 全集全覆盖：main 26 名 + subagent 14 名 + kg-writer 13 名均有非空 snippet（plan 三工具改名批：todo 双工具——3→2；F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；提权申请批 +permission_request 进 main/worker）", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
@@ -28,9 +28,9 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     // Main 同含 plan 三名两域同构——subagent 计数不变；F4 接通批 +edit-lines
     // main/worker 同扩；提权申请批 +permission_request main/worker 同扩）；
     // kg-writer = subagent 去 edit-lines/permission_request + kg-update（14，豁免面——提权裸跑不渗入图谱产出面）
-    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具；提权申请批 +permission_request
-    expect(SubAgentProfile.tools).toHaveLength(15);
-    expect(SubAgentKgWriterProfile.tools).toHaveLength(14);
+    expect(MainSessionProfile.tools).toHaveLength(26); // U4 +coord 三工具；提权申请批 +permission_request；todo 改名批 3→2
+    expect(SubAgentProfile.tools).toHaveLength(14);
+    expect(SubAgentKgWriterProfile.tools).toHaveLength(13);
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
@@ -55,9 +55,8 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "grep",
         "kg",
         "kg-update",
-        "plan_create",
-        "plan_read",
-        "plan_update",
+        "todo_read",
+        "todo_write",
         "read",
         "permission_request",
         "task_advance_stage",

@@ -70,9 +70,8 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "codegraph", // W1-B（R5/R7）：codegraph 只读工具
         "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
         "task_report", // D3：chat 回流通用报告查询面（仅 main）
-        "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构）
-        "plan_update",
-        "plan_read",
+        "todo_write", // todo 双工具（plan 三工具改名批）：主会话同含 todo 两名（两域同构）
+        "todo_read",
         "coord_claim", // U4 占用协调三工具（仅 main——决策主体）
         "coord_release",
         "coord_query",
@@ -90,9 +89,8 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "browser", // H-3：+browser（wire 转发通道接 daemon CDP 单例）
         "kg", // T3.3：kg 只读查询面（D8 W-R6：-kg-update 写面收权）
         "codegraph", // W1-B（R5/R7）：codegraph 只读工具
-        "plan_create", // T1.4：plan 三工具（AD-6①，subagent 独有）
-        "plan_update",
-        "plan_read",
+        "todo_write", // todo 双工具（plan 三工具改名批）
+        "todo_read",
         "permission_request", // 提权申请批（两域同扩）
       ]);
 

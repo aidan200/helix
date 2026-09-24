@@ -220,8 +220,9 @@ export class ResourceService implements ResourceConfigPort {
       .filter((s) => s.audience === "agent")
       // skills+tools 成套装配（批三裁决）：声明了成套工具的技能，仅当本
       // kind 生效工具集含全部声明工具时才列出——SOP 与工具不拆开出现
-      //（如 plan-workflow 只在持 plan 三工具的 kind 出现；禁用任一 plan
-      // 工具 → 技能随之下线）
+      //（如 web-access 声明 web 工具；禁用任一声明工具 → 技能随之下线。
+      // 退役例：plan-workflow 已随 plan 三工具改名 todo 双工具删除——触发
+      // 判据内嵌 todo_write 工具描述，不再需要技能层 SOP）
       .filter((s) => s.tools === undefined || s.tools.every((t) => effectiveTools.has(t)))
       .filter((s) => this.skillEnabledOf(kind, s));
   }

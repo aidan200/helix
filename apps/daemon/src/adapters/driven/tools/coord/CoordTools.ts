@@ -7,7 +7,7 @@
  * - coord_query({ scope? })：占用清单读面（scope 给定 = 该范围的阻塞
  *   冲突面；缺省 = 全部阻塞/ghost 租约概览）。
  *
- * 身份绑定照 PlanTools 先例：ownerSessionId/ownerAgentId 装配面注入
+ * 身份绑定照 TodoTools 先例：ownerSessionId/ownerAgentId 装配面注入
  * （工具参数零身份字段，防 LLM 伪造他会话租约）；仅 MainSessionProfile
  * 声明（执行者 SubAgent 不拿决策工具；orchestrator 子进程经 wire 访问
  * 父进程内存态租约表——留 U6 后批评估）。

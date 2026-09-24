@@ -38,7 +38,7 @@ import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engi
 import { MainSessionProfile } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import type { CompactionSettings } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
-import type { PlanToolDeps } from "../../adapters/driven/tools/plan/PlanTools";
+import type { TodoToolDeps } from "../../adapters/driven/tools/todo/TodoTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
@@ -102,7 +102,7 @@ export function effectiveMainToolNames(
     .filter((t) => injected.taskReport || t !== "task_report")
     .filter(
       (t) =>
-        injected.plan || (t !== "plan_create" && t !== "plan_update" && t !== "plan_read"),
+        injected.plan || (t !== "todo_write" && t !== "todo_read"),
     )
     .filter(
       (t) =>
@@ -141,8 +141,8 @@ export interface MainEngineFactoryCtx {
   readonly browserPort: BrowserPort;
   /** 活跃主会话 executor 登记（refreshAssembly appendTools 目标；生命周期见 engineFor set 点注释）。 */
   readonly sessionExecutors: Map<string, CoreToolExecutor>;
-  /** 主会话 plan 三工具服务面（mainPlanStack 切片；undefined = 不注册 + 清单剔除）。 */
-  readonly planToolService: PlanToolDeps["service"] | undefined;
+  /** 主会话 todo 双工具服务面（mainPlanStack 切片；undefined = 不注册 + 清单剔除）。 */
+  readonly planToolService: TodoToolDeps["service"] | undefined;
   /** U4 占用协调服务（daemon 全局单例——coord 三工具注入面；缺省不注册）。 */
   readonly coordination?: CoordinationService;
   readonly catalog: ModelCatalog;
@@ -201,7 +201,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     const codegraphTool =
       typeof ctx.codegraphTool === "function" ? ctx.codegraphTool() : ctx.codegraphTool;
     // main-session plan 批：instanceId = sessionId 作用域注入（工具参数
-    // 零 instanceId 防伪造——PlanTools 语义不变）；未注入（隔离测试形态）
+    // 零 instanceId 防伪造——TodoTools 语义不变）；未注入（隔离测试形态）
     // → 不注册 + 清单剔除（声明面 = 注册面一致）
     const planDeps =
       ctx.planToolService === undefined
@@ -279,7 +279,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       // task_report（D3）：仅主会话 executor（SubAgent 子进程本地栈与
       // 编排主 agent 不注入——生效集隔离，taskCreate 同构）
       ...(ctx.taskReport !== undefined ? { taskReport: ctx.taskReport } : {}),
-      // 主会话 plan 三工具（main-session plan 批）：台账写面 + 广播包装
+      // 主会话 todo 双工具：清单写面 + 广播包装
       ...(planDeps !== undefined ? { plan: planDeps } : {}),
       // 提权申请批：permission_request 工具——沙箱开启 + askService 注入时注册
       //（沙箱 off 无提权语义不注册；effectiveMainToolNames 同步剔除声明名）。
@@ -347,7 +347,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
         // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
         // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
         // 绑定后新建会话自动恢复注册面。
-        // task_create/plan 三名同款：未注入（测试形态）时剔除，声明与注册一致。
+        // task_create/todo 两名同款：未注入（测试形态）时剔除，声明与注册一致。
         // coord 三名（U4）：未注入（测试形态）剔除——声明面 = 注册面。
         tools: effectiveMainToolNames(ctx.mainAssemblyOf().tools, {
           kg: kgTools !== undefined,

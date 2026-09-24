@@ -376,20 +376,20 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     };
     try {
       // ① 真组合根（未传 builtinSkillsDir——随仓 resources/skills 真源）：
-      // agent 层 builtin（plan-workflow/web-access）开箱 enabled=true（播种行）
+      // agent 层 builtin（web-access）开箱 enabled=true（播种行——plan-workflow 已退役）
       let daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
       let client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
       await client.open();
       await helloHandshake(client, daemon.devToken);
       const mainRows = await listBuiltinRows(client, "main-session");
-      expect(mainRows.length).toBeGreaterThanOrEqual(2); // plan-workflow + web-access
+      expect(mainRows.length).toBeGreaterThanOrEqual(1); // web-access（plan-workflow 已随 todo 改名批退役）
       expect(mainRows.every((r) => r.enabled)).toBe(true); // 播种：缺行才播 true
-      expect(mainRows.map((r) => r.name)).toContain("plan-workflow");
+      expect(mainRows.map((r) => r.name)).toContain("web-access");
       // sub 块同构（可写 kind 全播）；user 层零行不碰
       const subRows = await listBuiltinRows(client, "subagent-worker");
       expect(subRows.every((r) => r.enabled)).toBe(true);
-      // 用户显式关闭 plan-workflow（main）
-      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "skill", name: "plan-workflow", enabled: false } });
+      // 用户显式关闭 web-access（main）
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "skill", name: "web-access", enabled: false } });
       await client.expect("agent.config.set_enabled.result");
       await client.close();
       await daemon.shutdown();
@@ -400,8 +400,8 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       await client.open();
       await helloHandshake(client, daemon.devToken);
       const afterRestart = await listBuiltinRows(client, "main-session");
-      expect(afterRestart.find((r) => r.name === "plan-workflow")?.enabled).toBe(false); // 用户行优先
-      expect(afterRestart.find((r) => r.name === "web-access")?.enabled).toBe(true); // 播种行持久
+      expect(afterRestart.find((r) => r.name === "web-access")?.enabled).toBe(false); // 用户行优先（不被播种覆盖）
+      expect(afterRestart.filter((r) => r.name !== "web-access").every((r) => r.enabled)).toBe(true); // 其余播种行持久
       await client.close();
       await daemon.shutdown();
     } finally {

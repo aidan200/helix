@@ -56,7 +56,7 @@ import { KgQueryService } from "../../../../application/services/kg/KgQueryServi
 import { kgReadProjects, scanWorkspaceProjects } from "../../workspace-scan";
 import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../../../application/services/task/WorkLedgerService";
-import type { PlanToolDeps } from "../../tools/plan/PlanTools";
+import type { TodoToolDeps } from "../../tools/todo/TodoTools";
 import type { WorkItemData } from "../../../../application/ports/outbound/WorkLedgerPort";
 import { openTaskLedgerDatabase } from "../../sqlite-session/WriteQueue";
 import { readTaskContextByInstance } from "../../sqlite-session/TaskStore";
@@ -424,22 +424,22 @@ export function createKgTaskContextResolver(
   return resolve;
 }
 
-// ── 子进程本地 work_item 栈（T1.4，AD-6①：plan 三工具注入面） ─────
+// ── 子进程本地 work_item 栈（todo 双工具注入面） ─────
 
 /**
  * 子进程本地 work_item 栈（buildLocalKgStack 同构）：helix.db 直连
  * （LazyWorkLedger 首次读写才开库——WAL + busy_timeout 由
  * openTaskLedgerDatabase 自设，子连接不依赖父进程设置）+ WorkLedgerService
- * 双面 + plan 三工具装配面。chat/task 两域派出的实例走同一装配（零 kind
- * 分支，AD-6① 统一性）。
+ * 双面 + todo 双工具装配面。chat/task 两域派出的实例走同一装配（零 kind
+ * 分支，统一性）。
  *
  * instanceId 由子进程上下文注入（HELIX_INSTANCE_ID）——工具参数零
- * instanceId（防 LLM 伪造他实例台账）；dbPath 来自 HELIX_DB_PATH（父进程
- * spawn 时注入；缺席 → plan 工具首调报未装配，注册常驻——browser 先例）。
+ * instanceId（防 LLM 伪造他实例清单）；dbPath 来自 HELIX_DB_PATH（父进程
+ * spawn 时注入；缺席 → todo 工具首调报未装配，注册常驻——browser 先例）。
  * 表域由父进程先行建库保证（子进程总是父进程写入 batch.instance_id
  * 后才被拉起；未拉台账调用不触盘，TR-TEST-4）。
  *
- * publish（实例台账抽屉批，可选）：plan 三工具成功后写后上报回调——
+ * publish（实例台账抽屉批，可选）：todo 工具成功后写后上报回调——
  * 每次写/读面成功后携最新全行上行（父侧广播 session.plan.changed；
  * 与父进程 mainPlanStack 装配层包装同构——成功后发布、失败不发布）。
  * 缺省不包装（既有测试形态零变化）。
@@ -448,23 +448,19 @@ export function buildLocalWorkLedgerStack(
   dbPath: string | undefined,
   instanceId: string,
   publish?: (rows: readonly WorkItemData[]) => void,
-): { readonly tools: PlanToolDeps; readonly ledger: LazyWorkLedger } {
+): { readonly tools: TodoToolDeps; readonly ledger: LazyWorkLedger } {
   const ledger = new LazyWorkLedger(dbPath);
   const service = new WorkLedgerService({ reader: ledger, writer: ledger });
-  const planToolService: PlanToolDeps["service"] =
+  const planToolService: TodoToolDeps["service"] =
     publish === undefined
       ? service
       : {
           // 写后上报包装（成功才发布——写面抛错即工具 error 结果，无事件；
           // getPlan 幂等快照同发一帧，观察面即问责面，与父进程同口径）
-          createPlan: async (iid, items) => {
-            const r = await service.createPlan(iid, items);
+          writeTodos: async (iid, items) => {
+            const r = await service.writeTodos(iid, items);
             publish(service.getPlan(iid));
             return r;
-          },
-          updateItem: async (iid, seq, status, note) => {
-            await service.updateItem(iid, seq, status, note);
-            publish(service.getPlan(iid));
           },
           getPlan: (iid) => {
             const rows = service.getPlan(iid);
@@ -577,7 +573,7 @@ async function main(): Promise<void> {
   // W1-B：codegraph 只读工具本地栈（SubAgentProfile 声明该名；二进制不可达
   // → degraded 不阻断装配，同 ensureIndex degraded 先例）
   const codegraph = buildLocalCodegraphStack(toolCwd);
-  // T1.4：plan 三工具本地栈（AD-6① 全量配给——SubAgentProfile 声明三名；
+  // T1.4：todo 双工具本地栈（全量配给——SubAgentProfile 声明两名；
   // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）。
   // 实例台账抽屉批：写后上报 plan-changed 行（父侧广播 session.plan.changed
   // ——file-write/bash-fact 增型同构，stdout 只携台账行；观测链单源 E-181）
@@ -868,7 +864,7 @@ async function main(): Promise<void> {
     reportEnvPath: process.env.HELIX_REPORT_PATH,
   });
   // closure done 收口前机械兑底（task-8659b320 三连败修复）：实例忘
-  // plan_update 标记收口项（in_progress 悬置）时，父进程判据②会
+  // todo_write 标记收口项（in_progress 悬置）时，父进程判据②会
   // failBatch → 重试耗尽全损。closure done = 实例已自证完成（新判定链
   // 下含围栏/无信封兑底——所有完成形态都触发），此处只兑「忘标记」的
   // in_progress（带机械 note 可追溯）；pending（声明未开工）不兑——

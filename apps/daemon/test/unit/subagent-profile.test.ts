@@ -88,9 +88,8 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
       "browser",
       "kg", // T3.3 只读查询面（W-R6：无 kg-update）
       "codegraph", // W1-B（R5/R7）：codegraph 只读工具（Main/SubAgent 两 profile 同挂）
-      "plan_create",
-      "plan_update",
-      "plan_read",
+      "todo_write",
+      "todo_read",
       "permission_request", // 提权申请批：一次性沙箱外执行申请随 Main 清单直传（两域同扩；声明恒在注册面门控）
     ]);
   });

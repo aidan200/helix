@@ -96,13 +96,12 @@ export const MainSessionProfile: AgentProfile = {
     // 类型通用）——仅 MainAgent 生效集；报告全文不进回执，MainAgent 用
     // read 按路径按需读（token 经济）
     "task_report",
-    // plan 三工具（main-session plan 批）：主会话工作台账（instanceId =
-    // sessionId 作用域，台账落 helix.db work_item 表）——多步/多阶段任务
-    // 开工前建台账、逐项推进；SubAgent 子进程同款声明（两域同构，AD-6①
-    // 扩展到主会话）
-    "plan_create",
-    "plan_update",
-    "plan_read",
+    // todo 双工具（plan 三工具改名批，C+B）：主会话待办清单（instanceId =
+    // sessionId 作用域，台账落 helix.db work_item 表）——todo_write 全量
+    // 替换（触发判据内嵌工具描述），todo_read 收口自查；SubAgent 子进程
+    // 同款声明（两域同构）
+    "todo_write",
+    "todo_read",
     // coord 三工具（U4 占用协调）：声明/释放/查询占用租约——跨会话共享
     // 工作树的写冲突感知面；仅 MainSessionProfile 声明（决策主体——
     // SubAgent 执行者不拿决策工具；orchestrator 子进程 wire 访问留后批）

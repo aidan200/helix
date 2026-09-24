@@ -4,7 +4,7 @@
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。
  * 单一注册表服务三类消费 profile（main / subagent-worker / subagent-kg-writer，
- * 编排面 task_* 七工具与 plan 三工具同在表内——具体某 kind 进哪些 snippet
+ * 编排面 task_* 七工具与 todo 双工具同在表内——具体某 kind 进哪些 snippet
  * 由 ResourceService.getEffectiveTools(kind) 生效集决定，本表只管
  * 「名 → 中文一句话」映射）；全集形状（profile 工具计数与 snippet 总条数）
  * 以契约测试锚定（tool-prompt-snippets.test.ts ①②）——计数以测试为准，
@@ -51,9 +51,9 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   task_stage_artifact: "聚合阶段产物并收口阶段（你给人类可读摘要，产出节点 id 集由系统按批次反查）",
   task_complete_job: "申报任务完成（系统机械复核全部阶段行 done 后收口）",
   task_fail_job: "申报任务失败（附失败理由；job → failed 终态）",
-  plan_create: "创建本会话工作台账（一次给出全部计划条目，开工前调用；全部办结后可重建重开）",
-  plan_update: "更新工作台账条目状态（in_progress/done/abandoned——放弃必须带理由 note；可记产物指针）",
-  plan_read: "读工作台账条目（收口/交代前自查全部办结或带理由放弃；台账对用户可见）",
+  todo_write:
+    "维护本实例待办清单（全量替换式——每次传完整清单）——≥3 步/跨文件/跨阶段任务开工先建、状态或计划变化即更新、收口前全清（done 或带理由 abandoned）；轻量任务不建；清单对用户可见",
+  todo_read: "读本实例待办清单（收口/交代前自查全清；上下文压缩后恢复现场）",
   permission_request: "权限申请：申请一次性提升权限执行命令（写沙箱可写根外、全局安装、宿主机系统命令等被沙箱拦截的场景）。用户批准后仅本次执行放行（不记 always-allow）；拒绝或 60s 超时后收到引导，应改道沙箱内方案或放弃。",
   coord_claim: "登记本会话对某范围的写占用（跨会话共享工作树防踩踏；冲突时返回对方意图与处置建议）",
   coord_release: "释放本会话占用租约（工作完成或让渡时）",

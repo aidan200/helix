@@ -115,9 +115,9 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
   // 系统派生块技能读面批：派生两块 = worker 生效技能集（audience=agent）
   skills: [
     {
-      name: "plan-workflow",
-      description: "工作台账（plan 三工具）的使用规范",
-      filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
+      name: "web-access",
+      description: "联网操作指引",
+      filePath: "/daemon/resources/skills/agent/web-access/SKILL.md",
       source: "builtin",
       audience: "agent",
       enabled: true,
@@ -436,7 +436,7 @@ describe("智能体页组件（M6 T4）", () => {
     const kgwToolSwitch = kgwCard.querySelector('[data-switch="bash"]') as HTMLButtonElement;
     expect(kgwToolSwitch.disabled).toBe(true); // readOnly 置灰（统一开关在场）
     // kg-writer 技能开关：builtin 播种开 + 置灰
-    const kgwSkillSwitch = kgwCard.querySelector('[data-switch="plan-workflow"]') as HTMLButtonElement;
+    const kgwSkillSwitch = kgwCard.querySelector('[data-switch="web-access"]') as HTMLButtonElement;
     expect(kgwSkillSwitch.getAttribute("aria-checked")).toBe("true"); // 播种五 kind 全开
     expect(kgwSkillSwitch.disabled).toBe(true);
     // 切回可编辑：开关恢复可点（同卡形态，仅 readOnly 差异）
@@ -1069,7 +1069,7 @@ describe("skill-content 批：skill 正文查看区（行内折叠懒查询）",
     expect(document.querySelector('[data-skill-content-text="code-review"]')?.textContent).toContain("SOP-BODY-TEXT");
     // kg-writer 卡：派生技能行（audience=agent）同可查看（按名缓存跨卡共享——已拉名不重发）
     act(() => selectAgent("subagent-kg-writer"));
-    expect(document.querySelector('[data-skill-row="plan-workflow"]')).not.toBeNull();
+    expect(document.querySelector('[data-skill-row="web-access"]')).not.toBeNull();
   });
 });
 

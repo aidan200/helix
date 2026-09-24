@@ -32,7 +32,7 @@ export interface TaskOpsToolDeps {
     TaskEnginePort,
     "insertBatch" | "dispatchBatch" | "advanceStage" | "writeStageArtifact" | "assemblyDone" | "completeJob" | "failJob"
   >;
-  /** 批次实例台账读面（编排者 plan_read 变体：按实例 id 参数读）。 */
+  /** 批次实例台账读面（编排者 todo_read 变体：按实例 id 参数读）。 */
   readonly ledger?: Pick<WorkLedgerService, "getPlan">;
 }
 
@@ -120,10 +120,10 @@ const failJobParameters = {
   additionalProperties: false,
 } as const;
 
-const planReadParameters = {
+const todoReadParameters = {
   type: "object",
   properties: {
-    instanceId: { type: "string", description: "批次执行实例 id（读该实例的工作台账）" },
+    instanceId: { type: "string", description: "批次执行实例 id（读该实例的待办清单）" },
   },
   required: ["instanceId"],
   additionalProperties: false,
@@ -132,9 +132,9 @@ const planReadParameters = {
 // ── 工具族装配 ─────────────────────────────────────────────
 
 /**
- * 任务引擎回口工具族（七工具）+ 编排者台账读工具（编排者 plan_read 变体：
- * 按实例 id 参数读批次台账——与 SubAgent 本实例变体同名不同形，装配面
- * 互斥：本族只进编排会话 executor）。
+ * 任务引擎回口工具族（七工具）+ 编排者待办清单读工具（编排者 todo_read
+ * 变体：按实例 id 参数读批次清单——与 SubAgent 本实例变体同名不同形，
+ * 装配面互斥：本族只进编排会话 executor）。
  */
 export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<ExecutionToolContext, any, undefined>[] {
   const tools: AgentHarnessTool<ExecutionToolContext, any, undefined>[] = [
@@ -260,12 +260,12 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
   ];
   if (deps.ledger !== undefined) {
     tools.push({
-      name: "plan_read",
-      label: "plan_read",
+      name: "todo_read",
+      label: "todo_read",
       description:
-        "读批次执行实例的工作台账（序号/状态/note；按实例 id 参数读——编排者视角，判进度与接力恢复用）。" +
-        "批次成败硬约束判定（台账须全部 resolve）由系统机械执行，本工具只供你了解现场。",
-      parameters: planReadParameters as any,
+        "读批次执行实例的待办清单（序号/状态/note；按实例 id 参数读——编排者视角，判进度与接力恢复用）。" +
+        "批次成败硬约束判定（清单须全部 resolve）由系统机械执行，本工具只供你了解现场。",
+      parameters: todoReadParameters as any,
       async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
         void toolCallId;
         const { instanceId } = params as { instanceId: string };

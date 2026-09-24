@@ -71,7 +71,7 @@ export interface OrchestratorSessionFactoryDeps {
   readonly mcpTools?: () => NonNullable<CoreToolExecutorOptions["mcp"]>["tools"] | undefined;
   /** 任务引擎回口（taskOps 工具族绑定面；TP-2.3a④ 命名避让：非裸 engine）。 */
   readonly taskEngine: TaskEnginePort;
-  /** 台账读面（编排者 plan_read 变体绑定）。 */
+  /** 台账读面（编排者 todo_read 变体绑定）。 */
   readonly ledger: WorkLedgerService;
   readonly logger?: Logger;
   /**

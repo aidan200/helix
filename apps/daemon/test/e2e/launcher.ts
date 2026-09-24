@@ -424,9 +424,8 @@ async function main(): Promise<void> {
     t !== "task_create" &&
     t !== "task_report" &&
     t !== "codegraph" &&
-    t !== "plan_create" &&
-    t !== "plan_update" &&
-    t !== "plan_read" &&
+    t !== "todo_write" &&
+    t !== "todo_read" &&
     t !== "coord_claim" &&
     t !== "coord_release" &&
     t !== "coord_query";

@@ -189,9 +189,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       "task/demo-review",
       "---\nname: demo-review\ndescription: 演示任务 SOP\ntask:\n  paramsSchema:\n    projectRoot: { type: string, required: true }\n---",
     );
-    // agent 层：无成套声明（恒列）+ 成套声明 plan_create（worker 持有 → 列出）
+    // agent 层：无成套声明（恒列）+ 成套声明 todo_write（worker 持有 → 列出）
     mk("agent/plain-skill", "---\nname: plain-skill\ndescription: 无成套声明技能\n---");
-    mk("agent/paired-skill", "---\nname: paired-skill\ndescription: 成套声明技能\ntools: [plan_create]\n---");
+    mk("agent/paired-skill", "---\nname: paired-skill\ndescription: 成套声明技能\ntools: [todo_write]\n---");
     const engine = new FakeAgentEngine({});
     const daemon = await createTestDaemon({
       home,
@@ -249,11 +249,11 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(kgw.skills?.map((s) => s.name).sort()).toEqual(["paired-skill", "plain-skill"]);
       expect(kgw.skills!.every((s) => s.enabled === true)).toBe(true);
 
-      // 禁用 worker 的 plan_create（成套工具）→ 重 list：系统块独立配置不联动
+      // 禁用 worker 的 todo_write（成套工具）→ 重 list：系统块独立配置不联动
       client.send({
         v: PROTOCOL_VERSION,
         type: "agent.config.set_enabled",
-        payload: { profileKind: "subagent-worker", resourceType: "tool", name: "plan_create", enabled: false },
+        payload: { profileKind: "subagent-worker", resourceType: "tool", name: "todo_write", enabled: false },
       });
       await client.expect("agent.config.set_enabled.result");
       const at = client.frames.length; // 区分新旧同型帧：重拉后的新 list 帧

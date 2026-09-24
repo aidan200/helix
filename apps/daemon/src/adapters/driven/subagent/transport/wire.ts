@@ -24,7 +24,7 @@ export interface BashFactLineItem {
  *   / file-write（T2 turn diff：子进程 env.writeFile 写前元数据上报——
  *   instanceId/path/prevHash/prevSize/nextSize，只报元数据不报内容，
  *   stdout 管道安全；父侧分派 → TurnDiffService.recordExternal）。
- *   / plan-changed（实例台账抽屉批：子进程 plan 三工具写后上报——
+ *   / plan-changed（实例台账抽屉批：子进程 todo 双工具写后上报——
  *   instanceId + rows（WorkItemData 全行），父侧分派 → 装配层广播
  *   session.plan.changed（payload 带 instanceId；file-write/bash-fact
  *   增型同构）。观测链单源见 E-181。
@@ -78,7 +78,7 @@ export type ChildOutboundLine =
       readonly facts: readonly BashFactLineItem[];
     }
   | {
-      /** 实例台账抽屉批：plan 三工具写后上报（additive 增型）。 */
+      /** 实例台账抽屉批：todo 双工具写后上报（additive 增型）。 */
       readonly type: "plan-changed";
       readonly instanceId: string;
       /** 台账全行（seq 升序，WorkItemData 原形——DTO 转换归父侧单源）。 */

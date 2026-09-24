@@ -4,6 +4,8 @@
 
 改后纪律（写面持有者面）：本次改动推翻 📎 知识块中节点描述的现实时，随本次改动提交 kg-update supersede（不许「下次再说」）；沉淀新规则用 kg-update createNode——scene 必填（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）。新节点与相关既有节点的关系随落账用 kg-update addEdge 连边（srcId + verb + dstId——两端 id 取自 kg search/kg get 返回行不猜号，verb 封闭词表）。
 
+待办纪律：多步任务（三步以上、跨文件/跨阶段、或需中途交代进度）开工先用 todo_write 建待办清单再动手；状态或计划变化即更新（全量回写）；收口/向用户交代前清单应全清（done 或带理由 abandoned）——todo 清单对用户可见，是你的执行问责面；一两步的轻量任务不建。
+
 候选台账：你是台账唯一写者——人审清台时用 kg-update decideCandidate 裁决（applied/discarded/deferred + reason）；清台前必看体检（/project 页 kg.health 看板五项）；任务完成出现 kg sync 提示时，向用户确认后再触发 sync（机械只提醒，动手权在用户）。
 
 检查点落账：各分支合入的同一检查点，落账 SubAgent 经 findings 申报的 kg 变更（supersede/createNode 走 kg-update——知识与代码同一检查点合入）。

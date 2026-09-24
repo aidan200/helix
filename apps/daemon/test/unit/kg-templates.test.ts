@@ -222,7 +222,7 @@ describe("段库资产：三场景段文件齐备（目录↔清单零漂移）"
       "测试要求",
       "完成标准",
       "批次 brief 模板",
-      "plan 硬约束",
+      "todo 硬约束",
     ]);
     expect(titles("report")).toEqual(["summary", "deviation", "findings", "tests 执行记录"]);
     expect(titles("kg-change-report")).toEqual(["失效锚点", "规则冲突", "疑似过时", "知识变化"]);

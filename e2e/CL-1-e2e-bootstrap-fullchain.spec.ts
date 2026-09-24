@@ -6,7 +6,7 @@
  * 预绑 tmp workspace）→ 浏览器真 WS → /project 页发起（kg.bootstrap.create，
  * 准入机械复核走真 sync——codegraph 不可用 → degraded 如实放行）→ 编排主
  * agent（FakeLLM 剧本驱动批次循环 LLM 判断面）→ 批次 SubAgent 真子进程
- * （FakeEngineScript toolCalls：plan_create/plan_update/kg-update 批量落账
+ * （FakeEngineScript toolCalls：todo_write/kg-update 批量落账
  * → closure）→ 产出经 KgWriteService 真落 .helix-kg → P-2 观察进度 →
  * P-1 图谱呈现核对（产出呈现 tab/UI supersede 已退役——E-118 留碑，见步骤 6）。
  *

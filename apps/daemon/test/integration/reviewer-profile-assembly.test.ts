@@ -119,7 +119,7 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
     expect(snap.tools).not.toContain("edit");
     expect(snap.tools).not.toContain("edit-lines");
     // 保留面：bash（报告/findings 旁路 + linter）与只读查询面
-    for (const name of ["bash", "read", "grep", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]) {
+    for (const name of ["bash", "read", "grep", "kg", "codegraph", "todo_write", "todo_read"]) {
       expect(snap.tools).toContain(name);
     }
     expect(snap.tools).not.toContain("kg-update");

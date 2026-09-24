@@ -26,7 +26,7 @@ describe("W-R6 kg 写面收权：subagent-worker 工具面", () => {
     expect(SubAgentProfile.tools).not.toContain("kg-update");
     expect(SubAgentProfile.tools).toContain("kg"); // 只读查询面保留
     expect(SubAgentProfile.tools).toContain("codegraph");
-    expect(SubAgentProfile.tools).toContain("plan_create"); // plan 三工具不受影响
+    expect(SubAgentProfile.tools).toContain("todo_write"); // todo 双工具不受影响
   });
 
   test("subagent-worker 提示词不引导调用 kg-update（收权后写通道改走 findings 文件）", () => {

@@ -13,16 +13,16 @@ import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/
 import { effectiveMainToolNames } from "../../src/infrastructure/assembly/buildSessionStack";
 
 /**
- * I 层：主会话 plan 三工具（main-session plan 批）——全链集成
+ * I 层：主会话 todo 双工具（plan 三工具改名批）——全链集成
  * （真组合根 + production 引擎形态 + mainSessionLlmOverride 剧本 streamFn +
  * 真 SQLite @ tmp + loopback WS）。
  *
  * 覆盖：
- * ① 装配面——MainSessionProfile 声明三名；deps.plan 注入后 resolveTools
- *    三名可解析（剧本真调通即证）；未注入时清单自动剔除（纯函数面）；
- * ② 主会话 plan 链——plan_create/update/read 真落库（work_item 行
+ * ① 装配面——MainSessionProfile 声明两名；deps.plan 注入后 resolveTools
+ *    两名可解析（剧本真调通即证）；未注入时清单自动剔除（纯函数面）；
+ * ② 主会话 todo 链——todo_write/todo_read 真落库（work_item 行
  *    instance_id = sessionId）、sessionId 作用域隔离（同 daemon 两会话）、
- *    重建语义（全 resolved 可重建）、abandoned 空 note 拒绝；
+ *    全量替换重开（覆盖即意图）、abandoned 空 note 拒绝；
  * ③ 事件发布面——工具执行成功后 session.plan.changed（形状断言：sessionId
  *    + plan 行 + ledger 计数摘要）；失败时不发（帧数不增）；
  * ④ snapshot 携带 plan（重订阅 → session.snapshot.payload.snapshot.plan）；
@@ -245,9 +245,9 @@ const planFramesOf = (client: TestClient): PlanChangedPayload[] =>
 
 // ── ① 装配面 ────────────────────────────────────────────────
 
-describe("① 主会话装配面（main-session plan 批）", () => {
-  test("MainSessionProfile 声明含 plan 三名（与 SubAgent 两域同构）", () => {
-    for (const name of ["plan_create", "plan_update", "plan_read"]) {
+describe("① 主会话装配面（todo 双工具）", () => {
+  test("MainSessionProfile 声明含 todo 两名（与 SubAgent 两域同构）", () => {
+    for (const name of ["todo_write", "todo_read"]) {
       expect(MainSessionProfile.tools).toContain(name);
     }
   });
@@ -257,12 +257,12 @@ describe("① 主会话装配面（main-session plan 批）", () => {
     const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: true });
     expect(kept).toEqual([...declared]);
     const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: false, coord: true, permissionRequest: true });
-    for (const name of ["plan_create", "plan_update", "plan_read"]) {
+    for (const name of ["todo_write", "todo_read"]) {
       expect(dropped).not.toContain(name);
     }
     // 其余名不受 plan 剔除影响
-    expect(dropped.filter((t) => !t.startsWith("plan_")).length).toBe(
-      declared.filter((t) => !t.startsWith("plan_")).length,
+    expect(dropped.filter((t) => !t.startsWith("todo_")).length).toBe(
+      declared.filter((t) => !t.startsWith("todo_")).length,
     );
     // taskReport 未注入 → task_report 剔除（taskCreate/plan/coord 同构：声明面 = 注册面一致）
     const noReport = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: false, plan: true, coord: true, permissionRequest: true });
@@ -285,18 +285,22 @@ describe("① 主会话装配面（main-session plan 批）", () => {
 
 // ── ②③④⑤ 主会话 plan 链（真 SQLite + WS 全链）──────────────────
 
-describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snapshot/清理", () => {
-  test("plan_create → work_item 落库（instance_id = sessionId）+ session.plan.changed 广播（形状断言）", async () => {
+describe("②③④⑤ 主会话 todo 链：落库/作用域/全量替换/事件/snapshot/清理", () => {
+  test("todo_write → work_item 落库（instance_id = sessionId）+ session.plan.changed 广播（形状断言）", async () => {
     const rig = await makeRig([
-      { kind: "tool", toolName: "plan_create", args: { items: ["拉通链路", "写失败测试", "落地实现"] } },
-      { kind: "reply", text: "台账已建" },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "拉通链路", status: "pending" },
+        { content: "写失败测试", status: "pending" },
+        { content: "落地实现", status: "pending" },
+      ] } },
+      { kind: "reply", text: "清单已建" },
     ]);
     const client = new TestClient(rig.url);
     try {
       await client.open();
       const sessionId = await helloSubscribe(client, rig.token);
 
-      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "开工，先建台账" } });
+      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "开工，先建清单" } });
 
       // 事件面：session.plan.changed（channel=session、信封 sessionId=归属会话）
       const planFrame = await client.until((f) => f.type === "session.plan.changed", "session.plan.changed");
@@ -324,22 +328,30 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
     }
   }, 20_000);
 
-  test("plan_update 推进 + abandoned 空 note 拒绝（失败不发事件）+ plan_read 收口自查", async () => {
+  test("todo_write 全量替换推进 + abandoned 空 note 拒绝（失败不发事件）+ todo_read 收口自查", async () => {
     const rig = await makeRig([
-      { kind: "tool", toolName: "plan_create", args: { items: ["甲", "乙"] } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 1, status: "in_progress" } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 1, status: "done", note: "产物见 /tmp/a" } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 2, status: "abandoned" } }, // 空 note → error
-      { kind: "tool", toolName: "plan_read", args: {} },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "甲", status: "pending" }, { content: "乙", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "甲", status: "in_progress" }, { content: "乙", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "甲", status: "done", note: "产物见 /tmp/a" }, { content: "乙", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [ // 空 note → error
+        { content: "甲", status: "done", note: "产物见 /tmp/a" }, { content: "乙", status: "abandoned" },
+      ] } },
+      { kind: "tool", toolName: "todo_read", args: {} },
       { kind: "reply", text: "完成" },
     ]);
     const client = new TestClient(rig.url);
     try {
       await client.open();
       const sessionId = await helloSubscribe(client, rig.token);
-      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "推进台账" } });
+      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "推进清单" } });
 
-      // create → 1 帧；update ×2 → 各 1 帧（in_progress / done）
+      // 首写 → 1 帧；两次全量替换（in_progress / done）→ 各 1 帧
       await client.until(
         (f) => f.type === "session.plan.changed" && (f.payload as unknown as PlanChangedPayload).ledger?.done === 1,
         "done=1 的 plan.changed",
@@ -349,7 +361,7 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
       const errFrame = await client.until(
         (f) =>
           f.type === "tool.call.result" &&
-          ((f.payload as { entry?: { name?: string; state?: string } }).entry?.name === "plan_update" &&
+          ((f.payload as { entry?: { name?: string; state?: string } }).entry?.name === "todo_write" &&
             (f.payload as { entry?: { state?: string } }).entry?.state === "error"),
         "abandoned 空 note 的 error 工具结果",
       );
@@ -357,16 +369,16 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
       // 行未动（#2 仍 pending）
       expect(rig.workItems(sessionId).map((x) => x.status)).toEqual(["done", "pending"]);
 
-      // plan_read 收口自查（读后也发一帧幂等快照——三工具成功即发布语义）。
+      // todo_read 收口自查（读后也发一帧幂等快照——成功即发布语义）。
       // 确定性计数（turn.completed 后全帧收齐，WS 单连接 FIFO 保序）：总 4 帧
-      // = create + update×2 + read；abandoned 空 note 失败路径不发（否则多一帧）。
+      // = 首写 + 全量替换×2 + read；abandoned 空 note 失败路径不发（否则多一帧）。
       await client.until((f) => f.type === "chat.turn.completed", "turn.completed");
       const ledgers = planFramesOf(client).map((x) => x.ledger);
       expect(ledgers).toEqual([
-        { total: 2, done: 0, inProgress: 0 }, // plan_create
-        { total: 2, done: 0, inProgress: 1 }, // update #1 in_progress
-        { total: 2, done: 1, inProgress: 0 }, // update #1 done
-        { total: 2, done: 1, inProgress: 0 }, // plan_read 幂等快照（#2 未动）
+        { total: 2, done: 0, inProgress: 0 }, // todo_write 首写
+        { total: 2, done: 0, inProgress: 1 }, // 全量替换 #1 in_progress
+        { total: 2, done: 1, inProgress: 0 }, // 全量替换 #1 done
+        { total: 2, done: 1, inProgress: 0 }, // todo_read 幂等快照（#2 未动）
       ]);
     } finally {
       client.close();
@@ -374,28 +386,37 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
     }
   }, 20_000);
 
-  test("重建语义：全 resolved 后 plan_create 重开（WS 链 + 落库双证；未决拒绝面见 plan-tools.test ⑦）", async () => {
+  test("全量替换重开：todo_write 覆盖即意图（未决也可重开——旧重建门退役；WS 链 + 落库双证）", async () => {
     const rig = await makeRig([
-      { kind: "tool", toolName: "plan_create", args: { items: ["旧一", "旧二"] } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 1, status: "in_progress" } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 1, status: "done" } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 2, status: "in_progress" } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 2, status: "abandoned", note: "被 #1 覆盖" } },
-      { kind: "tool", toolName: "plan_create", args: { items: ["新阶段一"] } }, // 全 resolved → 重建成功
-      { kind: "reply", text: "重建完成" },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "旧一", status: "pending" }, { content: "旧二", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "旧一", status: "in_progress" }, { content: "旧二", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "旧一", status: "done" }, { content: "旧二", status: "in_progress" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "旧一", status: "done" }, { content: "旧二", status: "abandoned", note: "被 #1 覆盖" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "新阶段一", status: "pending" },
+      ] } }, // 全量替换 → 重开成功（覆盖即意图，无需全 resolved）
+      { kind: "reply", text: "重开完成" },
     ]);
     const client = new TestClient(rig.url);
     try {
       await client.open();
       const sessionId = await helloSubscribe(client, rig.token);
-      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "推进并重建" } });
+      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "推进并重开清单" } });
       await client.until((f) => f.type === "chat.turn.completed", "turn.completed");
 
-      // 重建后行 = 新一份 seq 1..1 pending（旧行清、原子重开）
+      // 重开后行 = 新一份 seq 1..1 pending（旧行清、原子重开）
       expect(rig.workItems(sessionId).map((x) => [x.seq, x.content, x.status])).toEqual([
         [1, "新阶段一", "pending"],
       ]);
-      // 最后一帧 plan.changed 反映重建后台账
+      // 最后一帧 plan.changed 反映重开后清单
       const last = planFramesOf(client).at(-1)!;
       expect(last.plan?.map((x) => x.content)).toEqual(["新阶段一"]);
       expect(last.ledger?.total).toBe(1);
@@ -405,12 +426,16 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
     }
   }, 30_000);
 
-  test("sessionId 作用域隔离：同 daemon 两会话各自台账互不可见（行级 instance_id 分仓）", async () => {
+  test("sessionId 作用域隔离：同 daemon 两会话各自清单互不可见（行级 instance_id 分仓）", async () => {
     // 会话 A 建两行；草稿链建会话 B 建一行——A 行不动、B 行独立
     const rig = await makeRig([
-      { kind: "tool", toolName: "plan_create", args: { items: ["A-一", "A-二"] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "A-一", status: "pending" }, { content: "A-二", status: "pending" },
+      ] } },
       { kind: "reply", text: "A 完成" },
-      { kind: "tool", toolName: "plan_create", args: { items: ["B-一"] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "B-一", status: "pending" },
+      ] } },
       { kind: "reply", text: "B 完成" },
     ]);
     const client = new TestClient(rig.url);
@@ -421,7 +446,7 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
       await client.until((f) => f.type === "chat.turn.completed", "A turn.completed");
       expect(rig.workItems(sessionA)).toHaveLength(2);
 
-      // 草稿链建会话 B（首条消息即 B 的首轮——剧本第三段 plan_create B）
+      // 草稿链建会话 B（首条消息即 B 的首轮——剧本第三段 todo_write B）
       client.send({ v: PROTOCOL_VERSION, type: "chat.send", payload: { draft: true, text: "B 开工" } });
       const bFrame = await client.until(
         (f) => f.type === "session.plan.changed" && f.sessionId !== sessionA,
@@ -433,7 +458,7 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
         "B turn.completed",
       );
 
-      // B 的台账只含 B 行；A 行不受 B 建账影响
+      // B 的清单只含 B 行；A 行不受 B 建清单影响
       const bPayload = bFrame.payload as unknown as PlanChangedPayload;
       expect(bPayload.sessionId).toBe(sessionB);
       expect(bPayload.plan?.map((x) => x.content)).toEqual(["B-一"]);
@@ -447,9 +472,15 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
 
   test("④ snapshot 携带 plan：重订阅 → session.snapshot.payload.snapshot.plan 全行 + ledger", async () => {
     const rig = await makeRig([
-      { kind: "tool", toolName: "plan_create", args: { items: ["快照一", "快照二"] } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 1, status: "in_progress" } },
-      { kind: "tool", toolName: "plan_update", args: { seq: 1, status: "done", note: "完成注记" } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "快照一", status: "pending" }, { content: "快照二", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "快照一", status: "in_progress" }, { content: "快照二", status: "pending" },
+      ] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "快照一", status: "done", note: "完成注记" }, { content: "快照二", status: "pending" },
+      ] } },
       { kind: "reply", text: "完成" },
     ]);
     const client = new TestClient(rig.url);
@@ -481,14 +512,16 @@ describe("②③④⑤ 主会话 plan 链：落库/作用域/重建/事件/snaps
 
   test("⑤ deleteSession 后 work_item 行清理（F3.6 写链顺带，防孤儿）", async () => {
     const rig = await makeRig([
-      { kind: "tool", toolName: "plan_create", args: { items: ["待清理"] } },
+      { kind: "tool", toolName: "todo_write", args: { todos: [
+        { content: "待清理", status: "pending" },
+      ] } },
       { kind: "reply", text: "完成" },
     ]);
     const client = new TestClient(rig.url);
     try {
       await client.open();
       const sessionId = await helloSubscribe(client, rig.token);
-      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "建台账" } });
+      client.send({ v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text: "建清单" } });
       await client.until((f) => f.type === "session.plan.changed", "plan.changed");
       await client.until((f) => f.type === "chat.turn.completed", "turn.completed");
       expect(rig.workItems(sessionId)).toHaveLength(1);

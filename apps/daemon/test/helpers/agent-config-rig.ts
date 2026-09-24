@@ -184,15 +184,14 @@ export const MAIN_TOOLS = [
   "codegraph", // W1-B（R5/R7）：codegraph 只读工具
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
   "task_report", // D3：chat 回流通用报告查询面（仅 main）
-  "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构）
-  "plan_update",
-  "plan_read",
+  "todo_write", // todo 双工具（plan 三工具改名批）：主会话同含 todo 两名（两域同构）
+  "todo_read",
   "coord_claim", // U4 占用协调三工具（仅 main——决策主体）
   "coord_release",
   "coord_query",
   "permission_request", // 提权申请批（声明恒在，注册面门控）
 ];
-export const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read", "permission_request"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines；提权申请批：+permission_request
+export const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "todo_write", "todo_read", "permission_request"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4 起 todo 双工具（plan 三工具改名批；两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines；提权申请批：+permission_request
 /** agent-roster 批：只读系统派生块三序（orchestrator 在前，reviewer 在后）。OrchestratorProfile.tools 声明全集同源（D6：+write 任务产物落盘）。 */
 export const ORCH_TOOLS = [
   "bash",
@@ -200,7 +199,7 @@ export const ORCH_TOOLS = [
   "grep",
   "write", // D6：任务报告目录内产物落盘（任务级汇总报告）——不加 edit
   "agent_spawn",
-  "plan_read",
+  "todo_read",
   "kg",
   "task_insert_batch",
   "task_assembly_done",

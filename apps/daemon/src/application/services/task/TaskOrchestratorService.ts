@@ -915,7 +915,7 @@ export function assembleRetryBrief(
     prevPlan.length === 0
       ? []
       : [
-          "## 前序 plan 摘要（接力恢复——从断点继续，不重做已完成探索）",
+          "## 前序 todo 摘要（接力恢复——从断点继续，不重做已完成探索）",
           ...prevPlan.map(
             (item) => `- #${item.seq} [${item.status}] ${item.content}${item.note !== null ? `——note：${item.note}` : ""}`,
           ),

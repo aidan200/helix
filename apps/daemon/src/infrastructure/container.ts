@@ -627,7 +627,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       closureRecords: (sessionId) => persistence.repository.queryClosureRecords(sessionId),
       reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
     },
-    // 主会话 plan 三工具装配面（main-session plan 批）：instanceId = sessionId
+    // 主会话 todo 双工具装配面（plan 三工具改名批）：instanceId = sessionId
     // 作用域；写面 = 父进程 LazyWorkLedger 直连 helix.db（同库 WAL 跨进程
     // 安全）；执行成功后装配层广播 session.plan.changed + 快照附 plan 读面
     //（SubAgent 子进程本地栈不受影响——两栈独立）
