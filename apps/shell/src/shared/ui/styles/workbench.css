@@ -323,6 +323,17 @@
    （>.fld, >.set-check）覆盖 TTS 开关卡等「无 fld 直接子级」的表单卡 */
 .pg .hud-card:has(> .fld, > .set-check) > .ag-note { margin-top: 0; }
 
+/* 设置页版心内兄弟卡纵向节奏（卡间重叠修复批）：.pg 是普通 block 无 gap、
+   .hud-card 自身无 margin——MCP/技能分区「新增入口卡 ↔ 已添加列表卡」两卡
+   边框 0 间距直贴（视觉即重叠），模型各 tab 内供应商/端点列表卡堆叠同症。
+   14px 对齐 .pg-title→首卡节奏；中间隔副标题/分组标题的卡对（通用/语音
+   分区 pg-subtitle、gen-group-label）不相邻不命中，既有 62px 节奏不变 */
+.pg .hud-card + .hud-card { margin-top: 14px; }
+/* 三方平台 tab：新增入口 .toolbar（普通 div 非卡，相邻选择器够不着）与
+   下方首个供应商卡 0 间距贴合——补齐同款 14px（其他模型 tab 下方有
+   group-title 缓冲，实测 24px 已达标不动） */
+[data-cprov-tab] > .toolbar { margin-bottom: 14px; }
+
 /* 卡头（MCP/技能分区首卡：按钮行）：标题移出后按钮组推右 + 与下方副题
    拉开节奏；wrap 保险窄视口 */
 .set-card-head {
