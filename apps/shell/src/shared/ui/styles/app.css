@@ -1594,49 +1594,134 @@ html.light .stv-caption {
 .stv-line:nth-last-child(2) { opacity: 0.9; }
 .stv-line:nth-last-child(1) { opacity: 1; }
 
-/* 光球（~96px 径向渐变球 + 呼吸 + RMS 波形环）*/
+/* 光球（P1 像素光球精灵皮面——用户定版：像素感+拟人感。三层结构 glow/
+   body/face：阶梯光晕 + 像素球体（硬止径向色阶 + 8px 棋盘 dither + 高光
+   方块）+ 表情面（双眼 + 三条均衡器嘴）。相位=表情+色通道，RMS=嘴动；
+   纪律不变：token 单源、动效仅 transform/opacity、var 不入 animation、
+   calc 零容忍（电平系数 TSX 预计算成 --stv-b1..b3）*/
 .stv-orb {
-  position: relative; width: 96px; height: 96px; border-radius: 999px;
+  position: relative; width: 96px; height: 96px; border-radius: 0;
   border: none; cursor: pointer; pointer-events: auto; padding: 0;
-  background:
-    radial-gradient(circle at 32% 30%, rgb(var(--accent-rgb) / 0.85), rgb(var(--accent-rgb) / 0.22) 58%, rgb(var(--accent-rgb) / 0.06) 82%);
-  box-shadow: var(--glow-cyan);
-  animation: stv-breathe 3.2s ease-in-out infinite;
+  background: transparent;
   transition: opacity 0.18s ease-out;
 }
-.stv-orb:focus-visible { outline: 1px solid rgb(var(--accent-rgb) / 0.6); outline-offset: 4px; }
-.stv-orb:active { transform: scale(0.97); }
-/* 相位色彩（accent/violet 通道 token——waking/listening 待听 accent，
-   thinking/speaking 管家输出 violet，closing 收场暗淡） */
-.stv-orb.stv-phase-thinking, .stv-orb.stv-phase-speaking {
+.stv-orb:focus-visible { outline: 2px solid rgb(var(--accent-rgb) / 0.6); outline-offset: 4px; }
+.stv-orb:active { transform: translateY(2px); } /* 像素按压：整球下沉一格（snap 无过渡）*/
+
+/* 阶梯光晕（两圈同形八边阶梯——clip-path 百分比坐标随元素尺寸缩放）*/
+.stv-orb-glow {
+  position: absolute; inset: -14px;
+  clip-path: polygon(25% 0%, 75% 0%, 87.5% 12.5%, 100% 25%, 100% 75%, 87.5% 87.5%, 75% 100%, 25% 100%, 12.5% 87.5%, 0% 75%, 0% 25%, 12.5% 12.5%);
+  background: rgb(var(--accent-rgb) / 0.1);
+  animation: stv-glow 3.2s ease-in-out infinite;
+}
+.stv-orb-glow::after {
+  content: ""; position: absolute; inset: 9px;
+  clip-path: polygon(25% 0%, 75% 0%, 87.5% 12.5%, 100% 25%, 100% 75%, 87.5% 87.5%, 75% 100%, 25% 100%, 12.5% 87.5%, 0% 75%, 0% 25%, 12.5% 12.5%);
+  background: rgb(var(--accent-rgb) / 0.16);
+}
+/* 像素球体（阶梯八边形剪形 + 硬止径向色阶（断崖色环=blocky 体积感）+
+   8px 棋盘 dither + 左上高光方块（edge 通道：暗色=白釉/亮色=暗影，双题自恰））*/
+.stv-orb-body {
+  position: absolute; inset: 0;
+  clip-path: polygon(25% 0%, 75% 0%, 87.5% 12.5%, 100% 25%, 100% 75%, 87.5% 87.5%, 75% 100%, 25% 100%, 12.5% 87.5%, 0% 75%, 0% 25%, 12.5% 12.5%);
   background:
-    radial-gradient(circle at 32% 30%, rgb(var(--violet-rgb) / 0.85), rgb(var(--violet-rgb) / 0.22) 58%, rgb(var(--violet-rgb) / 0.06) 82%);
-  box-shadow: var(--glow-violet);
-  animation: stv-breathe 1.6s ease-in-out infinite; /* 输出期快呼吸（有动机：声律动） */
+    linear-gradient(rgb(var(--edge-rgb) / 0.3), rgb(var(--edge-rgb) / 0.3)) 18px 14px / 16px 16px no-repeat,
+    repeating-conic-gradient(rgb(var(--void-rgb) / 0.2) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px,
+    radial-gradient(circle at 36% 32%,
+      rgb(var(--accent-rgb) / 0.92) 0% 34%,
+      rgb(var(--accent-rgb) / 0.6) 34% 58%,
+      rgb(var(--accent-rgb) / 0.32) 58% 78%,
+      rgb(var(--accent-rgb) / 0.12) 78% 100%);
+  animation: stv-breathe 3.2s ease-in-out infinite;
 }
-.stv-orb.stv-phase-welcome { animation: stv-breathe 2.2s ease-in-out infinite; }
-.stv-orb.stv-phase-waking { animation: stv-breathe 4.2s ease-in-out infinite; } /* 待命慢呼吸 */
-.stv-orb.stv-phase-closing { opacity: 0.35; animation: none; }
-.stv-orb.stv-muted { opacity: 0.55; animation: none; } /* 临时静音：暗淡驻息 */
-/* RMS 波形环（电平环放大——level 驱动 scale 变量，var 不入 animation 简写） */
-.stv-orb-ring {
-  position: absolute; inset: -7px; border-radius: 999px;
-  border: 1px solid rgb(var(--accent-rgb) / 0.55);
-  transform: scale(var(--stv-lv, 0.6));
-  transition: transform 0.1s linear;
+/* 相位色彩与呼吸分档（accent/violet 通道 token——waking/listening 待听
+   accent，thinking/speaking 管家输出 violet + 快呼吸（有动机：声律动））*/
+.stv-orb.stv-phase-thinking .stv-orb-body,
+.stv-orb.stv-phase-speaking .stv-orb-body {
+  background:
+    linear-gradient(rgb(var(--edge-rgb) / 0.3), rgb(var(--edge-rgb) / 0.3)) 18px 14px / 16px 16px no-repeat,
+    repeating-conic-gradient(rgb(var(--void-rgb) / 0.2) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px,
+    radial-gradient(circle at 36% 32%,
+      rgb(var(--violet-rgb) / 0.92) 0% 34%,
+      rgb(var(--violet-rgb) / 0.6) 34% 58%,
+      rgb(var(--violet-rgb) / 0.32) 58% 78%,
+      rgb(var(--violet-rgb) / 0.12) 78% 100%);
+  animation: stv-breathe 1.6s ease-in-out infinite;
 }
-.stv-orb-core {
-  position: absolute; inset: 34%;
-  border-radius: 999px;
-  background: rgb(var(--void-rgb) / 0.7);
-  transition: opacity 0.18s;
+.stv-orb.stv-phase-thinking .stv-orb-glow,
+.stv-orb.stv-phase-speaking .stv-orb-glow {
+  background: rgb(var(--violet-rgb) / 0.1);
+  animation: stv-glow 1.6s ease-in-out infinite;
 }
+.stv-orb.stv-phase-thinking .stv-orb-glow::after,
+.stv-orb.stv-phase-speaking .stv-orb-glow::after { background: rgb(var(--violet-rgb) / 0.16); }
+.stv-orb.stv-phase-welcome .stv-orb-body { animation: stv-breathe 2.2s ease-in-out infinite; }
+.stv-orb.stv-phase-waking .stv-orb-body { animation: stv-breathe 4.2s ease-in-out infinite; } /* 待命慢呼吸 */
+.stv-orb.stv-phase-closing { opacity: 0.5; }
+.stv-orb.stv-muted { opacity: 0.6; } /* 临时静音：暗淡驻息 */
+.stv-orb.stv-phase-closing .stv-orb-body,
+.stv-orb.stv-phase-closing .stv-orb-glow,
+.stv-orb.stv-muted .stv-orb-body,
+.stv-orb.stv-muted .stv-orb-glow { animation: none; }
+
+/* 表情面（相位=表情：listening 睁眼偶眨 / welcome 眯眼笑 / waking 半睁 /
+   thinking 瞄上 / closing+muted 闭眼。眼=void 方块——暗色题=墨瞳，亮色题
+   =亮孔，双题自恰；blink 硬切（关键帧紧邻百分比=像素 snap 不插值））*/
+.stv-orb-face { position: absolute; inset: 0; }
+.stv-eye {
+  position: absolute; top: 28px; width: 16px; height: 16px;
+  background: rgb(var(--void-rgb) / 0.85);
+  animation: stv-blink 4.6s linear infinite;
+}
+.stv-eye:nth-child(1) { left: 22px; }
+.stv-eye:nth-child(2) { left: 58px; }
+.stv-orb.stv-phase-welcome .stv-eye { animation: none; transform: scaleY(0.3) translateY(-1px); }
+.stv-orb.stv-phase-waking .stv-eye { animation: none; transform: scaleY(0.45); }
+.stv-orb.stv-phase-thinking .stv-eye { animation: none; transform: translate(-3px, -3px); }
+.stv-orb.stv-phase-closing .stv-eye,
+.stv-orb.stv-muted .stv-eye { animation: none; transform: scaleY(0.12); }
+
+/* 均衡器嘴（RMS=嘴动：--stv-b1..b3 由 TSX 预计算（E-124：calc 乘法不进
+   CSS），transition 跟帧；thinking 相位收拢成省略号序列脉冲（stagger 延迟
+   为常量，不涉 var/calc））*/
+.stv-mouth { position: absolute; left: 30px; top: 56px; display: flex; gap: 6px; }
+.stv-bar {
+  width: 8px; height: 18px;
+  background: rgb(var(--void-rgb) / 0.8);
+  transition: transform 0.09s linear;
+}
+.stv-bar:nth-child(1) { transform: scaleY(var(--stv-b1, 0.35)); }
+.stv-bar:nth-child(2) { transform: scaleY(var(--stv-b2, 0.5)); }
+.stv-bar:nth-child(3) { transform: scaleY(var(--stv-b3, 0.4)); }
+.stv-orb.stv-phase-thinking .stv-mouth { transform: scale(0.8); }
+.stv-orb.stv-phase-thinking .stv-bar { animation: stv-dots 1.2s linear infinite; }
+.stv-orb.stv-phase-thinking .stv-bar:nth-child(2) { animation-delay: 0.4s; }
+.stv-orb.stv-phase-thinking .stv-bar:nth-child(3) { animation-delay: 0.8s; }
+.stv-orb.stv-phase-closing .stv-bar,
+.stv-orb.stv-muted .stv-bar { transform: scaleY(0.15); transition: none; }
 @keyframes stv-breathe {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.88; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.92; transform: scale(1.04); }
+}
+@keyframes stv-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@keyframes stv-blink {
+  0%, 91% { transform: scaleY(1); }
+  92%, 94% { transform: scaleY(0.08); }
+  95%, 100% { transform: scaleY(1); }
+}
+@keyframes stv-dots {
+  0%, 32% { opacity: 1; }
+  33%, 99% { opacity: 0.3; }
+  100% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .stv { transition: none; }
   .stv-orb { animation: none; transition: none; }
-  .stv-orb-ring { transition: none; }
+  .stv-orb-body, .stv-orb-glow, .stv-eye,
+  .stv-orb.stv-phase-thinking .stv-bar { animation: none; }
+  .stv-bar { transition: none; }
 }
