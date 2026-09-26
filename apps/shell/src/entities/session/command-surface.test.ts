@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { COMMAND_SURFACE, LISTEN_SURFACE } from "./command-surface";
+import { PASSTHROUGH_EVENT_TYPES } from "@/entities/session/model/dispatcher";
 import type { CommandSurfaceDeps } from "./command-surface";
 import { topologyReducer } from "./model/topology";
 import { createInitialTopologyState } from "./model/state";
@@ -343,7 +344,7 @@ describe("COMMAND_SURFACE setSessionModel 返回值（code-review 族A，TR-168�
 describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
   const { match } = LISTEN_SURFACE.subscribeStewardFrames;
 
-  it("转发 steward 族回执/广播全清单（含 B1 action.completed 完成帧 + B4a sediment_proposal 提案帧）", () => {
+  it("转发 steward 族回执/广播全清单（含 B1 action.completed 完成帧 + B5 memory_written 记忆落盘通知帧）", () => {
     for (const type of [
       "steward.ask.result",
       "steward.ask.delta",
@@ -355,7 +356,7 @@ describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
       "steward.tool",
       "steward.thinking",
       "steward.navigate",
-      "steward.sediment_proposal",
+      "steward.memory_written",
       "steward.memory_list.result",
       "connection.error",
     ] as const) {
@@ -367,6 +368,18 @@ describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
     expect(match("embedding.list.result")).toBe(false);
     expect(match("voice.synthesize.chunk")).toBe(false);
     expect(match("agent.config.list.result")).toBe(false);
+  });
+
+  // TR-89 双登记纪律机械化（B5 复发实录：sediment_proposal → memory_written
+  // 改名时 dispatcher 登记同步、match 谓词漏改——帧在转发层被拦截，通知卡
+  // 静默不显示；逐帧字面量钉对改名不设防）。两清单互检：dispatcher 直通
+  // 登记里的 steward.* 帧必须全部落在 match 白名单内，漏登即红。
+  it("dispatcher 直通登记的 steward.* 帧全部落在 match 白名单（TR-89 双清单互检）", () => {
+    const passthroughSteward = PASSTHROUGH_EVENT_TYPES.filter((t) => t.startsWith("steward."));
+    expect(passthroughSteward.length).toBeGreaterThan(0);
+    for (const type of passthroughSteward) {
+      expect(match(type), `dispatcher 登记了 ${type} 但 match 谓词未转发`).toBe(true);
+    }
   });
 });
 

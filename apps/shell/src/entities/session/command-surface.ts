@@ -986,7 +986,7 @@ export const LISTEN_SURFACE = {
       type === "steward.tool" ||
       type === "steward.thinking" ||
       type === "steward.navigate" ||
-      type === "steward.sediment_proposal" ||
+      type === "steward.memory_written" ||
       type === "steward.memory_list.result" ||
       type === "connection.error",
   },
