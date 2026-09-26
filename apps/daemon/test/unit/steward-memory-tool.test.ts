@@ -56,8 +56,9 @@ function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort & {
 
 /** fake 记忆面（StewardMemoryService 形态——只实现本测试消费的方法子集）。 */
 function fakeMemory(
-  opts: { available?: boolean; recallSection?: string | undefined; recallThrows?: boolean; rememberFails?: boolean } = {},
+  opts: { available?: boolean; recallSection?: string | undefined; recallThrows?: boolean; rememberFails?: boolean; rememberFailsFirst?: boolean } = {},
 ) {
+  let rememberCalls = 0;
   const state = {
     remembers: [] as { text: string; kind: string; source: string }[],
     recalls: [] as string[],
@@ -80,9 +81,12 @@ function fakeMemory(
       return opts.recallSection;
     },
     remember: async (text: string, kind: "fact" | "preference", source: string) => {
-      if (opts.rememberFails === true) throw new Error("嵌入端点 503");
+      rememberCalls += 1;
+      if (opts.rememberFails === true || (opts.rememberFailsFirst === true && rememberCalls === 1)) {
+        throw new Error("嵌入端点 503");
+      }
       state.remembers.push({ text, kind, source });
-      return { id: state.remembers.length };
+      return { id: state.remembers.length, updated: false };
     },
     setMemoryConfig: async (patch: Record<string, unknown>) => {
       state.configPatches.push(patch);
@@ -103,6 +107,8 @@ function makeService(opts: {
   llm: StewardLlmPort;
   memory?: ReturnType<typeof fakeMemory>;
   config?: RuntimeConfigPort;
+  /** 轮末沉淀 money 闸（hasStewardSubscribers）——防双写用例需开。 */
+  subscribers?: boolean;
 }) {
   const notes: import("@helix/protocol").StewardMemoryWrittenPayload[] = [];
   const svc = new StewardService({
@@ -110,7 +116,7 @@ function makeService(opts: {
     orchestration: { status: () => [], send: () => ({ delivered: false, detail: "无实例" }) },
     tasks: { listTasks: () => [] },
     config: opts.config ?? fakeConfig({ "steward.enabled": "1" }),
-    feedGate: { hasStewardSubscribers: () => false },
+    feedGate: { hasStewardSubscribers: () => opts.subscribers ?? false },
     emitFeed: () => {},
     emitMemoryWritten: (payload) => notes.push(payload),
     ...(opts.memory !== undefined ? { memory: opts.memory } : {}),
@@ -201,5 +207,41 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
     const ok = await svc.setConfig({ memory: { enabled: true, endpointId: "ep-1" } });
     expect(ok.ok).toBe(true);
     expect(memory.configPatches.length).toBe(2);
+  });
+
+  // B5 防双写（e2e 复发实录：同一轮 remember 直写 added 后轮末沉淀又重写同容
+  // updated——两段查重判同条覆盖，数据无损但多一次重写调用 + 一张多余 updated 卡）
+  test("⑤ 防双写：轮内 remember 直写成功 → 同轮轮末沉淀跳过（零重写零二次入库单卡）", async () => {
+    const llm = fakeLlm([
+      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } },
+      { kind: "text", text: "记好了。" },
+      // 防御性脚本位：若防双写失效，轮末提取会消费此段（重写句）并二次入库
+      { kind: "text", text: "用户偏好回复要简洁。" },
+    ]);
+    const memory = fakeMemory();
+    const { svc, notes } = makeService({ llm, memory, subscribers: true });
+    const result = await svc.ask("记住：以后回复都简洁点");
+    expect(result.status).toBe("answer");
+    await svc.flushSediment();
+    expect(memory.remembers).toHaveLength(1); // 仅轮内直写一次（轮末零重写入库）
+    expect(llm.calls).toHaveLength(2); // 轮内两段调用；轮末零重写 LLM 调用
+    expect(notes).toHaveLength(1); // 单张 added 卡（无 updated 双卡）
+  });
+
+  test("⑥ 防双写不误伤：轮内 remember 存储失败 → 轮末照常沉淀（失败不置标记）", async () => {
+    const llm = fakeLlm([
+      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } },
+      { kind: "text", text: "刚才没存进去，我再确认下。" },
+      { kind: "text", text: "用户的项目在 helix 仓。" }, // 轮末重写提取段
+    ]);
+    const memory = fakeMemory({ rememberFailsFirst: true }); // 仅轮内首次失败，轮末补位成功
+    const { svc, notes } = makeService({ llm, memory, subscribers: true });
+    const result = await svc.ask("记住项目在 helix 仓");
+    expect(result.status).toBe("answer");
+    await svc.flushSediment();
+    expect(memory.remembers).toHaveLength(1); // 轮末 auto-sediment 补位入库
+    expect(memory.remembers[0]!.source).toBe("auto-sediment");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.mode).toBe("added");
   });
 });

@@ -761,6 +761,11 @@ export class StewardService {
    *  保留不丢）。 */
   private inFlight: Promise<StewardAskResultPayload> | null = null;
   private inFlightAbort: AbortController | null = null;
+  /** 当前在途轮的 userAt（directRemember 归属轮识别——防双写标记用）。 */
+  private currentAskAt = -1;
+  /** 最近一次轮内显式 remember 成功所属轮（同轮轮末沉淀跳过——B5 防双写；
+   *  轮标识比对天然防跨轮残留）。 */
+  private turnRememberedAt = -1;
   /** L1 件二：输入缓冲队列（上限 STEWARD_PENDING_ASKS_MAX）。 */
   private pendingAsks: PendingAsk[] = [];
 
@@ -874,6 +879,7 @@ export class StewardService {
       ),
     );
     const userAt = this.now();
+    this.currentAskAt = userAt;
     await this.pushRecord({ kind: "user", text: item.text, at: userAt });
     // A2：动态情景快照（每次 ask 组装一次——工具轮内状态变化由工具结果
     // 反映，不重取；感知查询失败静默降级为无快照段，绝不挡对话主链路）。
@@ -949,6 +955,13 @@ export class StewardService {
       return;
     }
     if (at <= this.dialog.judgedWatermark()) return; // 已判定（重复触发防御）
+    if (at === this.turnRememberedAt) {
+      // B5 防双写：本轮已显式 remember（直写入库 + 通知已发）——轮末重写
+      // 同容量极高（e2e 实录：同一偏好 added+updated 双卡）。推水位跳过；
+      // 对话另有增量时近三轮滑动窗下轮仍可提取（零丢失，至多延一轮）。
+      await this.dialog.markJudged(at);
+      return;
+    }
     const turns = this.recentTurnsText();
     if (turns === "") {
       await this.dialog.markJudged(at);
@@ -1806,6 +1819,7 @@ export class StewardService {
     }
     try {
       const saved = await memory.remember(text, kind, "steward-turn");
+      this.turnRememberedAt = this.currentAskAt; // 同轮轮末沉淀跳过（B5 防双写）
       this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
       const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
       return { kind: "result", text: capToolResultText(detail), summary: summarizeForFrame(detail) };
