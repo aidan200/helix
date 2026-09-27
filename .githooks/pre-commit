@@ -12,7 +12,11 @@
 #   2. manifest 缺失/不可读 → daemon 未跑或旧版，放行 + stderr 警示；
 #   3. staged 为空 → 放行；
 #   4. allowlist 路径（过程产物共享面）→ 放行。
-# 紧急绕过：git commit --no-verify。
+# 继承门（CAND-385 方向②）：HELIX_WRITE_FACTS_INHERIT=1 单次提交有效——
+#   写集合扩为 write-facts 目录全部 manifest 并集（检查点合入/修复其他
+#   会话产出的主会话显式通道）；任何会话都没写过的文件仍拒；不放宽
+#   日常提交的防卷入面（TR-63）。
+# 紧急绕过：git commit --no-verify（须手动补跑 scripts/typecheck-all.sh）。
 set -uo pipefail
 
 # ---- 护栏主体（独立于上方 typecheck 闸——两段互不阻断对方语义，
@@ -42,15 +46,39 @@ guard_write_facts() {
     return 0
   fi
 
-  # 本会话写过的路径（manifest JSON 的 paths 数组 → 每行一条）
-  local wrote
-  wrote="$(/usr/bin/python3 -c '
+  # 写集合选择（缺省=本会话 manifest；继承门=目录全部 manifest 并集）。
+  # 继承门（CAND-385 方向②）：检查点合入/修复场景的主会话显式通道——
+  # 分支文件由其他 daemon 会话产出，主会话对其有提交权（TR-184）。
+  # 并集空/解析失败回落本会话 manifest（失败安全方向=失败不放宽）。
+  local wrote=""
+  if [[ "${HELIX_WRITE_FACTS_INHERIT:-}" == "1" ]]; then
+    wrote="$(/usr/bin/python3 -c '
+import json, glob, os, sys
+paths = set()
+for mf in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
+    try:
+        with open(mf, "r") as f:
+            data = json.load(f)
+        paths.update(data.get("paths", []))
+    except Exception:
+        continue
+for p in sorted(paths):
+    print(p)
+' "$manifest_dir" 2>/dev/null | sed '/^$/d')"
+    if [[ -n "$wrote" ]]; then
+      echo "[write-facts] 继承门：写账并集（$(printf '%s\n' "$wrote" | wc -l | tr -d ' ') 路径 / $(ls "$manifest_dir"/*.json 2>/dev/null | wc -l | tr -d ' ') manifest）——检查点合入面" >&2
+    fi
+  fi
+  if [[ -z "$wrote" ]]; then
+    # 本会话写过的路径（manifest JSON 的 paths 数组 → 每行一条）
+    wrote="$(/usr/bin/python3 -c '
 import json, sys
 with open(sys.argv[1], "r") as f:
     data = json.load(f)
 for p in data.get("paths", []):
     print(p)
 ' "$manifest" 2>/dev/null | sed '/^$/d')"
+  fi
 
   # allowlist：过程产物共享面（多会话天然共写）
   local allowlist='^\.helix/|^docs/temp/|/\.helix/'
@@ -78,10 +106,11 @@ for p in data.get("paths", []):
     echo "✗ [write-facts] 暂存了本会话从未写过的文件（可能是其他会话的在制工作）：" >&2
     printf '    %s\n' "${violations[@]}" >&2
     echo "" >&2
-    echo "  处置：" >&2
-    echo "  · 若非本会话工作：git restore --staged <file> 后重新提交" >&2
-    echo "  · 若确为本会话工作但未被感知：对该文件执行一次写操作后再提交" >&2
-    echo "  · 确认无误强行提交：git commit --no-verify" >&2
+    echo "  处置（自上而下按场景选，每条均可达）：" >&2
+    echo "  · 非本会话工作（误卷入）：git restore --staged <file> 后重新提交" >&2
+    echo "  · 检查点合入/修复其他会话产出：HELIX_WRITE_FACTS_INHERIT=1 git commit …（写账继承门——全部 helix 会话产出面视为可提交）" >&2
+    echo "  · 本会话 bash 路径编辑未被感知：用 write/edit 工具对该文件做一次幂等重写后再提交" >&2
+    echo "  · 确认无误强行提交：git commit --no-verify，且必须手动补跑 scripts/typecheck-all.sh（--no-verify 跳过了 typecheck 闸）" >&2
     return 1
   fi
   return 0

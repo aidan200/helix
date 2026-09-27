@@ -138,6 +138,9 @@ describe("pre-commit hook 护栏（TR-63 场景）", () => {
       expect(r.ok).toBe(false);
       expect(r.stderr).toContain("write-facts");
       expect(r.stderr).toContain("f-b.ts");
+      // 方向③：拒单处置提示必须真实可达——含继承门命令与 --no-verify 补位义务
+      expect(r.stderr).toContain("HELIX_WRITE_FACTS_INHERIT=1");
+      expect(r.stderr).toContain("typecheck-all");
       // B 的文件留在工作区（未进提交）：首次提交被拒 = 仓无 HEAD（成功信号本身）；
       // 若有 HEAD（重试路径）则新提交不含 f-b.ts
       // HEAD 存在性经 rev-parse 输出判空（失败/无 HEAD 输出空串——绕开 exitCode 类型面）
@@ -199,6 +202,98 @@ describe("pre-commit hook 护栏（TR-63 场景）", () => {
       if (!r.ok) {
         expect(r.stderr).not.toContain("从未写过");
       }
+    } finally {
+      await rm(join(repo, ".."), { recursive: true, force: true });
+    }
+  });
+
+  it("继承门（CAND-385 方向②）：INHERIT=1 写账并集放行其他会话产出 + 审计行", async () => {
+    const { repo, manifests } = await fixtureRepo();
+    try {
+      // 主会话（sess-a）写 f-a；另一 daemon 会话（sess-b，如 SubAgent 任务会话）
+      // 写 f-b——检查点合入/修复场景：主会话提交面含他-session 产出
+      await writeFile(join(repo, "f-a.ts"), "a", "utf8");
+      await writeFile(join(repo, "f-b.ts"), "b", "utf8");
+      await writeFile(
+        join(manifests, "sess-a.json"),
+        JSON.stringify({ sessionId: "sess-a", updatedAt: Date.now(), paths: [join(repo, "f-a.ts")] }),
+        "utf8",
+      );
+      await writeFile(
+        join(manifests, "sess-b.json"),
+        JSON.stringify({ sessionId: "sess-b", updatedAt: Date.now(), paths: [join(repo, "f-b.ts")] }),
+        "utf8",
+      );
+      await $`git -C ${repo} add .`;
+      const r = await commit(repo, {
+        HELIX_SESSION_ID: "sess-a",
+        HELIX_WRITE_FACTS_DIR: manifests,
+        HELIX_WRITE_FACTS_INHERIT: "1",
+      });
+      expect(r.stderr).toContain("继承门"); // 审计行可见（几会话并集交代）
+      if (!r.ok) {
+        expect(r.stderr).not.toContain("从未写过"); // 护栏未拦（失败只可能来自 typecheck 脚本缺）
+      }
+    } finally {
+      await rm(join(repo, ".."), { recursive: true, force: true });
+    }
+  });
+
+  it("继承门不放开未知面：INHERIT=1 下无任何 manifest 覆盖的文件仍拒", async () => {
+    const { repo, manifests } = await fixtureRepo();
+    try {
+      await writeFile(join(repo, "f-mine.ts"), "m", "utf8");
+      await writeFile(join(repo, "f-unknown.ts"), "u", "utf8"); // 不在任何写账里
+      await writeFile(
+        join(manifests, "sess-a.json"),
+        JSON.stringify({ sessionId: "sess-a", updatedAt: Date.now(), paths: [join(repo, "f-mine.ts")] }),
+        "utf8",
+      );
+      await writeFile(
+        join(manifests, "sess-b.json"),
+        JSON.stringify({ sessionId: "sess-b", updatedAt: Date.now(), paths: [join(repo, "f-mine.ts")] }),
+        "utf8",
+      );
+      await $`git -C ${repo} add .`;
+      const r = await commit(repo, {
+        HELIX_SESSION_ID: "sess-a",
+        HELIX_WRITE_FACTS_DIR: manifests,
+        HELIX_WRITE_FACTS_INHERIT: "1",
+      });
+      expect(r.ok).toBe(false);
+      expect(r.stderr).toContain("write-facts");
+      expect(r.stderr).toContain("f-unknown.ts");
+    } finally {
+      await rm(join(repo, ".."), { recursive: true, force: true });
+    }
+  });
+
+  it("继承门须显式 =1：其他取值不激活（缺省拒绝保持）", async () => {
+    const { repo, manifests } = await fixtureRepo();
+    try {
+      await writeFile(join(repo, "f-a.ts"), "a", "utf8");
+      await writeFile(join(repo, "f-b.ts"), "b", "utf8");
+      await writeFile(
+        join(manifests, "sess-a.json"),
+        JSON.stringify({ sessionId: "sess-a", updatedAt: Date.now(), paths: [join(repo, "f-a.ts")] }),
+        "utf8",
+      );
+      await writeFile(
+        join(manifests, "sess-b.json"),
+        JSON.stringify({ sessionId: "sess-b", updatedAt: Date.now(), paths: [join(repo, "f-b.ts")] }),
+        "utf8",
+      );
+      await $`git -C ${repo} add .`;
+      const r = await commit(repo, {
+        HELIX_SESSION_ID: "sess-a",
+        HELIX_WRITE_FACTS_DIR: manifests,
+        HELIX_WRITE_FACTS_INHERIT: "yes", // 非 1：不激活——防环境误置宽面
+      });
+      expect(r.ok).toBe(false);
+      expect(r.stderr).toContain("f-b.ts");
+      // 门未激活的信号：审计行（带 [write-facts] 前缀的并集交代）不出现——
+      // 拒单提示文案里的「写账继承门」是指引不是激活证据
+      expect(r.stderr).not.toContain("[write-facts] 继承门");
     } finally {
       await rm(join(repo, ".."), { recursive: true, force: true });
     }
