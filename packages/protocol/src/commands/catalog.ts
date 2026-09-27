@@ -120,6 +120,8 @@ import type {
   StewardMemoryAppendCommand,
   StewardMemoryUpdateCommand,
   StewardMemoryDeleteCommand,
+  StewardMemoryPinCommand,
+  StewardMemoryRestoreCommand,
 } from "./steward";
 import type {
   EmbeddingListCommand,
@@ -237,6 +239,8 @@ export type CommandEnvelope =
   | StewardMemoryAppendCommand
   | StewardMemoryUpdateCommand
   | StewardMemoryDeleteCommand
+  | StewardMemoryPinCommand
+  | StewardMemoryRestoreCommand
   | EmbeddingListCommand
   | EmbeddingSetCommand
   | EmbeddingDeleteCommand
@@ -285,6 +289,9 @@ export const COMMAND_TYPES = [
   "steward.memory_append",
   "steward.memory_update",
   "steward.memory_delete",
+  // 遗忘机制批：置顶（永不淡忘永不 GC）+ 淡忘恢复（共用 memory_list.result 回执）
+  "steward.memory_pin",
+  "steward.memory_restore",
   // embedding 配置域（管家记忆 B2）：向量端点 CRUD + 连通测试（独立配置域，
   // 模型页向量 tab 消费；apiKey 只进不出）
   "embedding.list",

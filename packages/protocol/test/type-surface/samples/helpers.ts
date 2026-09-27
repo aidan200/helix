@@ -623,6 +623,12 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.cancel":
       // B1 两段式确认批：确认卡作废（无回执）
       return `steward-cancel:${cmd.payload.actionId}`;
+    case "steward.memory_pin":
+      // 遗忘机制批：置顶切换
+      return `steward-memory-pin:${cmd.payload.id}:${String(cmd.payload.pinned)}`;
+    case "steward.memory_restore":
+      // 遗忘机制批：淡忘恢复
+      return `steward-memory-restore:${cmd.payload.id}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

@@ -27,6 +27,15 @@ export interface StewardMemoryEntry {
   readonly createdAt: number;
   /** 最后更新时间（epoch ms；B5 覆盖更新时刷新——append 时 = createdAt）。 */
   readonly updatedAt: number;
+  /** 最近一次被召回时刻（epoch ms；遗忘机制批——0 = 从未被想起；新条目
+   *  = createdAt，强度锄点取 max(lastRecalledAt, updatedAt)）。 */
+  readonly lastRecalledAt: number;
+  /** 累计被召回次数（每次注入 system prompt 记一次——复习强化）。 */
+  readonly recallCount: number;
+  /** 淡忘时刻（epoch ms；0 = active；非 0 = 退出召回池，观察窗后物理删除）。 */
+  readonly fadedAt: number;
+  /** 已置顶（永不淡忘永不 GC，强度恒满；用户 explicit 保护位）。 */
+  readonly pinned: boolean;
 }
 
 /** 召回命中（条目 + 相似度分数——cosine distance 转 similarity，越大越像）。 */
@@ -52,8 +61,20 @@ export interface StewardMemoryPort {
   list(): readonly StewardMemoryEntry[];
   /** 按 id 删除（条目 + 向量同事务；id 不存在 → false）。 */
   forget(id: number): boolean;
-  /** 条目编辑重写（text + 向量 + updatedAt 单事务；id 不存在 → false）。 */
+  /** 条目编辑重写（text + 向量 + updatedAt 单事务；编辑即救活——faded
+   *  同事务归零；id 不存在 → false）。 */
   updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number): boolean;
+  /** 召回幸存者回写（lastRecalledAt=at + recallCount+1；仅注入者算复习——
+   *  候选池陪跑不记）。 */
+  markRecalled(ids: readonly number[], at: number): void;
+  /** 置顶切换（pinned=true：置位 + 清 faded + 刷 updatedAt 浮顶；pinned=false：
+   *  只清置位不动其他；id 不存在 → false）。 */
+  setPinned(id: number, pinned: boolean, at: number): boolean;
+  /** 淡忘恢复（faded_at 归零 + 刷 updatedAt 满血复活；active 条目幂等 no-op
+   *  → false；id 不存在 → false）。 */
+  restore(id: number, at: number): boolean;
+  /** 批量淡忘（GC fade 段：faded_at=at；空数组 no-op）。 */
+  fadeMany(ids: readonly number[], at: number): void;
   /** 条目总数。 */
   count(): number;
   /** 当前向量维度（meta 表；向量面未初始化 → null）。 */

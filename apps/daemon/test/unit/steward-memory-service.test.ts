@@ -39,6 +39,10 @@ import {
   STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD,
   STEWARD_MEMORY_SAME_THRESHOLD,
   STEWARD_MEMORY_RECALL_MIN_SCORE,
+  STEWARD_MEMORY_SOFT_CAP,
+  memoryStrength,
+  pickFadeCandidates,
+  pickPurgeCandidates,
   type EmbeddingConfigLookup,
 } from "../../src/application/steward/StewardMemoryService";
 
@@ -89,12 +93,23 @@ function fakeEmbedding(dim = 3, fail = false): EmbeddingPort & { calls: string[]
   };
 }
 
+/** 遗忘机制批内联构造糖：补缺省生命周期字段（显式携带位覆盖缺省）。 */
+function life(
+  e: Pick<StewardMemoryEntry, "id" | "kind" | "text" | "source" | "createdAt" | "updatedAt"> & Partial<StewardMemoryEntry>,
+): StewardMemoryEntry {
+  return { lastRecalledAt: e.updatedAt, recallCount: 0, fadedAt: 0, pinned: false, ...e };
+}
+
 function fakeStore(dim: number | null = 3): StewardMemoryPort & {
   appended: StewardMemoryAppendItem[];
   resets: number[];
   puts: { id: number }[];
   entries: StewardMemoryEntry[];
   updated: { id: number; text: string }[];
+  recalled: { ids: number[]; at: number }[];
+  fades: number[];
+  pins: { id: number; pinned: boolean }[];
+  restores: number[];
 } {
   const state = {
     appended: [] as StewardMemoryAppendItem[],
@@ -102,6 +117,10 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
     puts: [] as { id: number }[],
     entries: [] as StewardMemoryEntry[],
     updated: [] as { id: number; text: string }[],
+    recalled: [] as { ids: number[]; at: number }[],
+    fades: [] as number[],
+    pins: [] as { id: number; pinned: boolean }[],
+    restores: [] as number[],
     dim,
   };
   return {
@@ -109,13 +128,10 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
     append(items) {
       state.appended.push(...items);
       for (const item of items) {
-        state.entries.push({
-          id: state.entries.length + 1,
-          kind: item.kind,
-          text: item.text,
-          source: item.source,
-          createdAt: item.createdAt, updatedAt: item.createdAt,
-        });
+        // 遗忘机制批：新条目满强度起步（与真 store 同口径——last_recalled_at = createdAt）
+        state.entries.push(
+          life({ id: state.entries.length + 1, kind: item.kind, text: item.text, source: item.source, createdAt: item.createdAt, updatedAt: item.createdAt }),
+        );
       }
     },
     search(query, topK): readonly StewardMemoryHit[] {
@@ -132,6 +148,30 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
       if (!state.entries.some((e) => e.id === id)) return false;
       state.entries = state.entries.map((e) => (e.id === id ? { ...e, text } : e));
       return true;
+    },
+    markRecalled(ids, at) {
+      state.recalled.push({ ids: [...ids], at });
+      const hit = new Set(ids);
+      state.entries = state.entries.map((e) => (hit.has(e.id) ? { ...e, lastRecalledAt: at, recallCount: e.recallCount + 1 } : e));
+    },
+    setPinned(id, pinned, at) {
+      if (!state.entries.some((e) => e.id === id)) return false;
+      state.pins.push({ id, pinned });
+      state.entries = state.entries.map((e) =>
+        e.id === id ? (pinned ? { ...e, pinned: true, fadedAt: 0, updatedAt: at } : { ...e, pinned: false }) : e,
+      );
+      return true;
+    },
+    restore(id, at) {
+      if (!state.entries.some((e) => e.id === id && e.fadedAt !== 0)) return false;
+      state.restores.push(id);
+      state.entries = state.entries.map((e) => (e.id === id ? { ...e, fadedAt: 0, updatedAt: at } : e));
+      return true;
+    },
+    fadeMany(ids, at) {
+      const hit = new Set(ids);
+      state.fades.push(...ids);
+      state.entries = state.entries.map((e) => (hit.has(e.id) && e.fadedAt === 0 ? { ...e, fadedAt: at } : e));
     },
     count: () => state.entries.length,
     storedDim: () => state.dim,
@@ -188,8 +228,8 @@ function judgeLookup(): EmbeddingConfigLookup {
 describe("StewardMemoryService", () => {
   test("① 召回注入：记忆段文本（kind 中文标注 + 参考性声明）；空命中 → undefined", async () => {
     const store = fakeStore();
-    store.entries.push({ id: 1, kind: "preference", text: "回复要简洁", source: "s", createdAt: 1, updatedAt: 1 });
-    store.entries.push({ id: 2, kind: "fact", text: "项目在 helix 仓", source: "s", createdAt: 2, updatedAt: 2 });
+    store.entries.push(life({ id: 1, kind: "preference", text: "回复要简洁", source: "s", createdAt: 1, updatedAt: 1 }));
+    store.entries.push(life({ id: 2, kind: "fact", text: "项目在 helix 仓", source: "s", createdAt: 2, updatedAt: 2 }));
     const svc = new StewardMemoryService({
       config: fakeConfig(ENABLED_KV),
       embedding: fakeEmbedding(),
@@ -282,8 +322,8 @@ describe("StewardMemoryService", () => {
 
   test("④ 维度切换重建：resetVectors + 全量条目重嵌入回填", async () => {
     const store = fakeStore(3);
-    store.entries.push({ id: 7, kind: "fact", text: "旧条目甲", source: "s", createdAt: 1, updatedAt: 1 });
-    store.entries.push({ id: 8, kind: "fact", text: "旧条目乙", source: "s", createdAt: 2, updatedAt: 2 });
+    store.entries.push(life({ id: 7, kind: "fact", text: "旧条目甲", source: "s", createdAt: 1, updatedAt: 1 }));
+    store.entries.push(life({ id: 8, kind: "fact", text: "旧条目乙", source: "s", createdAt: 2, updatedAt: 2 }));
     const embedding = fakeEmbedding(4); // 新模型 4 维
     const svc = new StewardMemoryService({ config: fakeConfig(ENABLED_KV), embedding, embeddingConfig: fakeLookup(), store });
     await svc.remember("新条目", "fact", "steward-turn");
@@ -377,7 +417,7 @@ describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () =>
     topScore: number,
   ): StewardMemoryPort & { appended: StewardMemoryAppendItem[]; updated: { id: number; text: string; updatedAt: number }[] } {
     const entries: StewardMemoryEntry[] = [
-      { id: 7, kind: "preference", text: "回复要简洁", source: "steward-turn", createdAt: 1000, updatedAt: 1000 },
+      life({ id: 7, kind: "preference", text: "回复要简洁", source: "steward-turn", createdAt: 1000, updatedAt: 1000 }),
     ];
     const appended: StewardMemoryAppendItem[] = [];
     const updated: { id: number; text: string; updatedAt: number }[] = [];
@@ -386,7 +426,7 @@ describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () =>
       updated,
       append(items) {
         appended.push(...items);
-        entries.push({ id: 8, kind: items[0]!.kind, text: items[0]!.text, source: items[0]!.source, createdAt: items[0]!.createdAt, updatedAt: items[0]!.createdAt });
+        entries.push(life({ id: 8, kind: items[0]!.kind, text: items[0]!.text, source: items[0]!.source, createdAt: items[0]!.createdAt, updatedAt: items[0]!.createdAt }));
       },
       search: () => [{ ...entries[0]!, score: topScore }],
       list: () => entries,
@@ -395,6 +435,10 @@ describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () =>
         updated.push({ id, text, updatedAt });
         return true;
       },
+      markRecalled: () => {},
+      setPinned: () => false,
+      restore: () => false,
+      fadeMany: () => {},
       count: () => entries.length,
       storedDim: () => 3,
       resetVectors: () => {},
@@ -578,5 +622,191 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
     await svc.setMemoryConfig({ judgeEndpointId: "" });
     expect(svc.getMemoryState().judgeEndpoint).toBeNull();
     expect(svc.judgeSedimentAvailable()).toBe(false);
+  });
+});
+
+// ── 遗忘机制批：强度/召回融合/GC 三段/pin·restore/软上限 ─────────
+
+describe("StewardMemoryService 遗忘机制批", () => {
+  const DAY = 24 * 3_600_000;
+
+  test("① memoryStrength：半衰计算/强化倍率/封顶/manual·pinned 恒满", () => {
+    const far = 400 * DAY;
+    const base = { kind: "preference" as const, source: "steward-turn", createdAt: 0, updatedAt: 0, lastRecalledAt: 0, pinned: false };
+    // anchor = 0，直接传流逝时刻：一个半衰期（preference 30d）→ 0.5
+    expect(memoryStrength({ ...base, recallCount: 0 }, 30 * DAY)).toBeCloseTo(0.5, 5);
+    // fact 半衰 60d → 0.5
+    expect(memoryStrength({ ...base, kind: "fact", recallCount: 0 }, 60 * DAY)).toBeCloseTo(0.5, 5);
+    // 强化：被想起 2 次（半衰 ×4 = 120d）→ 120d 后仍 0.5
+    expect(memoryStrength({ ...base, recallCount: 2 }, 120 * DAY)).toBeCloseTo(0.5, 5);
+    // 封顶：强化 8 次（×256）→ 半衰钉在 365d
+    expect(memoryStrength({ ...base, recallCount: 8 }, 365 * DAY)).toBeCloseTo(0.5, 3);
+    // manual/pinned 恒满（千年不衰）
+    expect(memoryStrength({ ...base, source: "manual", recallCount: 0 }, far + 1000 * 365 * DAY)).toBe(1);
+    expect(memoryStrength({ ...base, pinned: true, recallCount: 0 }, far + 1000 * 365 * DAY)).toBe(1);
+  });
+
+  test("② pickFadeCandidates：公平期豁免/manual·pinned 豁免/已 fade 不重复/强度线", () => {
+    const now = 400 * DAY;
+    const fresh = life({ id: 1, kind: "preference", text: "新", source: "s", createdAt: now - 10 * DAY, updatedAt: now - 10 * DAY });
+    const stale = life({ id: 2, kind: "preference", text: "旧", source: "s", createdAt: 0, updatedAt: 0 });
+    const manualOld = life({ id: 3, kind: "preference", text: "手写", source: "manual", createdAt: 0, updatedAt: 0 });
+    const pinnedOld = { ...life({ id: 4, kind: "preference", text: "置顶", source: "s", createdAt: 0, updatedAt: 0 }), pinned: true };
+    const alreadyFaded = { ...life({ id: 5, kind: "preference", text: "已淡", source: "s", createdAt: 0, updatedAt: 0 }), fadedAt: now - 5 * DAY };
+    const recentlyRecalled = { ...life({ id: 6, kind: "preference", text: "常用", source: "s", createdAt: 0, updatedAt: 0 }), lastRecalledAt: now - 5 * DAY, recallCount: 3 };
+    const picked = pickFadeCandidates([fresh, stale, manualOld, pinnedOld, alreadyFaded, recentlyRecalled], now);
+    expect(picked.map((e) => e.id)).toEqual([2]);
+  });
+
+  test("③ pickPurgeCandidates：观察窗外删除；窗内保留", () => {
+    const now = 100 * DAY;
+    const inWindow = { ...life({ id: 1, kind: "fact", text: "a", source: "s", createdAt: 0, updatedAt: 0 }), fadedAt: now - 10 * DAY };
+    const outWindow = { ...life({ id: 2, kind: "fact", text: "b", source: "s", createdAt: 0, updatedAt: 0 }), fadedAt: now - 31 * DAY };
+    expect(pickPurgeCandidates([inWindow, outWindow], now).map((e) => e.id)).toEqual([2]);
+  });
+
+  test("④ 召回融合：faded 不出线；时间权重只影响竞争位；幸存者回写（陪跑不记）", async () => {
+    const store = fakeStore();
+    const now = 100 * DAY;
+    store.entries.push(
+      life({ id: 1, kind: "preference", text: "老偏好", source: "s", createdAt: 0, updatedAt: 0 }),
+      life({ id: 2, kind: "preference", text: "新偏好", source: "s", createdAt: now - DAY, updatedAt: now - DAY }),
+      { ...life({ id: 3, kind: "preference", text: "淡忘条目", source: "s", createdAt: 0, updatedAt: 0 }), fadedAt: now - DAY },
+    );
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => now,
+    });
+    const section = await svc.recallSection("偏好");
+    expect(section).toContain("新偏好");
+    expect(section).toContain("老偏好"); // topK=5 内仍出线（资格闸不受时间权重影响）
+    expect(section).not.toContain("淡忘条目");
+    // 回写：注入幸存者（排序后 [新, 老]——新条目强度高胜出首位）；faded 3 号不记
+    expect(store.recalled).toEqual([{ ids: [2, 1], at: now }]);
+    expect(store.list().find((e) => e.id === 2)!.recallCount).toBe(1);
+    expect(store.list().find((e) => e.id === 3)!.recallCount).toBe(0);
+  });
+
+  test("⑤ 唯一强相关的老条目仍能出线并复活（资格与排序解耦）", async () => {
+    const store = fakeStore();
+    const now = 400 * DAY; // 强度≈0（远超三个半衰期）
+    store.entries.push(life({ id: 9, kind: "fact", text: "孤本事实", source: "s", createdAt: 0, updatedAt: 0 }));
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => now,
+    });
+    const section = await svc.recallSection("孤本");
+    expect(section).toContain("孤本事实");
+    expect(store.recalled[0]!.ids).toEqual([9]); // 出线即回写复活（锄点刷新）
+  });
+
+  test("⑥ GC 三段：fade（观察窗内不删）→ 观察窗外物理删；复活重置观察窗", () => {
+    const store = fakeStore();
+    let now = 400 * DAY;
+    store.entries.push(
+      life({ id: 1, kind: "preference", text: "旧A", source: "s", createdAt: 0, updatedAt: 0 }),
+      life({ id: 2, kind: "preference", text: "旧B", source: "s", createdAt: 0, updatedAt: 0 }),
+    );
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => now,
+    });
+    svc.gcNow();
+    expect(store.fades.sort()).toEqual([1, 2]); // 第一轮：fade
+    expect(store.list()).toHaveLength(2); // 观察窗内不物理删
+    // 复活 1 号（重置观察窗）
+    now += 10 * DAY;
+    expect(svc.restoreMemoryEntry(1)).toBe(true);
+    // 观察窗外第二轮：只删 2（1 号已复活不在 purge 候选）
+    now += 31 * DAY;
+    svc.gcNow();
+    expect(store.list().map((e) => e.id)).toEqual([1]);
+    expect(store.list()[0]!.fadedAt).toBe(0);
+  });
+
+  test("⑦ maybeGc 节流：窗口内二连零动作；窗口外放行", () => {
+    const store = fakeStore();
+    let now = 400 * DAY;
+    store.entries.push(life({ id: 1, kind: "preference", text: "旧", source: "s", createdAt: 0, updatedAt: 0 }));
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => now,
+    });
+    svc.maybeGc();
+    expect(store.fades).toEqual([1]);
+    now += DAY; // 窗口内
+    svc.maybeGc();
+    expect(store.fades).toEqual([1]); // 零新增动作
+    now += 25 * 3_600_000 * 24; // 超窗口
+    svc.maybeGc();
+    expect(store.fades).toEqual([1]); // 该条目已 faded（fadeMany 只动 active）——零动作即验证节流后仍无重复 fade
+  });
+
+  test("⑧ 软上限：append 后 count > SOFT_CAP → 主动 GC（绕节流）", async () => {
+    const store = fakeStore();
+    const now = 400 * DAY;
+    store.entries.push(life({ id: 1, kind: "preference", text: "旧", source: "s", createdAt: 0, updatedAt: 0 }));
+    // 覆写 count 触发软上限面（不真插 2000 条）
+    (store as { count: () => number }).count = () => STEWARD_MEMORY_SOFT_CAP + 1;
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => now,
+    });
+    const outcome = await svc.appendMemoryEntry("手动记一条");
+    expect(outcome.ok).toBe(true);
+    expect(store.fades).toEqual([1]); // append 后主动 GC 已 fade 旧条目
+  });
+
+  test("⑨ pin/restore 委托：置顶隐含解除淡忘 + 刷 updatedAt；active restore 幂等 no-op", () => {
+    const store = fakeStore();
+    const now = 400 * DAY;
+    store.entries.push({ ...life({ id: 1, kind: "preference", text: "旧", source: "s", createdAt: 0, updatedAt: 0 }), fadedAt: now - DAY });
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => now,
+    });
+    // active restore no-op（faded 才可恢复）
+    expect(svc.restoreMemoryEntry(99)).toBe(false);
+    // 置顶隐含解除淡忘 + 刷 updatedAt
+    expect(svc.pinMemoryEntry(1, true)).toBe(true);
+    const pinned = store.list()[0]!;
+    expect(pinned.pinned).toBe(true);
+    expect(pinned.fadedAt).toBe(0);
+    expect(pinned.updatedAt).toBe(now);
+    // 置顶条目强度恒满（永不 fade）
+    expect(memoryStrength(pinned, now + 10_000 * DAY)).toBe(1);
+    expect(svc.pinMemoryEntry(1, false)).toBe(true); // 取消置顶
+    expect(store.list()[0]!.pinned).toBe(false);
+  });
+
+  test("⑩ GC 定时器：startGcTimer 幂等 + dispose 清理", () => {
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store: fakeStore(),
+    });
+    svc.startGcTimer();
+    svc.startGcTimer(); // 幂等（不叠加定时器）
+    svc.dispose();
+    svc.dispose(); // 幂等
   });
 });

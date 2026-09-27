@@ -90,4 +90,90 @@ describe("SqliteVecMemoryStore（真库）", () => {
     expect(store.search(V_A, 5)).toEqual([]);
     store.close();
   });
+
+  // ── 遗忘机制批：生命周期四列 + 生命周期写面 ─────────────────
+
+  test("⑥ 遗忘机制批：新条目生命周期缺省（满强度起步）+ search/list 携带新列", () => {
+    const store = makeStore();
+    store.append([{ kind: "preference", text: "甲", source: "steward-turn", createdAt: 1000, vector: V_A }]);
+    const e = store.list()[0]!;
+    expect(e.lastRecalledAt).toBe(1000); // = createdAt（锄点即创建时刻）
+    expect(e.recallCount).toBe(0);
+    expect(e.fadedAt).toBe(0);
+    expect(e.pinned).toBe(false);
+    const hit = store.search(V_A, 1)[0]!;
+    expect(hit.lastRecalledAt).toBe(1000); // search hit 同源携带（融合排序素材）
+    expect(hit.fadedAt).toBe(0);
+    store.close();
+  });
+
+  test("⑦ markRecalled：批量回写（at + recallCount 累加）", () => {
+    const store = makeStore();
+    store.append([
+      { kind: "fact", text: "甲", source: "t", createdAt: 1, vector: V_A },
+      { kind: "fact", text: "乙", source: "t", createdAt: 2, vector: V_B },
+    ]);
+    const [a, b] = store.list();
+    store.markRecalled([a!.id], 5000);
+    const after = store.list();
+    expect(after[0]!.lastRecalledAt).toBe(5000);
+    expect(after[0]!.recallCount).toBe(1);
+    expect(after[1]!.lastRecalledAt).toBe(2); // 未命中不动
+    expect(after[1]!.recallCount).toBe(0);
+    void b;
+    store.close();
+  });
+
+  test("⑧ fadeMany/restore：fade 幂等只动 active；restore 仅 faded 生效且刷 updatedAt", () => {
+    const store = makeStore();
+    store.append([
+      { kind: "fact", text: "甲", source: "t", createdAt: 1, vector: V_A },
+      { kind: "fact", text: "乙", source: "t", createdAt: 2, vector: V_B },
+    ]);
+    const [a, b] = store.list();
+    store.fadeMany([a!.id, b!.id], 100);
+    expect(store.list().map((e) => e.fadedAt)).toEqual([100, 100]);
+    store.fadeMany([a!.id], 200); // 已 faded 不重复刷（观察窗锄点稳定）
+    expect(store.list()[0]!.fadedAt).toBe(100);
+    // restore：faded → 满血；active → no-op
+    expect(store.restore(a!.id, 300)).toBe(true);
+    const restored = store.list()[0]!;
+    expect(restored.fadedAt).toBe(0);
+    expect(restored.updatedAt).toBe(300);
+    expect(store.restore(a!.id, 400)).toBe(false); // active 幂等 no-op
+    expect(store.list()[0]!.updatedAt).toBe(300);
+    expect(store.restore(999, 500)).toBe(false); // 不存在
+    store.close();
+  });
+
+  test("⑨ setPinned：置顶隐含解除淡忘 + 刷 updatedAt；取消只清置位", () => {
+    const store = makeStore();
+    store.append([{ kind: "fact", text: "甲", source: "t", createdAt: 1, vector: V_A }]);
+    const id = store.list()[0]!.id;
+    store.fadeMany([id], 100);
+    expect(store.setPinned(id, true, 500)).toBe(true);
+    const pinned = store.list()[0]!;
+    expect(pinned.pinned).toBe(true);
+    expect(pinned.fadedAt).toBe(0);
+    expect(pinned.updatedAt).toBe(500);
+    expect(store.setPinned(id, false, 600)).toBe(true);
+    const unpinned = store.list()[0]!;
+    expect(unpinned.pinned).toBe(false);
+    expect(unpinned.updatedAt).toBe(500); // 取消置顶不刷时间
+    expect(store.setPinned(999, true, 700)).toBe(false); // 不存在
+    store.close();
+  });
+
+  test("⑩ updateEntry 编辑即救活：faded_at 同事务归零", () => {
+    const store = makeStore();
+    store.append([{ kind: "fact", text: "甲", source: "t", createdAt: 1, vector: V_A }]);
+    const id = store.list()[0]!.id;
+    store.fadeMany([id], 100);
+    expect(store.updateEntry(id, "甲（改）", V_C, 900)).toBe(true);
+    const edited = store.list()[0]!;
+    expect(edited.text).toBe("甲（改）");
+    expect(edited.fadedAt).toBe(0);
+    expect(edited.updatedAt).toBe(900);
+    store.close();
+  });
 });

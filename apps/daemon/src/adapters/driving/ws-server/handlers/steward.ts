@@ -295,23 +295,32 @@ export function handleAgentStewardProfileGet(ctx: StewardCommandContext): void {
   ctx.sendNow(sender, frame);
 }
 
-/** 记忆条目清单回执（管家记忆 B2：memory_list/append/update/delete 四命令
- *  共用——写后即回新清单；条目 → 协议视图（sourceTurn = 存储 source））。 */
+/** 记忆条目清单回执（管家记忆 B2：memory_list/append/update/delete +
+ *  遗忘机制批 pin/restore 六命令共用——写后即回新清单；条目 → 协议视图
+ *  （sourceTurn = 存储 source；生命周期字段逐字段显式透传——TR-159 纪律，
+ *  帧级断言钉死在 steward-memory-frame 测试）；排序 updatedAt 降序——
+ *  覆盖更新/复活/置顶浮顶可见）。 */
 function respondMemoryList(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const service = ctx.steward.service;
+  const entries = [...service.listMemoryEntries()].sort((a, b) => b.updatedAt - a.updatedAt);
   const frame: import("@helix/protocol").StewardMemoryListResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
     channel: "steward",
     type: "steward.memory_list.result",
     payload: {
-      entries: service.listMemoryEntries().map((e) => ({
+      entries: entries.map((e) => ({
         id: e.id,
         text: e.text,
         kind: e.kind,
         createdAt: e.createdAt,
         sourceTurn: e.source,
+        updatedAt: e.updatedAt,
+        lastRecalledAt: e.lastRecalledAt,
+        recallCount: e.recallCount,
+        faded: e.fadedAt !== 0,
+        pinned: e.pinned,
       })),
     },
   };
@@ -381,6 +390,34 @@ export function handleStewardMemoryDelete(ctx: StewardCommandContext): void {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为 integer");
   }
   ctx.steward.service.forgetMemoryEntry(id);
+  respondMemoryList(ctx);
+}
+
+/** steward.memory_pin（全局命令；遗忘机制批）：置顶切换（置顶永不淡忘
+ *  永不 GC；置顶隐含解除淡忘 + 刷 updatedAt 浮顶）→ 回执新清单（幂等——
+ *  id 不存在/取消未置顶条目也回清单）。 */
+export function handleStewardMemoryPin(ctx: StewardCommandContext): void {
+  const id = ctx.payload.id;
+  const pinned = ctx.payload.pinned;
+  if (typeof id !== "number" || !Number.isInteger(id)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为 integer");
+  }
+  if (typeof pinned !== "boolean") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.pinned 应为 boolean");
+  }
+  ctx.steward.service.pinMemoryEntry(id, pinned);
+  respondMemoryList(ctx);
+}
+
+/** steward.memory_restore（全局命令；遗忘机制批）：淡忘条目恢复
+ *  （faded_at 归零 + 刷 updatedAt 满血复活；active 条目幂等 no-op）→
+ *  回执新清单。 */
+export function handleStewardMemoryRestore(ctx: StewardCommandContext): void {
+  const id = ctx.payload.id;
+  if (typeof id !== "number" || !Number.isInteger(id)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为 integer");
+  }
+  ctx.steward.service.restoreMemoryEntry(id);
   respondMemoryList(ctx);
 }
 

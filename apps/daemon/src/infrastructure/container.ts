@@ -745,15 +745,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger.warn(`管家对话存储降级（纯内存，重启即失）：${(err as Error).message}`);
   }
 
-  const stewardService = new StewardService({
-    llm: stewardLlm,
-    ...(dialog !== undefined ? { dialog } : {}),
-    // 管家记忆 B1：长期记忆编排面装配（全部失败面降级为未装配/缺席——
-    // 对话主链路零影响）：vec0 扩展路径二级解析（① 壳 env HELIX_VEC_PATH
-    // 注入——AG-08 例外面同 HELIX_RG_PATH 收束本域；② dev 形态 node_modules
-    // 平台包 getLoadablePath()，编译单文件形态解析失败靠 ① 级兜底）→
-    // better-sqlite3 开库（构造抛错 = 扩展加载失败 → 捕获降级）。
-    memory: (() => {
+  // 管家记忆 B1：长期记忆编排面装配（全部失败面降级为未装配/缺席——
+  // 对话主链路零影响）：vec0 扩展路径二级解析（① 壳 env HELIX_VEC_PATH
+  // 注入——AG-08 例外面同 HELIX_RG_PATH 收束本域；② dev 形态 node_modules
+  // 平台包 getLoadablePath()，编译单文件形态解析失败靠 ① 级兜底）→
+  // better-sqlite3 开库（构造抛错 = 扩展加载失败 → 捕获降级）。
+  const stewardMemory: StewardMemoryService | undefined = (() => {
       const vec0Resolution = resolveVec0Path({
         bundlePath: vec0BundlePath,
         nodeModulesPath: (() => {
@@ -806,7 +803,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         }),
         logger: { warn: (message) => logger.warn(message) },
       });
-    })(),
+  })();
+  // 遗忘机制批：记忆 GC 定时器（60s 首跑 + 24h 周期；interval unref 不阻
+  // 进程退出，dispose 挂 shutdown 链双保险——TR-152 落盘面定时器纪律）。
+  stewardMemory?.startGcTimer();
+  const stewardService = new StewardService({
+    llm: stewardLlm,
+    ...(dialog !== undefined ? { dialog } : {}),
+    memory: stewardMemory,
     // helix-loop L0：LoopEngine 事件 → domain_events 投影（追踪可见性——
     // instanceId=steward，里程碑子集；广播面 default→null 不接，防自激
     // 语义保持：管家只发帧不订阅广播流）
@@ -1234,6 +1238,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
     unsubscribeBrowserStatus,
     ...(mcpShutdown !== undefined ? { stopMcp: mcpShutdown } : {}),
+    // 遗忘机制批：记忆 GC 定时器停面（shutdown 链挂点）
+    ...(stewardMemory !== undefined ? { stopStewardMemoryGc: () => stewardMemory.dispose() } : {}),
     port: resolvedPort, // 完整解析链（argv > KV > 7333）已定格
     // stale-indicator 批：welcome daemonFreshness 比对基准（进程启动时刻单源）
     daemonStartedAtMs: bootedAtMs,

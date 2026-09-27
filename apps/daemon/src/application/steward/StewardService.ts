@@ -1406,6 +1406,17 @@ export class StewardService {
     return this.deps.memory?.forgetEntry(id) ?? false;
   }
 
+  /** 置顶切换（遗忘机制批命令回口：置顶 = 解除淡忘 + 刷 updatedAt；
+   *  缺席 → false）。 */
+  pinMemoryEntry(id: number, pinned: boolean): boolean {
+    return this.deps.memory?.pinMemoryEntry(id, pinned) ?? false;
+  }
+
+  /** 淡忘恢复（遗忘机制批命令回口：active 条目幂等 no-op；缺席 → false）。 */
+  restoreMemoryEntry(id: number): boolean {
+    return this.deps.memory?.restoreMemoryEntry(id) ?? false;
+  }
+
   /** 设置写面（两槽位可选更新；model 格式校验 "provider/model-id"；
    *  memory 组 B2 瘦身形态 {enabled?,endpointId?} + B4a judgeEndpointId）。 */
   async setConfig(patch: {

@@ -10,16 +10,20 @@
  * - StewardMemoryPort（sqlite-vec 存储；vec0 扩展不可解析 = 装配层缺
  *   席注入，同降级路径）。
  *
- * 三职责：
- * ① 召回（recallSection）：ask 前轮内 query 嵌入 → cosine topK → system
- *    prompt 记忆段文本。任何失败（端点不可达/协议异常/维度重建失败）
- *    静默降级为 undefined（无记忆段）+ logger.warn——召回绝不能挡对话；
- * ② 写入（remember / appendMemoryEntry）：confirm 闸执行体与人工新增
+ * 三职责（+ 遗忘机制批四）：
+ * ① 召回（recallSection）：候选池 → 过淡忘 → 资格闸 0.30 → 融合排序
+ *    （cosine × 强度）→ top5 注入 + 幸存者回写。任何失败（端点不可达/
+ *    协议异常/维度重建失败）静默降级为 undefined（无记忆段）+ logger.warn
+ *    ——召回绝不能挡对话；
+ * ② 写入（remember / appendMemoryEntry）：轮内工具与人工新增
  *    （steward.memory_append 命令）双入口——条目 embed → 维度对齐 →
  *    append。失败原样上抛（写路径不静默）；
  * ③ 维度切换重建（ensureDim）：vec0 维度建表锁死——换 embedding 模型
  *    （dim 变）→ resetVectors 清向量面 → 全量条目分批重嵌入回填。
- *    文本是唯一 source of truth，向量是可再生缓存。
+ *    文本是唯一 source of truth，向量是可再生缓存；
+ * ④ 遗忘治理（gcNow/maybeGc + pin/restore）：半衰强化（每被想起一次
+ *    半衰期 ×2 封顶一年）→ 低强度 fade（退出召回池 + 观察窗）→ 零复活
+ *    物理删除；manual/pinned 恒满强度永不 GC；软上限 append 后主动触发。
  *
  * 配置面（B2 瘦身形态——RuntimeConfigPort KV 两键）：
  * - steward.memory.enabled = "1"/"0"（开关——记忆是可选项：无 Ollama
@@ -77,6 +81,66 @@ export const STEWARD_MEMORY_SAME_QUESTION =
   "这两段文本表达的是同一条用户偏好或事实吗？（措辞不同但语义相同 = 同一条；同主题不同侧面 = 不是同一条）";
 /** 维度重建分批大小（embedding 批量调用——端点速率防御）。 */
 const REBUILD_BATCH_SIZE = 32;
+
+// ── 遗忘机制批（半衰强化 + 淡忘观察 + 软上限 GC）────────────────
+/** 基础半衰期（ms；kind 分档：偏好过时快、事实活得久）。 */
+export const STEWARD_MEMORY_HALF_LIFE_MS: Readonly<Record<"fact" | "preference", number>> = {
+  preference: 30 * 24 * 3_600_000,
+  fact: 60 * 24 * 3_600_000,
+};
+/** 每被召回一次半衰期倍率（复习强化——越被想起越牢）。 */
+export const STEWARD_MEMORY_STRENGTHEN = 2;
+/** 强化计入上限（次——防溢出；8 次 ×2 早超 CAP，实际由 CAP 封顶）。 */
+export const STEWARD_MEMORY_STRENGTHEN_CAP = 8;
+/** 半衰期封顶（ms——强化不会让记忆永生，最多一年不被想起仍会衰）。 */
+export const STEWARD_MEMORY_HALF_LIFE_CAP_MS = 365 * 24 * 3_600_000;
+/** 召回候选池（vec0 取大池后融合重排——资格闸 0.30 不变，时间权重只在竞争位起作用）。 */
+export const STEWARD_MEMORY_RECALL_POOL = 24;
+/** 淡忘强度线（低于此进 fade 候选——约三个半衰期没人理）。 */
+export const STEWARD_MEMORY_FADE_BELOW = 0.08;
+/** 新/新写条目公平期（ms——公平期内不进 fade 候选，防新条目饿死）。 */
+export const STEWARD_MEMORY_FADE_GRACE_MS = 90 * 24 * 3_600_000;
+/** 淡忘观察窗（ms——fade 后零复活即物理删除）。 */
+export const STEWARD_MEMORY_FADE_OBSERVE_MS = 30 * 24 * 3_600_000;
+/** 条目软上限（append 后超限触发主动 GC——容量从没人管变自动收敛）。 */
+export const STEWARD_MEMORY_SOFT_CAP = 2000;
+/** GC 周期（ms——maybeGc 节流窗）。 */
+export const STEWARD_MEMORY_GC_INTERVAL_MS = 24 * 3_600_000;
+
+/** 记忆强度（纯函数导出供单测）：距上次被想起隔了几个半衰期——
+ *  1=满格、0.5=一个半衰期、0.08≈三个半衰期；manual/pinned 恒满。 */
+export function memoryStrength(
+  entry: Pick<StewardMemoryEntry, "kind" | "source" | "createdAt" | "updatedAt" | "lastRecalledAt" | "recallCount" | "pinned">,
+  now: number,
+): number {
+  if (entry.pinned || entry.source === "manual") return 1;
+  const base = STEWARD_MEMORY_HALF_LIFE_MS[entry.kind];
+  const halfLife = Math.min(
+    base * STEWARD_MEMORY_STRENGTHEN ** Math.min(entry.recallCount, STEWARD_MEMORY_STRENGTHEN_CAP),
+    STEWARD_MEMORY_HALF_LIFE_CAP_MS,
+  );
+  const anchor = Math.max(entry.lastRecalledAt, entry.updatedAt, entry.createdAt);
+  return Math.pow(0.5, Math.max(0, now - anchor) / halfLife);
+}
+
+/** fade 候选（纯函数）：公平期外的低强度 active 条目（manual/pinned 豁免）。 */
+export function pickFadeCandidates(entries: readonly StewardMemoryEntry[], now: number): readonly StewardMemoryEntry[] {
+  return entries.filter(
+    (e) =>
+      e.fadedAt === 0 &&
+      !e.pinned &&
+      e.source !== "manual" &&
+      now - Math.max(e.lastRecalledAt, e.updatedAt, e.createdAt) > STEWARD_MEMORY_FADE_GRACE_MS &&
+      memoryStrength(e, now) < STEWARD_MEMORY_FADE_BELOW,
+  );
+}
+
+/** 物理删除候选（纯函数）：观察窗外的 faded 条目（fade 后零复活）。注：
+ *  刷 updatedAt 的写路径（编辑/恢复/置顶）均伴随 faded_at 归零，故 faded
+ *  态下 updatedAt ≤ fadedAt 恒成立——零活动判定由 faded_at 存续本身承载。 */
+export function pickPurgeCandidates(entries: readonly StewardMemoryEntry[], now: number): readonly StewardMemoryEntry[] {
+  return entries.filter((e) => e.fadedAt !== 0 && now - e.fadedAt > STEWARD_MEMORY_FADE_OBSERVE_MS);
+}
 
 /** embedding 配置域窄查询面（EmbeddingConfigService 结构性满足；测试注入 fake）。 */
 export interface EmbeddingConfigLookup {
@@ -212,19 +276,32 @@ export class StewardMemoryService {
   }
 
   /**
-   * 召回（ask 前轮内）：query 嵌入 → 维度对齐 → cosine topK → system
-   * prompt 记忆段文本。任何失败静默降级 undefined + warn（召回绝不能
-   * 挡对话主链路）；记忆不可用 → undefined（零调用零日志——常态降级）。
+   * 召回（ask 前轮内）：候选池语义检索 → 过淡忘 → 资格闸（cosine ≥ 0.30
+   *  语义不变）→ 融合排序（cosine × 强度）→ top5 注入 + 幸存者回写。
+   * 任何失败静默降级 undefined + warn（召回绝不能挡对话主链路）；
+   *  记忆不可用 → undefined（零调用零日志——常态降级）。
    */
   async recallSection(queryText: string): Promise<string | undefined> {
     if (!this.isAvailable()) return undefined;
     try {
       const { vectors, dim } = await this.deps.embedding.embed([queryText]);
       await this.ensureDim(dim);
-      const hits = this.deps
-        .store!.search(vectors[0]!, STEWARD_MEMORY_RECALL_TOP_K)
+      const now = this.now();
+      // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ 0.30 语义不变）→
+      // 融合排序（cosine × 强度——时间权重只在竞争位起作用，唯一强相关
+      // 的老记忆仍能出线）→ top5 注入。
+      const pool = this.deps
+        .store!.search(vectors[0]!, STEWARD_MEMORY_RECALL_POOL)
+        .filter((h) => h.fadedAt === 0)
         .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE);
+      pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
+      const hits = pool.slice(0, STEWARD_MEMORY_RECALL_TOP_K);
       if (hits.length === 0) return undefined;
+      // 幸存者回写（复习强化——只记注入者，候选池陪跑不记，防马太加速）
+      this.deps.store!.markRecalled(
+        hits.map((h) => h.id),
+        now,
+      );
       const lines = hits.map(
         (h) => `- [${h.kind === "preference" ? "偏好" : "事实"}] ${h.text}`,
       );
@@ -290,6 +367,80 @@ export class StewardMemoryService {
     return this.deps.store?.forget(id) ?? false;
   }
 
+  /** 置顶切换（遗忘机制批命令委托面）：置顶 = 解除淡忘 + 刷 updatedAt
+   *  （协议回执 updatedAt 降序——浮顶可见）；取消置顶只清置位。 */
+  pinMemoryEntry(id: number, pinned: boolean): boolean {
+    return this.deps.store?.setPinned(id, pinned, this.now()) ?? false;
+  }
+
+  /** 淡忘恢复（遗忘机制批命令委托面）：active 条目幂等 no-op → false。 */
+  restoreMemoryEntry(id: number): boolean {
+    return this.deps.store?.restore(id, this.now()) ?? false;
+  }
+
+  // ── 遗忘机制批：GC（fade → 观察窗 → 物理删）──────────────────
+
+  /** 上次 GC 时刻（maybeGc 节流面）。 */
+  private lastGcAt = 0;
+  /** GC 周期定时器（unref + dispose 双保险——TR-152 落盘面定时器纪律）。 */
+  private gcTimer: ReturnType<typeof setInterval> | undefined;
+  /** 首跑延迟句柄（dispose 一并清——防 60s 窗口内关停后回调仍点火）。 */
+  private gcFirstRun: ReturnType<typeof setTimeout> | undefined;
+
+  /** GC 本体（同步——千级条目毫秒级；不可用/未装配静默跳过；定时器
+   *  回调语境下任何异常（含库已关/磁盘态变更）不得上抛——兑底 warn
+   *  静默，下一周期重试，绝不能击穿宿主进程）。 */
+  gcNow(): void {
+    try {
+      if (!this.isAvailable()) return;
+      const store = this.deps.store!;
+      const now = this.now();
+      const entries = store.list();
+      const fades = pickFadeCandidates(entries, now);
+      if (fades.length > 0) store.fadeMany(fades.map((e) => e.id), now);
+      const purges = pickPurgeCandidates(entries, now);
+      for (const e of purges) store.forget(e.id);
+      if (fades.length > 0 || purges.length > 0) {
+        this.deps.logger?.warn(`管家记忆 GC：淡忘 ${fades.length} 条 / 物理删除 ${purges.length} 条（库存 ${entries.length}）`);
+      }
+    } catch (err) {
+      this.deps.logger?.warn(`管家记忆 GC 降级（本周期跳过）：${(err as Error).message}`);
+    }
+  }
+
+  /** 节流 GC（周期挂点用——间隔窗口内零动作）。 */
+  maybeGc(): void {
+    const now = this.now();
+    if (now - this.lastGcAt < STEWARD_MEMORY_GC_INTERVAL_MS) return;
+    this.lastGcAt = now;
+    this.gcNow();
+  }
+
+  /** 启动 GC 定时器（组合根接线：60s 首跑 + 24h 周期；unref 不阻进程
+   *  退出——生产进程退出即停，dispose 供优雅关停/测试清理双保险）。 */
+  startGcTimer(): void {
+    if (this.gcTimer !== undefined || this.gcFirstRun !== undefined) return; // 幂等
+    this.gcFirstRun = setTimeout(() => {
+      this.gcFirstRun = undefined;
+      this.maybeGc();
+      this.gcTimer = setInterval(() => this.maybeGc(), STEWARD_MEMORY_GC_INTERVAL_MS);
+      this.gcTimer.unref?.();
+    }, 60_000);
+    this.gcFirstRun.unref?.();
+  }
+
+  /** 停定时器（shutdown 链挂点/测试清理——首跑延迟与周期一并清）。 */
+  dispose(): void {
+    if (this.gcFirstRun !== undefined) {
+      clearTimeout(this.gcFirstRun);
+      this.gcFirstRun = undefined;
+    }
+    if (this.gcTimer !== undefined) {
+      clearInterval(this.gcTimer);
+      this.gcTimer = undefined;
+    }
+  }
+
   /**
    * 人工新增（steward.memory_append 命令路径）：同 remember 双入口但
    * source 固定 "manual"、kind 缺省 "fact"。失败收口为 outcome（命令回执
@@ -298,6 +449,9 @@ export class StewardMemoryService {
   async appendMemoryEntry(text: string, kind?: "fact" | "preference"): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
       await this.remember(text, kind ?? "fact", "manual");
+      // 软上限触发主动 GC（容量从没人管变自动收敛——GC 节流窗口对超限
+      // 场景强制放行，同步毫秒级不阻塞命令回执）
+      if (this.deps.store !== undefined && this.deps.store.count() > STEWARD_MEMORY_SOFT_CAP) this.gcNow();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

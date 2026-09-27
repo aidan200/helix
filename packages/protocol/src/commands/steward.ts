@@ -152,6 +152,32 @@ export interface StewardMemoryDeleteCommand extends CommandFrame<StewardMemoryDe
   type: "steward.memory_delete";
 }
 
+/** steward.memory_pin 载荷（遗忘机制批：置顶/取消置顶——置顶永不淡忘
+ *  永不 GC；置顶隐含解除淡忘并刷新 updatedAt 浮顶）。 */
+export interface StewardMemoryPinPayload {
+  /** 目标条目 id。 */
+  id: number;
+  /** true = 置顶（解除淡忘 + 刷新 updatedAt）；false = 取消置顶（不动其他字段）。 */
+  pinned: boolean;
+}
+
+/** steward.memory_pin：条目置顶切换（回执 steward.memory_list.result）。 */
+export interface StewardMemoryPinCommand extends CommandFrame<StewardMemoryPinPayload> {
+  type: "steward.memory_pin";
+}
+
+/** steward.memory_restore 载荷（遗忘机制批：救回淡忘条目——faded_at
+ *  归零 + 刷新 updatedAt 满血复活；active 条目上调用 = 幂等 no-op）。 */
+export interface StewardMemoryRestorePayload {
+  /** 目标条目 id。 */
+  id: number;
+}
+
+/** steward.memory_restore：淡忘条目恢复（回执 steward.memory_list.result）。 */
+export interface StewardMemoryRestoreCommand extends CommandFrame<StewardMemoryRestorePayload> {
+  type: "steward.memory_restore";
+}
+
 /** steward.interrupt 载荷（B2 barge-in 批，additive）。 */
 export interface StewardInterruptPayload {
   /** 中断原因（可选；缺省 daemon 归一 "barge-in"——审计/trace 语义）。 */

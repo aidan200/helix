@@ -37,10 +37,25 @@ interface EntryRow {
   source: string;
   created_at: number;
   updated_at: number;
+  last_recalled_at: number;
+  recall_count: number;
+  faded_at: number;
+  pinned: number;
 }
 
 function toEntry(row: EntryRow): StewardMemoryEntry {
-  return { id: row.id, kind: row.kind, text: row.text, source: row.source, createdAt: row.created_at, updatedAt: row.updated_at };
+  return {
+    id: row.id,
+    kind: row.kind,
+    text: row.text,
+    source: row.source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastRecalledAt: row.last_recalled_at,
+    recallCount: row.recall_count,
+    fadedAt: row.faded_at,
+    pinned: row.pinned === 1,
+  };
 }
 
 export class SqliteVecMemoryStore implements StewardMemoryPort {
@@ -75,6 +90,21 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
       this.db.exec("ALTER TABLE entries ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0");
       this.db.exec("UPDATE entries SET updated_at = created_at WHERE updated_at = 0");
     }
+    // 遗忘机制批幂等补列（四列）：生命周期/强化/置位——存量回填 last_recalled_at
+    // = updated_at（从未被想起但以最近变更为锄点起步），其余零值缺省。
+    if (!columns.some((c) => c.name === "last_recalled_at")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN last_recalled_at INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("UPDATE entries SET last_recalled_at = updated_at WHERE last_recalled_at = 0");
+    }
+    if (!columns.some((c) => c.name === "recall_count")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN recall_count INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.some((c) => c.name === "faded_at")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN faded_at INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.some((c) => c.name === "pinned")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   storedDim(): number | null {
@@ -107,12 +137,14 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (items.length === 0) return;
     this.ensureVecTable(items[0]!.vector.length);
     const insertEntry = this.db.prepare(
-      "INSERT INTO entries(kind, text, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)",
     );
     const insertVec = this.db.prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)");
     const tx = this.db.transaction((rows: readonly StewardMemoryAppendItem[]) => {
       for (const item of rows) {
-        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt);
+        // 遗忘机制批：新条目满强度起步（last_recalled_at = createdAt——锄点
+        // 即创建时刻，新条目不吃存量衰减亏）。
+        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt);
         // Bun NAPI better-sqlite3 把 JS number 绑定为 REAL——vec0 rowid 只
         // 收 INTEGER 字面类型（"Only integers are allowed" 实证），BigInt
         // 才绑定为 INTEGER（条目数 << 2^53 无精度问题）。
@@ -133,7 +165,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (this.storedDim() === null || topK <= 0) return [];
     const rows = this.db
       .prepare(
-        `SELECT e.id, e.kind, e.text, e.source, e.created_at, v.distance
+        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, v.distance
          FROM vec_items v JOIN entries e ON e.id = v.rowid
          WHERE v.embedding MATCH ? AND k = ?
          ORDER BY v.distance ASC`,
@@ -143,7 +175,11 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
   }
 
   list(): readonly StewardMemoryEntry[] {
-    const rows = this.db.prepare("SELECT id, kind, text, source, created_at, updated_at FROM entries ORDER BY created_at ASC").all() as EntryRow[];
+    const rows = this.db
+      .prepare(
+        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned FROM entries ORDER BY created_at ASC",
+      )
+      .all() as EntryRow[];
     return rows.map(toEntry);
   }
 
@@ -160,7 +196,10 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     // 此处防御性兑底——重建清全表后旧行已亡，直接 INSERT）
     this.ensureVecTable(vector.length);
     const tx = this.db.transaction((target: number, newText: string, vec: Float32Array, updated: number) => {
-      const changed = this.db.prepare("UPDATE entries SET text = ?, updated_at = ? WHERE id = ?").run(newText, updated, target).changes;
+      // 遗忘机制批：编辑即救活（faded_at 归零——用户动手 = 明确价值信号）
+      const changed = this.db
+        .prepare("UPDATE entries SET text = ?, updated_at = ?, faded_at = 0 WHERE id = ?")
+        .run(newText, updated, target).changes;
       if (changed === 0) return false;
       // 向量重写：先删旧行再插入（vec0 rowid 无 REPLACE 语义）
       this.db.prepare("DELETE FROM vec_items WHERE rowid = ?").run(BigInt(target));
@@ -170,6 +209,41 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
       return true;
     });
     return tx(id, text, vector, updatedAt);
+  }
+
+  markRecalled(ids: readonly number[], at: number): void {
+    if (ids.length === 0) return;
+    const stmt = this.db.prepare("UPDATE entries SET last_recalled_at = ?, recall_count = recall_count + 1 WHERE id = ?");
+    const tx = this.db.transaction((targets: readonly number[]) => {
+      for (const id of targets) stmt.run(at, id);
+    });
+    tx(ids);
+  }
+
+  setPinned(id: number, pinned: boolean, at: number): boolean {
+    if (pinned) {
+      // 置顶 = 解除淡忘 + 刷新 updatedAt（协议回执 updatedAt 降序——浮顶可见）
+      return this.db
+        .prepare("UPDATE entries SET pinned = 1, faded_at = 0, updated_at = ? WHERE id = ?")
+        .run(at, id).changes > 0;
+    }
+    return this.db.prepare("UPDATE entries SET pinned = 0 WHERE id = ?").run(id).changes > 0;
+  }
+
+  restore(id: number, at: number): boolean {
+    // 仅淡忘条目可恢复（active 条目幂等 no-op → false——无变更即无回执语义）
+    return this.db
+      .prepare("UPDATE entries SET faded_at = 0, updated_at = ? WHERE id = ? AND faded_at != 0")
+      .run(at, id).changes > 0;
+  }
+
+  fadeMany(ids: readonly number[], at: number): void {
+    if (ids.length === 0) return;
+    const stmt = this.db.prepare("UPDATE entries SET faded_at = ? WHERE id = ? AND faded_at = 0");
+    const tx = this.db.transaction((targets: readonly number[]) => {
+      for (const id of targets) stmt.run(at, id);
+    });
+    tx(ids);
   }
 
   count(): number {

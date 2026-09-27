@@ -136,6 +136,8 @@ import {
   handleStewardMemoryAppend,
   handleStewardMemoryDelete,
   handleStewardMemoryList,
+  handleStewardMemoryPin,
+  handleStewardMemoryRestore,
   handleStewardMemoryUpdate,
   handleStewardSetConfig,
   handleStewardSubscribe,
@@ -799,6 +801,15 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardMemoryDelete(this.contexts.stewardContext(ws, type, payload));
+      // ── 遗忘机制批：置顶/淡忘恢复（同四命令降级形态）──
+      case "steward.memory_pin":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardMemoryPin(this.contexts.stewardContext(ws, type, payload));
+      case "steward.memory_restore":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardMemoryRestore(this.contexts.stewardContext(ws, type, payload));
       // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试；
       //    全局命令先例 = auth 族（配置域无会话维）──
       case "embedding.list":

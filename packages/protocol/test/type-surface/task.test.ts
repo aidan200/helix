@@ -54,7 +54,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     const first = COMMAND_TYPES.indexOf(TASK_COMMANDS[0]!);
     expect(COMMAND_TYPES.slice(first, first + TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]); // 连续登记（diff/mcp 批后不再尾段）
-    expect(COMMAND_TYPES.length).toBe(111); // B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
+    expect(COMMAND_TYPES.length).toBe(113); // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
   });
 
   test("零干预断言（AD-2）：task.* 命令清单恰为十命令，无 steer/内容编辑/批次重试语义命令", () => {

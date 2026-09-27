@@ -312,7 +312,8 @@ export interface StewardNavigateEvent extends EventFrame<StewardNavigatePayload>
 }
 
 /** 长期记忆条目行（管家记忆 B2：memory_list 回执形态；kind 枚举对齐
- *  存储面既有值 fact/preference）。 */
+ *  存储面既有值 fact/preference；遗忘机制批 additive 生命周期字段——
+ *  旧 shell 忽略无损）。 */
 export interface StewardMemoryEntryView {
   /** 条目 id（存储 rowid）。 */
   id: number;
@@ -324,12 +325,23 @@ export interface StewardMemoryEntryView {
   createdAt: number;
   /** 来源标注（如 "steward-turn"（remember 工具）/ "manual"（人工新增））。 */
   sourceTurn: string;
+  /** 最后更新时刻（epoch ms；覆盖更新/复活/置顶时刷新——additive，旧 daemon 不携带）。 */
+  updatedAt?: number;
+  /** 最近一次被召回时刻（epoch ms；0 = 从未被想起——additive）。 */
+  lastRecalledAt?: number;
+  /** 累计被召回次数（additive）。 */
+  recallCount?: number;
+  /** 淡忘中（退出召回池，观察窗后物理删除；编辑/恢复/置顶即救活——additive）。 */
+  faded?: boolean;
+  /** 已置顶（永不淡忘、永不 GC，强度恒满——additive）。 */
+  pinned?: boolean;
 }
 
 /** steward.memory_list.result payload：条目清单（memory_list/append/
- *  update/delete 四命令共用回执——写后即回新清单）。 */
+ *  update/delete/pin/restore 六命令共用回执——写后即回新清单）。 */
 export interface StewardMemoryListResultPayload {
-  /** 条目全集（创建时间升序）。 */
+  /** 条目全集（updatedAt 降序——最近变动浮顶：覆盖更新/复活/置顶可见；
+   *  遗忘机制批前的 createdAt 升序已退役）。 */
   entries: readonly StewardMemoryEntryView[];
 }
 
