@@ -122,6 +122,8 @@ import type {
   StewardMemoryAppendCommand,
   StewardMemoryDeleteCommand,
   StewardMemoryListCommand,
+  StewardMemoryPinCommand,
+  StewardMemoryRestoreCommand,
   StewardMemoryUpdateCommand,
   StewardSetConfigCommand,
   StewardSubscribeCommand,
@@ -649,6 +651,18 @@ export function stewardMemoryUpdateCommand(id: number, text: string): StewardMem
 /** steward.memory_delete：行级删除（回执新清单）。 */
 export function stewardMemoryDeleteCommand(id: number): StewardMemoryDeleteCommand {
   return { v: PROTOCOL_VERSION, type: "steward.memory_delete", payload: { id } };
+}
+
+/** steward.memory_pin：置顶切换（遗忘机制批；置顶永不淡忘永不 GC；
+ *  置顶隐含解除淡忘 + 刷 updatedAt 浮顶；回执新清单）。 */
+export function stewardMemoryPinCommand(id: number, pinned: boolean): StewardMemoryPinCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.memory_pin", payload: { id, pinned } };
+}
+
+/** steward.memory_restore：淡忘条目恢复（遗忘机制批；active 条目幂等
+ *  no-op；回执新清单）。 */
+export function stewardMemoryRestoreCommand(id: number): StewardMemoryRestoreCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.memory_restore", payload: { id } };
 }
 
 // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（向量模型 tab）──

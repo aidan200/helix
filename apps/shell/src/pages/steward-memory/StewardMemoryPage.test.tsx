@@ -20,6 +20,8 @@ const sendStewardMemoryList = vi.fn(() => true);
 const sendStewardMemoryAppend = vi.fn(() => true);
 const sendStewardMemoryUpdate = vi.fn(() => true);
 const sendStewardMemoryDelete = vi.fn(() => true);
+const sendStewardMemoryPin = vi.fn(() => true);
+const sendStewardMemoryRestore = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
 let stewardListeners: ((e: EventEnvelope) => void)[] = [];
 
@@ -32,6 +34,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       sendStewardMemoryAppend,
       sendStewardMemoryUpdate,
       sendStewardMemoryDelete,
+      sendStewardMemoryPin,
+      sendStewardMemoryRestore,
       sendStewardGetConfig,
       subscribeStewardFrames: (listener: (e: EventEnvelope) => void) => {
         stewardListeners.push(listener);
@@ -194,5 +198,102 @@ describe("管家记忆独立页（B2-④）", () => {
     feedConfig(true);
     act(() => feedList([]));
     expect(container.querySelector("[data-memory-list-empty]")!.textContent).toContain("暂无记忆条目");
+  });
+});
+
+// ── 遗忘机制批：筛选/排序/分页/faded·pin 接线 ───────────────────
+
+describe("管家记忆独立页（遗忘机制批）", () => {
+  const LIFE_ENTRIES = [
+    { id: 1, text: "置顶的偏好", kind: "preference", createdAt: 1000, sourceTurn: "manual", updatedAt: 5000, lastRecalledAt: 4500, recallCount: 3, faded: false, pinned: true },
+    { id: 2, text: "活跃事实", kind: "fact", createdAt: 2000, sourceTurn: "steward-turn", updatedAt: 3000, lastRecalledAt: 0, recallCount: 0, faded: false, pinned: false },
+    { id: 3, text: "淡忘条目", kind: "fact", createdAt: 3000, sourceTurn: "steward-turn", updatedAt: 3000, lastRecalledAt: 0, recallCount: 0, faded: true, pinned: false },
+  ];
+
+  it("生命周期字段渲染：被想起次数/最后想起/淡忘徽标/已置顶徽标；meta 零值段省略", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(LIFE_ENTRIES));
+    // 置顶条：次数 + 最后想起 + 已置顶徽标 + pin 钮激活
+    expect(container.querySelector('[data-memory-item-meta="1"]')!.textContent).toContain("被想起 3 次");
+    expect(container.querySelector('[data-memory-item-meta="1"]')!.textContent).toContain("最后想起");
+    expect(container.querySelector('[data-memory-item-pinnedchip="1"]')!.textContent).toContain("已置顶");
+    // 零值条目：无被想起段（防零值噪音）
+    expect(container.querySelector('[data-memory-item-meta="2"]')!.textContent).not.toContain("被想起");
+    // 淡忘条：灰显 data-faded + 淡忘徽标 + 从未被想起 + 恢复钮
+    expect(container.querySelector('[data-memory-item="3"]')!.getAttribute("data-faded")).toBe("1");
+    expect(container.querySelector('[data-memory-item-faded="3"]')!.textContent).toContain("淡忘中");
+    expect(container.querySelector('[data-memory-item-meta="3"]')!.textContent).toContain("从未被想起");
+    expect(container.querySelector('[data-memory-restore-btn="3"]')).not.toBeNull();
+    expect(container.querySelector('[data-memory-restore-btn="1"]')).toBeNull(); // 活跃条无恢复钮
+  });
+
+  it("筛选 chip：零值档隐藏；点淡忘 chip 只显示 faded 条目", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(LIFE_ENTRIES));
+    // 淡忘=1 置顶=1 → 两 chip 在场
+    expect(container.querySelector("[data-memory-filter='faded']")).not.toBeNull();
+    expect(container.querySelector("[data-memory-filter='pinned']")).not.toBeNull();
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-filter='faded']")!);
+    expect(container.querySelector('[data-memory-item="1"]')).toBeNull();
+    expect(container.querySelector('[data-memory-item="3"]')).not.toBeNull();
+    // 零值场景：无 faded 条目 → chip 隐藏
+    act(() => feedList(LIFE_ENTRIES.filter((e) => e.id !== 3)));
+    expect(container.querySelector("[data-memory-filter='faded']")).toBeNull();
+  });
+
+  it("pin/restore 接线：pin 钮 → sendStewardMemoryPin(id, !pinned)；恢复钮 → sendStewardMemoryRestore", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(LIFE_ENTRIES));
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-memory-pin-btn="1"]')!); // 已置顶 → 取消
+    expect(sendStewardMemoryPin).toHaveBeenCalledWith(1, false);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-memory-pin-btn="2"]')!); // 未置顶 → 置顶
+    expect(sendStewardMemoryPin).toHaveBeenCalledWith(2, true);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-memory-restore-btn="3"]')!);
+    expect(sendStewardMemoryRestore).toHaveBeenCalledWith(3);
+  });
+
+  it("排序切换：最早创建 → createdAt 升序（覆盖服务端 updatedAt 降序缺省）", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(LIFE_ENTRIES));
+    // 缺省 updatedAt 降序：5000/3000/3000 → id 1 在首（updatedAt 5000）；tie 回落不敏感此处仅断言切档后行为
+    fireEvent.change(container.querySelector<HTMLSelectElement>("[data-memory-sort]")!, { target: { value: "created" } });
+    const items = [...container.querySelectorAll("[data-memory-list] [data-memory-item]")];
+    expect(items.map((el) => el.getAttribute("data-memory-item"))).toEqual(["1", "2", "3"]); // createdAt 升序
+  });
+
+  it("客户端分页：超一页时页码条在场，翻页切片；搜索重置回第 1 页；总页数 ≤1 隐藏", () => {
+    const { container } = ui();
+    feedConfig(true);
+    // 3 条 + 每页 2（无法直接改 pageSize——用 105 条跨 3 页（缺省 50））
+    const many = Array.from({ length: 105 }, (_, i) => ({
+      id: i + 1, text: `条目${i + 1}`, kind: "fact" as const, createdAt: i + 1, sourceTurn: "steward-turn", updatedAt: i + 1,
+    }));
+    act(() => feedList(many));
+    // 缺省 updatedAt 降序 → 首条是 id 105；第 1 页 = 105..56
+    expect(container.querySelector('[data-memory-item="105"]')).not.toBeNull();
+    expect(container.querySelector('[data-memory-item="55"]')).toBeNull(); // 第 2 页
+    expect(container.querySelector("[data-memory-pager]")).not.toBeNull();
+    expect(container.querySelector("[data-memory-page-range]")!.textContent).toContain("共 105");
+    // 翻到第 2 页
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-memory-page-btn="2"]')!);
+    expect(container.querySelector('[data-memory-item="55"]')).not.toBeNull();
+    expect(container.querySelector('[data-memory-item="105"]')).toBeNull();
+    // 搜索重置回第 1 页（命中首条 105）
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-search]")!, { target: { value: "条目10" } });
+    expect(container.querySelector('[data-memory-item="105"]')).not.toBeNull(); // 第 1 页（过滤后唯一/前几位命中）
+    // 清空搜索 → 回全量；页码条在单页场景隐藏（3 条）
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-search]")!, { target: { value: "" } });
+    act(() => feedList(many.slice(0, 3)));
+    expect(container.querySelector("[data-memory-pager]")).toBeNull();
+  });
+
+  it("加载骨架：清单未达首帧渲染骨架行（非 spinner）", () => {
+    const { container } = ui();
+    feedConfig(true);
+    expect(container.querySelectorAll(".memory-skeleton").length).toBe(3);
   });
 });

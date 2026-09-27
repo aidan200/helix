@@ -58,6 +58,8 @@ import {
   stewardMemoryAppendCommand,
   stewardMemoryDeleteCommand,
   stewardMemoryListCommand,
+  stewardMemoryPinCommand,
+  stewardMemoryRestoreCommand,
   stewardMemoryUpdateCommand,
   stewardSetConfigCommand,
   stewardSubscribeCommand,
@@ -328,6 +330,12 @@ export const COMMAND_SURFACE = {
   /** 行级删除。 */
   sendStewardMemoryDelete: (deps) =>
     (id: number): boolean => deps.send(stewardMemoryDeleteCommand(id)),
+  /** 置顶切换（遗忘机制批：置顶永不淡忘永不 GC；置顶隐含解除淡忘浮顶）。 */
+  sendStewardMemoryPin: (deps) =>
+    (id: number, pinned: boolean): boolean => deps.send(stewardMemoryPinCommand(id, pinned)),
+  /** 淡忘条目恢复（遗忘机制批；active 条目幂等 no-op）。 */
+  sendStewardMemoryRestore: (deps) =>
+    (id: number): boolean => deps.send(stewardMemoryRestoreCommand(id)),
   // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（模型页向量
   //    tab / 管家记忆区下拉数据源）──────────────────────────────
   /** 端点清单读面（回执 embedding.list.result）。 */

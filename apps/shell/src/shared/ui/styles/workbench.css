@@ -788,3 +788,33 @@ html.light .tp-popover {
 .tl-hint::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; background: var(--warning); transform: rotate(45deg); }
 /* 能力位加载提示（目录未到达瞬态；与滑块互斥） */
 .tl-cap-loading { font-size: var(--text-cap); color: var(--text-dim); line-height: 1.6; padding: 8px 0; }
+
+/* ══ 管家记忆页（遗忘机制批改版：两行卡片/淡忘灰显/分页条）══ */
+/* 行卡片：行1（text 占满换行 + 旗帜位）+ 行2（meta 组 | 动作组） */
+.memory-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  transition: opacity 0.15s, border-color 0.2s; }
+.memory-item:hover { border-color: var(--border-strong); }
+.memory-item + .memory-item { margin-top: 8px; }
+/* 淡忘中：整卡半透明（状态可见但降噪）；恢复/编辑/删除照常可用 */
+.memory-item.memory-item-faded { opacity: 0.55; }
+.memory-main { display: flex; align-items: flex-start; gap: 10px; }
+.memory-text { flex: 1; min-width: 0; line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
+.memory-flags { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.memory-pin-btn { padding: 4px; }
+.memory-pin-btn.is-pinned { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); }
+.memory-chip-faded { color: var(--warning); border-color: rgb(var(--warning-rgb) / 0.35); }
+.memory-chip-pinned { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.35); }
+.memory-sub { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.memory-meta { font-size: var(--text-cap); color: var(--text-dim); }
+.memory-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.memory-edit { display: flex; align-items: center; gap: 6px; }
+/* 加载骨架（首帧清单未达：与最终布局同形的占位行，禁通用 spinner） */
+.memory-skeleton { height: 52px; opacity: 0.4; }
+/* 分页条：‹ 页码… › + range 文案 + 每页条数（总页数 ≤1 由组件层隐藏） */
+.memory-pager { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.memory-page-ellipsis { color: var(--text-dim); padding: 0 2px; }
+.memory-page-range { font-size: var(--text-cap); color: var(--text-dim); margin-left: 4px; }
+.memory-page-size { display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+  font-size: var(--text-cap); color: var(--text-dim); }
+.memory-page-size .hud-input { width: auto; }

@@ -1,22 +1,29 @@
 /**
- * 管家记忆独立页（/steward/memory，B2-④）。
+ * 管家记忆独立页（/steward/memory，B2-④ + 遗忘机制批改版）。
  *
  * 头部：搜索框（前端过滤——条目量千级天花板，无服务端检索诉求）+
- * 统计（N 条 · dim 维——steward.config.result memory 面）+ 当前端点徽标
- * （引用态 name/model）+ 右上「+ 新增」弹窗（text + kind 下拉 →
- * steward.memory_append）。
+ * 排序下拉（最近更新/最早创建/被想起最多）+ 筛选 chip（全部/活跃/淡忘/
+ * 置顶——零值 chip 隐藏）+ 多状态统计 + 当前端点徽标 + 右上「+ 新增」
+ * 弹窗（text + kind 下拉 → steward.memory_append）。
  *
- * 列表（steward.memory_list.result 驱动——list/append/update/delete 四命令
- * 共用回执，写后即刷新）：text | kind 徽标 | 相对时间 | 来源轮次
- * （sourceTurn：steward-turn = remember 工具 / manual = 人工新增）；
- * 行内编辑（保存触发 steward.memory_update——重嵌异步，行内「向量化中」态）
- * + 两段式 armed 删除。
+ * 列表（steward.memory_list.result 驱动——六命令共用回执，写后即刷新）：
+ * 两行卡片（行1 text 占满换行 + pin 钮 + kind 徽标；行2 meta 组「创建 ·
+ * 来源 · 被想起 N 次 · 最后想起 X 前」+ 动作组）。faded 条目整卡灰显 +
+ * 「淡忘中」徽标 + 恢复钮（steward.memory_restore——满血复活）；pinned
+ * 徽标 + pin 钮切换（steward.memory_pin——置顶永不淡忘永不 GC）；
+ * 行内编辑（保存触发 steward.memory_update——重嵌异步，行内「向量化中」
+ * 态；编辑即救活）+ 两段式 armed 删除。
+ *
+ * 分页（客户端切片——协议零变更，与前端搜索/筛选正交）：每页 20/50/100
+ * （localStorage helix.memory.pageSize，缺省 50）；搜索/筛选/排序变化重置
+ * 第 1 页；写后回执按当前页首条 id 锚定页码；删当前页末条自动回退；
+ * 总页数 ≤1 时分页条隐藏。
  *
  * 页面壳：AppLayout（SettingsPage 同构）；不进 IconRail 六位（低频不占常驻
  * 导航——入口 = StewardPanel 头部记忆钮 + 设置管家记忆区「管理记忆」链接）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Plus, Search } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, Pin, PinOff, Plus, RotateCcw, Search } from "lucide-react";
 import type { StewardMemoryEntryView } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
@@ -28,7 +35,23 @@ import { useArmedConfirm } from "@/shared/lib/useArmedConfirm";
 /** kind 下拉枚举（对齐 daemon 存储面既有 kind 值）。 */
 const KIND_OPTIONS = ["fact", "preference"] as const;
 
-/** 相对时间文案（刚刚 / N 分钟前 / N 小时前 / 昨天）。 */
+/** 筛选档位。 */
+type FilterKey = "all" | "active" | "faded" | "pinned";
+/** 排序档位。 */
+type SortKey = "updated" | "created" | "recalled";
+
+/** 分页：每页档位与本地偏好键。 */
+const PAGE_SIZES = [20, 50, 100] as const;
+const PAGE_SIZE_KEY = "helix.memory.pageSize";
+/** 页码条折叠窗口（超过 7 页时中段折叠省略）。 */
+const PAGE_ELLIPSIS_LIMIT = 7;
+
+function loadPageSize(): number {
+  const raw = Number.parseInt(window.localStorage.getItem(PAGE_SIZE_KEY) ?? "", 10);
+  return (PAGE_SIZES as readonly number[]).includes(raw) ? raw : 50;
+}
+
+/** 相对时间文案（刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前）。 */
 function timeLabel(at: number, t: (k: string, v?: Record<string, string | number>) => string): string {
   const span = relativeTimeSpan(at, Date.now());
   switch (span.key) {
@@ -38,8 +61,10 @@ function timeLabel(at: number, t: (k: string, v?: Record<string, string | number
       return t("chat.sidebar.timeMinutes", { n: span.n });
     case "hours":
       return t("chat.sidebar.timeHours", { n: span.n });
-    default:
+    case "yesterday":
       return t("chat.sidebar.timeYesterday");
+    default:
+      return t("chat.sidebar.timeDays", { n: span.n });
   }
 }
 
@@ -50,6 +75,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     sendStewardMemoryAppend,
     sendStewardMemoryUpdate,
     sendStewardMemoryDelete,
+    sendStewardMemoryPin,
+    sendStewardMemoryRestore,
     sendStewardGetConfig,
     subscribeStewardFrames,
   } = useSession();
@@ -64,6 +91,10 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     dim: number | null;
   } | null>(null);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(loadPageSize);
   /** 行内编辑（id → 编辑文本；null = 非编辑态）。 */
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   /** 向量化在途行（memory_append/update 的回执等待面）。 */
@@ -72,6 +103,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   const [adding, setAdding] = useState<{ text: string; kind: (typeof KIND_OPTIONS)[number] } | null>(null);
   const [addErr, setAddErr] = useState<string | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
+  /** 写后回执的页码锚（当前页首条 id——新清单到达时按 id 重新定位页码）。 */
+  const pageAnchorRef = useRef<number | null>(null);
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
   useEffect(() => {
@@ -82,7 +115,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     () =>
       subscribeStewardFrames?.((e) => {
         if (e.type === "steward.memory_list.result") {
-          setEntries(e.payload.entries);
+          const payload = e.payload as { entries: readonly StewardMemoryEntryView[] };
+          setEntries(payload.entries);
           setVectorizing(null); // 写后即回新清单——清在途态
           return;
         }
@@ -102,13 +136,68 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     [subscribeStewardFrames],
   );
 
-  /** 前端搜索过滤（大小写不敏感子串）。 */
-  const filtered = useMemo(() => {
+  /** 筛选/排序/搜索变化 → 重置第 1 页。 */
+  useEffect(() => {
+    setPage(1);
+    pageAnchorRef.current = null;
+  }, [search, filter, sortKey, pageSize]);
+
+  /** 写操作前记录当前页首条锚（回执到达时按 id 重定位——写后条目可能换页）。 */
+  const notePageAnchor = (items: readonly StewardMemoryEntryView[]): void => {
+    pageAnchorRef.current = items.length > 0 ? items[0]!.id : null;
+  };
+
+  /** 搜索 + 筛选 → 排序 → 切片（派生链单点）。 */
+  const view = useMemo(() => {
     if (entries === null) return null;
     const q = search.trim().toLowerCase();
-    if (q === "") return entries;
-    return entries.filter((e) => e.text.toLowerCase().includes(q));
-  }, [entries, search]);
+    const filtered = entries.filter((e) => {
+      if (q !== "" && !e.text.toLowerCase().includes(q)) return false;
+      if (filter === "faded") return e.faded === true;
+      if (filter === "pinned") return e.pinned === true;
+      if (filter === "active") return e.faded !== true;
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortKey === "created") return a.createdAt - b.createdAt;
+      if (sortKey === "recalled") {
+        const d = (b.recallCount ?? 0) - (a.recallCount ?? 0);
+        return d !== 0 ? d : a.createdAt - b.createdAt;
+      }
+      return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
+    });
+    const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+    return { sorted, pageCount };
+  }, [entries, search, filter, sortKey, pageSize]);
+
+  /** 新清单到达 → 按 id 锚定页码（找不到则回退最近有效页）。 */
+  useEffect(() => {
+    if (view === null) return;
+    const anchor = pageAnchorRef.current;
+    pageAnchorRef.current = null;
+    if (anchor !== null) {
+      const idx = view.sorted.findIndex((e) => e.id === anchor);
+      setPage(idx >= 0 ? Math.floor(idx / pageSize) + 1 : Math.min(page, view.pageCount));
+      return;
+    }
+    setPage((p) => Math.min(p, view.pageCount)); // 删当前页末条自动回退
+  }, [view, pageSize, page]);
+
+  /** 当前页条目（view 变化后切片）。 */
+  const pageItems = useMemo(() => {
+    if (view === null) return [];
+    return view.sorted.slice((page - 1) * pageSize, page * pageSize);
+  }, [view, page, pageSize]);
+
+  /** 多状态统计（零值档隐藏的判据）。 */
+  const stats = useMemo(() => {
+    if (entries === null) return null;
+    return {
+      total: entries.length,
+      faded: entries.filter((e) => e.faded === true).length,
+      pinned: entries.filter((e) => e.pinned === true).length,
+    };
+  }, [entries]);
 
   const available = memoryState?.available === true;
 
@@ -132,14 +221,26 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   const saveEdit = (): void => {
     if (editing === null || editing.text.trim() === "") return;
     if (sendStewardMemoryUpdate(editing.id, editing.text) === false) return;
+    notePageAnchor(pageItems);
     setVectorizing(editing.id);
     setEditing(null);
   };
 
   const onDelete = (id: number): void => {
     confirmDelete(String(id), () => {
+      notePageAnchor(pageItems);
       sendStewardMemoryDelete(id);
     });
+  };
+
+  const onPin = (id: number, pinned: boolean): void => {
+    notePageAnchor(pageItems);
+    sendStewardMemoryPin(id, pinned);
+  };
+
+  const onRestore = (id: number): void => {
+    notePageAnchor(pageItems);
+    sendStewardMemoryRestore(id);
   };
 
   // 新增弹窗 Escape 关闭（hud-modal 先例）
@@ -152,11 +253,90 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     return () => window.removeEventListener("keydown", onKey);
   }, [adding]);
 
+  /** 页码条（总页数 ≤1 隐藏；>7 页中段折叠）。 */
+  const pageButtons = useMemo(() => {
+    if (view === null || view.pageCount <= 1) return null;
+    const count = view.pageCount;
+    const pages: (number | "…")[] = [];
+    for (let i = 1; i <= count; i++) {
+      if (count <= PAGE_ELLIPSIS_LIMIT || i === 1 || i === count || Math.abs(i - page) <= 1) {
+        pages.push(i);
+      } else if (pages[pages.length - 1] !== "…") {
+        pages.push("…");
+      }
+    }
+    return (
+      <div className="memory-pager" data-memory-pager>
+        <button
+          className="hud-btn hud-btn-ghost sm"
+          type="button"
+          data-memory-page-prev
+          disabled={page <= 1}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+        >
+          <ChevronLeft size={14} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+        {pages.map((p, i) =>
+          p === "…" ? (
+            <span key={`e${i}`} className="memory-page-ellipsis" aria-hidden="true">
+              …
+            </span>
+          ) : (
+            <button
+              key={p}
+              className={cn("hud-btn sm", p === page ? "hud-btn-cyan" : "hud-btn-ghost")}
+              type="button"
+              data-memory-page-btn={p}
+              onClick={() => setPage(p)}
+            >
+              {p}
+            </button>
+          ),
+        )}
+        <button
+          className="hud-btn hud-btn-ghost sm"
+          type="button"
+          data-memory-page-next
+          disabled={page >= count}
+          onClick={() => setPage((p) => Math.min(count, p + 1))}
+        >
+          <ChevronRight size={14} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+        <span className="memory-page-range" data-memory-page-range>
+          {t("steward.memory.pageRange", {
+            from: (page - 1) * pageSize + 1,
+            to: Math.min(page * pageSize, view.sorted.length),
+            total: view.sorted.length,
+          })}
+        </span>
+        <span className="memory-page-size">
+          {t("steward.memory.pageSizeLabel")}
+          <select
+            className="hud-input sm"
+            data-memory-page-size
+            value={pageSize}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              window.localStorage.setItem(PAGE_SIZE_KEY, String(next));
+              setPageSize(next);
+            }}
+          >
+            {PAGE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </span>
+      </div>
+    );
+  }, [view, page, pageSize, t]);
+
   return (
     <div data-steward-memory-page={path}>
       <AppLayout headerLeft={<h1 className="tb-title">{t("steward.memory.pageTitle")}</h1>}>
         <div className="pg" data-memory-page-body>
-          {/* 头部：搜索 + 统计 + 端点徽标 + 新增入口 */}
+          {/* 头部：搜索 + 排序 + 筛选 + 统计 + 端点徽标 + 新增入口 */}
           <div className="toolbar" data-memory-page-head>
             <div className="toolbar-row">
               <div className="fld">
@@ -171,19 +351,18 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              {memoryState !== null && (
-                <span className="ag-note" data-memory-stats>
-                  {t("steward.memory.stats", {
-                    count: memoryState.entryCount,
-                    dim: memoryState.dim ?? 0,
-                  })}
-                </span>
-              )}
-              {memoryState?.endpoint !== null && memoryState !== null && (
-                <span className="conn hud-badge hud-badge-cyan" data-memory-endpoint-badge>
-                  {`${memoryState.endpoint?.name ?? ""} · ${memoryState.endpoint?.model ?? ""}`}
-                </span>
-              )}
+              <div className="sel-wrap">
+                <select
+                  className="hud-input"
+                  data-memory-sort
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value as SortKey)}
+                >
+                  <option value="updated">{t("steward.memory.sortUpdated")}</option>
+                  <option value="created">{t("steward.memory.sortCreated")}</option>
+                  <option value="recalled">{t("steward.memory.sortRecalled")}</option>
+                </select>
+              </div>
               <button
                 className="hud-btn hud-btn-cyan sm"
                 type="button"
@@ -196,21 +375,74 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                 {t("steward.memory.add")}
               </button>
             </div>
+            <div className="toolbar-row" data-memory-filters>
+              {(["all", "active", "faded", "pinned"] as const)
+                .filter((f) => {
+                  if (stats === null) return f === "all";
+                  if (f === "faded") return stats.faded > 0;
+                  if (f === "pinned") return stats.pinned > 0;
+                  return true;
+                })
+                .map((f) => (
+                  <button
+                    key={f}
+                    className={cn("hud-btn sm", filter === f ? "hud-btn-cyan" : "hud-btn-ghost")}
+                    type="button"
+                    data-memory-filter={f}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === "all"
+                      ? t("steward.memory.filterAll")
+                      : f === "active"
+                        ? t("steward.memory.filterActive")
+                        : f === "faded"
+                          ? t("steward.memory.filterFaded")
+                          : t("steward.memory.filterPinned")}
+                  </button>
+                ))}
+              {memoryState !== null && (
+                <span className="ag-note" data-memory-stats>
+                  {t("steward.memory.stats", { count: memoryState.entryCount, dim: memoryState.dim ?? 0 })}
+                  {stats !== null && stats.faded > 0 && ` · ${t("steward.memory.statsFaded", { count: stats.faded })}`}
+                  {stats !== null && stats.pinned > 0 && ` · ${t("steward.memory.statsPinned", { count: stats.pinned })}`}
+                </span>
+              )}
+              {memoryState?.endpoint !== null && memoryState !== null && (
+                <span className="conn hud-badge hud-badge-cyan" data-memory-endpoint-badge>
+                  {`${memoryState.endpoint?.name ?? ""} · ${memoryState.endpoint?.model ?? ""}`}
+                </span>
+              )}
+            </div>
             {!available && <span className="ag-note" data-memory-unavailable>{t("steward.memory.unavailable")}</span>}
           </div>
 
-          {/* 列表：text | kind 徽标 | 相对时间 | 来源轮次 + 行内编辑/删除 */}
-          {filtered !== null && filtered.length === 0 && (
+          {/* 列表：两行卡片（行1 text + pin + kind；行2 meta + 动作） */}
+          {entries !== null && view !== null && view.sorted.length === 0 && (
             <p className="ag-note" data-memory-list-empty>
               {t("steward.memory.empty")}
             </p>
           )}
+          {entries === null && (
+            <div className="memory-list" data-memory-list-loading aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="memory-item memory-skeleton" />
+              ))}
+            </div>
+          )}
           <div className="memory-list" data-memory-list>
-            {(filtered ?? []).map((entry) => {
+            {pageItems.map((entry) => {
               const isEditing = editing?.id === entry.id;
               const isVectorizing = vectorizing === entry.id;
+              const faded = entry.faded === true;
+              const pinned = entry.pinned === true;
+              const recalled = entry.recallCount ?? 0;
               return (
-                <div key={entry.id} className="memory-item" data-memory-item={entry.id}>
+                <div
+                  key={entry.id}
+                  className={cn("memory-item", faded && "memory-item-faded")}
+                  data-memory-item={entry.id}
+                  data-faded={faded ? "1" : undefined}
+                >
                   {isVectorizing ? (
                     <span className="ag-note" data-memory-item-vectorizing>
                       {t("steward.memory.vectorizing")}
@@ -247,36 +479,86 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                     </div>
                   ) : (
                     <>
-                      <span className="memory-text" data-memory-item-text={entry.id}>
-                        {entry.text}
-                      </span>
-                      <span className="hud-chip" data-memory-item-kind={entry.id}>
-                        {t(`chat.settings.general.memoryKind.${entry.kind}`)}
-                      </span>
-                      <span className="memory-meta" data-memory-item-meta={entry.id}>
-                        {timeLabel(entry.createdAt, t)} · {t(`steward.memory.source.${entry.sourceTurn === "manual" ? "manual" : "stewardTurn"}`)}
-                      </span>
-                      <div className="memory-actions">
-                        <button
-                          className="hud-btn hud-btn-ghost sm"
-                          type="button"
-                          data-memory-edit-btn={entry.id}
-                          disabled={!available}
-                          onClick={() => setEditing({ id: entry.id, text: entry.text })}
-                        >
-                          {t("chat.settings.general.memoryEdit")}
-                        </button>
-                        <button
-                          className={cn("hud-btn sm", armedDelete === String(entry.id) ? "hud-btn-danger" : "hud-btn-ghost")}
-                          type="button"
-                          data-memory-delete-btn={entry.id}
-                          data-armed={armedDelete === String(entry.id) ? "1" : undefined}
-                          onClick={() => onDelete(entry.id)}
-                        >
-                          {armedDelete === String(entry.id)
-                            ? t("chat.modelsConfig.confirmDelete")
-                            : t("chat.settings.general.memoryDelete")}
-                        </button>
+                      <div className="memory-main">
+                        <span className="memory-text" data-memory-item-text={entry.id}>
+                          {entry.text}
+                        </span>
+                        <span className="memory-flags">
+                          {faded && (
+                            <span className="hud-chip memory-chip-faded" data-memory-item-faded={entry.id}>
+                              {t("steward.memory.fadedChip")}
+                            </span>
+                          )}
+                          {pinned && (
+                            <span className="hud-chip memory-chip-pinned" data-memory-item-pinnedchip={entry.id}>
+                              {t("steward.memory.pinnedChip")}
+                            </span>
+                          )}
+                          <span className="hud-chip" data-memory-item-kind={entry.id}>
+                            {t(`chat.settings.general.memoryKind.${entry.kind}`)}
+                          </span>
+                          <button
+                            className={cn("hud-btn sm memory-pin-btn", pinned && "is-pinned")}
+                            type="button"
+                            data-memory-pin-btn={entry.id}
+                            title={pinned ? t("steward.memory.unpinAction") : t("steward.memory.pinAction")}
+                            onClick={() => onPin(entry.id, !pinned)}
+                          >
+                            {pinned ? (
+                              <PinOff size={13} strokeWidth={1.75} aria-hidden="true" />
+                            ) : (
+                              <Pin size={13} strokeWidth={1.75} aria-hidden="true" />
+                            )}
+                          </button>
+                        </span>
+                      </div>
+                      <div className="memory-sub">
+                        <span className="memory-meta" data-memory-item-meta={entry.id}>
+                          {timeLabel(entry.createdAt, t)} ·{" "}
+                          {t(`steward.memory.source.${entry.sourceTurn === "manual" ? "manual" : "stewardTurn"}`)}
+                          {recalled > 0 && (
+                            <>
+                              {" · "}
+                              {t("steward.memory.recalledTimes", { n: recalled })}
+                              {(entry.lastRecalledAt ?? 0) > 0 &&
+                                ` · ${t("steward.memory.lastRecalled", { span: timeLabel(entry.lastRecalledAt!, t) })}`}
+                            </>
+                          )}
+                          {recalled === 0 && faded && ` · ${t("steward.memory.recalledNever")}`}
+                        </span>
+                        <div className="memory-actions">
+                          {faded && (
+                            <button
+                              className="hud-btn hud-btn-ghost sm"
+                              type="button"
+                              data-memory-restore-btn={entry.id}
+                              onClick={() => onRestore(entry.id)}
+                            >
+                              <RotateCcw size={13} strokeWidth={1.75} aria-hidden="true" />
+                              {t("steward.memory.restoreAction")}
+                            </button>
+                          )}
+                          <button
+                            className="hud-btn hud-btn-ghost sm"
+                            type="button"
+                            data-memory-edit-btn={entry.id}
+                            disabled={!available}
+                            onClick={() => setEditing({ id: entry.id, text: entry.text })}
+                          >
+                            {t("chat.settings.general.memoryEdit")}
+                          </button>
+                          <button
+                            className={cn("hud-btn sm", armedDelete === String(entry.id) ? "hud-btn-danger" : "hud-btn-ghost")}
+                            type="button"
+                            data-memory-delete-btn={entry.id}
+                            data-armed={armedDelete === String(entry.id) ? "1" : undefined}
+                            onClick={() => onDelete(entry.id)}
+                          >
+                            {armedDelete === String(entry.id)
+                              ? t("chat.modelsConfig.confirmDelete")
+                              : t("chat.settings.general.memoryDelete")}
+                          </button>
+                        </div>
                       </div>
                     </>
                   )}
@@ -284,6 +566,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
               );
             })}
           </div>
+
+          {pageButtons}
 
           {/* 新增弹窗（text + kind 下拉 → steward.memory_append） */}
           {adding !== null && (
