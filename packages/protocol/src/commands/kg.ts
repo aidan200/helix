@@ -203,6 +203,22 @@ export interface KgReviewCreateCommand extends CommandFrame<KgReviewCreatePayloa
   type: "kg.review.create";
 }
 
+// ── kg.triage.create（kg-triage P1：待办面即时裁决任务发起）──
+
+export interface KgTriageCreatePayload {
+  /** 项目名或绝对路径（daemon 单点解析）。 */
+  project: string;
+}
+/**
+ * 发起 kg-triage 待办面裁决任务（type="kg-triage"、projects=[project]、
+ * params={projectRoot}、createdBy="page"，与 kg.review.create 同源 createTask）。
+ * 准入 = 索引存在 + 待办面非空（pending+deferred+dead_anchor 三计数 > 0）
+ * + 仅禁并发；nothing_pending / index_absent → kg.triage.not_eligible。
+ */
+export interface KgTriageCreateCommand extends CommandFrame<KgTriageCreatePayload> {
+  type: "kg.triage.create";
+}
+
 // ── code.review.create（code-review v1.5：P-1 体检区双入口之代码评审发起）──
 
 export interface CodeReviewCreatePayload {

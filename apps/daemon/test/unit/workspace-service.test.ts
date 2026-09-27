@@ -70,6 +70,8 @@ function makeRig() {
     store: {} as never,
     codegraphEngine: {} as never,
     queryService: {} as never,
+    // kg-triage 批宽化（verifyService 供 KgTriageService 组装；本测不消费，never 桩）
+    verifyService: {} as never,
     writeService: {} as never,
     syncService: {} as never,
     attachmentService: {} as never,
@@ -370,6 +372,7 @@ describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
       store: {} as never,
       codegraphEngine: {} as never,
       queryService: {} as never,
+      verifyService: {} as never,
       writeService: {} as never,
       syncService: {} as never,
       attachmentService: {} as never,

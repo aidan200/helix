@@ -16,6 +16,7 @@ import type { WorkspaceStack } from "../../application/services/workspace/Worksp
 import { KgBootstrapService } from "../../application/services/kg/KgBootstrapService";
 import { KgMaintenanceService } from "../../application/services/kg/KgMaintenanceService";
 import { KgReviewService } from "../../application/services/kg/KgReviewService";
+import { KgTriageService } from "../../application/services/kg/KgTriageService";
 import { CodeReviewService } from "../../application/services/kg/CodeReviewService";
 
 /**
@@ -54,6 +55,7 @@ export interface KgResolverGroup {
   readonly kgBootstrapResolver: () => KgBootstrapService | undefined;
   readonly kgMaintenanceResolver: () => KgMaintenanceService | undefined;
   readonly kgReviewResolver: () => KgReviewService | undefined;
+  readonly kgTriageResolver: () => KgTriageService | undefined;
   readonly codeReviewResolver: () => CodeReviewService | undefined;
 }
 
@@ -101,6 +103,19 @@ export function buildKgResolverGroup(deps: KgResolverGroupDeps): KgResolverGroup
         store: deps.taskStore,
       }),
   );
+  // kg-triage 批数据面解析器（P1，kgReview 同接缝：workspace 现值 stack + 任务
+  // 栈 engine 组装，WeakMap 按记忆化；发起面 + 待办面三计数读面——graph/verify）。
+  const kgTriageResolver = memoizedByStack(
+    deps.stack,
+    (stack) =>
+      new KgTriageService({
+        project: stack.projectService,
+        taskEngine: deps.taskEngine,
+        store: deps.taskStore,
+        graph: stack.graph,
+        verify: stack.verifyService,
+      }),
+  );
   // code-review 批数据面解析器（code-review v1.5，kgReview 同接缝：workspace
   // 现值 stack + 任务栈 engine 组装，WeakMap 按 stack 记忆化；只有发起面）。
   const codeReviewResolver = memoizedByStack(
@@ -112,5 +127,5 @@ export function buildKgResolverGroup(deps: KgResolverGroupDeps): KgResolverGroup
         store: deps.taskStore,
       }),
   );
-  return { kgBootstrapResolver, kgMaintenanceResolver, kgReviewResolver, codeReviewResolver };
+  return { kgBootstrapResolver, kgMaintenanceResolver, kgReviewResolver, kgTriageResolver, codeReviewResolver };
 }

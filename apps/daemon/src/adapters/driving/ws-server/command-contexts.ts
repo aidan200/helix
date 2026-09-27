@@ -39,6 +39,7 @@ import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
 import type { KgBootstrapService } from "../../../application/services/kg/KgBootstrapService";
 import type { KgMaintenanceService } from "../../../application/services/kg/KgMaintenanceService";
 import type { KgReviewService } from "../../../application/services/kg/KgReviewService";
+import type { KgTriageService } from "../../../application/services/kg/KgTriageService";
 import type { CodeReviewService } from "../../../application/services/kg/CodeReviewService";
 import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
 import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
@@ -233,6 +234,9 @@ export interface WsServerAdapterDeps {
    * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
    */
   readonly kgReview?: KgReviewService | (() => KgReviewService | undefined);
+  /** kg-triage 批回口（P1：KgTriageService——组合根 WeakMap 记忆化，kgReview
+   *  同接缝；发起面 + 待办面三计数读面）。未装配 → command.unimplemented。 */
+  readonly kgTriage?: KgTriageService | (() => KgTriageService | undefined);
   /** code-review 批回口（code-review v1.5：CodeReviewService——组合根
    *  WeakMap 记忆化，kgReview 同接缝）。未装配 → command.unimplemented。 */
   readonly codeReview?: CodeReviewService | (() => CodeReviewService | undefined);
@@ -466,6 +470,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       bootstrap: resolveService(deps.kgBootstrap),
       maintenance: resolveService(deps.kgMaintenance),
       review: resolveService(deps.kgReview),
+      triage: resolveService(deps.kgTriage),
       codeReview: resolveService(deps.codeReview),
       workspaceUnbound: deps.workspace !== undefined && !deps.workspace.isBound(),
       commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),

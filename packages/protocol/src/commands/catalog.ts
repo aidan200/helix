@@ -73,6 +73,7 @@ import type {
   KgHealthCommand,
   KgCandidatesListCommand,
   KgReviewCreateCommand,
+  KgTriageCreateCommand,
   CodeReviewCreateCommand,
 } from "./kg";
 import type {
@@ -195,6 +196,7 @@ export type CommandEnvelope =
   | KgIndexDeleteCommand
   | KgHealthCommand
   | KgReviewCreateCommand
+  | KgTriageCreateCommand
   | CodeReviewCreateCommand
   | KgCandidatesListCommand
   | WorkspaceGetCommand
@@ -358,6 +360,7 @@ export const COMMAND_TYPES = [
   "kg.index.delete",
   "kg.health",
   "kg.review.create",
+  "kg.triage.create",
   "code.review.create",
   "kg.candidates.list",
   "workspace.get",

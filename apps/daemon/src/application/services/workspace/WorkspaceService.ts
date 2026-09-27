@@ -33,6 +33,7 @@ import type { CodegraphEnginePort } from "../../../application/ports/outbound/Co
 import type { KgProjectRowView, KgProjectService } from "../kg/KgProjectService";
 import type { KgAttachmentService } from "../kg/KgAttachmentService";
 import type { KgQueryService } from "../kg/KgQueryService";
+import type { KgVerifyService } from "../kg/KgVerifyService";
 import type { KgSyncService } from "../kg/KgSyncService";
 import type { KgFsWatchService } from "../kg/KgFsWatchService";
 import type { KgViewerService } from "../kg/KgViewerService";
@@ -62,6 +63,8 @@ export interface WorkspaceStack {
   /** codegraph 引擎面（C1 kg 维护批：deleteIndex 组装面）。 */
   readonly codegraphEngine: CodegraphEnginePort;
   readonly queryService: KgQueryService;
+  /** 验证期三检查（kg-triage P1：待办面 dead_anchor 残量计数读面）。 */
+  readonly verifyService: KgVerifyService;
   readonly writeService: KgWriteService;
   readonly syncService: KgSyncService;
   readonly attachmentService: KgAttachmentService;

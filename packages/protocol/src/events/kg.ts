@@ -200,3 +200,11 @@ export interface CodeReviewCreateResultEvent extends EventFrame<CodeReviewCreate
   channel?: "kg";
   type: "code.review.create.result";
 }
+
+/** kg.triage.create.result：待办面裁决任务已创建（kg-triage P1；kg.review.create.result 同形）。 */
+export type KgTriageCreateResultPayload = TaskCreateAcceptedPayload;
+
+export interface KgTriageCreateResultEvent extends EventFrame<KgTriageCreateResultPayload> {
+  channel?: "kg";
+  type: "kg.triage.create.result";
+}

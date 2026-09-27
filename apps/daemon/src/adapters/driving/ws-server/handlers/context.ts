@@ -54,6 +54,7 @@ import type { KgViewerService } from "../../../../application/services/kg/KgView
 import type { KgBootstrapService } from "../../../../application/services/kg/KgBootstrapService";
 import type { KgMaintenanceService } from "../../../../application/services/kg/KgMaintenanceService";
 import type { KgReviewService } from "../../../../application/services/kg/KgReviewService";
+import type { KgTriageService } from "../../../../application/services/kg/KgTriageService";
 import type { CodeReviewService } from "../../../../application/services/kg/CodeReviewService";
 import type { WorkspaceService } from "../../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../../application/services/task/TaskQueryService";
@@ -385,6 +386,9 @@ export interface KgCommandContext {
    *  未装配 → undefined，handler 回 command.unimplemented；生产面经容器
    *  workspace 现值解析器组装，kgBootstrap/kgMaintenance 同接缝）。 */
   readonly review: KgReviewService | undefined;
+  /** kg 待办面裁决批一命令应用编排面（kg-triage P1：kg.triage.create——发起面 + 待办面三计数读面；
+   * 未装配 → command.unimplemented）。 */
+  readonly triage: KgTriageService | undefined;
   /** code-review 批一命令应用编排面（code-review v1.5：code.review.create；
    *  未装配 → undefined，handler 回 command.unimplemented；生产面经容器
    *  workspace 现值解析器组装，kgReview 同接缝）。 */

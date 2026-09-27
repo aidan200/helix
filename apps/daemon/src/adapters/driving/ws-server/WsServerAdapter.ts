@@ -111,6 +111,7 @@ import {
   handleKgNodeDetail,
   handleKgProjects,
   handleKgReviewCreate,
+  handleKgTriageCreate,
   handleCodeReviewCreate,
   handleKgNodeSupersede,
   handleKgNodeUpdate,
@@ -639,6 +640,9 @@ export class WsServerAdapter {
       // ── kg 评审批（W2-F 轨二体检任务发起；handlers/kg.ts）──
       case "kg.review.create":
         return handleKgReviewCreate(this.contexts.kgContext(ws, type, payload));
+      // ── kg-triage 批（P1 待办面裁决任务发起；handlers/kg.ts）──
+      case "kg.triage.create":
+        return handleKgTriageCreate(this.contexts.kgContext(ws, type, payload));
       // ── code-review 批（code-review v1.5 体检区代码评审入口；handlers/kg.ts）──
       case "code.review.create":
         return handleCodeReviewCreate(this.contexts.kgContext(ws, type, payload));

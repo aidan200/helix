@@ -42,6 +42,7 @@ import type {
   KgProjectRow,
   KgProjectsResultEvent,
   KgReviewCreateResultEvent,
+  KgTriageCreateResultEvent,
   CodeReviewCreateResultEvent,
 } from "@helix/protocol";
 import type {
@@ -446,6 +447,32 @@ export function handleKgReviewCreate(ctx: KgCommandContext): void {
         sessionId: SYSTEM_SESSION_ID,
         channel: "kg",
         type: "kg.review.create.result",
+        payload: { ok: true, jobId: result.value.jobId },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
+// ── kg.triage.create（kg-triage P1：待办面即时裁决任务发起；准入三态：索引存在 + 待办面非空 + 仅禁并发）──
+
+/** kg.triage.create（准入三态复核 → createTask 同源，createdBy="page"）。 */
+export function handleKgTriageCreate(ctx: KgCommandContext): void {
+  if (ctx.triage === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.triage
+    .create(project)
+    .then((result) => {
+      if (!result.ok) return serviceError(ctx, result.error);
+      const frame: KgTriageCreateResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.triage.create.result",
         payload: { ok: true, jobId: result.value.jobId },
       };
       ctx.sendNow(sender, frame);

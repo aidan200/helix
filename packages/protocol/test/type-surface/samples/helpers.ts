@@ -184,6 +184,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-health:${event.payload.conflicts.length}:${event.payload.orphanCount}:${event.payload.candidates.pending}`;
     case "kg.review.create.result":
       return `kg-review-create:${event.payload.jobId}`;
+    case "kg.triage.create.result":
+      return `kg-triage-create:${event.payload.jobId}`;
     // ── workspace 批（W1 绑定闭环；两结果帧 + 一广播）──
     case "workspace.get.result":
       return `workspace-get:${event.payload.current?.root ?? "unbound"}:${event.payload.recents.length}:${event.payload.notice ?? "-"}`;
@@ -629,6 +631,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.memory_restore":
       // 遗忘机制批：淡忘恢复
       return `steward-memory-restore:${cmd.payload.id}`;
+    case "kg.triage.create":
+      // kg-triage 批：待办面裁决任务发起
+      return `kg-triage-create:${cmd.payload.project}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

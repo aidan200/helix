@@ -421,6 +421,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     kgMaintenance: deps.kgResolvers.kgMaintenanceResolver,
     // kg 评审批一命令回口（W2-F）：解析器形态（同接缝）
     kgReview: deps.kgResolvers.kgReviewResolver,
+    // kg-triage 批一命令回口（P1）：解析器形态（同接缝）
+    kgTriage: deps.kgResolvers.kgTriageResolver,
     // code-review 批一命令回口（code-review v1.5）：解析器形态（同接缝）
     codeReview: deps.kgResolvers.codeReviewResolver,
     events: eventStream,
