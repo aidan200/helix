@@ -12,6 +12,7 @@ import type {
   CandidateStatus,
   KgWriteError,
   KnowledgeWriteOp,
+  KnowledgeWriteOpKind,
   NodeDraft,
   NodeId,
   NodeStatus,
@@ -485,13 +486,45 @@ export class SqliteKnowledgeStore {
         deleteContains.run(file.path);
         deleteSymbols.run(file.path);
       }
-      // 失效通道（CL-2.A7）：orphan 标记保留行不物理删（供 T5.1 检出）
+      // 失效通道（CL-2.A7）：orphan 标记保留行不物理删（供 T5.1 检出）。
+      // L0 机械重定位（P0）：断链轮同步落断链快照 evidence（供下一轮高置信
+      // 重定位判定；行本轮从活转断链——差集来自 activeAnchors，无重复标记面）
       const markOrphan = db.prepare(
-        "UPDATE materialized_anchors SET orphan = 1 " +
+        "UPDATE materialized_anchors SET orphan = 1, evidence = ? " +
           "WHERE node_id = ? AND anchor_kind = ? AND anchor_path = ? AND anchor_symbol = ?",
       );
       for (const anchor of batch.orphanedAnchors ?? []) {
-        markOrphan.run(anchor.nodeId, anchor.anchorKind, anchor.anchorPath, anchor.anchorSymbol ?? "");
+        markOrphan.run(anchor.evidence ?? "", anchor.nodeId, anchor.anchorKind, anchor.anchorPath, anchor.anchorSymbol ?? "");
+      }
+      // L0 机械重定位通道（P0）：声明 pattern 行级重写 + tombstone 物理清理。
+      // 审计：重写逐条落 change_log（op=anchorRelocate）；prune 按节点聚合
+      // （applyPrune 先例）。声明被并发改走（declareAnchors 全集替换竞态）→
+      // 跳过审计，物化下一轮自然收敛（同步单飞 + 写面单事务，竞态窗口仅理论）。
+      const rewriteDecl = db.prepare(
+        "UPDATE anchor_decl SET pattern = ? WHERE node_id = ? AND scope_kind = ? AND pattern = ?",
+      );
+      for (const rw of batch.anchorDeclRewrites ?? []) {
+        const changed = rewriteDecl.run(rw.newPattern, rw.nodeId, rw.scopeKind, rw.oldPattern).changes;
+        if (changed === 0) continue;
+        this.appendChangeLog(
+          db,
+          null,
+          "anchorRelocate",
+          rw.nodeId,
+          null,
+          `机械重定位 ${rw.rule}：${rw.oldPattern} → ${rw.newPattern}（${rw.evidence}）`,
+        );
+      }
+      const pruneAnchorRow = db.prepare(
+        "DELETE FROM materialized_anchors WHERE node_id = ? AND anchor_kind = ? AND anchor_path = ? AND anchor_symbol = ?",
+      );
+      const pruneVictims = new Set<string>();
+      for (const anchor of batch.prunedAnchors ?? []) {
+        pruneAnchorRow.run(anchor.nodeId, anchor.anchorKind, anchor.anchorPath, anchor.anchorSymbol ?? "");
+        pruneVictims.add(anchor.nodeId);
+      }
+      for (const victim of pruneVictims) {
+        this.appendChangeLog(db, null, "prune", victim, null, "机械重定位：tombstone 物理清理（无声明旧键/重写旧行）");
       }
       const upsertFile = db.prepare(
         "INSERT INTO files (path, mtime, sha256) VALUES (?, ?, ?) " +
@@ -623,7 +656,7 @@ export class SqliteKnowledgeStore {
   private appendChangeLog(
     db: Database,
     iterationId: string | null,
-    op: KnowledgeWriteOp["kind"],
+    op: KnowledgeWriteOpKind,
     nodeId: string,
     supersedeOf: string | null,
     reason: string | null,

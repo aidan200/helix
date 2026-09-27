@@ -351,4 +351,190 @@ describe("KgSyncService 集成管道（tmp 真库）", () => {
     await sleep(120);
     expect(orphanOf()).toBe(0);
   });
+
+  // ── L0 机械重定位（P0，kg-auto-adjudication-design.md §4）── 两轮时序：断链轮仅落快照
+  // （稳定期门）；消化轮高置信重写声明 + 新锚当轮复活 + tombstone 物理清理 + change_log 审计。
+
+  function renameFixture(): { symbols: EngineSymbol[]; containsEdges: { containerId: string; symbolId: string }[]; files: { path: string; contentHash: string; modifiedAt: number; indexedAt: number }[] } {
+    // Handler 同文件改名 HandlerV2（同 kind 同 span——R2 高置信形态）
+    return {
+      symbols: [
+        engineSymbol("file:src/app.ts", "src/app.ts", "src/app.ts", "file", 1, 40),
+        engineSymbol("fn:1", "main", "src/app.ts", "function", 1, 20),
+        engineSymbol("cls:1", "HandlerV2", "src/app.ts", "class", 22, 38),
+        engineSymbol("m:1", "handle", "src/app.ts", "method", 24, 36),
+      ],
+      containsEdges: [
+        { containerId: "file:src/app.ts", symbolId: "fn:1" },
+        { containerId: "cls:1", symbolId: "m:1" },
+      ],
+      files: [{ path: "src/app.ts", contentHash: "hash-v2", modifiedAt: 2000, indexedAt: 2000 }],
+    };
+  }
+
+  function anchorRows(s: Stack): Record<string, unknown>[] {
+    const db = new Database(kgDbPath(s.root), { readonly: true });
+    try {
+      return db.query("SELECT node_id, anchor_kind, anchor_path, anchor_symbol, orphan, evidence FROM materialized_anchors ORDER BY anchor_path, anchor_symbol").all() as Record<string, unknown>[];
+    } finally {
+      db.close();
+    }
+  }
+
+  test("⑪ L0-R2 同文件符号改名：断链轮落快照（稳定期门）→ 消化轮重写声明 + 新锚当轮复活 + 审计行", async () => {
+    const s = makeStack();
+    stacks.push(s);
+    s.engine.setSymbols(healthyFixture());
+    const symNode = expectOk(s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "entity", name: "handler", digest: "d", scene: "测试" },
+    }));
+    expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: symNode, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#Handler" }] }));
+    await s.service.onStartup(s.root);
+
+    // 断链轮：Handler 消失 → tombstone + evidence 快照；声明不动（稳定期门）
+    s.engine.setSymbols(renameFixture());
+    await s.service.triggerManual(s.root);
+    expect(anchorRows(s)).toEqual([
+      { node_id: symNode, anchor_kind: "symbol", anchor_path: "src/app.ts", anchor_symbol: "Handler", orphan: 1, evidence: JSON.stringify({ kind: "class", spanStart: 22, spanEnd: 38 }) },
+    ]);
+    const declAfterBreak = (() => {
+      const db = new Database(kgDbPath(s.root), { readonly: true });
+      try {
+        return db.query("SELECT pattern FROM anchor_decl").all() as { pattern: string }[];
+      } finally {
+        db.close();
+      }
+    })();
+    expect(declAfterBreak).toEqual([{ pattern: "src/app.ts#Handler" }]);
+
+    // 消化轮：tombstone 已过稳定期 → 声明重写 + 新锚当轮复活 + 旧行物理删
+    await s.service.triggerManual(s.root);
+    expect(anchorRows(s)).toEqual([
+      { node_id: symNode, anchor_kind: "symbol", anchor_path: "src/app.ts", anchor_symbol: "HandlerV2", orphan: 0, evidence: "" },
+    ]);
+    const db = new Database(kgDbPath(s.root), { readonly: true });
+    try {
+      expect(db.query("SELECT pattern FROM anchor_decl").all()).toEqual([{ pattern: "src/app.ts#HandlerV2" }]);
+      const logs = db.query("SELECT op, node_id, reason FROM change_log WHERE op IN ('anchorRelocate','prune') ORDER BY seq").all() as Record<string, string>[];
+      expect(logs.length).toBe(2); // 重写审计 + prune 审计（同一节点）
+      expect(logs[0]!.op).toBe("anchorRelocate");
+      expect(logs[0]!.reason).toContain("src/app.ts#Handler → src/app.ts#HandlerV2");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("⑫ L0-R1b 跨文件迁移（E-9 形态2 主形态）：旧文件消失 + 唯一同名同 kind 宿主 → 声明指向新文件", async () => {
+    const s = makeStack();
+    stacks.push(s);
+    const moved = {
+      symbols: [
+        engineSymbol("file:src/new.ts", "src/new.ts", "src/new.ts", "file", 1, 60),
+        engineSymbol("fn:9", "sweepBatches", "src/new.ts", "function", 5, 55),
+      ],
+      containsEdges: [{ containerId: "file:src/new.ts", symbolId: "fn:9" }],
+      files: [{ path: "src/new.ts", contentHash: "hash-m", modifiedAt: 3000, indexedAt: 3000 }],
+    };
+    const initial = {
+      symbols: [
+        engineSymbol("file:src/old.ts", "src/old.ts", "src/old.ts", "file", 1, 60),
+        engineSymbol("fn:9", "sweepBatches", "src/old.ts", "function", 5, 55),
+      ],
+      containsEdges: [{ containerId: "file:src/old.ts", symbolId: "fn:9" }],
+      files: [{ path: "src/old.ts", contentHash: "hash-o", modifiedAt: 1000, indexedAt: 1000 }],
+    };
+    s.engine.setSymbols(initial);
+    const node = expectOk(s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "entity", name: "sweep", digest: "d", scene: "测试" },
+    }));
+    expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: node, anchors: [{ scopeKind: "symbol", pattern: "src/old.ts#sweepBatches" }] }));
+    await s.service.onStartup(s.root);
+
+    s.engine.setSymbols(moved);
+    await s.service.triggerManual(s.root); // 断链轮（快照 + tombstone）
+    await s.service.triggerManual(s.root); // 消化轮：R1b 重写
+    expect(anchorRows(s)).toEqual([
+      { node_id: node, anchor_kind: "symbol", anchor_path: "src/new.ts", anchor_symbol: "sweepBatches", orphan: 0, evidence: "" },
+    ]);
+    const db = new Database(kgDbPath(s.root), { readonly: true });
+    try {
+      expect(db.query("SELECT pattern FROM anchor_decl").all()).toEqual([{ pattern: "src/new.ts#sweepBatches" }]);
+    } finally {
+        db.close();
+      }
+  });
+
+  test("⑬ L0-R3 无声明旧键（声明撤销）：节点附着面健康 → 机械 prune；形态1 符号消亡（声明仍在）→ 保留信号", async () => {
+    const s = makeStack();
+    stacks.push(s);
+    s.engine.setSymbols(healthyFixture());
+    const node = expectOk(s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "entity", name: "e", digest: "d", scene: "测试" },
+    }));
+    const keepNode = expectOk(s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "entity", name: "k", digest: "d", scene: "测试" },
+    }));
+    expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: node, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#Handler" }] }));
+    expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: keepNode, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#Handler" }] }));
+    await s.service.onStartup(s.root);
+
+    // node 声明全集替换为只留 main（Handler 撤销 + main 活锚 = 附着面健康）→ 形态3 无声明旧键；
+    // keepNode 声明保留 → 形态1 符号消亡（声明仍在，真信号）
+    const shrunk = healthyFixture();
+    shrunk.symbols = shrunk.symbols.filter((x) => x.name !== "Handler" && x.name !== "handle");
+    shrunk.containsEdges = shrunk.containsEdges.filter((x) => x.symbolId !== "m:1");
+    shrunk.files = [{ path: "src/app.ts", contentHash: "hash-v3", modifiedAt: 3000, indexedAt: 3000 }];
+    s.engine.setSymbols(shrunk);
+    expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: node, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#main" }] }));
+    await s.service.triggerManual(s.root); // 断链轮：两锚均 tombstone + 快照
+    await s.service.triggerManual(s.root); // 消化轮：node 的 Handler 旧行 R3 prune（main 活锚健康）；keepNode 的保留（声明仍在 = 真信号）
+    const rows = anchorRows(s);
+    expect(rows.length).toBe(2); // node 的 main 活锚 + keepNode 的 Handler tombstone
+    expect(rows.find((r) => r["anchor_symbol"] === "main")).toMatchObject({ node_id: node, orphan: 0 });
+    expect(rows.find((r) => r["anchor_symbol"] === "Handler")).toMatchObject({ node_id: keepNode, orphan: 1 });
+    const db = new Database(kgDbPath(s.root), { readonly: true });
+    try {
+      const pruneLog = db.query("SELECT op, node_id FROM change_log WHERE op = 'prune'").all() as Record<string, string>[];
+      expect(pruneLog.length).toBe(1);
+      expect(pruneLog[0]!.node_id).toBe(node);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("⑭ L0 degraded 门：引擎不可用轮零锚处置（tombstone 原样保留，恢复后消化）", async () => {
+    const s = makeStack();
+    stacks.push(s);
+    s.engine.setSymbols(healthyFixture());
+    const symNode = expectOk(s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "entity", name: "h", digest: "d", scene: "测试" },
+    }));
+    expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: symNode, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#Handler" }] }));
+    await s.service.onStartup(s.root);
+
+    s.engine.setSymbols(renameFixture());
+    await s.service.triggerManual(s.root); // 断链轮：tombstone + 快照
+
+    s.engine.setUnavailable(true);
+    await s.service.triggerManual(s.root); // degraded 轮：零重写零 prune
+    expect(anchorRows(s)).toEqual([
+      { node_id: symNode, anchor_kind: "symbol", anchor_path: "src/app.ts", anchor_symbol: "Handler", orphan: 1, evidence: JSON.stringify({ kind: "class", spanStart: 22, spanEnd: 38 }) },
+    ]);
+
+    s.engine.setUnavailable(false);
+    await s.service.triggerManual(s.root); // 恢复轮：正常消化
+    expect(anchorRows(s)).toEqual([
+      { node_id: symNode, anchor_kind: "symbol", anchor_path: "src/app.ts", anchor_symbol: "HandlerV2", orphan: 0, evidence: "" },
+    ]);
+  });
 });

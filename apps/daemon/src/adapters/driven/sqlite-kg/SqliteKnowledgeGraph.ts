@@ -322,6 +322,23 @@ export class SqliteKnowledgeGraph {
       spanStart: row.span_start,
       spanEnd: row.span_end,
     }));
+    // 存量 tombstone（orphan=1 含断链快照）——L0 机械重定位消化轮输入
+    //（P0）；空态回退兼容（无行 → 空数组）。
+    const orphanedAnchors = (
+      db
+        .prepare(
+          "SELECT node_id, anchor_path, anchor_symbol, anchor_kind, evidence FROM materialized_anchors WHERE orphan = 1 " +
+            "ORDER BY node_id, anchor_path, anchor_symbol",
+        )
+        .all() as OrphanedAnchorRow[]
+    ).map((row) => ({
+      nodeId: row.node_id,
+      anchorPath: row.anchor_path,
+      anchorSymbol: row.anchor_symbol === "" ? null : row.anchor_symbol,
+      anchorKind: row.anchor_kind as MaterializedAnchor["anchorKind"],
+      orphan: true,
+      evidence: row.evidence === "" ? undefined : row.evidence,
+    }));
     const activeAnchors = (
       db
         .prepare(
@@ -342,7 +359,7 @@ export class SqliteKnowledgeGraph {
       scopeKind: row.scope_kind as AnchorDeclRow["scopeKind"],
       pattern: row.pattern,
     }));
-    return { files, symbols, activeAnchors, anchorDeclarations };
+    return { files, symbols, activeAnchors, anchorDeclarations, orphanedAnchors: orphanedAnchors.length > 0 ? orphanedAnchors : [] };
   }
 
   getIndexStatus(projectRoot: string): IndexStatus {
@@ -744,6 +761,11 @@ interface ActiveAnchorRow {
   anchor_path: string;
   anchor_symbol: string;
   anchor_kind: string;
+}
+
+/** 存量 tombstone 行（L0 机械重定位消化轮输入；evidence 断链快照列）。 */
+interface OrphanedAnchorRow extends ActiveAnchorRow {
+  evidence: string;
 }
 
 interface ReverseRow extends ActiveAnchorRow {

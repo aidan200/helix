@@ -119,6 +119,11 @@ function ensureSchemaEvolved(db: Database): void {
     // 修改/废弃候选定位目标节点——可空无默认（存量行 NULL = 无目标，不回填）
     db.exec("ALTER TABLE candidates ADD COLUMN target_node TEXT");
   }
+  if (!hasColumn(db, "materialized_anchors", "evidence")) {
+    // L0 机械重定位（P0）：断链快照列——断链轮 orphan 落库时携带，供下一轮
+    // sync 高置信重定位判定（anchor-relocate.ts；存量行 '' = 无快照不判）
+    db.exec("ALTER TABLE materialized_anchors ADD COLUMN evidence TEXT NOT NULL DEFAULT ''");
+  }
   relaxChangeLogIterationNotNull(db);
 }
 

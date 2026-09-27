@@ -30,6 +30,12 @@ import type { CodegraphEnginePort } from "../../ports/outbound/CodegraphEnginePo
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../ports/outbound/KnowledgeStorePort";
 import { anchorKey, materializeAnchors } from "../../../domain/kg/anchor-materialize";
+import {
+  applyDeclRewrites,
+  buildOrphanEvidence,
+  relocateAnchors,
+  type AnchorDeclRewrite,
+} from "../../../domain/kg/anchor-relocate";
 import { relPathOf } from "./rel-path";
 import type {
   EngineSymbol,
@@ -378,18 +384,55 @@ export class KgSyncService {
         .filter((s) => importDomain.has(s.filePath))
         .map((s) => ({ name: s.name, kind: s.kind, spanStart: s.startLine, spanEnd: s.endLine, file: s.filePath }));
       const containsEdges = degraded ? [] : projectContains(symbolSet, importDomain);
-  
+
       // 锚物化（确定性 join 全量重算；degraded docs-only：symbol 面空 → symbol 声明零锚）
-      const materializedAnchors = materializeAnchors({
+      const firstPassAnchors = materializeAnchors({
         declarations: baselineView.anchorDeclarations,
         filePaths,
         symbols: symbolFace.map((s) => ({ name: s.name, file: s.filePath })),
       });
+
+      // L0 机械重定位（P0）：消化存量 tombstone（稳定期门——断链轮仅落快照，
+      // 下一轮 sync 才处置；degraded 门：索引面不可信时零锚处置）。重写命中
+      // 后用有效声明集重跑物化，新锚当轮复活（声明重写 → 物化全量重算自然命中）。
+      const spanFace = symbolFace.map((s) => ({
+        name: s.name,
+        kind: s.kind,
+        file: s.filePath,
+        spanStart: s.startLine,
+        spanEnd: s.endLine,
+      }));
+      const relocation = degraded
+        ? { rewrites: [] as readonly AnchorDeclRewrite[], prunes: [] as readonly MaterializedAnchor[] }
+        : relocateAnchors({
+            tombstones: baselineView.orphanedAnchors ?? [],
+            declarations: baselineView.anchorDeclarations,
+            materialized: firstPassAnchors,
+            filePaths,
+            symbols: spanFace,
+          });
+      const effectiveDeclarations = applyDeclRewrites(baselineView.anchorDeclarations, relocation.rewrites);
+      const materializedAnchors =
+        relocation.rewrites.length > 0
+          ? materializeAnchors({
+              declarations: effectiveDeclarations,
+              filePaths,
+              symbols: symbolFace.map((s) => ({ name: s.name, file: s.filePath })),
+            })
+          : firstPassAnchors;
+
       // 锚失效检测：上一基准活跃锚 − 本次 join（符号消亡/声明撤销 → orphan）
-      const orphanedAnchors: MaterializedAnchor[] = degraded
+      const orphanedRaw: MaterializedAnchor[] = degraded
         ? [] // degraded 不做 diff：symbol 锚保持旧态滞后合法（恢复后下次 sync 重算）
         : baselineView.activeAnchors.filter((a) => !new Set(materializedAnchors.map(anchorKey)).has(anchorKey(a)));
-  
+      // 断链快照（断链轮）：上一轮符号表（baselineView.symbols 此刻内存）→
+      // 供下一轮高置信重定位判定（evidence 列随 orphan 标记同事务落库）
+      const evidenceByKey = degraded ? new Map<string, string>() : buildOrphanEvidence(orphanedRaw, baselineView.symbols);
+      const orphanedAnchors: MaterializedAnchor[] = orphanedRaw.map((a) => {
+        const evidence = evidenceByKey.get(anchorKey(a));
+        return evidence === undefined ? a : { ...a, evidence };
+      });
+
       const baseline = this.nextBaseline(projectRoot, state);
       const syncedAt = new Date().toISOString();
       const batch: SymbolBatch = {
@@ -399,6 +442,8 @@ export class KgSyncService {
         materializedAnchors,
         deletedFiles,
         orphanedAnchors,
+        anchorDeclRewrites: relocation.rewrites.length > 0 ? relocation.rewrites : undefined,
+        prunedAnchors: relocation.prunes.length > 0 ? relocation.prunes : undefined,
         baseline,
         degraded,
       };

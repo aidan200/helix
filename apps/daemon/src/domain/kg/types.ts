@@ -106,6 +106,9 @@ export type AnchorKind = "path" | "symbol";
  * 物化锚行（materialized_anchors 表形状；path 锚 anchorSymbol=null）。
  * orphan=true：符号消亡/锚声明撤销后的失效标记（保留行不物理删，供 T5.1
  * 检出——T2.2 锚失效检测写入；缺省 undefined = 活跃，读面以 orphan=0 过滤）。
+ * evidence：断链快照（L0 机械重定位，P0）——断链轮落库时携带（symbol 锚
+ * {kind,spanStart,spanEnd} / path 锚 {symbolNames}，取自上一基准符号表），
+ * 供下一轮 sync 消化时做高置信重定位判定（稳定期门：断链轮只落快照不动链）。
  */
 export interface MaterializedAnchor {
   readonly nodeId: NodeId;
@@ -113,6 +116,17 @@ export interface MaterializedAnchor {
   readonly anchorSymbol: string | null;
   readonly anchorKind: AnchorKind;
   readonly orphan?: boolean;
+  readonly evidence?: string;
+}
+
+/** 声明重写（L0 机械重定位产物；applySync 通道：anchor_decl 行级 pattern 替换 + change_log 审计）。 */
+export interface AnchorDeclRewrite {
+  readonly nodeId: NodeId;
+  readonly scopeKind: "path" | "symbol";
+  readonly oldPattern: string;
+  readonly newPattern: string;
+  readonly rule: "R1-path-move" | "R1b-symbol-cross-file" | "R2-symbol-rename";
+  readonly evidence: string;
 }
 
 // ── 候选台账（D0/R1-R3：md 四分区库内化；写面唯一走 KgWriteService） ──
@@ -179,7 +193,8 @@ export type KnowledgeWriteOpKind =
   | "batchCreateNodes"
   | "proposeCandidate"
   | "decideCandidate"
-  | "prune";
+  | "prune"
+  | "anchorRelocate";
 
 /**
  * 变更日志行：每 op 自动追加（迭代 id/op/nodeId/supersede_of/理由/时间）。
@@ -431,6 +446,8 @@ export interface SyncBaselineView {
   readonly symbols: readonly SymbolRecord[];
   readonly activeAnchors: readonly MaterializedAnchor[];
   readonly anchorDeclarations: readonly AnchorDeclRow[];
+  /** 存量 tombstone（orphan=1 行含断链快照 evidence；L0 机械重定位消化轮输入）。 */
+  readonly orphanedAnchors?: readonly MaterializedAnchor[];
 }
 
 /**
@@ -446,8 +463,12 @@ export interface SymbolBatch {
   readonly materializedAnchors: readonly MaterializedAnchor[];
   /** 本窗口删除/改名文件（整文件符号行+contains 边+files 行清除）。 */
   readonly deletedFiles?: readonly string[];
-  /** 失效锚（orphan 标记保留行；失效信号走库——applySync 落库后读面自足，无独立返回面）。 */
+  /** 失效锚（orphan 标记保留行；断链轮携带 evidence 快照——L0 机械重定位输入，见 anchor-relocate.ts）。 */
   readonly orphanedAnchors?: readonly MaterializedAnchor[];
+  /** L0 机械重定位产物（声明 pattern 重写）：UPDATE anchor_decl 行级替换 + change_log 审计。 */
+  readonly anchorDeclRewrites?: readonly AnchorDeclRewrite[];
+  /** 机械 prune 的 tombstone 行（R3 无声明旧键 + 重写成功旧行）：物理删（区别于 orphan 标记）。 */
+  readonly prunedAnchors?: readonly MaterializedAnchor[];
   readonly baseline: string;
   readonly degraded: boolean;
 }

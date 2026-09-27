@@ -177,6 +177,10 @@ export class KgReportService {
         // 清单 #2.6：prune 按受影响节点落审计行（TR-34）——原先 default→null
         // 静默丢弃使变化报告对 prune 完全不可见
         return `本迭代物理清理了${label}「${node.name}」的失效锚点——孤儿锚随代码演进移除，节点状态保持。`;
+      case "anchorRelocate":
+        // L0 机械重定位（P0）：声明 pattern 重写（rename 类高置信场景零人工）——
+        // 报告可见性（TR-34 同动机：机械动作不可静默）
+        return `本迭代机械重定位了${label}「${node.name}」的锚声明（${entry.reason ?? ""}）——重命名/迁移场景的孤儿锚自动复位，无需人工待办。`;
       default:
         // proposeCandidate/decideCandidate：候选台账面（kg.candidates.list）是
         // 权威消费面，变化报告有意不重复叙述（非静默丢失——台账可查）

@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS materialized_anchors (
   anchor_path TEXT NOT NULL,
   anchor_symbol TEXT NOT NULL DEFAULT '',
   orphan INTEGER NOT NULL DEFAULT 0,
+  evidence TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (node_id, anchor_kind, anchor_path, anchor_symbol)
 );
 CREATE INDEX IF NOT EXISTS idx_materialized_anchors_path ON materialized_anchors(anchor_path);
