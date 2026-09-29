@@ -178,6 +178,34 @@ describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）
     const both = stewardSetConfigCommand({ memory: { endpointId: "ep-1", judgeEndpointId: "ep-9" } });
     expect(both.payload.memory).toEqual({ endpointId: "ep-1", judgeEndpointId: "ep-9" });
   });
+
+  // ── 语音播报摘要批回归：修复前构造器白名单漏 summary，{summary:{enabled}}
+  //    出门被剥成 {}，daemon 收空补丁回执原样，UI 受控勾选框点了弹回
+  //    （memory B2 同坑第二复发；治本 = SoT 类型直收 + 泛化 undefined 剥离）──
+  it("summary 组透传（修复前被白名单静默剥离为空补丁）", () => {
+    const cmd = stewardSetConfigCommand({ summary: { enabled: true } });
+    expect(cmd.payload).toEqual({ summary: { enabled: true } });
+    expect(stewardSetConfigCommand({ summary: { model: "deepseek/deepseek-v4-flash" } }).payload).toEqual({
+      summary: { model: "deepseek/deepseek-v4-flash" },
+    });
+  });
+
+  it("summary.model 空串 = 清空槽位（显式解绑，不同于缺省不携带）", () => {
+    expect(stewardSetConfigCommand({ summary: { model: "" } }).payload).toEqual({ summary: { model: "" } });
+  });
+
+  it("四槽位共存：enabled + model + summary + memory 同时携带互不覆盖", () => {
+    const cmd = stewardSetConfigCommand({
+      enabled: true,
+      summary: { enabled: true, model: "deepseek/deepseek-v4-flash" },
+      memory: { enabled: false },
+    });
+    expect(cmd.payload).toEqual({
+      enabled: true,
+      summary: { enabled: true, model: "deepseek/deepseek-v4-flash" },
+      memory: { enabled: false },
+    });
+  });
 });
 
 // ── 管家记忆 B2：memory_* 四命令 + embedding 四命令构造器 ──

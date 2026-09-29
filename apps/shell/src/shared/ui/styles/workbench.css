@@ -354,6 +354,27 @@
 .set-check input { accent-color: var(--accent); }
 /* 从属配置项（管家配置并轨批：语音播报隶属「启用管家」——缩进一层，非平级） */
 .fld-sub { margin-left: 18px; }
+/* ── 管家分组横排行（水平空间回收批）：.fld 此前无样式两行纵叠——hud-label
+   block 独占一行 + 控件独占一行，勾选框行全卡宽只躺一个 16px 控件，启用于
+   项多时卡变成十行+纵塔。改两列网格：label 定位列（行间对齐）+ 控件列自适应
+   （输入/下拉上限 380px 不吃满卡宽），注释/行内错误回流控件列第二行；
+   无 label 行（端点下拉/引导钮）直接落控件列。 fld-sub 缩进与卡内 12px
+   纵向 gap（:has 表单卡规则）语义不变 ── */
+[data-steward-card] .fld {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px; row-gap: 4px;
+  align-items: center;
+}
+[data-steward-card] .fld > * { grid-column: 2; }
+[data-steward-card] .fld > .hud-label { grid-column: 1; margin-bottom: 0; }
+[data-steward-card] .fld > .hud-input { max-width: 380px; }
+[data-steward-card] .fld > .sel-wrap { max-width: 380px; }
+/* grid item blockify 后默认 stretch：透明容器（.set-check）无妨，但真按钮
+   （.hud-btn 去配置引导钮）会被拉成整列宽巨钮——收缩到内容宽 */
+[data-steward-card] .fld > .set-check,
+[data-steward-card] .fld > .hud-btn { justify-self: start; }
+[data-steward-card] .fld > .ag-note { margin-top: 0; }
 .mcp-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .mcp-row:last-child { border-bottom: none; }
 .mcp-row-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

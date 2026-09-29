@@ -39,6 +39,7 @@ import type {
   TaskListPayload,
   TraceQueryPayload,
   DiffGetPayload,
+  StewardSetConfigPayload,
   ProviderDeleteCommand,
   ProviderListCommand,
   ProviderSetCommand,
@@ -305,14 +306,10 @@ export const COMMAND_SURFACE = {
     (): boolean => deps.send(stewardGetConfigCommand()),
   /** 设置写面（槽位均可选——含任务总结组（独立槽位批 {enabled?,model?}，
    *   model 空串 = 清空）与记忆组（管家记忆 B2 瘦身形态 {enabled?,endpointId?}
-   *   + B4a judgeEndpointId）；回执 steward.config.result 新态）。 */
+   *   + B4a judgeEndpointId）；回执 steward.config.result 新态；参数类型
+   *   = 协议 SoT 载荷（TR-159 白名单坑型治本——不再本地重写一份漂移）。 */
   sendStewardSetConfig: (deps) =>
-    (patch: {
-      enabled?: boolean;
-      model?: string;
-      summary?: { enabled?: boolean; model?: string };
-      memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
-    }): boolean => deps.send(stewardSetConfigCommand(patch)),
+    (patch: StewardSetConfigPayload): boolean => deps.send(stewardSetConfigCommand(patch)),
   /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true
    *  新对话三处同清）。 */
   sendStewardHistory: (deps) =>

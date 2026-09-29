@@ -130,6 +130,7 @@ import type {
   StewardMemoryRestoreCommand,
   StewardMemoryUpdateCommand,
   StewardSetConfigCommand,
+  StewardSetConfigPayload,
   StewardSubscribeCommand,
   StewardUnsubscribeCommand,
   EmbeddingDeleteCommand,
@@ -589,23 +590,25 @@ export function stewardGetConfigCommand(): StewardGetConfigCommand {
   return { v: PROTOCOL_VERSION, type: "steward.get_config", payload: {} };
 }
 
-/** steward.set_config：设置写面（enabled/model/memory 槽位可选；全局命令；
+/** 槽位载荷 undefined 键剥离（缺省不携带键——帧噪音最小化）：手维护逐字段
+ * 白名单的泛化替身。白名单坑型两复发（memory B2 批 / summary 语音播报摘要
+ * 批）：新增槽位漏进白名单即出门被剥成 {}，daemon 收空补丁回执原样，UI
+ * 受控勾选框点了弹回；透传变量逃过 TS 超属性检查编译零报错——TR-159
+ * 命令路径实例。SoT 载荷类型直收 + 本替身后新增配置组自动透传零维护。 */
+function stripUndefinedSlots<T extends object>(patch: T): T {
+  return Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as T;
+}
+
+/** steward.set_config：设置写面（槽位均可选——只更新携带位；全局命令；
  * 管家记忆 B2 memory 组瘦身——{enabled?,endpointId?}（端点 CRUD 收编
  * embedding 配置域，endpointId 引用其条目）；B4a +judgeEndpointId
- * （classifier 端点引用——判官自动沉淀）。 */
-export function stewardSetConfigCommand(patch: {
-  enabled?: boolean;
-  model?: string;
-  memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
-}): StewardSetConfigCommand {
+ * （classifier 端点引用——判官自动沉淀）；语音播报摘要批 +summary
+ * {enabled?,model?}（独立槽位——无默认模型）。参数直收协议 SoT 载荷类型。 */
+export function stewardSetConfigCommand(patch: StewardSetConfigPayload): StewardSetConfigCommand {
   return {
     v: PROTOCOL_VERSION,
     type: "steward.set_config",
-    payload: {
-      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-      ...(patch.model !== undefined ? { model: patch.model } : {}),
-      ...(patch.memory !== undefined ? { memory: patch.memory } : {}),
-    },
+    payload: stripUndefinedSlots(patch),
   };
 }
 
