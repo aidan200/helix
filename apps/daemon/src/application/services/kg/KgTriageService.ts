@@ -77,15 +77,21 @@ export class KgTriageService {
   /**
    * 待办面五计数（发起准入与 UI 按钮可用性同源；P3 扩 ③④ 路）：
    * 候选 pending+deferred + dead_anchor 残量 + 无锚节点（orphan_node/
-   * unanchored_node）+ draft ready/stale。draft anchor-debt 不重复计数——
-   * 过宽限即在无锚节点计数内，宽限内是刚落账的正常等待（设计 §三决策 4）。
+   * unanchored_node）+ draft ready/stale + **带声明的 anchor-debt**。
+   * 无声明 anchor-debt 不重复计数——过宽限即在无锚节点计数内，宽限内是
+   * 刚落账的正常等待（设计 §三决策 4）；带声明类 ②③ 按声明豁免永不浮现，
+   * 且声明已存在即无宽限问题（不是刚落账待作者补），漏计会 nothing_pending
+   * 拒发——修复于 2026-09-29（与 classifyDrafts 豁免修复同源：裁决输入面
+   * 漏项=结构性排空）。
    */
   pendingCount(projectRoot: string): number {
     const candidates = this.deps.graph.countCandidatesByStatus(projectRoot);
     const orphans = this.deps.verify.findOrphans(projectRoot);
     const unanchored = orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").length;
     const deadAnchors = orphans.filter((o) => o.kind === "dead_anchor").length;
-    const drafts = this.deps.verify.findDrafts(projectRoot).filter((d) => d.kind === "ready" || d.kind === "stale").length;
+    const drafts = this.deps.verify.findDrafts(projectRoot).filter(
+      (d) => d.kind === "ready" || d.kind === "stale" || (d.kind === "anchor-debt" && d.declared),
+    ).length;
     return candidates.pending + candidates.deferred + unanchored + deadAnchors + drafts;
   }
 

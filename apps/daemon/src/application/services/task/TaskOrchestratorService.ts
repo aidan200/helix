@@ -61,6 +61,7 @@ export function isTaskSessionId(sessionId: string): boolean {
 const DISPATCH_PROFILE_KINDS: Readonly<Record<string, DispatchProfileKind>> = {
   "kg-bootstrap": "subagent-kg-writer",
   "kg-review": "subagent-kg-writer",
+  "kg-triage": "subagent-kg-writer", // 图谱写面任务（裁决落地）；2026-09-29 triage 首跑暴露缺口：未映射回落 worker 工具集，编排层临时显式传参兑底
   "code-review": "subagent-code-reviewer",
 };
 

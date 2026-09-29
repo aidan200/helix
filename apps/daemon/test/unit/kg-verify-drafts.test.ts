@@ -4,12 +4,13 @@ import { classifyDrafts, type DraftScanInput } from "../../src/domain/kg/verify/
 
 /**
  * U 层（P3 L0 读面）：draft 处置需求三分类——
- * ① ready：有活锚且 ≤7 天（只差裁决动作，triage ④ 路输入）
- * ② stale：有活锚且 >7 天（ready 的超龄版，同一裁决通道，面板标积压）
- * ③ anchor-debt：无活锚且无锚声明（先挂锚再裁决——triage ③ 路输入；
- *    全死锚也归此类：重挂与补挂是同一动作，死锚本身另归 dead_anchor ① 路）
- * 豁免口径与 findOrphanItems ②③ 对齐：有锚声明（global 等刻意锚定决策）
- * 不列；非 draft 节点不列（本读面只管草稿）。
+ * ① ready：锚定就绪（≥1 活锚，或仅 global 刻意锚定）且 ≤7 天（只差裁决动作，④ 路）
+ * ② stale：锚定就绪且 >7 天（ready 的超龄版，同一裁决通道，面板标积压）
+ * ③ anchor-debt：锚定未就绪——无声明，或声明含 path/symbol 但无一活
+ *    （全死/未物化；重挂与补挂同动作，死锚行另归 dead_anchor ① 路）
+ * 豁免：非 draft 节点不列；仅 global 声明不算锚债但照走 ready/stale——
+ * P3 首版一刀切豁免带声明草稿致 ④ 路输入恒空（2026-09-29 triage 首跑
+ * 暴露），本用例组钉死修复。
  */
 
 const DAY = 86_400_000;
@@ -79,9 +80,53 @@ describe("domain/kg/verify/drafts：draft 处置需求三分类（纯函数）",
     expect(items).toHaveLength(0);
   });
 
-  test("豁免：有锚声明的草稿不列（global 等刻意锚定决策，与 ②③ 豁免口径对齐）", () => {
-    const items = classifyDrafts(scan({ nodes: [node("TR-1")], anchorDeclarations: [decl("TR-1")] }));
-    expect(items).toHaveLength(0);
+  test("仅 global 声明（刻意锚定）不算锚债 → 照走 ready/stale，不豁免出裁决通道", () => {
+    const fresh = node("TR-1", { createdAt: new Date(NOW - 2 * DAY).toISOString() });
+    const old = node("TR-2", { createdAt: new Date(NOW - 12 * DAY).toISOString() });
+    const items = classifyDrafts(scan({ nodes: [fresh, old], anchorDeclarations: [decl("TR-1"), decl("TR-2")] }));
+    expect(items).toHaveLength(2);
+    const byId = new Map(items.map((i) => [i.node.id, i]));
+    expect(byId.get("TR-1")!.kind).toBe("ready");
+    expect(byId.get("TR-2")!.kind).toBe("stale");
+  });
+
+  test("带活声明的草稿 → ready（修复钉死：P3 首版一刀切豁免吞掉 ready 类，④ 路输入恒空）", () => {
+    // 现场复现：E-230/E-231——symbol 声明已物化为活锚，只差内容裁决
+    const items = classifyDrafts(
+      scan({
+        nodes: [node("TR-1", { createdAt: new Date(NOW - 2 * DAY).toISOString() })],
+        anchors: [anchor("TR-1")],
+        anchorDeclarations: [decl("TR-1", { scopeKind: "symbol", pattern: "src/a.ts#foo" })],
+      }),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("ready");
+  });
+
+  test("带声明但无一活（path/symbol 全死或未物化）→ anchor-debt（②③ 按声明豁免不报，③ 路须接住）", () => {
+    const items = classifyDrafts(
+      scan({
+        nodes: [node("TR-1")],
+        anchors: [anchor("TR-1", { orphan: true })],
+        anchorDeclarations: [decl("TR-1", { scopeKind: "symbol", pattern: "src/a.ts#foo" })],
+      }),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("anchor-debt");
+    expect(items[0]!.declared).toBe(true); // ②③ 不报（声明豁免）——pendingCount 须独立计入
+    expect(items[0]!.summary).toContain("重挂");
+  });
+
+  test("混合声明（global + 死 symbol）→ anchor-debt（global 不豁免死 path/symbol 锚债）", () => {
+    const items = classifyDrafts(
+      scan({
+        nodes: [node("TR-1")],
+        anchors: [anchor("TR-1", { orphan: true })],
+        anchorDeclarations: [decl("TR-1"), decl("TR-1", { scopeKind: "symbol", pattern: "src/a.ts#foo" })],
+      }),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("anchor-debt");
   });
 
   test("混合锚：活锚 + 死锚并存 → ready/stale（内容裁决不被死锚阻塞；死锚另归 dead_anchor 路）", () => {

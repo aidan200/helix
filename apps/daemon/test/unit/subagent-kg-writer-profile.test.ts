@@ -64,6 +64,7 @@ describe("W-R6 编排分流：任务类型 → 批次实例 profileKind", () => 
   test("图谱产出型（kg-bootstrap / kg-review）→ subagent-kg-writer", () => {
     expect(dispatchProfileKindOf("kg-bootstrap")).toBe("subagent-kg-writer");
     expect(dispatchProfileKindOf("kg-review")).toBe("subagent-kg-writer");
+    expect(dispatchProfileKindOf("kg-triage")).toBe("subagent-kg-writer"); // 裁决写面任务（首跑曾回落 worker 工具集）
   });
 
   test("其余任务类型 → subagent-worker（task-worker 已撤：缺省分流与手动 agent_spawn 同轨）", () => {

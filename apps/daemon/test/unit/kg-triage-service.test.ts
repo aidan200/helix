@@ -27,6 +27,7 @@ function makeService(opts: {
   otherOrphans?: number;
   readyDrafts?: number;
   staleDrafts?: number;
+  declaredAnchorDebtDrafts?: number;
   activeTriageJobs?: JobRow[];
   createResult?: { jobId: string } | { code: string; message: string };
 }): { service: KgTriageService; created: unknown[] } {
@@ -62,6 +63,9 @@ function makeService(opts: {
       findDrafts: (_root: string): DraftItem[] => [
         ...(opts.readyDrafts ? (Array.from({ length: opts.readyDrafts }, () => ({ kind: "ready" } as const)) as DraftItem[]) : []),
         ...(opts.staleDrafts ? (Array.from({ length: opts.staleDrafts }, () => ({ kind: "stale" } as const)) as DraftItem[]) : []),
+        ...(opts.declaredAnchorDebtDrafts
+          ? (Array.from({ length: opts.declaredAnchorDebtDrafts }, () => ({ kind: "anchor-debt", declared: true } as const)) as DraftItem[])
+          : []),
       ],
     } as unknown as KgVerifyService,
   });
@@ -107,13 +111,19 @@ describe("KgTriageService 准入三态（与 kg-review 的唯一差 = nothing_pe
     expect(makeService({ otherOrphans: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true }); // P3 ③ 路：无锚节点计入
     expect(makeService({ readyDrafts: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true }); // P3 ④ 路：草稿待裁决计入
     expect(makeService({ staleDrafts: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true });
+    expect(makeService({ declaredAnchorDebtDrafts: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true }); // 带声明 anchor-debt：②③ 按声明豁免不报，须独立计入防 nothing_pending 拒发
   });
 });
 
 describe("KgTriageService 待办面五计数（发起按钮可用性同源；P3 扩 ③④ 路）", () => {
-  test("pending + deferred + dead_anchor + 无锚节点 + draft ready/stale 求和（anchor-debt 不重复计数）", () => {
+  test("pending + deferred + dead_anchor + 无锚节点 + draft ready/stale 求和（无声明 anchor-debt 不重复计数——过宽限即入 ②③）", () => {
     const { service } = makeService({ candidateCounts: { pending: 2, deferred: 1 }, deadAnchors: 3, otherOrphans: 5, readyDrafts: 2, staleDrafts: 1 });
     expect(service.pendingCount(ROOT)).toBe(14);
+  });
+
+  test("带声明 anchor-debt 计入（②③ 永不浮现——声明豁免；漏计曾致独立存在时 nothing_pending 拒发）", () => {
+    const { service } = makeService({ declaredAnchorDebtDrafts: 2, readyDrafts: 1 });
+    expect(service.pendingCount(ROOT)).toBe(3);
   });
 });
 

@@ -31,7 +31,8 @@ task:
    - 候选台账：`kg.candidates.list`（status=pending）+（status=deferred）——deferred 条目重复裁决合法（defer_age 递增）；
    - 孤儿锚残量：体检三检查的 findOrphans dead_anchor 清单（`/project` 页体检面板同源）——每条含 tombstone 四元组 + evidence 断链快照 + 节点 digest；
    - 无锚节点（P3 ③ 路）：findOrphans 的 orphan_node/unanchored_node 清单（节点出生未挂锚的锚债；draft 宽限 7 天内不列）；
-   - 草稿待裁决（P3 ④ 路）：findDrafts 的 ready/stale 清单（锚点健康只差裁决动作的 draft；stale = 超 7 天宽限的积压）。anchor-debt 类草稿已含在无锚节点路，不重复取。
+   - 草稿待裁决（P3 ④ 路）：findDrafts 的 ready/stale 清单（锚定就绪——≥1 活锚或仅 global 刻意锚定——只差裁决动作的 draft；stale = 超 7 天宽限的积压）。
+   - findDrafts 的 anchor-debt 清单（锚定未就绪）随 ③ 路挂锚处置：无声明类经 ②③ draft 宽限（7 天）后自然浮现，已含在无锚节点清单（按节点 id 去重）；带声明但全死/未物化类 ②③ 按声明豁免**不会报**——须从 anchor-debt 清单直接并入 ③ 路（同为 declareAnchors 处置，重挂后下轮走 ④）。
 2. **分派决策**：待办 ≤20 条 → **单批直派**（一个批次实例做完）；>20 → `ceil(n/30)` 批，按「同目标节点/同文件域聚簇」切批（裁决上下文局部性优先，不是均匀切）。
 3. **产出**：批次计划 + 每批 brief。批次 brief 必含：本批条目全文、**全局节点清单压缩面**（全部 active 节点 id+name+kind+digest 一行——查重与冲突判定的视野基础，各批共享编排面聚合的同一份，不各自重拉）、升级判据清单（见下）、证据纪律。
 
