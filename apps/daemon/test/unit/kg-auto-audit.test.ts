@@ -11,6 +11,7 @@ import type { KgProjectService } from "../../src/application/services/kg/KgProje
 import type { KgSyncService } from "../../src/application/services/kg/KgSyncService";
 import type { KgVerifyService } from "../../src/application/services/kg/KgVerifyService";
 import type { OrphanItem } from "../../src/domain/kg/verify/orphans";
+import type { DraftItem } from "../../src/domain/kg/verify/drafts";
 
 /**
  * P2 自动裁决审计面测试：port（listAutoAdjudications——change_log auto: 前缀
@@ -90,6 +91,9 @@ function makeViewer(opts: {
   autoEntries?: { op: string; nodeId: string; reason: string; taskId: string | null; ts: string }[];
   candidateCounts?: { pending: number; deferred: number };
   deadAnchors?: number;
+  unanchored?: number;
+  readyDrafts?: number;
+  staleDrafts?: number;
 }): KgViewerService {
   return new KgViewerService({
     project: {
@@ -101,8 +105,14 @@ function makeViewer(opts: {
     write: {} as unknown as import("../../src/application/services/kg/KgWriteService").KgWriteService,
     verify: {
       findConflicts: () => [],
-      findOrphans: (): OrphanItem[] =>
-        Array.from({ length: opts.deadAnchors ?? 0 }, () => ({ kind: "dead_anchor" }) as OrphanItem),
+      findOrphans: (): OrphanItem[] => [
+        ...Array.from({ length: opts.deadAnchors ?? 0 }, () => ({ kind: "dead_anchor" }) as OrphanItem),
+        ...Array.from({ length: opts.unanchored ?? 0 }, () => ({ kind: "unanchored_node" }) as OrphanItem),
+      ],
+      findDrafts: (): DraftItem[] => [
+        ...Array.from({ length: opts.readyDrafts ?? 0 }, () => ({ kind: "ready" }) as DraftItem),
+        ...Array.from({ length: opts.staleDrafts ?? 0 }, () => ({ kind: "stale" }) as DraftItem),
+      ],
     } as unknown as KgVerifyService,
     graph: {
       countCandidatesByStatus: () => ({
@@ -148,15 +158,22 @@ describe("KgViewerService.autoAudit（stats 聚合 + limit 切片）", () => {
   });
 });
 
-describe("KgViewerService.health triageHint（积压提示，与 triage pendingCount 同口径）", () => {
-  test("三计数（pending+deferred+dead_anchor）≥ 10 → suggested；orphan_node 不计入", () => {
+describe("KgViewerService.health triageHint（积压提示，与 triage pendingCount 同口径；P3 五计数）", () => {
+  test("五计数（pending+deferred+dead_anchor+无锚节点+draft ready/stale）≥ 10 → suggested", () => {
     const res = makeViewer({ candidateCounts: { pending: 4, deferred: 3 }, deadAnchors: 3, }).health("alpha");
     expect(res.ok).toBe(true);
     const hint = (res as { value: KgHealthView }).value.triageHint;
     expect(hint).toEqual({ pendingTotal: 10, suggested: true });
   });
 
-  test("三计数 < 10 → suggested=false；阈值下不提示", () => {
+  test("P3 ③④ 路计入：无锚节点与 draft ready/stale 推高 pendingTotal", () => {
+    const res = makeViewer({ unanchored: 4, readyDrafts: 2, staleDrafts: 1 }).health("alpha");
+    expect(res.ok).toBe(true);
+    const hint = (res as { value: KgHealthView }).value.triageHint;
+    expect(hint).toEqual({ pendingTotal: 7, suggested: false });
+  });
+
+  test("五计数 < 10 → suggested=false；阈值下不提示", () => {
     const res = makeViewer({ candidateCounts: { pending: 2, deferred: 2 }, deadAnchors: 2 }).health("alpha");
     expect(res.ok).toBe(true);
     const hint = (res as { value: KgHealthView }).value.triageHint;

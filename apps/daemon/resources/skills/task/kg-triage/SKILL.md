@@ -27,9 +27,11 @@ task:
 
 ## 阶段一：待办面聚合与分派决策（plan，编排直执）
 
-1. **两路查询合并待办面**：
+1. **四路查询合并待办面**：
    - 候选台账：`kg.candidates.list`（status=pending）+（status=deferred）——deferred 条目重复裁决合法（defer_age 递增）；
-   - 孤儿锚残量：体检三检查的 findOrphans dead_anchor 清单（`/project` 页体检面板同源）——每条含 tombstone 四元组 + evidence 断链快照 + 节点 digest。
+   - 孤儿锚残量：体检三检查的 findOrphans dead_anchor 清单（`/project` 页体检面板同源）——每条含 tombstone 四元组 + evidence 断链快照 + 节点 digest；
+   - 无锚节点（P3 ③ 路）：findOrphans 的 orphan_node/unanchored_node 清单（节点出生未挂锚的锚债；draft 宽限 7 天内不列）；
+   - 草稿待裁决（P3 ④ 路）：findDrafts 的 ready/stale 清单（锚点健康只差裁决动作的 draft；stale = 超 7 天宽限的积压）。anchor-debt 类草稿已含在无锚节点路，不重复取。
 2. **分派决策**：待办 ≤20 条 → **单批直派**（一个批次实例做完）；>20 → `ceil(n/30)` 批，按「同目标节点/同文件域聚簇」切批（裁决上下文局部性优先，不是均匀切）。
 3. **产出**：批次计划 + 每批 brief。批次 brief 必含：本批条目全文、**全局节点清单压缩面**（全部 active 节点 id+name+kind+digest 一行——查重与冲突判定的视野基础，各批共享编排面聚合的同一份，不各自重拉）、升级判据清单（见下）、证据纪律。
 
@@ -55,11 +57,28 @@ task:
 | 知识有效但无需代码附着（节点有边） | `prune`（该 tombstone） |
 | 拿不准 | tombstone 保留不动 + 报告升级条目 |
 
+**无锚节点条目**（P3 ③ 路——节点缺挂锚的锚债）：
+
+| 判断 | 动作 |
+|---|---|
+| 知识有效，正文指向的管辖符号在代码中存在（file:line 证据） | `declareAnchors`（全集替换；锚必附证据，**误挂比失效危险**——拿不准即升级） |
+| 知识已过时/无代码落点（升级实测/过程记录类） | `supersede`（可选 replacement）或升级人审 |
+| 拿不准 | 节点不动 + 报告升级条目 |
+
+**草稿待裁决条目**（P3 ④ 路——锚点健康只差裁决动作）：
+
+| 判断 | 动作 |
+|---|---|
+| 内容与代码现实一致（逐条验证 digest/scene/body 断言） | `updateNode(patch.status=confirmed)`（reason 带 `auto:` 前缀——经裁决背书非人审点击） |
+| 内容与代码现实矛盾/过时 | `supersede`（可选 replacement） |
+| 部分断言过时 | `updateNode`（修内容）+ `updateNode(patch.status=confirmed)` |
+| 拿不准 | draft 保留 + 报告升级条目 |
+
 ### 升级人审判据（命中任一 → 不自动裁决，逐条核对）
 
 1. **证据缺失**：无法引用成立的代码事实（找不到去向、file:line 与索引不符）；
 2. **冲突**：与既有节点语义矛盾（findConflicts 面）、与同批其他条目互斥；
-3. **影响面大**：目标为 L0 层节点；被 ≥3 条边引用节点的 supersede；domain=business 节点（事实源在业务决策不在代码，LLM 无从验证）；
+3. **影响面大**：目标为 L0 层节点；被 ≥3 条边引用节点的 supersede；domain=business 节点（事实源在业务决策不在代码，LLM 无从验证）；**supersede 链上的 replacement 草稿**（推翻链影响面大，人审确认）；
 4. **索引态异常**：索引 degraded/building → 锚类条目整批搁置（建议 rebuild 后重跑）；
 5. **预算**：单批自动裁决（applied 路径）上限 30 条，超出条目强制 deferred。
 
@@ -72,6 +91,6 @@ task:
 
 ## 完成标准
 
-- 待办面三计数（pending + deferred + dead_anchor）收敛为 0 或仅剩升级条目；
+- 待办面五计数（pending + deferred + dead_anchor + 无锚节点 + draft ready/stale）收敛为 0 或仅剩升级条目；
 - 裁决报告落 summary.md 固定落点：消化率（applied+discarded+prune/输入）、逐条裁决表（条目 → 决定 → 证据）、升级清单（理由）、dry-run 时附将执行 op 清单；
 - findings 无新沉淀时显式写「无」。

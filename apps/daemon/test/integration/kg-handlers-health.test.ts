@@ -70,6 +70,51 @@ describe("kg.health I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
     expect(res.result.candidates).toEqual({ pending: 1, deferred: 1, applied: 1, discarded: 0 });
   }, 15000);
 
+  // ── P3：拆栏三字段帧级断言（TR-159：deadAnchors/unanchoredNodes/drafts 漏拷即红） ──
+
+  test("P3：拆栏三字段帧级断言（deadAnchors/unanchoredNodes/drafts 显式透传）+ 兼旧字段不变", async () => {
+    const rig = await openRig();
+    await seedAlpha(rig);
+
+    const res = await rig.client.kg("kg.health", { project: "alpha" });
+    expect(res.ok).toBe(true);
+    // ① deadAnchors：TR-2 死锚拆栏投影（write-path.ts 消亡）
+    const dead = res.result.deadAnchors as { kind: string; summary: string }[];
+    expect(dead).toHaveLength(1);
+    expect(dead[0]!.kind).toBe("dead_anchor");
+    expect(dead[0]!.summary).toContain("写路径白名单");
+    // ② unanchoredNodes：orphan_node + unanchored_node 合并（alpha 种子 = E-2 有边无锚无声明）
+    const unanchored = res.result.unanchoredNodes as { kind: string; summary: string }[];
+    expect(unanchored).toHaveLength(1);
+    expect(unanchored[0]!.kind).toBe("unanchored_node");
+    expect(unanchored[0]!.summary).toContain("写路径守护乙");
+    // ③ drafts：TR-2（draft + 全死锚 → anchor-debt）+ TR-4（supersede replacement 草稿无锚 → anchor-debt）
+    const drafts = res.result.drafts as { kind: string; summary: string; ageDays: number | null }[];
+    expect(drafts).toHaveLength(2);
+    expect(drafts.every((d) => d.kind === "anchor-debt")).toBe(true);
+    expect(drafts[0]!.summary).toContain("写路径白名单"); // TR-2（id 序在前）
+    expect(drafts[0]!.summary).toContain("挂锚");
+    expect(drafts[1]!.summary).toContain("新写路径规则"); // TR-4
+    expect(drafts.every((d) => typeof d.ageDays === "number")).toBe(true); // 落账时间可解析 → 天数
+    // ④ 兼旧：orphans/orphanCount 原口径不变（拆栏为增量可选字段，旧消费端零影响）
+    expect(res.result.orphans).toHaveLength(2);
+    expect(res.result.orphanCount).toBe(2);
+    // ⑤ 健康空态（epsilon：confirmed 节点 + 锚声明）→ drafts 空集（非 draft 不列）
+    const epsilon = path.join(rig.workspace, "epsilon");
+    mkdirSync(epsilon, { recursive: true });
+    expectOk(
+      rig.write.write(epsilon, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "甲规则", digest: "d1", scene: "测试场景", status: "confirmed" } }),
+      rig.write.write(epsilon, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "乙实体", digest: "d2", scene: "测试场景", status: "confirmed" } }),
+      rig.write.write(epsilon, { kind: "declareAnchors", iterationId: ITER, nodeId: "TR-1", anchors: [{ scopeKind: "global" }] }),
+      rig.write.write(epsilon, { kind: "declareAnchors", iterationId: ITER, nodeId: "E-1", anchors: [{ scopeKind: "global" }] }),
+    );
+    const healthy = await rig.client.kg("kg.health", { project: "epsilon" });
+    expect(healthy.ok).toBe(true);
+    expect(healthy.result.drafts).toEqual([]);
+    expect(healthy.result.deadAnchors).toEqual([]);
+    expect(healthy.result.unanchoredNodes).toEqual([]);
+  }, 15000);
+
   test("无问题径：结构健康空态 + absent 短路空态不建库 + project 无法解析 KG_E_PARAM", async () => {
     const rig = await openRig();
     // epsilon：两节点 + 一条边 + 双方锚声明（有边有锚非孤儿非无锚、无冲突、
@@ -265,11 +310,12 @@ describe("kg.candidates.list I 层（真 service 栈 + tmp 库 + ws 路由）", 
       rig.write.write(rig.alpha, { kind: "decideCandidate", iterationId: ITER, candidateId: "CAND-1", decision: "discarded", reason: "auto: 重复沉淀（机械查重命中同名节点）" }),
     );
 
-    // ① triageHint 帧级断言：alpha 种子（1 dead_anchor）+ 无 pending/deferred 候选
-    //  → pendingTotal=1、阈值下不提示（可选字段透传漏拷 → undefined → 此处红）
+    // ① triageHint 帧级断言（P3 五计数）：alpha 种子（1 dead_anchor + 1 无锚
+    //  节点 E-2）+ 无 pending/deferred 候选 + 0 draft ready/stale（TR-2/TR-4 均
+    //  anchor-debt 不计）→ pendingTotal=2、阈值下不提示（可选字段透传漏拷 → undefined → 此处红）
     const health = await rig.client.kg("kg.health", { project: "alpha" });
     expect(health.ok).toBe(true);
-    expect(health.result.triageHint).toEqual({ pendingTotal: 1, suggested: false });
+    expect(health.result.triageHint).toEqual({ pendingTotal: 2, suggested: false });
 
     // ② kg.auto.audit：stats 全量聚合 + 最新在前 + auto: 前缀行限定
     const audit = await rig.client.kg("kg.auto.audit", { project: "alpha", limit: 10 });

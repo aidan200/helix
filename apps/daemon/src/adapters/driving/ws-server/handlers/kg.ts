@@ -73,8 +73,8 @@ import type {
   KgIndexStatusView,
   KgListView,
   KgNodeDetailView,
-  KgViewerService,
 } from "../../../../application/services/kg/KgViewerService";
+import type { OrphanItem } from "../../../../application/services/kg/KgVerifyService";
 import type { NodeDigestRow } from "../../../../domain/kg/types";
 import type { KgCommandContext } from "./context";
 import { optionalPayloadString, requirePayloadString } from "./payload-guards";
@@ -732,10 +732,16 @@ function statusViewToDto(view: KgIndexStatusView): KgIndexStatusDto {
 
 /** 体检聚合视图 → 协议 DTO（conflicts/orphans 只取 kind+人读 summary 直拷，AD-16 同规）。 */
 function healthViewToDto(view: KgHealthView): KgHealthResultEvent["payload"] {
+  // P3 拆栏：orphans 按 kind 拆投影（失效锚 / 无锚节点两栏数据源；旧 orphans 字段保留兼旧）
+  const orphanDto = (o: OrphanItem): { kind: OrphanItem["kind"]; summary: string } => ({ kind: o.kind, summary: o.summary });
   return {
     conflicts: view.conflicts.map((c) => ({ kind: c.kind, summary: c.summary })),
-    orphans: view.orphans.map((o) => ({ kind: o.kind, summary: o.summary })),
+    orphans: view.orphans.map(orphanDto),
     orphanCount: view.orphanCount,
+    // TR-159：可选字段显式透传（漏拷即静默剥离——帧级断言钉死于 kg-handlers-health.test）
+    deadAnchors: view.orphans.filter((o) => o.kind === "dead_anchor").map(orphanDto),
+    unanchoredNodes: view.orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").map(orphanDto),
+    drafts: view.drafts.map((d) => ({ kind: d.kind, summary: d.summary, ageDays: d.ageDays })),
     index: statusViewToDto(view.index),
     candidates: {
       pending: view.candidates.pending,

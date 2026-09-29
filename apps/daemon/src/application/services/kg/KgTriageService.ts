@@ -8,9 +8,10 @@
  *
  * 准入三态（与 kg-review 从简准入的差异 = 待办面非空门槛，注释即裁决）：
  * - index_absent：无索引 → 拒绝（裁决对象依赖代码索引做证据验证）；
- * - nothing_pending：待办面三计数（candidates pending+deferred + dead_anchor
- *   残量）总和 = 0 → 拒绝（空待办跑任务是白转；L0 机械重定位已消化 rename
- *   类孤儿锚，残量归本任务）；
+ * - nothing_pending：待办面五计数（candidates pending+deferred + dead_anchor
+ *   残量 + 无锚节点（orphan_node/unanchored_node）+ draft ready/stale）总和
+ *   = 0 → 拒绝（空待办跑任务是白转；L0 机械重定位已消化 rename 类孤儿锚，
+ *   残量归本任务；P3 扩 ③④ 路：无锚节点挂锚判断 + 草稿内容裁决）；
  * - task_running：仅禁并发（非终态 kg-triage job 存在；终态后可再发）。
  *
  * 产出纪律（任务侧硬约束，写进 skill SOP）：applied 裁决直接落地 confirmed
@@ -64,20 +65,28 @@ export interface KgTriageServiceDeps {
   readonly taskEngine: TaskEnginePort;
   /** 任务三表读面（并发禁入判定：非终态 kg-triage job 查询）。 */
   readonly store: TaskStorePort;
-  /** .kg 读 port（candidates 计数——待办面两路之一）。 */
+  /** .kg 读 port（candidates 计数——待办面四路之一）。 */
   readonly graph: KnowledgeGraphPort;
-  /** 验证期检查（findOrphans dead_anchor 残量计数——待办面两路之二）。 */
+  /** 验证期检查（findOrphans dead_anchor 残量与无锚节点计数——待办面四路之二三；findDrafts ready/stale——四路之四）。 */
   readonly verify: KgVerifyService;
 }
 
 export class KgTriageService {
   constructor(private readonly deps: KgTriageServiceDeps) {}
 
-  /** 待办面三计数（发起准入与 UI 按钮可用性同源）：候选 pending+deferred + dead_anchor 残量。 */
+  /**
+   * 待办面五计数（发起准入与 UI 按钮可用性同源；P3 扩 ③④ 路）：
+   * 候选 pending+deferred + dead_anchor 残量 + 无锚节点（orphan_node/
+   * unanchored_node）+ draft ready/stale。draft anchor-debt 不重复计数——
+   * 过宽限即在无锚节点计数内，宽限内是刚落账的正常等待（设计 §三决策 4）。
+   */
   pendingCount(projectRoot: string): number {
     const candidates = this.deps.graph.countCandidatesByStatus(projectRoot);
-    const deadAnchors = this.deps.verify.findOrphans(projectRoot).filter((o) => o.kind === "dead_anchor").length;
-    return candidates.pending + candidates.deferred + deadAnchors;
+    const orphans = this.deps.verify.findOrphans(projectRoot);
+    const unanchored = orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").length;
+    const deadAnchors = orphans.filter((o) => o.kind === "dead_anchor").length;
+    const drafts = this.deps.verify.findDrafts(projectRoot).filter((d) => d.kind === "ready" || d.kind === "stale").length;
+    return candidates.pending + candidates.deferred + unanchored + deadAnchors + drafts;
   }
 
   /** 准入机械复核（后端不信赖前端）：索引存在 + 待办面非空 + 仅禁并发。 */
@@ -107,7 +116,7 @@ export class KgTriageService {
             eligibility.reason === "task_running"
               ? TASK_RUNNING_MESSAGE
               : eligibility.reason === "nothing_pending"
-                ? "nothing_pending：待办面为空（候选 pending+deferred 与孤儿锚残量三计数 = 0）——无事可裁决，不发起空任务"
+                ? "nothing_pending：待办面为空（候选 pending+deferred、孤儿锚残量、无锚节点与草稿待裁决五计数 = 0）——无事可裁决，不发起空任务"
                 : "index_absent：项目尚未构建索引——裁决证据验证依赖代码索引，先完成一次机械构建",
         },
       };

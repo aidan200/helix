@@ -25,7 +25,7 @@ import type { ChangeReport } from "./KgReportService";
 import type { KgReportService } from "./KgReportService";
 import { KG_DEGRADED_NOTE, type KgProjectRowView, type KgProjectService } from "./KgProjectService";
 import type { KgSyncService, KgIndexPhase } from "./KgSyncService";
-import type { ConflictItem, KgVerifyService, OrphanItem } from "./KgVerifyService";
+import type { ConflictItem, DraftItem, KgVerifyService, OrphanItem } from "./KgVerifyService";
 import type { KgWriteService } from "./KgWriteService";
 import type {
   CandidateListQuery,
@@ -104,15 +104,21 @@ export interface KgHealthView {
   /** candidates 台账四态计数（candidates 表聚合）。 */
   readonly candidates: CandidateStatusCounts;
   /**
+   * draft 处置需求三分类（P3 L0 读面：ready/stale/anchor-debt）——面板
+   * 草稿栏与 triage ④ 路输入的数据源；不参与 healthy 判定（待裁决是
+   * 正常态非结构病）。absent/building 空态 = 空集。
+   */
+  readonly drafts: readonly DraftItem[];
+  /**
    * kg-triage 积压提示（P2：待办面三计数超阈值 → 面板建议发起裁决；只
    * 提示不自动开任务）。absent/building 短路空态不携带（无待办语义）。
    */
   readonly triageHint?: KgTriageHint;
 }
 
-/** kg-triage 积压提示（口径与 KgTriageService.pendingCount 同源：候选 pending+deferred + dead_anchor 残量）。 */
+/** kg-triage 积压提示（口径与 KgTriageService.pendingCount 同源：候选 pending+deferred + dead_anchor + 无锚节点 + draft ready/stale 五计数）。 */
 export interface KgTriageHint {
-  /** 待办面三计数合计。 */
+  /** 待办面五计数合计。 */
   readonly pendingTotal: number;
   /** ≥ 阈值（半批 10——攒到单批上限 20 正好一次跑完）时建议发起 kg-triage。 */
   readonly suggested: boolean;
@@ -364,19 +370,23 @@ export class KgViewerService {
     const zeroCandidates: CandidateStatusCounts = { pending: 0, deferred: 0, applied: 0, discarded: 0 };
     if (this.deps.sync.isBuilding(resolved)) {
       // 构建进行中（库文件可能尚未创建）——先于 absent 短路（indexStatus 同序）
-      return { ok: true, value: { conflicts: [], orphans: [], orphanCount: 0, index: { state: "building" }, candidates: zeroCandidates } };
+      return { ok: true, value: { conflicts: [], orphans: [], orphanCount: 0, index: { state: "building" }, candidates: zeroCandidates, drafts: [] } };
     }
     if (!this.deps.project.hasIndex(resolved)) {
       // absent 短路：空态返回，读面绝不新建库文件（getStatus/findConflicts 触库连接即建库）
-      return { ok: true, value: { conflicts: [], orphans: [], orphanCount: 0, index: { state: "absent" }, candidates: zeroCandidates } };
+      return { ok: true, value: { conflicts: [], orphans: [], orphanCount: 0, index: { state: "absent" }, candidates: zeroCandidates, drafts: [] } };
     }
     const conflicts = this.deps.verify.findConflicts(resolved);
     const orphans = this.deps.verify.findOrphans(resolved);
+    const drafts = this.deps.verify.findDrafts(resolved);
     const candidates = this.deps.graph.countCandidatesByStatus(resolved);
-    // triage 积压提示（P2）：口径与 KgTriageService.pendingCount 同源——只数
-    // dead_anchor（orphan_node/unanchored 非待办面输入）；阈值 10 = 单批 20 的半批。
+    // triage 积压提示（P2；P3 扩五计数）：口径与 KgTriageService.pendingCount
+    // 同源——候选 pending+deferred + dead_anchor + 无锚节点（②③）+ draft
+    // ready/stale（anchor-debt 不重复计数，过宽限即入②③）；阈值 10 = 单批 20 的半批。
     const deadAnchors = orphans.filter((o) => o.kind === "dead_anchor").length;
-    const pendingTotal = candidates.pending + candidates.deferred + deadAnchors;
+    const unanchored = orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").length;
+    const readyOrStale = drafts.filter((d) => d.kind === "ready" || d.kind === "stale").length;
+    const pendingTotal = candidates.pending + candidates.deferred + deadAnchors + unanchored + readyOrStale;
     return {
       ok: true,
       value: {
@@ -385,6 +395,7 @@ export class KgViewerService {
         orphanCount: orphans.length,
         index: this.statusView(resolved),
         candidates,
+        drafts,
         triageHint: { pendingTotal, suggested: pendingTotal >= 10 },
       },
     };

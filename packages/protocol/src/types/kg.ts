@@ -181,6 +181,15 @@ export interface KgHealthOrphanDto {
   summary: string;
 }
 
+/** 体检草稿分类条目（P3 L0 三分类的协议投影；ageDays = 落账天数，NaN 防御 null）。 */
+export interface KgHealthDraftDto {
+  kind: "anchor-debt" | "ready" | "stale";
+  /** 人读叙述句（AD-16 同规）。 */
+  summary: string;
+  /** 落账至今天数（createdAt 不可解析 = null，按 stale 列）。 */
+  ageDays: number | null;
+}
+
 /** candidates 台账四态计数（candidates 表按 status 聚合，W1-C 已建表）。 */
 export interface KgHealthCandidatesDto {
   pending: number;
@@ -195,6 +204,16 @@ export interface KgHealthDto {
   orphans: KgHealthOrphanDto[];
   /** 孤儿+腐烂锚合计计数（徽章数据源）。 */
   orphanCount: number;
+  /**
+   * 失效锚条目（P3 拆栏：orphans 中 kind=dead_anchor 的子集投影；协议
+   * 可选字段——旧 shell 不携带不炸，新面板优先本字段，缺省回落 orphans
+   * 按 kind 过滤渲染）。
+   */
+  deadAnchors?: KgHealthOrphanDto[];
+  /** 无锚节点条目（P3 拆栏：orphan_node + unanchored_node 合并——语义同为「缺挂锚」；可选同上）。 */
+  unanchoredNodes?: KgHealthOrphanDto[];
+  /** 草稿三分类条目（P3 L0：面板草稿栏与 triage ④ 路输入；可选同上）。 */
+  drafts?: KgHealthDraftDto[];
   /** 索引状态（kg.index.status 数据复用）。 */
   index: KgIndexStatusDto;
   candidates: KgHealthCandidatesDto;
@@ -205,9 +224,9 @@ export interface KgHealthDto {
   triageHint?: KgTriageHintDto;
 }
 
-/** kg-triage 积压提示（口径 = 候选 pending+deferred + dead_anchor 残量；阈值 10 = 单批 20 的半批）。 */
+/** kg-triage 积压提示（口径 = 候选 pending+deferred + dead_anchor + 无锚节点 + draft ready/stale 五计数；阈值 10 = 单批 20 的半批）。 */
 export interface KgTriageHintDto {
-  /** 待办面三计数合计。 */
+  /** 待办面五计数合计。 */
   pendingTotal: number;
   /** ≥ 阈值时建议发起 kg-triage（面板提示行数据源）。 */
   suggested: boolean;

@@ -8,6 +8,8 @@
  * 三检查（漏网三层兑底 AD-14 的前两层）：
  * - findConflicts：逻辑冲突（双向 governs 矛盾/自环/词表外 verb）——确定性；
  * - findOrphans：腐烂锚（T2.2 orphan 标记）+ 无锚无边孤儿节点——确定性；
+ * - findDrafts（P3 L0）：draft 处置需求三分类（ready/stale/anchor-debt）
+ *   ——确定性读面，triage ③④ 路输入与面板草稿栏的数据源；
  * - findActivityMismatch：代码高频变更 × 锚长期未动 → 疑似过时排序——
  *   启发式非结论（输出必含「疑似」限定，CL-3.A7），人审报告终裁。
  *
@@ -17,6 +19,7 @@
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import { findEdgeConflicts, type ConflictItem } from "../../../domain/kg/verify/conflicts";
 import { findOrphanItems, type OrphanItem } from "../../../domain/kg/verify/orphans";
+import { classifyDrafts, type DraftItem } from "../../../domain/kg/verify/drafts";
 import {
   sortActivityMismatch,
   type ActivitySignal,
@@ -24,7 +27,7 @@ import {
 } from "../../../domain/kg/verify/activity-mismatch";
 import type { KnowledgeNode } from "../../../domain/kg/types";
 
-export type { ConflictItem, OrphanItem, SuspectItem };
+export type { ConflictItem, OrphanItem, SuspectItem, DraftItem };
 
 export interface KgVerifyServiceDeps {
   readonly graph: KnowledgeGraphPort;
@@ -52,6 +55,17 @@ export class KgVerifyService {
     return findOrphanItems({
       nodes: view.nodes,
       edges: view.edges,
+      anchors: view.anchors,
+      anchorDeclarations: view.anchorDeclarations,
+      now: Date.now(),
+    });
+  }
+
+  /** draft 处置需求三分类清单（P3 L0 读面；豁免与口径见 domain/kg/verify/drafts）。 */
+  findDrafts(projectRoot: string): readonly DraftItem[] {
+    const view = this.deps.graph.getVerifyView(projectRoot);
+    return classifyDrafts({
+      nodes: view.nodes,
       anchors: view.anchors,
       anchorDeclarations: view.anchorDeclarations,
       now: Date.now(),

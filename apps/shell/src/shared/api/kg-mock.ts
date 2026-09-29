@@ -443,7 +443,7 @@ export class KgMockStore {
           : { state: "absent" };
   }
 
-  /** kg.health：空态体检镜像（conflicts/orphans 空集 + 索引状态复用 + 台账四态零计）。 */
+  /** kg.health：空态体检镜像（conflicts/orphans 空集 + 索引状态复用 + 台账四态零计；P3 拆栏三字段空集同形）。 */
   private replyHealth(p: Record<string, unknown>): EventEnvelope {
     const row = resolveProjectName(p.project, this.projects);
     if (row === undefined) return this.paramError();
@@ -452,6 +452,9 @@ export class KgMockStore {
       conflicts: [],
       orphans: [],
       orphanCount: 0,
+      deadAnchors: [], // P3 镜像：daemon 拆栏三字段同形（保真度对齐）
+      unanchoredNodes: [],
+      drafts: [],
       index: this.indexDto(row),
       candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
       triageHint: { pendingTotal: 0, suggested: false }, // P2 镜像：daemon 有库空态同形

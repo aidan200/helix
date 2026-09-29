@@ -7,6 +7,7 @@ import type { KgProjectService } from "../../src/application/services/kg/KgProje
 import type { KgVerifyService } from "../../src/application/services/kg/KgVerifyService";
 import type { CandidateStatusCounts } from "../../src/domain/kg/types";
 import type { OrphanItem } from "../../src/domain/kg/verify/orphans";
+import type { DraftItem } from "../../src/domain/kg/verify/drafts";
 import type { JobRow } from "../../src/adapters/driven/sqlite-session/rows/TaskRows";
 
 /**
@@ -24,6 +25,8 @@ function makeService(opts: {
   candidateCounts?: Partial<CandidateStatusCounts>;
   deadAnchors?: number;
   otherOrphans?: number;
+  readyDrafts?: number;
+  staleDrafts?: number;
   activeTriageJobs?: JobRow[];
   createResult?: { jobId: string } | { code: string; message: string };
 }): { service: KgTriageService; created: unknown[] } {
@@ -56,6 +59,10 @@ function makeService(opts: {
         ...(opts.deadAnchors ? (Array.from({ length: opts.deadAnchors }, () => ({ kind: "dead_anchor" } as const)) as OrphanItem[]) : []),
         ...(opts.otherOrphans ? (Array.from({ length: opts.otherOrphans }, () => ({ kind: "orphan_node" } as const)) as OrphanItem[]) : []),
       ],
+      findDrafts: (_root: string): DraftItem[] => [
+        ...(opts.readyDrafts ? (Array.from({ length: opts.readyDrafts }, () => ({ kind: "ready" } as const)) as DraftItem[]) : []),
+        ...(opts.staleDrafts ? (Array.from({ length: opts.staleDrafts }, () => ({ kind: "stale" } as const)) as DraftItem[]) : []),
+      ],
     } as unknown as KgVerifyService,
   });
   return { service, created };
@@ -82,10 +89,8 @@ describe("KgTriageService 准入三态（与 kg-review 的唯一差 = nothing_pe
     expect(service.eligibility(ROOT)).toEqual({ eligible: false, reason: "index_absent" } satisfies TriageEligibility);
   });
 
-  test("② nothing_pending：三计数全零拒绝（空待办不发起空任务）——孤儿节点不计入（只数 dead_anchor）", () => {
-    const onlyOrphanNodes = makeService({ candidateCounts: { pending: 0 }, otherOrphans: 3 });
-    expect(onlyOrphanNodes.service.eligibility(ROOT)).toEqual({ eligible: false, reason: "nothing_pending" } satisfies TriageEligibility);
-    const allZero = makeService({ candidateCounts: { pending: 0, deferred: 0 }, deadAnchors: 0 });
+  test("② nothing_pending：五计数全零拒绝（空待办不发起空任务）——无锚节点与草稿待裁决现在计入（P3 ③④ 路）", () => {
+    const allZero = makeService({ candidateCounts: { pending: 0, deferred: 0 }, deadAnchors: 0, otherOrphans: 0, readyDrafts: 0, staleDrafts: 0 });
     expect(allZero.service.eligibility(ROOT)).toEqual({ eligible: false, reason: "nothing_pending" } satisfies TriageEligibility);
   });
 
@@ -96,16 +101,19 @@ describe("KgTriageService 准入三态（与 kg-review 的唯一差 = nothing_pe
     expect(done.service.eligibility(ROOT)).toEqual({ eligible: true } satisfies TriageEligibility);
   });
 
-  test("④ eligible：待办面非空（任一路有量即过——pending/deferred/dead_anchor）", () => {
+  test("④ eligible：待办面非空（任一路有量即过——pending/deferred/dead_anchor/无锚节点/draft ready/stale）", () => {
     expect(makeService({ candidateCounts: { deferred: 1 } }).service.eligibility(ROOT)).toEqual({ eligible: true });
     expect(makeService({ deadAnchors: 2 }).service.eligibility(ROOT)).toEqual({ eligible: true });
+    expect(makeService({ otherOrphans: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true }); // P3 ③ 路：无锚节点计入
+    expect(makeService({ readyDrafts: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true }); // P3 ④ 路：草稿待裁决计入
+    expect(makeService({ staleDrafts: 1 }).service.eligibility(ROOT)).toEqual({ eligible: true });
   });
 });
 
-describe("KgTriageService 待办面三计数（发起按钮可用性同源）", () => {
-  test("pending + deferred + dead_anchor 求和；orphan_node/unanchored 不计入", () => {
-    const { service } = makeService({ candidateCounts: { pending: 2, deferred: 1 }, deadAnchors: 3, otherOrphans: 5 });
-    expect(service.pendingCount(ROOT)).toBe(6);
+describe("KgTriageService 待办面五计数（发起按钮可用性同源；P3 扩 ③④ 路）", () => {
+  test("pending + deferred + dead_anchor + 无锚节点 + draft ready/stale 求和（anchor-debt 不重复计数）", () => {
+    const { service } = makeService({ candidateCounts: { pending: 2, deferred: 1 }, deadAnchors: 3, otherOrphans: 5, readyDrafts: 2, staleDrafts: 1 });
+    expect(service.pendingCount(ROOT)).toBe(14);
   });
 });
 

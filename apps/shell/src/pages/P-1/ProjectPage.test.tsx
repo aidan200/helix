@@ -891,6 +891,98 @@ describe("W2-F 体检面板运行态（reviewRunning 行标志）", () => {
   });
 });
 
+// ── P3 体检拆栏三段（失效锚 / 无锚节点 / 草稿三分类）＋旧 payload 回落 ──
+
+describe("P3 体检拆栏：deadAnchors / unanchoredNodes / drafts 三段渲染", () => {
+  /** 拆栏后问题态夹具（新字段齐全：1 失效锚 + 1 无锚节点 + 3 草稿三分类各一）。 */
+  const HEALTH_SPLIT = {
+    conflicts: [],
+    orphans: [
+      { kind: "dead_anchor", summary: "规则「写路径白名单」的符号锚 src/gone.ts#deadFn 已失效（锚定符号已在代码中消亡）" },
+      { kind: "unanchored_node", summary: "实体「写路径守护乙」没有任何锚点与锚声明" },
+    ],
+    orphanCount: 2,
+    deadAnchors: [{ kind: "dead_anchor", summary: "规则「写路径白名单」的符号锚 src/gone.ts#deadFn 已失效（锚定符号已在代码中消亡）" }],
+    unanchoredNodes: [{ kind: "unanchored_node", summary: "实体「写路径守护乙」没有任何锚点与锚声明" }],
+    drafts: [
+      { kind: "ready", summary: "规则「分层依赖单向」为草稿且锚点健康——内容待裁决转正，可交 kg-triage 消化（④ 路）。", ageDays: 2 },
+      { kind: "stale", summary: "规则「旧口径」草稿已 12 天未裁决（锚点健康）——超龄积压，建议 kg-triage 消化（④ 路）。", ageDays: 12 },
+      { kind: "anchor-debt", summary: "规则「新写路径规则」草稿无活锚且无锚声明——需先挂锚（kg-triage 定位管辖符号，③ 路）再裁决转正。", ageDays: 4 },
+    ],
+    index: { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" },
+    candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+  };
+
+  /** 进 health tab 并装配拆栏问题态回执。 */
+  function inSplitPane() {
+    ui();
+    feed("kg.projects.result", { projects: REVIEW_PROJECTS } satisfies KgProjectsResultPayload);
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    feed("kg.change.report.result", REPORT);
+    feed("kg.index.status.result", { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" });
+    fireEvent.click(qs('[data-tab="health"]')!);
+    feed("kg.health.result", HEALTH_SPLIT);
+  }
+
+  it("三段各自渲染：失效锚栏 / 无锚节点栏 / 草稿栏三分类计数 + age 后缀", () => {
+    inSplitPane();
+    // ① 失效锚栏：标题 + 计数徽章 + 条目
+    const dead = qs("[data-kg-health-dead-anchors]");
+    expect(dead).not.toBeNull();
+    expect(dead.textContent).toContain("失效锚");
+    expect(dead.textContent).toContain("写路径白名单");
+    // ② 无锚节点栏：orphan_node/unanchored_node 合并
+    const unanchored = qs("[data-kg-health-unanchored]");
+    expect(unanchored).not.toBeNull();
+    expect(unanchored.textContent).toContain("无锚节点");
+    expect(unanchored.textContent).toContain("写路径守护乙");
+    // ③ 草稿栏：三分类计数（待裁决 1 / 积压 1 / 缺挂锚 1）+ 条目 age 后缀
+    const drafts = qs("[data-kg-health-drafts]");
+    expect(drafts).not.toBeNull();
+    expect(drafts.querySelector('[data-stat="draft-ready"]')!.textContent).toContain("1");
+    expect(drafts.querySelector('[data-stat="draft-stale"]')!.textContent).toContain("1");
+    expect(drafts.querySelector('[data-stat="draft-debt"]')!.textContent).toContain("1");
+    expect(drafts.textContent).toContain("分层依赖单向");
+    expect(drafts.textContent).toContain("2 天"); // age 后缀（i18n 插值）
+    expect(drafts.textContent).toContain("12 天");
+  });
+
+  it("旧 payload 回落：无新字段时从 orphans 按 kind 派生两栏（协议 additive 兼旧）", () => {
+    ui();
+    feed("kg.projects.result", { projects: REVIEW_PROJECTS } satisfies KgProjectsResultPayload);
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    feed("kg.change.report.result", REPORT);
+    feed("kg.index.status.result", { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" });
+    fireEvent.click(qs('[data-tab="health"]')!);
+    // 旧形状：仅 orphans 混装（无 deadAnchors/unanchoredNodes/drafts 字段）
+    const legacy = { ...HEALTH_SPLIT } as Record<string, unknown>;
+    delete legacy.deadAnchors;
+    delete legacy.unanchoredNodes;
+    delete legacy.drafts;
+    feed("kg.health.result", legacy);
+    expect(qs("[data-kg-health-dead-anchors]")).not.toBeNull(); // 回落派生仍渲染两栏
+    expect(qs("[data-kg-health-unanchored]")).not.toBeNull();
+    expect(qs("[data-kg-health-drafts]")).toBeNull(); // 无 drafts 字段 → 草稿栏隐藏
+  });
+
+  it("健康空态：零问题 → 拆栏两段隐藏 + 草稿栏零草稿隐藏（待裁决是正常态非结构病）", () => {
+    ui();
+    feed("kg.projects.result", { projects: REVIEW_PROJECTS } satisfies KgProjectsResultPayload);
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    feed("kg.change.report.result", REPORT);
+    feed("kg.index.status.result", { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" });
+    fireEvent.click(qs('[data-tab="health"]')!);
+    feed("kg.health.result", HEALTH_EMPTY); // 全空集
+    expect(qs("[data-kg-health-dead-anchors]")).toBeNull();
+    expect(qs("[data-kg-health-unanchored]")).toBeNull();
+    expect(qs("[data-kg-health-drafts]")).toBeNull();
+    expect(qs("[data-kg-health-healthy]")).not.toBeNull(); // 结构健康空态照旧
+  });
+});
+
 // ── 候选台账查看面板（台账读面三件套之三：kg.candidates.list 数据面；只读零裁决） ──
 
 describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联动 + 选中展开详情）", () => {

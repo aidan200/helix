@@ -435,6 +435,8 @@
 .kg-health-sec-title { font-size: var(--text-body); font-weight: 600; }
 .kg-health-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .kg-health-item { font-size: var(--text-caption); line-height: 1.55; color: var(--text-body-c); overflow-wrap: anywhere; }
+/* P3 草稿栏明细的 age 后缀（弱化呈现） */
+.kg-health-age { color: var(--text-dim); }
 .kg-health-cand-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* 项目概览统计卡（体检 tab 顶部单卡承载全部统计） */
 .kg-health-overview { gap: 10px; }

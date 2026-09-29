@@ -166,6 +166,15 @@ export default function KgHealthPane({
   }
   const healthy = health.conflicts.length === 0 && health.orphans.length === 0;
   const issueCount = health.conflicts.length + health.orphanCount;
+  // P3 拆栏：优先新可选字段（deadAnchors/unanchoredNodes），旧 daemon 缺字段
+  // 时从 orphans 按 kind 派生（协议 additive 演进——旧 payload 零影响）
+  const deadAnchors = health.deadAnchors ?? health.orphans.filter((o) => o.kind === "dead_anchor");
+  const unanchoredNodes =
+    health.unanchoredNodes ??
+    health.orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node");
+  const drafts = health.drafts ?? [];
+  const draftCount = { ready: 0, stale: 0, "anchor-debt": 0 } as Record<string, number>;
+  for (const d of drafts) draftCount[d.kind] = (draftCount[d.kind] ?? 0) + 1;
   return (
     <div className="kg-health" data-kg-health="ready">
       {/* ① 项目概览卡：统计行 / 台账行 / 任务行（按业务分行） */}
@@ -321,14 +330,29 @@ export default function KgHealthPane({
               </ul>
             </section>
           )}
-          {health.orphans.length > 0 && (
-            <section className="kg-health-sec" data-kg-health-orphans>
+          {deadAnchors.length > 0 && (
+            <section className="kg-health-sec" data-kg-health-dead-anchors>
               <div className="kg-health-sec-head">
-                <span className="kg-health-sec-title">{t("pj.health.orphansTitle")}</span>
-                <span className="kg-sev-badge warn">{health.orphanCount}</span>
+                <span className="kg-health-sec-title">{t("pj.health.deadAnchorsTitle")}</span>
+                <span className="kg-sev-badge warn">{deadAnchors.length}</span>
               </div>
               <ul className="kg-health-list">
-                {health.orphans.map((o, i) => (
+                {deadAnchors.map((o, i) => (
+                  <li key={i} className="kg-health-item" data-kind={o.kind}>
+                    {o.summary}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {unanchoredNodes.length > 0 && (
+            <section className="kg-health-sec" data-kg-health-unanchored>
+              <div className="kg-health-sec-head">
+                <span className="kg-health-sec-title">{t("pj.health.unanchoredTitle")}</span>
+                <span className="kg-sev-badge warn">{unanchoredNodes.length}</span>
+              </div>
+              <ul className="kg-health-list">
+                {unanchoredNodes.map((o, i) => (
                   <li key={i} className="kg-health-item" data-kind={o.kind}>
                     {o.summary}
                   </li>
@@ -337,6 +361,35 @@ export default function KgHealthPane({
             </section>
           )}
         </>
+      )}
+
+      {/* P3 草稿栏：三分类计数 + 明细（含 age）——信息级非错误（待裁决是
+          正常态，不参与 healthy 判定）；零草稿时整栏隐藏 */}
+      {drafts.length > 0 && (
+        <section className="kg-health-sec" data-kg-health-drafts>
+          <div className="kg-health-sec-head">
+            <span className="kg-health-sec-title">{t("pj.health.draftsTitle")}</span>
+            <span className="kg-health-ledger-v" data-stat="draft-ready">
+              {t("pj.health.draftReady")} {draftCount["ready"] ?? 0}
+            </span>
+            <span className="kg-health-ledger-v" data-stat="draft-stale">
+              {t("pj.health.draftStale")} {draftCount["stale"] ?? 0}
+            </span>
+            <span className="kg-health-ledger-v" data-stat="draft-debt">
+              {t("pj.health.draftDebt")} {draftCount["anchor-debt"] ?? 0}
+            </span>
+          </div>
+          <ul className="kg-health-list">
+            {drafts.map((d, i) => (
+              <li key={i} className="kg-health-item" data-kind={d.kind}>
+                {d.summary}
+                {d.ageDays !== null && (
+                  <span className="kg-health-age"> · {t("pj.health.draftAgeDays", { n: d.ageDays })}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );

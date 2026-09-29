@@ -231,23 +231,28 @@ describe("kg-triage skill 装载（P1 待办面裁决任务）", () => {
     expect(registry.listTaskTypes().find((t) => t.type === "kg-triage")).toBeDefined();
   });
 
-  test("② SOP 正文锚：两路输入 + 阈值分批 + 升级判据 + 证据纪律 + dry-run + 落地 confirmed", async () => {
+  test("② SOP 正文锚：四路输入 + 阈值分批 + 升级判据 + 证据纪律 + dry-run + 落地 confirmed", async () => {
     const body = (await readFile(path.join(builtinSkillsDir(), "task", "kg-triage", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );
-    // 两路输入（候选台账 + 孤儿锚残量）与阈值分批（≤20 单批）
+    // 四路输入（候选台账 + 孤儿锚残量 + 无锚节点③ + 草稿待裁决④）与阈值分批（≤20 单批）
     expect(body).toContain("kg.candidates.list");
     expect(body).toContain("findOrphans");
+    expect(body).toContain("findDrafts"); // P3 ④ 路
+    expect(body).toContain("无锚节点"); // P3 ③ 路
     expect(body).toContain("≤20");
-    // 升级判据（证据缺失/冲突/影响面/索引态/预算）与证据纪律
+    // 升级判据（证据缺失/冲突/影响面含 replacement 草稿/索引态/预算）与证据纪律
     expect(body).toContain("升级人审判据");
     expect(body).toContain("file:line");
     expect(body).toContain("domain=business");
+    expect(body).toContain("replacement 草稿"); // P3：supersede 链草稿升级
     // dry-run 与落地口径（confirmed + auto: 溯源）
     expect(body).toContain("dryRun");
     expect(body).toContain("confirmed");
     expect(body).toContain("auto:");
+    // ④ 路转正动作锚：updateNode(patch.status=confirmed)（auto: 前缀）
+    expect(body).toContain("patch.status=confirmed");
   });
 });
 
