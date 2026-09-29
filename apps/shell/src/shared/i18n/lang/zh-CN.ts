@@ -1036,6 +1036,19 @@ export const zhCN = {
       codeReviewLaunched: "代码评审任务已发起（{name}）",
       codeReviewOkToast: "代码评审任务已发起：{name}",
       codeReviewFailToast: "代码评审任务发起失败：{message}",
+      // ── P1 kg-triage 待办面裁决 + P2 自动裁决审计（体检面板第三任务块与提示/抽查面）──
+      triageTitle: "待办面即时裁决",
+      triageLaunch: "发起 kg-triage",
+      triageRunningStrip: "kg-triage 裁决进行中（{name}）",
+      triageLaunched: "裁决任务已发起（{name}）",
+      triageOkToast: "待办面裁决任务已发起：{name}",
+      triageFailToast: "待办面裁决任务发起失败：{message}",
+      triageHint: "待办面积压",
+      triageHintCount: "{count} 条（候选+孤儿锚残量）——建议发起 kg-triage 消化",
+      autoAuditTitle: "自动裁决审计",
+      autoAuditIdle: "未拉取",
+      autoAuditCount: "累计 {count} 条机器裁决",
+      autoAuditRefresh: "拉取抽查",
     },
     // ── 候选台账查看面板（台账读面三件套之三；只读零裁决） ──
     cand: {

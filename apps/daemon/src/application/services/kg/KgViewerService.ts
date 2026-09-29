@@ -29,6 +29,7 @@ import type { ConflictItem, KgVerifyService, OrphanItem } from "./KgVerifyServic
 import type { KgWriteService } from "./KgWriteService";
 import type {
   CandidateListQuery,
+  AutoAuditEntry,
   CandidateStatusCounts,
   CandidateStatus,
   KnowledgeNode,
@@ -102,6 +103,27 @@ export interface KgHealthView {
   readonly index: KgIndexStatusView;
   /** candidates 台账四态计数（candidates 表聚合）。 */
   readonly candidates: CandidateStatusCounts;
+  /**
+   * kg-triage 积压提示（P2：待办面三计数超阈值 → 面板建议发起裁决；只
+   * 提示不自动开任务）。absent/building 短路空态不携带（无待办语义）。
+   */
+  readonly triageHint?: KgTriageHint;
+}
+
+/** kg-triage 积压提示（口径与 KgTriageService.pendingCount 同源：候选 pending+deferred + dead_anchor 残量）。 */
+export interface KgTriageHint {
+  /** 待办面三计数合计。 */
+  readonly pendingTotal: number;
+  /** ≥ 阈值（半批 10——攒到单批上限 20 正好一次跑完）时建议发起 kg-triage。 */
+  readonly suggested: boolean;
+}
+
+/** kg.auto.audit 结果（P2 自动裁决审计面：stats 聚合 + 抽查条目）。 */
+export interface KgAutoAuditView {
+  /** 全量聚合（limit 切片不影响 total）。 */
+  readonly stats: { readonly total: number; readonly byOp: readonly { readonly op: string; readonly count: number }[] };
+  /** 抽查条目（最新在前；limit 缺省 50）。 */
+  readonly entries: readonly AutoAuditEntry[];
 }
 
 /** kg.node.confirm 结果（翻转后状态回读）。 */
@@ -350,6 +372,11 @@ export class KgViewerService {
     }
     const conflicts = this.deps.verify.findConflicts(resolved);
     const orphans = this.deps.verify.findOrphans(resolved);
+    const candidates = this.deps.graph.countCandidatesByStatus(resolved);
+    // triage 积压提示（P2）：口径与 KgTriageService.pendingCount 同源——只数
+    // dead_anchor（orphan_node/unanchored 非待办面输入）；阈值 10 = 单批 20 的半批。
+    const deadAnchors = orphans.filter((o) => o.kind === "dead_anchor").length;
+    const pendingTotal = candidates.pending + candidates.deferred + deadAnchors;
     return {
       ok: true,
       value: {
@@ -357,7 +384,34 @@ export class KgViewerService {
         orphans,
         orphanCount: orphans.length,
         index: this.statusView(resolved),
-        candidates: this.deps.graph.countCandidatesByStatus(resolved),
+        candidates,
+        triageHint: { pendingTotal, suggested: pendingTotal >= 10 },
+      },
+    };
+  }
+
+  // ── kg.auto.audit（P2 自动裁决审计面：auto: 前缀聚合 + 抽查条目） ──
+
+  /**
+   * 自动裁决审计（stats 全量聚合 + entries 最新在前 limit 切片，缺省 50）。
+   * 读面纪律同 kg.candidates.list——resolveIndexed（absent →
+   * KG_E_NOT_FOUND，绝不新建库文件）；limit 非法（<=0）回缺省 50。
+   */
+  autoAudit(project: string, limit?: number): KgViewerResult<KgAutoAuditView> {
+    const resolved = this.resolveIndexed(project);
+    if (!resolved.ok) return resolved;
+    const entries = this.deps.graph.listAutoAdjudications(resolved.value);
+    const byOp = new Map<string, number>();
+    for (const entry of entries) byOp.set(entry.op, (byOp.get(entry.op) ?? 0) + 1);
+    const cap = limit !== undefined && Number.isInteger(limit) && limit > 0 ? limit : 50;
+    return {
+      ok: true,
+      value: {
+        stats: {
+          total: entries.length,
+          byOp: [...byOp.entries()].map(([op, count]) => ({ op, count })),
+        },
+        entries: entries.slice(0, cap),
       },
     };
   }

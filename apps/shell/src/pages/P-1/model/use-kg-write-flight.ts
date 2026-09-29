@@ -19,8 +19,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** 写面种类（KgViewer 五个发起入口）。 */
-export type KgWriteKind = "create" | "purge" | "indexDelete" | "review" | "codeReview";
+/** 写面种类（KgViewer 六个发起入口；P2 +triage）。 */
+export type KgWriteKind = "create" | "purge" | "indexDelete" | "review" | "codeReview" | "triage";
 
 /** 在途兜底超时（结果帧丢失时清在途位；远长于正常回执时延）。 */
 export const KG_WRITE_FLIGHT_TIMEOUT_MS = 60_000;

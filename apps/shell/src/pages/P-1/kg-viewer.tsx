@@ -18,7 +18,7 @@
  *   +重发 detail 取 daemon 落账日志）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
-import type { KgCandidateRowDto, KgHealthDto, KgNodeListRow, KgProjectRow } from "@helix/protocol";
+import type { KgAutoAuditDto, KgCandidateRowDto, KgHealthDto, KgNodeListRow, KgProjectRow } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -46,6 +46,7 @@ const WRITE_FAIL_KEY: Record<KgWriteKind, string> = {
   indexDelete: "pj.kg.idxDeleteFailToast",
   review: "pj.health.reviewFailToast",
   codeReview: "pj.health.codeReviewFailToast",
+  triage: "pj.health.triageFailToast",
 };
 
 const KgViewer = function KgViewer({
@@ -78,6 +79,8 @@ const KgViewer = function KgViewer({
     sendKgReviewCreate,
     sendCodeReviewCreate,
     sendKgCandidatesList,
+    sendKgTriageCreate,
+    sendKgAutoAudit,
     sendKgProjects,
     subscribeKgFrames,
   } = useSession();
@@ -101,6 +104,7 @@ const KgViewer = function KgViewer({
   const healthFetchedRef = useRef(false);
   const [reviewLaunched, setReviewLaunched] = useState(false);
   const [codeReviewLaunched, setCodeReviewLaunched] = useState(false);
+  const [triageLaunched, setTriageLaunched] = useState(false);
   /** 候选台账面板数据面（台账读面三件套；与 health 同窗口拉取——
    *  首进 tab 一次；过滤/选中为本地态，行集由回执刷新）。 */
   const [candView, setCandView] = useState<{
@@ -160,6 +164,8 @@ const KgViewer = function KgViewer({
           },
           markReviewLaunched: () => setReviewLaunched(true),
           markCodeReviewLaunched: () => setCodeReviewLaunched(true),
+          markTriageLaunched: () => setTriageLaunched(true),
+          onAutoAuditResult: (data) => setAuditView({ loading: false, data }),
         }),
       ),
     [subscribeKgFrames, project.name, settle, notifyError, sendKgNodeDetail, sendKgList, sendKgChangeReport, sendKgIndexStatus, sendKgProjects, projectDispatch, toast, t],
@@ -273,6 +279,21 @@ const KgViewer = function KgViewer({
   const onLaunchCodeReview = useCallback(() => {
     launch("codeReview", () => sendCodeReviewCreate({ project: project.name }));
   }, [launch, project.name, sendCodeReviewCreate]);
+
+  // ── kg.triage.create 发起（P1；待办面即时裁决——hint 建议位的一键入口）──
+  const onLaunchTriage = useCallback(() => {
+    launch("triage", () => sendKgTriageCreate({ project: project.name }));
+  }, [launch, project.name, sendKgTriageCreate]);
+
+  // ── kg.auto.audit 拉取（P2；低频抽查——按钮驱动非自动拉，回执经 listener 落本地态）──
+  const [auditView, setAuditView] = useState<{ loading: boolean; data: KgAutoAuditDto | null }>({ loading: false, data: null });
+  const onAuditRefresh = useCallback(() => {
+    setAuditView({ loading: true, data: null });
+    if (sendKgAutoAudit({ project: project.name }) === false) {
+      setAuditView({ loading: false, data: null });
+      toast.push("err", t("pj.boot.sendFail"));
+    }
+  }, [project.name, sendKgAutoAudit, toast, t]);
 
   // ── 展示派生 ─────────────────────────────────────────────
   const rows = useMemo(() => filterRows(state.all, state.filter), [state.all, state.filter]);
@@ -539,10 +560,17 @@ const KgViewer = function KgViewer({
                     codeReviewBusy={flight !== null}
                     codeReviewLaunched={codeReviewLaunched}
                     codeReviewRunning={project.codeReviewRunning === true}
+                    triageBusy={flight !== null}
+                    triageLaunched={triageLaunched}
+                    triageRunning={project.triageRunning === true}
+                    audit={auditView.data}
+                    auditLoading={auditView.loading}
                     projectName={project.name}
                     t={t}
                     onLaunchReview={onLaunchReview}
                     onLaunchCodeReview={onLaunchCodeReview}
+                    onLaunchTriage={onLaunchTriage}
+                    onAuditRefresh={onAuditRefresh}
                     onOpenTasks={onOpenTasks}
                   />
                   <KgCandidatesPanel

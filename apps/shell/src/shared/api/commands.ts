@@ -42,6 +42,8 @@ import type {
   ConfigGetTopicCommand,
   ConfigSetTopicCommand,
   ConfigSetSandboxCommand,
+  KgAutoAuditCommand,
+  KgAutoAuditPayload,
   KgBootstrapCreateCommand,
   KgBootstrapCreatePayload,
   KgCandidatesListCommand,
@@ -65,6 +67,8 @@ import type {
   KgProjectsCommand,
   KgReviewCreateCommand,
   KgReviewCreatePayload,
+  KgTriageCreateCommand,
+  KgTriageCreatePayload,
   CodeReviewCreateCommand,
   CodeReviewCreatePayload,
   ModelCatalogCommand,
@@ -822,6 +826,16 @@ export function kgHealthCommand(payload: KgHealthPayload): KgHealthCommand {
 /** kg.candidates.list：候选台账列表（status 四态过滤 + 分页；行含 body 全文；只读零裁决）。 */
 export function kgCandidatesListCommand(payload: KgCandidatesListPayload): KgCandidatesListCommand {
   return { v: PROTOCOL_VERSION, type: "kg.candidates.list", payload };
+}
+
+/** kg.triage.create：发起待办面裁决任务（kg-triage；准入 = 索引存在 + 待办非空 + 仅禁并发）。 */
+export function kgTriageCreateCommand(payload: KgTriageCreatePayload): KgTriageCreateCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.triage.create", payload };
+}
+
+/** kg.auto.audit：自动裁决审计读面（auto: 前缀聚合 + 抽查条目；只读）。 */
+export function kgAutoAuditCommand(payload: KgAutoAuditPayload): KgAutoAuditCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.auto.audit", payload };
 }
 
 /** kg.review.create：发起语义体检任务（准入从简 = 索引存在即可，允许反复发起）。 */

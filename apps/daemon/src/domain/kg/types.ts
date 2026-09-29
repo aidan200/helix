@@ -173,6 +173,19 @@ export interface CandidateStatusCounts {
   readonly discarded: number;
 }
 
+/**
+ * 自动裁决审计行（P2 kg.auto.audit 数据面）：change_log 中 reason 带
+ * `auto: ` 前缀的行（机器裁决溯源契约——L0 anchorRelocate/prune 与
+ * kg-triage decideCandidate 共用前缀；人工写路径无前缀不入审计面）。
+ */
+export interface AutoAuditEntry {
+  readonly op: string;
+  readonly nodeId: string;
+  readonly reason: string;
+  readonly taskId: string | null;
+  readonly ts: string;
+}
+
 /** candidates 台账列表查询（读面三件套：status 过滤 + limit/offset 分页；缺省全量最新在前）。 */
 export interface CandidateListQuery {
   readonly status?: CandidateStatus;

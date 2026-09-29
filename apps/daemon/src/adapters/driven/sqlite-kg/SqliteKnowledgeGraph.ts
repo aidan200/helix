@@ -10,6 +10,7 @@ import type {
   AnchorReverseHit,
   AttachmentAnchor,
   AttachmentSnapshot,
+  AutoAuditEntry,
   CandidateListQuery,
   CandidateRow,
   CandidateStatusCounts,
@@ -533,6 +534,27 @@ export class SqliteKnowledgeGraph {
       else if (row.status === "discarded") counts.discarded = row.n;
     }
     return counts;
+  }
+
+  /**
+   * 自动裁决审计读面（P2 kg.auto.audit 数据源）：change_log auto: 前缀行
+   * 最新在前（seq 序）。只读 SELECT；缺库 → 空数组（不新建库文件）。
+   */
+  listAutoAdjudications(projectRoot: string): readonly AutoAuditEntry[] {
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
+    const rows = db
+      .prepare(
+        "SELECT op, node_id, reason, task_id, ts FROM change_log WHERE reason LIKE 'auto: %' ORDER BY seq DESC",
+      )
+      .all() as { op: string; node_id: string; reason: string; task_id: string | null; ts: string }[];
+    return rows.map((row) => ({
+      op: row.op,
+      nodeId: row.node_id,
+      reason: row.reason,
+      taskId: row.task_id,
+      ts: row.ts,
+    }));
   }
 
   /**

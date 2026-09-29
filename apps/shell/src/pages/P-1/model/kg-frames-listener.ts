@@ -1,11 +1,12 @@
 /**
  * P-1 KgViewer kg 族帧订阅 listener（M9 #2.31 拆分：自 kg-viewer.tsx 抽出的
- * 独立模块——13 种帧订阅分发不再与组件渲染体同居；纯工厂无 React，可独立
+ * 独立模块——15 种帧订阅分发不再与组件渲染体同居；纯工厂无 React，可独立
  * 单测）。
  *
  * 消费面：kg 族点对点回执（kg.list/node.detail/change.report/index.status/
  * node.confirm/bootstrap.create/graph.purge/index.delete/health/candidates.list/
- * review.create + code.review.create）+ connection.error（写面在途失败收口 +
+ * review.create + code.review.create + triage.create + auto.audit）+
+ * connection.error（写面在途失败收口 +
  * 体检/台账读面 loading 收口）。
  *
  * 写面回执归因经 use-kg-write-flight 单飞位（settle(kind) 匹配才消费）——
@@ -51,6 +52,10 @@ export interface KgFramesListenerDeps {
   /** review/codeReview 发起成功置 launched 态（ok-strip 呈现）。 */
   readonly markReviewLaunched: () => void;
   readonly markCodeReviewLaunched: () => void;
+  /** triage 发起成功置 launched 态（P1 发起钮状态面）。 */
+  readonly markTriageLaunched: () => void;
+  /** 自动裁决审计回执落本地数据面（P2）。 */
+  readonly onAutoAuditResult: (data: import("@helix/protocol").KgAutoAuditDto) => void;
 }
 
 /** 构造 KgViewer 的 kg 族帧 listener（deps 全经调用方 ref/稳定引用间接取值）。 */
@@ -142,6 +147,18 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
         deps.markCodeReviewLaunched();
         deps.sendKgProjects(); // 行级 codeReviewRunning 权威化（运行态数据源）
         toast.push("ok", t("pj.health.codeReviewOkToast", { name: projectName }));
+        return;
+      }
+      // ── kg-triage 发起 + 自动裁决审计回执（P1/P2；triage 单飞归因）──
+      case "kg.triage.create.result": {
+        if (!flight.settle("triage")) return; // 非本视图发起
+        deps.markTriageLaunched();
+        deps.sendKgProjects(); // 任务运行态权威化（triage 按钮随 job 状态翻转）
+        toast.push("ok", t("pj.health.triageOkToast", { name: projectName }));
+        return;
+      }
+      case "kg.auto.audit.result": {
+        deps.onAutoAuditResult(e.payload);
         return;
       }
       case "connection.error": {

@@ -21,12 +21,14 @@ import type {
   CommandEnvelope,
   EventEnvelope,
   McpServerInput,
+  KgAutoAuditPayload,
   KgBootstrapCreatePayload,
   KgCandidatesListPayload,
   KgChangeReportPayload,
   KgGraphPurgePayload,
   KgHealthPayload,
   KgIndexDeletePayload,
+  KgTriageCreatePayload,
   KgIndexStatusPayload,
   KgListPayload,
   KgNodeConfirmPayload,
@@ -108,10 +110,12 @@ import {
   kgBootstrapCreateCommand,
   kgCandidatesListCommand,
   kgChangeReportCommand,
+  kgAutoAuditCommand,
   kgGraphPurgeCommand,
   kgHealthCommand,
   kgIndexDeleteCommand,
   kgIndexStatusCommand,
+  kgTriageCreateCommand,
   kgListCommand,
   kgNodeConfirmCommand,
   kgNodeDetailCommand,
@@ -792,6 +796,12 @@ export const COMMAND_SURFACE = {
   /** 发送 kg.candidates.list（候选台账列表读面；status 四态过滤，行含 body 全文；只读零裁决）。 */
   sendKgCandidatesList: (deps) =>
     (payload: KgCandidatesListPayload) => deps.send(kgCandidatesListCommand(payload)),
+  /** 发送 kg.triage.create（发起待办面裁决任务；准入 = 索引存在 + 待办非空 + 仅禁并发）。 */
+  sendKgTriageCreate: (deps) =>
+    (payload: KgTriageCreatePayload) => deps.send(kgTriageCreateCommand(payload)),
+  /** 发送 kg.auto.audit（自动裁决审计读面：auto: 前缀聚合 + 抽查条目；只读）。 */
+  sendKgAutoAudit: (deps) =>
+    (payload: KgAutoAuditPayload) => deps.send(kgAutoAuditCommand(payload)),
 
   // ── task 族九命令面（iter-20260829-ys7q T3.1，P-2 任务页；连接私有读面）──
   /** 发送 task.list（全局平铺；服务端运行中置顶+创建时间倒序）。 */

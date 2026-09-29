@@ -48,10 +48,17 @@ describe("族A 两态区分：failed 分支", () => {
               codeReviewBusy={false}
               codeReviewLaunched={false}
               codeReviewRunning={false}
+              triageBusy={false}
+              triageLaunched={false}
+              triageRunning={false}
+              audit={null}
+              auditLoading={false}
               projectName="helix"
               t={t}
               onLaunchReview={() => {}}
               onLaunchCodeReview={() => {}}
+              onLaunchTriage={() => {}}
+              onAuditRefresh={() => {}}
               onOpenTasks={() => {}}
             />
           )}

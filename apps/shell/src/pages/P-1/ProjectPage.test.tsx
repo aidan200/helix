@@ -996,9 +996,10 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     inCandPanel();
     const launch = qs("[data-kg-task-launch]");
     expect(launch).not.toBeNull();
-    expect(launch!.querySelectorAll(".kg-task-row")).toHaveLength(2);
+    expect(launch!.querySelectorAll(".kg-task-row")).toHaveLength(3); // P1 +triage 第三任务块
     expect(launch!.querySelector("[data-review-launch-btn]")).not.toBeNull();
     expect(launch!.querySelector("[data-code-review-launch-btn]")).not.toBeNull();
+    expect(launch!.querySelector("[data-triage-launch-btn]")).not.toBeNull(); // P1 kg-triage 发起钮
     // 紧凑化：长说明文案（评审流程/后台执行说明）不再渲染
     expect(launch!.textContent).not.toContain("L0 结构面预检");
     expect(launch!.textContent).not.toContain("任务在后台执行");

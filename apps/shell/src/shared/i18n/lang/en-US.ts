@@ -1030,6 +1030,19 @@ export const enUS = {
       codeReviewLaunched: "Code review task launched ({name})",
       codeReviewOkToast: "Code review task launched: {name}",
       codeReviewFailToast: "Failed to launch code review: {message}",
+      // ── P1 kg-triage + P2 auto adjudication audit (health pane third task block, hint & spot-check) ──
+      triageTitle: "Pending adjudication",
+      triageLaunch: "Launch kg-triage",
+      triageRunningStrip: "kg-triage adjudication running ({name})",
+      triageLaunched: "Adjudication task launched ({name})",
+      triageOkToast: "Pending adjudication task launched: {name}",
+      triageFailToast: "Failed to launch pending adjudication: {message}",
+      triageHint: "Pending backlog",
+      triageHintCount: "{count} items (candidates + orphan anchors) — consider launching kg-triage",
+      autoAuditTitle: "Auto adjudication audit",
+      autoAuditIdle: "Not fetched",
+      autoAuditCount: "{count} machine adjudications total",
+      autoAuditRefresh: "Fetch & review",
     },
     // ── candidates ledger panel (read-only, no adjudication) ──
     cand: {

@@ -95,6 +95,10 @@ function propose(title: string, extra: Record<string, unknown> = {}): KnowledgeW
   } as unknown as KnowledgeWriteOp;
 }
 
+function expectOk(r: { ok: boolean; error?: { code: string; message: string; path?: string } }): void {
+  if (!r.ok) throw new Error(`写 op 被拒：${r.error!.code} ${r.error!.message}`);
+}
+
 function decide(candidateId: string, decision: string, extra: Record<string, unknown> = {}): KnowledgeWriteOp {
   return {
     kind: "decideCandidate",
@@ -442,5 +446,55 @@ describe("⑧ 读面 listCandidates + targetNode 写面校验（agent 工具/WS 
     const plain = f.write.write(f.root, propose("新号形态", { targetNode: "E-3" }));
     expect(plain.ok).toBe(true);
     expect(rows(f.root)).toHaveLength(2);
+  });
+});
+
+// ── ⑥ P2 产生端机械查重（降噪：命中附 body 不 skip——证据链保留，合并裁决归 triage） ──
+
+describe("⑥ P2 机械查重附注（proposeCandidate 落库前——同名节点 / 同目标同标题候选）", () => {
+  test("同名节点命中（新增候选 title = 既有节点 name）→ body 附机械查重注（不 skip）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    const node = f.write.write(f.root, { kind: "createNode", iterationId: "it", draft: { kind: "rule", name: "锚生命周期", digest: "d", scene: "测试" } });
+    expect(node.ok).toBe(true);
+
+    const res = f.write.write(f.root, propose("锚生命周期", { targetNode: undefined }));
+    expect(res.ok).toBe(true); // 不 skip——落库成功
+    const body = rows(f.root)[0]!.body;
+    expect(body).toContain("正文"); // 原 body 保留
+    expect(body).toContain("机械查重");
+    expect(body).toContain("同名节点");
+    expect(body).toContain("锚生命周期");
+  });
+
+  test("同标题/同目标 pending 候选命中 → 附重复候选注（deferred 计入；discarded/applied 不计）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    expectOk(f.write.write(f.root, propose("重复标题")));
+    expectOk(f.write.write(f.root, propose("另一条", { targetNode: "TR-9" })));
+
+    // 同标题二次落（worker 重复上报形态）
+    expectOk(f.write.write(f.root, propose("重复标题")));
+    // 同目标二次落（修改类候选重复形态）
+    expectOk(f.write.write(f.root, propose("又一个标题", { targetNode: "TR-9" })));
+    const all = rows(f.root);
+    expect(all).toHaveLength(4);
+    expect(all[2]!.body).toContain("机械查重");
+    expect(all[2]!.body).toContain("CAND-1"); // 指向同标题 pending 候选
+    expect(all[3]!.body).toContain("机械查重");
+    expect(all[3]!.body).toContain("CAND-2"); // 指向同目标 pending 候选
+
+    // 终态候选（discarded）不构成查重命中——同标题待审候选全部终态后再落无注
+    expectOk(f.write.write(f.root, decide("CAND-1", "discarded", { reason: "重复" })));
+    expectOk(f.write.write(f.root, decide("CAND-3", "discarded", { reason: "重复" })));
+    expectOk(f.write.write(f.root, propose("重复标题")));
+    expect(rows(f.root)[4]!.body).not.toContain("机械查重");
+  });
+
+  test("零命中 → body 原样（精确等值，无附注）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    expectOk(f.write.write(f.root, propose("独一份标题", { body: "纯正文" })));
+    expect(rows(f.root)[0]!.body).toBe("纯正文");
   });
 });

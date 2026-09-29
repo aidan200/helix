@@ -34,6 +34,9 @@ export interface KgProjectRowView {
   /** 该项目存在非终态 code-review job（体检区代码评审入口运行态数据源，
    *  reviewRunning 同规）。 */
   readonly codeReviewRunning: boolean;
+  /** 该项目存在非终态 kg-triage job（P2 待办面裁决入口运行态数据源，
+   *  reviewRunning 同规）。 */
+  readonly triageRunning: boolean;
 }
 
 export interface KgProjectServiceDeps {
@@ -57,6 +60,8 @@ export interface KgProjectServiceDeps {
   /** 该项目存在非终态 code-review job 判定（code-review v1.5 体检区代码
    *  评审入口运行态数据源，hasRunningReviewJob 同规；缺省 = 恒 false）。 */
   readonly hasRunningCodeReviewJob?: (projectName: string) => boolean;
+  /** 非终态 kg-triage job 存在探测（P2；hasRunningReviewJob 同规；缺省 = 恒 false）。 */
+  readonly hasRunningTriageJob?: (projectName: string) => boolean;
 }
 
 /** degraded 态影响说明（F5.5 面板口径的确定性文案）。 */
@@ -98,8 +103,9 @@ export class KgProjectService {
     const bootstrapRunning = this.deps.hasRunningBootstrapJob?.(entry.name) ?? false;
     const reviewRunning = this.deps.hasRunningReviewJob?.(entry.name) ?? false;
     const codeReviewRunning = this.deps.hasRunningCodeReviewJob?.(entry.name) ?? false;
+    const triageRunning = this.deps.hasRunningTriageJob?.(entry.name) ?? false;
     if (!this.deps.hasIndex(entry.path)) {
-      return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning, reviewRunning, codeReviewRunning };
+      return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning, reviewRunning, codeReviewRunning, triageRunning };
     }
     const status = this.deps.indexStatus(entry.path);
     switch (status.phase) {
@@ -114,15 +120,16 @@ export class KgProjectService {
           bootstrapRunning,
           reviewRunning,
           codeReviewRunning,
+          triageRunning,
         };
       case "degraded":
         // nodeCount 同步补齐（T3.2 契约 §1：准入判定覆盖 synced ∧ degraded；
         // 缺省 = 未知 = 前端视为非空不显示入口——降级行不给计数会永不可发起）
-        return { name: entry.name, path: entry.path, status: "degraded", degradedNote: KG_DEGRADED_NOTE, nodeCount: this.deps.countActiveNodes(entry.path), bootstrapRunning, reviewRunning, codeReviewRunning };
+        return { name: entry.name, path: entry.path, status: "degraded", degradedNote: KG_DEGRADED_NOTE, nodeCount: this.deps.countActiveNodes(entry.path), bootstrapRunning, reviewRunning, codeReviewRunning, triageRunning };
       case "building":
-        return { name: entry.name, path: entry.path, status: "building", bootstrapRunning, reviewRunning, codeReviewRunning };
+        return { name: entry.name, path: entry.path, status: "building", bootstrapRunning, reviewRunning, codeReviewRunning, triageRunning };
       case "absent":
-        return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning, reviewRunning, codeReviewRunning };
+        return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning, reviewRunning, codeReviewRunning, triageRunning };
     }
   }
 }

@@ -208,3 +208,9 @@ export interface KgTriageCreateResultEvent extends EventFrame<KgTriageCreateResu
   channel?: "kg";
   type: "kg.triage.create.result";
 }
+
+/** kg.auto.audit.result：自动裁决审计面（P2；stats 聚合 + 抽查条目；只读）。 */
+export interface KgAutoAuditResultEvent extends EventFrame<import("../types/kg").KgAutoAuditDto> {
+  channel?: "kg";
+  type: "kg.auto.audit.result";
+}

@@ -251,4 +251,44 @@ describe("kg.candidates.list I 层（真 service 栈 + tmp 库 + ws 路由）", 
       await client.close();
     }
   }, 15000);
+
+  // ── P2：triageHint 帧级透传钉死（TR-159）+ kg.auto.audit 全链路 ──
+
+  test("P2：triageHint 帧级断言（显式透传漏拷即红）+ kg.auto.audit auto: 前缀聚合 + limit 校验", async () => {
+    const rig = await openRig();
+    await seedAlpha(rig);
+    // 造 auto 审计行：候选 → discarded（auto: 前缀 reason——kg-triage 自动裁决同源口径）
+    expectOk(
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "审计候选", body: "正文" }),
+    );
+    expectOk(
+      rig.write.write(rig.alpha, { kind: "decideCandidate", iterationId: ITER, candidateId: "CAND-1", decision: "discarded", reason: "auto: 重复沉淀（机械查重命中同名节点）" }),
+    );
+
+    // ① triageHint 帧级断言：alpha 种子（1 dead_anchor）+ 无 pending/deferred 候选
+    //  → pendingTotal=1、阈值下不提示（可选字段透传漏拷 → undefined → 此处红）
+    const health = await rig.client.kg("kg.health", { project: "alpha" });
+    expect(health.ok).toBe(true);
+    expect(health.result.triageHint).toEqual({ pendingTotal: 1, suggested: false });
+
+    // ② kg.auto.audit：stats 全量聚合 + 最新在前 + auto: 前缀行限定
+    const audit = await rig.client.kg("kg.auto.audit", { project: "alpha", limit: 10 });
+    expect(audit.ok).toBe(true);
+    const auditDto = audit.result as { stats: { total: number; byOp: { op: string; count: number }[] }; entries: { reason: string }[] };
+    expect(auditDto.stats.total).toBe(1);
+    expect(auditDto.stats.byOp).toEqual([{ op: "decideCandidate", count: 1 }]);
+    expect(auditDto.entries).toHaveLength(1);
+    expect(auditDto.entries[0]!.reason.startsWith("auto: ")).toBe(true);
+    expect(auditDto.entries[0]!.reason).toContain("重复沉淀");
+
+    // ③ limit 非法（负数）→ KG_E_PARAM；缺省回 50（0 视为合法缺省语义）
+    const bad = await rig.client.kg("kg.auto.audit", { project: "alpha", limit: -1 });
+    expect(bad.ok).toBe(false);
+    expect(bad.error!.code).toBe("KG_E_PARAM");
+
+    // ④ project 无法解析 → KG_E_PARAM
+    const noProject = await rig.client.kg("kg.auto.audit", { project: "no-such" });
+    expect(noProject.ok).toBe(false);
+    expect(noProject.error!.code).toBe("KG_E_PARAM");
+  }, 15000);
 });

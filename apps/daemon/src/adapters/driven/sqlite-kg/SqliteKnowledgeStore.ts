@@ -372,6 +372,10 @@ export class SqliteKnowledgeStore {
     } else {
       id = formatCandidateId(this.allocateSeq(db, "candidate"));
     }
+    // P2 产生端机械查重（降噪）：同名节点 / 同标题同目标待审候选命中 → 信息附
+    // body（不 skip——证据链保留，合并裁决归 kg-triage）。精确等值匹配零模糊
+    // 面；候选序号随行发号不受影响。
+    const body = appendDedupNotes(db, op.title, op.targetNode, op.body ?? "");
     db.prepare(
       "INSERT INTO candidates (id, kind, title, body, status, source_task_id, source_iteration_id, target_node, created_at) " +
         "VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
@@ -379,7 +383,7 @@ export class SqliteKnowledgeStore {
       id,
       op.candidateKind,
       op.title,
-      op.body ?? "",
+      body,
       op.sourceTaskId ?? null,
       op.sourceIterationId ?? null,
       op.targetNode ?? null,
@@ -512,7 +516,7 @@ export class SqliteKnowledgeStore {
           "anchorRelocate",
           rw.nodeId,
           null,
-          `机械重定位 ${rw.rule}：${rw.oldPattern} → ${rw.newPattern}（${rw.evidence}）`,
+          `auto: 机械重定位 ${rw.rule}：${rw.oldPattern} → ${rw.newPattern}（${rw.evidence}）`,
         );
       }
       const pruneAnchorRow = db.prepare(
@@ -524,7 +528,7 @@ export class SqliteKnowledgeStore {
         pruneVictims.add(anchor.nodeId);
       }
       for (const victim of pruneVictims) {
-        this.appendChangeLog(db, null, "prune", victim, null, "机械重定位：tombstone 物理清理（无声明旧键/重写旧行）");
+        this.appendChangeLog(db, null, "prune", victim, null, "auto: 机械重定位：tombstone 物理清理（无声明旧键/重写旧行）");
       }
       const upsertFile = db.prepare(
         "INSERT INTO files (path, mtime, sha256) VALUES (?, ?, ?) " +
@@ -744,4 +748,35 @@ function rebaseBatchPath(path: string | undefined, index: number): string {
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+// ── P2 产生端机械查重（纯函数面；SqliteKnowledgeStore 内部用） ──────────
+
+/** 查重命中行上限（防注膨胀：同名节点/候选多处命中只列前 N 个 id）。 */
+const DEDUP_NOTE_LIMIT = 3;
+
+/**
+ * 机械查重附注（P2 降噪）：同名节点（nodes.name 精确等值）+ 同标题或同
+ * 目标待审候选（status ∈ pending/deferred；终态不构成重复）命中 → 信息
+ * 追加 body 尾部（不 skip——证据链保留，合并裁决归 kg-triage）。
+ * 零命中 → body 原样返回（精确等值，无模糊面）。
+ */
+function appendDedupNotes(db: Database, title: string, targetNode: string | undefined, body: string): string {
+  const notes: string[] = [];
+  const sameName = db
+    .prepare("SELECT id, name, status FROM nodes WHERE name = ? ORDER BY id LIMIT ?")
+    .all(title, DEDUP_NOTE_LIMIT) as { id: string; name: string; status: string }[];
+  if (sameName.length > 0) {
+    notes.push(`同名节点已存在：${sameName.map((n) => `${n.id}（${n.name}，${n.status}）`).join("、")}——疑似重复沉淀，裁决时请对照合并`);
+  }
+  const pendingSiblings = db
+    .prepare(
+      "SELECT id FROM candidates WHERE status IN ('pending','deferred') AND (title = ? OR (target_node IS NOT NULL AND target_node = ?)) ORDER BY rowid LIMIT ?",
+    )
+    .all(title, targetNode ?? "", DEDUP_NOTE_LIMIT) as { id: string }[];
+  if (pendingSiblings.length > 0) {
+    notes.push(`待审候选已存在：${pendingSiblings.map((c) => c.id).join("、")}——同标题/同目标，疑似重复上报，可合并裁决`);
+  }
+  if (notes.length === 0) return body;
+  return `${body}\n\n机械查重：${notes.join("；")}`;
 }

@@ -26,6 +26,7 @@ import type {
   KgCandidatesListResultEvent,
   KgChangeReportDto,
   KgChangeReportResultEvent,
+  KgAutoAuditResultEvent,
   KgGraphPurgeResultEvent,
   KgHealthResultEvent,
   KgIndexDeleteResultEvent,
@@ -430,6 +431,42 @@ export function handleKgHealth(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
+// ── kg.auto.audit 批一命令（P2 自动裁决审计面：auto: 前缀聚合 + 抽查条目；只读） ──
+
+/** kg.auto.audit（change_log auto: 前缀行聚合：L0 机械重定位 + kg-triage 自动裁决的统一事后抽查入口）。 */
+export function handleKgAutoAudit(ctx: KgCommandContext): void {
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const limit = ctx.payload.limit;
+  if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0)) {
+    ctx.commandError(ctx.type, "KG_E_PARAM", "payload.limit 应为非负整数");
+    return;
+  }
+  const result = ctx.kg.autoAudit(project, typeof limit === "number" ? limit : undefined);
+  if (!result.ok) return serviceError(ctx, result.error);
+  const frame: KgAutoAuditResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.auto.audit.result",
+    payload: {
+      stats: {
+        total: result.value.stats.total,
+        byOp: result.value.stats.byOp.map((r) => ({ op: r.op, count: r.count })),
+      },
+      entries: result.value.entries.map((e) => ({
+        op: e.op,
+        nodeId: e.nodeId,
+        reason: e.reason,
+        taskId: e.taskId,
+        ts: e.ts,
+      })),
+    },
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
 // ── kg 评审批一命令（W2-F 轨二语义体检任务；契约 PROTOCOL-CHANGELOG.md §23） ──
 
 /** kg.review.create（准入从简 = 索引存在即可、允许反复发起 → createTask 同源，createdBy="page"）。 */
@@ -618,6 +655,8 @@ export function projectRowToDto(row: KgProjectRowView): KgProjectRow {
     ...(row.reviewRunning ? { reviewRunning: true } : {}),
     // code-review v1.5 体检区代码评审入口运行态同规
     ...(row.codeReviewRunning ? { codeReviewRunning: true } : {}),
+    // P2 kg-triage 待办面裁决入口运行态同规
+    ...(row.triageRunning ? { triageRunning: true } : {}),
   };
 }
 
@@ -704,6 +743,10 @@ function healthViewToDto(view: KgHealthView): KgHealthResultEvent["payload"] {
       applied: view.candidates.applied,
       discarded: view.candidates.discarded,
     },
+    // TR-159：可选字段显式透传（漏拷即静默剥离——帧级断言钉死于 kg-handlers-health.test）
+    ...(view.triageHint !== undefined
+      ? { triageHint: { pendingTotal: view.triageHint.pendingTotal, suggested: view.triageHint.suggested } }
+      : {}),
   };
 }
 

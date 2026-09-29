@@ -39,6 +39,8 @@ export interface KgProjectRow {
   reviewRunning?: boolean;
   /** 该项目存在非终态 code-review job（code-review v1.5 体检区代码评审入口运行态数据源，reviewRunning 同规）；缺省 = 无进行中任务（旧 daemon 兼容）。 */
   codeReviewRunning?: boolean;
+  /** 该项目存在非终态 kg-triage job（P2 待办面裁决入口运行态数据源，reviewRunning 同规）；缺省 = 无进行中任务（旧 daemon 兼容）。 */
+  triageRunning?: boolean;
 }
 
 /** 节点类别徽章（rule=cyan / entity=violet，前端色映射）。 */
@@ -196,6 +198,45 @@ export interface KgHealthDto {
   /** 索引状态（kg.index.status 数据复用）。 */
   index: KgIndexStatusDto;
   candidates: KgHealthCandidatesDto;
+  /**
+   * kg-triage 积压提示（P2：待办面三计数超阈值 → 面板建议发起裁决；只
+   * 提示不自动开任务）。absent/building 空态不携带。
+   */
+  triageHint?: KgTriageHintDto;
+}
+
+/** kg-triage 积压提示（口径 = 候选 pending+deferred + dead_anchor 残量；阈值 10 = 单批 20 的半批）。 */
+export interface KgTriageHintDto {
+  /** 待办面三计数合计。 */
+  pendingTotal: number;
+  /** ≥ 阈值时建议发起 kg-triage（面板提示行数据源）。 */
+  suggested: boolean;
+}
+
+// ── kg.auto.audit 批新增（P2 自动裁决审计面：auto: 前缀聚合 + 抽查条目） ──
+
+/** 自动裁决审计行（change_log auto: 前缀行协议投影；最新在前）。 */
+export interface KgAutoAuditEntryDto {
+  /** 写 op 种类（anchorRelocate / prune / decideCandidate …）。 */
+  op: string;
+  /** 关联节点/候选 id。 */
+  nodeId: string;
+  /** 审计叙述（auto: 前缀开头）。 */
+  reason: string;
+  /** 任务溯源（非任务上下文 = null）。 */
+  taskId: string | null;
+  /** ISO 时间戳。 */
+  ts: string;
+}
+
+/** kg.auto.audit 响应：stats 全量聚合（limit 不影响 total）+ 抽查条目。 */
+export interface KgAutoAuditDto {
+  stats: {
+    total: number;
+    byOp: { op: string; count: number }[];
+  };
+  /** 最新在前；limit 缺省 50。 */
+  entries: KgAutoAuditEntryDto[];
 }
 
 // ── kg.candidates.list 批新增（台账读面三件套之三：WS 命令——P-1 台账面板数据面） ──

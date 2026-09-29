@@ -2,6 +2,7 @@ import type {
   AnchorDeclRow,
   AnchorReverseHit,
   AttachmentSnapshot,
+  AutoAuditEntry,
   CandidateListQuery,
   CandidateRow,
   CandidateStatusCounts,
@@ -120,6 +121,14 @@ export interface KnowledgeGraphPort {
    * hasIndex 判定，读面绝不新建库文件）。
    */
   countCandidatesByStatus(projectRoot: string): CandidateStatusCounts;
+
+  /**
+   * 自动裁决审计读面（P2 kg.auto.audit 数据源）：change_log 中 reason 带
+   * `auto: ` 前缀的行，最新在前（rowid 序）；全量返回（机器裁决日志量级
+   * 有界，limit 切片归调用方）。只在 .kg 已存在的项目上调用（读面绝不
+   * 新建库文件）。
+   */
+  listAutoAdjudications(projectRoot: string): readonly AutoAuditEntry[];
 
   /**
    * candidates 台账列表读面（台账读面三件套：agent kg candidates op /

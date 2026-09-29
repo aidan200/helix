@@ -137,6 +137,9 @@ class CountingGraph implements KnowledgeGraphPort {
   countCandidatesByStatus(): CandidateStatusCounts {
     return { pending: 0, deferred: 0, applied: 0, discarded: 0 };
   }
+  listAutoAdjudications(): readonly import("../../src/domain/kg/types").AutoAuditEntry[] {
+    return [];
+  }
 
   listCandidates(): readonly CandidateRow[] {
     return [];

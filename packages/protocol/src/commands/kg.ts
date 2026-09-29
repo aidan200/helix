@@ -219,6 +219,22 @@ export interface KgTriageCreateCommand extends CommandFrame<KgTriageCreatePayloa
   type: "kg.triage.create";
 }
 
+// ── kg.auto.audit（P2 自动裁决审计面：auto: 前缀聚合 + 抽查条目）──
+
+export interface KgAutoAuditPayload {
+  /** 项目名或绝对路径（daemon 单点解析）。 */
+  project: string;
+  /** 抽查条目上限（缺省 50；<=0 回缺省；不影响 stats total）。 */
+  limit?: number;
+}
+/**
+ * 自动裁决审计读面（change_log auto: 前缀行聚合）：L0 机械重定位 +
+ * kg-triage 自动裁决的统一事后抽查入口（面板低频抽评准确率用）；只读。
+ */
+export interface KgAutoAuditCommand extends CommandFrame<KgAutoAuditPayload> {
+  type: "kg.auto.audit";
+}
+
 // ── code.review.create（code-review v1.5：P-1 体检区双入口之代码评审发起）──
 
 export interface CodeReviewCreatePayload {

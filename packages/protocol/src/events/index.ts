@@ -124,6 +124,7 @@ import type {
   KgCandidatesListResultEvent,
   CodeReviewCreateResultEvent,
   KgTriageCreateResultEvent,
+  KgAutoAuditResultEvent,
 } from "./kg";
 import type {
   WorkspaceChangedEvent,
@@ -300,6 +301,7 @@ export type EventEnvelope =
   | KgReviewCreateResultEvent
   | CodeReviewCreateResultEvent
   | KgTriageCreateResultEvent
+  | KgAutoAuditResultEvent
   | KgCandidatesListResultEvent
   | WorkspaceGetResultEvent
   | WorkspaceOpenResultEvent
@@ -447,6 +449,7 @@ export const EVENT_TYPES = [
   "code.review.create.result",
   "kg.candidates.list.result",
   "kg.triage.create.result",
+  "kg.auto.audit.result",
   "workspace.get.result",
   "workspace.open.result",
   "workspace_changed",
@@ -620,6 +623,7 @@ export const EVENT_CHANNELS = {
   "code.review.create.result": "kg",
   "kg.candidates.list.result": "kg",
   "kg.triage.create.result": "kg",
+  "kg.auto.audit.result": "kg",
   "workspace.get.result": "workspace",
   "workspace.open.result": "workspace",
   "workspace_changed": "workspace",

@@ -420,6 +420,7 @@ describe("KgSyncService 集成管道（tmp 真库）", () => {
       const logs = db.query("SELECT op, node_id, reason FROM change_log WHERE op IN ('anchorRelocate','prune') ORDER BY seq").all() as Record<string, string>[];
       expect(logs.length).toBe(2); // 重写审计 + prune 审计（同一节点）
       expect(logs[0]!.op).toBe("anchorRelocate");
+      expect(logs[0]!.reason).toContain("auto: "); // P2：机器裁决溯源前缀（kg.auto.audit 聚合面）
       expect(logs[0]!.reason).toContain("src/app.ts#Handler → src/app.ts#HandlerV2");
     } finally {
       db.close();

@@ -100,6 +100,8 @@ export function buildKnowledgeStack(deps: {
   /** 该项目存在非终态 code-review job 判定（kg.projects 行 codeReviewRunning
    *  数据源，code-review v1.5；同规缺省恒 false）。 */
   hasRunningCodeReviewJob?: (projectName: string) => boolean;
+  /** 非终态 kg-triage job 探测（P2；hasRunningReviewJob 同规）。 */
+  hasRunningTriageJob?: (projectName: string) => boolean;
 }): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
@@ -149,6 +151,7 @@ export function buildKnowledgeStack(deps: {
     ...(deps.hasRunningBootstrapJob !== undefined ? { hasRunningBootstrapJob: deps.hasRunningBootstrapJob } : {}),
     ...(deps.hasRunningReviewJob !== undefined ? { hasRunningReviewJob: deps.hasRunningReviewJob } : {}),
     ...(deps.hasRunningCodeReviewJob !== undefined ? { hasRunningCodeReviewJob: deps.hasRunningCodeReviewJob } : {}),
+    ...(deps.hasRunningTriageJob !== undefined ? { hasRunningTriageJob: deps.hasRunningTriageJob } : {}),
   });
   const viewerService = new KgViewerService({
     project: projectService,

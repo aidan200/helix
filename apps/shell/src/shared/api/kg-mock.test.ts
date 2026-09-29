@@ -67,6 +67,16 @@ describe("KgMockStore 维护批应答（M39）", () => {
     expect(typeof (frame.payload as { jobId: unknown }).jobId).toBe("string");
   });
 
+  it("P1/P2：kg.triage.create 回 ok + jobId；kg.auto.audit 空态镜像", () => {
+    const store = new KgMockStore();
+    const triage = store.reply("kg.triage.create", { project: "helix" });
+    expect(triage.type).toBe("kg.triage.create.result");
+    expect(triage.payload).toMatchObject({ ok: true });
+    const audit = store.reply("kg.auto.audit", { project: "helix" });
+    expect(audit.type).toBe("kg.auto.audit.result");
+    expect(audit.payload).toEqual({ stats: { total: 0, byOp: [] }, entries: [] });
+  });
+
   it("project 无法解析 → 参数错误帧（KG_E_PARAM）", () => {
     const store = new KgMockStore();
     for (const type of ["kg.health", "kg.candidates.list", "kg.review.create", "code.review.create"]) {

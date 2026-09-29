@@ -186,6 +186,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-review-create:${event.payload.jobId}`;
     case "kg.triage.create.result":
       return `kg-triage-create:${event.payload.jobId}`;
+    case "kg.auto.audit.result":
+      return `kg-auto-audit:${event.payload.stats.total}:${event.payload.entries.length}`;
     // ── workspace 批（W1 绑定闭环；两结果帧 + 一广播）──
     case "workspace.get.result":
       return `workspace-get:${event.payload.current?.root ?? "unbound"}:${event.payload.recents.length}:${event.payload.notice ?? "-"}`;
@@ -500,6 +502,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-health:${cmd.payload.project}`;
     case "kg.review.create":
       return `kg-review-create:${cmd.payload.project}`;
+    case "kg.auto.audit":
+      return `kg-auto-audit:${cmd.payload.project}:${cmd.payload.limit ?? 50}`;
     case "code.review.create":
       return `code-review-create:${cmd.payload.project}`;
     // ── workspace 批（W1 绑定闭环；门禁读面 + 显式绑定写面）──

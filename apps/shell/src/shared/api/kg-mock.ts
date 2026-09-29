@@ -318,6 +318,23 @@ export class KgMockStore {
         this.jobSeq += 1;
         return this.frame("code.review.create.result", { ok: true, jobId: `job-code-review-mock-${this.jobSeq}` });
       }
+      // ── kg-triage 发起 + 自动裁决审计批（P1/P2；镜像 daemon 准入/空态）──
+      case "kg.triage.create": {
+        const row = resolveProjectName(p.project, this.projects);
+        if (row === undefined) return this.paramError();
+        if (row.status === "absent")
+          return this.errorFrame("kg.triage.not_eligible", "index_absent：项目尚未构建索引（先完成一次机械构建）");
+        this.jobSeq += 1;
+        return this.frame("kg.triage.create.result", { ok: true, jobId: `job-triage-mock-${this.jobSeq}` });
+      }
+      case "kg.auto.audit": {
+        const row = resolveProjectName(p.project, this.projects);
+        if (row === undefined) return this.paramError();
+        return this.frame("kg.auto.audit.result", {
+          stats: { total: 0, byOp: [] },
+          entries: [],
+        });
+      }
       default:
         return this.errorFrame("command.invalid_payload", `未知命令 ${type}`);
     }
@@ -437,6 +454,7 @@ export class KgMockStore {
       orphanCount: 0,
       index: this.indexDto(row),
       candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+      triageHint: { pendingTotal: 0, suggested: false }, // P2 镜像：daemon 有库空态同形
     };
     return this.frame("kg.health.result", dto);
   }
@@ -513,6 +531,8 @@ export function isKgCommand(type: string): boolean {
     type === "kg.graph.purge" || type === "kg.index.delete" ||
     // 体检/台账/评审发起批四命令（M39；mock daemon 镜像同轨）
     type === "kg.health" || type === "kg.candidates.list" ||
-    type === "kg.review.create" || type === "code.review.create"
+    type === "kg.review.create" || type === "code.review.create" ||
+    // kg-triage 发起 + 自动裁决审计批（P1/P2；mock daemon 镜像同轨）
+    type === "kg.triage.create" || type === "kg.auto.audit"
   );
 }

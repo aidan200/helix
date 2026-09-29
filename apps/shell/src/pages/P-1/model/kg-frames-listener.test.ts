@@ -39,6 +39,8 @@ function setup(opts: { sel?: string | null; settleResult?: boolean; detailSendOk
     clearReadLoading: vi.fn(),
     markReviewLaunched: vi.fn(),
     markCodeReviewLaunched: vi.fn(),
+    markTriageLaunched: vi.fn(),
+    onAutoAuditResult: vi.fn(),
   };
   const listener = createKgFramesListener(deps);
   return { deps, listener, dispatched, toasts };
@@ -83,6 +85,20 @@ describe("createKgFramesListener（M9 #2.31）", () => {
     listener(frame("code.review.create.result", { ok: true, jobId: "j2" }));
     expect(deps.flight.settle).toHaveBeenCalledWith("codeReview");
     expect(deps.markCodeReviewLaunched).toHaveBeenCalledTimes(1);
+  });
+
+  it("P1/P2：kg.triage.create.result 归因 triage kind；kg.auto.audit.result 落审计回调", () => {
+    const { deps, listener } = setup({ settleResult: true });
+    listener(frame("kg.triage.create.result", { ok: true, jobId: "j3" }));
+    expect(deps.flight.settle).toHaveBeenCalledWith("triage");
+    expect(deps.markTriageLaunched).toHaveBeenCalledTimes(1);
+    const audit = { stats: { total: 3, byOp: [{ op: "anchorRelocate", count: 3 }] }, entries: [] };
+    listener(frame("kg.auto.audit.result", audit));
+    expect(deps.onAutoAuditResult).toHaveBeenCalledWith(audit);
+    // 非本视图发起（settle false）：triage 回执不消费 launched
+    const { deps: d2, listener: l2 } = setup({ settleResult: false });
+    l2(frame("kg.triage.create.result", { ok: true, jobId: "j4" }));
+    expect(d2.markTriageLaunched).not.toHaveBeenCalled();
   });
 
   it("kg.health.result / kg.candidates.list.result 落读面回调", () => {

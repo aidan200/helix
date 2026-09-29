@@ -12,7 +12,7 @@
  * 服务层人读文案直渲（AD-16 同规，前端零二次叙述）。纯展示组件：命令
  * 发送/回执消费/单飞锁归 KgViewer 常驻 listener，本组件只回调。
  */
-import type { KgHealthDto } from "@helix/protocol";
+import type { KgAutoAuditDto, KgHealthDto } from "@helix/protocol";
 import { fmtLocaleDateTime } from "@/shared/lib/format";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
@@ -99,10 +99,17 @@ export default function KgHealthPane({
   codeReviewBusy,
   codeReviewLaunched,
   codeReviewRunning,
+  triageBusy,
+  triageLaunched,
+  triageRunning,
+  audit,
+  auditLoading,
   projectName,
   t,
   onLaunchReview,
   onLaunchCodeReview,
+  onLaunchTriage,
+  onAuditRefresh,
   onOpenTasks,
 }: {
   /** kg.health 回执（null = 未拉取/读取中）。 */
@@ -125,10 +132,22 @@ export default function KgHealthPane({
   codeReviewLaunched: boolean;
   /** 该项目存在非终态 code-review job（kg.projects 行 codeReviewRunning）。 */
   codeReviewRunning: boolean;
+  /** kg.triage.create 在途（P1 发起钮；单飞锁在 KgViewer）。 */
+  triageBusy: boolean;
+  /** 发起成功标记（ok-strip + 前往任务页出口）。 */
+  triageLaunched: boolean;
+  /** 该项目存在非终态 kg-triage job（kg.projects 行 triageRunning，P2 链路）。 */
+  triageRunning: boolean;
+  /** kg.auto.audit 回执（P2 抽查面；null = 未拉取）。 */
+  audit: KgAutoAuditDto | null;
+  /** 审计拉取在途（按钮态）。 */
+  auditLoading: boolean;
   projectName: string;
   t: T;
   onLaunchReview: () => void;
   onLaunchCodeReview: () => void;
+  onLaunchTriage: () => void;
+  onAuditRefresh: () => void;
   onOpenTasks: () => void;
 }) {
   if (loading || health === null) {
@@ -225,7 +244,57 @@ export default function KgHealthPane({
             projectName={projectName}
             onOpenTasks={onOpenTasks}
           />
+          {/* P1 kg-triage 待办面裁决（第三任务块——hint 建议位的一键入口） */}
+          <TaskBlock
+            d="triage"
+            badge="kg-triage"
+            titleKey="pj.health.triageTitle"
+            launchKey="pj.health.triageLaunch"
+            runningStripKey="pj.health.triageRunningStrip"
+            launchedKey="pj.health.triageLaunched"
+            running={triageRunning}
+            busy={triageBusy}
+            launched={triageLaunched}
+            onLaunch={onLaunchTriage}
+            t={t}
+            projectName={projectName}
+            onOpenTasks={onOpenTasks}
+          />
         </div>
+
+        {/* P2 triage 积压提示行（待办面三计数 ≥ 阈值；只提示不自动开任务） */}
+        {health.triageHint !== undefined && health.triageHint.suggested && (
+          <div className="kg-health-row" data-kg-triage-hint>
+            <span className="kg-health-stat-k">{t("pj.health.triageHint")}</span>
+            <span className="kg-health-ledger-v">{t("pj.health.triageHintCount", { count: health.triageHint.pendingTotal })}</span>
+          </div>
+        )}
+
+        {/* P2 自动裁决审计段（低频抽查：拉取按钮 + stats + 最近条目） */}
+        <div className="kg-health-row" data-kg-auto-audit>
+          <span className="kg-health-stat-k">{t("pj.health.autoAuditTitle")}</span>
+          <span className="kg-health-ledger-v">
+            {audit === null ? t("pj.health.autoAuditIdle") : t("pj.health.autoAuditCount", { count: audit.stats.total })}
+          </span>
+          <button
+            type="button"
+            className="hud-btn kg-btn-primary kg-btn-sm"
+            data-auto-audit-refresh
+            disabled={auditLoading}
+            onClick={onAuditRefresh}
+          >
+            {t("pj.health.autoAuditRefresh")}
+          </button>
+        </div>
+        {audit !== null && audit.entries.length > 0 && (
+          <ul className="kg-health-list" data-kg-auto-audit-entries>
+            {audit.entries.slice(0, 5).map((e, i) => (
+              <li key={i} className="kg-health-item" data-op={e.op}>
+                {`${e.ts.slice(0, 19).replace("T", " ")} · ${e.op} · ${e.reason}`}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* ② 问题列表：conflicts / orphans 逐条（服务层人读 summary 直渲）；
