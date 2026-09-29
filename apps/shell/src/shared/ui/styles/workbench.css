@@ -311,10 +311,12 @@
 .pg > .lang-switch { margin-bottom: 14px; }
 
 /* 设置页卡内纵向节奏：卡内含字段块（.fld/.set-check 直接子级）的卡改
-   flex column + gap（通用/语音分区表单卡）——此前 .fld 无样式、.hud-card
-   是普通 block，卡内字段/保存钮/注释全部零间距粘连。:has 限定只命中表单
-   形态卡；列表形态卡（.mcp-row / [data-skill-entry] 直接子级）与 models
-   工具卡（.toolbar 包裹，无直接 .fld 子级）不命中，紧凑列表行节奏不受影响 */
+   flex column + gap（语音/MCP/技能/模型分区表单卡）——此前 .fld 无样式、
+   .hud-card 是普通 block，卡内字段/保存钮/注释全部零间距粘连。:has 限定
+   只命中表单形态卡；列表形态卡（.mcp-row / [data-skill-entry] 直接子级）
+   与 models 工具卡（.toolbar 包裹，无直接 .fld 子级）不命中，紧凑列表行
+   节奏不受影响。通用设置分区表单卡（[data-general-section]）在下方被
+   两列网格覆盖（flex/gap 声明被同特异性后位规则取代） */
 .pg .hud-card:has(> .fld, > .set-check) {
   display: flex; flex-direction: column; gap: 12px;
 }
@@ -354,27 +356,43 @@
 .set-check input { accent-color: var(--accent); }
 /* 从属配置项（管家配置并轨批：语音播报隶属「启用管家」——缩进一层，非平级） */
 .fld-sub { margin-left: 18px; }
-/* ── 管家分组横排行（水平空间回收批）：.fld 此前无样式两行纵叠——hud-label
-   block 独占一行 + 控件独占一行，勾选框行全卡宽只躺一个 16px 控件，启用于
-   项多时卡变成十行+纵塔。改两列网格：label 定位列（行间对齐）+ 控件列自适应
-   （输入/下拉上限 380px 不吃满卡宽），注释/行内错误回流控件列第二行；
-   无 label 行（端点下拉/引导钮）直接落控件列。 fld-sub 缩进与卡内 12px
-   纵向 gap（:has 表单卡规则）语义不变 ── */
-[data-steward-card] .fld {
+/* ── 通用设置表单卡统一横排（水平空间回收批·推广）：管家分组先例的
+   .fld 两行纵叠→两列网格，推广到通用设置全部表单卡（语言/压缩/调度/
+   端口/沙箱/会话/关于）。卡级网格 + .fld subgrid——label 定位列跨全卡
+   行间对齐（.fld 各自成网格时 label 列宽随本行文字长度漂移、控件列左
+   缘参差）；卡级直子（保存钮/状态注释/错误）落控件列与控件左缘对齐。
+   输入/下拉上限 380px 不吃满卡宽、数字输入 160px、textarea（路径编辑）
+   不设限吃满控件列；无 label 行（端点下拉/引导钮）直接落控件列。
+   fld-sub 缩进与卡内 12px 纵向节奏（:has 表单卡规则）语义不变。
+   语音分区（.set-inline 滑杆行）与本规则不同构，不在推广面 ── */
+[data-general-section] .hud-card:has(> .fld) {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: 14px; row-gap: 4px;
-  align-items: center;
+  column-gap: 14px; row-gap: 12px;
 }
-[data-steward-card] .fld > * { grid-column: 2; }
-[data-steward-card] .fld > .hud-label { grid-column: 1; margin-bottom: 0; }
-[data-steward-card] .fld > .hud-input { max-width: 380px; }
-[data-steward-card] .fld > .sel-wrap { max-width: 380px; }
+[data-general-section] .hud-card:has(> .fld) > .fld {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: subgrid;
+  row-gap: 4px; align-items: center;
+}
+[data-general-section] .fld > * { grid-column: 2; }
+[data-general-section] .fld > .hud-label { grid-column: 1; margin-bottom: 0; }
+[data-general-section] .fld > .hud-input,
+[data-general-section] .fld > .sel-wrap { max-width: 380px; }
+[data-general-section] .fld > .hud-input[type="number"] { max-width: 160px; }
+[data-general-section] .fld > textarea.hud-input { max-width: none; }
 /* grid item blockify 后默认 stretch：透明容器（.set-check）无妨，但真按钮
    （.hud-btn 去配置引导钮）会被拉成整列宽巨钮——收缩到内容宽 */
-[data-steward-card] .fld > .set-check,
-[data-steward-card] .fld > .hud-btn { justify-self: start; }
-[data-steward-card] .fld > .ag-note { margin-top: 0; }
+[data-general-section] .fld > .set-check,
+[data-general-section] .fld > .hud-btn { justify-self: start; }
+[data-general-section] .fld > .ag-note { margin-top: 0; }
+/* 卡级直子（保存钮/状态注释/错误行）落控件列：与 .fld 控件左缘对齐，
+   不再贴卡片左缘（纵叠时代遗留） */
+[data-general-section] .hud-card:has(> .fld) > .hud-btn,
+[data-general-section] .hud-card:has(> .fld) > .ag-note,
+[data-general-section] .hud-card:has(> .fld) > .mcp-err {
+  grid-column: 2; justify-self: start;
+}
 .mcp-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .mcp-row:last-child { border-bottom: none; }
 .mcp-row-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
