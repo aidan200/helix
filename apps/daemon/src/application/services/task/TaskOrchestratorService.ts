@@ -205,10 +205,10 @@ interface LoopState {
 
 const RESUME_NOTICE = "【恢复通知】任务已恢复（running）——按现场摘要与任务 skill SOP 续跑。";
 
-/** 推进检查重驱文案（收场后无在跑实例 + 未完批次：提示 LLM 推进或收口）。 */
+/** 推进检查重驱文案（收场后无在跑实例 + 未完批次/阶段：提示 LLM 推进或收口——涵盖装配期零批次死局）。 */
 const PROGRESS_CHECK_NOTICE = [
   "【推进检查】驱动收场后系统检测：无在跑实例但任务存在未完批次/阶段。",
-  "请按任务 skill SOP 与批次行现场继续推进：派发 pending 批次（spawn 后立即 task_dispatch_batch 接线）、聚合已收口阶段产物、或申报任务完成/失败。",
+  "请按任务 skill SOP 与批次行现场继续推进：尚未划批的先划分批次并 task_insert_batch 落行；已划批的派发 pending 批次（spawn 后立即 task_dispatch_batch 接线）；聚合已收口阶段产物；或申报任务完成/失败。",
   "若无实质推进动作，系统将把任务失败收口（failJob）。",
 ].join("\n");
 
@@ -414,7 +414,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
             this.warn(`编排会话重试驱动成功（任务 ${loop.jobId}）`);
           } catch (err2) {
             this.warn(
-              `编排会话重试仍失败（任务 ${loop.jobId}）：${(err2 as Error).message}——放弃本轮，等待下一外部事件唤醒（job 若无批次将滞留 pending，可 cancel 重发）`,
+              `编排会话重试仍失败（任务 ${loop.jobId}）：${(err2 as Error).message}——放弃本轮；推进检查将在延迟窗后兜底（重驱一次，仍无进展则 failJob 收口，不再滞留 pending）`,
             );
           }
         }
@@ -710,6 +710,11 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
    * 推进，job 永久 running。有界 = progressRedriven 单次位（网络持续断时
    * 重驱轮同样收场 → 再静置一窗 → failJob 快速失败，不无限循环；批次收口
    * 时复位——界针对单次静置死局非任务全生命周期）。
+   *
+   * 覆盖面含装配期（pending 任务零批次死局，前端「装配中」永久卡）：
+   * kickoff 持续失败/收场零动作时零批次 = 零 closure 事件 = 零外部唤醒源，
+   * 滞留 pending 无人接管——pending 同入推进检查（收口经 failJob 桥接
+   * pending→running→failed 两段落定，观察者只见终值）。
    */
   private async checkProgressAfterDrive(loop: LoopState): Promise<void> {
     if (loop.stopped || loop.parked || loop.drain || loop.running) return;
@@ -720,7 +725,10 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     if (loop.stopped || loop.parked || loop.drain || loop.running) return; // 对账后重验（wake 可能已开新轮）
     if (loop.stashedWakes.length > 0) return;
     const job = this.deps.store.getJob(loop.jobId);
-    if (job === undefined || job.status !== "running") return;
+    // 装配期覆盖（pending 同入）：pending 任务 stages 全 pending → 未完面恒真，
+    // 死局判定走同一重驱/收口链（failJob 引擎面桥接 pending）；paused 不自动
+    // 推进（resume 归显式命令）、终态无未完面可接管。
+    if (job === undefined || (job.status !== "running" && job.status !== "pending")) return;
     const stages = this.deps.store.getStages(loop.jobId);
     const batches = this.allBatches(loop.jobId);
     const unfinished =
@@ -738,12 +746,14 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       this.wake(loop, PROGRESS_CHECK_NOTICE);
       return;
     }
-    // 已重驱过仍此态：failJob 收口（引擎仅 running 可收口；停摆复用 haltJob
-    // 语义——无在跑实例无可摘，幂等安全）
+    // 已重驱过仍此态：failJob 收口（引擎面 pending 桥接/running 两态可收；
+    // 停摆复用 haltJob 语义——无在跑实例无可摘，幂等安全）
     try {
       await this.deps.taskEngine.failJob(
         loop.jobId,
-        "编排会话收场且无在跑实例，任务无法推进（推进检查重驱一次后仍未推进）——failJob 收口",
+        job.status === "pending"
+          ? "装配期死局：编排会话持续无法驱动/零推进（零批次零实例，推进检查重驱一次后仍无进展）——failJob 收口"
+          : "编排会话收场且无在跑实例，任务无法推进（推进检查重驱一次后仍未推进）——failJob 收口",
       );
       this.warn(`推进检查（任务 ${loop.jobId}）：重驱后仍无法推进——任务已失败收口`);
       this.haltJob(loop.jobId);

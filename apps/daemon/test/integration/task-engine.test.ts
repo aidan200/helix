@@ -765,6 +765,26 @@ describe("job 收口回口（completeJob 机械复核）", () => {
       expect(env.store.getJob(other.jobId)).toMatchObject({ status: "failed", error: "编排申报不可恢复失败" });
     });
   });
+
+  test("pending job failJob → 桥接两段落定 failed（装配期死局收口：pending→running→failed 同步链，观察者见终值）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/d" },
+        createdBy: "page",
+      });
+      await env.engine.failJob(jobId, "装配期死局：编排会话持续无法驱动");
+      expect(env.store.getJob(jobId)).toMatchObject({
+        status: "failed",
+        error: "装配期死局：编排会话持续无法驱动",
+      });
+      // stage 行不迁（failJob 仅迁 job 行——pending stage 有合法出边，人工 retry 后编排接管自然推进）
+      expect(env.store.getStages(jobId).every((s) => s.status === "pending")).toBe(true);
+      // 终态后拒绝重入（幂等保护：仅 pending/running 可收口）
+      await expect(env.engine.failJob(jobId, "再次失败")).rejects.toMatchObject({ code: "task.invalid_state" });
+    });
+  });
 });
 
 describe("接管激活对称与阶段顺序守卫（B 批：激活放宽 + O-2 文案 + 防跳段）", () => {

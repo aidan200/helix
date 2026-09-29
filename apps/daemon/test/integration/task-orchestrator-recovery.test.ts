@@ -52,22 +52,81 @@ describe("T2.2 drive 首轮异常 → 单次重试恢复（可观测 + 重试唤
     });
   }, 20000);
 
-  test("drive 连续抛错（重试仍败）→ 放弃本轮不无限循环；日志含放弃宣告", async () => {
-    await withOrchestratorEnv({ script: [{ kind: "reply", text: "无动作。" }], failFirstDrives: 99 }, async (env) => {
+  test("drive 连续抛错（重试仍败）→ 放弃本轮；推进检查重驱仍败 → failJob 收口（不再永久滞留 pending）", async () => {
+    await withOrchestratorEnv(
+      { script: [{ kind: "reply", text: "无动作。" }], failFirstDrives: 99, progressCheckDelayMs: 50 },
+      async (env) => {
+        const { jobId } = await env.engine.createTask({
+          type: "fake-task",
+          projects: ["demo"],
+          params: { projectRoot: "/tmp/demo" },
+          createdBy: "page",
+        });
+        await env.until(() => env.orchestratorLog.some((l) => l.includes("重试仍失败") || l.includes("放弃本轮")), 20000);
+        // 装配期死局兑底：推进检查延迟窗重驱一轮仍败 → failJob 收口 failed
+        //（旧行为契约「滞留 pending 等 cancel」已翻转——零批次 = 零 closure 事件 =
+        // 零唤醒源，滞留即永久卡「装配中」）
+        await env.until(() => env.store.getJob(jobId)?.status === "failed", 20000);
+        // 每轮恰一次重试（不无限）：kickoff 轮 + 推进检查重驱轮各 2 次 drive
+        expect(env.sessionLog.filter((e) => e.kind === "drive")).toHaveLength(4);
+        const job = env.store.getJob(jobId)!;
+        expect(job.error).toContain("装配期死局");
+        expect(env.store.getBatches(jobId, 1)).toHaveLength(0); // 全程未装配
+      },
+    );
+  }, 45000);
+
+  test("drive 正常收场但编排零动作（k3 形态：剧本只 reply）→ 推进检查重驱仍零动作 → failJob 收口", async () => {
+    await withOrchestratorEnv(
+      { script: [{ kind: "reply", text: "无法装配。" }], progressCheckDelayMs: 50 },
+      async (env) => {
+        const { jobId } = await env.engine.createTask({
+          type: "fake-task",
+          projects: ["demo"],
+          params: { projectRoot: "/tmp/demo" },
+          createdBy: "page",
+        });
+        await env.until(() => env.store.getJob(jobId)?.status === "failed", 10000);
+        // 重驱恰一次（kickoff + 重驱两轮后零动作收口）
+        expect(env.sessionLog.filter((e) => e.kind === "drive" && e.text.includes("推进检查"))).toHaveLength(1);
+        expect(env.store.getJob(jobId)!.error).toContain("装配期死局");
+        expect(env.store.getBatches(jobId, 1)).toHaveLength(0);
+      },
+    );
+  });
+
+  test("装配期短暂故障自愈：kickoff 两连败放弃后推进检查重驱 → 剧本照常装配 → 任务完成（重驱是给机会非直接杀）", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script, failFirstDrives: 2, progressCheckDelayMs: 50 }, async (env) => {
       const { jobId } = await env.engine.createTask({
         type: "fake-task",
         projects: ["demo"],
         params: { projectRoot: "/tmp/demo" },
         createdBy: "page",
       });
-      await env.until(() => env.orchestratorLog.some((l) => l.includes("重试仍失败") || l.includes("放弃本轮")), 20000);
-      // 恰一次重试（不无限）：失败 drive 总数 = 2（首轮 + 单次重试）
-      expect(env.sessionLog.filter((e) => e.kind === "drive")).toHaveLength(2);
-      // job 滞留 pending 无批次（行为契约：等下一外部事件唤醒，不误 failJob）
-      expect(env.store.getJob(jobId)?.status).toBe("pending");
-      expect(env.store.getBatches(jobId, 1)).toHaveLength(0);
+      // kickoff 首轮+重试两连败（注入恰好耗尽）→ 放弃本轮（此时仍 pending 零批次）
+      await env.until(() => env.orchestratorLog.some((l) => l.includes("重试仍失败")), 15000);
+      // 推进检查延迟窗后重驱 → drive 恢复 → 剧本照常装配（非误杀）
+      await env.until(() => env.store.getBatches(jobId, 1).length === 1 && env.store.getBatches(jobId, 1).every((b) => b.status === "running"), 10000);
+      await settleInstance(env, env.recorder.call(1).agentId, { closure: "done", plan: "resolved" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      // 静默锚（重试失败形态）：失败轮记「驱动开始」不计「驱动完成」（重试经 catch 不记开始）
+      // ——完成数 = 开始数 - 1（恰 kickoff 失败轮）时全部回合落定，dispose 关库不撞异步回合
+      await env.until(
+        () =>
+          env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+          env.orchestratorLog.filter((l) => l.includes("驱动开始")).length - 1,
+      );
     });
-  }, 25000);
+  }, 30000);
 });
 
 // ── B1/B2/B3 事故链修复：fail-stop 停摆 + spawn 闸 + 游离收口可观测 + resume 补派 ──

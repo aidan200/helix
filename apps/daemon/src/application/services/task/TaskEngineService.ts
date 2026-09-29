@@ -633,8 +633,15 @@ export class TaskEngineService implements TaskEnginePort {
 
   async failJob(jobId: string, error: string): Promise<void> {
     const job = this.mustJob(jobId);
-    if (job.status !== "running") {
-      throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 running 可收口 failed`);
+    // 装配期死局桥接（pending→running→failed 两段落定）：推进检查覆盖装配期
+    // 后，kickoff 持续无法驱动的 pending 任务（零批次 = 零 closure 事件 = 零
+    // 唤醒源）由本口收口 failed——不再滞留 pending（前端「装配中」永久卡）。
+    // domain pending 出边仅 running/cancelled，与 dispatchBatch 迟到接线守卫
+    // 同构桥接：同一同步链两段落定，观察者只见终值（非 pending→failed 第二出边）。
+    if (job.status === "pending") {
+      await this.transitionJob(jobId, "running");
+    } else if (job.status !== "running") {
+      throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 pending/running 可收口 failed`);
     }
     await this.transitionJob(jobId, "failed", error);
     this.notify({ jobId, changed: "job", status: "failed" });
