@@ -1,6 +1,11 @@
 /**
  * BroadcastService —— V2 TTS 播报管道 application service（设计 §5.3
- * 播报管道①②③层：规则粗筛 + 模板直出（回退面）+ LLM 白话摘要）。
+ * 播报管道①②③层：规则粗筛 + 极简终态通知（回退面）+ LLM 白话摘要）。
+ *
+ * 职责分层（任务总结子功能批重构）：**内容生产归管家任务总结子功能**
+ * （③层 LLM 摘要——管家开 ∧ 总结开 ∧ 总结模型已配三条件全满足才走；
+ * 专用槽位 steward.summary.model，无默认模型），**语音播报只负责播**
+ * （粗筛/闸门/队列/合成/广播，不关心内容生产）。
  *
  * 链路：fanout 带名目标 voice-broadcast-bridge（wireEventFanout 装配）→
  * onDomainEvent → ①粗筛（V2 播报集合 = agent.completed/failed/killed 三
@@ -8,15 +13,14 @@
  * 零登记 = 直接丢弃——零 LLM 零合成零花费，播报开关默认 off 的落地面；
  * ③层摘要也花钱，gate 覆盖到 LLM 层：无订阅即不发起摘要调用）→ ③LLM
  * 摘要（closure 摘要 → ≤2 句口语化中文播报稿——closure 原文是给 agent
- * 看的机械结果，播报是给人听的：LLM 做维度转换，摘要自然控长，80 字符
- * 截断不再需要；超时/失败/面不可用回退②层模板+截断——播报不哑）→
- * 播放队列（串行合成串行发；上限 5 条溢出丢最旧、下一条合并「另有 N 条
- * 已跳过」提示）→ TtsPort 合成 → emit 广播帧（EventStream.broadcastVoice
- * ——仅发已订阅连接）。
+ * 看的机械结果，播报是给人听的：LLM 做维度转换，摘要自然控长；超时/
+ * 失败/面不可用回退②层**极简终态通知**——不念 agentId（UUID 逐字播报
+ * 无意义）/closure 摘要（技术黑话截断后听不懂）/error 原文（英文报错念
+ * 出来是噪声）——旧「模板直出」回退面已判负价值退役，极简通知只报终态
+ * 本身，详情归视觉面 closure 通知行）→ 播放队列（串行合成串行发；上限
+ * 5 条溢出丢最旧、下一条合并「另有 N 条已跳过」提示）→ TtsPort 合成 →
+ * emit 广播帧（EventStream.broadcastVoice——仅发已订阅连接）。
  *
- * 摘要模型复用管家配置（steward.model 槽位 + flash 级默认；管家开关关/
- * 模型未配置 → VoiceSummarizerPort.isAvailable()=false → ②层模板路径
- * ——设计判断：播报摘要不另建模型槽位、不绕过管家开关，配置面单点）。
  * 串行保序：摘要挂在 drained 链上按事件到达序逐条进行（LLM 耗时不均
  * 不乱序——播报序 = 事件序）。
  *
@@ -37,10 +41,11 @@ export function isBroadcastEligible(type: DomainEventType | string): boolean {
   return BROADCAST_EVENT_TYPES.has(type);
 }
 
-/** closure 摘要播报截断上限（~80 字符防长播——②层模板口径；③层 LLM 摘要自然控长不截）。 */
+/** LLM 摘要产物截断上限（~80 字符防长播——③层摘要产物防御：prompt 约束
+ * ≤60 字但 LLM 可能不听话，超长截断兜底；②层极简通知恒短不触发）。 */
 export const SUMMARY_MAX_CHARS = 80;
 
-/** ③层 LLM 摘要超时上限（超时回退②层模板——播报不哑；测试经 deps.summaryTimeoutMs 注入覆盖）。 */
+/** ③层 LLM 摘要超时上限（超时回退②层极简终态通知；测试经 deps.summaryTimeoutMs 注入覆盖）。 */
 export const SUMMARY_TIMEOUT_MS = 8000;
 
 /** ③层摘要输入侧保护：closure 摘要喂给 LLM 的长度上限（防 prompt 爆炸；输出长度由 prompt 约束）。 */
@@ -63,20 +68,21 @@ export const QUEUE_LIMIT = 5;
 /** 溢出合并提示模板（下一条播报 text 前缀）。 */
 const DROPPED_NOTE = (n: number): string => `（另有 ${n} 条较早播报已跳过）`;
 
-/** 队列条目（占位-激活双态）：事件到达即占位（②层模板文本），③层摘要
+/** 队列条目（占位-激活双态）：事件到达即占位（②层极简通知文本），③层摘要
  * 完成后替换激活（失败/超时回退占位文本）；pump 只消费 ready 前缀。 */
 interface QueueItem {
   /** 占位关联键（接受序，单源）。 */
   readonly id: number;
   readonly kind: VoiceBroadcastPayload["kind"];
   readonly agentId: string;
-  /** 播报文本（占位 = ②层模板；激活时替换为摘要产物）。 */
+  /** 播报文本（占位 = ②层极简通知；激活时替换为摘要产物）。 */
   text: string;
   /** false = 占位（摘要未完成，pump 停在其后保序）；true = 可消费。 */
   ready: boolean;
 }
 
-/** 摘要截断（超长加省略号；空摘要原样）。 */
+/** 摘要截断（超长加省略号；空摘要原样——③层 LLM 产物防御：prompt 约束
+ * ≤60 字但可能不听话，超长截断兑底；②层极简通知恒短不触发）。 */
 function truncateSummary(summary: string): string {
   if (summary.length <= SUMMARY_MAX_CHARS) return summary;
   return `${summary.slice(0, SUMMARY_MAX_CHARS)}…`;
@@ -89,24 +95,20 @@ function truncateInput(summary: string): string {
 }
 
 /**
- * 模板直出（②层，纯函数；③层的回退面）：终态三事件 → 中文播报文本。
- * 非播报集合事件返回 undefined（粗筛负例）。
+ * 极简终态通知（②层，纯函数；③层的回退面）：终态三事件 → 可听懂的最小
+ * 信息量播报——只报终态本身，不念 agentId（UUID 逐字念无意义）/closure
+ * 摘要（技术黑话 80 截断后听不懂）/error 原文（英文报错是噪声）；详情归
+ * 视觉面（closure 通知行/会话卡片）。非播报集合事件返回 undefined（粗筛
+ * 负例）。
  */
 export function buildBroadcastText(event: DomainEvent): string | undefined {
   switch (event.type) {
-    case "agent.completed": {
-      const p = event.payload as AgentCompletedPayload;
-      return `${p.agentId} 已完成：${truncateSummary(p.closure.summary ?? "")}`;
-    }
-    case "agent.failed": {
-      const p = event.payload as AgentFailedPayload;
-      const reason = p.error !== undefined && p.error !== "" ? p.error : (p.closure.summary ?? "");
-      return `${p.agentId} 失败：${truncateSummary(reason)}`;
-    }
-    case "agent.killed": {
-      const p = event.payload as AgentKilledPayload;
-      return `${p.agentId} 已终止：${truncateSummary(p.closure.summary ?? "")}`;
-    }
+    case "agent.completed":
+      return "后台任务已完成";
+    case "agent.failed":
+      return "后台任务失败";
+    case "agent.killed":
+      return "后台任务已终止";
     default:
       return undefined;
   }
@@ -151,7 +153,7 @@ export interface BroadcastServiceDeps {
   readonly emit: (payload: VoiceBroadcastPayload) => void;
   /** 连接级订阅闸门读面。 */
   readonly gate: BroadcastGate;
-  /** ③层 LLM 摘要面（可选：undefined = ②层模板直出——纯测试/降级形态）。 */
+  /** ③层 LLM 摘要面（可选：undefined = ②层极简通知——纯测试/降级形态）。 */
   readonly summarizer?: VoiceSummarizerPort;
   /** 摘要超时上限 ms（可选，缺省 SUMMARY_TIMEOUT_MS；测试注入面）。 */
   readonly summaryTimeoutMs?: number;
@@ -191,7 +193,7 @@ export class BroadcastService {
     if (fallback === undefined) return;
     const kind = event.type as VoiceBroadcastPayload["kind"];
     const agentId = (event.payload as { agentId: string }).agentId;
-    // 同步占位（②层模板文本）：溢出丢弃判定在事件到达面（同旧语义——burst
+    // 同步占位（②层极简通知文本）：溢出丢弃判定在事件到达面（同旧语义——burst
     // 连发即限流，不等摘要完成）；③层摘要完成后替换激活，挂 drained 链按
     // 到达序串行（耗时不均不乱序）。
     this.acceptSeq += 1;
@@ -230,7 +232,7 @@ export class BroadcastService {
     }
   }
 
-  /** ③层摘要：面可用 → LLM 白话摘要（超时/抛错/空文本回退②层模板）。 */
+  /** ③层摘要：面可用 → LLM 白话摘要（超时/抛错/空文本回退②层极简通知）。 */
   private async summarize(event: DomainEvent, fallback: string): Promise<string> {
     const summarizer = this.summarizer;
     if (summarizer === undefined || !summarizer.isAvailable()) return fallback;
@@ -244,16 +246,17 @@ export class BroadcastService {
         call,
         new Promise<never>((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error(`LLM 摘要超时（>${this.summaryTimeoutMs}ms，回退模板）`)),
+            () => reject(new Error(`LLM 摘要超时（>${this.summaryTimeoutMs}ms，回退极简通知）`)),
             this.summaryTimeoutMs,
           );
         }),
       ]);
       const trimmed = text.trim();
-      if (trimmed === "") return fallback; // 空摘要回退（播报不哑）
+      if (trimmed === "") return fallback; // 空摘要回退（极简通知）
+      return truncateSummary(trimmed); // LLM 产物超长防御（prompt 约束外兑底）
       return trimmed;
     } catch (err) {
-      this.logger?.warn(`LLM 播报摘要失败（回退②层模板）：${(err as Error).message}`);
+      this.logger?.warn(`LLM 播报摘要失败（回退②层极简通知）：${(err as Error).message}`);
       return fallback;
     } finally {
       if (timer !== undefined) clearTimeout(timer); // 快速路径清 timer（防泄漏）

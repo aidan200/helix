@@ -126,6 +126,15 @@ export const STEWARD_ENABLED_KEY = "steward.enabled";
 /** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认）。 */
 export const STEWARD_MODEL_KEY = "steward.model";
 
+/** 任务总结开关 KV 键（语音播报摘要子功能；"1" = 开，其余 = 关——默认关）。
+ *  开启管家后可选：三条件（管家开 ∧ 本开关开 ∧ 总结模型已配）全满足才走
+ *  LLM 摘要，任一断点语音播报回退极简终态通知。 */
+export const STEWARD_SUMMARY_ENABLED_KEY = "steward.summary.enabled";
+
+/** 任务总结模型槽位 KV 键（"provider/model-id"；**无默认模型**——未配置 =
+ *  摘要面不可用；语音播报不念原文走极简通知，不另配默认防大模型拖慢）。 */
+export const STEWARD_SUMMARY_MODEL_KEY = "steward.summary.model";
+
 /** L1 件一：压缩触发阈值（token 估算口径与 estimateLoopTokens 同族；
  *  任务书默认 12k——低于工作记忆 16k 预算闸，压缩先于粗裁剪接管）。 */
 export const STEWARD_COMPACTION_THRESHOLD_TOKENS = 12_288;
@@ -1347,10 +1356,24 @@ export class StewardService {
   }
 
   /** 设置现态（steward.get_config / set_config 共用读面）。 */
-  getConfig(): { enabled: boolean; model: string; memory: import("./StewardMemoryService").StewardMemoryState } {
+  getConfig(): {
+    enabled: boolean;
+    model: string;
+    summary: { enabled: boolean; model: string | null };
+    memory: import("./StewardMemoryService").StewardMemoryState;
+  } {
     return {
       enabled: this.isEnabled(),
       model: this.deps.config.get(STEWARD_MODEL_KEY) ?? this.deps.llm.modelId,
+      // 任务总结子功能现态（语音播报摘要）：model null = 未配置（无默认模型；
+      // 空串归一 null——setConfig 空串清空后 KV 存 ""，回执面不暴露伪已配态）
+      summary: (() => {
+        const model = this.deps.config.get(STEWARD_SUMMARY_MODEL_KEY);
+        return {
+          enabled: this.deps.config.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
+          model: model !== undefined && model.trim() !== "" ? model : null,
+        };
+      })(),
       // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/端点空/零条目）
       memory: this.deps.memory?.getMemoryState() ?? {
         enabled: false,
@@ -1417,13 +1440,29 @@ export class StewardService {
     return this.deps.memory?.restoreMemoryEntry(id) ?? false;
   }
 
-  /** 设置写面（两槽位可选更新；model 格式校验 "provider/model-id"；
+  /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
+   *  summary 组 = 任务总结子功能（enabled 开关 + 专用模型槽位，空串 = 清空）；
    *  memory 组 B2 瘦身形态 {enabled?,endpointId?} + B4a judgeEndpointId）。 */
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
+    summary?: { enabled?: boolean; model?: string };
     memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (patch.summary !== undefined) {
+      if (patch.summary.model !== undefined) {
+        // 空串 = 清空槽位回未配置态（与管家对话 model 槽位「忽略空串」不同——
+        // 摘要面无默认模型，清空是真实业务态而非无效写）
+        const model = patch.summary.model.trim();
+        if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
+          return { ok: false, error: `总结模型格式非法：${model}（应为 "provider/model-id" 形态）` };
+        }
+        await this.deps.config.set(STEWARD_SUMMARY_MODEL_KEY, model);
+      }
+      if (patch.summary.enabled !== undefined) {
+        await this.deps.config.set(STEWARD_SUMMARY_ENABLED_KEY, patch.summary.enabled ? "1" : "0");
+      }
+    }
     if (patch.memory !== undefined) {
       // 管家记忆 B1：记忆配置委托记忆域服务（校验在其中——开启前端点必填）
       if (this.deps.memory === undefined) {

@@ -53,7 +53,13 @@ import { DashScopeTtsAdapter, DASHSCOPE_PROVIDER_ID as DASHSCOPE_TTS_PROVIDER_ID
 import { DashScopeStreamingTtsAdapter } from "../adapters/driven/tts/streaming";
 import { TtsStreamService } from "../application/tts/TtsStreamService";
 import { BroadcastService } from "../application/voice/BroadcastService";
-import { StewardService, STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "../application/steward/StewardService";
+import {
+  StewardService,
+  STEWARD_ENABLED_KEY,
+  STEWARD_MODEL_KEY,
+  STEWARD_SUMMARY_ENABLED_KEY,
+  STEWARD_SUMMARY_MODEL_KEY,
+} from "../application/steward/StewardService";
 import {
   SessionTitleService,
   recentUserTextsOf,
@@ -698,13 +704,21 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
   });
 
-  // ③层播报摘要面：复用管家 LLM 真体（模型槽位/key 同源 steward 配置面
-  // ——换模型换 key 自动跟随）；可用性 = 管家开关开 ∧ 模型槽位非空
-  // （管家未启用/未配置模型 → isAvailable=false → BroadcastService 回退
-  // ②层模板直出，零 LLM 调用）。
+  // ③层播报摘要面：任务总结子功能（管家子功能）专用 LLM 槽位——
+  // steward.summary.model，**无默认模型**（未配置 = 摘要面不可用，语音播报走
+  // 极简终态通知——不配不摘要，不另配默认防管家大模型拖慢摘要超时）；
+  // 管家开关仍 gate（管家关 = 子功能随关）。可用性三条件在 adapter 处收口：
+  // 管家开 ∧ 总结开 ∧ 模型槽位非空。
   const voiceSummarizer = deps.voiceSummarizerOverride ?? new StewardVoiceSummarizerAdapter({
-    llm: stewardLlm,
-    enabled: () => persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1",
+    llm: new PiStewardLlmAdapter({
+      models: modelStack.catalog.modelsView(),
+      modelSlot: () => persistence.runtimeConfig.get(STEWARD_SUMMARY_MODEL_KEY),
+      defaultModel: "",
+      getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+    }),
+    enabled: () =>
+      persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1" &&
+      persistence.runtimeConfig.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
   });
   const voiceBroadcast = new BroadcastService({
     tts: voiceTts,

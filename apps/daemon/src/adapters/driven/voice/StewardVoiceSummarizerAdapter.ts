@@ -2,11 +2,12 @@
  * StewardVoiceSummarizerAdapter —— VoiceSummarizerPort 的实现（driven；
  * 语音播报批 ③层 LLM 摘要）。
  *
- * 「复用管家配置的模型」的落地点：组合根注入 StewardLlmPort 真体
- * （PiStewardLlmAdapter——模型槽位 = RuntimeConfig steward.model + flash
- * 级默认，key = auth.json 同键位）——播报域不另建模型槽位，换模型/换 key
- * 自动跟随管家配置面。可用性判别（isAvailable）= 管家开关（steward.enabled
- * ≠ "1" → 摘要面关，②层模板路径）∧ 模型槽位非空。
+ * 任务总结子功能（管家子功能）专用 LLM 面的落地：组合根注入独立
+ * PiStewardLlmAdapter 实例（模型槽位 = RuntimeConfig steward.summary.model，
+ * **无默认模型**——未配置即槽位空；key = auth.json 同键位，换模型换 key
+ * 自动跟随）。可用性判别（isAvailable）三条件收口：管家开关开（任务总结是
+ * 管家子功能，管家关 = 随关）∧ 任务总结开关开 ∧ 模型槽位非空——任一断点
+ * → false → BroadcastService 走极简终态通知。
  *
  * 防腐面：{systemPrompt, userPrompt} → StewardLlmRequest（messages 恰一条
  * user、tools 空——摘要无工具面无会话史，单发无状态）；text 响应透传，

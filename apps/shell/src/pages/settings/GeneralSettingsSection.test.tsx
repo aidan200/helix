@@ -185,6 +185,7 @@ function feedStewardConfig(
     entryCount: number;
     dim: number | null;
   },
+  summary?: { enabled: boolean; model: string | null },
 ) {
   const frame = {
     v: PROTOCOL_VERSION,
@@ -195,6 +196,7 @@ function feedStewardConfig(
     payload: {
       enabled,
       model: "deepseek/deepseek-v4-flash",
+      summary: summary ?? { enabled: false, model: null },
       memory: memory ?? { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
     },
   } as unknown as EventEnvelope;
@@ -547,6 +549,58 @@ describe("管家配置并轨批：管家组（启用 + 语音播报从属项）"
     fireEvent.click(toggle);
     expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("未连接");
     expect(toggle.checked).toBe(false);
+  });
+});
+
+describe("任务总结子功能（独立槽位批：开关 + 总结模型下拉）", () => {
+  it("管家未启用 → 任务总结项不渲染；启用 → 开关项出现（fld-sub 缩进，缺省关）", () => {
+    const { container } = ui();
+    feedStewardConfig(false, undefined, { enabled: true, model: "deepseek/deepseek-v4-flash" });
+    expect(container.querySelector("[data-steward-summary]")).toBeNull();
+    feedStewardConfig(true, undefined, { enabled: false, model: null });
+    const sum = container.querySelector("[data-steward-summary]")!;
+    expect(sum).not.toBeNull();
+    expect(sum.className).toContain("fld-sub");
+    expect(sum.querySelector<HTMLInputElement>("[data-steward-summary-enabled] input")!.checked).toBe(false);
+    expect(container.querySelector("[data-steward-summary-model]")).toBeNull(); // 未开不展开下拉
+  });
+
+  it("开关切换 → sendStewardSetConfig({summary:{enabled}}) 不乐观翻转；回执回填", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, { enabled: false, model: null });
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-summary-enabled] input")!;
+    fireEvent.click(toggle);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ summary: { enabled: true } });
+    expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
+    feedStewardConfig(true, undefined, { enabled: true, model: null });
+    expect(toggle.checked).toBe(true);
+  });
+
+  it("总结模型下拉：仅开启后渲染（现值兑底选中 + 未配置 provider 模型不列）；选择写 {summary:{model}}；空选项 = 清空槽位", () => {
+    const { container } = ui();
+    try {
+      mockCatalog = {
+        models: [
+          { id: "openai/gpt-x", providerId: "openai" },
+          { id: "local/llm-y", providerId: "local" },
+        ],
+      };
+      mockAuth = { openai: { configured: true } };
+      feedStewardConfig(true, undefined, { enabled: true, model: "deepseek/deepseek-v4-flash" });
+      const select = container.querySelector<HTMLSelectElement>("[data-steward-summary-model-select]")!;
+      expect(select).not.toBeNull();
+      expect(select.value).toBe("deepseek/deepseek-v4-flash"); // 现值兑底（不在目录仍保留）
+      const optionIds = [...select.options].map((o) => o.value);
+      expect(optionIds).toContain("openai/gpt-x");
+      expect(optionIds).not.toContain("local/llm-y"); // 未配置 provider 过滤
+      fireEvent.change(select, { target: { value: "openai/gpt-x" } });
+      expect(sendStewardSetConfig).toHaveBeenCalledWith({ summary: { model: "openai/gpt-x" } });
+      fireEvent.change(select, { target: { value: "" } });
+      expect(sendStewardSetConfig).toHaveBeenCalledWith({ summary: { model: "" } }); // 空串 = 清空槽位
+    } finally {
+      mockCatalog = null;
+      mockAuth = {};
+    }
   });
 });
 

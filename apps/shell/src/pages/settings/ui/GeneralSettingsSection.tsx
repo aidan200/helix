@@ -7,6 +7,10 @@
  * + set_config 写、config.result 回执回填，不乐观）；语音播报 = 本地偏好
  * （helix.steward.speakReply，面板语音模式朗读闸逐次读）——仅启用后显示
  * （从属项，缩进一层），非平级。管家模型槽位在智能体页管家卡。
+ * 任务总结（管家子功能，独立槽位批）：开关 + 总结模型下拉 = daemon 权威
+ * （steward.set_config {summary:{enabled,model}}）——供语音播报 LLM 摘要，
+ * 无默认模型：未配模型 = 播报只走极简终态通知；下拉 = 主题模型同款口径
+ * （filterAvailableModels + provider optgroup，现值兑底）。
  * 管家记忆区（B2 瘦身）：开关 + 「向量模型」下拉（embedding.list 驱动，
  * 选中写 steward.set_config {memory:{endpointId}}）+ 待命提示 + 「管理记忆」
  * 链接（跳记忆独立页 /steward/memory）；端点 CRUD 收编模型页向量 tab
@@ -89,6 +93,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [stewardEnabled, setStewardEnabled] = useState<boolean | null>(null);
   const [stewardError, setStewardError] = useState<string | null>(null);
   const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
+  // 任务总结子功能（独立槽位批）：daemon 权威现态（config.result 回填不乐观）；
+  // model null = 未配置（无默认模型——不配不摘要，播报走极简终态通知）
+  const [summaryCfg, setSummaryCfg] = useState<{ enabled: boolean; model: string | null } | null>(null);
   // B4 唤醒链两项本地偏好（voice-pref 同构）：组合键归 HotkeyRecorder 自持，
   // 唤醒词 = 本组件受控输入（即改即写——朗读开关同规）
   const [wakeWord, setWakeWord] = useState<string>(() => readWakeWordPref());
@@ -112,6 +119,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         if (e.type !== "steward.config.result") return;
         const payload = e.payload as {
           enabled?: boolean;
+          summary?: {
+            enabled: boolean;
+            model: string | null;
+          };
           memory?: {
             enabled: boolean;
             available: boolean;
@@ -122,6 +133,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
           };
         };
         setStewardEnabled(payload.enabled === true);
+        if (payload.summary !== undefined) setSummaryCfg(payload.summary);
         if (payload.memory !== undefined) setMemoryCfg(payload.memory);
       }),
     [subscribeStewardFrames],
@@ -149,6 +161,22 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   };
   const toggleMemory = (enabled: boolean): void => {
     if (sendStewardSetConfig({ memory: { enabled } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  // 任务总结子功能写面（独立槽位批）：开关 + 模型（空串 = 清空槽位回未配置
+  // 态——daemon 侧归一 null）；回执驱动回填不乐观
+  const toggleSummary = (enabled: boolean): void => {
+    if (sendStewardSetConfig({ summary: { enabled } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  const selectSummaryModel = (model: string): void => {
+    if (sendStewardSetConfig({ summary: { model } }) === false) {
       setStewardError(t("chat.settings.general.sendFail"));
       return;
     }
@@ -216,6 +244,29 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     }
     setTopicError(null);
   };
+  // 任务总结模型下拉（独立槽位批：主题模型同款口径——filterAvailableModels
+  // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
+  const summaryModelsByProvider = useMemo(() => {
+    const visible = filterAvailableModels({
+      models: topology.modelConfig.catalog?.models ?? [],
+      auth,
+      authLoaded,
+      currentModel: summaryCfg?.model ?? undefined,
+      query: "",
+    });
+    const current = summaryCfg?.model ?? null;
+    const withCurrent =
+      current !== null && !visible.some((m) => m.id === current)
+        ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
+        : visible;
+    const map = new Map<string, CatalogModel[]>();
+    for (const m of withCurrent) {
+      const list = map.get(m.providerId);
+      if (list) list.push(m);
+      else map.set(m.providerId, [m]);
+    }
+    return map;
+  }, [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.model]);
   const selectTopicModel = (value: string): void => {
     if (setTopicConfig({ model: value === "" ? null : value }) === false) {
       setTopicError(t("chat.settings.general.sendFail"));
@@ -423,6 +474,49 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               }}
             />
             <span className="ag-note">{t("chat.settings.general.stewardWakeWordNote")}</span>
+          </div>
+        )}
+        {/* 任务总结（管家子功能，独立槽位批）：后台任务收口的 LLM 白话摘要供语音
+            播报——开关 + 总结模型下拉（无默认模型：未配 = 播报只走极简终态通知）*/}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-summary>
+            <span className="hud-label">{t("chat.settings.general.stewardSummary")}</span>
+            <label className="set-check" data-steward-summary-enabled>
+              <input
+                type="checkbox"
+                checked={summaryCfg?.enabled === true}
+                onChange={(e) => toggleSummary(e.target.checked)}
+              />
+              {t("chat.settings.general.stewardSwitchOn")}
+            </label>
+          </div>
+        )}
+        {stewardEnabled === true && summaryCfg?.enabled === true && (
+          <div className="fld fld-sub" data-steward-summary-model>
+            <label className="hud-label" htmlFor="steward-summary-model-select">
+              {t("chat.settings.general.stewardSummaryModelLabel")}
+            </label>
+            <div className="sel-wrap">
+              <select
+                id="steward-summary-model-select"
+                className="hud-input"
+                data-steward-summary-model-select
+                value={summaryCfg.model ?? ""}
+                onChange={(e) => selectSummaryModel(e.target.value)}
+              >
+                <option value="">{t("chat.settings.general.stewardSummaryModelPlaceholder")}</option>
+                {[...summaryModelsByProvider.entries()].map(([providerId, models]) => (
+                  <optgroup label={providerId} key={providerId}>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <span className="ag-note">{t("chat.settings.general.stewardSummaryModelNote")}</span>
           </div>
         )}
         {/* 记忆（管家记忆 B2 瘦身）：启用管家的从属项（缩进一层）——开关 +

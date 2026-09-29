@@ -173,6 +173,14 @@ export interface StewardConfigResultPayload {
   enabled: boolean;
   /** 模型槽位现值（"provider/model-id"；未设置 = daemon 默认 flash 级模型）。 */
   model: string;
+  /** 任务总结面现态（语音播报摘要子功能）：enabled 开关 + 专用模型槽位
+   *  （未配置 = null——**无默认模型**，不配不摘要，播报走极简终态通知）。 */
+  summary: {
+    /** 任务总结开关现态（默认 false）。 */
+    enabled: boolean;
+    /** 总结模型槽位现值（"provider/model-id"；未配置 = null）。 */
+    model: string | null;
+  };
   /** 长期记忆面现态（管家记忆 B2 瘦身：endpoint 为引用态——只回 id/name/
    *  model/hasApiKey，baseUrl 不再回传；端点全集经 embedding.list 读）。 */
   memory: {

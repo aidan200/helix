@@ -1,12 +1,14 @@
 /**
- * BroadcastService 单测（语音播报批 V2；TDD 红绿证据链——设计 §5.3 ①②层）。
+ * BroadcastService 单测（语音播报批 V2；TDD 红绿证据链——设计 §5.3 ①②层；
+ * 任务总结子功能批：②层模板直出 → 极简终态通知）。
  *
  * 断言面：
  * 1. 规则粗筛（①层）：V2 播报集合 = agent.completed/failed/killed 三终态；
  *    开始类（spawned/queued/started/stalled/parked/resumed）与无关事件
  *    （chat 族）零合成零发（噪声控制，设计 §7-1）；
- * 2. 模板直出（②层）：中文模板三形态（完成含 closure 摘要 / 失败含 error /
- *    被杀含摘要）；closure 摘要截断至 ~80 字符（超长加省略号）；
+ * 2. 极简终态通知（②层）：三形态只报终态本身——不念 agentId（UUID 逐字
+ *    播报无意义）/closure 摘要（技术黑话截断听不懂）/error 原文（英文报错
+ *    是噪声）；内容生产归③层 LLM 摘要，极简是回退兜底；
  * 3. 播放队列：串行合成串行发（顺序保证）；上限 5 条溢出丢最旧、下一条
  *    播报 text 合并「另有 N 条较早播报已跳过」提示；
  * 4. 闸门：无订阅连接（voice.subscribe 零登记）→ 事件直接丢弃（零花费——
@@ -103,26 +105,29 @@ describe("规则粗筛（①层）：isBroadcastEligible + buildBroadcastText", 
     }
   });
 
-  test("模板三形态：完成（closure 摘要）/ 失败（error）/ 被杀（摘要）", () => {
-    expect(buildBroadcastText(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") })))
-      .toBe("agent-2 已完成：修复登录超时");
-    expect(buildBroadcastText(agentEvent("agent.failed", { agentId: "agent-3", error: "网络超时", closure: closure("xx") })))
-      .toBe("agent-3 失败：网络超时");
+  test("极简三形态：只报终态本身（完成/失败/终止）", () => {
+    expect(buildBroadcastText(agentEvent("agent.completed", { agentId: "agent-15f694134f114bb49d15abe00a93c1c8", closure: closure("修复登录超时") })))
+      .toBe("后台任务已完成");
+    expect(buildBroadcastText(agentEvent("agent.failed", { agentId: "agent-3", error: "The socket connection was closed unexpectedly", closure: closure("xx") })))
+      .toBe("后台任务失败");
     expect(buildBroadcastText(agentEvent("agent.killed", { agentId: "agent-4", closure: closure("用户手动停止") })))
-      .toBe("agent-4 已终止：用户手动停止");
+      .toBe("后台任务已终止");
   });
 
-  test("closure 摘要截断至 ~80 字符（超长加省略号）", () => {
-    const long = "长".repeat(200);
-    const text = buildBroadcastText(agentEvent("agent.completed", { agentId: "agent-2", closure: closure(long) }))!;
-    // 前缀 + 截断摘要 + "…" —— 摘要段 ≤ 81
-    const summaryPart = text.slice("agent-2 已完成：".length);
-    expect(summaryPart.length).toBe(SUMMARY_MAX_CHARS + 1);
-    expect(summaryPart.endsWith("…")).toBe(true);
+  test("极简通知不携带 payload 内容：agentId/closure/error 均不出现在文本（UUID 与黑话截断判负价值退役）", () => {
+    for (const [type, payload] of [
+      ["agent.completed", { agentId: "agent-abc123", closure: closure("B2 光球层交付 StewardVoiceLayer 相位机/字幕条") }],
+      ["agent.failed", { agentId: "agent-abc123", error: "ECONNRESET: socket hang up", closure: closure("") }],
+    ] as const) {
+      const text = buildBroadcastText(agentEvent(type, payload))!;
+      expect(text).not.toContain("agent-abc123");
+      expect(text).not.toContain("光球");
+      expect(text).not.toContain("ECONNRESET");
+    }
   });
 });
 
-describe("BroadcastService：闸门/模板/队列/串行（②层）", () => {
+describe("BroadcastService：闸门/极简通知/队列/串行（②层）", () => {
   test("闸门关闭（零订阅连接）→ 事件直接丢弃，零合成零发", async () => {
     const { svc, tts, frames } = makeService({ subscribers: 0 });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
@@ -131,18 +136,18 @@ describe("BroadcastService：闸门/模板/队列/串行（②层）", () => {
     expect(frames.length).toBe(0);
   });
 
-  test("全链：完成事件 → 模板合成 → 广播帧（kind/agentId/text/audio/seq）", async () => {
+  test("全链：完成事件 → 极简通知合成 → 广播帧（kind/agentId/text/audio/seq）", async () => {
     const { svc, tts, frames } = makeService({ voice: "Cherry" });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
     await svc.drain();
     expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe("agent-2 已完成：修复登录超时");
+    expect(tts.calls[0]!.text).toBe("后台任务已完成");
     expect(tts.calls[0]!.voice).toBe("Cherry");
     expect(frames.length).toBe(1);
     expect(frames[0]).toMatchObject({
       kind: "agent.completed",
       agentId: "agent-2",
-      text: "agent-2 已完成：修复登录超时",
+      text: "后台任务已完成",
       provider: "dashscope",
       seq: 1,
     });
@@ -179,7 +184,7 @@ describe("BroadcastService：闸门/模板/队列/串行（②层）", () => {
     expect(frames[0]!.agentId).toBe("agent-4");
     expect(frames[0]!.text).toContain("另有 3 条较早播报已跳过");
     expect(frames[0]!.droppedCount).toBe(3);
-    expect(frames[0]!.text).toContain("agent-4 已完成：任务4");
+    expect(frames[0]!.text).toContain("后台任务已完成");
   });
 
   test("合成失败：跳过该条不中断后续（warn 观测），seq 连续", async () => {
@@ -198,7 +203,7 @@ describe("BroadcastService：闸门/模板/队列/串行（②层）", () => {
 });
 
 describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", () => {
-  test("摘要全链：LLM 白话摘要替代模板文本进队列合成广播", async () => {
+  test("摘要全链：LLM 白话摘要替代极简通知进队列合成广播", async () => {
     const summarizer = fakeSummarizer({ text: "任务搞定了，登录超时的问题已经修好。" });
     const { svc, tts, frames } = makeService({ summarizer });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
@@ -210,7 +215,7 @@ describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", ()
   });
 
   test("prompt 要点：systemPrompt 含长度/口语化指令；userPrompt 含 agentId 与 closure 摘要原文（不截断）", async () => {
-    const long = "细节".repeat(120); // 240 字符 > ②层截断上限 80
+    const long = "细节".repeat(120); // 240 字符（输入侧 2000 保护内）
     const summarizer = fakeSummarizer();
     const { svc } = makeService({ summarizer });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure(long) }));
@@ -219,7 +224,7 @@ describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", ()
     // 长度指令 + 口语化指令（面向人类听众的播报稿约束）
     expect(systemPrompt).toContain("不超过");
     expect(systemPrompt).toContain("口语");
-    // closure 摘要全文进 prompt（LLM 看全貌才能摘要——与②层 80 字符截断不同面）
+    // closure 摘要全文进 prompt（LLM 看全貌才能摘要——极简通知不喂 LLM 判断面）
     expect(userPrompt).toContain("agent-2");
     expect(userPrompt).toContain(long);
   });
@@ -233,6 +238,15 @@ describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", ()
     expect(summarizer.calls[0]!.userPrompt).toContain("失败");
   });
 
+  test("LLM 产物超长截断（prompt 约束外的防御面）：> 80 字符加省略号", async () => {
+    const summarizer = fakeSummarizer({ text: "啰".repeat(200) });
+    const { svc, tts } = makeService({ summarizer });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
+    await svc.drain();
+    expect(tts.calls[0]!.text.length).toBe(SUMMARY_MAX_CHARS + 1);
+    expect(tts.calls[0]!.text.endsWith("…")).toBe(true);
+  });
+
   test("money gate 前移：零订阅连接 → 零 LLM 调用零合成零发", async () => {
     const summarizer = fakeSummarizer();
     const { svc, tts, frames } = makeService({ subscribers: 0, summarizer });
@@ -243,34 +257,34 @@ describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", ()
     expect(frames.length).toBe(0);
   });
 
-  test("摘要面不可用（isAvailable=false，如管家未启用/模型未配置）→ 零 LLM 调用 + ②层模板直出", async () => {
+  test("摘要面不可用（isAvailable=false，管家关/总结关/模型未配）→ 零 LLM 调用 + ②层极简通知", async () => {
     const summarizer = fakeSummarizer({ available: false });
     const { svc, tts, frames } = makeService({ summarizer });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
     await svc.drain();
     expect(summarizer.calls.length).toBe(0);
-    expect(tts.calls[0]!.text).toBe("agent-2 已完成：修复登录超时");
-    expect(frames[0]!.text).toBe("agent-2 已完成：修复登录超时");
+    expect(tts.calls[0]!.text).toBe("后台任务已完成");
+    expect(frames[0]!.text).toBe("后台任务已完成");
   });
 
-  test("LLM 抛错 → 回退②层模板文本（播报不哑）+ warn 观测", async () => {
+  test("LLM 抛错 → 回退②层极简通知 + warn 观测", async () => {
     const summarizer = fakeSummarizer({ error: new Error("模型调用失败模拟") });
     const { svc, tts, frames, warns } = makeService({ summarizer });
     svc.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "网络超时", closure: closure("") }));
     await svc.drain();
-    expect(tts.calls[0]!.text).toBe("agent-3 失败：网络超时");
-    expect(frames[0]!.text).toBe("agent-3 失败：网络超时");
+    expect(tts.calls[0]!.text).toBe("后台任务失败");
+    expect(frames[0]!.text).toBe("后台任务失败");
     expect(warns.length).toBe(1);
     expect(warns[0]).toContain("回退");
   });
 
-  test("LLM 超时（timeoutMs 注入面）→ 回退②层模板文本 + warn 含超时", async () => {
+  test("LLM 超时（timeoutMs 注入面）→ 回退②层极简通知 + warn 含超时", async () => {
     const summarizer = fakeSummarizer({ delayMs: 200 });
     const { svc, tts, frames, warns } = makeService({ summarizer, summaryTimeoutMs: 20 });
     svc.onDomainEvent(agentEvent("agent.killed", { agentId: "agent-4", closure: closure("用户手动停止") }));
     await svc.drain();
-    expect(tts.calls[0]!.text).toBe("agent-4 已终止：用户手动停止");
-    expect(frames[0]!.text).toBe("agent-4 已终止：用户手动停止");
+    expect(tts.calls[0]!.text).toBe("后台任务已终止");
+    expect(frames[0]!.text).toBe("后台任务已终止");
     expect(warns.length).toBe(1);
     expect(warns[0]).toContain("超时");
   });

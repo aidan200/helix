@@ -72,6 +72,15 @@ export interface StewardSetConfigPayload {
   enabled?: boolean;
   /** 模型槽位（"provider/model-id" 形态，flash 级建议；格式非法回执 error 判别）。 */
   model?: string;
+  /** 任务总结组（语音播报摘要子功能；全部位可选）：管家开 ∧ 总结开 ∧ 模型
+   *  已配三条件全满足才走 LLM 摘要，任一断点 → 语音播报走极简终态通知。 */
+  summary?: {
+    /** 任务总结开关（默认关）。 */
+    enabled?: boolean;
+    /** 总结模型槽位（"provider/model-id"；**无默认模型**——未配置 = 摘要面
+     *  不可用；空串 = 清空槽位回未配置态）。 */
+    model?: string;
+  };
   /** 长期记忆组（管家记忆 B2 瘦身形态；全部位可选）。 */
   memory?: {
     /** 记忆开关（默认关——记忆是可选项，零依赖开箱）。 */

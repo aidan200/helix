@@ -303,12 +303,14 @@ export const COMMAND_SURFACE = {
   /** 设置读面（回执 steward.config.result）。 */
   sendStewardGetConfig: (deps) =>
     (): boolean => deps.send(stewardGetConfigCommand()),
-  /** 设置写面（槽位均可选——含记忆组（管家记忆 B2 瘦身形态 {enabled?,endpointId?}
-   *  + B4a judgeEndpointId）；回执 steward.config.result 新态）。 */
+  /** 设置写面（槽位均可选——含任务总结组（独立槽位批 {enabled?,model?}，
+   *   model 空串 = 清空）与记忆组（管家记忆 B2 瘦身形态 {enabled?,endpointId?}
+   *   + B4a judgeEndpointId）；回执 steward.config.result 新态）。 */
   sendStewardSetConfig: (deps) =>
     (patch: {
       enabled?: boolean;
       model?: string;
+      summary?: { enabled?: boolean; model?: string };
       memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
     }): boolean => deps.send(stewardSetConfigCommand(patch)),
   /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true

@@ -229,12 +229,26 @@ export function handleStewardGetConfig(ctx: StewardCommandContext): void {
 /** steward.set_config（全局命令）：设置写面 + 新态回执；格式非法 → invalid_payload。 */
 export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model, memory } = ctx.payload;
+  const { enabled, model, summary, memory } = ctx.payload;
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
   }
   if (model !== undefined && typeof model !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string");
+  }
+  // 任务总结子功能组（{enabled?,model?}——逐字段透传纪律 TR-159：不显式解构
+  // 即静默剥离，可选字段 TS 不报错）
+  if (summary !== undefined) {
+    if (typeof summary !== "object" || summary === null) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.summary 应为 object");
+    }
+    const sum = summary as { enabled?: unknown; model?: unknown };
+    if (sum.enabled !== undefined && typeof sum.enabled !== "boolean") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.summary.enabled 应为 boolean");
+    }
+    if (sum.model !== undefined && typeof sum.model !== "string") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.summary.model 应为 string（空串 = 清空槽位）");
+    }
   }
   // 管家记忆 B2：memory 组瘦身校验（{enabled?,endpointId?}——透传前最后一道
   // TR-159 逐字段透传纪律）
@@ -254,6 +268,9 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     .setConfig({
       ...(enabled !== undefined ? { enabled } : {}),
       ...(model !== undefined ? { model } : {}),
+      ...(summary !== undefined
+        ? { summary: summary as { enabled?: boolean; model?: string } }
+        : {}),
       ...(memory !== undefined
         ? { memory: memory as { enabled?: boolean; endpointId?: string } }
         : {}),

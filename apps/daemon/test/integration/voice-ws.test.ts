@@ -3,7 +3,7 @@
  * - fake TTS provider 注入（voiceTtsOverride 接缝）→ 真实 WS 连接
  *   voice.subscribe → orchestration.spawn（FakeAgentEngine + KillableRunner
  *   挂起形态，测试 forceClosure 驱动收口）→ agent.completed 经 fanout
- *   voice-broadcast-bridge → BroadcastService 粗筛/模板/合成 →
+ *   voice-broadcast-bridge → BroadcastService 粗筛/极简通知/合成 →
  *   voice.broadcast 广播帧到达已订阅连接（payload 含 fake 音频 data URL
  *   + kind/agentId/text/seq）；
  * - 闸门负例：无订阅连接时收口 → 零合成（money gate——开关默认 off 落地面）；
@@ -180,15 +180,15 @@ describe("voice 族：播报全链（fanout voice-broadcast-bridge → 广播帧
     const payload = broadcast.payload as unknown as VoiceBroadcastPayload;
     expect(payload.kind).toBe("agent.completed");
     expect(payload.agentId).toBe(agentId);
-    expect(payload.text).toBe(`${agentId} 已完成：V2 播报全链验证`);
+    expect(payload.text).toBe("后台任务已完成");
     expect(payload.audio).toBe(FAKE_AUDIO);
     expect(payload.provider).toBe("dashscope");
     expect(payload.seq).toBeGreaterThanOrEqual(1);
 
-    // 合成请求形态：模板文本 + 订阅携带音色
+    // 合成请求形态：极简通知文本 + 订阅携带音色
     expect(rig.tts.calls.length).toBe(1);
     expect(rig.tts.calls[0]!.voice).toBe("Cherry");
-    expect(rig.tts.calls[0]!.text).toBe(`${agentId} 已完成：V2 播报全链验证`);
+    expect(rig.tts.calls[0]!.text).toBe("后台任务已完成");
 
     // 投递负例：未订阅连接（client2）收不到 voice.broadcast
     expect(rig.client2.frames.some((f) => f.type === "voice.broadcast")).toBe(false);
@@ -220,7 +220,7 @@ describe("voice 族：播报全链（fanout voice-broadcast-bridge → 广播帧
     expect(rig.tts.calls.length).toBe(1); // 退订后零合成
   });
 
-  test("spawned/started 事件不播（粗筛负例）：合成文本恒为终态模板", async () => {
+  test("spawned/started 事件不播（粗筛负例）：合成文本恒为极简终态通知", async () => {
     const rig = (current = await makeRig());
     rig.client.send({ v: PROTOCOL_VERSION, type: "voice.subscribe", payload: {} });
     await new Promise((r) => setTimeout(r, 50));
