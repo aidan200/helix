@@ -213,6 +213,14 @@ export interface OrchestratorEnvOverrides {
   readonly resumeInstance?: (agentId: string) => { resumed: boolean; queued?: boolean; error?: string };
   /** 卡装配修复面：前 N 次 drive 抛错（模拟首轮驱动异常——重试唤醒链断言注入）。 */
   readonly failFirstDrives?: number;
+  /**
+   * LLM 层失败注入（真实 engine_error 形态）：前 N 次 streamFn 调用返回
+   * error 终帧（stopReason=error，文案带 401 → network-retry 分类 permanent
+   * 直接透传不重试）——与 failFirstDrives（drive 层 reject）不同：pi loop
+   * 对 error 终帧正常 agent_end、agent.prompt 正常 resolve，**drive 不抛错**
+   *（真实 LLM 请求失败链路：wake catch 重试不触发，收口只能靠推进检查）。
+   */
+  readonly failFirstLlmCalls?: number;
   /** kill 面覆盖（fail-stop 停摆/取消清场断言；缺省记录到 killLog）。 */
   readonly killInstance?: (agentId: string) => void;
   /**
@@ -300,6 +308,20 @@ export async function withOrchestratorEnv(
     store.getStages(jobId).reduce((n, s) => n + store.getBatches(jobId, s.seq).length, 0),
   );
   const scriptedStream = makeScriptedLLM([...over.script]);
+  let llmFailuresLeft = over.failFirstLlmCalls ?? 0;
+  const llmStream: StreamFn = (model, context, options) => {
+    if (llmFailuresLeft > 0) {
+      llmFailuresLeft -= 1;
+      const failure = baseAssistant([{ type: "text", text: "" }], "error");
+      (failure as { errorMessage?: string }).errorMessage = "scripted llm failure（LLM 401 鉴权失败）";
+      const stream = createAssistantMessageEventStream();
+      void (async () => {
+        stream.push({ type: "error", reason: "error", error: failure });
+      })();
+      return stream;
+    }
+    return scriptedStream(model, context, options);
+  };
   const sessionLog: { kind: "drive" | "inject"; text: string }[] = [];
   const orchestratorLog: string[] = [];
   const killLog: string[] = [];
@@ -326,7 +348,7 @@ export async function withOrchestratorEnv(
       model: fakeModel,
       apiKeys: { fake: "explicit-key" },
       models: fakeModels,
-      streamFnOverride: scriptedStream,
+      streamFnOverride: llmStream,
       resolveTools: (names) => executor.resolveTools(names),
     });
     return {

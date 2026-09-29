@@ -129,6 +129,64 @@ describe("T2.2 drive 首轮异常 → 单次重试恢复（可观测 + 重试唤
   }, 30000);
 });
 
+// ── 装配期 LLM 失败（engine_error 终帧形态——drive 不抛错，wake catch 重试不触发）──
+
+/**
+ * 真实 LLM 请求失败链路：streamFn error 终帧 → pi loop 正常 agent_end →
+ * agent.prompt resolve → drive 正常 resolve——wake 的 catch 重试分支不触发
+ *（用户实测「第一次 LLM 请求失败不重试」）；收口只能靠推进检查兑底。
+ */
+describe("装配期 LLM 失败（engine_error 终帧：drive 不抛错）→ 推进检查兑底", () => {
+  test("LLM 持续失败（401 permanent 直透不重试）→ 重驱仍失败 → failJob 收口（不永久卡装配中）", async () => {
+    await withOrchestratorEnv(
+      { script: [{ kind: "reply", text: "无动作。" }], failFirstLlmCalls: 99, progressCheckDelayMs: 50 },
+      async (env) => {
+        const { jobId } = await env.engine.createTask({
+          type: "fake-task",
+          projects: ["demo"],
+          params: { projectRoot: "/tmp/demo" },
+          createdBy: "page",
+        });
+        // drive 不抛错：wake catch 重试不触发，每轮恰 1 次 drive（kickoff + 重驱）
+        await env.until(() => env.sessionLog.filter((e) => e.kind === "drive").length >= 2, 10000);
+        // 推进检查兑底：重驱仍 LLM 失败 → failJob 收口 failed
+        await env.until(() => env.store.getJob(jobId)?.status === "failed", 10000);
+        expect(env.store.getJob(jobId)!.error).toContain("装配期死局");
+        expect(env.store.getBatches(jobId, 1)).toHaveLength(0);
+      },
+    );
+  }, 20000);
+
+  test("LLM 短暂失败自愈：kickoff 一次失败（drive 正常收场）→ 推进检查重驱 → 剧本照常装配 → 任务完成", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script, failFirstLlmCalls: 1, progressCheckDelayMs: 50 }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      // kickoff LLM 失败 → drive 正常 resolve（零抛错）→ 推进检查延迟窗后重驱
+      await env.until(() => env.store.getBatches(jobId, 1).length === 1, 10000);
+      await settleInstance(env, env.recorder.call(1).agentId, { closure: "done", plan: "resolved" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      await env.until(
+        () =>
+          env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+          env.orchestratorLog.filter((l) => l.includes("驱动开始")).length,
+      );
+    });
+  }, 20000);
+});
+
 // ── B1/B2/B3 事故链修复：fail-stop 停摆 + spawn 闸 + 游离收口可观测 + resume 补派 ──
 
 describe("B2 fail-stop：failBatch 超限上浮 → haltJob 停摆（摘队排队实例，在跑自然收口）", () => {
