@@ -155,12 +155,9 @@ function makeA2Service(opts: {
   return { svc, orchestration };
 }
 
-const toolCall = (name: string, args: Record<string, unknown>): StewardLlmResponse => ({
-  kind: "toolCall",
-  id: `call-${name}`,
+const toolCall = (name: string, args: Record<string, unknown>): StewardLlmResponse => ({ kind: "blocks", blocks: [{ type: "toolCall", id: `call-${name}`,
   name,
-  args,
-});
+  args }], stopReason: "toolUse" });
 
 // 固定时基：2026-09-19 周六 15:00 本地（避免测试随真实时钟漂移）。
 const NOW = new Date(2026, 8, 19, 15, 0, 0).getTime();
@@ -183,7 +180,7 @@ function sessRow(over: Partial<StewardSessionMetaRow> & { sessionId: string }): 
 
 describe("A2-1 动态 prompt：context_snapshot 段", () => {
   test("快照段存在性：ask 组装的 systemPrompt = 静态人格段 + <context_snapshot> 包裹的情景段", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "好的" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" }]);
     const sessions = fakeSessions([
       sessRow({ sessionId: "s1", firstUserText: "修复登录超时", updatedAt: "2026-09-19T06:00:00.000Z" }),
       sessRow({ sessionId: "s2", firstUserText: "重构调度器", updatedAt: "2026-09-19T05:00:00.000Z" }),
@@ -220,7 +217,7 @@ describe("A2-1 动态 prompt：context_snapshot 段", () => {
   });
 
   test("查询失败静默降级：sessions 源抛错 → systemPrompt 无快照段，对话主链路不受阻", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "好的" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" }]);
     const broken: ReturnType<typeof fakeSessions> = {
       created: [],
       titled: [],
@@ -257,7 +254,7 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
   async function askRecent(range: TimeRange | undefined, project?: string) {
     const llm = fakeLlm([
       toolCall("query_recent_work", range === undefined && project === undefined ? {} : { ...(range !== undefined ? { time_range: range } : {}), ...(project !== undefined ? { project } : {}) }),
-      { kind: "text", text: "总结" },
+      { kind: "blocks", blocks: [{ type: "text", text: "总结" }], stopReason: "stop" },
     ]);
     const sessions = fakeSessions(rows);
     const { svc } = makeA2Service({ llm, sessions, now: fixedClock });
@@ -267,7 +264,7 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
 
   test("today 档：仅命中今日会话（LLM 回灌含标题/起止/消息量级）", async () => {
     const llm = await askRecent("today");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr).toBeDefined();
     expect(tr!.text).toContain("修复登录超时");
     expect(tr!.text).toContain("09-19");
@@ -276,7 +273,7 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
 
   test("yesterday 档：命中昨日会话、不含今日与上月", async () => {
     const llm = await askRecent("yesterday");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr!.text).toContain("昨天的会话");
     expect(tr!.text).not.toContain("修复登录超时的问题");
     expect(tr!.text).not.toContain("上月的会话");
@@ -284,19 +281,19 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
 
   test("this_week（默认档）：无 time_range 参数走本周；last_week 档窗口独立", async () => {
     const llm = await askRecent(undefined);
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr!.text).toContain("修复登录超时");
     expect(tr!.text).toContain("昨天的会话");
     expect(tr!.text).not.toContain("上月的会话");
     const llm2 = await askRecent("last_week");
-    const tr2 = llm2.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr2 = llm2.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr2!.text).toContain("无记录");
   });
 
   test("project 过滤：project=none 时任务清单按项目收窄（会话不滤）", async () => {
     const llm = fakeLlm([
       toolCall("query_recent_work", { time_range: "this_week", project: "helix" }),
-      { kind: "text", text: "总结" },
+      { kind: "blocks", blocks: [{ type: "text", text: "总结" }], stopReason: "stop" },
     ]);
     const sessions = fakeSessions(rows);
     const orchestration = fakeOrchestration([{ agentId: "a", state: "running" }]);
@@ -334,7 +331,7 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
       clock: fixedClock,
     });
     await svc.ask("最近在忙什么？");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr!.text).toContain("评审 helix");
     expect(tr!.text).not.toContain("评审 other");
   });
@@ -342,11 +339,11 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
   test("空结果：返回明确的『该时间范围无记录』文本", async () => {
     const llm = fakeLlm([
       toolCall("query_recent_work", { time_range: "last_week" }),
-      { kind: "text", text: "好" },
+      { kind: "blocks", blocks: [{ type: "text", text: "好" }], stopReason: "stop" },
     ]);
     const { svc } = makeA2Service({ llm, sessions: fakeSessions(rows), now: fixedClock });
     await svc.ask("上周做了什么？");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr!.text).toContain("无记录");
   });
 
@@ -384,12 +381,12 @@ describe("A2-2b query_recent_work 投影修复（title 优先 + sessionId 完整
   async function askRecentWork(args: Record<string, unknown>, rowsOverride?: readonly StewardSessionMetaRow[]): Promise<string> {
     const llm = fakeLlm([
       toolCall("query_recent_work", args),
-      { kind: "text", text: "总结" },
+      { kind: "blocks", blocks: [{ type: "text", text: "总结" }], stopReason: "stop" },
     ]);
     const sessions = fakeSessions(rowsOverride ?? rows);
     const { svc } = makeA2Service({ llm, sessions, now: fixedClock });
     await svc.ask("最近在忙什么？");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "query_recent_work");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     if (tr === undefined || tr.text === undefined) throw new Error("query_recent_work toolResult 缺失");
     return tr.text;
   }
@@ -487,10 +484,10 @@ describe("A2-3 create_session（确认闸）", () => {
     const askResult = await svc.ask("开个会话");
     await svc.confirm(askResult.status === "confirm_required" ? askResult.actionId : "");
     // 下轮 ask：LLM 窗口应含 spawn_review_task/create_session 的执行 toolResult
-    const llmB = fakeLlm([{ kind: "text", text: "已创建" }]);
+    const llmB = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "已创建" }], stopReason: "stop" }]);
     const svc2 = undefined; // 同一 service 实例继续对话（工作记忆持久）
     void svc2;
-    const llmC = fakeLlm([{ kind: "text", text: "ok" }]);
+    const llmC = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }]);
     void llmC;
     const follow = await svc.ask("刚才那个会话建好了吗？");
     void follow;
@@ -541,7 +538,7 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
   test("kg-review 无索引 → 引导式失败（toolResult 提示需先 kg-bootstrap，不进确认闸）", async () => {
     const llm = fakeLlm([
       toolCall("spawn_review_task", { review_type: "kg-review", project: "helix" }),
-      { kind: "text", text: "该项目还没有知识图谱，需要先运行 kg-bootstrap。" },
+      { kind: "blocks", blocks: [{ type: "text", text: "该项目还没有知识图谱，需要先运行 kg-bootstrap。" }], stopReason: "stop" },
     ]);
     const taskEngine = fakeTaskEngine();
     const { svc } = makeA2Service({
@@ -554,7 +551,7 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     const askResult = await svc.ask("给 helix 开个 kg-review");
     expect(askResult.status).toBe("answer"); // 引导式：工具结果回灌 → LLM 可转述/追问
     expect(taskEngine.created.length).toBe(0);
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "spawn_review_task");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "spawn_review_task");
     expect(tr).toBeDefined();
     expect(tr!.text).toContain("kg-bootstrap");
   });
@@ -562,7 +559,7 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
   test("code-review 无 git 仓 → 引导式失败", async () => {
     const llm = fakeLlm([
       toolCall("spawn_review_task", { review_type: "code-review", project: "helix" }),
-      { kind: "text", text: "该项目没有 git 仓，无法评审。" },
+      { kind: "blocks", blocks: [{ type: "text", text: "该项目没有 git 仓，无法评审。" }], stopReason: "stop" },
     ]);
     const taskEngine = fakeTaskEngine();
     const { svc } = makeA2Service({
@@ -576,14 +573,14 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     const askResult = await svc.ask("给 helix 开个 code-review");
     expect(askResult.status).toBe("answer");
     expect(taskEngine.created.length).toBe(0);
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "spawn_review_task");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "spawn_review_task");
     expect(tr!.text).toContain("git");
   });
 
   test("项目不存在 → 引导式失败（提示 workspace 项目清单）", async () => {
     const llm = fakeLlm([
       toolCall("spawn_review_task", { review_type: "code-review", project: "no-such" }),
-      { kind: "text", text: "没有找到这个项目，请确认项目名。" },
+      { kind: "blocks", blocks: [{ type: "text", text: "没有找到这个项目，请确认项目名。" }], stopReason: "stop" },
     ]);
     const taskEngine = fakeTaskEngine();
     const { svc } = makeA2Service({
@@ -596,14 +593,14 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     });
     const askResult = await svc.ask("给 no-such 开个评审");
     expect(askResult.status).toBe("answer");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "spawn_review_task");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "spawn_review_task");
     expect(tr!.text).toContain("no-such");
   });
 
   test("review_type 非法 → 引导式失败（枚举提示）", async () => {
     const llm = fakeLlm([
       toolCall("spawn_review_task", { review_type: "xxx", project: "helix" }),
-      { kind: "text", text: "评审类型不对，只能是 code-review 或 kg-review。" },
+      { kind: "blocks", blocks: [{ type: "text", text: "评审类型不对，只能是 code-review 或 kg-review。" }], stopReason: "stop" },
     ]);
     const taskEngine = fakeTaskEngine();
     const { svc } = makeA2Service({
@@ -615,7 +612,7 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     });
     const askResult = await svc.ask("开个 xxx");
     expect(askResult.status).toBe("answer");
-    const tr = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult" && m.name === "spawn_review_task");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "spawn_review_task");
     expect(tr!.text).toContain("code-review");
   });
 
@@ -673,7 +670,7 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
 
 describe("A2-4 快照与工具口径一致性", () => {
   test("快照『活跃 agent 数』与 list_instances 紧凑投影同源（orchestration.status() 同一调用面）", async () => {
-    const llmA = fakeLlm([{ kind: "text", text: "ok" }]);
+    const llmA = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }]);
     const sessions = fakeSessions([sessRow({ sessionId: "s1" })]);
     const { svc, orchestration } = makeA2Service({ llm: llmA, sessions, now: fixedClock });
     await svc.ask("现在什么状态？");

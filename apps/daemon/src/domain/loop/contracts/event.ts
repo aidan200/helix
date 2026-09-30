@@ -11,6 +11,7 @@
  * 中间态（message.delta）不落事件存储（AD-16 同口径），仅实时通道消费。
  */
 import type { LoopMessage } from "./message";
+import { loopBlocksText } from "./message";
 import type { LoopToolCallContext } from "./tool";
 
 /** 轮次终态因（pi turn_end stopReason 投影面）。 */
@@ -120,7 +121,7 @@ export function loopToolArgsSummary(args: Record<string, unknown>, maxChars = 20
 export function loopMessageSummary(message: LoopMessage): string {
   if (message.role === "user") return message.text.slice(0, 200);
   if (message.role === "toolResult") return message.text.slice(0, 200);
-  return (message.text ?? "").slice(0, 200);
+  return loopBlocksText(message.content).slice(0, 200);
 }
 
 /** 工具调用上下文 → tool.started/paused 载荷共形（context 投影面）。 */

@@ -25,7 +25,7 @@ function fakeLlm(opts?: {
     async complete(request: StewardLlmRequest): Promise<StewardLlmResponse> {
       requests.push(request);
       if (opts?.error !== undefined) throw opts.error;
-      return opts?.response ?? { kind: "text", text: "白话摘要文本" };
+      return opts?.response ?? { kind: "blocks", blocks: [{ type: "text", text: "白话摘要文本" }], stopReason: "stop" };
     },
   };
 }
@@ -64,7 +64,7 @@ describe("StewardVoiceSummarizerAdapter：complete（防腐透传）", () => {
   });
 
   test("toolCall 响应（tools 空下不应发生）→ throw 中文错误（服务层回退接住）", async () => {
-    const llm = fakeLlm({ response: { kind: "toolCall", id: "c1", name: "x", args: {} } });
+    const llm = fakeLlm({ response: { kind: "blocks", blocks: [{ type: "toolCall", id: "c1", name: "x", args: {} }], stopReason: "toolUse" } });
     expect(
       makeAdapter(llm).complete({ systemPrompt: "s", userPrompt: "u" }),
     ).rejects.toThrow("工具调用");

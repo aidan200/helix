@@ -104,7 +104,7 @@ describe("PiStewardLlmAdapter（driven 面）", () => {
     const models = fakeModels({});
     const adapter = makeAdapter(models, undefined);
     const res = await adapter.complete(REQ);
-    expect(res).toEqual({ kind: "text", text: "答" });
+    expect(res).toEqual({ kind: "blocks", blocks: [{ type: "text", text: "答" }], stopReason: "stop" });
     expect(models.calls.length).toBe(1);
     const call = models.calls[0]!;
     expect(call.model).toBe("deepseek/deepseek-v4-flash");
@@ -129,7 +129,11 @@ describe("PiStewardLlmAdapter（driven 面）", () => {
     });
     const adapter = makeAdapter(models, undefined);
     const res = await adapter.complete(REQ);
-    expect(res).toEqual({ kind: "toolCall", id: "call-1", name: "list_instances", args: {} });
+    expect(res).toEqual({
+      kind: "blocks",
+      blocks: [{ type: "toolCall", id: "call-1", name: "list_instances", args: {} }],
+      stopReason: "toolUse",
+    });
   });
 
   test("模型不在目录 → 中文 fail-fast（前缀「管家模型解析失败」）", async () => {
@@ -161,7 +165,7 @@ describe("PiStewardLlmAdapter（driven 面）", () => {
     const chunks: string[] = [];
     const res = await adapter.complete(REQ, (c) => chunks.push(c));
     expect(chunks).toEqual(["当前 ", "2 个"]); // 仅 text_delta，按序
-    expect(res).toEqual({ kind: "text", text: "当前 2 个" }); // 终态仍由 result() 权威聚合
+    expect(res).toEqual({ kind: "blocks", blocks: [{ type: "text", text: "当前 2 个" }], stopReason: "stop" }); // 终态仍由 result() 权威聚合
   });
 
   test("流式：无 onDelta（旧调用面）不碰迭代器——纯 result() 路径不变", async () => {
@@ -170,7 +174,7 @@ describe("PiStewardLlmAdapter（driven 面）", () => {
     });
     const adapter = makeAdapter(models, undefined);
     const res = await adapter.complete(REQ);
-    expect(res).toEqual({ kind: "text", text: "答" });
+    expect(res).toEqual({ kind: "blocks", blocks: [{ type: "text", text: "答" }], stopReason: "stop" });
   });
 });
 
@@ -247,9 +251,9 @@ describe("PiStewardLlmAdapter（A1 thinking 面）", () => {
     const blocks: string[] = [];
     const res = await adapter.complete(REQ, undefined, (b) => blocks.push(b));
     expect(blocks).toEqual(["块一完整"]); // 段级：一完成块一帧（非逐 delta）
-    expect(res.kind).toBe("text");
-    if (res.kind !== "text") throw new Error("unreachable");
-    expect(res.thinking).toEqual({ text: "块一完整", signature: "sig-1" }); // 终态权威 + signature 透传
+    expect(res.kind).toBe("blocks");
+    if (res.kind !== "blocks") throw new Error("unreachable");
+    expect(res.blocks).toContainEqual({ type: "thinking", text: "块一完整", signature: "sig-1" }); // 终态权威 + signature 透传
   });
 
   test("历史回传：assistant.thinking → Context ThinkingContent 块（signature 透传，thinking 置首）", async () => {
@@ -259,7 +263,14 @@ describe("PiStewardLlmAdapter（A1 thinking 面）", () => {
       systemPrompt: "s",
       messages: [
         { role: "user", text: "问" },
-        { role: "assistant", thinking: { text: "上一轮思考。", signature: "sig-old" }, text: "答", toolCall: { id: "c0", name: "list_tasks", args: {} } },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", text: "上一轮思考。", signature: "sig-old" },
+            { type: "text", text: "答" },
+            { type: "toolCall", id: "c0", name: "list_tasks", args: {} },
+          ],
+        },
         { role: "toolResult", toolCallId: "c0", name: "list_tasks", text: "[]" },
       ],
       tools: [],
@@ -322,9 +333,9 @@ describe("PiStewardLlmAdapter（E-198/G1 partial text 面）", () => {
       ],
     });
     const adapter = makeAdapter(models, undefined);
-    const closed: { kind: string; text?: string }[] = [];
+    const closed: { type: string; text?: string }[] = [];
     const res = await adapter.complete(REQ, () => undefined, undefined, undefined, (b) => closed.push(b));
-    expect(closed).toEqual([{ kind: "text", text: "第一块完整内容" }]); // 关账块唯一交付面
+    expect(closed).toEqual([{ type: "text", text: "第一块完整内容" }]); // 关账块唯一交付面
     expect(res).toEqual({ kind: "aborted", partialText: "第二块半" }); // 不含已关账块（防重复入账）
   });
 

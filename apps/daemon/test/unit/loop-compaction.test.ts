@@ -15,6 +15,15 @@ import { estimateLoopTokens, planCompactionWindow } from "../../src/domain/loop/
  * 4. 阈值内不触发（零 LLM 调用开销）。
  */
 
+/** 剧本便捷构造（Phase 1 块模型判别——blocks + stopReason）。 */
+function textResult(text: string): LoopStreamResult {
+  return { kind: "blocks", blocks: [{ type: "text", text }], stopReason: "stop" };
+}
+
+function toolCallResult(id: string, name: string, args: Record<string, unknown>): LoopStreamResult {
+  return { kind: "blocks", blocks: [{ type: "toolCall", id, name, args }], stopReason: "toolUse" };
+}
+
 function fakeStream(
   script: readonly LoopStreamResult[],
   hooks?: { onCall?: (messages: readonly LoopMessage[]) => void },
@@ -25,7 +34,7 @@ function fakeStream(
     const next = script[round];
     round += 1;
     if (next === undefined) throw new Error("剧本耗尽");
-    if (next.kind === "text" && callbacks?.onDelta !== undefined) {
+    if (next.kind === "blocks" && next.blocks.some((b) => b.type === "text") && callbacks?.onDelta !== undefined) {
       callbacks.onDelta("段");
     }
     return next;
@@ -68,7 +77,7 @@ describe("LoopCompaction：纯函数", () => {
     // → 孤儿 → 边界左移；messages[4] 是 user（非孤儿）→ 停 → compactFrom=4。
     const messages: LoopMessage[] = [];
     for (let i = 0; i < 3; i += 1) messages.push(longUser(`历史话题${i}-${"x".repeat(200)}`));
-    messages.push({ role: "assistant", toolCall: { id: "tc-1", name: "list_tasks", args: {} } });
+    messages.push({ role: "assistant", content: [{ type: "toolCall", id: "tc-1", name: "list_tasks", args: {} }] });
     messages.push(longUser(`插话-${"y".repeat(200)}`));
     messages.push({ role: "toolResult", toolCallId: "tc-1", name: "list_tasks", text: "z".repeat(200) });
     for (let i = 0; i < 5; i += 1) messages.push(longUser(`近话${i}-${"w".repeat(200)}`));
@@ -84,7 +93,7 @@ describe("LoopCompaction：纯函数", () => {
     // → 保留区 [1,7) 含完整 call/result 对；头 idx1 是 user（非孤儿）→ 不左移。
     const messages: LoopMessage[] = [];
     for (let i = 0; i < 5; i += 1) messages.push(longUser(`历史${i}-${"x".repeat(200)}`));
-    messages.push({ role: "assistant", toolCall: { id: "tc-1", name: "t", args: {} } });
+    messages.push({ role: "assistant", content: [{ type: "toolCall", id: "tc-1", name: "t", args: {} }] });
     messages.push({ role: "toolResult", toolCallId: "tc-1", name: "t", text: "r".repeat(200) });
     const plan = planCompactionWindow(messages, { thresholdTokens: 400, keepRecent: 6 });
     expect(plan).not.toBeNull();
@@ -108,10 +117,7 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
     // → text 终答。
     const engine = new LoopEngine({
       streamFn: fakeStream(
-        [
-          { kind: "toolCall", id: "tc-1", name: "noop", args: {} },
-          { kind: "text", text: "终答" },
-        ],
+        [toolCallResult("tc-1", "noop", {}), textResult("终答")],
         { onCall: (m) => streamWindows.push([...m]) },
       ),
       registry: registryWithNoop(),
@@ -138,7 +144,7 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
         },
       })
       .promise;
-    expect(result).toEqual({ kind: "finished", text: "终答" });
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "终答" }] });
     // summarize 被调用（首轮前——历史 8 条超 400 阈值即触发）
     expect(summarized.length).toBeGreaterThanOrEqual(1);
     // 后续轮窗口从压缩态起算：messages[0] = 摘要（compaction:true）
@@ -163,11 +169,11 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
     const streamWindows: (readonly LoopMessage[])[] = [];
     const messages: LoopMessage[] = [];
     for (let i = 0; i < 5; i += 1) messages.push(longUser(`历史${i}-${"a".repeat(200)}`));
-    messages.push({ role: "assistant", toolCall: { id: "tc-9", name: "noop", args: {} } });
+    messages.push({ role: "assistant", content: [{ type: "toolCall", id: "tc-9", name: "noop", args: {} }] });
     messages.push({ role: "toolResult", toolCallId: "tc-9", name: "noop", text: "r".repeat(200) });
     for (let i = 0; i < 5; i += 1) messages.push(longUser(`近${i}-${"b".repeat(200)}`));
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "text", text: "答" }], { onCall: (m) => streamWindows.push([...m]) }),
+      streamFn: fakeStream([textResult("答")], { onCall: (m) => streamWindows.push([...m]) }),
       registry: registryWithNoop(),
       emit: (e) => events.push(e),
       compaction: {
@@ -182,7 +188,11 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
     expect((window[0] as { compaction?: boolean }).compaction).toBe(true);
     const callIds = new Set<string>();
     for (const m of window) {
-      if (m.role === "assistant" && m.toolCall !== undefined) callIds.add(m.toolCall.id);
+      if (m.role === "assistant") {
+        for (const b of m.content) {
+          if (b.type === "toolCall") callIds.add(b.id);
+        }
+      }
     }
     for (const m of window) {
       if (m.role === "toolResult") {
@@ -197,7 +207,7 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
     const initial: LoopMessage[] = [];
     for (let i = 0; i < 8; i += 1) initial.push(longUser(`历史${i}-${"a".repeat(150)}`));
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "text", text: "答" }], { onCall: (m) => streamWindows.push([...m]) }),
+      streamFn: fakeStream([textResult("答")], { onCall: (m) => streamWindows.push([...m]) }),
       registry: new ToolRegistry(),
       emit: (e) => events.push(e),
       compaction: {
@@ -209,7 +219,7 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
       },
     });
     const result = await engine.startRun({ systemPrompt: "s", messages: initial, tools: [], maxRounds: 6 }).promise;
-    expect(result).toEqual({ kind: "finished", text: "答" }); // 永不阻塞对话
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "答" }] }); // 永不阻塞对话
     const compacted = events.find((e) => e.type === "loop.context.compacted");
     expect(compacted).toBeDefined();
     if (compacted!.type === "loop.context.compacted") {
@@ -226,7 +236,7 @@ describe("LoopEngine：压缩挂点（每轮结束后→下轮 streamFn 前检�
     const events: LoopEvent[] = [];
     let summarizeCalls = 0;
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "text", text: "答" }]),
+      streamFn: fakeStream([textResult("答")]),
       registry: new ToolRegistry(),
       emit: (e) => events.push(e),
       compaction: {

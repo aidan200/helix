@@ -9,19 +9,19 @@
 import type {
   LoopAbortAudit,
   LoopCompactionInfo,
+  LoopContentBlock,
   LoopMessage,
   LoopMessageSink,
   LoopPauseDecision,
   LoopResumeDecision,
-  LoopThinking,
   LoopToolCallContext,
   LoopToolSchema,
 } from "../contracts";
 
-/** run 收口判别（对外终态面）。 */
+/** run 收口判别（对外终态面；Phase 1 块模型——finished 携完整块集）。 */
 export type LoopRunResult =
-  /** text 终答（含本轮 thinking 全精度）。 */
-  | { readonly kind: "finished"; readonly text: string; readonly thinking?: LoopThinking }
+  /** text 终答（完整块集——text-only 即单 text 块，混排块原样保留）。 */
+  | { readonly kind: "finished"; readonly blocks: readonly LoopContentBlock[] }
   /** 暂停点挂起：resumeWith 决定放行/改参/拒绝/外部已执行（返回续跑 promise——
    *  续跑可能再次 paused（下一工具又挂闸），递归同构）。 */
   | {
