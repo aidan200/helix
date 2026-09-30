@@ -118,6 +118,10 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
   private runMessageCount = 0;
   /** 挂闸暂停凭据 → resumeWith 句柄（engine_paused/resume 面）。 */
   private readonly pendingResumes = new Map<string, { resumeWith: (d: LoopResumeDecision) => Promise<{ kind: string }> }>();
+  /** 在飞 start() 计数（abort 后台链的 listener 释放判定面）。 */
+  private activeStarts = 0;
+  /** abort 后台链待收口标记（run.finished 到达且无在飞 start 时释放 listener）。 */
+  private clearListenerAfterAbort = false;
 
   constructor(options: LoopAgentEngineOptions) {
     this.registry = options.registry;
@@ -148,6 +152,7 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
 
   async start(input: string, listener: AgentEngineListener, images?: readonly string[]): Promise<void> {
     this.beginPortRun(listener, true);
+    this.activeStarts += 1;
     let result: Awaited<ReturnType<LoopAgent["start"]>> | undefined;
     try {
       const injection = {
@@ -164,7 +169,10 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
       }
       if (result.kind !== "paused") await this.agent.waitForIdle();
     } finally {
-      if (result?.kind !== "paused") this.listener = null;
+      this.activeStarts -= 1;
+      if (result?.kind !== "paused" && this.activeStarts === 0 && !this.agent.isPausedPending()) {
+        this.listener = null;
+      }
       this.steeredTexts.length = 0; // run 边界清理（残留防下一 run 同文误判）
     }
   }
@@ -184,13 +192,9 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
     if (wasPausedPending) {
       this.pendingResumes.clear(); // 惰性化凭据回收（kernel D5 幂等无副作用）
       // 暂停链后台收口（合成配对 + run.finished(aborted) → agent_end）——
-      // waitForIdle 后释放 listener（无人 await 的 fire-and-forget 链）。
-      void this.agent
-        .waitForIdle()
-        .catch(() => undefined)
-        .then(() => {
-          if (!this.agent.isStreaming() && !this.agent.isPausedPending()) this.listener = null;
-        });
+      // listener 释放挂到链尾（run.finished 到达且无在飞 start；waitForIdle
+      // 早于后台链收口不可作释放点）。
+      this.clearListenerAfterAbort = true;
     }
   }
 
@@ -225,14 +229,18 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
   /** 暂停恢复（port additive 面，设计 §7.4）：凭据 → resumeWith 续跑链。 */
   async resume(pauseToken: string, decision: EngineResumeDecision): Promise<void> {
     const handle = this.pendingResumes.get(pauseToken);
-    if (handle === undefined) return; // 未知/已消费凭据幂等无副作用
+    if (handle === undefined) return; // 未知/已消费凭据幂等无副作用（abort 后凭据已回收）
     this.pendingResumes.delete(pauseToken);
+    this.activeStarts += 1;
     try {
       const domainDecision = decision as LoopResumeDecision; // port 镜像四态同构
       await handle.resumeWith(domainDecision);
       await this.agent.waitForIdle();
     } finally {
-      if (!this.agent.isStreaming() && !this.agent.isPausedPending()) this.listener = null;
+      this.activeStarts -= 1;
+      if (this.activeStarts === 0 && !this.agent.isStreaming() && !this.agent.isPausedPending()) {
+        this.listener = null;
+      }
     }
   }
 
@@ -278,7 +286,12 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
         }
         return this.emit({ type: "agent_start" });
       case "loop.run.finished":
-        return this.emit({ type: "agent_end", messageCount: this.runMessageCount });
+        this.emit({ type: "agent_end", messageCount: this.runMessageCount });
+        if (this.clearListenerAfterAbort && this.activeStarts === 0 && !this.agent.isStreaming() && !this.agent.isPausedPending()) {
+          this.clearListenerAfterAbort = false;
+          this.listener = null; // abort 后台链收口（agent_end 已发）——释放
+        }
+        return;
       case "loop.turn.started": {
         this.deltaText = "";
         this.batchStartIds = [];
@@ -369,7 +382,13 @@ export class LoopAgentEngineAdapter implements AgentEnginePort {
 
   /** transcript 单写面 → 计数（全角色）+ user 消息事件合成。 */
   private onNewMessage(message: LoopMessage): void {
-    if (message.role === "user" && message.text === LOOP_INTERRUPTED_MARKER_TEXT) return; // E-198 截断标记不投影不计数（pi 无对应消息）
+    if (message.role === "user" && message.text === LOOP_INTERRUPTED_MARKER_TEXT) {
+      // E-198 截断标记：不投影消息事件（pi 无对应消息）但计入 messageCount
+      // ——pi abort 轮的尾消息（aborted assistant）同样进 newMessages 计数
+      //（golden parity：agent_end.messageCount 对齐）。
+      this.runMessageCount += 1;
+      return;
+    }
     if (message.role !== "user") {
       this.runMessageCount += 1; // assistant（message.finished 面）/toolResult（turn.finished 面）只计数
       return;
