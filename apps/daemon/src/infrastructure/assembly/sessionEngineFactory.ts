@@ -30,9 +30,9 @@ import type { CoordinationService } from "../../application/services/Coordinatio
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
 import { createMcpDiscoverTools, createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
 import { McpDeferredHooks } from "../../adapters/driven/pi-engine/runtime/hooks/McpDeferredHooks";
-import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
-import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
-import type { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
+import { resolveConfigModel } from "../../adapters/driven/llm";
+import { resolveEffectiveThinking } from "../../adapters/driven/llm";
+import type { ModelCatalog } from "../../adapters/driven/llm";
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
 import { MainSessionProfile } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";

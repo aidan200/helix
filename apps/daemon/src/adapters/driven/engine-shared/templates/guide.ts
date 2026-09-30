@@ -15,7 +15,7 @@ import { SEGMENT_CATALOG, SEGMENT_SCENARIOS, TEMPLATE_HARD_CONSTRAINTS } from ".
 
 /** TEMPLATE-USAGE.md 仓内路径（段库全文+装配示例的按需读取入口）。 */
 export const TEMPLATE_USAGE_PATH =
-  "apps/daemon/src/adapters/driven/pi-engine/runtime/templates/TEMPLATE-USAGE.md";
+  "apps/daemon/src/adapters/driven/engine-shared/templates/TEMPLATE-USAGE.md";
 
 /** 按场景渲染段目录行：「- 段名：用途」。 */
 function catalogLines(): string[] {

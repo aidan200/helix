@@ -10,8 +10,8 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
-import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot, wrapStreamFnThinking } from "./model-provider";
-import { withNetworkRetry } from "./network-retry";
+import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot, wrapStreamFnThinking } from "../llm";
+import { withNetworkRetry } from "../llm";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 import { imagesOfContent } from "../../../application/services/images";
 

@@ -1,6 +1,6 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "./SubAgentProfile";
-import { loadPrompt } from "../prompts";
+import { loadPrompt } from "../../../engine-shared";
 
 /**
  * SubAgentKgWriterProfile —— 图谱产出型批次 profile（D8 W-R6，kg-driven-dev-loop

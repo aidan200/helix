@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import type { Model, Models } from "@earendil-works/pi-ai";
-import { resolveModel } from "../pi-engine/model-provider";
-import { validateBrief, validateReport } from "../pi-engine/runtime/templates/validate";
+import { resolveModel } from "../llm";
+import { validateBrief, validateReport } from "../engine-shared";
 import type { AgentInstance } from "../../../domain/agent/AgentInstance";
 import type { WorktreeProvisionResult, WorktreeProvisionerPort } from "../../../application/ports/outbound/WorktreeProvisionerPort";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";

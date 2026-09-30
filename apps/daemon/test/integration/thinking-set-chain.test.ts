@@ -5,7 +5,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
-import { resolveEffectiveThinking } from "../../src/adapters/driven/pi-engine/thinking-resolve";
+import { resolveEffectiveThinking } from "../../src/adapters/driven/llm";
 import { MinimalHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/MinimalHooks";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { createAssistantMessageEventStream, type AssistantMessage, type Model, type Models } from "@earendil-works/pi-ai";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Model } from "@earendil-works/pi-ai";
-import { resolveEffectiveThinking } from "../../src/adapters/driven/pi-engine/thinking-resolve";
+import { resolveEffectiveThinking } from "../../src/adapters/driven/llm/thinking-resolve";
 
 /**
  * thinkingLevel 解析链（test-design §2.1/§2.2；architecture §3.1 落点一/§3.3）：

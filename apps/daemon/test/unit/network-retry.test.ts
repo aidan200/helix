@@ -9,7 +9,7 @@ import {
   LLM_STREAM_RETRY_BACKOFF_MS,
   withNetworkRetry,
   type LlmRetryInfo,
-} from "../../src/adapters/driven/pi-engine/network-retry";
+} from "../../src/adapters/driven/llm/network-retry";
 
 /**
  * P2 ⑦ 引擎级网络重试单测（裁决修订 2026-09-08：仅传输层错误重试；

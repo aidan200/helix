@@ -1,6 +1,6 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "./SubAgentProfile";
-import { loadPrompt } from "../prompts";
+import { loadPrompt } from "../../../engine-shared";
 
 /**
  * SubAgentCodeReviewerProfile —— 代码评审批次专用 profile（code-review

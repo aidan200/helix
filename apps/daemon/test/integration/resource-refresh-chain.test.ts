@@ -9,7 +9,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
-import { buildModels, resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
+import { buildModels, resolveConfigModel } from "../../src/adapters/driven/llm";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { TOOL_PROMPT_SNIPPETS } from "../../src/adapters/driven/tools/ToolPromptSnippets";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";

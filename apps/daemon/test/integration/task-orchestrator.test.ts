@@ -13,7 +13,7 @@ import { ORCHESTRATOR_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/
 import {
   PLAN_HARD_CONSTRAINT_SEGMENT,
   SEGMENT_CATALOG,
-} from "../../src/adapters/driven/pi-engine/runtime/templates/catalog";
+} from "../../src/adapters/driven/engine-shared/templates/catalog";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { EventPublisherPort } from "../../src/application/ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../../src/application/ports/outbound/ClockPort";
@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 
 const TEMPLATES_BRIEF_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../src/adapters/driven/pi-engine/runtime/templates/brief",
+  "../../src/adapters/driven/engine-shared/templates/brief",
 );
 
 const BRIEF_1 = "## 任务目标\n探索 A 模块并产出架构节点（批次 1）。";

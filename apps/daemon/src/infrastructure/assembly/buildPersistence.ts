@@ -13,7 +13,7 @@ import { SandboxConfigStore } from "../../adapters/driven/sqlite-session/Sandbox
 import { McpConfigStore } from "../../adapters/driven/sqlite-session/McpConfigStore";
 import { RuntimeConfigStore } from "../../adapters/driven/sqlite-session/RuntimeConfigStore";
 import { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
-import { DEFAULT_MODEL_ID } from "../../adapters/driven/pi-engine/model-provider";
+import { DEFAULT_MODEL_ID } from "../../adapters/driven/llm";
 import { DEFAULT_COMPACTION } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 import { DEFAULT_SCHEDULING } from "../../domain/agent/SchedulingPolicy";
 import type { SessionRunStateLike } from "../../domain/agent/ObservabilityState";

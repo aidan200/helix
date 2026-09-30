@@ -5,16 +5,16 @@ import {
   SEGMENT_CATALOG,
   SEGMENT_SCENARIOS,
   TEMPLATE_HARD_CONSTRAINTS,
-} from "../../src/adapters/driven/pi-engine/runtime/templates/catalog";
+} from "../../src/adapters/driven/engine-shared/templates/catalog";
 import {
   BRIEF_ASSEMBLY_GUIDE,
   REPORT_ASSEMBLY_GUIDE,
-} from "../../src/adapters/driven/pi-engine/runtime/templates/guide";
+} from "../../src/adapters/driven/engine-shared/templates/guide";
 import {
   checkEmptySectionOmission,
   validateBrief,
   validateReport,
-} from "../../src/adapters/driven/pi-engine/runtime/templates/validate";
+} from "../../src/adapters/driven/engine-shared/templates/validate";
 import { MAIN_SESSION_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SUBAGENT_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 
@@ -27,7 +27,7 @@ import { SUBAGENT_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runt
 
 const TEMPLATES_DIR = join(
   import.meta.dir,
-  "../../src/adapters/driven/pi-engine/runtime/templates",
+  "../../src/adapters/driven/engine-shared/templates",
 );
 
 // ───────────────────────────── validateBrief（CL-1.A10 机械化） ─────────────────────────────

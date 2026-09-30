@@ -7,7 +7,7 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SteerHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/SteerHooks";
 import { MinimalHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/MinimalHooks";
-import { resolveConfigModel, resolveModelSlot } from "../../src/adapters/driven/pi-engine/model-provider";
+import { resolveConfigModel, resolveModelSlot } from "../../src/adapters/driven/llm";
 
 /**
  * T2.2 单测：SubAgentProfile 结构（AD-2/AD-3）+ AgentProfile.model 槽位与

@@ -1,6 +1,6 @@
 /**
  * 三方平台（自定义 provider）出站端口（outbound，三方平台批）。实现体 =
- * driven/pi-engine/custom-providers.ts（pi-ai createProvider 装配 +
+ * driven/llm/custom-providers.ts（pi-ai createProvider 装配 +
  * MutableModels 活注册；类型镜像不 import driven——port 铁律 AG-01）。
  *
  * 语义：自定义 provider = 用户登记的 OpenAI 兼容端点（id + baseUrl +
