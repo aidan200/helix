@@ -706,3 +706,198 @@ describe("LoopAgent：onNewMessage / prepareRun / onRunSettled 接缝", () => {
     expect(agent.messages().length).toBe(2);
   });
 });
+
+/**
+ * R5.4 LoopAgent 面收紧（Phase 5；CAND-551 申报面）：
+ * - LoopRunResult.error 结构化 terminate 判别——防火墙 error（cause:"terminate"）
+ *   与普通 error（LLM 失败等）可区分；
+ * - terminate 收口的 run 不被 followUp 复活（对照 Phase 2「任何 settle 消费
+ *   followUp」口径收紧；普通 error 仍接管——E-197 现役管家口径保持）；
+ * - LoopAgent.abort 在 paused 态接线（R4.8/R6.3：写者已释放但 kernel 直持
+ *   signal——挂闸可打断、后台续链合成配对收口 aborted、resumeWith 惰性化）。
+ */
+describe("LoopAgent：R5.4 terminate 判别与 paused abort 接线（Phase 5）", () => {
+  test("UC-11 变体：全批 terminate → error{cause:terminate}；followUp 不接管、steer 队列保留（G-G）", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "toolA",
+      description: "toolA",
+      parameters: { type: "object", properties: {} },
+      handler: async () => ({ kind: "terminate", reason: "A 防火墙终止" }),
+    });
+    registry.register({
+      name: "toolB",
+      description: "toolB",
+      parameters: { type: "object", properties: {} },
+      handler: async () => ({ kind: "terminate", reason: "B 防火墙终止" }),
+    });
+    let streamCalls = 0;
+    const agent = new LoopAgent({
+      streamFn: async () => {
+        streamCalls += 1;
+        if (streamCalls > 1) return textResult("答"); // run2（显式再问）：正常终答
+        // 一轮全批 terminate：批 = [toolA, toolB]（UC-11 输入形态）
+        return {
+          kind: "blocks" as const,
+          blocks: [
+            { type: "toolCall" as const, id: "ca", name: "toolA", args: {} },
+            { type: "toolCall" as const, id: "cb", name: "toolB", args: {} },
+          ],
+          stopReason: "toolUse" as const,
+        };
+      },
+      registry,
+      emit: () => undefined,
+      newRunId: () => "r54a",
+      systemPrompt: "s",
+      maxRounds: 6,
+    });
+    agent.followUp({ text: "f1" }); // 收口前入队（R3.1「本要停」时接管——terminate 例外）
+    const result = await agent.start("问");
+    // 结构化判别：防火墙 error 携 cause:"terminate"（普通 error 无此位）
+    expect(result.kind).toBe("error");
+    expect((result as { cause?: string }).cause).toBe("terminate");
+    // R5.4：followUp 不被 terminate 复活（对照 UC-06/abort 用例的接管形态）
+    await new Promise((r) => setTimeout(r, 10));
+    expect(agent.pendingCounts().followUp).toBe(1);
+    expect(streamCalls).toBe(1); // 仅 run1 一轮（批 [A,B]），零接管 run零续轮
+    // waitForIdle 在 terminate 挂起 followUp 下不悬挂（run 链已终态）
+    await agent.waitForIdle();
+    // 队列保留（G-G）：下一次显式 run 消费
+    const second = await agent.start("再问");
+    expect(second.kind).toBe("finished");
+    expect(agent.pendingCounts().followUp).toBe(0);
+  });
+
+  test("对照：普通 error（LLM 失败）settle 后 followUp 仍接管（E-197 口径不变）", async () => {
+    let calls = 0;
+    const agent = new LoopAgent({
+      streamFn: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("provider 5xx");
+        return textResult("接管答");
+      },
+      registry: new ToolRegistry(),
+      emit: () => undefined,
+      newRunId: () => "r54b",
+      systemPrompt: "s",
+      maxRounds: 6,
+    });
+    agent.followUp({ text: "f1" });
+    const result = await agent.start("问");
+    expect(result.kind).toBe("error");
+    expect((result as { cause?: string }).cause).toBeUndefined(); // 普通错误无 terminate 判别
+    await agent.waitForIdle();
+    expect(agent.pendingCounts().followUp).toBe(0); // 接管发生
+    expect(calls).toBe(2);
+    expect(agent.messages().map(summarize).slice(-1)).toEqual(["assistant:接管答"]);
+  });
+
+  test("terminate 挂起后 steer 到达：只入队不触发暗跑（挂起 followUp 待显式 run 消费）", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "fw",
+      description: "fw",
+      parameters: { type: "object", properties: {} },
+      handler: async () => ({ kind: "terminate", reason: "防火墙" }),
+    });
+    let calls = 0;
+    const agent = new LoopAgent({
+      streamFn: async () => {
+        calls += 1;
+        return calls === 1 ? toolCallResult("c1", "fw", {}) : textResult("答");
+      },
+      registry,
+      emit: () => undefined,
+      newRunId: () => "r54c",
+      systemPrompt: "s",
+      maxRounds: 6,
+    });
+    agent.followUp({ text: "f1" });
+    await agent.start("问"); // terminate 收口，followUp f1 挂起
+    const pushed = agent.steer({ text: "s1" }); // R3.4 idle 触发：新 run（显式输入面——挂起 followUp 不复活、由本 run settle 消费）
+    expect(pushed.ok).toBe(true);
+    await agent.waitForIdle();
+    expect(agent.pendingCounts()).toEqual({ steer: 0, followUp: 0 });
+    expect(calls).toBe(3);
+    // run1（问 → 批 → 防火墙收口）；run2 以 s1 为输入（steer 优先）；f1 由 run2
+    // settle 后的接管链消费（run3——挂起队列回归正常接管链）
+    expect(agent.messages().map(summarize)).toEqual([
+      "user:问",
+      "assistant:",
+      "toolResult:防火墙",
+      "user:s1",
+      "assistant:答",
+      "user:f1",
+      "assistant:答",
+    ]);
+  });
+
+  test("paused 态 abort 接线：返回 true、挂闸枚合成配对收口 aborted、resumeWith 幂等、steer 保留", async () => {
+    const events: LoopEvent[] = [];
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "slow",
+      description: "slow",
+      parameters: { type: "object", properties: {} },
+      handler: async () => ({ kind: "result", text: "slow 完成" }),
+    });
+    const agent = new LoopAgent({
+      streamFn: async () => toolCallResult("c1", "slow", {}),
+      registry,
+      emit: (e) => events.push(e),
+      newRunId: () => "r54d",
+      systemPrompt: "s",
+      maxRounds: 6,
+      prepareRun: () => ({ beforeToolCallPause: async () => ({ pause: true }) }),
+    });
+    const p = agent.start("问");
+    const paused = await p;
+    expect(paused.kind).toBe("paused");
+    expect(agent.isStreaming()).toBe(false); // R6.3：paused 态非 streaming
+    // R5.4 接线：paused 态 abort 可达 kernel 直持 signal（现返 false → 收紧为 true）
+    const aborted = agent.abort("用户中止");
+    expect(aborted).toBe(true);
+    await new Promise((r) => setTimeout(r, 10)); // 后台续链收口（事件异步到达）
+    const types = events.map((e) => e.type);
+    expect(types).toContain("loop.run.interrupted");
+    expect(types[types.length - 1]).toBe("loop.run.finished");
+    expect(types.filter((t) => t === "loop.run.finished")).toHaveLength(1);
+    // D5 惰性化：abort 后 resumeWith 幂等 aborted、零执行零新事件
+    const afterCount = events.length;
+    const resumed = await (paused as { resumeWith: (d: { kind: "approve" }) => Promise<{ kind: string }> }).resumeWith({ kind: "approve" });
+    expect(resumed.kind).toBe("aborted");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(events.length).toBe(afterCount); // 零新事件
+    // 挂闸枚合成配对（I1）：toolResult 在 transcript（中断回执文案）
+    const toolResult = agent.messages().find((m) => m.role === "toolResult") as { text: string } | undefined;
+    expect(toolResult?.text).toContain("已中断");
+    // waitForIdle 不悬挂（挂起簿记随 abort 解除）
+    await agent.waitForIdle();
+  });
+
+  test("paused 态 abort 幂等：二次 abort 返回 false（挂闸已解锁）", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "slow",
+      description: "slow",
+      parameters: { type: "object", properties: {} },
+      handler: async () => ({ kind: "result", text: "done" }),
+    });
+    const agent = new LoopAgent({
+      streamFn: async () => toolCallResult("c1", "slow", {}),
+      registry,
+      emit: () => undefined,
+      newRunId: () => "r54e",
+      systemPrompt: "s",
+      maxRounds: 6,
+      prepareRun: () => ({ beforeToolCallPause: async () => ({ pause: true }) }),
+    });
+    const paused = await agent.start("问");
+    expect(paused.kind).toBe("paused");
+    expect(agent.abort()).toBe(true);
+    expect(agent.abort()).toBe(false); // 幂等：挂闸已解锁、无在飞 run
+    await new Promise((r) => setTimeout(r, 5));
+    await agent.waitForIdle();
+  });
+});

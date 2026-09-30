@@ -487,6 +487,11 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       // 崩溃留痕批（5f3198a）：进程级崩溃钩子对测试 runner 的让位判别
       //（BUN_TEST=1 不接管 crash 日志/退出码——探测非配置源，键级登记）
       [path.join("infrastructure", "lifecycle.ts"), ["BUN_TEST"]],
+      // helix-loop Phase 5：engine flag（HELIX_AGENT_ENGINE=loop 显式开启验证
+      // 通道；缺省 pi 现役零漂移）——迁移期探测口非长期配置源，Phase 6 切换
+      // 批裁决去留（翻默认/退役时此登记随之清理）。读取收束 agentEngineFromEnv
+      // 单点（sessionEngineFactory.ts）。
+      [path.join("infrastructure", "assembly", "sessionEngineFactory.ts"), ["HELIX_AGENT_ENGINE"]],
     ];
     for (const rel of listFiles(srcRoot)) {
       if (whitelistRoots.some((root) => rel.startsWith(root))) continue;

@@ -428,7 +428,7 @@ describe("Phase 3 批工具：R5 批级 early-termination", () => {
         return undefined;
       },
     } as never).promise;
-    expect(result).toEqual({ kind: "error", message: "A 终止因" });
+    expect(result).toEqual({ kind: "error", message: "A 终止因", cause: "terminate" }); // R5.4：结构化 terminate 判别
     // 两 terminate 结果照常入账（R5.2）
     expect(recorded.map((m) => m.role)).toEqual(["assistant", "toolResult", "toolResult"]);
     expect(recorded.slice(1, 3).map((m) => (m as { text: string }).text)).toEqual(["A 终止因", "B 终止因"]);
@@ -461,7 +461,7 @@ describe("Phase 3 批工具：R5 批级 early-termination", () => {
     const gate: (ctx: LoopToolCallContext) => Promise<LoopPauseDecision> = async (ctx) =>
       ctx.toolCallId === "ca" ? { pause: false, outcome: { kind: "terminate", reason: "目标不存在——拒绝" } } : { pause: false };
     const result = await engine.startRun({ ...runInput({ recorded }), beforeToolCallPause: gate } as never).promise;
-    expect(result).toEqual({ kind: "error", message: "目标不存在——拒绝" });
+    expect(result).toEqual({ kind: "error", message: "目标不存在——拒绝", cause: "terminate" }); // R5.4：结构化 terminate 判别
     expect(executed).toEqual(["B"]); // A 零执行（防火墙前置拒）
     // 批语义：B 真实 + A 配对（I1 优先于零入账——R5.3/D2）
     expect(recorded.map((m) => m.role)).toEqual(["assistant", "toolResult", "toolResult"]);

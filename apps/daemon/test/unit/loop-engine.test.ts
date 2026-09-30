@@ -466,7 +466,7 @@ describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
         recorded.push(m);
       },
     }).promise;
-    expect(result).toEqual({ kind: "error", message: "目标不存在——拒绝" });
+    expect(result).toEqual({ kind: "error", message: "目标不存在——拒绝", cause: "terminate" }); // R5.4：结构化 terminate 判别（防火墙前置拒）
     expect(recorded).toEqual([]); // 与管家迁移前行为严格等价：KV 无痕
   });
 });

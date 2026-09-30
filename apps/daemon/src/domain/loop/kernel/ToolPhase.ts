@@ -496,11 +496,12 @@ export class ToolPhase {
     return CONTINUE;
   }
 
-  /** 防火墙前置拒直出回执（R5.3——run 错误收口）。 */
+  /** 防火墙前置拒直出回执（R5.3——run 错误收口；cause:"terminate" 结构化判别
+   *  ——R5.4 Phase 5：LoopAgent 收口段据此不接管 followUp）。 */
   private terminateRun(state: RunState, reason: string): LoopRunResult {
     this.emit({ type: "loop.run.error", runId: state.runId, message: reason });
     this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "error" });
-    return { kind: "error", message: reason };
+    return { kind: "error", message: reason, cause: "terminate" };
   }
 
   /** 批入账（truncated 路径共用——assistant + 全配对源序）。 */
@@ -615,11 +616,19 @@ export class ToolPhase {
 
   private emitToolStarted(state: RunState, input: LoopRunInput, ctx: LoopToolCallContext): void {
     const argsSummary = loopToolArgsSummary(ctx.args);
-    this.emit({ type: "loop.tool.started", runId: state.runId, toolCallId: ctx.toolCallId, toolName: ctx.toolName, argsSummary });
+    this.emit({
+      type: "loop.tool.started",
+      runId: state.runId,
+      toolCallId: ctx.toolCallId,
+      toolName: ctx.toolName,
+      argsSummary,
+      args: ctx.args, // Phase 5 additive：全对象（AgentEnginePort 投影源）
+    });
     input.callbacks?.onToolStart?.(ctx.toolName, argsSummary);
   }
 
-  /** 枚 settle：终态定格 + loop.tool.finished（完成序发射——G-D）+ onToolEnd。 */
+  /** 枚 settle：终态定格 + loop.tool.finished（完成序发射——G-D）+ onToolEnd。
+   *  Phase 5 additive：result 载荷携全文（AgentEnginePort 投影源）。 */
   private settle(state: RunState, input: LoopRunInput, entry: BatchEntry, outcome: BatchOutcome): void {
     entry.status = "settled";
     entry.outcome = outcome;
@@ -632,6 +641,7 @@ export class ToolPhase {
       toolName: entry.ctx.toolName,
       isError: outcome.isError,
       resultSummary,
+      result: base,
     });
     input.callbacks?.onToolEnd?.(entry.ctx.toolName, resultSummary);
   }
