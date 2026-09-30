@@ -1,5 +1,6 @@
 /**
- * LoopEvent —— loop 域事件族（helix-loop L0 批；设计 §3）。
+ * contracts/event —— loop 域事件族（helix-loop Phase 0a 四层拆分；
+ * 原 LoopEvent.ts 全量平移 + LoopTypes 的 LoopEventEmitter 归并，设计 §2.1）。
  *
  * 15 型：pi agent-loop 11 型同构（type 字面量按协议 dot.case 重命名）+
  * 4 扩展（run_paused/run_resumed 暂停原语；run_interrupted/duplex_wake
@@ -9,7 +10,8 @@
  * protocol——形状同构对应是 TR-AD-3 既有模式；装配层单点转换）。流式
  * 中间态（message.delta）不落事件存储（AD-16 同口径），仅实时通道消费。
  */
-import type { LoopMessage, LoopToolCallContext } from "./LoopTypes";
+import type { LoopMessage } from "./message";
+import type { LoopToolCallContext } from "./tool";
 
 /** 轮次终态因（pi turn_end stopReason 投影面）。 */
 export type LoopTurnStopReason = "text" | "toolUse";
@@ -88,6 +90,9 @@ export type LoopEvent =
     }
   /** helix 扩展（L2 双工挂点，L0 只定义）：idle 挂监听态被唤醒。 */
   | { readonly type: "loop.duplex.wake"; readonly source: string };
+
+/** run 运行面事件发射器（LoopEngine → 外部投影的唯一通道）。 */
+export type LoopEventEmitter = (event: LoopEvent) => void;
 
 /** 落事件存储的里程碑子集（流式中间态排除——message.delta/message.started
  *  与 protocol 对齐但不进 domain_events；调用方投影面单点判定）。 */

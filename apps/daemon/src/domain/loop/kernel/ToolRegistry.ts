@@ -1,6 +1,7 @@
 /**
  * ToolRegistry —— loop 域工具注册表（helix-loop L0 批；设计 §5：
  * 「loop 只管编排，执行委派注册表」——CoreToolExecutor E-46 精神的 domain 面）。
+ * Phase 0a 归位 kernel/（原 domain/loop 根级平移，零改动）。
  *
  * 注册与分发同域；注册面与声明面分离：
  * - register：name → handler + schema 投影（LLM function calling 面）；
@@ -10,7 +11,7 @@
  * - dispatch：按名执行 → LoopToolOutcome 归一（异常转 isError result 不抛出
  *   ——调用方决定记录与回注）。
  */
-import type { LoopToolHandler, LoopToolSchema } from "./LoopTypes";
+import type { LoopToolHandler, LoopToolSchema } from "../contracts";
 
 export interface LoopToolRegistration {
   /** 工具名（LLM function calling 名）。 */

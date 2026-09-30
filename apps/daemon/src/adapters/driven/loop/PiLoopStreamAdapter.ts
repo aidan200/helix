@@ -12,7 +12,7 @@
  * 直接消费 streamSimple 事件流），LoopEngine 契约面不动。
  */
 import type { StewardLlmPort } from "../../../application/ports/outbound/StewardLlmPort";
-import type { LoopStreamFn, LoopStreamResult, LoopStreamBlock } from "../../../domain/loop/LoopTypes";
+import type { LoopStreamFn, LoopStreamResult, LoopStreamBlock } from "../../../domain/loop/contracts";
 import type { StewardLlmResponse, StewardLlmBlock } from "../../../application/ports/outbound/StewardLlmPort";
 
 // ── 结构同构编译锚（零运行时成本——形状漂移即编译断） ──────────

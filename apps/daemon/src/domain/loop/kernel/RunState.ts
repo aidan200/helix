@@ -1,0 +1,96 @@
+/**
+ * kernel/RunState —— run 作用域状态与转录装配（helix-loop Phase 0a 四层拆分；
+ * 设计 §2.2：原 LoopEngine 单类五合一拆四件之首）。
+ *
+ * 不变量：transcript 单写者——run 内消息窗口只经 recordMessage 变更
+ * （push + onNewMessage 持久化回调 await 串行保序）；messages 引用稳定
+ * （压缩整窗替换也在同引用上重排）。
+ */
+import type {
+  LoopAbortAudit,
+  LoopCompactionInfo,
+  LoopMessage,
+  LoopMessageSink,
+  LoopPauseDecision,
+  LoopResumeDecision,
+  LoopThinking,
+  LoopToolCallContext,
+  LoopToolSchema,
+} from "../contracts";
+
+/** run 收口判别（对外终态面）。 */
+export type LoopRunResult =
+  /** text 终答（含本轮 thinking 全精度）。 */
+  | { readonly kind: "finished"; readonly text: string; readonly thinking?: LoopThinking }
+  /** 暂停点挂起：resumeWith 决定放行/改参/拒绝/外部已执行（返回续跑 promise——
+   *  续跑可能再次 paused（下一工具又挂闸），递归同构）。 */
+  | {
+      readonly kind: "paused";
+      readonly pauseToken: string;
+      readonly toolCall: { readonly id: string; readonly name: string; readonly args: Record<string, unknown> };
+      readonly resumeWith: (decision: LoopResumeDecision) => Promise<LoopRunResult>;
+    }
+  /** 外部 resume 决策终结（confirm 执行体路径）。 */
+  | { readonly kind: "resolved" }
+  /** 工具轮上限熔断。 */
+  | { readonly kind: "roundLimit"; readonly maxRounds: number }
+  /** 错误收口（LLM 失败 / 工具 terminate / 超限详情文案）。 */
+  | { readonly kind: "error"; readonly message: string }
+  /** signal abort（新 ask 取代类）——E-198 partial 保留：安全块已入账 +
+   *  截断标记；半截 text 入账（G1：partialText 并入尾批文本），半截
+   *  thinking/toolCall 丢弃（audit = I6 审计摘要，无入账且无丢弃时缺席）。 */
+  | { readonly kind: "aborted"; readonly audit?: LoopAbortAudit };
+
+/** startRun 返回句柄。 */
+export interface LoopRunHandle {
+  readonly runId: string;
+  readonly promise: Promise<LoopRunResult>;
+}
+
+/** run 内可变状态（暂停后跨 resume 续跑保持；messages 引用稳定——压缩
+ *  整窗替换也在同引用上重排）。 */
+export interface RunState {
+  readonly runId: string;
+  messages: LoopMessage[];
+  turn: number;
+  rounds: number;
+}
+
+/** 过程可见回调面（与 StewardAskEvents 等价——屏幕通道）。 */
+export interface LoopRunCallbacks {
+  readonly onDelta?: (chunk: string) => void;
+  readonly onThinking?: (block: string) => void;
+  readonly onToolStart?: (name: string, argsSummary: string) => void;
+  readonly onToolEnd?: (name: string, resultSummary: string) => void;
+}
+
+/** run 装配输入（LoopEngine.startRun 单点入口）。 */
+export interface LoopRunInput {
+  readonly systemPrompt: string;
+  /** 初始消息窗口（调用方事实源重建——管家 = buildLlmWindow(dialog.snapshot())）。 */
+  readonly messages: readonly LoopMessage[];
+  /** LLM 工具面投影（ToolRegistry.llmTools()——注册面与声明面分离）。 */
+  readonly tools: readonly LoopToolSchema[];
+  /** 工具轮上限（成本护栏：超限熔断，不无限循环）。 */
+  readonly maxRounds: number;
+  /** abort 信号（只作用于 LLM 流式段；工具执行段不打断——duplex §6.2）。 */
+  readonly signal?: AbortSignal;
+  /** 暂停挂钩（write 类工具挂闸的判定面；缺席 = 无暂停点）。 */
+  readonly beforeToolCallPause?: (context: LoopToolCallContext) => Promise<LoopPauseDecision>;
+  /** 新消息持久化回调（assistant 终态/toolResult——await 串行保序）。 */
+  readonly onNewMessage?: LoopMessageSink;
+  /** L1 件一：压缩完成回调（事实源整窗替换——摘要入账 + 尾部保留）。 */
+  readonly onCompacted?: (info: LoopCompactionInfo) => Promise<void>;
+  /** 过程可见回调（屏幕通道等价面）。 */
+  readonly callbacks?: LoopRunCallbacks;
+  /** run 首条 prompt 摘要（run.started 事件检索面）。 */
+  readonly promptSummary?: string;
+}
+
+/** 新消息入窗口 + 持久化回调（await 串行保序——调用方事实源同步面）。
+ *  transcript 单写者唯一入口：kernel/ToolPhase/AbortSettler 一律经此变更
+ *  run 消息窗口（policy 压缩步的整窗替换是唯一例外——同引用重排）。 */
+export async function recordMessage(state: RunState, input: LoopRunInput, message: LoopMessage): Promise<void> {
+  state.messages.push(message);
+  await input.onNewMessage?.(message);
+}
