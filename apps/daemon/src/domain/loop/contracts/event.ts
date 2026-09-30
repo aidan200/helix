@@ -41,6 +41,9 @@ export type LoopEvent =
       readonly toolCallId: string;
       readonly toolName: string;
       readonly argsSummary: string;
+      /** 调用参数全对象（Phase 5 additive：AgentEnginePort tool_execution_start.args
+       *  投影源——argsSummary 是 200 字截断展示面，不解回；缺席 = 未知来源防御）。 */
+      readonly args?: Record<string, unknown>;
     }
   /** pi tool_execution_update 同构（L0 顺序执行面不发射；协议对齐占位）。 */
   | { readonly type: "loop.tool.progress"; readonly runId: string; readonly toolCallId: string; readonly partial: string }
@@ -52,6 +55,9 @@ export type LoopEvent =
       readonly toolName: string;
       readonly isError: boolean;
       readonly resultSummary: string;
+      /** 结果全文（Phase 5 additive：AgentEnginePort tool_execution_end.result
+       *  投影源——resultSummary 是 200 字截断展示面；合成/未知路径可缺席）。 */
+      readonly result?: string;
     }
   /** pi turn_end 同构（轮终态 + 本轮工具名清单）。 */
   | {

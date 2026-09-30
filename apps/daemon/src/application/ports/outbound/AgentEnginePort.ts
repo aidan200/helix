@@ -97,6 +97,21 @@ export type AgentEngineEvent =
   | { readonly type: "engine_error"; readonly message: string }
   | {
       /**
+       * run 挂闸暂停（helix-loop 通道 additive，设计 §7.4；Phase 5）：
+       * beforeToolCallPause 挂闸即发——消费方经 AgentEnginePort.resume 可选位
+       * 提交决策续跑。pi 适配器缺席该面（主链路 permission_request 行为
+       * 按引擎能力降级——现状异步审批工具不变）。
+       */
+      readonly type: "engine_paused";
+      /** 暂停凭据（resume 面入参）。 */
+      readonly pauseToken: string;
+      readonly toolCallId: string;
+      readonly toolName: string;
+      /** 挂闸调用参数 JSON 摘要（审批提示展示面）。 */
+      readonly argsSummary: string;
+    }
+  | {
+      /**
        * LLM 调用瞬时失败进入退避重试（P2 ⑦，网络重试批）：等待期可观测事件
        * ——chat 状态行「网络重试中第 N/3 次」数据源；退避耗尽仍走既有
        * engine_error 语义，本事件不改变任何收口语义。
@@ -164,7 +179,22 @@ export interface AgentEnginePort {
    * 广播数据源）。未实现/引擎未装解析链 → undefined（调用方 additive 缺省）。
    */
   currentThinking?(): AgentThinkingState;
+  /**
+   * 暂停恢复面（helix-loop 通道 additive 可选位，设计 §7.4；Phase 5）：
+   * engine_paused 后按 pauseToken 提交决策续跑（approve/approveWith/reject/
+   * resolve 四态）；缺省实现（pi 引擎）无暂停面。aborted 后调用幂等无副作用
+   * （kernel D5 惰性化承接）。
+   */
+  resume?(pauseToken: string, decision: EngineResumeDecision): Promise<void>;
 }
+
+/** 暂停恢复决策（loop 域 LoopResumeDecision 的 port 镜像——四态同构，
+ *  AG-01 纯类型；loop 适配器单点映射 domain 判别）。 */
+export type EngineResumeDecision =
+  | { readonly kind: "approve" }
+  | { readonly kind: "approveWith"; readonly args: Record<string, unknown> }
+  | { readonly kind: "reject"; readonly text: string }
+  | { readonly kind: "resolve"; readonly text: string; readonly isError?: boolean };
 
 /** thinking 覆盖/生效双位（契约 ① ThinkingChangedPayload 的 port 镜像；null = 无覆盖/全链不支持）。 */
 export interface AgentThinkingState {
