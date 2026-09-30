@@ -92,16 +92,29 @@ export class LoopKernel {
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
         return { kind: "aborted" };
       }
-      // L1 件一：轮边界压缩检查（上轮结束→本轮 streamFn 前；首轮前同查——
-      // 工作记忆跨 run 持久时首请求即需瘦身）。失败不抛（优化非依赖）。
-      await this.compactStep?.(state, input);
+      // 轮首序（R7.4 定稿）：abort 检查 → rounds 熔断 → 压缩 → turn.started →
+      // drain+注入 → streamFn。熔断先于压缩与 drain：roundLimit 收口时队列
+      // 零消费零压缩（G-G——drain 先于检查会在熔断收口时丢失已取走未注入
+      // 的消息；压缩先于检查会在已注定收口的轮上浪费一次整窗替换）。
       state.rounds += 1;
       if (state.rounds > input.maxRounds) {
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "roundLimit" });
         return { kind: "roundLimit", maxRounds: input.maxRounds };
       }
+      // L1 件一：轮边界压缩检查（上轮结束→本轮 streamFn 前；首轮前同查——
+      // 工作记忆跨 run 持久时首请求即需瘦身）。失败不抛（优化非依赖）。
+      // 压缩先于 drain（R2.8）：drain 到的消息在压缩之后取走——永不被该次
+      // 压缩裁掉（消息在注入前不进窗口）。
+      await this.compactStep?.(state, input);
       state.turn += 1;
       this.emit({ type: "loop.turn.started", runId: state.runId, turn: state.turn });
+      // steer 注入（R2.2 注入位：turn.started 后、streamFn 前；入账经
+      // recordMessage 单写面——onNewMessage 同源；注入位恒在批 toolResult
+      // 之后 R2.4）。
+      if (input.drainSteering !== undefined) {
+        const steering = input.drainSteering();
+        if (steering !== undefined) await recordMessage(state, input, steering);
+      }
       this.emit({ type: "loop.message.started", runId: state.runId, turn: state.turn });
 
       let response: Awaited<ReturnType<LoopStreamFn>>;
@@ -159,6 +172,10 @@ export class LoopKernel {
         const assistant: LoopMessage = { role: "assistant", content: response.blocks };
         await recordMessage(state, input, assistant);
         this.emit({ type: "loop.turn.finished", runId: state.runId, turn: state.turn, stopReason: "text", tools: [] });
+        // R2.5：终答轮后 steer 队列非空 → run 不收口，继续新 turn 消费
+        // （pi 判例 agent-loop.js:90+187：while(hasMoreToolCalls ‖ pendingMessages)）。
+        // 取走仍在轮首单 drain 点（R2.3 简化）——本处仅探测不消费。
+        if (input.hasSteering?.() === true) continue;
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "answer" });
         return { kind: "finished", blocks: response.blocks };
       }
