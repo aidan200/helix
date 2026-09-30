@@ -28,7 +28,7 @@ import { SubAgentCodeReviewerProfile } from "../../src/adapters/driven/pi-engine
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { CdpConnectionManager } from "../../src/adapters/driven/cdp/CdpConnectionManager";
-import { buildModels } from "../../src/adapters/driven/pi-engine/model-provider";
+import { buildModels } from "../../src/adapters/driven/llm";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import type { DaemonScript, DaemonScriptEntry, SubagentScript, OrchestratorScript, OrchestratorScriptEntry } from "../../../../e2e/harness/daemon-script";

@@ -24,7 +24,7 @@
  */
 import type { Model } from "@earendil-works/pi-ai";
 import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
-import { supportsThinkingLevel } from "../../pi-engine/model-provider";
+import { supportsThinkingLevel } from "../../llm";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
 import { readSandboxRuntime } from "../../tools/sandboxSetup";

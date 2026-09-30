@@ -2,8 +2,8 @@ import type { AgentProfile } from "../AgentProfile";
 import { DEFAULT_COMPACTION } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
-import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
-import { loadPrompt } from "../prompts";
+import { BRIEF_ASSEMBLY_GUIDE } from "../../../engine-shared";
+import { loadPrompt } from "../../../engine-shared";
 
 /**
  * 主会话 profile（architecture.md §4.4「实例化」）。

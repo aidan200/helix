@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
-import { buildModels, resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
+import { buildModels, resolveConfigModel } from "../../src/adapters/driven/llm";
 import { createAssistantMessageEventStream, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";

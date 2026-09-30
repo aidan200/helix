@@ -19,8 +19,8 @@ import type {
  * 304 只更新 checkedAt、404/501 清 etag、瞬时失败保缓存、mergeModels 同 id
  * 替换新 id 追加、localGeneratedAt 防降级、models-store.json 落盘兜底）。
  *
- * 【pi-ai import 域】本文件在 driven/pi-engine（TR-AD-7 三域内合法；
- * AG-04 守护）；对 application 只暴露 ModelCatalogPort（类型镜像）。
+ * 【pi-ai import 域】本文件在 driven/llm（AG-04 白名单根内合法；
+ * AG-04 守护——Phase 0b 自 pi-engine 拆出）；对 application 只暴露 ModelCatalogPort（类型镜像）。
  *
  * 【缓存口径】catalog() = 读面 + 过期**后台**刷新（>4h 对 pi.dev 条件请求，
  * fire-and-forget 不阻塞读面——2026-09-13 事故：两个慢 provider 响应挂起

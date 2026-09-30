@@ -10,7 +10,7 @@ import {
   parseCatalog,
   type CatalogFetch,
   type OverlayEntry,
-} from "../../src/adapters/driven/pi-engine/model-catalog";
+} from "../../src/adapters/driven/llm";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type { Model } from "@earendil-works/pi-ai";
 

@@ -1,12 +1,12 @@
 import path from "node:path";
 
-import disciplineEngineering from "../../../../../resources/prompts/disciplines/engineering.md" with { type: "text" };
-import disciplineKnowledgeCore from "../../../../../resources/prompts/disciplines/knowledge-core.md" with { type: "text" };
-import roleMainSession from "../../../../../resources/prompts/roles/main-session.md" with { type: "text" };
-import roleOrchestrator from "../../../../../resources/prompts/roles/orchestrator.md" with { type: "text" };
-import roleSubagentCodeReviewer from "../../../../../resources/prompts/roles/subagent-code-reviewer.md" with { type: "text" };
-import roleSubagentKgWriter from "../../../../../resources/prompts/roles/subagent-kg-writer.md" with { type: "text" };
-import roleSubagentWorker from "../../../../../resources/prompts/roles/subagent-worker.md" with { type: "text" };
+import disciplineEngineering from "../../../../resources/prompts/disciplines/engineering.md" with { type: "text" };
+import disciplineKnowledgeCore from "../../../../resources/prompts/disciplines/knowledge-core.md" with { type: "text" };
+import roleMainSession from "../../../../resources/prompts/roles/main-session.md" with { type: "text" };
+import roleOrchestrator from "../../../../resources/prompts/roles/orchestrator.md" with { type: "text" };
+import roleSubagentCodeReviewer from "../../../../resources/prompts/roles/subagent-code-reviewer.md" with { type: "text" };
+import roleSubagentKgWriter from "../../../../resources/prompts/roles/subagent-kg-writer.md" with { type: "text" };
+import roleSubagentWorker from "../../../../resources/prompts/roles/subagent-worker.md" with { type: "text" };
 
 /**
  * 提示词资源装载器（prompts-as-resources：提示词正文唯一事实源 =
@@ -28,7 +28,7 @@ import roleSubagentWorker from "../../../../../resources/prompts/roles/subagent-
 
 /** 随仓提示词目录（fs 面，仅供契约测试/开发期枚举用——运行时装载不走 fs）。 */
 export function builtinPromptsDir(): string {
-  return path.join(import.meta.dir, "..", "..", "..", "..", "..", "resources", "prompts");
+  return path.join(import.meta.dir, "..", "..", "..", "..", "resources", "prompts");
 }
 
 /** 嵌入清单：相对路径（相对 resources/prompts/）→ md 全文（静态 text import）。 */

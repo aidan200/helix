@@ -5,7 +5,7 @@ import { ORCHESTRATOR_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/
 import {
   PLAN_HARD_CONSTRAINT_SEGMENT,
   TEMPLATE_HARD_CONSTRAINTS,
-} from "../../src/adapters/driven/pi-engine/runtime/templates/catalog";
+} from "../../src/adapters/driven/engine-shared/templates/catalog";
 
 /**
  * W3-G 知识纪律 SOP 正向契约（kg-driven-dev-loop 设计 R11 软硬分层 + R23

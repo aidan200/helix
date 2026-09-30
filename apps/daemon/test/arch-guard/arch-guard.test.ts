@@ -155,6 +155,11 @@ describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/suba
       // 自 steward/ 平移——设计 §2：adapters/driven/loop/ ← pi-ai 唯一 import
       // 执行点，L3 替换后其余 pi import 面退役收敛于此）
       path.join("adapters", "driven", "loop"),
+      // Phase 0b（pi-engine 拆分）：llm/ 是 pi-ai 栈引擎中立层（streamFn 工厂/
+      // 网络重试/thinking 解析/模型目录/自定义 provider——设计 §7.1 自 pi-engine
+      // 平移）；agent-loop 替换时永存，TR-AD-7「pi import 只在 driven 域」
+      // 语义不变，白名单新增 driven 根。
+      path.join("adapters", "driven", "llm"),
     ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));
@@ -397,14 +402,15 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
       }
       if (/renameSync/.test(src)) {
         // T2.3（AD-2）：原子替换写新增两合法面——auth.json（infrastructure/
-        // auth-store.ts，0600+锁）与 models-store.json（pi-engine/model-
-        // catalog.ts 落盘兑底）；SQLite reportFile 原子写仍只允许 WriteQueue。
+        // auth-store.ts，0600+锁）与 models-store.json（llm/model-catalog.ts
+        // 落盘兑底，Phase 0b 自 pi-engine/model-catalog.ts 平移）；SQLite
+        // reportFile 原子写仍只允许 WriteQueue。
         // code-review M28 新增第三合法面：config.json（infrastructure/
         // config.ts tmp+rename 原子写——崩溃窗口不留半截配置）。
         // sandbox 开关批：bootPrelude 迁移面（sandbox.json → .migrated 改名
         // 保留退路——一次性迁移语义，非状态写面）。
         const isAuthStore = rel === path.join("infrastructure", "auth-store.ts");
-        const isModelCatalog = rel === path.join("adapters", "driven", "pi-engine", "model-catalog.ts");
+        const isModelCatalog = rel === path.join("adapters", "driven", "llm", "model-catalog.ts");
         const isConfig = rel === path.join("infrastructure", "config.ts");
         const isBootPrelude = rel === path.join("infrastructure", "assembly", "bootPrelude.ts");
         expect(
@@ -532,21 +538,35 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
 
 describe("AG-10 + TP-CL4-3：runtime 无编排模式分支", () => {
   const modeWords = /\b(main-session|subagent|phase|kg)\b/i;
+  // W1b（pi-engine 拆分）：templates/ 与 prompts.ts 平移至 engine-shared/
+  //（纯声明与资产，零 pi import）——模式词扫描根随迁：豁免口径不变
+  //（声明数据豁免；validate.ts 是逻辑源码不豁免、仍受扫描）。
+  /** 扫描根 → 声明数据豁免筛选（返回 true = 豁免不扫）。 */
+  const logicRoots: readonly (readonly [readonly string[], (rel: string) => boolean])[] = [
+    // 防腐墙驱动面（AgentRuntime/HookSet/hooks 是逻辑源码，全扫；
+    // profiles/ 是声明数据豁免）。
+    [["adapters", "driven", "pi-engine", "runtime"], (rel) => rel.startsWith(path.join("profiles"))],
+    // 引擎中立声明面：prompts.ts 与 templates/（除 validate.ts）是声明数据
+    // 豁免——T4.2（AD-18）场景定名/段名是架构定名，模式词合法出现在声明
+    // 数据；prompts.ts 的 EMBEDDED_PROMPTS 清单同口径（loadPrompt 逻辑面是
+    // 通用「路径→文本」查表，零模式分支）。
+    [
+      ["adapters", "driven", "engine-shared"],
+      (rel) =>
+        rel === "prompts.ts" ||
+        (rel.startsWith(path.join("templates")) && !rel.endsWith("validate.ts")),
+    ],
+  ];
   test("runtime 逻辑源码（含 hooks/）不含模式标识符", () => {
-    const files = listFiles(path.join(srcRoot, "adapters", "driven", "pi-engine", "runtime"))
-      .filter((rel) => !rel.startsWith(path.join("profiles")))
-      // T4.2（AD-18）：templates/ 为提示词资产（段库目录/装配指引，与 profiles
-      // 同域纯声明数据）——场景定名 kg-change-report / 段名「kg 约束切片」为
-      // 架构定名，模式词合法出现在声明数据（同 profiles 豁免口径）；
-      // validate.ts 为逻辑源码，不豁免、仍受扫描。
-      .filter((rel) => !(rel.startsWith(path.join("templates")) && !rel.endsWith("validate.ts")))
-      // prompts.ts：提示词资源装载器——模式词只以 profiles 声明的 md 资源路径
-      // 字面量出现在静态嵌入清单（EMBEDDED_PROMPTS，声明数据，profiles/templates
-      // 同口径）；loadPrompt 逻辑面是通用「路径→文本」查表，零模式分支，故豁免。
-      .filter((rel) => rel !== "prompts.ts");
-    for (const rel of files) {
-      const src = read(path.join("adapters", "driven", "pi-engine", "runtime", rel));
-      expect(src.match(modeWords), `runtime/${rel} 出现编排模式词：${src.match(modeWords)?.[0]}`).toBeNull();
+    for (const [rootParts, skip] of logicRoots) {
+      const files = listFiles(path.join(srcRoot, ...rootParts)).filter((rel) => !skip(rel));
+      for (const rel of files) {
+        const src = read(path.join(...rootParts, rel));
+        expect(
+          src.match(modeWords),
+          `${path.join(...rootParts, rel)} 出现编排模式词：${src.match(modeWords)?.[0]}`,
+        ).toBeNull();
+      }
     }
   });
   test("runtime/profiles/ 为纯声明式（无函数/分支）——模式词只允许出现在声明数据里", () => {

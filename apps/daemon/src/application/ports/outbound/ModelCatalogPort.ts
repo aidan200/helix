@@ -1,7 +1,7 @@
 /**
  * 目录拉取出站端口（outbound，TR-AD-2：outbound = 目录拉取 / auth.json /
  * 默认模型存储）。pi.dev overlay 拉取 + builtin 静态表合并的实现体在
- * driven（adapters/driven/pi-engine/model-catalog.ts——pi-ai import 只允许
+ * driven（adapters/driven/llm/model-catalog.ts——pi-ai import 只允许
  * 出现在 driven 域，AG-04）；本文件只登记 application 消费面
  * （类型镜像，不 import 协议包——port 铁律 AG-01）。
  */

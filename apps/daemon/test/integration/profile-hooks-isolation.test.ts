@@ -5,7 +5,7 @@ import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "../../src/adapters/driven/pi-engine/runtime/AgentRuntime";
 import type { HookSet, SteerCapable } from "../../src/adapters/driven/pi-engine/runtime/HookSet";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
-import { buildModels } from "../../src/adapters/driven/pi-engine/model-provider";
+import { buildModels } from "../../src/adapters/driven/llm";
 
 /**
  * T1（P0）：SteerHooks 跨会话串台回归测试。

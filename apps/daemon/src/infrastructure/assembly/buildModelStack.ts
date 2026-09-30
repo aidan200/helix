@@ -2,12 +2,12 @@ import type { Logger } from "../logging";
 import type { HelixPaths } from "../paths";
 import type { RuntimeConfigPort } from "../../application/ports/outbound/RuntimeConfigPort";
 import { AuthStore } from "../auth-store";
-import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
+import { ModelCatalog } from "../../adapters/driven/llm";
 import {
   CustomProviderRegistry,
   createModelsBase,
   registerCustomProviders,
-} from "../../adapters/driven/pi-engine/custom-providers";
+} from "../../adapters/driven/llm";
 import { parseCustomProviders, CUSTOM_PROVIDERS_KEY } from "../../application/services/CustomProviderService";
 
 /**

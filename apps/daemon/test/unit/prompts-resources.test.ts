@@ -4,7 +4,7 @@ import path from "node:path";
 import { MAIN_SESSION_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SUBAGENT_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { ORCHESTRATOR_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
-import { builtinPromptsDir } from "../../src/adapters/driven/pi-engine/runtime/prompts";
+import { builtinPromptsDir } from "../../src/adapters/driven/engine-shared/prompts";
 
 /**
  * prompts-as-resources 契约（提示词树形分层重构，批一）：

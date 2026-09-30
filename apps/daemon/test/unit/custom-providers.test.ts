@@ -5,9 +5,9 @@ import {
   buildCustomProvider,
   CustomProviderRegistry,
   registerCustomProviders,
-} from "../../src/adapters/driven/pi-engine/custom-providers";
-import { ModelCatalog } from "../../src/adapters/driven/pi-engine/model-catalog";
-import { resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
+} from "../../src/adapters/driven/llm/custom-providers";
+import { ModelCatalog } from "../../src/adapters/driven/llm/model-catalog";
+import { resolveConfigModel } from "../../src/adapters/driven/llm/model-provider";
 import type { CustomProviderDef } from "../../src/application/ports/outbound/CustomProviderPort";
 import {
   CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,

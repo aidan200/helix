@@ -7,7 +7,7 @@ import {
   resolveModel,
   supportsThinkingLevel,
   wrapStreamFnThinking,
-} from "../../src/adapters/driven/pi-engine/model-provider";
+} from "../../src/adapters/driven/llm/model-provider";
 import type { Model, Models } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 
@@ -20,7 +20,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
  */
 
 const providerSrc = readFileSync(
-  new URL("../../src/adapters/driven/pi-engine/model-provider.ts", import.meta.url),
+  new URL("../../src/adapters/driven/llm/model-provider.ts", import.meta.url),
   "utf8",
 );
 

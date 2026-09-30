@@ -16,9 +16,9 @@ import type { SchedulerService } from "../../application/services/scheduler/Sche
 import type { ResourceService } from "../../application/services/ResourceService";
 import type { WorkspaceService } from "../../application/services/workspace/WorkspaceService";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
-import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
+import { resolveConfigModel } from "../../adapters/driven/llm";
 import { scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
-import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../../adapters/driven/pi-engine/runtime/templates/catalog";
+import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../../adapters/driven/engine-shared";
 import { createOrchestratorSessionFactory } from "./orchestrator-runtime";
 import type { TaskStack } from "./buildTaskStack";
 import type { PersistenceStack } from "./buildPersistence";

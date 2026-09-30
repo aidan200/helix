@@ -30,7 +30,7 @@
  * application 层只见 StewardLlmPort 窄面——pi-ai 类型不越墙）。
  */
 import type { AssistantMessage, Models, Model, Context, JsonObject, Message, Tool, ThinkingLevel } from "@earendil-works/pi-ai";
-import { resolveModel } from "../pi-engine/model-provider";
+import { resolveModel } from "../llm";
 import type {
   StewardLlmPort,
   StewardLlmRequest,

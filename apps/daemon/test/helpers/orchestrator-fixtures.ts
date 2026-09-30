@@ -15,7 +15,7 @@ import { FakeTaskSkillRegistry, counterClock, childLedger } from "./task-fixture
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { OrchestratorProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
-import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../../src/adapters/driven/pi-engine/runtime/templates/catalog";
+import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../../src/adapters/driven/engine-shared/templates/catalog";
 import type { SpawnOutcome, AgentOrchestrationPort } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import type { TaskEnginePort } from "../../src/application/ports/inbound/TaskEnginePort";
 import type { WorkLedger } from "../../src/adapters/driven/sqlite-session/WorkLedger";
