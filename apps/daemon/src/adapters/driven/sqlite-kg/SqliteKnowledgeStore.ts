@@ -267,6 +267,27 @@ export class SqliteKnowledgeStore {
       "INSERT INTO nodes (id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(replacementId, draft.kind, draft.name, draft.digest, draft.scene ?? "", draft.body ?? "", draft.domain ?? null, draft.layer ?? null, op.originBatchId ?? null, draft.status ?? "draft", now, now);
+    // P4b 锚继承（锚债不随链遗传）：replacement 草稿无自有锚声明面（NodeDraft
+    // 无 anchors 字段），被推翻节点锚声明全集拷贝（TR-150：全集拷贝非增量）。
+    // 锚若已失效（符号消亡类推翻），继承后 sync 会打 orphan 信号归漏斗处置
+    // ——可见信号优于隐性缺锚（锚债的识别成本 > 复位成本）。
+    const inherited = db
+      .prepare(
+        "INSERT INTO anchor_decl (node_id, scope_kind, pattern) " +
+          "SELECT ?, scope_kind, pattern FROM anchor_decl WHERE node_id = ?",
+      )
+      .run(replacementId, op.nodeId);
+    if (inherited.changes > 0) {
+      this.appendChangeLog(
+        db,
+        op.iterationId,
+        "declareAnchors",
+        replacementId,
+        op.nodeId,
+        `auto: 继承被推翻节点 ${op.nodeId} 锚声明全集（锚债不随链遗传）`,
+        op.taskId,
+      );
+    }
     this.appendChangeLog(db, op.iterationId, "createNode", replacementId, op.nodeId, op.reason, op.taskId);
     return { ok: true, nodeId: replacementId };
   }
@@ -377,8 +398,8 @@ export class SqliteKnowledgeStore {
     // 面；候选序号随行发号不受影响。
     const body = appendDedupNotes(db, op.title, op.targetNode, op.body ?? "");
     db.prepare(
-      "INSERT INTO candidates (id, kind, title, body, status, source_task_id, source_iteration_id, target_node, created_at) " +
-        "VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+      "INSERT INTO candidates (id, kind, title, body, status, source_task_id, source_iteration_id, target_node, anchors_json, created_at) " +
+        "VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
     ).run(
       id,
       op.candidateKind,
@@ -387,6 +408,8 @@ export class SqliteKnowledgeStore {
       op.sourceTaskId ?? null,
       op.sourceIterationId ?? null,
       op.targetNode ?? null,
+      // P4a 建议锚：结构化随行存储（形态已在 KgWriteService 锚词表校验）
+      op.anchors !== undefined ? JSON.stringify(op.anchors) : null,
       isoNow(),
     );
     this.appendChangeLog(db, op.iterationId, "proposeCandidate", id, null, null, op.taskId);
@@ -435,8 +458,48 @@ export class SqliteKnowledgeStore {
       "UPDATE candidates SET status = ?, decided_at = ?, decision_reason = ?, formal_id = COALESCE(?, formal_id), " +
         "applied_node_id = COALESCE(?, applied_node_id) WHERE id = ?",
     ).run(decision, isoNow(), op.reason ?? null, op.formalId ?? null, op.appliedNodeId ?? null, op.candidateId);
+    // P4a 建议锚落地（fill-if-empty）：applied + appliedNodeId + 候选携建议锚
+    // + 目标节点存在且零锚声明 → 机械落地为初始全集声明（TR-150：零声明节点
+    // 初始全集非增量；显式声明优先永不覆盖——节点已有声明 = 建档方已表态）。
+    // 目标节点不存在：锚不落地（候选指针语义不变），warning 上浮供裁决者回看。
+    if (decision === "applied" && op.appliedNodeId !== undefined && current.anchors_json !== null) {
+      const anchorWarning = this.fillCandidateAnchors(db, op, current.anchors_json);
+      if (anchorWarning !== null) return { ok: true, nodeId: op.candidateId, warning: anchorWarning };
+    }
     this.appendChangeLog(db, op.iterationId, "decideCandidate", op.candidateId, null, op.reason ?? null, op.taskId);
     return { ok: true, nodeId: op.candidateId };
+  }
+
+  /** 候选建议锚落地（P4a fill-if-empty）：返回 warning 字符串（未落地原因）或 null。 */
+  private fillCandidateAnchors(
+    db: Database,
+    op: KnowledgeWriteOp & { kind: "decideCandidate" },
+    anchorsJson: string,
+  ): string | null {
+    if (!this.nodeExists(db, op.appliedNodeId!)) {
+      return `候选建议锚未落地：appliedNodeId ${op.appliedNodeId!} 不存在（锚随候选行保留不丢失）`;
+    }
+    const existing = (db.prepare("SELECT COUNT(*) AS n FROM anchor_decl WHERE node_id = ?").get(op.appliedNodeId!) as { n: number }).n;
+    if (existing > 0) return null; // 显式声明优先——静默让位非警告面
+    let anchors: readonly { scopeKind: string; pattern?: string }[];
+    try {
+      anchors = JSON.parse(anchorsJson) as { scopeKind: string; pattern?: string }[];
+    } catch {
+      return `候选建议锚未落地：anchors_json 解析失败（数据异常，候选本体不受影响）`;
+    }
+    if (!Array.isArray(anchors) || anchors.length === 0) return null;
+    const insert = db.prepare("INSERT INTO anchor_decl (node_id, scope_kind, pattern) VALUES (?, ?, ?)");
+    for (const anchor of anchors) insert.run(op.appliedNodeId!, anchor.scopeKind, anchor.pattern ?? "");
+    this.appendChangeLog(
+      db,
+      op.iterationId,
+      "declareAnchors",
+      op.appliedNodeId!,
+      op.candidateId,
+      `auto: 候选 ${op.candidateId} 建议锚落地（applied 时空节点初始全集声明）`,
+      op.taskId,
+    );
+    return null;
   }
 
   /**
@@ -680,7 +743,7 @@ export class SqliteKnowledgeStore {
   }
 
   private loadCandidate(db: Database, id: string): CandidateDbRow | null {
-    return (db.prepare("SELECT id, status, defer_age FROM candidates WHERE id = ?").get(id) as CandidateDbRow | null);
+    return (db.prepare("SELECT id, status, defer_age, anchors_json FROM candidates WHERE id = ?").get(id) as CandidateDbRow | null);
   }
 
   private loadNode(db: Database, id: string): NodeRow | null {
@@ -723,6 +786,7 @@ interface CandidateDbRow {
   source_iteration_id: string | null;
   defer_age: number;
   target_node: string | null;
+  anchors_json: string | null;
   created_at: string;
   decided_at: string | null;
   decision_reason: string | null;

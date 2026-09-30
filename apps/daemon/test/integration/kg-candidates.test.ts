@@ -498,3 +498,93 @@ describe("⑥ P2 机械查重附注（proposeCandidate 落库前——同名节�
     expect(rows(f.root)[0]!.body).toBe("纯正文");
   });
 });
+
+describe("⑦ 候选建议锚通道（P4a：候选行携带 anchors → applied 时空节点初始全集声明）", () => {
+  const anchors = [
+    { scopeKind: "symbol", pattern: "apps/daemon/src/foo.ts#bar" },
+    { scopeKind: "path", pattern: "apps/daemon/src/foo.ts" },
+  ];
+
+  test("propose 带 anchors → anchors_json 落行（结构化存储）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    expectOk(f.write.write(f.root, propose("带锚候选", { anchors })));
+    const stored = probe<{ anchors_json: string | null }>(f.root, "SELECT anchors_json FROM candidates")[0]!;
+    const parsed = JSON.parse(stored.anchors_json ?? "null") as { scopeKind: string; pattern?: string }[];
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0]!.pattern).toBe("apps/daemon/src/foo.ts#bar");
+  });
+
+  test("applied(appliedNodeId) + 目标节点零声明 → 锚落地 + declareAnchors 审计行（auto: 前缀）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    const node = f.write.write(f.root, {
+      kind: "createNode",
+      iterationId: "iter-cand",
+      draft: { kind: "entity", name: "带锚候选目标", digest: "d", scene: "本规则适用于：测试前" },
+    });
+    expect(node.ok).toBe(true);
+    const nodeId: string = node.ok ? (node.nodeId ?? "") : "";
+    expectOk(f.write.write(f.root, propose("带锚候选二", { anchors })));
+    expectOk(f.write.write(f.root, decide("CAND-1", "applied", { appliedNodeId: nodeId, reason: "采纳" })));
+    const decls = probe<{ scope_kind: string; pattern: string }>(
+      f.root,
+      "SELECT scope_kind, pattern FROM anchor_decl WHERE node_id = ? ORDER BY pattern",
+      nodeId,
+    );
+    expect(decls).toHaveLength(2); // 初始全集声明（TR-150：零声明节点初始全集，非增量陷阱）
+    const audit = probe<{ op: string; reason: string | null }>(
+      f.root,
+      "SELECT op, reason FROM change_log WHERE op = 'declareAnchors' AND node_id = ?",
+      nodeId,
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.reason).toStartWith("auto:");
+  });
+
+  test("目标节点已有声明 → 不覆盖（显式声明优先，fill-if-empty）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    const node = f.write.write(f.root, {
+      kind: "createNode",
+      iterationId: "iter-cand",
+      draft: { kind: "entity", name: "显式锚节点", digest: "d", scene: "本规则适用于：测试前" },
+    });
+    expect(node.ok).toBe(true);
+    const nodeId: string = node.ok ? (node.nodeId ?? "") : "";
+    // 显式声明先行（createNode op 级不带锚——锚经 declareAnchors 独立声明，工具层组合）
+    expectOk(
+      f.write.write(f.root, {
+        kind: "declareAnchors",
+        iterationId: "iter-cand",
+        nodeId,
+        anchors: [{ scopeKind: "path", pattern: "apps/daemon/src/explicit.ts" }],
+      }),
+    );
+    expectOk(f.write.write(f.root, propose("带锚候选三", { anchors })));
+    expectOk(f.write.write(f.root, decide("CAND-1", "applied", { appliedNodeId: nodeId, reason: "采纳" })));
+    const decls = probe<{ pattern: string }>(f.root, "SELECT pattern FROM anchor_decl WHERE node_id = ?", nodeId);
+    expect(decls).toHaveLength(1);
+    expect(decls[0]!.pattern).toBe("apps/daemon/src/explicit.ts"); // 显式全集未被候选锚覆盖
+  });
+
+  test("applied 无 appliedNodeId → 锚不落地不报错（候选指针语义不变）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    expectOk(f.write.write(f.root, propose("带锚候选四", { anchors })));
+    expectOk(f.write.write(f.root, decide("CAND-1", "applied", { reason: "采纳（节点另行建立）" })));
+    expect(probe<{}>(f.root, "SELECT 1 FROM anchor_decl")).toHaveLength(0);
+  });
+
+  test("anchors 形态非法 → KG_E_SCHEMA 零落库（复用 validateAnchorDeclarations 词表）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    const bad = f.write.write(
+      f.root,
+      propose("非法锚候选", { anchors: [{ scopeKind: "bogus" }] }),
+    );
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.code).toBe("KG_E_SCHEMA");
+    expect(rows(f.root)).toHaveLength(0);
+  });
+});

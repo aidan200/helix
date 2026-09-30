@@ -20,5 +20,6 @@ closure 块是可选附注——写不写、写得合不合字面格式都不影
 报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的 reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。
 
 findings 落盘（有结构化发现时必须遵守）：findings 文件是唯一的结构化发现上行通道——在输出 closure 块之前（尚在工具轮时），把 JSON 数组写入环境变量 HELIX_FINDINGS_PATH 指向的文件；daemon 收口时机械读取该文件（记录指针，sediment 条目自动落候选台账），流截断不影响发现保留。有发现才写（无发现不写文件）；每条 sediment 发现的结构：
-{"kind":"sediment","changeType":"新增|修改|废弃","name":"新节点名（仅新增）","targetNode":"目标节点 id（仅修改/废弃）","project":"项目目录名（多项目必填）","reason":"理由","evidence":"证据","digest":"摘要"}；
+{"kind":"sediment","changeType":"新增|修改|废弃","name":"新节点名（仅新增）","targetNode":"目标节点 id（仅修改/废弃）","project":"项目目录名（多项目必填）","reason":"理由","evidence":"证据","digest":"摘要","anchors":[{"scopeKind":"path|symbol","pattern":"apps/x/src/y.ts 或 apps/x/src/y.ts#fn"}]}；
+其中 anchors 为可选建议锚声明（新增类条目强烈建议携带——你知道自己刚改了哪些代码，锚建议此刻最准；候选 applied 转正时若目标节点尚无锚声明会机械落地为初始全集，从源头消除锚债）。
 kind 按发现的内容类型如实申报（如 issue/sediment）——全部随文件记录，仅 sediment 落 kg 候选台账；iterationId 由接线层回落（无需写）。

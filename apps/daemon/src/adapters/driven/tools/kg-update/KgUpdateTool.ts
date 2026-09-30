@@ -66,7 +66,8 @@ const kgUpdateParameters = {
     },
     anchors: {
       type: "array",
-      description: "createNode/declareAnchors 锚声明：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）",
+      description:
+        "createNode/declareAnchors 锚声明；proposeCandidate 建议锚（P4a：随候选行存储，applied 时空节点初始全集声明，显式声明优先）：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）",
       items: {
         type: "object",
         properties: {
@@ -524,6 +525,8 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
   // 可选字段单次取值（收敛双调用模式——code-review 低危）
   const body = optionalString(args, "body");
   const targetNode = optionalString(args, "targetNode");
+  // P4a 建议锚：与 createNode 同参数位（形态已 anchorsOf 校验；词表校验单源在 KgWriteService）
+  const anchors = anchorsOf(args["anchors"]);
   const result = writeOrThrow(
     deps,
     project,
@@ -534,12 +537,13 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
       title,
       ...(body !== undefined ? { body } : {}),
       ...(targetNode !== undefined ? { targetNode } : {}),
+      ...(anchors !== null ? { anchors } : {}),
       ...(sourceTaskId !== undefined ? { sourceTaskId } : {}),
       // P0 ④：无迭代归属时省略（溯源列可空；主锚 task_id）
       ...(iterationId !== null ? { sourceIterationId: iterationId } : {}),
     }),
   );
-  return `已提候选 ${result.nodeId}（project: ${projectName(project)}，status=pending——终验人审裁决）`;
+  return `已提候选 ${result.nodeId}（project: ${projectName(project)}，status=pending——终验人审裁决${anchors !== null ? `；建议锚 ${anchors.length} 枚随行（applied 时空节点初始声明）` : ""}）`;
 }
 
 /**

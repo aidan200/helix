@@ -343,6 +343,13 @@ export type KnowledgeWriteOp =
       readonly body?: string;
       /** 目标节点（修改/废弃候选的定位；findings targetNode 结构化字段透传，TR-46）。 */
       readonly targetNode?: string;
+      /**
+       * 建议锚声明（P4a 产生端锚债修复）：随候选行结构化存储（candidates.
+       * anchors_json），applied 裁决携 appliedNodeId 且目标节点零锚声明时
+       * 机械落地为初始全集（fill-if-empty——显式声明优先永不覆盖，TR-150
+       * 全集语义非增量）；findings 上报 anchors 字段透传（ClosureRecorder）。
+       */
+      readonly anchors?: readonly AnchorDeclaration[];
       /** 来源任务（findings 闭环自动落账时机械注入，AD-10 三路径同源）。 */
       readonly sourceTaskId?: string;
       readonly sourceIterationId?: string;

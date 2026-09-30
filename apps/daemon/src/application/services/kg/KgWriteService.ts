@@ -346,6 +346,12 @@ function validateProposeCandidate(op: Record<string, unknown>): KgWriteError | n
   if (op.targetNode !== undefined && (typeof op.targetNode !== "string" || parseMigrationId(op.targetNode) === null)) {
     return schemaError("targetNode 若携带必须为节点 id 形态（TR-n / E-n 或保号复合形态——修改/废弃候选的目标定位）", "op.targetNode");
   }
+  // P4a 建议锚：携带则复用锚声明词表校验（与 createNode/declareAnchors 同
+  // 单源——scopeKind 封闭词表 + path/symbol 必携带 pattern）
+  if (op.anchors !== undefined) {
+    const anchorError = validateAnchorDeclarations(op.anchors, "op.anchors");
+    if (anchorError !== null) return anchorError;
+  }
   if (op.id !== undefined) {
     if (typeof op.id !== "string" || parseCandidateId(op.id) === null) {
       return schemaError("显式 id 仅限 md 台账迁移保号场景，形态必须为 CAND-<seq>（如 CAND-12）", "op.id");

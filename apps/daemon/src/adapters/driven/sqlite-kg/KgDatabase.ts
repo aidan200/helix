@@ -119,6 +119,12 @@ function ensureSchemaEvolved(db: Database): void {
     // 修改/废弃候选定位目标节点——可空无默认（存量行 NULL = 无目标，不回填）
     db.exec("ALTER TABLE candidates ADD COLUMN target_node TEXT");
   }
+  if (!hasColumn(db, "candidates", "anchors_json")) {
+    // P4a 候选建议锚通道：findings 上报结构化锚建议随候选行存储（可空——
+    // 存量行 NULL = 无建议；applied 时空节点初始全集声明，见
+    // SqliteKnowledgeStore.applyDecideCandidate）
+    db.exec("ALTER TABLE candidates ADD COLUMN anchors_json TEXT");
+  }
   if (!hasColumn(db, "materialized_anchors", "evidence")) {
     // L0 机械重定位（P0）：断链快照列——断链轮 orphan 落库时携带，供下一轮
     // sync 高置信重定位判定（anchor-relocate.ts；存量行 '' = 无快照不判）

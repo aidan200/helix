@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   source_task_id TEXT,
   source_iteration_id TEXT,
   target_node TEXT,
+  anchors_json TEXT,
   defer_age INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   decided_at TEXT,

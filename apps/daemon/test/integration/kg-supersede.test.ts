@@ -2,7 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { KgDatabase } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
+import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
+import { Database } from "bun:sqlite";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
@@ -45,6 +46,76 @@ describe("domain/kg/supersede 状态机（U 半，纯函数）", () => {
     expect(supersedeTransition("draft")).toEqual({ ok: true, next: "superseded" });
     expect(supersedeTransition("confirmed")).toEqual({ ok: true, next: "superseded" });
     expect(supersedeTransition("superseded")).toEqual({ ok: false, current: "superseded" });
+  });
+});
+
+describe("supersede replacement 锚继承（P4b：锚债不随链遗传——被推翻节点锚声明全集拷贝）", () => {
+  function probe<T>(root: string, sql: string, ...params: (string | number)[]): T[] {
+    const db = new Database(kgDbPath(root), { readonly: true });
+    try {
+      return db.prepare(sql).all(...params) as T[];
+    } finally {
+      db.close();
+    }
+  }
+
+  test("① 被推翻节点有锚 → replacement 继承全集 + declareAnchors 审计行（auto: 前缀）", () => {
+    const s = freshStack();
+    const created = s.service.write(s.root, {
+      kind: "createNode",
+      iterationId: "iter-1",
+      draft: { kind: "rule", name: "带锚旧规", digest: "d", scene: "测试场景" },
+    });
+    expect(created.ok).toBe(true);
+    // createNode op 级不带锚——锚经 declareAnchors 独立声明（工具层组合面）
+    expect(
+      s.service.write(s.root, {
+        kind: "declareAnchors",
+        iterationId: "iter-1",
+        nodeId: "TR-1",
+        anchors: [
+          { scopeKind: "symbol", pattern: "apps/daemon/src/a.ts#foo" },
+          { scopeKind: "path", pattern: "apps/daemon/src/a.ts" },
+        ],
+      }).ok,
+    ).toBe(true);
+    const superseded = s.service.write(s.root, {
+      kind: "supersede",
+      iterationId: "iter-9",
+      nodeId: "TR-1",
+      reason: "口径演进",
+      replacementNodeDraft: { kind: "rule", name: "新规", digest: "d2" },
+    });
+    expect(superseded).toEqual({ ok: true, nodeId: "TR-2" });
+    // replacement 继承全集（TR-150：全集拷贝非增量）
+    const decls = probe<{ pattern: string }>(s.root, "SELECT pattern FROM anchor_decl WHERE node_id = 'TR-2' ORDER BY pattern");
+    expect(decls.map((d) => d.pattern)).toEqual(["apps/daemon/src/a.ts", "apps/daemon/src/a.ts#foo"]);
+    const audit = probe<{ reason: string | null }>(s.root, "SELECT reason FROM change_log WHERE op = 'declareAnchors' AND node_id = 'TR-2'");
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.reason).toContain("继承");
+    expect(audit[0]!.reason).toStartWith("auto:");
+  });
+
+  test("② 被推翻节点无锚 → replacement 无锚零审计噪音（幂等无副作用）", () => {
+    const s = freshStack();
+    expect(
+      s.service.write(s.root, {
+        kind: "createNode",
+        iterationId: "iter-1",
+        draft: { kind: "rule", name: "无锚旧规", digest: "d", scene: "测试场景" },
+      }).ok,
+    ).toBe(true);
+    expect(
+      s.service.write(s.root, {
+        kind: "supersede",
+        iterationId: "iter-9",
+        nodeId: "TR-1",
+        reason: "口径演进",
+        replacementNodeDraft: { kind: "rule", name: "新规", digest: "d2" },
+      }).ok,
+    ).toBe(true);
+    expect(probe<{}>(s.root, "SELECT 1 FROM anchor_decl WHERE node_id = 'TR-2'")).toHaveLength(0);
+    expect(probe<{}>(s.root, "SELECT 1 FROM change_log WHERE op = 'declareAnchors' AND node_id = 'TR-2'")).toHaveLength(0);
   });
 });
 

@@ -11,7 +11,7 @@ import type { EventPublisherPort } from "../../ports/outbound/EventPublisherPort
 import type { ClockPort } from "../../ports/outbound/ClockPort";
 import type { SessionRepositoryPort } from "../../ports/outbound/SessionRepositoryPort";
 import type { InstanceClosureOutcome } from "../InstanceRunner";
-import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
+import type { KnowledgeWriteOp, WriteResult, AnchorDeclaration } from "../../../domain/kg/types";
 
 /**
  * ClosureRecorder —— closure 收口链（拆自 SchedulerService，
@@ -321,6 +321,27 @@ export function mapFindingsToOps(findings: readonly unknown[], sourceTaskId?: st
  *  （CAND-251：findings 管道与写面校验的对称防御）。 */
 const SEDIMENT_CONTENT_KEYS = ["digest", "reason", "scope", "evidence", "implementedCode", "implementationStatus", "sourceDecision", "body"] as const;
 
+/**
+ * P4a 建议锚解析（findings anchors 字段）：形态合法 → 声明数组；非法 →
+ * "invalid"（调用方降级为丢弃锚 + body 附注，候选本体照落——锚是增强不是
+ * 门槛，非法不阻塞知识沉淀；写面词表校验仍是单源兑底）。
+ */
+function findingsAnchorsOf(value: unknown): readonly AnchorDeclaration[] | "invalid" | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return "invalid";
+  const anchors: AnchorDeclaration[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return "invalid";
+    const record = item as Record<string, unknown>;
+    const scopeKind = record["scopeKind"];
+    if (scopeKind !== "global" && scopeKind !== "path" && scopeKind !== "symbol") return "invalid";
+    const pattern = typeof record["pattern"] === "string" ? record["pattern"] : "";
+    if (scopeKind !== "global" && pattern === "") return "invalid";
+    anchors.push({ scopeKind, ...(pattern !== "" ? { pattern } : {}) });
+  }
+  return anchors;
+}
+
 function hasSedimentContent(record: Record<string, unknown>): boolean {
   return SEDIMENT_CONTENT_KEYS.some((key) => {
     const value = record[key];
@@ -354,6 +375,7 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
     if (!hasSedimentContent(record)) {
       return skip("新增条目缺可裁决内容字段（digest/reason/evidence 等）——不落空壳候选（TR-147）");
     }
+    const anchors = findingsAnchorsOf(record["anchors"]);
     return {
       ok: true,
       op: {
@@ -362,6 +384,7 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
         candidateKind: "sediment",
         title: name,
         body: candidateBody(record),
+        ...(anchors !== undefined && anchors !== "invalid" ? { anchors } : {}),
         ...injected,
       },
       ...(needsIterationFallback ? { needsIterationFallback: true } : {}),
@@ -374,6 +397,7 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
     if (!hasSedimentContent(record)) {
       return skip(`${changeType}条目缺可裁决内容字段（reason/evidence/digest 等）——不落空壳候选（TR-147）`);
     }
+    const anchors = findingsAnchorsOf(record["anchors"]);
     return {
       ok: true,
       op: {
@@ -383,6 +407,7 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
         title: `${changeType}：${targetNode}`,
         body: candidateBody(record),
         targetNode, // 结构化透传（读面定位列 target_node——不只在 body 平铺）
+        ...(anchors !== undefined && anchors !== "invalid" ? { anchors } : {}),
         ...injected,
       },
       ...(needsIterationFallback ? { needsIterationFallback: true } : {}),
@@ -409,6 +434,14 @@ function candidateBody(record: Record<string, unknown>): string {
   ] as const) {
     const value = record[key];
     if (typeof value === "string" && value.trim() !== "") lines.push(`${key}: ${value}`);
+  }
+  // P4a 建议锚：合法 → 人可读单行（裁决者可见）；非法 → 附注降级说明
+  //（锚丢弃但候选照落——增强非门槛）
+  const anchors = findingsAnchorsOf(record["anchors"]);
+  if (anchors === "invalid") {
+    lines.push("anchors: 【字段形态非法已忽略——须为 [{scopeKind, pattern}]，建议锚未随候选存储】");
+  } else if (anchors !== undefined && anchors.length > 0) {
+    lines.push(`anchors: ${anchors.map((a) => (a.pattern !== undefined ? `${a.scopeKind} ${a.pattern}` : a.scopeKind)).join("；")}`);
   }
   return lines.join("\n");
 }
