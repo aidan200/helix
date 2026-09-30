@@ -436,9 +436,19 @@ describe("LoopAgentEngineAdapter：AgentEnginePort 契约（loop 通道）", () 
 describe("engine flag（HELIX_AGENT_ENGINE）：缺省 pi 现役零漂移", () => {
   test("agentEngineFromEnv：缺省/非法值回落 pi；显式 loop 开启验证通道", async () => {
     const { agentEngineFromEnv } = await import("../../src/infrastructure/assembly/sessionEngineFactory");
-    expect(agentEngineFromEnv({})).toBe("pi"); // 缺省 pi（现役零漂移——不翻默认值）
-    expect(agentEngineFromEnv({ HELIX_AGENT_ENGINE: "pi" })).toBe("pi");
-    expect(agentEngineFromEnv({ HELIX_AGENT_ENGINE: "loop" })).toBe("loop"); // 显式开启
-    expect(agentEngineFromEnv({ HELIX_AGENT_ENGINE: "ghost" })).toBe("pi"); // 非法值回落不告警
+    const prev = process.env.HELIX_AGENT_ENGINE;
+    try {
+      delete process.env.HELIX_AGENT_ENGINE;
+      expect(agentEngineFromEnv()).toBe("pi"); // 缺省 pi（现役零漂移——不翻默认值）
+      process.env.HELIX_AGENT_ENGINE = "pi";
+      expect(agentEngineFromEnv()).toBe("pi");
+      process.env.HELIX_AGENT_ENGINE = "loop";
+      expect(agentEngineFromEnv()).toBe("loop"); // 显式开启
+      process.env.HELIX_AGENT_ENGINE = "ghost";
+      expect(agentEngineFromEnv()).toBe("pi"); // 非法值回落不告警
+    } finally {
+      if (prev === undefined) delete process.env.HELIX_AGENT_ENGINE;
+      else process.env.HELIX_AGENT_ENGINE = prev;
+    }
   });
 });

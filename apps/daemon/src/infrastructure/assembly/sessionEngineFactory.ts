@@ -66,10 +66,10 @@ export type EngineAssemblyMode =
  *  未接，翻默认是检查点 5 与用户确认后的独立动作）。 */
 export type AgentEngineKind = "pi" | "loop";
 
-/** HELIX_AGENT_ENGINE env 解析（唯一读点；非法值回落 pi 并不告警——验证通道
+/** HELIX_AGENT_ENGINE env 解析（唯一读点；非法值回落 pi 不告警——验证通道
  *  不引入新故障面）。组合根（buildSessionStack）显式传入；未注入缺省 pi。 */
-export function agentEngineFromEnv(env: NodeJS.ProcessEnv = process.env): AgentEngineKind {
-  return env.HELIX_AGENT_ENGINE === "loop" ? "loop" : "pi";
+export function agentEngineFromEnv(): AgentEngineKind {
+  return process.env.HELIX_AGENT_ENGINE === "loop" ? "loop" : "pi";
 }
 
 /**

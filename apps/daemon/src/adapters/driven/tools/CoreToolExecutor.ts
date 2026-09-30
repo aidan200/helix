@@ -479,8 +479,16 @@ export class CoreToolExecutor implements ToolExecutorPort {
         }
         // ② 执行：signal/onUpdate 经 bindToolContext 闭包装配六参（与 execute()
         //    同一装配链）；onUpdate 同步直调转发保调用序（单枚内 FIFO）。
-        //    TODO(Phase 5)：usage 纪账（result.usage → LoopUsage 契约——W2a
-        //    块模型契约定稿后接线）；replay 标记（result 同批）。
+        //    Phase 5 TODO 面评估结论（CAND-540，2026-09-30）：
+        //    · 工具级 usage 纪账——【不需要】AgentToolResult.usage 是工具自身执行的
+        //      账（pi 语义明示「不进主上下文记账」），pi 路径同样不上 port
+        //      （tool_execution_end 无 usage 位）；SubAgent 账目走 scheduler 事件
+        //      通道不经引擎 port；loop 桥补此面反而造成双通道不对齐。
+        //    · replay 标记——【不需要】pi AgentTool.replay 是 harness 恢复策略
+        //      元数据，helix 全仓零消费面（写事实/恢复体系归 WriteFactRegistry
+        //      独立链路），透传无消费者。
+        //    · 注：LLM 轮 usage（message_end.assistant.usage）是另一面——pi 路径
+        //      有、loop 路径 LoopStreamResult 无 usage 位（缺口，翻默认前必修）。
         //    TODO(块模型合入后)：images 下行（content 内 image 块 → data URL
         //    数组进 LoopToolOutcome.images）——现阶段以 (image) 占位文案进 text。
         try {
