@@ -1,6 +1,7 @@
 /**
- * LoopCompaction —— helix-loop L1 件一（上下文压缩）纯函数面
- * （docs/temp/helix-loop-design.md §5 compaction 行 / §6 L1 批）。
+ * policy/Compaction —— loop 域上下文压缩策略（helix-loop Phase 0a 四层
+ * 拆分归位；设计 §2.3：原 LoopCompaction.ts 纯函数面 + 原 LoopEngine
+ * maybeCompact 轮边界挂点合并——行为逐语句等价）。
  *
  * 能力形态：loop 域能力（非管家专用）——阈值判定 + 压缩区间规划 +
  * 配对保护（duplex-truncation I5 同族：压缩不得切断 toolCall/toolResult
@@ -13,8 +14,26 @@
  * 首轮 = 对话继续（工作记忆跨 run 持久），故首轮前同查（否则首请求携超窗
  * 载荷直达 provider）；纯问答轮后窗口超阈由下次 ask 首轮前压缩接住，
  * 16k 粗裁剪（StewardDialogMemory）保留为压缩失败/不可压区间的兑底。
+ *
+ * 依赖方向：policy → kernel/contracts（compactStep 接收 RunState——
+ * kernel 经 LoopKernelDeps.compactStep 注入本策略，不反向 import）。
  */
-import type { LoopMessage } from "./LoopTypes";
+import type { LoopCompactionInfo, LoopEventEmitter, LoopMessage } from "../contracts";
+import type { LoopRunInput, RunState } from "../kernel";
+
+/** L1 件一：压缩能力契约（LoopEngineDeps.compaction 注入面）——
+ *  domain 零 LLM 依赖：摘要执行体由调用方注入（管家 = StewardLlmPort
+ *  单轮无工具形态），domain 只做阈值判定/边界规划/配对保护（本文件
+ *  纯函数）。失败语义：summarize 抛错/空摘要 = 压缩失败，保留原窗口继续
+ *  （调用方粗裁剪兑底）——压缩是优化不是依赖，永不阻塞对话。 */
+export interface LoopCompactionOptions {
+  /** 触发阈值（token 估算——estimateLoopTokens 同族口径）。 */
+  readonly thresholdTokens: number;
+  /** 保留尾部滚动窗条数（TR-47：压的是历史不是工作集）。 */
+  readonly keepRecent: number;
+  /** 压缩区间 → 摘要文本（异步 LLM 单轮）。 */
+  readonly summarize: (messages: readonly LoopMessage[]) => Promise<string>;
+}
 
 /** token 估算（与 StewardDialogMemory.estimateTokens 同族口径：chars/2 保守
  *  近似 + 每条 8 形状开销——宁可早压不可爆上下文）。 */
@@ -79,3 +98,66 @@ export const LOOP_COMPACTION_SUMMARY_PROMPT = `你是 helix 管家的上下文�
 - 保留：任务上下文（用户在做什么/关注什么）、用户偏好与明确指示、未完结的话题与待办、工具调用已得出的结论；
 - 丢弃：工具结果的原文细节（只留结论一行）、寒暄与重复表述、已完结且无后续引用价值的轮次；
 - 输出：一段紧凑的中文摘要（不用列表头、不用客套话，直接陈述事实与状态），长度不超过 300 字。`;
+
+/** 轮边界压缩步工厂（原 LoopEngine.maybeCompact 挂点——逐语句等价平移）。
+ *  L1 件一：轮边界压缩（阈值判定 → 摘要 → 窗口替换 + 事件 + 调用方同步）。
+ *  失败语义：summarize 抛错/空摘要 → 事件记 failed + 保留原窗口继续
+ *  （调用方粗裁剪兑底）——永不抛出、永不阻塞对话（压缩是优化不是依赖）。 */
+export function createCompactionStep(deps: {
+  readonly compaction: LoopCompactionOptions;
+  readonly emit: LoopEventEmitter;
+}): (state: RunState, input: LoopRunInput) => Promise<void> {
+  const { compaction, emit } = deps;
+  return async (state, input) => {
+    const tokensBefore = estimateLoopTokens(state.messages);
+    if (tokensBefore <= compaction.thresholdTokens) return;
+    const plan = planCompactionWindow(state.messages, {
+      thresholdTokens: compaction.thresholdTokens,
+      keepRecent: compaction.keepRecent,
+    });
+    if (plan === null) return;
+    let summary: string;
+    try {
+      summary = await compaction.summarize(state.messages.slice(0, plan.compactFrom));
+    } catch (err) {
+      emit({
+        type: "loop.context.compacted",
+        runId: state.runId,
+        status: "failed",
+        tokensBefore,
+        error: (err as Error).message,
+      });
+      return;
+    }
+    if (summary.trim() === "") {
+      emit({
+        type: "loop.context.compacted",
+        runId: state.runId,
+        status: "failed",
+        tokensBefore,
+        error: "压缩摘要为空",
+      });
+      return;
+    }
+    const summaryMessage = { role: "user" as const, text: summary, compaction: true as const };
+    const kept = state.messages.slice(plan.compactFrom);
+    state.messages = [summaryMessage, ...kept];
+    const tokensAfter = estimateLoopTokens(state.messages);
+    emit({
+      type: "loop.context.compacted",
+      runId: state.runId,
+      status: "completed",
+      tokensBefore,
+      tokensAfter,
+      summary: summary.slice(0, 200),
+    });
+    const info: LoopCompactionInfo = {
+      summaryMessage,
+      keptMessages: kept,
+      droppedCount: plan.compactFrom,
+      tokensBefore,
+      tokensAfter,
+    };
+    await input.onCompacted?.(info);
+  };
+}

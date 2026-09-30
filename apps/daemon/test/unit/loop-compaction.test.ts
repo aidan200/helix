@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopEvent, LoopMessage, LoopStreamFn, LoopStreamResult, LoopToolOutcome } from "../../src/domain/loop";
 import { LoopEngine, ToolRegistry } from "../../src/domain/loop";
-import { estimateLoopTokens, planCompactionWindow } from "../../src/domain/loop/LoopCompaction";
+import { estimateLoopTokens, planCompactionWindow } from "../../src/domain/loop/policy/Compaction";
 
 /**
  * helix-loop L1 件一（上下文压缩）单测——domain 层零依赖可测：
