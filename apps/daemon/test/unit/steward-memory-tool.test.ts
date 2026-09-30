@@ -127,8 +127,8 @@ function makeService(opts: {
 describe("管家记忆 B5：remember 工具摘闸直写", () => {
   test("① remember 直写：工具调用即入库 + 落盘通知 added + answer 收口（无确认卡）", async () => {
     const llm = fakeLlm([
-      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } },
-      { kind: "text", text: "记好了。" },
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
     ]);
     const memory = fakeMemory();
     const { svc, notes } = makeService({ llm, memory });
@@ -146,8 +146,8 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
 
   test("② 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）", async () => {
     const llm = fakeLlm([
-      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } },
-      { kind: "text", text: "记忆服务这会儿存不进去，稍后再试。" },
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记忆服务这会儿存不进去，稍后再试。" }], stopReason: "stop" },
     ]);
     const memory = fakeMemory({ rememberFails: true });
     const { svc, notes } = makeService({ llm, memory });
@@ -161,8 +161,8 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
 
   test("③ 记忆不可用 → 引导式降级：不挂闸、循环继续、answer 转述", async () => {
     const llm = fakeLlm([
-      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁" } },
-      { kind: "text", text: "记忆功能未开启——你可以在设置 → 通用 → 管家开启。" },
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记忆功能未开启——你可以在设置 → 通用 → 管家开启。" }], stopReason: "stop" },
     ]);
     const memory = fakeMemory({ available: false });
     const { svc } = makeService({ llm, memory });
@@ -176,7 +176,7 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
 
   test("④ 召回注入：可用且有命中 → system prompt 含记忆段；召回失败 → 无段但对话照常", async () => {
     // 命中面
-    const llm = fakeLlm([{ kind: "text", text: "好的，简洁作答。" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的，简洁作答。" }], stopReason: "stop" }]);
     const memory = fakeMemory({ recallSection: "## 长期记忆（…）\n- [偏好] 回复要简洁" });
     const { svc } = makeService({ llm, memory });
     const result = await svc.ask("帮我写段话");
@@ -184,7 +184,7 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
     expect(llm.calls[0]!.request.systemPrompt).toContain("[偏好] 回复要简洁");
     expect(memory.recalls).toEqual(["帮我写段话"]);
     // 注：recallSection 服务内部已吞错降级——此处直接验证「无段 = 无注入」
-    const llm2 = fakeLlm([{ kind: "text", text: "照常作答。" }]);
+    const llm2 = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "照常作答。" }], stopReason: "stop" }]);
     const degraded = makeService({ llm: llm2, memory: fakeMemory({ recallSection: undefined }) });
     expect((await degraded.svc.ask("第二问")).status).toBe("answer");
     expect(llm2.calls[0]!.request.systemPrompt).not.toContain("## 长期记忆（按本轮输入");
@@ -213,10 +213,10 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
   // updated——两段查重判同条覆盖，数据无损但多一次重写调用 + 一张多余 updated 卡）
   test("⑤ 防双写：轮内 remember 直写成功 → 同轮轮末沉淀跳过（零重写零二次入库单卡）", async () => {
     const llm = fakeLlm([
-      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } },
-      { kind: "text", text: "记好了。" },
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
       // 防御性脚本位：若防双写失效，轮末提取会消费此段（重写句）并二次入库
-      { kind: "text", text: "用户偏好回复要简洁。" },
+      { kind: "blocks", blocks: [{ type: "text", text: "用户偏好回复要简洁。" }], stopReason: "stop" },
     ]);
     const memory = fakeMemory();
     const { svc, notes } = makeService({ llm, memory, subscribers: true });
@@ -230,9 +230,9 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
 
   test("⑥ 防双写不误伤：轮内 remember 存储失败 → 轮末照常沉淀（失败不置标记）", async () => {
     const llm = fakeLlm([
-      { kind: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } },
-      { kind: "text", text: "刚才没存进去，我再确认下。" },
-      { kind: "text", text: "用户的项目在 helix 仓。" }, // 轮末重写提取段
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "刚才没存进去，我再确认下。" }], stopReason: "stop" },
+      { kind: "blocks", blocks: [{ type: "text", text: "用户的项目在 helix 仓。" }], stopReason: "stop" }, // 轮末重写提取段
     ]);
     const memory = fakeMemory({ rememberFailsFirst: true }); // 仅轮内首次失败，轮末补位成功
     const { svc, notes } = makeService({ llm, memory, subscribers: true });

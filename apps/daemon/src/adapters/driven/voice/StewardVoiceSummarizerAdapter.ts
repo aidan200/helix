@@ -16,6 +16,7 @@
  * 不借服务）。
  */
 import type { StewardLlmPort } from "../../../application/ports/outbound/StewardLlmPort";
+import { firstToolCallBlock, loopBlocksText } from "../../../domain/loop/contracts/message";
 import type {
   VoiceSummarizerPort,
   VoiceSummaryPrompt,
@@ -45,13 +46,15 @@ export class StewardVoiceSummarizerAdapter implements VoiceSummarizerPort {
       messages: [{ role: "user", text: prompt.userPrompt }],
       tools: [],
     });
-    if (response.kind === "toolCall") {
-      throw new Error(`播报摘要面收到意外的工具调用（${response.name}——tools 为空不应发生）`);
-    }
     if (response.kind === "aborted") {
       // 本面不传 signal，aborted 结构性不可达——防御分支（不静默）
       throw new Error("播报摘要面收到意外的 aborted 判别（不传 signal 不应发生）");
     }
-    return response.text;
+    // tools 为空，块集不应含 toolCall 块——防御分支（不静默）
+    const toolCallBlock = firstToolCallBlock(response.blocks);
+    if (toolCallBlock !== undefined) {
+      throw new Error(`播报摘要面收到意外的工具调用（${toolCallBlock.name}——tools 为空不应发生）`);
+    }
+    return loopBlocksText(response.blocks);
   }
 }

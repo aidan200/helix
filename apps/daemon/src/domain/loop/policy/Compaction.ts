@@ -36,16 +36,19 @@ export interface LoopCompactionOptions {
 }
 
 /** token 估算（与 StewardDialogMemory.estimateTokens 同族口径：chars/2 保守
- *  近似 + 每条 8 形状开销——宁可早压不可爆上下文）。 */
+ *  近似 + 每条 8 形状开销——宁可早压不可爆上下文；Phase 1 块模型：
+ *  assistant 分支遍历 content 块求和）。 */
 export function estimateLoopTokens(messages: readonly LoopMessage[]): number {
   let chars = 0;
   for (const m of messages) {
     if (m.role === "user") chars += m.text.length;
     else if (m.role === "toolResult") chars += m.text.length + m.name.length;
     else {
-      chars += (m.text ?? "").length + (m.thinking?.text.length ?? 0) + (m.thinking?.signature?.length ?? 0);
-      if (m.toolCall !== undefined) {
-        chars += m.toolCall.name.length + JSON.stringify(m.toolCall.args).length;
+      for (const b of m.content) {
+        if (b.type === "text") chars += b.text.length;
+        else if (b.type === "thinking") chars += b.text.length + (b.signature?.length ?? 0);
+        else if (b.type === "toolCall") chars += b.name.length + JSON.stringify(b.args).length;
+        else chars += b.data.length; // image：base64 体量保守计入
       }
     }
   }
@@ -79,7 +82,11 @@ export function planCompactionWindow(
   const callIds = new Set<string>();
   for (let i = compactFrom; i < len; i += 1) {
     const m = messages[i]!;
-    if (m.role === "assistant" && m.toolCall !== undefined) callIds.add(m.toolCall.id);
+    if (m.role === "assistant") {
+      for (const b of m.content) {
+        if (b.type === "toolCall") callIds.add(b.id);
+      }
+    }
   }
   while (compactFrom > 0) {
     const m = messages[compactFrom]!;

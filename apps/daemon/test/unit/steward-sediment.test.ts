@@ -111,7 +111,7 @@ function makeService(opts: {
   return { svc, notes, dialog };
 }
 
-const answer = (text: string): StewardLlmResponse => ({ kind: "text", text });
+const answer = (text: string): StewardLlmResponse => ({ kind: "blocks", blocks: [{ type: "text", text: text }], stopReason: "stop" });
 
 describe("管家记忆 B5：自动沉淀静默化管线（近三轮 LLM 提取）", () => {
   test("① 主钩子：answer 轮收口 → LLM 提取一次（输入含近三轮 user+assistant）；error 轮零提取", async () => {
@@ -128,8 +128,9 @@ describe("管家记忆 B5：自动沉淀静默化管线（近三轮 LLM 提取�
     // 提取输入 = 近三轮文本（ask 主答 1 次 + 提取 1 次 = 2 次调用）
     const llm = (svc as unknown as { deps: { llm: { calls: StewardLlmRequest[] } } });
     expect(llm.deps.llm.calls).toHaveLength(2);
-    expect(llm.deps.llm.calls[1]!.messages[0]!.text).toContain("以后别用 bun test");
-    expect(llm.deps.llm.calls[1]!.messages[0]!.text).toContain("好的，记下了");
+    const extract1 = llm.deps.llm.calls[1]!.messages[0] as { text: string };
+    expect(extract1.text).toContain("以后别用 bun test");
+    expect(extract1.text).toContain("好的，记下了");
 
     // error 轮（LLM 剧本耗尽 → error 收口）→ 零提取
     const { memory: mem2, remembers: r2 } = fakeMemory();
@@ -300,7 +301,7 @@ describe("管家记忆 B5：自动沉淀静默化管线（近三轮 LLM 提取�
       // remember 工具沉淀，提取句重复走两段查重，此处 fake 无库返回新增；
       // 剧本配「无」跳过避免断言干扰）
       llm: fakeLlm([
-        { kind: "toolCall", id: "c1", name: "remember", args: { text: "用户偏好深色主题", kind: "preference" } },
+        { kind: "blocks", blocks: [{ type: "toolCall", id: "c1", name: "remember", args: { text: "用户偏好深色主题", kind: "preference" } }], stopReason: "toolUse" },
         answer("好的，我记住了你的主题偏好"),
         answer("无"),
       ]),
@@ -342,9 +343,10 @@ describe("管家记忆 B5：自动沉淀静默化管线（近三轮 LLM 提取�
     await svc.flushSediment();
     const llm = (svc as unknown as { deps: { llm: { calls: StewardLlmRequest[] } } });
     const extract4 = llm.deps.llm.calls[7]!; // 第 4 轮提取调用（8 次中第 8）
-    expect(extract4.messages[0]!.text).toContain("第二轮");
-    expect(extract4.messages[0]!.text).toContain("第三轮");
-    expect(extract4.messages[0]!.text).toContain("第四轮");
-    expect(extract4.messages[0]!.text).not.toContain("第一轮");
+    const extractFirst = extract4.messages[0] as { text: string };
+    expect(extractFirst.text).toContain("第二轮");
+    expect(extractFirst.text).toContain("第三轮");
+    expect(extractFirst.text).toContain("第四轮");
+    expect(extractFirst.text).not.toContain("第一轮");
   });
 });

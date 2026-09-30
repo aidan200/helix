@@ -82,7 +82,7 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
           });
           if (signal.aborted) return { kind: "aborted" };
         }
-        return { kind: "text", text: "答" };
+        return { kind: "blocks", blocks: [{ type: "text", text: "答" }], stopReason: "stop" };
       },
     };
     const config = fakeConfig({ "steward.enabled": "1" });
@@ -109,7 +109,7 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
   test("idle 态连续 ask：零 abort 干扰（串行直答）", async () => {
     const llm: StewardLlmPort = {
       modelId: "m",
-      complete: async () => ({ kind: "text", text: "ok" }),
+      complete: async () => ({ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }),
     };
     const svc = new StewardService({ ...baseDeps(), llm });
     expect((await svc.ask("a")).status).toBe("answer");
@@ -125,10 +125,10 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
         const last = req.messages[req.messages.length - 1];
         const lastText = last !== undefined && "text" in last ? (last as { text?: string }).text : "";
         if (lastText === "递话" ) {
-          return { kind: "toolCall", id: "c1", name: "propose_send", args: { agentId: "agent-1", message: "快一点" } };
+          return { kind: "blocks", blocks: [{ type: "toolCall", id: "c1", name: "propose_send", args: { agentId: "agent-1", message: "快一点" } }], stopReason: "toolUse" };
         }
         void signal;
-        return { kind: "text", text: "好的" };
+        return { kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" };
       },
     };
     const svc = new StewardService({ ...baseDeps(), llm });
@@ -147,9 +147,9 @@ describe("确认闸经 LoopEngine 暂停点全链", () => {
         const last = req.messages[req.messages.length - 1];
         const lastText = last !== undefined && "text" in last ? (last as { text?: string }).text : "";
         if (lastText === "递话") {
-          return { kind: "toolCall", id: "c1", name: "propose_send", args: { agentId: "agent-1", message: "快一点" } };
+          return { kind: "blocks", blocks: [{ type: "toolCall", id: "c1", name: "propose_send", args: { agentId: "agent-1", message: "快一点" } }], stopReason: "toolUse" };
         }
-        return { kind: "text", text: "好的" };
+        return { kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" };
       },
     };
   }
@@ -233,10 +233,10 @@ describe("事件出口（emitLoopEvent）与追踪桥", () => {
         const last = req.messages[req.messages.length - 1];
         const lastText = last !== undefined && "text" in last ? (last as { text?: string }).text : "";
         if (lastText === "查") {
-          return { kind: "toolCall", id: "c1", name: "list_tasks", args: {} };
+          return { kind: "blocks", blocks: [{ type: "toolCall", id: "c1", name: "list_tasks", args: {} }], stopReason: "toolUse" };
         }
         onDelta?.("增量");
-        return { kind: "text", text: "结论" };
+        return { kind: "blocks", blocks: [{ type: "text", text: "结论" }], stopReason: "stop" };
       },
     };
     const svc = new StewardService({ ...baseDeps(), llm, emitLoopEvent: (e) => events.push(e) });

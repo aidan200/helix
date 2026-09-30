@@ -2,18 +2,20 @@
  * PiStewardLlmAdapter —— StewardLlmPort 的 pi-ai 实现（driven；V2.5 文本管家批；
  * thinking 面 = A1 工作记忆批；helix-loop L0 批平移至 adapters/driven/loop/
  * 并改造：signal 透传 + aborted 判别——本文件成为管家面 pi-ai 的执行点
- * （设计 §2：adapters/driven/loop/ ← pi-ai 唯一 import 执行点）。
+ * （设计 §2：adapters/driven/loop/ ← pi-ai 唯一 import 执行点）。Phase 1 块
+ * 模型：pi AssistantMessage.content 块数组 → port blocks 判别直映射（pi 本
+ * 就是块流——终态块集直转，旧「三字段拆装」翻译消失）。
  *
  * 复用 daemon 现有 provider 体系（AD-11/AD-13 纪律，model-provider.ts 先例）：
  * - 模型解析：槽位字符串（RuntimeConfig steward.model）→ resolveModel
  *   （"provider/model-id" 目录解析，未设置 = 组合根注入的默认）；
  * - key：组合根 getter（auth.json provider 位，与主引擎同一键位——显式传入
  *   不走环境变量；缺 key fail-fast 中文错误指向设置页录入路径）；
- * - 补全面：models.streamSimple（单轮 AssistantMessage 聚合）→ 首个 toolCall
- *   或文本直答（port 单步语义，循环归 StewardService）；G1（duplex-truncation
- *   §3.3 text 行定稿）：abort 时未关账 text 块增量随 aborted 判别 partialText
- *   携出（text_start 开档 / delta 累积 / text_end 关档清档——已关账块经
- *   onBlockEnd 交付不进 partialText，防重复入账）。
+ * - 补全面：models.streamSimple（单轮 AssistantMessage 聚合）→ 终态完整
+ *   块集（port blocks 判别，循环归 StewardService）；G1（duplex-truncation
+ *   §3.3 text 行定稿）：abort 时未关账 text 块增量随 aborted 判别
+ *   partialText 携出（text_start 开档 / delta 累积 / text_end 关档清档——
+ *   已关账块经 onBlockEnd 交付不进 partialText，防重复入账）。
  *
  * thinking 开启（A1 批：管家「全场最智能 agent」定位——thinking 默认开启，
  * 不暴露开关）：
@@ -22,9 +24,9 @@
  *   默认，AD-3 同构；supportsThinkingLevel 语义面但档位 map 缺省键 = 支持）；
  * - 流式：thinking_delta 聚积 → thinking_end 时 onThinking(整块文本) 段级
  *   回调（与 text_delta 透传同一 for-await——pi-ai EventStream 队列单消费者）；
- * - 回传：终态 ThinkingContent 块 → 响应 thinking { text, signature }；历史
- *   轮 assistant.thinking → Context ThinkingContent 块（signature 透传——
- *   Anthropic 式最严约束；provider 差异由 pi-ai convertMessages 收口）。
+ * - 回传：历史轮 assistant content 内 thinking 块直接映射 ThinkingContent
+ *   （signature 透传——Anthropic 式最严约束；provider 差异由 pi-ai
+ *   convertMessages 收口）。
  *
  * 本文件是 pi-ai import 的合法执行点之一（architecture.md §8.3 红线；
  * application 层只见 StewardLlmPort 窄面——pi-ai 类型不越墙）。
@@ -35,8 +37,8 @@ import type {
   StewardLlmPort,
   StewardLlmRequest,
   StewardLlmResponse,
-  StewardLlmThinking,
   StewardLlmBlock,
+  StewardLlmContentBlock,
 } from "../../../application/ports/outbound/StewardLlmPort";
 
 /** 管家默认模型槽位（建议最强模型——A1 批定位改写；deepseek 键位目录内
@@ -169,7 +171,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
             }
           }
           emitBlockEndSafe(onBlockEnd, {
-            kind: "thinking",
+            type: "thinking",
             text: block,
             ...(sig !== undefined ? { signature: sig } : {}),
           });
@@ -178,12 +180,12 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
         if (ev.type === "text_end") {
           // 关档清档——完成块经 onBlockEnd 关账入账（verbatim），不进 partialText
           openText = undefined;
-          emitBlockEndSafe(onBlockEnd, { kind: "text", text: ev.content });
+          emitBlockEndSafe(onBlockEnd, { type: "text", text: ev.content });
           continue;
         }
         if (ev.type === "toolcall_end") {
           emitBlockEndSafe(onBlockEnd, {
-            kind: "toolCall",
+            type: "toolCall",
             id: ev.toolCall.id,
             name: ev.toolCall.name,
             args: ev.toolCall.arguments as Record<string, unknown>,
@@ -198,8 +200,10 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     return this.toResponse(assistant, openText);
   }
 
-  /** 终态消息 → port 响应判别（text 直答 / 首个 toolCall；thinking 块随
-   *  终态携出——signature 透传；错误统一 throw；aborted 判别收口——
+  /** 终态消息 → port 响应判别（Phase 1 块模型：pi content 块数组直转 blocks
+   *  判别——thinking→thinking 块（signature 透传）、text→text 块、toolCall→
+   *  toolCall 块（arguments→args），块序原样；stopReason 透传动作相关子集，
+   *  非枚举值（pending 等防御）归 stop；错误统一 throw；aborted 判别收口——
    *  helix-loop L0：signal abort 后 resolve { kind: "aborted" } 而非 throw
    *  （duplex-truncation §6.3 port 面扩展）；G1（§3.3 text 行定稿）：aborted
    *  携 partialText = 未关账 text 块增量（openText——模型须记得被掐断的已播
@@ -211,33 +215,31 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     if (assistant.stopReason === "error") {
       throw new Error(assistant.errorMessage ?? "管家模型返回错误（无错误详情）");
     }
-    const thinking = this.collectThinking(assistant);
-    const toolCall = assistant.content.find((c) => c.type === "toolCall");
-    if (toolCall !== undefined && toolCall.type === "toolCall") {
-      return { kind: "toolCall", id: toolCall.id, name: toolCall.name, args: toolCall.arguments, thinking };
+    const blocks: StewardLlmContentBlock[] = [];
+    for (const c of assistant.content) {
+      if (c.type === "text") {
+        blocks.push({ type: "text", text: c.text });
+      } else if (c.type === "thinking") {
+        blocks.push({
+          type: "thinking",
+          text: c.thinking,
+          ...(typeof c.thinkingSignature === "string" && c.thinkingSignature !== ""
+            ? { signature: c.thinkingSignature }
+            : {}),
+        });
+      } else {
+        blocks.push({ type: "toolCall", id: c.id, name: c.name, args: c.arguments as Record<string, unknown> });
+      }
     }
-    const text = assistant.content
-      .filter((c): c is Extract<typeof c, { type: "text" }> => c.type === "text")
-      .map((c) => c.text)
-      .join("");
-    return { kind: "text", text, thinking };
+    const stopReason =
+      assistant.stopReason === "toolUse" || assistant.stopReason === "length" ? assistant.stopReason : "stop";
+    return { kind: "blocks", blocks, stopReason };
   }
 
-  /** 终态 ThinkingContent 块聚合（多块拼接文本、签名取首块——回传凭据面）。 */
-  private collectThinking(assistant: AssistantMessage): StewardLlmThinking | undefined {
-    const blocks = assistant.content.filter(
-      (c): c is Extract<typeof c, { type: "thinking" }> => c.type === "thinking",
-    );
-    if (blocks.length === 0) return undefined;
-    const text = blocks.map((b) => b.thinking).join("\n");
-    if (text === "") return undefined;
-    const signature = blocks.find((b) => typeof b.thinkingSignature === "string" && b.thinkingSignature !== "")?.thinkingSignature;
-    return signature === undefined ? { text } : { text, signature };
-  }
-
-  /** port 窄面消息 → pi-ai Context（assistant 历史轮重建占位元数据——只回灌
-   *  载荷面（thinking/文本/工具调用/结果），usage 等记账位为回放占位，不参与
-   *  请求体；thinking 块置首——Anthropic 语义面 thinking 先于 text/toolCall）。 */
+  /** port 窄面消息 → pi-ai Context（Phase 1 块模型：assistant content 块数组
+   *  直映射——pi 本就是块流，旧「三字段拆装」翻译消失；块序即流序（Anthropic
+   *  语义面 provider 侧收口）；历史轮重建占位元数据——只回灌载荷面
+   *  （thinking/文本/工具调用/结果），usage 等记账位为回放占位，不参与请求体）。 */
   private toContext(request: StewardLlmRequest, model: Model<any>): Context {
     const timestamp = Date.now();
     const messages: Message[] = [];
@@ -248,18 +250,24 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
       }
       if (m.role === "assistant") {
         const content: Message extends never ? never : Extract<Message, { role: "assistant" }>["content"] = [];
-        if (m.thinking !== undefined && m.thinking.text !== "") {
-          content.push({
-            type: "thinking",
-            thinking: m.thinking.text,
-            ...(m.thinking.signature !== undefined ? { thinkingSignature: m.thinking.signature } : {}),
-          });
-        }
-        if (m.text !== undefined && m.text !== "") content.push({ type: "text", text: m.text });
-        if (m.toolCall !== undefined) {
-          // port args 源头是 pi JsonObject（toResponse 透传 toolCall.arguments），
-          // 闭环内 JSON 保证——断言收窄回 0.87 收紧的 ToolCall.arguments 形态。
-          content.push({ type: "toolCall", id: m.toolCall.id, name: m.toolCall.name, arguments: m.toolCall.args as JsonObject });
+        let hasToolCall = false;
+        for (const b of m.content) {
+          if (b.type === "text" && b.text !== "") {
+            content.push({ type: "text", text: b.text });
+          } else if (b.type === "thinking" && b.text !== "") {
+            content.push({
+              type: "thinking",
+              thinking: b.text,
+              ...(b.signature !== undefined ? { thinkingSignature: b.signature } : {}),
+            });
+          } else if (b.type === "toolCall") {
+            hasToolCall = true;
+            // port args 源头是 pi JsonObject（toResponse 透传 toolCall.arguments），
+            // 闭环内 JSON 保证——断言收窄回 0.87 收紧的 ToolCall.arguments 形态。
+            content.push({ type: "toolCall", id: b.id, name: b.name, arguments: b.args as JsonObject });
+          }
+          // image 块 Phase 1 无回传面（pi AssistantMessage.content 不含 image；
+          // 图片上行接线是后续 Phase）——防御性忽略
         }
         messages.push({
           role: "assistant",
@@ -268,7 +276,7 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
           provider: model.provider,
           model: model.id,
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-          stopReason: m.toolCall !== undefined ? "toolUse" : "stop",
+          stopReason: hasToolCall ? "toolUse" : "stop",
           timestamp,
         });
         continue;

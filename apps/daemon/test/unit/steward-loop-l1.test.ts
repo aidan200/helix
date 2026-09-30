@@ -68,7 +68,7 @@ function gatedTextLlm(opts: {
         });
         if (signal?.aborted === true) return { kind: "aborted" };
       }
-      return { kind: "text", text: opts.answer ?? "答" };
+      return { kind: "blocks", blocks: [{ type: "text", text: opts.answer ?? "答" }], stopReason: "stop" };
     },
   } as StewardLlmPort & { mainCalls: StewardLlmRequest[] };
 }
@@ -82,9 +82,9 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
       modelId: "m",
       complete: async (req) => {
         if (req.tools.length === 0 && req.systemPrompt.includes("压缩")) {
-          return { kind: "text", text: "（摘要：用户在问任务状态，已查得 2 条在跑）" };
+          return { kind: "blocks", blocks: [{ type: "text", text: "（摘要：用户在问任务状态，已查得 2 条在跑）" }], stopReason: "stop" };
         }
-        return { kind: "text", text: "答" };
+        return { kind: "blocks", blocks: [{ type: "text", text: "答" }], stopReason: "stop" };
       },
     };
     const svc = new StewardService({
@@ -127,7 +127,7 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
         if (req.tools.length === 0 && req.systemPrompt.includes("压缩")) {
           throw new Error("压缩模型网络失败");
         }
-        return { kind: "text", text: "答" };
+        return { kind: "blocks", blocks: [{ type: "text", text: "答" }], stopReason: "stop" };
       },
     };
     const svc = new StewardService({

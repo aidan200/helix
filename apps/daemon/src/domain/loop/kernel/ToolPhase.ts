@@ -15,6 +15,7 @@
  * LoopKernel 轮边界，与本件无关）。
  */
 import type {
+  LoopContentBlock,
   LoopEvent,
   LoopEventEmitter,
   LoopMessage,
@@ -29,6 +30,11 @@ import { recordMessage, type LoopRunInput, type LoopRunResult, type RunState } f
 /** 工具段继续信号（非终态——循环进下一轮）。 */
 export const CONTINUE = Symbol("loop-continue");
 export type ToolPhaseResult = LoopRunResult | typeof CONTINUE;
+
+/** Phase 1 N=1 语义：同轮多枚 toolCall 块中未执行枚的合成结果文案（I1 配对
+ *  完整 + 模型可自纠；Phase 3 批执行接手前的过渡语义）。 */
+export const LOOP_PARALLEL_UNSUPPORTED_TOOL_RESULT_TEXT =
+  "【未执行】本引擎暂不支持同轮多工具调用（仅执行了首个）——请等本轮结果后逐个发起";
 
 /** 工具段执行器（pauseSeq 引擎实例级——跨 run 递增，pauseToken 唯一性）。 */
 export class ToolPhase {
@@ -46,15 +52,19 @@ export class ToolPhase {
   }
 
   /** 工具执行段入口：暂停判定 → pause 收口 / 执行 → 结果回灌继续。
-   *  assistant toolCall 入账时点：非 terminate 分支在工具段开始前统一入账
+   *  assistant content 入账时点：非 terminate 分支在工具段开始前统一入账
    *  （确认闸挂起时工作记忆已可见——与管家现状等价：校验通过的提案先
    *  入账再等用户裁决）；terminate 分支零入账（防火墙前置拒无痕）。
+   *  extras = Phase 1 N=1 语义下未执行的多余 toolCall 块（首枚之外）——
+   *  assistant 入账后逐枚合成 error toolResult 回灌（模型面自愈配对，无
+   *  过程事件/回调——非执行面）；terminate 分支同样零入账。
    *  resume = 主循环续接闭包（暂停恢复后回灌进下一轮——LoopKernel 注入）。 */
   async run(
     state: RunState,
     input: LoopRunInput,
     ctx: LoopToolCallContext,
     assistant: LoopMessage,
+    extras: readonly (LoopContentBlock & { type: "toolCall" })[],
     resume: () => Promise<LoopRunResult>,
   ): Promise<ToolPhaseResult> {
     if (input.beforeToolCallPause !== undefined) {
@@ -62,6 +72,7 @@ export class ToolPhase {
       if (decision.pause) {
         this.emitToolStarted(state, input, ctx);
         await recordMessage(state, input, assistant);
+        await this.appendUnexecutedExtras(state, input, extras);
         return this.pauseRun(state, input, ctx, resume);
       }
       if (decision.outcome !== undefined) {
@@ -70,12 +81,31 @@ export class ToolPhase {
         }
         this.emitToolStarted(state, input, ctx);
         await recordMessage(state, input, assistant);
+        await this.appendUnexecutedExtras(state, input, extras);
         return this.applyToolOutcome(state, input, ctx, decision.outcome);
       }
     }
     this.emitToolStarted(state, input, ctx);
     await recordMessage(state, input, assistant);
+    await this.appendUnexecutedExtras(state, input, extras);
     return this.executeTool(state, input, ctx);
+  }
+
+  /** Phase 1 N=1 语义：未执行的多余 toolCall 块合成 error toolResult（I1
+   *  配对完整 + 模型可自纠；无过程事件/回调——合成面非执行面）。 */
+  private async appendUnexecutedExtras(
+    state: RunState,
+    input: LoopRunInput,
+    extras: readonly (LoopContentBlock & { type: "toolCall" })[],
+  ): Promise<void> {
+    for (const extra of extras) {
+      await recordMessage(state, input, {
+        role: "toolResult",
+        toolCallId: extra.id,
+        name: extra.name,
+        text: LOOP_PARALLEL_UNSUPPORTED_TOOL_RESULT_TEXT,
+      });
+    }
   }
 
   /** tool.started 事件 + onToolStart 回调（过程可见——与管家迁移前序等价）。 */

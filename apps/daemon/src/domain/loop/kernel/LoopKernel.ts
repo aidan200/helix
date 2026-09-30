@@ -2,9 +2,13 @@
  * kernel/LoopKernel —— loop 域主循环本体（helix-loop Phase 0a 四层拆分；
  * 设计 §2.2：原 LoopEngine.driveLoop 独立成件）。
  *
- * 循环骨架（pi agent-loop 同构 + 暂停点原语）：
- * - 消息循环：streamFn 单步（流式回调透传）→ text 终答收口 / toolCall 进
- *   工具执行段（ToolPhase）；工具结果回灌窗口续跑至下一轮（工具轮上限熔断）；
+ * 循环骨架（pi agent-loop 同构 + 暂停点原语；Phase 1 块模型——streamFn 终态
+ * 为完整块集，kernel 自块集判别 turn 走向）
+ * - 消息循环：streamFn 单步（流式回调透传）→ 无 toolCall 块即 text 终答收口 /
+ *   含 toolCall 块进工具执行段（ToolPhase）；工具结果回灌窗口续跑至下一轮
+ *   （工具轮上限熔断）；
+ *   Phase 1 N=1 语义：多枚 toolCall 块时首枚执行、其余经 ToolPhase 合成
+ *   error toolResult 回灌（I1 配对完整 + 模型可自纠；Phase 3 批执行接手）；
  * - abort：signal 只作用于 LLM 流式段（工具执行段不打断——duplex
  *   truncation §6.2；下一轮调用前检查），streamFn 返回 aborted 判别收口
  *   （善后委派 AbortSettler）；
@@ -16,7 +20,7 @@
  * 依赖纪律：domain 零 pi import——LLM 面即 LoopStreamFn duck-type 契约
  * （contracts/stream.ts），执行体在 driven adapter 装配注入。
  */
-import type { LoopEvent, LoopEventEmitter, LoopMessage, LoopStreamBlock, LoopStreamFn, LoopToolCallContext } from "../contracts";
+import type { LoopEvent, LoopEventEmitter, LoopMessage, LoopContentBlock, LoopStreamFn, LoopToolCallContext } from "../contracts";
 import { settleAbortedTurn } from "./AbortSettler";
 import { recordMessage, type LoopRunHandle, type LoopRunInput, type LoopRunResult, type RunState } from "./RunState";
 import { CONTINUE, ToolPhase } from "./ToolPhase";
@@ -101,8 +105,9 @@ export class LoopKernel {
       this.emit({ type: "loop.message.started", runId: state.runId, turn: state.turn });
 
       let response: Awaited<ReturnType<LoopStreamFn>>;
-      // E-198：本轮流块完整收尾缓冲（块 end 凭证收集面——半截块无帧不进此）
-      const blocks: LoopStreamBlock[] = [];
+      // E-198：本轮流块完整收尾缓冲（块 end 凭证收集面——半截块无帧不进此；
+      // Phase 1 块模型：载荷与 assistant content 块同一形状）
+      const blocks: LoopContentBlock[] = [];
       try {
         response = await this.streamFn(
           {
@@ -143,36 +148,35 @@ export class LoopKernel {
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
         return { kind: "aborted", ...(audit !== undefined ? { audit } : {}) };
       }
-      const stopReason = response.kind === "toolCall" ? "toolUse" : "text";
+      // Phase 1 块模型：kernel 自块集判别 turn 走向（toolCall 块在即工具轮
+      // ——stopReason 是模型侧意图声明，不作行为判据）。
+      const toolCalls = response.blocks.filter((b): b is LoopContentBlock & { type: "toolCall" } => b.type === "toolCall");
+      const stopReason = toolCalls.length > 0 ? "toolUse" : "text";
       this.emit({ type: "loop.message.finished", runId: state.runId, turn: state.turn, stopReason });
 
-      if (response.kind === "text") {
-        const assistant: LoopMessage = {
-          role: "assistant",
-          text: response.text,
-          ...(response.thinking !== undefined ? { thinking: response.thinking } : {}),
-        };
+      if (toolCalls.length === 0) {
+        // 终答轮：块集原样入账（单条 assistant——块序即流序，混排零拆分）。
+        const assistant: LoopMessage = { role: "assistant", content: response.blocks };
         await recordMessage(state, input, assistant);
         this.emit({ type: "loop.turn.finished", runId: state.runId, turn: state.turn, stopReason: "text", tools: [] });
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "answer" });
-        return { kind: "finished", text: response.text, ...(response.thinking !== undefined ? { thinking: response.thinking } : {}) };
+        return { kind: "finished", blocks: response.blocks };
       }
-
-      // 工具调用轮：assistant toolCall 消息的产生推迟到工具段分支（防火墙
+      // 工具调用轮：assistant content 入账的产生推迟到工具段分支（防火墙
       // 前置拒 terminate 分支零入账——与管家现状严格等价：propose_send 实例
-      // 不运行路径直接 error 回执，KV 无痕）。
-      const assistant: LoopMessage = {
-        role: "assistant",
-        ...(response.thinking !== undefined ? { thinking: response.thinking } : {}),
-        toolCall: { id: response.id, name: response.name, args: response.args },
-      };
+      // 不运行路径直接 error 回执，KV 无痕）。Phase 1 N=1 语义：首枚执行，
+      // 其余经 ToolPhase 合成 error toolResult 回灌（I1 配对完整；Phase 3
+      // 批执行接手）。
+      const first = toolCalls[0]!;
+      const extras = toolCalls.slice(1);
+      const assistant: LoopMessage = { role: "assistant", content: response.blocks };
       const ctx: LoopToolCallContext = {
         runId: state.runId,
-        toolCallId: response.id,
-        toolName: response.name,
-        args: response.args,
+        toolCallId: first.id,
+        toolName: first.name,
+        args: first.args,
       };
-      const phase = await this.tools.run(state, input, ctx, assistant, () => this.driveLoop(state, input));
+      const phase = await this.tools.run(state, input, ctx, assistant, extras, () => this.driveLoop(state, input));
       if (phase !== CONTINUE) return phase;
     }
   }

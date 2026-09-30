@@ -38,7 +38,7 @@ import type {
   StewardLlmPort,
   StewardLlmMessage,
   StewardLlmTool,
-  StewardLlmThinking,
+  StewardLlmContentBlock,
 } from "../ports/outbound/StewardLlmPort";
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { AgentOrchestrationPort } from "../ports/inbound/AgentOrchestrationPort";
@@ -68,6 +68,7 @@ import type {
   LoopToolOutcome,
 } from "../../domain/loop";
 import { LOOP_COMPACTION_SUMMARY_PROMPT, LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/loop";
+import { firstToolCallBlock, loopBlocksText } from "../../domain/loop/contracts/message";
 import { LoopEngine as LoopEngineImpl, ToolRegistry } from "../../domain/loop";
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
@@ -235,18 +236,27 @@ export function buildFeedText(event: DomainEvent): string | undefined {
   }
 }
 
-/** 工作记忆记录 → LLM 消息（同源映射：记录携带 at，LLM 面不含时间戳）。 */
+/** 工作记忆记录 → LLM 消息（同源映射：记录携带 at，LLM 面不含时间戳；
+ *  Phase 1 块模型：投影记录（text/thinking/toolCall 三可选）→ assistant
+ *  content 块数组——翻译层单点，投影面形状稳定不随块模型变）。 */
 function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
   if (record.kind === "user") return { role: "user", text: record.text };
   if (record.kind === "toolResult") {
     return { role: "toolResult", toolCallId: record.toolCallId, name: record.name, text: record.text };
   }
-  return {
-    role: "assistant",
-    ...(record.text !== undefined ? { text: record.text } : {}),
-    ...(record.thinking !== undefined ? { thinking: record.thinking } : {}),
-    ...(record.toolCall !== undefined ? { toolCall: record.toolCall } : {}),
-  };
+  const content: StewardLlmContentBlock[] = [];
+  if (record.thinking !== undefined && record.thinking.text !== "") {
+    content.push({
+      type: "thinking",
+      text: record.thinking.text,
+      ...(record.thinking.signature !== undefined ? { signature: record.thinking.signature } : {}),
+    });
+  }
+  if (record.text !== undefined && record.text !== "") content.push({ type: "text", text: record.text });
+  if (record.toolCall !== undefined) {
+    content.push({ type: "toolCall", id: record.toolCall.id, name: record.toolCall.name, args: record.toolCall.args });
+  }
+  return { role: "assistant", content };
 }
 
 /** 过程帧摘要（防御性截断）。 */
@@ -1028,10 +1038,10 @@ export class StewardService {
       messages: [{ role: "user", text: turns }],
       tools: [],
     });
-    if (resp.kind !== "text") {
+    if (resp.kind !== "blocks") {
       throw new Error(`记忆提取面收到意外的 ${resp.kind} 响应（tools 为空不应发生）`);
     }
-    return resp.text;
+    return loopBlocksText(resp.blocks);
   }
 
   /** 轮末沉淀钩子（runAskPipeline finally；fire-and-forget 不阻塞 drain）。 */
@@ -1064,10 +1074,10 @@ export class StewardService {
       messages: messages as readonly import("../ports/outbound/StewardLlmPort").StewardLlmMessage[],
       tools: [],
     });
-    if (response.kind !== "text") {
-      throw new Error(`压缩摘要响应非文本（${response.kind}）`);
+    if (response.kind !== "blocks") {
+      throw new Error(`压缩摘要响应非块集（${response.kind}）`);
     }
-    return response.text;
+    return loopBlocksText(response.blocks);
   }
 
   /** 单轮 LoopEngine 驱动（ask 主循环体——含确认闸挂闸闭包与回执映射）。 */
@@ -1126,7 +1136,8 @@ export class StewardService {
     });
     const result = await run.promise;
     if (result.kind === "finished") {
-      return { status: "answer", text: result.text };
+      // Phase 1 块模型：终答文本自块集提取（text 块拼接——回执播报面）
+      return { status: "answer", text: loopBlocksText(result.blocks) };
     }
     if (result.kind === "paused") {
       const candidate = pauseCandidate[pauseCandidate.length - 1];
@@ -1617,7 +1628,11 @@ export class StewardService {
 
   /** LoopMessage → 工作记忆 KV 记录（onNewMessage 持久化回调——空文本兜底
    *  「（无回答）」与迁移前行为等价；user 不经此面，初始窗口注入——唯一
-   *  例外：E-198 打断截断标记（engine 侧合成的固定常量 user 消息）。 */
+   *  例外：E-198 打断截断标记（engine 侧合成的固定常量 user 消息）。
+   *  Phase 1 块模型：assistant content → 投影记录三可选字段（loop BC →
+   *  投影 BC 翻译单点——text 块拼接、thinking 块聚合（多块拼文本、签名取
+   *  首块）、toolCall 取首枚（N=1 语义）；image 块无投影位——防御性忽略
+   *  （图片上行接线是后续 Phase））。 */
   private async recordLoopMessage(message: LoopMessage): Promise<void> {
     if (message.role === "toolResult") {
       await this.pushRecord({
@@ -1635,18 +1650,23 @@ export class StewardService {
       await this.pushRecord({ kind: "user", text: message.text, at: this.now() });
       return;
     }
-    if (message.role === "assistant") {
-      const hasToolCall = message.toolCall !== undefined;
-      const rawText = message.text ?? "";
-      const text = hasToolCall || rawText.trim() !== "" ? rawText : "（无回答）";
-      await this.pushRecord({
-        kind: "assistant",
-        ...(text !== "" || hasToolCall ? { text } : {}),
-        ...(message.thinking !== undefined ? { thinking: message.thinking } : {}),
-        ...(message.toolCall !== undefined ? { toolCall: message.toolCall } : {}),
-        at: this.now(),
-      });
-    }
+    const rawText = loopBlocksText(message.content);
+    const toolCall = firstToolCallBlock(message.content);
+    const thinkingBlocks = message.content.filter(
+      (b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking",
+    );
+    const text = toolCall !== undefined || rawText.trim() !== "" ? rawText : "（无回答）";
+    const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
+    const signature = thinkingBlocks.find((b) => b.signature !== undefined && b.signature !== "")?.signature;
+    await this.pushRecord({
+      kind: "assistant",
+      ...(text !== "" || toolCall !== undefined ? { text } : {}),
+      ...(thinkingText !== ""
+        ? { thinking: signature !== undefined ? { text: thinkingText, signature } : { text: thinkingText } }
+        : {}),
+      ...(toolCall !== undefined ? { toolCall: { id: toolCall.id, name: toolCall.name, args: toolCall.args } } : {}),
+      at: this.now(),
+    });
   }
 
   // ── 确认闸暂停点（write 类工具挂闸——beforeToolCallPause 实现体） ──────

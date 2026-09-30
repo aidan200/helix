@@ -169,7 +169,7 @@ describe("buildTopicPrompt / buildDriftJudgeInput / recentUserTextsOf", () => {
 
 describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   test("money gate：开关关 → 零 LLM/判官调用", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" }]);
     const target = makeTarget();
     const { service } = makeService({ config: { enabled: false }, llm, target });
     service.onDomainEvent(turnDone("s1"));
@@ -179,7 +179,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("非 done 轮（aborted/steerDrained）不计锚点", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" }]);
     const target = makeTarget();
     const { service } = makeService({ llm, target });
     service.onDomainEvent(turnDone("s1", "aborted"));
@@ -188,7 +188,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("非 turn.completed 事件零动作", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" }]);
     const { service } = makeService({ llm });
     service.onDomainEvent({ type: "message.completed", sessionId: "s1", payload: {}, occurredAt: "2026-09-24T10:00:00.000Z" });
     await settle();
@@ -196,7 +196,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("锚点外轮次（2/4/5）短路零调用", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" }]);
     const target = makeTarget({ turnCount: 2 });
     const { service } = makeService({ llm, target });
     service.onDomainEvent(turnDone("s1"));
@@ -205,7 +205,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("显式标题锁定：title 存在 → 零演进（域守卫前置）", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" }]);
     const target = makeTarget({ title: "用户命名的会话", turnCount: 3 });
     const { service } = makeService({ llm, target });
     service.onDomainEvent(turnDone("s1"));
@@ -215,7 +215,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("冷会话（resolveTarget undefined）安全跳过", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" }]);
     const { service } = makeService({ llm, target: undefined });
     service.onDomainEvent(turnDone("s1"));
     await settle();
@@ -223,7 +223,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("一段式成功：新主题 → updateTopic + 广播；previous = topic ?? 推导", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "「会话主题演进设计」。" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "「会话主题演进设计」。" }], stopReason: "stop" }]);
     const target = makeTarget({ turnCount: 3, topic: "旧主题" });
     const announced: string[] = [];
     const { service } = makeService({ llm, target, announced });
@@ -236,7 +236,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("一段式「保持」→ 不更新不广播", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "保持" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "保持" }], stopReason: "stop" }]);
     const target = makeTarget({ turnCount: 3, topic: "旧主题" });
     const announced: string[] = [];
     const { service } = makeService({ llm, target, announced });
@@ -247,7 +247,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("两段式：noul ≥ 阈值 → 进生成；prompt 不含「保持」出口", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题短语" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题短语" }], stopReason: "stop" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.1]);
     const target = makeTarget({ turnCount: 6, topic: "旧主题" });
     const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
@@ -260,7 +260,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("两段式：noul < 阈值 → 短路省生成调用", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "新主题短语" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新主题短语" }], stopReason: "stop" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD - 0.1]);
     const target = makeTarget({ turnCount: 6, topic: "旧主题" });
     const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
@@ -272,7 +272,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("未选分类模型（classifyEndpointId null）→ 判官能力在场也不启用，生成模型兼任判断", async () => {
-    const llm = fakeLlm([{ kind: "text", text: TOPIC_KEEP_SENTINEL }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: TOPIC_KEEP_SENTINEL }], stopReason: "stop" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.1]);
     const target = makeTarget({ turnCount: 6, topic: "旧主题" });
     const { service } = makeService({ config: { classifyEndpointId: null }, llm, judge, target });
@@ -284,7 +284,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
   });
 
   test("首次命名（topic 未定）→ 跳过判官直接升格（「尚无主题」不构成漂移命题）", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "项目结构梳理" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "项目结构梳理" }], stopReason: "stop" }]);
     const judge = fakeJudge([TOPIC_DRIFT_THRESHOLD + 0.5]); // 剧本若被消费会判漂移——用例断言它根本不被调用
     const target = makeTarget({ turnCount: 3 }); // topic undefined（默认）= 首次命名
     const { service } = makeService({ config: { classifyEndpointId: "jev-1" }, llm, judge, target });
@@ -320,7 +320,7 @@ describe("SessionTitleService.onDomainEvent（锚点演进链）", () => {
     let release: (() => void) | undefined;
     const llm = fakeLlm([
       new Promise<StewardLlmResponse>((resolve) => {
-        release = () => resolve({ kind: "text", text: "新主题" });
+        release = () => resolve({ kind: "blocks", blocks: [{ type: "text", text: "新主题" }], stopReason: "stop" });
       }) as never as StewardLlmResponse,
     ]);
     const target = makeTarget({ turnCount: 3 });

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  LoopContentBlock,
   LoopEvent,
   LoopMessage,
-  LoopStreamBlock,
 } from "../../src/domain/loop";
 import { LoopEngine, ToolRegistry } from "../../src/domain/loop";
 import {
@@ -17,8 +17,11 @@ import { StewardService } from "../../src/application/steward/StewardService";
  * E-198 打断善后（partial 保留）单测——aborted 轮从「整轮丢弃」升级为
  * 「安全块入账 + 截断标记 + 不安全块丢弃」（G1 定稿对齐：无 text_end 的
  * 半截 text 经 aborted 判别 partialText 入账 + 截断标记——duplex-truncation
- * §3.3 text 行；partialText 缺席/空 = 行为与 G1 前完全一致）：
- * - T1 text 流中段打断：完整块 + 半截 text（partialText）同批入账 + 标记在、零重复；
+ * §3.3 text 行；partialText 缺席/空 = 行为与 G1 前完全一致）。
+ * Phase 1 块模型迁移：安全块集作为单条 assistant content 入账（块序即流序
+ * ——旧「thinking 归属切分多条消息」消失：一条消息装全部块）：
+ * - T1 text 流中段打断：完整块 + 半截 text（partialText 独立 text 块同批
+ *   入账）+ 标记在、零重复；
  * - T1b 仅半截 text：入账 + 截断标记（G1 语义翻转——原丢弃）；
  * - T1c/T1d abort 于 text_end 之后 / partialText 空串：无未关账块，行为不变；
  * - T2 thinking 流中段打断：半截丢（无签名不可回传；悬挂 thinking 亦不可
@@ -30,7 +33,8 @@ import { StewardService } from "../../src/application/steward/StewardService";
  * - 事件序：loop.run.interrupted 先于 loop.run.finished(aborted)，各一次。
  *
  * 契约前提：LoopStreamCallbacks.onBlockEnd（块 end = 完整性唯一凭证 I1——
- * 半截块无此帧，天然在丢弃面）。
+ * 半截块无此帧，天然在丢弃面；载荷 = LoopContentBlock，与 assistant
+ * content 块同一形状）。
  */
 
 function tick(ms = 5): Promise<void> {
@@ -42,15 +46,27 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
+/** 消息数组 → 全文本平铺（assistant 取 content 块文本拼接；零重复断言面）。 */
+function flatText(messages: readonly LoopMessage[]): string {
+  return messages
+    .map((m) => {
+      if (m.role === "user" || m.role === "toolResult") return m.text;
+      return m.content
+        .map((b) => (b.type === "text" ? b.text : b.type === "thinking" ? b.text : ""))
+        .join("\n");
+    })
+    .join("\n");
+}
+
 describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
-  test("T1 text 流中段打断：完整块 + 半截 text（partialText，G1）同批入账 + 截断标记；零重复；audit 携带", async () => {
+  test("T1 text 流中段打断：完整块 + 半截 text（partialText，G1）同批入账（单条 assistant content）+ 截断标记；零重复；audit 携带", async () => {
     const controller = new AbortController();
     const events: LoopEvent[] = [];
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
         // 块 1 完整（text_end 凭证）
-        callbacks?.onBlockEnd?.({ kind: "text", text: "第一块完整内容" });
+        callbacks?.onBlockEnd?.({ type: "text", text: "第一块完整内容" });
         // 块 2 半截：text_start 后只有 delta，无 end——adapter 只把未关账增量
         // 累积为 partialText（不得含已关账块，防重复入账）
         callbacks?.onDelta?.("第二块半截");
@@ -74,13 +90,20 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(result.kind).toBe("aborted");
-    // 完成块 + 半截 text 同批入账（G1：与完成块同批记录）+ 截断标记
+    // 完成块 + 半截 text 同批入账（G1：单条 assistant content，partialText
+    // 独立 text 块尾置——块序即流序）+ 截断标记
     expect(recorded).toEqual([
-      { role: "assistant", text: "第一块完整内容\n\n第二块半截" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "第一块完整内容" },
+          { type: "text", text: "第二块半截" },
+        ],
+      },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
     // 零重复入账：完成块与 partialText 各恰一次（partialText 只携未关账增量）
-    const flat = recorded.map((m) => m.text ?? "").join("\n");
+    const flat = flatText(recorded);
     expect(countOccurrences(flat, "第一块完整内容")).toBe(1);
     expect(countOccurrences(flat, "第二块半截")).toBe(1);
     // 事件序：interrupted 先于 finished(aborted)，各一次
@@ -92,7 +115,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     expect(finished.resolution).toBe("aborted");
     const interrupted = events.find((e) => e.type === "loop.run.interrupted") as { reason: string };
     expect(interrupted.reason).toContain("barge-in");
-    // audit：入账 1 条（I6 审计面）
+    // audit：入账 1 条（I6 审计面——assistant 消息条数）
     if (result.kind !== "aborted") throw new Error("应 aborted");
     expect(result.audit?.keptMessages).toBe(1);
   });
@@ -126,7 +149,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     expect(result.kind).toBe("aborted");
     // 半截 text 入账（模型记得被掐断的已播半句——P2）+ 截断标记照落
     expect(recorded).toEqual([
-      { role: "assistant", text: "只有半截句" },
+      { role: "assistant", content: [{ type: "text", text: "只有半截句" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
     if (result.kind !== "aborted") throw new Error("应 aborted");
@@ -138,7 +161,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "text", text: "完整收尾" });
+        callbacks?.onBlockEnd?.({ type: "text", text: "完整收尾" });
         controller.abort("barge-in");
         return { kind: "aborted" }; // 无未关账块——不携 partialText
       },
@@ -159,7 +182,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(recorded).toEqual([
-      { role: "assistant", text: "完整收尾" },
+      { role: "assistant", content: [{ type: "text", text: "完整收尾" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
   });
@@ -169,7 +192,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "text", text: "完整" });
+        callbacks?.onBlockEnd?.({ type: "text", text: "完整" });
         controller.abort("barge-in");
         return { kind: "aborted", partialText: "" };
       },
@@ -190,7 +213,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(recorded).toEqual([
-      { role: "assistant", text: "完整" },
+      { role: "assistant", content: [{ type: "text", text: "完整" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
   });
@@ -225,13 +248,13 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     expect(recorded).toEqual([{ role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT }]);
   });
 
-  test("T2b 完整 thinking（带签名）+ 半截 text：悬挂 thinking 丢弃（单独回传非法）+ audit 记丢弃", async () => {
+  test("T2b 完整 thinking（带签名）+ 半截 text（partialText 缺席）：悬挂 thinking 丢弃（单独回传非法）+ audit 记丢弃", async () => {
     const controller = new AbortController();
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "thinking", text: "推理中……", signature: "sig-1" });
-        callbacks?.onDelta?.("结"); // text 半截（无 end）
+        callbacks?.onBlockEnd?.({ type: "thinking", text: "推理中……", signature: "sig-1" });
+        callbacks?.onDelta?.("结"); // text 半截（无 end，未进 partialText——防御性剧本）
         controller.abort("barge-in");
         return { kind: "aborted" };
       },
@@ -257,13 +280,13 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     expect(result.audit?.droppedBlocks[0]?.kind).toBe("thinking");
   });
 
-  test("T2c 完整 thinking（带签名）+ 完整 text：thinking 全精度随 assistant 入账", async () => {
+  test("T2c 完整 thinking（带签名）+ 完整 text：thinking 块随 assistant content 入账（块序即流序）", async () => {
     const controller = new AbortController();
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "thinking", text: "推理", signature: "sig-1" });
-        callbacks?.onBlockEnd?.({ kind: "text", text: "结论前半" });
+        callbacks?.onBlockEnd?.({ type: "thinking", text: "推理", signature: "sig-1" });
+        callbacks?.onBlockEnd?.({ type: "text", text: "结论前半" });
         controller.abort("barge-in");
         return { kind: "aborted" };
       },
@@ -284,7 +307,13 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(recorded).toEqual([
-      { role: "assistant", text: "结论前半", thinking: { text: "推理", signature: "sig-1" } },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "推理", signature: "sig-1" },
+          { type: "text", text: "结论前半" },
+        ],
+      },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
   });
@@ -294,8 +323,8 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "thinking", text: "无凭据推理" });
-        callbacks?.onBlockEnd?.({ kind: "text", text: "结论" });
+        callbacks?.onBlockEnd?.({ type: "thinking", text: "无凭据推理" });
+        callbacks?.onBlockEnd?.({ type: "text", text: "结论" });
         controller.abort("barge-in");
         return { kind: "aborted" };
       },
@@ -317,7 +346,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       .promise;
     if (result.kind !== "aborted") throw new Error("应 aborted");
     expect(recorded).toEqual([
-      { role: "assistant", text: "结论" },
+      { role: "assistant", content: [{ type: "text", text: "结论" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
     expect(result.audit?.droppedBlocks.length).toBe(1);
@@ -354,12 +383,12 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     expect(recorded.some((m) => m.role === "toolResult")).toBe(false);
   });
 
-  test("T3b 完整 toolcall 收尾后打断（未执行）：assistant toolCall + 合成中断 toolResult 配对（I3）", async () => {
+  test("T3b 完整 toolcall 收尾后打断（未执行）：assistant content 含 toolCall 块 + 合成中断 toolResult 配对（I3）", async () => {
     const controller = new AbortController();
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "toolCall", id: "c1", name: "query_tasks", args: { q: 1 } });
+        callbacks?.onBlockEnd?.({ type: "toolCall", id: "c1", name: "query_tasks", args: { q: 1 } });
         controller.abort("barge-in");
         return { kind: "aborted" };
       },
@@ -380,7 +409,10 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(recorded).toEqual([
-      { role: "assistant", toolCall: { id: "c1", name: "query_tasks", args: { q: 1 } } },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "c1", name: "query_tasks", args: { q: 1 } }],
+      },
       { role: "toolResult", toolCallId: "c1", name: "query_tasks", text: LOOP_INTERRUPTED_TOOL_RESULT_TEXT },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
@@ -392,7 +424,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
         streamSeq += 1;
-        callbacks?.onBlockEnd?.({ kind: "text", text: `部分答${streamSeq}` });
+        callbacks?.onBlockEnd?.({ type: "text", text: `部分答${streamSeq}` });
         return { kind: "aborted" };
       },
       registry: new ToolRegistry(),
@@ -414,12 +446,12 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       expect(result.kind).toBe("aborted");
     }
     expect(recorded).toEqual([
-      { role: "assistant", text: "部分答1" },
+      { role: "assistant", content: [{ type: "text", text: "部分答1" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
-      { role: "assistant", text: "部分答2" },
+      { role: "assistant", content: [{ type: "text", text: "部分答2" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
-    expect(recorded.filter((m) => m.text === LOOP_INTERRUPTED_MARKER_TEXT).length).toBe(2);
+    expect(recorded.filter((m) => m.role === "user" && m.text === LOOP_INTERRUPTED_MARKER_TEXT).length).toBe(2);
   });
 
   test("T9 打断信号重复到达：幂等——单次入账、事件各一次", async () => {
@@ -428,7 +460,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
       streamFn: async (_input, callbacks) => {
-        callbacks?.onBlockEnd?.({ kind: "text", text: "部分内容" });
+        callbacks?.onBlockEnd?.({ type: "text", text: "部分内容" });
         controller.abort("第一次"); // 到达
         controller.abort("重复信号"); // 重复到达（AbortController 幂等——reason 不变）
         return { kind: "aborted" };
@@ -451,7 +483,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       .promise;
     expect(result.kind).toBe("aborted");
     expect(recorded).toEqual([
-      { role: "assistant", text: "部分内容" },
+      { role: "assistant", content: [{ type: "text", text: "部分内容" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
     ]);
     const types = events.map((e) => e.type);
@@ -474,7 +506,11 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       },
     });
     const engine = new LoopEngine({
-      streamFn: async () => ({ kind: "toolCall", id: "c1", name: "slow", args: {} }),
+      streamFn: async () => ({
+        kind: "blocks",
+        blocks: [{ type: "toolCall", id: "c1", name: "slow", args: {} }],
+        stopReason: "toolUse",
+      }),
       registry,
       emit: (e) => events.push(e),
       newRunId: () => "t-edge",
@@ -492,9 +528,9 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(result.kind).toBe("aborted");
-    // 完整轮已正常记账（assistant toolCall + toolResult）；无截断标记（轮未被掐）
+    // 完整轮已正常记账（assistant toolCall 块 + toolResult）；无截断标记（轮未被掐）
     expect(recorded.map((m) => m.role)).toEqual(["assistant", "toolResult"]);
-    expect(recorded.some((m) => m.text === LOOP_INTERRUPTED_MARKER_TEXT)).toBe(false);
+    expect(recorded.some((m) => m.role === "user" && m.text === LOOP_INTERRUPTED_MARKER_TEXT)).toBe(false);
     // interrupted 事件仍发射（先于 finished）
     const types = events.map((e) => e.type);
     expect(types.filter((t) => t === "loop.run.interrupted").length).toBe(1);
@@ -541,9 +577,9 @@ function awaitAbort(signal: AbortSignal | undefined): Promise<void> {
 }
 
 /** 可中断 LLM：第 n 轮按剧本——发完整块 → 等中断 → aborted；下一轮直答。
- *  onBlockEnd = E-198 契约扩展（port 第 5 参）。 */
+ *  onBlockEnd = E-198 契约扩展（port 第 5 参；载荷 = 块模型 LoopContentBlock）。 */
 function interruptibleLlm(script: {
-  roundBlocks: LoopStreamBlock[][]; // 每轮的完整块序列（rounds 超出后直答）
+  roundBlocks: LoopContentBlock[][]; // 每轮的完整块序列（rounds 超出后直答）
   answer?: string;
 }): StewardLlmPort & { calls: StewardLlmRequest[] } {
   const calls: StewardLlmRequest[] = [];
@@ -560,7 +596,11 @@ function interruptibleLlm(script: {
         await awaitAbort(signal);
         return { kind: "aborted" };
       }
-      return { kind: "text", text: script.answer ?? "答" };
+      return {
+        kind: "blocks",
+        blocks: [{ type: "text", text: script.answer ?? "答" }],
+        stopReason: "stop",
+      } satisfies StewardLlmResponse;
     },
   } as StewardLlmPort & { calls: StewardLlmRequest[] };
 }
@@ -568,27 +608,29 @@ function interruptibleLlm(script: {
 describe("StewardService：打断善后接线（E-198 管家面）", () => {
   test("T1 text 流中段打断：KV 入账（完整块+标记）+ 下轮请求上下文形状合法（无半截）+ 事件序", async () => {
     const events: LoopEvent[] = [];
-    const llm = interruptibleLlm({ roundBlocks: [[{ kind: "text", text: "第一块完整内容" }]] });
+    const llm = interruptibleLlm({ roundBlocks: [[{ type: "text", text: "第一块完整内容" }]] });
     const svc = new StewardService({ ...baseDeps({ llm, emitLoopEvent: (e) => events.push(e) }) });
     const first = svc.ask("第一问");
     await tick();
     expect(svc.abortInFlight("barge-in")).toBe(true);
     const r1 = await first;
     expect(r1.status).toBe("error"); // aborted 回执不变（协议面零改动）
-    // KV：完整块 + 截断标记入账（半截零残留）
+    // KV：完整块 + 截断标记入账（半截零残留）——投影形状（StewardHistoryRecord）
+    // 不随块模型变：翻译层单点吸收（recordLoopMessage content → text 投影）
     const history = await svc.getHistory();
     expect(history.map((r) => `${r.kind}:${(r as { text?: string }).text ?? ""}`)).toEqual([
       "user:第一问",
       "assistant:第一块完整内容",
       `user:${LOOP_INTERRUPTED_MARKER_TEXT}`,
     ]);
-    // 下轮请求上下文：完整块 + 标记在、不含任何半截块（provider 合法形状）
+    // 下轮请求上下文：完整块（assistant content 块形状）+ 标记在、不含任何
+    // 半截块（provider 合法形状）
     const second = await svc.ask("第二问");
     expect(second.status).toBe("answer");
     expect(llm.calls.length).toBe(2);
     expect(llm.calls[1]!.messages).toEqual([
       { role: "user", text: "第一问" },
-      { role: "assistant", text: "第一块完整内容" },
+      { role: "assistant", content: [{ type: "text", text: "第一块完整内容" }] },
       { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
       { role: "user", text: "第二问" },
     ]);
@@ -619,8 +661,8 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
   test("T6 连续多次打断：标记累积不重复（KV 两条 partial + 两枚标记）", async () => {
     const llm = interruptibleLlm({
       roundBlocks: [
-        [{ kind: "text", text: "部分一" }],
-        [{ kind: "text", text: "部分二" }],
+        [{ type: "text", text: "部分一" }],
+        [{ type: "text", text: "部分二" }],
       ],
     });
     const svc = new StewardService({ ...baseDeps({ llm }) });
@@ -632,8 +674,8 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
     await tick();
     svc.abortInFlight("barge-in");
     await second;
-    const third = await svc.ask("第三问");
-    expect(third.status).toBe("answer");
+    const third = svc.ask("第三问");
+    expect((await third).status).toBe("answer");
     const history = await svc.getHistory();
     expect(history.map((r) => `${r.kind}:${(r as { text?: string }).text ?? ""}`)).toEqual([
       "user:第一问",
@@ -648,7 +690,7 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
   });
 
   test("T9 abortInFlight 幂等 + 队列序零回归：重复 abort 无二次入账；排队 ask 收口后照常消费", async () => {
-    const llm = interruptibleLlm({ roundBlocks: [[{ kind: "text", text: "部分" }], [{ kind: "text", text: "排队轮部分" }]] });
+    const llm = interruptibleLlm({ roundBlocks: [[{ type: "text", text: "部分" }], [{ type: "text", text: "排队轮部分" }]] });
     const svc = new StewardService({ ...baseDeps({ llm }) });
     const first = svc.ask("第一问");
     await tick();

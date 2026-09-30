@@ -63,12 +63,9 @@ function fakeOrchestration(): Pick<AgentOrchestrationPort, "status" | "send"> {
   };
 }
 
-const toolCall = (id: string, name: string, args: Record<string, unknown>): StewardLlmResponse => ({
-  kind: "toolCall",
-  id,
+const toolCall = (id: string, name: string, args: Record<string, unknown>): StewardLlmResponse => ({ kind: "blocks", blocks: [{ type: "toolCall", id,
   name,
-  args,
-});
+  args }], stopReason: "toolUse" });
 
 interface TwoPhaseRig {
   svc: StewardService;

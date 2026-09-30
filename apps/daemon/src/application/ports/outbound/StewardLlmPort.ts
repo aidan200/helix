@@ -1,8 +1,8 @@
 /** 出站端口（outbound，V2.5 文本管家批；流式回调面 = V2.5 体验批；
- * thinking 面 = A1 工作记忆批）。
+ * thinking 面 = A1 工作记忆批；块模型 = helix-loop Phase 1）。
  *
  * StewardService（application 层）的 LLM 面抽象：单轮补全（消息 + 工具面 →
- * 文本或首个工具调用）。实现体 = adapters/driven/loop/PiStewardLlmAdapter
+ * 完整块集或首个工具调用）。实现体 = adapters/driven/loop/PiStewardLlmAdapter
  * （pi-ai streamSimple + 模型目录解析 + auth.json key getter——复用 daemon
  * 现有 provider 体系，模型槽位独立配置，建议最强模型；helix-loop L0 批
  * 平移至 driven/loop/——管家面 pi-ai 唯一执行点）。
@@ -15,11 +15,14 @@
  * 逐 chunk 调用（仅 text 增量；工具调用段静默不回调）；终态响应仍由返回值
  * 权威承载（onDelta 只作显示增量，不参与响应聚合）。
  *
- * thinking 面（A1 工作记忆批 additive）：
- * - assistant 消息可选 thinking 块（text + signature——signature 是 provider
- *   不透明回传凭据，按 Anthropic 式最严约束保存：多轮 thinking 块须携签名
- *   回传；provider 差异由 pi-ai convertMessages 收口）；
- * - complete 返回值 text 分支可选 thinking（本轮 thinking 块终态）；
+ * 块模型（helix-loop Phase 1，与 domain LoopMessage/LoopStreamResult 结构
+ * 同构——PiLoopStreamAdapter 编译锚锁定形状）：
+ * - assistant 消息 content = 块数组（text/thinking/toolCall/image 混排，
+ *   块序即流序——单 toolCall 与多 toolCall 是同一形状的 1 和 N，Phase 3
+ *   批执行接手）；thinking 块 signature = provider 不透明回传凭据
+ *   （Anthropic 式最严约束：多轮 thinking 块须携签名回传；provider 差异由
+ *   pi-ai convertMessages 收口）；
+ * - complete 返回值 blocks 判别 = 终态完整块集 + 模型停因（stopReason）；
  * - complete 第三参 onThinking = 段级回调（一个完成态 thinking 块一帧——
  *   探明定案：折叠显示用段级粒度，token 级 delta 高频帧无增益）；
  * - complete 第五参 onBlockEnd = 块级完整收尾回调（E-198 打断善后：pi
@@ -34,31 +37,27 @@ export interface StewardLlmTool {
   readonly parameters: Record<string, unknown>;
 }
 
-/** thinking 块（全精度：文本 + provider 回传凭据——最严约束形态）。 */
-export interface StewardLlmThinking {
-  readonly text: string;
-  readonly signature?: string;
-}
+/** assistant 内容块（Phase 1 块模型——与 domain LoopContentBlock 结构同构，
+ *  编译锚锁定；块判别 type，字段名 port 词典 text/signature/args）。 */
+export type StewardLlmContentBlock =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "thinking"; readonly text: string; readonly signature?: string }
+  | { readonly type: "toolCall"; readonly id: string; readonly name: string; readonly args: Record<string, unknown> }
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
 
-/** E-198：流块完整收尾帧（块 end = 完整性唯一凭证，与 domain LoopStreamBlock
- *  同构——adapter 编译锚锁定形状）。 */
-export type StewardLlmBlock =
-  | { readonly kind: "text"; readonly text: string }
-  | { readonly kind: "thinking"; readonly text: string; readonly signature?: string }
-  | { readonly kind: "toolCall"; readonly id: string; readonly name: string; readonly args: Record<string, unknown> };
+/** E-198：流块完整收尾帧（块 end = 完整性唯一凭证，与 domain content 块
+ *  同一形状——adapter 编译锚锁定；image 块 Phase 1 无帧面）。 */
+export type StewardLlmBlock = StewardLlmContentBlock;
 
-/** 对话消息（port 窄面：user / assistant（文本或工具调用，可携 thinking）/
- * 工具结果；与协议 StewardHistoryRecord 同构——KV 工作记忆同源形态）。 */
+/** 对话消息（port 窄面：user / assistant（content 块数组）/ 工具结果；与
+ *  domain LoopMessage 结构同构——协议 StewardHistoryRecord 的投影翻译在
+ *  StewardService 单点）。 */
 export type StewardLlmMessage =
   | { readonly role: "user"; readonly text: string }
   | {
       readonly role: "assistant";
-      /** 回答文本（可缺席——纯工具调用轮/纯思考轮）。 */
-      readonly text?: string;
-      /** 本轮 thinking 块（可缺席；全精度回传面——A1 批）。 */
-      readonly thinking?: StewardLlmThinking;
-      /** 本轮工具调用（可缺席——纯文本轮）。 */
-      readonly toolCall?: { readonly id: string; readonly name: string; readonly args: Record<string, unknown> };
+      /** 内容块数组（Phase 1 块模型——块序即流序，混排零拆分）。 */
+      readonly content: readonly StewardLlmContentBlock[];
     }
   | { readonly role: "toolResult"; readonly toolCallId: string; readonly name: string; readonly text: string };
 
@@ -72,20 +71,20 @@ export interface StewardLlmRequest {
   readonly tools: readonly StewardLlmTool[];
 }
 
-/** 单轮补全响应：文本直答（可携本轮 thinking 块）/ 首个工具调用（服务层
- * 裁决执行或过闸；工具调用轮的 thinking 随后续 assistant 记录入史）；
- * aborted = signal 取代收口（helix-loop L0 批——duplex-truncation §6.3：
- * aborted 不再混在 throw 里，调用方按门控语义分流；G1（§3.3 text 行定稿）：
- * 可选携 partialText = 未关账 text 块累积增量——不得含已经 onBlockEnd
- * 关账的完成块，防重复入账；缺席/空 = 无半截 text）。 */
+/** 模型停因（pi stopReason 动作相关子集：stop = 终答、toolUse = 有工具调用、
+ *  length = 截断——服务层行为判据是块集，stopReason 是模型侧意图声明）。 */
+export type StewardLlmStopReason = "stop" | "toolUse" | "length";
+
+/** 单轮补全响应（Phase 1 块模型）：blocks = 终态完整块集（text-only 即单
+ *  text 块）；aborted = signal 取代收口（helix-loop L0 批——duplex-truncation
+ *  §6.3：aborted 不再混在 throw 里，调用方按门控语义分流；G1（§3.3 text 行
+ *  定稿）：可选携 partialText = 未关账 text 块累积增量——不得含已经
+ *  onBlockEnd 关账的完成块，防重复入账；缺席/空 = 无半截 text）。 */
 export type StewardLlmResponse =
-  | { readonly kind: "text"; readonly text: string; readonly thinking?: StewardLlmThinking }
   | {
-      readonly kind: "toolCall";
-      readonly id: string;
-      readonly name: string;
-      readonly args: Record<string, unknown>;
-      readonly thinking?: StewardLlmThinking;
+      readonly kind: "blocks";
+      readonly blocks: readonly StewardLlmContentBlock[];
+      readonly stopReason: StewardLlmStopReason;
     }
   | { readonly kind: "aborted"; readonly partialText?: string };
 

@@ -10,16 +10,28 @@ import type {
 import { LoopEngine, ToolRegistry } from "../../src/domain/loop";
 
 /**
- * LoopEngine 单测（helix-loop L0 批；domain 层零依赖可测——fake StreamFn +
- * ToolRegistry 剧本）。断言面：
+ * LoopEngine 单测（helix-loop L0 批；Phase 1 块模型契约迁移——LoopStreamResult
+ * blocks 判别 + assistant content 块数组）。domain 层零依赖可测——fake StreamFn +
+ * ToolRegistry 剧本。断言面：
  * 1. 执行循环：text 直答 / 工具轮回灌续跑 / 工具轮上限熔断；
  * 2. 事件族序：pi 11 型同构子集的发射序（run/turn/message/tool）；
  * 3. 暂停点原语：beforeToolCallPause → run_paused → resumeWith 四决策
  *    （approve/approveWith/reject/resolve）；
  * 4. abort：signal 只作用于 LLM 流式段（工具段不打断——工具收尾后退出）；
  * 5. 挂钩前置校验产物（pause:false+outcome）与防火墙前置拒；
- * 6. 消息窗口快照拷贝（防引用泄漏回归锚）。
+ * 6. 消息窗口快照拷贝（防引用泄漏回归锚）；
+ * 7. 块模型（Phase 1）：混排块集单条 assistant 入账；多枚 toolCall 首枚执行
+ *    + 其余合成 error toolResult（I1 配对完整——Phase 3 批执行接手前的 N=1 语义）。
  */
+
+/** 剧本便捷构造（Phase 1 块模型判别——blocks + stopReason）。 */
+function textResult(text: string): LoopStreamResult {
+  return { kind: "blocks", blocks: [{ type: "text", text }], stopReason: "stop" };
+}
+
+function toolCallResult(id: string, name: string, args: Record<string, unknown>): LoopStreamResult {
+  return { kind: "blocks", blocks: [{ type: "toolCall", id, name, args }], stopReason: "toolUse" };
+}
 
 function fakeStream(script: readonly LoopStreamResult[], hooks?: { onCall?: (messages: readonly LoopMessage[]) => void }): LoopStreamFn {
   let round = 0;
@@ -28,7 +40,7 @@ function fakeStream(script: readonly LoopStreamResult[], hooks?: { onCall?: (mes
     const next = script[round];
     round += 1;
     if (next === undefined) throw new Error("剧本耗尽");
-    if (next.kind === "text" && callbacks?.onDelta !== undefined) {
+    if (next.kind === "blocks" && next.blocks.some((b) => b.type === "text") && callbacks?.onDelta !== undefined) {
       callbacks.onDelta("段1");
     }
     return next;
@@ -51,11 +63,11 @@ function registryWith(
 }
 
 describe("LoopEngine：执行循环", () => {
-  test("text 直答：事件序 run.started → turn.started → message.* → turn.finished → run.finished(answer)；assistant 入账", async () => {
+  test("text 直答：事件序 run.started → turn.started → message.* → turn.finished → run.finished(answer)；assistant 块数组入账", async () => {
     const events: LoopEvent[] = [];
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "text", text: "答案" }]),
+      streamFn: fakeStream([textResult("答案")]),
       registry: new ToolRegistry(),
       emit: (e) => events.push(e),
       newRunId: () => "r1",
@@ -70,8 +82,8 @@ describe("LoopEngine：执行循环", () => {
       },
     });
     const result = await run.promise;
-    expect(result).toEqual({ kind: "finished", text: "答案" });
-    expect(recorded).toEqual([{ role: "assistant", text: "答案" }]);
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "答案" }] });
+    expect(recorded).toEqual([{ role: "assistant", content: [{ type: "text", text: "答案" }] }]);
     expect(events.map((e) => e.type)).toEqual([
       "loop.run.started",
       "loop.turn.started",
@@ -84,16 +96,57 @@ describe("LoopEngine：执行循环", () => {
     expect((events.at(-1) as { resolution: string }).resolution).toBe("answer");
   });
 
-  test("工具轮：toolCall → registry 分发 → toolResult 回灌 → 下一轮 text；两轮窗口累积", async () => {
+  test("混排块集（thinking + text）：单条 assistant 入账——块序即流序（Phase 1 块模型）", async () => {
+    const recorded: LoopMessage[] = [];
+    const engine = new LoopEngine({
+      streamFn: fakeStream([
+        {
+          kind: "blocks",
+          blocks: [
+            { type: "thinking", text: "推理", signature: "sig-1" },
+            { type: "text", text: "结论" },
+          ],
+          stopReason: "stop",
+        },
+      ]),
+      registry: new ToolRegistry(),
+      emit: () => undefined,
+      newRunId: () => "r1b",
+    });
+    const result = await engine.startRun({
+      systemPrompt: "s",
+      messages: [{ role: "user", text: "问" }],
+      tools: [],
+      maxRounds: 6,
+      onNewMessage: async (m) => {
+        recorded.push(m);
+      },
+    }).promise;
+    expect(result).toEqual({
+      kind: "finished",
+      blocks: [
+        { type: "thinking", text: "推理", signature: "sig-1" },
+        { type: "text", text: "结论" },
+      ],
+    });
+    expect(recorded).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "推理", signature: "sig-1" },
+          { type: "text", text: "结论" },
+        ],
+      },
+    ]);
+  });
+
+  test("工具轮：toolCall 块 → registry 分发 → toolResult 回灌 → 下一轮 text；两轮窗口累积", async () => {
     const events: LoopEvent[] = [];
     const windows: LoopMessage[][] = [];
     const calls: string[] = [];
     const engine = new LoopEngine({
       streamFn: fakeStream(
-        [
-          { kind: "toolCall", id: "c1", name: "list", args: { q: 1 } },
-          { kind: "text", text: "结论" },
-        ],
+        [toolCallResult("c1", "list", { q: 1 }), textResult("结论")],
         { onCall: (m) => windows.push([...m]) },
       ),
       registry: registryWith({
@@ -111,11 +164,13 @@ describe("LoopEngine：执行循环", () => {
       tools: [],
       maxRounds: 6,
     }).promise;
-    expect(result).toEqual({ kind: "finished", text: "结论" });
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "结论" }] });
     expect(calls).toEqual(["list"]);
-    // 轮 1 窗口 = [user]；轮 2 窗口 = [user, assistant toolCall, toolResult]
+    // 轮 1 窗口 = [user]；轮 2 窗口 = [user, assistant(toolCall 块), toolResult]
     expect(windows[0]!.map((m) => m.role)).toEqual(["user"]);
     expect(windows[1]!.map((m) => m.role)).toEqual(["user", "assistant", "toolResult"]);
+    const assistantRound1 = windows[1]![1] as { content: readonly unknown[] };
+    expect(assistantRound1.content).toEqual([{ type: "toolCall", id: "c1", name: "list", args: { q: 1 } }]);
     // 工具事件序：started → finished（isError false）
     const toolEvents = events.filter((e) => e.type.startsWith("loop.tool."));
     expect(toolEvents.map((e) => e.type)).toEqual(["loop.tool.started", "loop.tool.finished"]);
@@ -125,10 +180,65 @@ describe("LoopEngine：执行循环", () => {
     expect(turnFinished?.tools).toEqual(["list"]);
   });
 
+  test("多枚 toolCall（Phase 1 N=1 语义）：首枚执行 + 其余合成 error toolResult 回灌（I1 配对完整）+ 模型收到提示可自纠", async () => {
+    const recorded: LoopMessage[] = [];
+    const executed: string[] = [];
+    const engine = new LoopEngine({
+      streamFn: fakeStream([
+        {
+          kind: "blocks",
+          blocks: [
+            { type: "toolCall", id: "c1", name: "first", args: {} },
+            { type: "toolCall", id: "c2", name: "second", args: {} },
+          ],
+          stopReason: "toolUse",
+        },
+        textResult("自纠后终答"),
+      ]),
+      registry: registryWith({
+        first: async () => {
+          executed.push("first");
+          return { kind: "result", text: "首枚结果" };
+        },
+        second: async () => {
+          executed.push("second");
+          return { kind: "result", text: "不应执行" };
+        },
+      }),
+      emit: () => undefined,
+      newRunId: () => "r2b",
+    });
+    const result = await engine.startRun({
+      systemPrompt: "s",
+      messages: [{ role: "user", text: "查" }],
+      tools: [],
+      maxRounds: 6,
+      onNewMessage: async (m) => {
+        recorded.push(m);
+      },
+    }).promise;
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "自纠后终答" }] });
+    expect(executed).toEqual(["first"]); // 只执行首枚
+    // assistant content 原样全入账（两枚 toolCall 块）+ 两枚 toolResult 配对（I1）
+    // + 终答轮 assistant 入账
+    expect(recorded).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "c1", name: "first", args: {} },
+          { type: "toolCall", id: "c2", name: "second", args: {} },
+        ],
+      },
+      { role: "toolResult", toolCallId: "c2", name: "second", text: expect.stringContaining("暂不支持同轮多工具调用") },
+      { role: "toolResult", toolCallId: "c1", name: "first", text: "首枚结果" },
+      { role: "assistant", content: [{ type: "text", text: "自纠后终答" }] },
+    ]);
+  });
+
   test("工具轮上限熔断：maxRounds 轮工具调用后 → roundLimit（第 maxRounds 轮工具已执行完入账）", async () => {
     let n = 0;
     const engine = new LoopEngine({
-      streamFn: fakeStream(Array.from({ length: 10 }, () => ({ kind: "toolCall", id: `c${n}`, name: "t", args: {} }))),
+      streamFn: fakeStream(Array.from({ length: 10 }, () => toolCallResult(`c${n}`, "t", {}))),
       registry: registryWith({
         t: async () => {
           n += 1;
@@ -150,10 +260,7 @@ describe("LoopEngine：执行循环", () => {
 
   test("未知工具：toolResult 报错回灌循环继续（模型可自纠）", async () => {
     const engine = new LoopEngine({
-      streamFn: fakeStream([
-        { kind: "toolCall", id: "c1", name: "不存在", args: {} },
-        { kind: "text", text: "自纠" },
-      ]),
+      streamFn: fakeStream([toolCallResult("c1", "不存在", {}), textResult("自纠")]),
       registry: new ToolRegistry(),
       emit: () => undefined,
       newRunId: () => "r4",
@@ -164,16 +271,13 @@ describe("LoopEngine：执行循环", () => {
       tools: [],
       maxRounds: 6,
     }).promise;
-    expect(result).toEqual({ kind: "finished", text: "自纠" });
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "自纠" }] });
   });
 
   test("handler 异常归一 isError result 不抛（E-46 execute 同构）", async () => {
     const events: LoopEvent[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([
-        { kind: "toolCall", id: "c1", name: "boom", args: {} },
-        { kind: "text", text: "恢复" },
-      ]),
+      streamFn: fakeStream([toolCallResult("c1", "boom", {}), textResult("恢复")]),
       registry: registryWith({
         boom: async () => {
           throw new Error("炸了");
@@ -188,7 +292,7 @@ describe("LoopEngine：执行循环", () => {
       tools: [],
       maxRounds: 6,
     }).promise;
-    expect(result).toEqual({ kind: "finished", text: "恢复" });
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "恢复" }] });
     const finished = events.find((e) => e.type === "loop.tool.finished") as { isError: boolean; resultSummary: string };
     expect(finished.isError).toBe(true);
     expect(finished.resultSummary).toContain("工具执行异常");
@@ -216,11 +320,11 @@ describe("LoopEngine：执行循环", () => {
 });
 
 describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
-  test("pause:true → run_paused 事件 + run promise settle paused（assistant toolCall 已入账）；resumeWith(resolve) → toolResult 回灌 + resolved 终结", async () => {
+  test("pause:true → run_paused 事件 + run promise settle paused（assistant toolCall 块已入账）；resumeWith(resolve) → toolResult 回灌 + resolved 终结", async () => {
     const events: LoopEvent[] = [];
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "toolCall", id: "c1", name: "write", args: { x: 1 } }]),
+      streamFn: fakeStream([toolCallResult("c1", "write", { x: 1 })]),
       registry: registryWith({
         write: async () => ({ kind: "result", text: "不应直接执行" }),
       }),
@@ -240,9 +344,12 @@ describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
     const paused = await run.promise;
     expect(paused.kind).toBe("paused");
     if (paused.kind !== "paused") return;
-    // 挂闸时序：tool.started → assistant toolCall 入账 → run.paused（无 tool.finished）
+    // 挂闸时序：tool.started → assistant toolCall 块入账 → run.paused（无 tool.finished）
     expect(recorded.map((m) => m.role)).toEqual(["assistant"]);
-    expect((recorded[0] as { toolCall?: { id: string } }).toolCall?.id).toBe("c1");
+    expect(recorded[0]).toEqual({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "c1", name: "write", args: { x: 1 } }],
+    });
     expect(events.map((e) => e.type)).toEqual([
       "loop.run.started",
       "loop.turn.started",
@@ -263,10 +370,7 @@ describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
   test("resumeWith(approve) → handler 执行 + 循环续跑至终态", async () => {
     const executed: string[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([
-        { kind: "toolCall", id: "c1", name: "write", args: { x: 1 } },
-        { kind: "text", text: "完成" },
-      ]),
+      streamFn: fakeStream([toolCallResult("c1", "write", { x: 1 }), textResult("完成")]),
       registry: registryWith({
         write: async (args) => {
           executed.push(JSON.stringify(args));
@@ -286,16 +390,13 @@ describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
     const paused = await run.promise;
     if (paused.kind !== "paused") throw new Error("应 paused");
     const resumed = await paused.resumeWith({ kind: "approve" });
-    expect(resumed).toEqual({ kind: "finished", text: "完成" });
+    expect(resumed).toEqual({ kind: "finished", blocks: [{ type: "text", text: "完成" }] });
     expect(executed).toEqual([JSON.stringify({ x: 1 })]);
   });
 
   test("resumeWith(reject) → toolResult(拒绝文案) 回灌 + 循环继续（模型自纠面）", async () => {
     const engine = new LoopEngine({
-      streamFn: fakeStream([
-        { kind: "toolCall", id: "c1", name: "write", args: {} },
-        { kind: "text", text: "改用别的方式" },
-      ]),
+      streamFn: fakeStream([toolCallResult("c1", "write", {}), textResult("改用别的方式")]),
       registry: registryWith({
         write: async () => ({ kind: "result", text: "不应执行" }),
       }),
@@ -312,16 +413,13 @@ describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
     const paused = await run.promise;
     if (paused.kind !== "paused") throw new Error("应 paused");
     const resumed = await paused.resumeWith({ kind: "reject", text: "用户拒绝" });
-    expect(resumed).toEqual({ kind: "finished", text: "改用别的方式" });
+    expect(resumed).toEqual({ kind: "finished", blocks: [{ type: "text", text: "改用别的方式" }] });
   });
 
   test("挂钩前置校验产物（pause:false + outcome result）：toolResult 回灌循环继续（不经 handler）", async () => {
     const executed: string[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([
-        { kind: "toolCall", id: "c1", name: "write", args: {} },
-        { kind: "text", text: "收到引导" },
-      ]),
+      streamFn: fakeStream([toolCallResult("c1", "write", {}), textResult("收到引导")]),
       registry: registryWith({
         write: async () => {
           executed.push("write");
@@ -341,14 +439,14 @@ describe("LoopEngine：暂停点原语（beforeToolCallPause）", () => {
         outcome: { kind: "result", text: "参数缺失", isError: true },
       }),
     }).promise;
-    expect(result).toEqual({ kind: "finished", text: "收到引导" });
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "收到引导" }] });
     expect(executed).toEqual([]); // handler 未执行
   });
 
-  test("防火墙前置拒（pause:false + terminate）：零入账 + run 错误收口（assistant toolCall 不进窗口）", async () => {
+  test("防火墙前置拒（pause:false + terminate）：零入账 + run 错误收口（assistant content 不进窗口）", async () => {
     const recorded: LoopMessage[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "toolCall", id: "c1", name: "write", args: {} }]),
+      streamFn: fakeStream([toolCallResult("c1", "write", {})]),
       registry: registryWith({
         write: async () => ({ kind: "result", text: "x" }),
       }),
@@ -401,7 +499,7 @@ describe("LoopEngine：abort（signal 只作用于 LLM 流式段）", () => {
     let releaseTool: (() => void) | undefined;
     const toolResults: LoopMessage[] = [];
     const engine = new LoopEngine({
-      streamFn: fakeStream([{ kind: "toolCall", id: "c1", name: "slow", args: {} }, { kind: "text", text: "不应到达" }]),
+      streamFn: fakeStream([toolCallResult("c1", "slow", {}), textResult("不应到达")]),
       registry: registryWith({
         slow: async () => {
           await new Promise<void>((resolve) => {
@@ -441,10 +539,7 @@ describe("LoopEngine：消息窗口快照（防引用泄漏回归锚）", () => 
     const seen: LoopMessage[][] = [];
     const engine = new LoopEngine({
       streamFn: fakeStream(
-        [
-          { kind: "text", text: "第一答" },
-          { kind: "text", text: "第二答" },
-        ],
+        [textResult("第一答"), textResult("第二答")],
         { onCall: (m) => seen.push([...m]) },
       ),
       registry: new ToolRegistry(),

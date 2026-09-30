@@ -110,12 +110,9 @@ function makeService(opts: {
   return { svc, navigates };
 }
 
-const toolCall = (id: string, name: string, args: Record<string, unknown>): StewardLlmResponse => ({
-  kind: "toolCall",
-  id,
+const toolCall = (id: string, name: string, args: Record<string, unknown>): StewardLlmResponse => ({ kind: "blocks", blocks: [{ type: "toolCall", id,
   name,
-  args,
-});
+  args }], stopReason: "toolUse" });
 
 // ── 1. deliver_to_session：提案 → 确认闸 ───────────────────
 
@@ -137,7 +134,7 @@ describe("驾驶舱：deliver_to_session（session 级 steer 投递）", () => {
   test("存在性引导式校验：session 不存在 → toolResult 引导（提示 query_recent_work），循环继续直答", async () => {
     const llm = fakeLlm([
       toolCall("call-1", "deliver_to_session", { sessionId: "ghost", text: "hello" }),
-      { kind: "text", text: "没有找到该会话" },
+      { kind: "blocks", blocks: [{ type: "text", text: "没有找到该会话" }], stopReason: "stop" },
     ]);
     const sessions = fakeCockpitSessions();
     const { svc } = makeService({ llm, sessions });
@@ -257,7 +254,7 @@ describe("驾驶舱：start_session 带话题开局（工具拆分——initial_
   test("服务端必填兜底：start_session 缺 initial_message → 引导式打回（无确认卡，提示带用户原话重新提案）", async () => {
     const llm = fakeLlm([
       toolCall("call-1", "start_session", { title: "光球视觉效果设计" }),
-      { kind: "text", text: "好的，我重新提案" },
+      { kind: "blocks", blocks: [{ type: "text", text: "好的，我重新提案" }], stopReason: "stop" },
     ]);
     const sessions = fakeCockpitSessions();
     const { svc } = makeService({ llm, sessions });
@@ -312,7 +309,7 @@ describe("驾驶舱：start_session 带话题开局（工具拆分——initial_
   });
 
   test("工具契约：create_session 与 start_session 分工（前者无 initial_message，后者 required）", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "好的" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" }]);
     const sessions = fakeCockpitSessions();
     const { svc } = makeService({ llm, sessions });
     await svc.ask("在吗");
@@ -355,7 +352,7 @@ describe("驾驶舱：意图路由三分类（system prompt 契约）", () => {
   });
 
   test("工具目录含 deliver_to_session：required = sessionId + text", async () => {
-    const llm = fakeLlm([{ kind: "text", text: "好的" }]);
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" }]);
     const sessions = fakeCockpitSessions();
     const { svc } = makeService({ llm, sessions });
     await svc.ask("在吗");
