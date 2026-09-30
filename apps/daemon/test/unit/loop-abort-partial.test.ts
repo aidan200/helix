@@ -491,7 +491,7 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
     expect(types.filter((t) => t === "loop.run.finished").length).toBe(1);
   });
 
-  test("轮边界 abort（工具段收尾后）：interrupted 事件发射 + 无新增入账（轮已完整记账）", async () => {
+  test("批内 abort（R4.6/R4.7）：interrupted 事件发射 + 真实结果照记 + 标记/audit 批推广", async () => {
     const controller = new AbortController();
     const events: LoopEvent[] = [];
     const recorded: LoopMessage[] = [];
@@ -528,9 +528,14 @@ describe("LoopEngine：打断善后（E-198 partial 保留）", () => {
       })
       .promise;
     expect(result.kind).toBe("aborted");
-    // 完整轮已正常记账（assistant toolCall 块 + toolResult）；无截断标记（轮未被掐）
-    expect(recorded.map((m) => m.role)).toEqual(["assistant", "toolResult"]);
-    expect(recorded.some((m) => m.role === "user" && m.text === LOOP_INTERRUPTED_MARKER_TEXT)).toBe(false);
+    // 批语义（Phase 3）：真实结果照记 + 批打断标记一枚（R4.7/D7——轮被掐后
+    // 无后续轮，标记告知模型）；toolCall/toolResult 恒成对
+    expect(recorded.map((m) => m.role)).toEqual(["assistant", "toolResult", "user"]);
+    expect((recorded[2] as { text: string }).text).toBe(LOOP_INTERRUPTED_MARKER_TEXT);
+    if (result.kind === "aborted") {
+      expect(result.audit?.keptMessages).toBe(2);
+      expect(result.audit?.droppedBlocks).toEqual([]);
+    }
     // interrupted 事件仍发射（先于 finished）
     const types = events.map((e) => e.type);
     expect(types.filter((t) => t === "loop.run.interrupted").length).toBe(1);

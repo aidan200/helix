@@ -22,6 +22,9 @@ export interface LoopToolRegistration {
   /** true = 不进 LLM 工具投影（面板/外部触发执行原语——注册面恒宽、
    *  声明面管控谁可见，W-R6 同构）。 */
   readonly hiddenFromLlm?: boolean;
+  /** Phase 3 R1.2：批执行模式（缺省 parallel；批内任一枚注册 sequential →
+   *  全批 sequential 不拆分混跑——pi hasSequentialToolCall 全批降级同构）。 */
+  readonly executionMode?: "parallel" | "sequential";
 }
 
 /** 未知工具的归一结果（wire 防御——模型可自纠）。 */
@@ -57,6 +60,11 @@ export class ToolRegistry {
   /** 注册名全集（含 hidden——dispatch 可达面）。 */
   names(): readonly string[] {
     return [...this.tools.keys()];
+  }
+
+  /** 注册面查询（Phase 3 preflight：未知工具判别 + executionMode 批模式判定）。 */
+  registration(name: string): LoopToolRegistration | undefined {
+    return this.tools.get(name);
   }
 
   /** 注册面清单投影（含 hidden——档案/观测面用：真实工具面而非仅 LLM 声明面；

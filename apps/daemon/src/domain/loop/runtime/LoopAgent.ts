@@ -57,7 +57,7 @@ export interface LoopRunOptions {
   readonly systemPrompt: string;
   readonly maxRounds: number;
   readonly tools?: readonly LoopToolSchema[];
-  readonly beforeToolCallPause?: (context: LoopToolCallContext) => Promise<LoopPauseDecision>;
+  readonly beforeToolCallPause?: (context: LoopToolCallContext, signal?: AbortSignal) => Promise<LoopPauseDecision>;
   readonly callbacks?: LoopRunCallbacks;
   readonly promptSummary?: string;
 }
@@ -88,6 +88,9 @@ export interface LoopAgentDeps<TInjection extends LoopInjection = LoopInjection>
   readonly systemPrompt: string;
   /** run 级缺省工具轮上限（成本护栏——followUp 接管起新 run 天然重置 R7.3）。 */
   readonly maxRounds: number;
+  /** Phase 3 D9（AgentConfig 级可选项）：批内并发执行上限（缺省 Infinity
+   *  无上限——R1.5 随 pi；V3 实测后再议收紧）。 */
+  readonly maxConcurrentTools?: number;
   /** LLM 工具面投影缺省（缺省 = registry.llmTools()）。 */
   readonly tools?: readonly LoopToolSchema[];
   /** steer 队列上限（缺省无上限——pi 同族；本批无消费者，防御位）。 */
@@ -307,6 +310,7 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
         messages: this.runWindow(),
         tools: options.tools ?? this.deps.registry.llmTools(),
         maxRounds: options.maxRounds,
+        ...(this.deps.maxConcurrentTools !== undefined ? { maxConcurrentTools: this.deps.maxConcurrentTools } : {}),
         signal: active.controller.signal,
         ...(options.beforeToolCallPause !== undefined ? { beforeToolCallPause: options.beforeToolCallPause } : {}),
         onNewMessage: (message) => this.appendMessage(message),

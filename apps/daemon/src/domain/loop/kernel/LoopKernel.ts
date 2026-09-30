@@ -2,16 +2,16 @@
  * kernel/LoopKernel —— loop 域主循环本体（helix-loop Phase 0a 四层拆分；
  * 设计 §2.2：原 LoopEngine.driveLoop 独立成件）。
  *
- * 循环骨架（pi agent-loop 同构 + 暂停点原语；Phase 1 块模型——streamFn 终态
- * 为完整块集，kernel 自块集判别 turn 走向）
+ * 循环骨架（pi agent-loop 同构 + 暂停点原语；Phase 3 批工具：批 = 本轮
+ * assistant content 全部 toolCall 块，工具段整批委派 ToolPhase 批执行器
+ * ——preflight 逐枚 → 并发启动 → 完成序事件 → 源序入账，暂停闸/防火墙/
+ * abort 按批语义收口；R7 轮计数 per LLM 请求（N 枚批 = 1 轮，迭代结构不变）
  * - 消息循环：streamFn 单步（流式回调透传）→ 无 toolCall 块即 text 终答收口 /
- *   含 toolCall 块进工具执行段（ToolPhase）；工具结果回灌窗口续跑至下一轮
- *   （工具轮上限熔断）；
- *   Phase 1 N=1 语义：多枚 toolCall 块时首枚执行、其余经 ToolPhase 合成
- *   error toolResult 回灌（I1 配对完整 + 模型可自纠；Phase 3 批执行接手）；
- * - abort：signal 只作用于 LLM 流式段（工具执行段不打断——duplex
- *   truncation §6.2；下一轮调用前检查），streamFn 返回 aborted 判别收口
- *   （善后委派 AbortSettler）；
+ *   含 toolCall 块进工具执行段（length 截断批经 ToolPhase 全 fail 零执行 R5.5）；
+ *   工具结果回灌窗口续跑至下一轮（工具轮上限熔断）；
+ * - abort：signal 尽力传播（R4.2：流式段 + 工具 ctx + 挂闸面）；批收口等
+ *   全部在飞枚 settle 后直收 aborted（R4.6/D8）；streamFn 返回 aborted 判别
+ *   收口（善后委派 AbortSettler——E-198 现行不动）；
  * - 轮边界压缩：经注入的 compactStep 回调（policy 层装配——kernel 零
  *   policy import，依赖单向 runtime→policy→kernel→contracts）；
  * - 事件族：15 型 LoopEvent 经 emit 单通道发射——调用方投影（协议帧/
@@ -20,21 +20,13 @@
  * 依赖纪律：domain 零 pi import——LLM 面即 LoopStreamFn duck-type 契约
  * （contracts/stream.ts），执行体在 driven adapter 装配注入。
  */
-import type { LoopEvent, LoopEventEmitter, LoopMessage, LoopContentBlock, LoopStreamFn, LoopToolCallContext } from "../contracts";
+import type { LoopEvent, LoopEventEmitter, LoopMessage, LoopContentBlock, LoopStreamFn } from "../contracts";
 import { settleAbortedTurn } from "./AbortSettler";
-import { recordMessage, type LoopRunHandle, type LoopRunInput, type LoopRunResult, type RunState } from "./RunState";
+import { abortReasonOf, recordMessage, type LoopRunHandle, type LoopRunInput, type LoopRunResult, type RunState } from "./RunState";
 import { CONTINUE, ToolPhase } from "./ToolPhase";
 import type { ToolRegistry } from "./ToolRegistry";
 
-/** abort 原因提取（E-198：interrupted 事件 reason 面；AbortController.abort
- *  幂等——首个 reason 定格，重复信号零漂移，I5）。 */
-function abortReasonOf(signal: AbortSignal | undefined): string {
-  if (signal === undefined) return "aborted";
-  const reason: unknown = signal.reason;
-  if (typeof reason === "string" && reason !== "") return reason;
-  if (reason instanceof Error && reason.message !== "") return reason.message;
-  return "aborted";
-}
+// abort 原因提取已归位 RunState.ts（kernel 共享 util：轮首检查与 ToolPhase 批收口同源）
 
 export interface LoopKernelDeps {
   readonly streamFn: LoopStreamFn;
@@ -85,8 +77,9 @@ export class LoopKernel {
 
   private async driveLoop(state: RunState, input: LoopRunInput): Promise<LoopRunResult> {
     for (;;) {
-      // abort 检查（工具段不打断——本轮工具已收尾入账，此处安全退出；轮已
-      // 完整记账无 partial，E-198：interrupted 事件照发——run 终态序不变量）
+      // abort 检查（轮首序 R7.4 首位；批语义下工具段已直收 aborted——本检查
+      // 覆盖批收口 CONTINUE 后、下一轮 streamFn 前置位的 abort；轮已完整
+      // 记账无 partial，E-198：interrupted 事件照发——run 终态序不变量）
       if (input.signal?.aborted === true) {
         this.emit({ type: "loop.run.interrupted", runId: state.runId, reason: abortReasonOf(input.signal) });
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "aborted" });
@@ -179,21 +172,16 @@ export class LoopKernel {
         this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "answer" });
         return { kind: "finished", blocks: response.blocks };
       }
-      // 工具调用轮：assistant content 入账的产生推迟到工具段分支（防火墙
-      // 前置拒 terminate 分支零入账——与管家现状严格等价：propose_send 实例
-      // 不运行路径直接 error 回执，KV 无痕）。Phase 1 N=1 语义：首枚执行，
-      // 其余经 ToolPhase 合成 error toolResult 回灌（I1 配对完整；Phase 3
-      // 批执行接手）。
-      const first = toolCalls[0]!;
-      const extras = toolCalls.slice(1);
+      // 工具调用轮（Phase 3 批语义）：批 = 本轮 content 全部 toolCall 块（源序，
+      // 上方已判别）整批进 ToolPhase；assistant content 入账时机由批执行器决定
+      // （首闸挂起时工作记忆可见 / 批收口源序入账；gate 前置拒防火墙零入账
+      // 判例在批内有已决结果时让位 I1）。length 截断（R5.5）：stopReason=length
+      // 且含 toolCall 块 → 全 fail 零执行（模型可重发）——批判别与 stopReason
+      // 联动的唯一例外位。
       const assistant: LoopMessage = { role: "assistant", content: response.blocks };
-      const ctx: LoopToolCallContext = {
-        runId: state.runId,
-        toolCallId: first.id,
-        toolName: first.name,
-        args: first.args,
-      };
-      const phase = await this.tools.run(state, input, ctx, assistant, extras, () => this.driveLoop(state, input));
+      const phase = await this.tools.run(state, input, toolCalls, assistant, () => this.driveLoop(state, input), {
+        truncated: response.stopReason === "length",
+      });
       if (phase !== CONTINUE) return phase;
     }
   }
