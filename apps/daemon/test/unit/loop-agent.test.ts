@@ -735,10 +735,16 @@ describe("LoopAgent：R5.4 terminate 判别与 paused abort 接线（Phase 5）"
     const agent = new LoopAgent({
       streamFn: async () => {
         streamCalls += 1;
-        if (streamCalls === 1) {
-          return toolCallResult("ca", "toolA", {});
-        }
-        return toolCallResult("cb", "toolB", {});
+        if (streamCalls > 1) return textResult("答"); // run2（显式再问）：正常终答
+        // 一轮全批 terminate：批 = [toolA, toolB]（UC-11 输入形态）
+        return {
+          kind: "blocks" as const,
+          blocks: [
+            { type: "toolCall" as const, id: "ca", name: "toolA", args: {} },
+            { type: "toolCall" as const, id: "cb", name: "toolB", args: {} },
+          ],
+          stopReason: "toolUse" as const,
+        };
       },
       registry,
       emit: () => undefined,
@@ -754,7 +760,7 @@ describe("LoopAgent：R5.4 terminate 判别与 paused abort 接线（Phase 5）"
     // R5.4：followUp 不被 terminate 复活（对照 UC-06/abort 用例的接管形态）
     await new Promise((r) => setTimeout(r, 10));
     expect(agent.pendingCounts().followUp).toBe(1);
-    expect(streamCalls).toBe(2); // 仅 run1 两轮（批 A、批 B），零接管 run
+    expect(streamCalls).toBe(1); // 仅 run1 一轮（批 [A,B]），零接管 run零续轮
     // waitForIdle 在 terminate 挂起 followUp 下不悬挂（run 链已终态）
     await agent.waitForIdle();
     // 队列保留（G-G）：下一次显式 run 消费
@@ -814,10 +820,12 @@ describe("LoopAgent：R5.4 terminate 判别与 paused abort 接线（Phase 5）"
     await agent.waitForIdle();
     expect(agent.pendingCounts()).toEqual({ steer: 0, followUp: 0 });
     expect(calls).toBe(3);
-    // run2 以 s1 为输入（steer 优先）；f1 由 run2 settle 后的接管链消费（run3）
+    // run1（问 → 批 → 防火墙收口）；run2 以 s1 为输入（steer 优先）；f1 由 run2
+    // settle 后的接管链消费（run3——挂起队列回归正常接管链）
     expect(agent.messages().map(summarize)).toEqual([
       "user:问",
-      "user:f1",
+      "assistant:",
+      "toolResult:防火墙",
       "user:s1",
       "assistant:答",
       "user:f1",

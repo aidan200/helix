@@ -496,11 +496,12 @@ export class ToolPhase {
     return CONTINUE;
   }
 
-  /** 防火墙前置拒直出回执（R5.3——run 错误收口）。 */
+  /** 防火墙前置拒直出回执（R5.3——run 错误收口；cause:"terminate" 结构化判别
+   *  ——R5.4 Phase 5：LoopAgent 收口段据此不接管 followUp）。 */
   private terminateRun(state: RunState, reason: string): LoopRunResult {
     this.emit({ type: "loop.run.error", runId: state.runId, message: reason });
     this.emit({ type: "loop.run.finished", runId: state.runId, resolution: "error" });
-    return { kind: "error", message: reason };
+    return { kind: "error", message: reason, cause: "terminate" };
   }
 
   /** 批入账（truncated 路径共用——assistant + 全配对源序）。 */

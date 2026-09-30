@@ -34,8 +34,12 @@ export type LoopRunResult =
   | { readonly kind: "resolved" }
   /** 工具轮上限熔断。 */
   | { readonly kind: "roundLimit"; readonly maxRounds: number }
-  /** 错误收口（LLM 失败 / 工具 terminate / 超限详情文案）。 */
-  | { readonly kind: "error"; readonly message: string }
+  /** 错误收口（LLM 失败 / 工具 terminate / 超限详情文案）。cause:"terminate"
+   *  = 防火墙收口（R5.2/R5.3 dispatched 全批 terminate 或 gate 前置拒即决）
+   *  ——R5.4（Phase 5 结构化判别）：LoopAgent 收口段据此跳过 followUp 接管
+   *  （terminate 不被队列复活）；普通 error（LLM 失败类）无此位，现役
+   *  「任何 settle 消费队列」口径保持。 */
+  | { readonly kind: "error"; readonly message: string; readonly cause?: "terminate" }
   /** signal abort（新 ask 取代类）——E-198 partial 保留：安全块已入账 +
    *  截断标记；半截 text 入账（G1：partialText 并入尾批文本），半截
    *  thinking/toolCall 丢弃（audit = I6 审计摘要，无入账且无丢弃时缺席）。 */

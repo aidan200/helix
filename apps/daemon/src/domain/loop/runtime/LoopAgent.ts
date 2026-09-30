@@ -120,7 +120,6 @@ interface ActiveRun {
   readonly controller: AbortController;
   runId?: string;
 }
-
 export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
   private readonly deps: LoopAgentDeps<TInjection>;
   private readonly kernel: LoopKernel;
@@ -132,6 +131,12 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
   /** 挂起未终态的 run 数（R6.3：paused settle 释放写者，但 resume 续跑未收口
    *  ——steer 的 R3.4 idle 触发判定排除该态，R6.8 暂停期只入队）。 */
   private pausedPending = 0;
+  /** 挂起 run 的 abort 句柄簿记（R5.4 Phase 5：paused 态 abort 接线——
+   *  写者已释放但 kernel 直持 signal；resumeWith 包装/abort 时除名）。 */
+  private readonly pausedControllers = new Set<AbortController>();
+  /** terminate 收口后 followUp 队列挂起（R5.4：不自动接管——待下一次显式
+   *  run/continueRun 消费；beginRun 时解除，后续 settle 恢复正常接管链）。 */
+  private followUpParked = false;
   private idleWaiters: Array<() => void> = [];
 
   constructor(deps: LoopAgentDeps<TInjection>) {
@@ -181,11 +186,28 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
   }
 
   /** abort：signal 置位传播（kernel 流式段收口 aborted——R4.6 顶部直收；
-   *  工具段收尾后收口）；不清队列（R4.9）。幂等：无在飞 run 返回 false。 */
+   *  工具段收尾后收口）；不清队列（R4.9）。幂等：无在飞 run 返回 false。
+   *
+   *  R5.4（Phase 5）paused 态接线：写者已释放（R6.3）但 kernel 直持 signal
+   *  ——置位后挂闸解锁（PAUSE_ABORTED）、后台续链合成配对收口 aborted
+   *  （事件面 run.interrupted → run.finished(aborted)）；resumeWith 惰性化
+   *  由 kernel 承接（D5 幂等 aborted 零执行零新事件）。挂起簿记同步解除
+   *  （resumeWith 无人再调——waitForIdle 不悬挂；后续调用幂等无副作用）。 */
   abort(reason?: string): boolean {
-    if (this.active === null) return false;
-    this.active.controller.abort(reason ?? "aborted");
+    if (this.active !== null) {
+      this.active.controller.abort(reason ?? "aborted");
+      return true;
+    }
+    if (this.pausedControllers.size === 0) return false;
+    for (const controller of this.pausedControllers) controller.abort(reason ?? "aborted");
+    this.pausedControllers.clear();
+    this.pausedPending = 0;
     return true;
+  }
+
+  /** 挂起簿记观测面（R6.3/R6.8：paused 未终态——idle 通道判定用）。 */
+  isPausedPending(): boolean {
+    return this.pausedPending > 0;
   }
 
   /**
@@ -254,7 +276,13 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
   // ── 内部：run 编排 ──────────────────────────────────────
 
   private isIdle(): boolean {
-    return this.active === null && this.pausedPending === 0 && this.queue.pendingCounts().followUp === 0;
+    // followUpParked（R5.4）：terminate 挂起的 followUp 不代表在飞——空闲判定
+    // 跳过该队列位（新 run beginRun 时解除挂起）。
+    return (
+      this.active === null &&
+      this.pausedPending === 0 &&
+      (this.followUpParked || this.queue.pendingCounts().followUp === 0)
+    );
   }
 
   private notifyIdle(): void {
@@ -264,10 +292,12 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
     for (const resolve of waiters) resolve();
   }
 
-  /** beginRun：同步占位写者（防 await prepareRun 窗口重入）+ 异步驱动。 */
+  /** beginRun：同步占位写者（防 await prepareRun 窗口重入）+ 异步驱动。
+   *  followUpParked 解除（R5.4）：显式新 run 到来——挂起队列回归正常接管链。 */
   private beginRun(injection: TInjection | undefined, phase: LoopRunPhase, skipP0: boolean): Promise<LoopRunResult> {
     const active: ActiveRun = { controller: new AbortController() };
     this.active = active;
+    this.followUpParked = false;
     return this.driveRun(active, injection, phase, skipP0);
   }
 
@@ -325,13 +355,16 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
       let result = await handle.promise;
       if (result.kind === "paused") {
         // R6.3/R6.8：挂起簿记 + resumeWith 包装（resume 调用即解除挂起计数——
-        // 应用持包装句柄，续跑终态由应用消费）
+        // 应用持包装句柄，续跑终态由应用消费）；abort 句柄同步登记（R5.4：
+        // paused 态 abort 可达 kernel 直持 signal 面）。
         this.pausedPending += 1;
+        this.pausedControllers.add(active.controller);
         const originalResume = result.resumeWith;
         const self = this;
         result = {
           ...result,
           resumeWith: async (decision) => {
+            self.pausedControllers.delete(active.controller);
             self.pausedPending = Math.max(0, self.pausedPending - 1);
             return originalResume(decision);
           },
@@ -345,9 +378,17 @@ export class LoopAgent<TInjection extends LoopInjection = LoopInjection> {
         this.deps.emit({ type: "loop.run.error", runId: handle.runId, message: `onRunSettled 钩子异常：${(err as Error).message}` });
       }
       // R3.3 followUp 接管：任何 settle 后 followUp 非空 → 起新 run（rounds
-      // 天然重置——新 RunState；E-197 现役管家「任何收口都消费队列」等价口径。
-      // 注：R5.4 terminate 不复活是批工具语义（Phase 3 引入结构化判别后收紧）。
-      // 接管链 fire-and-forget——start promise 只返本轮结果。
+      // 天然重置——新 RunState；E-197 现役管家「任何收口都消费队列」等价口径）。
+      // R5.4（Phase 5 收紧，CAND-551）：terminate 收口（结构化判别 cause==="terminate"）
+      // 的 run 不被 followUp 复活——防火墙终态化（对齐 kernel 面 R5.4；pi 对照：
+      // pi 全批 terminate 后 followUp 仍续轮，helix 有意偏离）。队列保留（G-G）
+      // 供下一次显式 run/continueRun 消费（followUpParked：空闲判定跳过该位，
+      // waitForIdle 不悬挂）；接管链 fire-and-forget——start promise 只返本轮结果。
+      if (result.kind === "error" && result.cause === "terminate") {
+        this.followUpParked = true;
+        this.notifyIdle();
+        return result;
+      }
       const next = this.queue.drainFollowUp();
       if (next !== undefined) {
         this.beginRun(next, "followUp", false).catch(() => this.notifyIdle());
