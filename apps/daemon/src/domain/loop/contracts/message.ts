@@ -97,6 +97,34 @@ export interface LoopUsage {
 /** run 内新消息持久化回调（调用方工作记忆/事件存储同步——await 串行保序）。 */
 export type LoopMessageSink = (message: LoopMessage) => Promise<void>;
 
+/** LLM 请求边界窗口配对防御（Phase 2；G-B 请求期合成面——pi 判例
+ *  transform-messages.js:125-153「孤儿在下一次 LLM 请求边界合成 No result
+ *  provided」同构）：跨 run 挂起（paused run 未 resume——如确认闸提案 pending
+ *  过期）的 assistant toolCall 无 toolResult，provider 硬约束（OpenAI 按序位
+ *  配对、Anthropic 同消息 tool_use 全应答）要求窗口配对完整——紧随其后
+ *  合成占位 toolResult（文案注入——工具名交占位函数，语义由文案自述）。纯
+ *  函数：不变更原窗。 */
+export function synthesizeUnsettledToolResults(
+  messages: readonly LoopMessage[],
+  placeholder: (toolName: string) => string,
+): LoopMessage[] {
+  const settled = new Set<string>();
+  for (const m of messages) {
+    if (m.role === "toolResult") settled.add(m.toolCallId);
+  }
+  const out: LoopMessage[] = [];
+  for (const m of messages) {
+    out.push(m);
+    if (m.role !== "assistant") continue;
+    for (const b of m.content) {
+      if (b.type !== "toolCall" || settled.has(b.id)) continue;
+      out.push({ role: "toolResult", toolCallId: b.id, name: b.name, text: placeholder(b.name) });
+      settled.add(b.id); // 同消息重复 id 防御（合成一次）
+    }
+  }
+  return out;
+}
+
 /** 压缩完成回调信息（调用方事实源同步面——管家工作记忆 KV 整窗替换）。
  *  归 contracts 消息件：本质是消息窗口替换的投影（摘要合成消息 + 保留区
  *  原文），kernel 的 LoopRunInput.onCompacted 与 policy 压缩步共用本形状。 */

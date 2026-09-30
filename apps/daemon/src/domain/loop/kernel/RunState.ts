@@ -85,6 +85,15 @@ export interface LoopRunInput {
   readonly callbacks?: LoopRunCallbacks;
   /** run 首条 prompt 摘要（run.started 事件检索面）。 */
   readonly promptSummary?: string;
+  /** Phase 2 A3：轮边界 steer 注入挂点（runtime 注入——kernel 不持队列，分层：
+   *  队列是跨 run 态归 runtime，轮内 poll 是 kernel 挂点）。
+   *  时序（R2.2/R7.4 轮首序）：abort 检查 → rounds 熔断 → 压缩 →
+   *  turn.started → drain+注入 → streamFn；每调用至多取一条
+   *  （one-at-a-time R2.3）；返回 undefined = 本轮无注入。 */
+  readonly drainSteering?: () => LoopMessage | undefined;
+  /** Phase 2 A3：steer 队列非空探测（R2.5：text 终答轮后队列非空 → run
+   *  不收口继续新 turn；取走仍只在轮首单 drain 点——R2.3 简化口径）。 */
+  readonly hasSteering?: () => boolean;
 }
 
 /** 新消息入窗口 + 持久化回调（await 串行保序——调用方事实源同步面）。
