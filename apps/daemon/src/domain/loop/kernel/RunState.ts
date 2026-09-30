@@ -73,10 +73,12 @@ export interface LoopRunInput {
   readonly tools: readonly LoopToolSchema[];
   /** 工具轮上限（成本护栏：超限熔断，不无限循环）。 */
   readonly maxRounds: number;
-  /** abort 信号（只作用于 LLM 流式段；工具执行段不打断——duplex §6.2）。 */
+  /** abort 信号（Phase 3 批语义：signal 尽力传播进工具 ctx——R4.2；批收口等
+ *  全部在飞枚 settle；LLM 流式段照旧自治收口）。 */
   readonly signal?: AbortSignal;
-  /** 暂停挂钩（write 类工具挂闸的判定面；缺席 = 无暂停点）。 */
-  readonly beforeToolCallPause?: (context: LoopToolCallContext) => Promise<LoopPauseDecision>;
+  /** 暂停挂钩（write 类工具挂闸的判定面；缺席 = 无暂停点。Phase 3 R6.7：
+ *  增可选 signal（additive）——阻塞等待中的闸可被打断）。 */
+  readonly beforeToolCallPause?: (context: LoopToolCallContext, signal?: AbortSignal) => Promise<LoopPauseDecision>;
   /** 新消息持久化回调（assistant 终态/toolResult——await 串行保序）。 */
   readonly onNewMessage?: LoopMessageSink;
   /** L1 件一：压缩完成回调（事实源整窗替换——摘要入账 + 尾部保留）。 */
@@ -94,6 +96,20 @@ export interface LoopRunInput {
   /** Phase 2 A3：steer 队列非空探测（R2.5：text 终答轮后队列非空 → run
    *  不收口继续新 turn；取走仍只在轮首单 drain 点——R2.3 简化口径）。 */
   readonly hasSteering?: () => boolean;
+  /** Phase 3 D9：批内并发执行上限（缺省 Infinity 无上限——R1.5 随 pi；
+   *  AgentConfig 级可选项，V3 实测后再议收紧）。 */
+  readonly maxConcurrentTools?: number;
+}
+
+/** abort 原因提取（E-198 I5：interrupted 事件 reason 面；AbortController.abort
+ *  幂等——首个 reason 定格，重复信号零漂移）。kernel 共享 util（LoopKernel 轮首检查
+ *  与 ToolPhase 批收口同源）。 */
+export function abortReasonOf(signal: AbortSignal | undefined): string {
+  if (signal === undefined) return "aborted";
+  const reason: unknown = signal.reason;
+  if (typeof reason === "string" && reason !== "") return reason;
+  if (reason instanceof Error && reason.message !== "") return reason.message;
+  return "aborted";
 }
 
 /** 新消息入窗口 + 持久化回调（await 串行保序——调用方事实源同步面）。

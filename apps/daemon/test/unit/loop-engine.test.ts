@@ -7,7 +7,7 @@ import type {
   LoopStreamResult,
   LoopToolOutcome,
 } from "../../src/domain/loop";
-import { LoopEngine, ToolRegistry } from "../../src/domain/loop";
+import { LOOP_INTERRUPTED_MARKER_TEXT, LoopEngine, ToolRegistry } from "../../src/domain/loop";
 
 /**
  * LoopEngine 单测（helix-loop L0 批；Phase 1 块模型契约迁移——LoopStreamResult
@@ -180,7 +180,7 @@ describe("LoopEngine：执行循环", () => {
     expect(turnFinished?.tools).toEqual(["list"]);
   });
 
-  test("多枚 toolCall（Phase 1 N=1 语义）：首枚执行 + 其余合成 error toolResult 回灌（I1 配对完整）+ 模型收到提示可自纠", async () => {
+  test("多枚 toolCall（Phase 3 批语义）：全批并发执行 + toolResult 源序入账（I1 配对完整；N=1 过渡语义已退役）", async () => {
     const recorded: LoopMessage[] = [];
     const executed: string[] = [];
     const engine = new LoopEngine({
@@ -193,7 +193,7 @@ describe("LoopEngine：执行循环", () => {
           ],
           stopReason: "toolUse",
         },
-        textResult("自纠后终答"),
+        textResult("终答"),
       ]),
       registry: registryWith({
         first: async () => {
@@ -202,7 +202,7 @@ describe("LoopEngine：执行循环", () => {
         },
         second: async () => {
           executed.push("second");
-          return { kind: "result", text: "不应执行" };
+          return { kind: "result", text: "次枚结果" };
         },
       }),
       emit: () => undefined,
@@ -217,9 +217,9 @@ describe("LoopEngine：执行循环", () => {
         recorded.push(m);
       },
     }).promise;
-    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "自纠后终答" }] });
-    expect(executed).toEqual(["first"]); // 只执行首枚
-    // assistant content 原样全入账（两枚 toolCall 块）+ 两枚 toolResult 配对（I1）
+    expect(result).toEqual({ kind: "finished", blocks: [{ type: "text", text: "终答" }] });
+    expect(executed.sort()).toEqual(["first", "second"]); // 全批执行（R1）
+    // assistant content 原样全入账（两枚 toolCall 块）+ 两枚 toolResult 源序配对（R1.7）
     // + 终答轮 assistant 入账
     expect(recorded).toEqual([
       {
@@ -229,9 +229,9 @@ describe("LoopEngine：执行循环", () => {
           { type: "toolCall", id: "c2", name: "second", args: {} },
         ],
       },
-      { role: "toolResult", toolCallId: "c2", name: "second", text: expect.stringContaining("暂不支持同轮多工具调用") },
       { role: "toolResult", toolCallId: "c1", name: "first", text: "首枚结果" },
-      { role: "assistant", content: [{ type: "text", text: "自纠后终答" }] },
+      { role: "toolResult", toolCallId: "c2", name: "second", text: "次枚结果" },
+      { role: "assistant", content: [{ type: "text", text: "终答" }] },
     ]);
   });
 
@@ -494,7 +494,7 @@ describe("LoopEngine：abort（signal 只作用于 LLM 流式段）", () => {
     expect(result).toEqual({ kind: "aborted" });
   });
 
-  test("工具执行段不打断：abort 到达时工具挂起 → 工具收尾入账后下一轮前退出（duplex §6.2）", async () => {
+  test("批内 abort（R4.2/R4.6）：abort 到达时工具在飞 → signal 传播、批收口等 settle → 真实结果照记 + 标记 + audit 直收 aborted", async () => {
     const controller = new AbortController();
     let releaseTool: (() => void) | undefined;
     const toolResults: LoopMessage[] = [];
@@ -523,14 +523,19 @@ describe("LoopEngine：abort（signal 只作用于 LLM 流式段）", () => {
     });
     const pending = run.promise;
     await new Promise((r) => setTimeout(r, 5)); // 工具挂起中
-    controller.abort("superseded"); // abort 到达（工具执行段）
+    controller.abort("superseded"); // abort 到达（批执行期）
     await new Promise((r) => setTimeout(r, 5));
     expect(releaseTool).toBeDefined();
-    releaseTool!(); // 工具收尾
+    releaseTool!(); // 工具收尾（不响应 signal 的枚——批收口等它 settle）
     const result = await pending;
-    expect(result).toEqual({ kind: "aborted" });
-    // 工具结果已完整入账（toolCall/toolResult 恒成对——原子性）
-    expect(toolResults.map((m) => m.role)).toEqual(["assistant", "toolResult"]);
+    expect(result.kind).toBe("aborted");
+    // 真实结果照记（R4.4）+ 批打断标记（R4.7/D7）——toolCall/toolResult 恒成对
+    expect(toolResults.map((m) => m.role)).toEqual(["assistant", "toolResult", "user"]);
+    expect((toolResults[2] as { text: string }).text).toBe(LOOP_INTERRUPTED_MARKER_TEXT);
+    if (result.kind === "aborted") {
+      expect(result.audit?.keptMessages).toBe(2); // assistant + 真实结果（标记在外）
+      expect(result.audit?.droppedBlocks).toEqual([]);
+    }
   });
 });
 
