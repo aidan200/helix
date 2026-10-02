@@ -242,22 +242,27 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
 
   /**
    * 挂闸暂停恢复（port additive 面，设计 §7.4；loop 通道同构）：凭据 → 决策
-   * 续跑。四态中 approve/reject 完整；approveWith/resolve 超 pi 能力面
-   * （BeforeToolCallResult 无参数改写/结果伪造）——显式报错不静默降级。
-   * 未装配审批闸的 adapter 本面恒报错（能力面自描述）。
+   * 续跑。四态中 approve/reject 完整；resolve 经 **block+terminate 翻译**
+   * （段B：结果入账 + run 终结——loop 域 resolve 的 pi 映射，isError 由 pi
+   * 强制 true 是声明偏差）；approveWith 超 pi 能力面（无参数改写）——显式
+   * 报错不静默降级。未装配审批闸的 adapter 本面恒报错（能力面自描述）。
    */
   async resume(pauseToken: string, decision: EngineResumeDecision): Promise<void> {
     if (this.gate === undefined) {
       throw new Error("本引擎未装配审批闸（approvalGate）——resume 面不可用");
     }
-    if (decision.kind === "approveWith" || decision.kind === "resolve") {
+    if (decision.kind === "approveWith") {
       throw new Error(
-        `pi 通道审批闸不支持 ${decision.kind}（BeforeToolCallResult 仅 block/reason——能力面差异，loop 通道原生支持）`,
+        `pi 通道审批闸不支持 ${decision.kind}（BeforeToolCallResult 无参数改写——能力面差异，loop 通道原生支持）`,
       );
     }
     this.gate.resume(
       pauseToken,
-      decision.kind === "approve" ? { kind: "approve" } : { kind: "reject", text: decision.text },
+      decision.kind === "approve"
+        ? { kind: "approve" }
+        : decision.kind === "reject"
+          ? { kind: "reject", text: decision.text }
+          : { kind: "resolve", text: decision.text },
     );
   }
 
