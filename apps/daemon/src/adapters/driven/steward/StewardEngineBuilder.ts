@@ -25,8 +25,11 @@ import { PiAgentEngineAdapter } from "../pi-engine/PiAgentEngineAdapter";
 import type { CompactionSettings } from "../pi-engine/runtime/AgentProfile";
 import { StewardProfile } from "../pi-engine/runtime/profiles/StewardProfile";
 import { projectStewardTools } from "./StewardToolBridge";
+import { piMessagesToSteward, stewardMessagesToPi } from "./StewardLlmMessages";
 
 export interface StewardEngineOptions {
+  /** 装配期系统提示（管家每 run 动态组装的初值——后续 run 经 setSystemPrompt 变异）。 */
+  readonly systemPrompt?: string;
   /** 已解析模型对象（resolveModel 单点产物——与主会话同轨）。 */
   readonly model: Model<any>;
   /** provider → apiKey（静态表或 getter——每请求读现值）。 */
@@ -39,10 +42,17 @@ export interface StewardEngineOptions {
   readonly gatedTools: ReadonlySet<string>;
   /** 跨 run 常驻事件监听（管家投影/驱动消费面——必传）。 */
   readonly persistentListener: AgentEngineListener;
-  /** dialog 懒加载回填的首问历史窗口（缺省空历史）。 */
-  readonly initialMessages?: readonly AgentMessage[];
-  /** 压缩参数（profile.compaction 声明——AgentRuntime 装配 CompactionHook；缺省不装）。 */
-  readonly compaction?: CompactionSettings;
+  /** dialog 懒加载回填的首问历史窗口（port 消息形状——builder 内转 pi transcript）。 */
+  readonly initialMessages?: readonly import("../../../application/ports/outbound/StewardLlmPort").StewardLlmMessage[];
+  /** 压缩参数（profile.compaction 声明——AgentRuntime 装配 CompactionHook；缺省不装）。
+   *  reserveTokens = contextWindow - thresholdTokens（管家阈值语义映射 pi 预留语义）；
+   *  summarize = 摘要单轮覆写（管家 LLM port 承载——窗口/重建机器仍 pi 同套）。 */
+  readonly compaction?: CompactionSettings & {
+    readonly customInstructions?: string;
+    readonly summarize?: (systemPrompt: string, messages: readonly import("../../../application/ports/outbound/StewardLlmPort").StewardLlmMessage[]) => Promise<string>;
+    /** 触发档位：缺省 "request"（管家口径——纯问答轮也压）；"turn" = 主会话口径。 */
+    readonly trigger?: "turn" | "request";
+  };
   /** 测试剧本通道（streamFnOverride 标准接缝——主会话测试同款）。 */
   readonly streamFnOverride?: StreamFn;
 }
@@ -52,6 +62,7 @@ export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngine
   return new PiAgentEngineAdapter({
     profile: {
       ...StewardProfile,
+      ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
       tools: options.tools.map((t) => t.name),
       ...(options.compaction !== undefined ? { compaction: options.compaction } : {}),
     },
@@ -68,8 +79,34 @@ export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngine
       : {}),
     persistentListener: options.persistentListener,
     ...(options.initialMessages !== undefined && options.initialMessages.length > 0
-      ? { initialMessages: options.initialMessages }
+      ? { initialMessages: stewardMessagesToPi(options.initialMessages) }
       : {}),
     ...(options.streamFnOverride !== undefined ? { streamFnOverride: options.streamFnOverride } : {}),
+    ...(options.compaction?.customInstructions !== undefined
+      ? { compactionCustomInstructions: options.compaction.customInstructions }
+      : {}),
+    ...(options.compaction?.trigger !== undefined ? { compactionTrigger: options.compaction.trigger } : {}),
+    ...(options.compaction?.summarize !== undefined
+      ? {
+          compactionSummarizeRequest: (async (aiContext: unknown, _options: unknown, context: unknown) => {
+            // 管家摘要单轮：aiContext(systemPrompt+messages) → port summarize → assistant 消息
+            const ctx = aiContext as { systemPrompt?: string; messages: readonly import("@earendil-works/pi-ai").Message[] };
+            const summary = await options.compaction!.summarize!(
+              ctx.systemPrompt ?? "",
+              piMessagesToSteward(ctx.messages ?? []),
+            );
+            void context;
+            return {
+              role: "assistant",
+              content: [{ type: "text" as const, text: summary }],
+              api: options.model.api,
+              provider: options.model.provider,
+              model: options.model.id,
+              stopReason: "stop",
+              timestamp: Date.now(),
+            };
+          }) as never,
+        }
+      : {}),
   });
 }

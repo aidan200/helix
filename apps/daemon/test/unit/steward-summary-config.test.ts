@@ -14,6 +14,7 @@
  *    不接受「类型加了 = 通了」）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -61,7 +62,7 @@ function makeService(config: RuntimeConfigPort): StewardService {
     config,
     feedGate: { hasStewardSubscribers: () => false },
     emitFeed: () => {},
-  });
+  createEngine: createEngineFromPort(noopLlm())});
 }
 
 /** handler ctx（steward-profile.test.ts 同构：frames/errors 收集面；type 参数化——get/set 两命令共用）。 */

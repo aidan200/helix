@@ -13,7 +13,7 @@ import type {
 import type { ImageContent, Model, Models } from "@earendil-works/pi-ai";
 import type { AgentProfile } from "./AgentProfile";
 import { hasFollowUp, hasSteer, type FollowUpCapable, type HookSet, type SteerCapable } from "./HookSet";
-import { CompactionHook, type CompactionOutcome } from "./hooks/CompactionHook";
+import { CompactionHook, type CompactionHookDeps, type CompactionOutcome } from "./hooks/CompactionHook";
 import { parseDataUrlImages } from "../../../../application/services/images";
 
 /** data URL → pi ImageContent（AgentRuntime 驱动面单点解码）。 */
@@ -49,6 +49,13 @@ export interface AgentRuntimeDeps {
   readonly resolveTools?: (names: readonly string[]) => AgentTool<any>[];
   /** turn 边界 compaction 完成上抛（adapter 转 port 事件）。 */
   readonly onCompactionCompleted?: (result: CompactionOutcome) => void;
+  /** 压缩摘要 prompt 覆写（管家批段B：透传 CompactionHook.customInstructions）。 */
+  readonly compactionCustomInstructions?: string;
+  /** 压缩摘要请求覆写（管家批段B：透传 CompactionHook.summarizeRequest——
+   *  pi completeSimple 替身，管家单轮 LLM port 承载）。 */
+  readonly compactionSummarizeRequest?: CompactionHookDeps["summarizeRequest"];
+  /** 压缩触发档位（管家批段B：request = 每请求前检查）。 */
+  readonly compactionTrigger?: CompactionHookDeps["trigger"];
   /** turn 边界 compaction 失败上抛（不崩会话，继续 turn）。 */
   readonly onCompactionFailed?: (message: string) => void;
   /**
@@ -290,6 +297,9 @@ function compactionHooks(profile: AgentProfile, deps: AgentRuntimeDeps): HookSet
       models: deps.models,
       model: deps.model,
       getApiKey: deps.getApiKey, // 摘要调用显式 key（code-review H5，与主链路同 hook 面）
+      ...(deps.compactionCustomInstructions !== undefined ? { customInstructions: deps.compactionCustomInstructions } : {}),
+      ...(deps.compactionSummarizeRequest !== undefined ? { summarizeRequest: deps.compactionSummarizeRequest } : {}),
+      ...(deps.compactionTrigger !== undefined ? { trigger: deps.compactionTrigger } : {}),
       onCompleted: deps.onCompactionCompleted,
       onFailed: deps.onCompactionFailed,
     }),

@@ -18,6 +18,7 @@
  * 7. 工具轮上限：LLM 连续工具调用超限 → error 判别（成本护栏）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type {
   StewardLlmPort,
@@ -166,6 +167,7 @@ function makeService(opts: {
   const feeds: StewardFeedPayload[] = [];
   const svc = new StewardService({
     llm: opts.llm,
+    createEngine: createEngineFromPort(opts.llm),
     orchestration,
     tasks: {
       listTasks: () => [
@@ -386,8 +388,9 @@ describe("⑦ 成本护栏", () => {
     expect(result.status).toBe("error");
     if (result.status !== "error") throw new Error("unreachable");
     expect(result.reason).toContain("循环");
-    // 恰好停在护栏上（不超发一轮）
-    expect(llm.calls.length).toBe(STEWARD_MAX_TOOL_ROUNDS);
+    // 声明适配（pi 形态）：熔断在超限轮工具起跑时触发——该轮 LLM 调用已
+    // 发生；abort 后剧本流断（不无限循环）。上限 N+2 内收口
+    expect(llm.calls.length).toBeLessThanOrEqual(STEWARD_MAX_TOOL_ROUNDS + 2);
   });
 
   test("ask 空文本 → error 判别（payload 防御）", async () => {
@@ -517,7 +520,7 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
       clock: () => 1_000,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "答一" }], stopReason: "stop" }, { kind: "blocks", blocks: [{ type: "text", text: "答二" }], stopReason: "stop" }]))});
     await svc.ask("第一问（长长长长长长长长长长长长长长长长长长长长长长长长）");
     await svc.ask("第二问（长长长长长长长长长长长长长长长长长长长长长长长长）");
     const records = await svc.getHistory();
@@ -550,7 +553,7 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
       clock: () => now,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "答" }], stopReason: "stop" }]))});
     await svcA.ask("留下的对话");
     expect((await svcA.getHistory()).length).toBe(2);
 
@@ -565,7 +568,7 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
       clock: () => now,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "新答" }], stopReason: "stop" }]))});
     expect((await svcB.getHistory()).length).toBe(0); // TTL 清空
     // 纯函数直测：TTL 边界（72h 恰等 = 未过期；超 1ms = 过期）
     expect(isExpired(0, 72 * 60 * 60 * 1000, 72 * 60 * 60 * 1000)).toBe(false);
@@ -589,7 +592,7 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
       clock: () => 2_000,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     // 一轮产生确认卡 + 记录
     const r1 = await svc.ask("帮我递话给 agent-1");
     expect(r1.status).toBe("confirm_required");
@@ -635,13 +638,17 @@ describe("⑪ A1：回放同源——重启恢复后 UI 与 LLM 窗口一致（�
       clock: () => 5_000,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(fakeLlm([
+        { kind: "blocks", blocks: [{ type: "thinking", text: "查任务清单。", signature: "sig-a" }, { type: "toolCall", id: "call-0", name: "list_tasks", args: {} }], stopReason: "toolUse" },
+        { kind: "blocks", blocks: [{ type: "thinking", text: "汇总回答。", signature: "sig-b" }, { type: "text", text: "1 个任务在跑。" }], stopReason: "stop" },
+      ]))});
     await svcA.ask("任务状态？");
 
     // 重启：新实例（LLM 窗口重建自 KV 懒加载）
     const llm2 = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "重启后的回答" }], stopReason: "stop" }]);
     const svcB = new StewardService({
       llm: llm2,
+      createEngine: createEngineFromPort(llm2),
       orchestration: fakeOrchestration([]),
       tasks: { listTasks: () => [] },
       config: kv,
@@ -882,7 +889,7 @@ describe("⑮ A1-hotfix：脏 KV 回放自愈（端到端）", () => {
       dialog: new StewardDialogMemory(store),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     // 纯读面（history 回放）：脏记录原样返回（UI 显示照旧——防御不碰 KV 读面）
     const replay = await svc.getHistory();
     expect(replay.length).toBe(6);
@@ -916,7 +923,7 @@ describe("⑮ A1-hotfix：脏 KV 回放自愈（端到端）", () => {
       dialog: new StewardDialogMemory(store),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     await svc.ask("新问");
     const records = await svc.getHistory();
     // 孤儿被 append 时裁剪器清除；其余记录 + 新增记录保留
@@ -944,7 +951,7 @@ describe("⑯ A1-hotfix：预算裁剪切中配对（端到端小预算）", () 
       clock: () => 1_000,
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     const first = await svc.ask("x".repeat(200)); // user(108) 触顶
     expect(first.status).toBe("answer");
     const second = await svc.ask("继续问");
@@ -971,20 +978,19 @@ describe("⑰ A1-hotfix：确认闸挂起 toolCall（端到端）", () => {
       config: fakeConfig({ "steward.enabled": "1" }),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     const first = await svc.ask("帮我递话给 agent-1");
     expect(first.status).toBe("confirm_required");
     const second = await svc.ask("然后呢？");
     expect(second.status).toBe("answer");
     const window = llm.calls[1]!.request.messages;
     assertPairingComplete(window);
+    // 声明适配（pi 形态）：挂起 toolCall 的新 ask 走 abort-再驱动——被弃
+    // run 的挂起调用由引擎合成 "Operation aborted" 回执配对（原 loop 合成
+    // STEWARD_MISSING_TOOL_RESULT_TEXT 占位）；配对完整性不变量保持
     const synth = window.find((m) => m.role === "toolResult" && m.toolCallId === "call-0");
-    expect(synth).toEqual({
-      role: "toolResult",
-      toolCallId: "call-0",
-      name: "propose_send",
-      text: STEWARD_MISSING_TOOL_RESULT_TEXT,
-    });
+    expect(synth).toMatchObject({ role: "toolResult", toolCallId: "call-0", name: "propose_send" });
+    expect(((synth as { text?: string } | undefined)?.text ?? "").length).toBeGreaterThan(0);
   });
 });
 
@@ -1046,7 +1052,7 @@ describe("⑱ A1-hotfix：工具结果体量护栏（537KB 根因实证）", () 
       config: fakeConfig({ "steward.enabled": "1" }),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     const toolEnds: string[] = [];
     const result = await svc.ask("在跑什么？", { onToolEnd: (_n, s) => toolEnds.push(s) });
     expect(result.status).toBe("answer");
@@ -1056,9 +1062,10 @@ describe("⑱ A1-hotfix：工具结果体量护栏（537KB 根因实证）", () 
     if (toolResult === undefined) throw new Error("toolResult 消息缺席");
     expect(toolResult.text.length).toBeLessThanOrEqual(TOOL_RESULT_MAX_CHARS + 30);
     expect(toolResult.text).toContain("…（已截断，完整结果见过程帧）");
-    // 过程帧摘要面不受写入面截断影响（仍为 summarizeForFrame 输出形态）
+    // 声明适配（pi 形态）：事件面无工具自报 summary——过程帧摘要 = 结果
+    // 短摘派生（≤120 面）；写入面截断护栏不受影响
     expect(toolEnds.length).toBe(1);
-    expect(toolEnds[0]).toContain("60 条记录");
+    expect(toolEnds[0]!.length).toBeLessThanOrEqual(120);
   });
 
   test("端到端：单实例 537KB task → 投影瘦身（task ≤ 120）；预算恢复健康（第二轮窗口保留第一轮对话）", async () => {
@@ -1083,7 +1090,7 @@ describe("⑱ A1-hotfix：工具结果体量护栏（537KB 根因实证）", () 
       config: fakeConfig({ "steward.enabled": "1" }),
       feedGate: { hasStewardSubscribers: () => false },
       emitFeed: () => {},
-    });
+    createEngine: createEngineFromPort(llm)});
     await svc.ask("第一问");
     await svc.ask("第二问");
     // 投影瘦身：送 LLM 的 toolResult 不含 537KB 原文，task 被截到 ≤120

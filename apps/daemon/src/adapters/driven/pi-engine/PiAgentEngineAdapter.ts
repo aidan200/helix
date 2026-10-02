@@ -100,6 +100,15 @@ export interface PiEngineOptions {
    * 订阅；缺省不装（既有行为不变）。
    */
   readonly persistentListener?: AgentEngineListener;
+  /**
+   * 压缩摘要 prompt 覆写（管家批段B）：profile.compaction 声明压缩时的
+   * customInstructions 透传（vendored compact 第 4 参原生位）。
+   */
+  readonly compactionCustomInstructions?: string;
+  /** 压缩摘要请求覆写（管家批段B——透传 AgentRuntime→CompactionHook）。 */
+  readonly compactionSummarizeRequest?: AgentRuntimeDeps["compactionSummarizeRequest"];
+  /** 压缩触发档位（管家批段B——透传 AgentRuntime→CompactionHook）。 */
+  readonly compactionTrigger?: AgentRuntimeDeps["compactionTrigger"];
 }
 
 export class PiAgentEngineAdapter implements AgentEnginePort {
@@ -187,6 +196,13 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         : {}),
       ...(options.initialMessages !== undefined ? { initialMessages: options.initialMessages } : {}),
       // turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
+      ...(options.compactionCustomInstructions !== undefined
+        ? { compactionCustomInstructions: options.compactionCustomInstructions }
+        : {}),
+      ...(options.compactionSummarizeRequest !== undefined
+        ? { compactionSummarizeRequest: options.compactionSummarizeRequest }
+        : {}),
+      ...(options.compactionTrigger !== undefined ? { compactionTrigger: options.compactionTrigger } : {}),
       onCompactionCompleted: (r) =>
         this.emitAll({
           type: "compaction_completed",

@@ -84,7 +84,9 @@ import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0"
 import { getLoadablePath as sqliteVecLoadablePath } from "sqlite-vec";
 import type { StewardLlmPort } from "../application/ports/outbound/StewardLlmPort";
 import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/loop/PiStewardLlmAdapter";
-import { stewardLoopTraceBridge } from "./assembly/stewardLoopTraceBridge";
+import { buildStewardEngine } from "../adapters/driven/steward/StewardEngineBuilder";
+import { resolveModel } from "../adapters/driven/llm";
+import { stewardEngineTraceBridge } from "./assembly/stewardEngineTraceBridge";
 import { StewardVoiceSummarizerAdapter } from "../adapters/driven/voice/StewardVoiceSummarizerAdapter";
 import type { VoiceSummarizerPort } from "../application/ports/outbound/VoiceSummarizerPort";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
@@ -823,14 +825,59 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 遗忘机制批：记忆 GC 定时器（60s 首跑 + 24h 周期；interval unref 不阻
   // 进程退出，dispose 挂 shutdown 链双保险——TR-152 落盘面定时器纪律）。
   stewardMemory?.startGcTimer();
+  // 管家引擎模型解析（与 PiStewardLlmAdapter 同一链：steward.model KV →
+  // 目录解析 → 缺省 STEWARD_DEFAULT_MODEL——同轨单点）
+  const resolveStewardEngineModel = (): ReturnType<typeof resolveModel> =>
+    resolveModel(
+      modelStack.catalog.modelsView(),
+      persistence.runtimeConfig.get(STEWARD_MODEL_KEY) ?? STEWARD_DEFAULT_MODEL,
+    );
   const stewardService = new StewardService({
     llm: stewardLlm,
     ...(dialog !== undefined ? { dialog } : {}),
     memory: stewardMemory,
-    // helix-loop L0：LoopEngine 事件 → domain_events 投影（追踪可见性——
-    // instanceId=steward，里程碑子集；广播面 default→null 不接，防自激
-    // 语义保持：管家只发帧不订阅广播流）
-    emitLoopEvent: stewardLoopTraceBridge({
+    // 段B翻转：pi 引擎唯一配方装配（driven/steward buildStewardEngine——
+    // 生产与测试共用；模型槽位与管家 LLM 同一解析链：steward.model KV →
+    // 目录解析 → 缺省 STEWARD_DEFAULT_MODEL）
+    createEngine: (opts) =>
+      buildStewardEngine({
+        systemPrompt: opts.systemPrompt,
+        model: resolveStewardEngineModel(),
+        apiKeys: () => {
+          const table: Record<string, string> = {};
+          for (const m of modelStack.catalog.modelsView().getModels()) {
+            const key = modelStack.authStore.apiKeyOf(m.provider);
+            if (key !== undefined) table[m.provider] = key;
+          }
+          return table;
+        },
+        models: modelStack.catalog.modelsView(),
+        tools: opts.tools,
+        gatedTools: opts.gatedTools,
+        persistentListener: opts.persistentListener,
+        ...(opts.initialMessages.length > 0 ? { initialMessages: opts.initialMessages } : {}),
+        ...(opts.compaction !== undefined
+          ? {
+              compaction: {
+                enabled: true,
+                trigger: "request" as const,
+                // pi 预留语义映射管家阈值：contextWindow - reserve = threshold
+                reserveTokens: Math.max(
+                  1024,
+                  resolveStewardEngineModel().contextWindow - opts.compaction.thresholdTokens,
+                ),
+                keepRecentTokens: opts.compaction.keepRecent * 512,
+                ...(opts.compaction.summarizeInstructions !== undefined
+                  ? { customInstructions: opts.compaction.summarizeInstructions }
+                  : {}),
+                ...(opts.compaction.summarize !== undefined ? { summarize: opts.compaction.summarize } : {}),
+              },
+            }
+          : {}),
+      }),
+    // 引擎事件 → domain_events 投影（追踪可见性——instanceId=steward，里程碑
+    // 子集；广播面 default→null 不接，防自激语义保持）
+    emitEngineEvent: stewardEngineTraceBridge({
       publish: (event) => fanoutPublisher.publish(event),
       nowIso: () => clock.now(),
     }),

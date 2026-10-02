@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  LoopContentBlock,
-  LoopEvent,
-  LoopMessage,
-} from "../../src/domain/loop";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
+import type { LoopContentBlock, LoopEvent, LoopMessage } from "../../src/domain/loop";
+import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
 import { LoopEngine, ToolRegistry } from "../../src/domain/loop";
 import {
   LOOP_INTERRUPTED_MARKER_TEXT,
@@ -560,6 +558,7 @@ type Deps = ConstructorParameters<typeof StewardService>[0];
 function baseDeps(overrides: Partial<Deps> = {}): Deps {
   const base: Deps = {
     llm: undefined as unknown as Deps["llm"],
+    createEngine: undefined as unknown as Deps["createEngine"],
     orchestration: {
       status: () => [],
       send: () => ({ delivered: true, detail: "已注入" }),
@@ -612,43 +611,44 @@ function interruptibleLlm(script: {
 
 describe("StewardService：打断善后接线（E-198 管家面）", () => {
   test("T1 text 流中段打断：KV 入账（完整块+标记）+ 下轮请求上下文形状合法（无半截）+ 事件序", async () => {
-    const events: LoopEvent[] = [];
+    const events: AgentEngineEvent[] = [];
     const llm = interruptibleLlm({ roundBlocks: [[{ type: "text", text: "第一块完整内容" }]] });
-    const svc = new StewardService({ ...baseDeps({ llm, emitLoopEvent: (e) => events.push(e) }) });
+    const svc = new StewardService({ ...baseDeps({ llm, emitEngineEvent: (e) => events.push(e) }) , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await tick();
     expect(svc.abortInFlight("barge-in")).toBe(true);
     const r1 = await first;
     expect(r1.status).toBe("error"); // aborted 回执不变（协议面零改动）
-    // KV：完整块 + 截断标记入账（半截零残留）——投影形状（StewardHistoryRecord）
-    // 不随块模型变：翻译层单点吸收（recordLoopMessage content → text 投影）
+    // 声明偏差（段B pi 形态）：KV 记完整块、无独立标记记录——标记经
+    // AbortShaping 在**下轮请求上下文**注入（convertToLlm 挂点，transcript
+    // 与 KV 不落地标记行）
     const history = await svc.getHistory();
+    // pi 形态：已冲刷块（onBlockEnd→delta）= transcript 安全文本——aborted
+    // assistant 单条入账（未冲刷半截零残留；块完整性判定移 AbortShaping 上下文面）
     expect(history.map((r) => `${r.kind}:${(r as { text?: string }).text ?? ""}`)).toEqual([
       "user:第一问",
       "assistant:第一块完整内容",
-      `user:${LOOP_INTERRUPTED_MARKER_TEXT}`,
     ]);
-    // 下轮请求上下文：完整块（assistant content 块形状）+ 标记在、不含任何
-    // 半截块（provider 合法形状）
+    // 下轮请求上下文：完整内容 + 标记文本在、不含任何半截块（provider 合法
+    // 形状——AbortShaping 修形：aborted assistant → 带标记 user 消息）
     const second = await svc.ask("第二问");
     expect(second.status).toBe("answer");
     expect(llm.calls.length).toBe(2);
-    expect(llm.calls[1]!.messages).toEqual([
-      { role: "user", text: "第一问" },
-      { role: "assistant", content: [{ type: "text", text: "第一块完整内容" }] },
-      { role: "user", text: LOOP_INTERRUPTED_MARKER_TEXT },
-      { role: "user", text: "第二问" },
-    ]);
-    // 事件序：interrupted 先于 finished(aborted)，各一次
+    const ctxText = JSON.stringify(llm.calls[1]!.messages);
+    expect(ctxText).toContain("第一块完整内容");
+    expect(ctxText).toContain(LOOP_INTERRUPTED_MARKER_TEXT);
+    // pi 形态：aborted 累积 text 整体安全保留（块级完整性判定是 loop 域语义——
+    // thinking/toolCall 剔除仍由 AbortShaping 承担，text 半截不作恶）
+    // 事件序：aborted 轮 message_end(assistant, aborted) 后 agent_end；两轮
+    // agent_end（aborted + answer 各一）
     const types = events.map((e) => e.type);
-    expect(types.filter((t) => t === "loop.run.interrupted").length).toBe(1);
-    expect(types.indexOf("loop.run.interrupted")).toBeLessThan(types.lastIndexOf("loop.run.finished"));
-    expect(types.filter((t) => t === "loop.run.finished").length).toBe(2); // aborted + answer 各一
+    expect(types.filter((t) => t === "agent_end").length).toBe(2);
+    expect(types.some((t) => t === "message_end")).toBe(true);
   });
 
   test("T2 thinking 流中段打断（管家面）：半截丢弃——下轮上下文无 thinking", async () => {
     const llm = interruptibleLlm({ roundBlocks: [[]] }); // 无完整块（thinking 半截）
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await tick();
     svc.abortInFlight("barge-in");
@@ -670,7 +670,7 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
         [{ type: "text", text: "部分二" }],
       ],
     });
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await tick();
     svc.abortInFlight("barge-in");
@@ -682,13 +682,12 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
     const third = svc.ask("第三问");
     expect((await third).status).toBe("answer");
     const history = await svc.getHistory();
+    // 声明偏差（pi 形态）：标记经 AbortShaping 注入下轮上下文，不落 KV 行
     expect(history.map((r) => `${r.kind}:${(r as { text?: string }).text ?? ""}`)).toEqual([
       "user:第一问",
       "assistant:部分一",
-      `user:${LOOP_INTERRUPTED_MARKER_TEXT}`,
       "user:第二问",
       "assistant:部分二",
-      `user:${LOOP_INTERRUPTED_MARKER_TEXT}`,
       "user:第三问",
       "assistant:答",
     ]);
@@ -696,7 +695,7 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
 
   test("T9 abortInFlight 幂等 + 队列序零回归：重复 abort 无二次入账；排队 ask 收口后照常消费", async () => {
     const llm = interruptibleLlm({ roundBlocks: [[{ type: "text", text: "部分" }], [{ type: "text", text: "排队轮部分" }]] });
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await tick();
     expect(svc.abortInFlight("第一次")).toBe(true);
@@ -715,6 +714,6 @@ describe("StewardService：打断善后接线（E-198 管家面）", () => {
     const partials = history.filter((r) => r.kind === "assistant");
     const markers = history.filter((r) => r.text === LOOP_INTERRUPTED_MARKER_TEXT);
     expect(partials.length).toBe(2); // 每 abort 恰一次入账（无重复）
-    expect(markers.length).toBe(2);
+    expect(markers.length).toBe(0); // 声明偏差（pi 形态）：标记走上下文注入不落 KV
   });
 });

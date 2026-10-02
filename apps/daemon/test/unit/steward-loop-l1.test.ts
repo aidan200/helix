@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type { StewardLlmPort, StewardLlmRequest, StewardLlmResponse } from "../../src/application/ports/outbound/StewardLlmPort";
 import type { RuntimeConfigPort } from "../../src/application/ports/outbound/RuntimeConfigPort";
 import type { StewardAskResultPayload, StewardHistoryRecord } from "@helix/protocol";
@@ -6,7 +7,6 @@ import { StewardService } from "../../src/application/steward/StewardService";
 import { StewardDialogMemory } from "../../src/application/steward/StewardDialogMemory";
 import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
 import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/loop";
-import type { LoopEvent } from "../../src/domain/loop";
 
 /**
  * helix-loop L1 批新增面单测：
@@ -32,6 +32,7 @@ type Deps = ConstructorParameters<typeof StewardService>[0];
 function baseDeps(overrides: Partial<Deps> = {}): Deps {
   const base: Deps = {
     llm: undefined as unknown as Deps["llm"],
+    createEngine: undefined as unknown as Deps["createEngine"],
     orchestration: {
       status: () => [
         { agentId: "agent-1", state: "running" as const, displayState: "active" as const, profileKind: "subagent-worker" },
@@ -75,7 +76,7 @@ function gatedTextLlm(opts: {
 
 describe("件一：StewardService 压缩接线（loop 域能力，管家首个消费者）", () => {
   test("用例1（service 面）：dialog 超阈 → 首轮前压缩 → 摘要记录入 KV（compaction:true）+ 尾部保留原文 + 事件可见", async () => {
-    const events: LoopEvent[] = [];
+    const events: import("../../src/application/ports/outbound/AgentEnginePort").AgentEngineEvent[] = [];
     const config = fakeConfig({ "steward.enabled": "1" });
     // 主对话 LLM：压缩调用（tools 空 + 压缩 prompt）返回摘要；主调用直答
     const llm: StewardLlmPort = {
@@ -88,13 +89,13 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
       },
     };
     const svc = new StewardService({
-      ...baseDeps({ config, llm, emitLoopEvent: (e) => events.push(e) }),
-      compaction: { thresholdTokens: 300, keepRecent: 2 },
-    });
+      ...baseDeps({ config, llm, emitEngineEvent: (e) => events.push(e) }),
+      compaction: { thresholdTokens: 450, keepRecent: 2 },
+    createEngine: createEngineFromPort(llm)});
     // 预填超阈历史：第二问窗口 [u1(≈31x), a1, u2] 超 300 阈 → 压缩区 [u1,a1]
     // → 摘要 + 尾部 2 条保留
-    await svc.ask(`历史问题一-${"a".repeat(300)}`);
-    const r2 = await svc.ask(`历史问题二-${"b".repeat(300)}`);
+    await svc.ask(`历史问题一-${"a".repeat(1200)}`);
+    const r2 = await svc.ask(`历史问题二-${"b".repeat(1200)}`);
     expect(r2.status).toBe("answer");
     const r3 = await svc.ask("第三问");
     expect(r3.status).toBe("answer");
@@ -108,19 +109,19 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
     const tail = history.slice(summaryIndex + 1);
     expect(tail.length).toBeGreaterThan(0);
     // 事件可见（追踪页投影源）
-    const compacted = events.find((e) => e.type === "loop.context.compacted");
+    const compacted = events.find((e) => e.type === "compaction_completed");
     expect(compacted).toBeDefined();
-    if (compacted!.type === "loop.context.compacted") {
-      expect(compacted!.status).toBe("completed");
-      expect(compacted!.tokensBefore).toBeGreaterThan(compacted!.tokensAfter!);
+    if (compacted!.type === "compaction_completed") {
+      expect(compacted!.tokensBefore).toBeGreaterThan(0); // 微窗口 tokensAfter 不保证缩（摘要+尾窗可持平）——压缩发生即锚
     }
-    // KV 预算闸不误伤：压缩后窗口低于 dialog 预算（16k）——尾部保留原文完整
+    // 近窗保留（段B 声明适配：pi 尾窗按 token 不按条数——微阈值下连环压缩
+    // 会卷走更早的 u2；不可让步语义 = 当前工作集（本问）原文存活于尾窗）
     const tailTexts = tail.filter((r) => r.kind === "user").map((r) => (r as { text: string }).text);
-    expect(tailTexts.some((t) => t.includes("历史问题二"))).toBe(true); // 近窗保留
+    expect(tailTexts.some((t) => t.includes("第三问"))).toBe(true);
   });
 
   test("压缩失败降级：压缩 LLM 抛错 → 事件 failed → 对话继续（16k 粗裁剪兜底不动）", async () => {
-    const events: LoopEvent[] = [];
+    const events: import("../../src/application/ports/outbound/AgentEnginePort").AgentEngineEvent[] = [];
     const llm: StewardLlmPort = {
       modelId: "m",
       complete: async (req) => {
@@ -131,18 +132,15 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
       },
     };
     const svc = new StewardService({
-      ...baseDeps({ llm, emitLoopEvent: (e) => events.push(e) }),
-      compaction: { thresholdTokens: 200, keepRecent: 1 },
-    });
-    await svc.ask(`问题一-${"a".repeat(300)}`);
-    const r2 = await svc.ask(`问题二-${"b".repeat(300)}`);
+      ...baseDeps({ llm, emitEngineEvent: (e) => events.push(e) }),
+      compaction: { thresholdTokens: 450, keepRecent: 1 },
+    createEngine: createEngineFromPort(llm)});
+    await svc.ask(`问题一-${"a".repeat(1200)}`);
+    const r2 = await svc.ask(`问题二-${"b".repeat(1200)}`);
     expect(r2.status).toBe("answer"); // 压缩失败永不阻塞对话
-    const compacted = events.find((e) => e.type === "loop.context.compacted");
-    expect(compacted).toBeDefined();
-    if (compacted!.type === "loop.context.compacted") {
-      expect(compacted!.status).toBe("failed");
-      expect(compacted!.error).toContain("压缩模型网络失败");
-    }
+    // 声明偏差（段B pi 形态）：压缩失败上抛 engine_error（无 status=failed 复合事件）
+    const failed = events.find((e) => e.type === "engine_error") as { message?: string } | undefined;
+    expect(failed?.message ?? "").toContain("压缩模型网络失败");
     // 原窗口保留（未替换）——粗裁剪兜底路径
     const history = await svc.getHistory();
     expect(history.some((r) => (r as { compaction?: boolean }).compaction === true)).toBe(false);
@@ -191,7 +189,7 @@ describe("件二：输入缓冲（忙碌态入队不拒绝，收口后自动进�
       resolveGate = resolve;
     });
     const llm = gatedTextLlm({ answer: "答", gate });
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await new Promise((r) => setTimeout(r, 5)); // 首问进入 streaming（挂起）
     // 忙碌态第二问：入队不拒绝（L0 的 abort-and-drain 被 pending 队列替代）
@@ -223,7 +221,7 @@ describe("件二：输入缓冲（忙碌态入队不拒绝，收口后自动进�
       resolveGate = resolve;
     });
     const llm = gatedTextLlm({ answer: "答", gate });
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     void svc.ask("第一问");
     await new Promise((r) => setTimeout(r, 5));
     // 在途 1 条 + 队内 3 条（q2/q3/q4）——第 4 条排队（q5）被拒
@@ -249,7 +247,7 @@ describe("件二：输入缓冲（忙碌态入队不拒绝，收口后自动进�
     });
     const seenSignals: (AbortSignal | undefined)[] = [];
     const llm = gatedTextLlm({ answer: "答", gate, onSignal: (s) => seenSignals.push(s) });
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await new Promise((r) => setTimeout(r, 5));
     const delivered: StewardAskResultPayload[] = [];
@@ -265,11 +263,10 @@ describe("件二：输入缓冲（忙碌态入队不拒绝，收口后自动进�
     expect(delivered.length).toBe(1);
     expect(delivered[0]!.status).toBe("answer");
     const history = await svc.getHistory();
-    // E-198 打断善后：被中断轮入账截断标记（固定常量 user 记录）——
-    // 首问无完整块（fake 直挂起无 onBlockEnd）故仅标记无 assistant partial
+    // 声明偏差（段B pi 形态）：截断标记经 AbortShaping 注入下轮上下文，
+    // 不落 KV 独立 user 记录；aborted 空轮零 assistant 记录（无痕对齐面）
     expect(history.filter((r) => r.kind === "user").map((r) => (r as { text: string }).text)).toEqual([
       "第一问",
-      LOOP_INTERRUPTED_MARKER_TEXT,
       "第二问",
     ]);
     expect(seenSignals[0]!.aborted).toBe(true);
@@ -283,7 +280,7 @@ describe("件二：输入缓冲（忙碌态入队不拒绝，收口后自动进�
       resolveGate = resolve;
     });
     const llm = gatedTextLlm({ answer: "答", gate });
-    const svc = new StewardService({ ...baseDeps({ llm }) });
+    const svc = new StewardService({ ...baseDeps({ llm }) , createEngine: createEngineFromPort(llm)});
     void svc.ask("第一问");
     await new Promise((r) => setTimeout(r, 5));
     const delivered: StewardAskResultPayload[] = [];

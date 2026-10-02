@@ -3,6 +3,7 @@ import type { Entry } from "../../../tools/vendor/pi-harness";
 import {
   BACKGROUND_CONTEXT,
   compact,
+  compactWithRequest,
   createCompactionSummaryMessage,
   estimateContextTokens,
   prepareCompaction,
@@ -62,6 +63,15 @@ export interface CompactionHookDeps {
   readonly onCompleted?: (result: CompactionOutcome) => void;
   /** 压缩失败上抛（adapter → port engine_error 事件；会话继续）。 */
   readonly onFailed?: (message: string) => void;
+  /** 摘要 prompt 覆写（管家批段B：vendored compact 原生 customInstructions 位）。 */
+  readonly customInstructions?: string;
+  /** 摘要请求覆写（管家批段B：completeSimple 替身——管家单轮 LLM port 承载；
+   *  窗口切分/previousSummary/重建机器不变）。 */
+  readonly summarizeRequest?: (aiContext: unknown, options: unknown, context: unknown) => Promise<unknown>;
+  /** 触发档位（管家批段B）："turn"（缺省——prepareNextTurn，纯问答 run 不触发
+   *  TR-47 pi 语义，主会话口径）|"request"（transformContext——每 LLM 请求前
+   *  检查，纯问答轮也压，管家口径 E-197 首轮前检查语义）。 */
+  readonly trigger?: "turn" | "request";
 }
 
 /** 压缩产物上抛形状（CompactResult 防腐映射；tokensAfter 为复算值）。 */
@@ -117,7 +127,10 @@ export class CompactionHook implements HookSet {
 
       // signal 折进 chord Context（0.85：compact 末参为必传 Context）。
       const context = signal === undefined ? BACKGROUND_CONTEXT : withAbortSignal(signal, BACKGROUND_CONTEXT);
-      const result = await compact(prep.value, summaryModels, model, undefined, undefined, undefined, undefined, context);
+      const result =
+        this.deps.summarizeRequest !== undefined
+          ? await compactWithRequest(prep.value, { model, customInstructions: this.deps.customInstructions }, this.deps.summarizeRequest as never, context)
+          : await compact(prep.value, summaryModels, model, this.deps.customInstructions, undefined, undefined, undefined, context);
       if (!result.ok) {
         this.deps.onFailed?.(`compaction 摘要失败：${JSON.stringify(result.error).slice(0, 200)}`);
         return undefined;
@@ -158,6 +171,52 @@ export class CompactionHook implements HookSet {
       // 钩子禁抛契约：任何意外失败降级为上抛（不崩会话，继续 turn）
       this.deps.onFailed?.(`compaction 执行异常：${(err as Error).message}`);
       return undefined;
+    }
+  }
+
+  /** request 档（管家）：每 LLM 请求前压缩检查（transformContext 挂点——
+   *  纯问答轮也触发，E-197 首轮前检查语义；失败不抛——原样透传）。 */
+  async transformContext(messages: AgentMessage[], signal?: AbortSignal): Promise<AgentMessage[]> {
+    if (this.deps.trigger !== "request" || !this.agent) return messages;
+    const model = (this.agent.state.model ?? this.deps.model) as Model<any>;
+    const { settings, models } = this.deps;
+    const est = estimateContextTokens(messages);
+    if (!shouldCompact(est.tokens, model.contextWindow, settings)) return messages;
+    try {
+      const apiKey = this.deps.getApiKey?.(model.provider);
+      const summaryModels = apiKey !== undefined ? withApiKey(models, apiKey) : models;
+      const entries = messagesToEntries(messages);
+      const prep = prepareCompaction(entries, settings);
+      if (!prep.ok || !prep.value) return messages;
+      const context = signal === undefined ? BACKGROUND_CONTEXT : withAbortSignal(signal, BACKGROUND_CONTEXT);
+      const result =
+        this.deps.summarizeRequest !== undefined
+          ? await compactWithRequest(prep.value, { model, customInstructions: this.deps.customInstructions }, this.deps.summarizeRequest as never, context)
+          : await compact(prep.value, summaryModels, model, this.deps.customInstructions, undefined, undefined, undefined, context);
+      if (!result.ok) {
+        this.deps.onFailed?.(`compaction 摘要失败：${JSON.stringify(result.error).slice(0, 200)}`);
+        return messages;
+      }
+      const cr = result.value;
+      const first = messages[0];
+      const leadingSystem = first !== undefined && first.role === "system" ? first : undefined;
+      const rebuilt: AgentMessage[] = [
+        ...(leadingSystem !== undefined ? [leadingSystem] : []),
+        createCompactionSummaryMessage(cr.summary, cr.tokensBefore, Date.now()),
+        ...cr.retainedTail.filter(isContextMessage).filter((m) => m.role !== "system"),
+      ];
+      this.agent.state.messages = rebuilt; // 双写 state（跨 run 持久——与 turn 档同口径）
+      const tokensAfter = estimateContextTokens(rebuilt).tokens;
+      this.deps.onCompleted?.({
+        tokensBefore: cr.tokensBefore,
+        tokensAfter,
+        summary: cr.summary,
+        ...(cr.usage !== undefined ? { usage: usageOfPi(cr.usage) } : {}),
+      });
+      return rebuilt;
+    } catch (error) {
+      this.deps.onFailed?.(`compaction 摘要异常：${(error as Error).message}`);
+      return messages; // 失败不抛（transformContext 禁抛）——原窗口继续
     }
   }
 }

@@ -16,6 +16,7 @@
  *    __system__、payload 四字段透传）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -63,7 +64,7 @@ function makeService(config: RuntimeConfigPort): StewardService {
     config,
     feedGate: { hasStewardSubscribers: () => false },
     emitFeed: () => {},
-  });
+  createEngine: createEngineFromPort(noopLlm())});
 }
 
 /** 管家注册面十工具全集（注册序——九 LLM 可见 + steward_confirm 面板原语；
