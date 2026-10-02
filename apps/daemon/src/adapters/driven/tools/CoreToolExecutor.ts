@@ -5,8 +5,8 @@ import type {
   AgentToolResult,
   Context,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
-import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/node";
+} from "../../../adapters/driven/tools/vendor/pi-harness";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "../../../adapters/driven/tools/vendor/pi-harness";
 import type { JsonObject, TextContent } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import {
@@ -15,7 +15,7 @@ import {
   createReadTool as createPiReadTool,
   createWriteTool,
   NodeExecutionEnv,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../adapters/driven/tools/vendor/pi-harness";
 import type {
   ToolCallRequest,
   ToolExecutionResult,

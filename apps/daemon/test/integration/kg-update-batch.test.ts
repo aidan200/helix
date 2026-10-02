@@ -2,15 +2,15 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { createKgUpdateTool } from "../../src/adapters/driven/tools/kg-update/KgUpdateTool";
 import { KgDatabase } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
 import type { KnowledgeWriteOp, WriteResult } from "../../src/domain/kg/types";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：kg-update 工具 batchCreateNodes 薄壳（T2.1，O-5 裁决——LLM 按写入量

@@ -116,7 +116,7 @@ describe("SkillScanner（双源目录 → source 标签技能清单）", () => {
     // 随仓内置四技能——agent/ 层 web-access（行为技能；plan-workflow 已随
     // plan 三工具改名 todo 双工具退役：触发判据内嵌 todo_write 工具描述）
     // + task/ 层 kg-bootstrap/kg-review/code-review（任务类型 SOP，带 task 块）
-    expect(result.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "web-access"]);
+    expect(result.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "kg-triage", "web-access"]);
     const skill = result.skills.find((s) => s.name === "web-access")!;
     expect(skill.source).toBe("builtin");
     expect(skill.audience).toBe("agent");

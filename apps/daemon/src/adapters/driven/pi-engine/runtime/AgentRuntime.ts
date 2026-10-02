@@ -1,4 +1,5 @@
-import { Agent, convertToLlm } from "@earendil-works/pi-agent-core";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { convertToLlm } from "../../tools/vendor/pi-harness";
 import type {
   AgentEvent,
   AgentLoopTurnUpdate,

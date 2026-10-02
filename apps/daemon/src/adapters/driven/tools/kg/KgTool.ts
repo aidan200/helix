@@ -2,7 +2,7 @@ import type {
   AgentHarnessTool,
   AgentToolResult,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../../adapters/driven/tools/vendor/pi-harness";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import { isValidNodeRef } from "../../../../domain/kg/node-id";
 

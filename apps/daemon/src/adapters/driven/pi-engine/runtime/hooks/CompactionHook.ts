@@ -1,5 +1,5 @@
 import type { Agent, AgentLoopTurnUpdate, AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Entry } from "@earendil-works/pi-agent-core";
+import type { Entry } from "../../../tools/vendor/pi-harness";
 import {
   BACKGROUND_CONTEXT,
   compact,
@@ -8,7 +8,7 @@ import {
   prepareCompaction,
   shouldCompact,
   withAbortSignal,
-} from "@earendil-works/pi-agent-core";
+} from "../../../tools/vendor/pi-harness";
 import type { Model, Models } from "@earendil-works/pi-ai";
 import type { AgentEngineUsage } from "../../../../../application/ports/outbound/AgentEnginePort";
 import { usageOfPi } from "../../mappers/SessionMapper";

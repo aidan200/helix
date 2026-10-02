@@ -36,7 +36,7 @@ import { encodeLine, parseParentLine } from "../transport/wire";
 import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
 import { RemoteBrowserPort } from "./RemoteBrowserPort";
 import { RemoteAskPort } from "./RemoteAskPort";
-import { NodeExecutionEnv, BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { NodeExecutionEnv, BACKGROUND_CONTEXT } from "../../../../adapters/driven/tools/vendor/pi-harness";
 import { ParkGuardHooks } from "./ParkGuardHooks";
 import {
   isParkInstruction,

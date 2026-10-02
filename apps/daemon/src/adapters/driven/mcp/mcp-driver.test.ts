@@ -6,7 +6,7 @@ import { McpClient, parseMcpLines } from "./McpClient";
 import { McpRegistry } from "./McpRegistry";
 import { createMcpDiscoverTools, createMcpTools, mcpDiscoverToolName } from "./mcp-tool";
 import type { McpServerConfig } from "./types";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../../adapters/driven/tools/vendor/pi-harness";
 
 /**
  * mcp 驱动层单测：真子进程 stdio JSON-RPC 往返（假 server 脚本——

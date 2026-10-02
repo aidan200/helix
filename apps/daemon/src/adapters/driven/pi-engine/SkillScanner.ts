@@ -1,4 +1,4 @@
-import { BACKGROUND_CONTEXT, loadSourcedSkills, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT, loadSourcedSkills, NodeExecutionEnv } from "../../../adapters/driven/tools/vendor/pi-harness";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";

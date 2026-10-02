@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { KgDatabase } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
@@ -13,7 +13,7 @@ import { buildKnowledgeStack, buildEditToolDeps } from "../../src/infrastructure
 import { createEditTool } from "../../src/adapters/driven/tools/edit/EditTool";
 import type { CodegraphResolution } from "../../src/adapters/driven/codegraph-engine/resolve-codegraph";
 import type { AnchorDeclaration, SymbolBatch } from "../../src/domain/kg/types";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：D8 W-R2/W-R3 worktree 读穿透（tmp 目录造 .worktrees 结构 + 主仓

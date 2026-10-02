@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import {
   createTaskReportTool,
   type TaskReportToolDeps,
@@ -22,7 +22,7 @@ import type { ClosureRecordData } from "../../src/application/ports/outbound/Ses
 import type { JobStatus } from "../../src/domain/task/types";
 import { TaskError } from "../../src/application/services/task/TaskError";
 import { taskReportStub } from "../helpers/taskReportStub";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：task_report 工具（D3——chat 回流通用报告查询面；多 op 单工具，

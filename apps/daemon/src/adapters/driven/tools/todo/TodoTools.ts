@@ -2,7 +2,7 @@ import type {
   AgentHarnessTool,
   AgentToolResult,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../../adapters/driven/tools/vendor/pi-harness";
 import type { WorkItemData } from "../../../../application/ports/outbound/WorkLedgerPort";
 import type { WorkLedgerService } from "../../../../application/services/task/WorkLedgerService";
 import type { WorkItemStatus } from "../../../../domain/task/types";

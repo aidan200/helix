@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import type { StageArtifact } from "../../src/application/ports/outbound/TaskStorePort";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "../../src/adapters/driven/tools/task-ops/TaskOpsTools";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * task 引擎回口工具族参数面（T2.2 薄壳；D2 artifact body additive）：

@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { KgDatabase } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
@@ -14,7 +14,7 @@ import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecut
 import { ATTACHMENT_PROTOCOL_LINE } from "../../src/domain/kg/attachment/render";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
 import type { WriteResult } from "../../src/domain/kg/types";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：kg / kg-update 工具（T3.3，CL-4 F4.1 + F3.1 即时通道，AD-14/AD-16）。

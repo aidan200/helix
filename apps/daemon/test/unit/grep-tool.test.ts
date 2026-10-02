@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import type { ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { globToRegExp } from "../../src/adapters/driven/tools/grep/contract";
 import { createGrepTool } from "../../src/adapters/driven/tools/grep/GrepTool";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * TP-CL5-2（U）：grep 工具门面的 framework-free 面——

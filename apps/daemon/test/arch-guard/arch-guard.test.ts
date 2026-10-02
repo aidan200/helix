@@ -182,11 +182,12 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
     for (const factory of toolFactories) {
       expect(src.includes(factory), `${executorRel} 缺少 ${factory} 接线`).toBe(true);
     }
-    // import 语句中的源必须是 node 子入口（F-7 红线：Node 执行环境经 /node）
-    const importBlock = src.split("\n").filter((l) => l.includes("from \"@earendil-works/pi-agent-core"));
+    // import 语句中的源必须是 vendored 面（pi 1.0.0 删除 /node 子入口后，
+    // 四件套+NodeExecutionEnv 冻结自 v0.87.1 上游——E-235 升级批次 1）
+    const importBlock = src.split("\n").filter((l) => l.includes("from \"") && /vendor\/pi-harness"?$/.test(l.trimEnd()) === false && l.includes("vendor/pi-harness"));
     expect(importBlock.length).toBeGreaterThan(0);
     for (const line of importBlock) {
-      expect(line.includes('"@earendil-works/pi-agent-core/node"'), `非 /node 子入口 import：${line}`).toBe(true);
+      expect(line.includes("vendor/pi-harness"), `非 vendored 源 import：${line}`).toBe(true);
     }
     // T3.1（AD-12 同名覆盖，AF-1）：自写三件工厂接线在位，pi edit/read 以别名
     // 基线注册（先注册后覆盖——F-20 registry.set 无特权机制的机械形态）
@@ -213,9 +214,13 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
     }
   });
 
-  test("③ 封装边界装配在组合根：pi-engine 与 driven/tools 互不 import", () => {
+  test("③ 封装边界装配在组合根：pi-engine 与 driven/tools 互不 import（vendor/pi-harness 冻结面除外）", () => {
     for (const rel of listFiles(path.join(srcRoot, "adapters", "driven", "pi-engine"))) {
       for (const spec of importSpecifiers(read(path.join("adapters", "driven", "pi-engine", rel)))) {
+        // 例外：vendor/pi-harness 是 pi 上游冻结件（E-235 升级后四件套/env/
+        // compaction/skills 的统一源），非 tools 业务面——pi-engine 防腐墙
+        // 消费它合法（同一上游包在 0.87 时代经 /node 子入口消费）
+        if (spec.includes("vendor/pi-harness")) continue;
         expect(spec, `pi-engine/${rel} 不得 import tools 目录：${spec}`).not.toMatch(/driven[\\/]tools/);
       }
     }
@@ -257,17 +262,30 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // steward_memory.db；NAPI 加载需 Bun ≥1.4.2（1.3.14 panic spike 实证），
     // vec0 扩展随包分发走 rg 先例（resources/bin + HELIX_VEC_PATH）
     expect(deps).toEqual([
+      "@earendil-works/chord",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
+      "@earendil-works/pi-telemetry",
       "@helix/common",
       "@helix/protocol",
       "better-sqlite3",
       "diff",
+      "ignore",
       "sqlite-vec",
+      "typebox",
       "yaml",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
-    expect(piDeps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]);
+    // pi 1.0.0 后 pi 系四键（E-235 升级批次 1）：chord（vendored harness 面
+    // 的 Context 依赖正源）、pi-telemetry（同上，NOOP_TELEMETRY_CONTEXT）、
+    // typebox（vendored 工具 schema）、ignore（vendored skills 的 gitignore
+    // 过滤）——均为 vendored 冻结件的上游运行时依赖，非 helix 直接消费。
+    expect(piDeps).toEqual([
+      "@earendil-works/chord",
+      "@earendil-works/pi-agent-core",
+      "@earendil-works/pi-ai",
+      "@earendil-works/pi-telemetry",
+    ]);
   });
 
   test("全仓（daemon + 根）零 pi-coding-agent / pi-server / pi-proxy 系依赖", () => {
@@ -470,6 +488,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     const whitelistRoots = [
       path.join("adapters", "driven", "subagent"),
       path.join("adapters", "driven", "mcp"),
+      // vendor/pi-harness：pi 上游冻结件（E-235 升级批次 1）——NodeExecutionEnv
+      // 的 PATH/HOME 等环境透传是执行环境语义（上游 0.87.1 原样），非配置源。
+      path.join("adapters", "driven", "tools", "vendor", "pi-harness"),
     ];
     // env 读取例外面（组合根豁免面内）：文件 → 允许键集合（升序；空数组 = 零键——
     // M5 后 container.ts 不读 env，两键收束 bootPrelude）。

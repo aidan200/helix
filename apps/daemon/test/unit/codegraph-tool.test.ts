@@ -4,7 +4,7 @@ import type {
   CodegraphQueryRequest,
 } from "../../src/application/ports/outbound/CodegraphEnginePort";
 import { createCodegraphTool } from "../../src/adapters/driven/tools/codegraph/CodegraphTool";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * W1-B（R5/R6）codegraph 只读 agent 工具单测——薄壳语义：

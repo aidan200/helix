@@ -2,11 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { createGrepTool } from "../../src/adapters/driven/tools/grep/GrepTool";
 import { RgExecError } from "../../src/adapters/driven/tools/grep/backends/rg-backend";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * grep 工具 golden fixture 契约测试（rg 唯一化后的语义基准锚）：

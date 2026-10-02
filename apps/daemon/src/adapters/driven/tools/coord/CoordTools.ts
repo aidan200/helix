@@ -13,7 +13,7 @@
  * 父进程内存态租约表——留 U6 后批评估）。
  */
 
-import type { AgentHarnessTool, AgentToolResult, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import type { AgentHarnessTool, AgentToolResult, ExecutionToolContext } from "../../../../adapters/driven/tools/vendor/pi-harness";
 import type { LeaseScope } from "../../../../domain/agent/OccupancyLease";
 import { describeScope } from "../../../../domain/agent/OccupancyLease";
 import type { CoordinationService } from "../../../../application/services/CoordinationService";
