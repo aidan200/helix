@@ -303,6 +303,8 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       // 提权申请批：permission_request 工具——沙箱开启 + askService 注入时注册
       //（沙箱 off 无提权语义不注册；effectiveMainToolNames 同步剔除声明名）。
       // 裸执行面 = executor.unsandboxedExec（沙箱装饰前的原始 exec 通道）。
+      // 审批闸接线批：闸制开关同步注入——主会话审批前置到 beforeToolCall
+      //（execute 切纯裸跑版，防双卡片；与 adapter 的 approvalGate 同批生效）。
       ...(ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined
         ? {
             permissionRequest: {
@@ -312,6 +314,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
               unsandboxedExec: (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> =>
                 toolExecutor.unsandboxedExec(command),
             },
+            permissionRequestGated: true,
           }
         : {}),
       // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
@@ -442,6 +445,13 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
           model,
         ),
       resolveTools: (names) => toolExecutor.resolveTools(names),
+      // 审批闸（接线批，最窄档）：permission_request 挂闸——审批前置到
+      // beforeToolCall（engine_paused → ChatService 桥 → AskService 卡片 →
+      // resume 四态）；与 permissionRequestGated 工具开关同批生效（闸制
+      // 版 execute 纯裸跑）。未接 askService/沙箱 off 时不装配（零漂移）。
+      ...(ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined
+        ? { approvalGate: { shouldGate: (toolName: string) => toolName === "permission_request" } }
+        : {}),
       // deferred 批：Mcp 懒加载同 turn 生效钩子（state.tools 漂移检测 →
       // turn 边界替换 context.tools——discover 物化后模型下一请求即可
       // 调用；无 MCP 时零漂移零干扰）。链位序：extraHooks 在 compaction
@@ -535,6 +545,9 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       engine,
       events: ctx.events,
       clock: ctx.clock,
+      // 审批闸接线批：挂闸仲裁面（engine_paused → ask.request 卡片 →
+      // resume 映射）；与 adapter approvalGate 同批注入（闸制主会话恒配）。
+      ...(ctx.askService !== undefined ? { ask: ctx.askService } : {}),
       session: material.session,
       restoredToolCalls: material.toolCalls,
       // 定向 steer 转投面——AgentOrchestrationPort.send（契约 v0.3 §3.2）

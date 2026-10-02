@@ -109,6 +109,8 @@ export type AgentEngineEvent =
       readonly toolName: string;
       /** 挂闸调用参数 JSON 摘要（审批提示展示面）。 */
       readonly argsSummary: string;
+      /** 挂闸调用原始参数（additive，审批闸接线批：桥提取 command/reason 发卡片）。 */
+      readonly args?: unknown;
     }
   | {
       /**

@@ -11,6 +11,7 @@ import { ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // ZERO_USAGE = pr
 import { isMainInstanceId } from "../../domain/agent/AgentInstance";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
+import type { AskService } from "./AskService";
 import type {
   AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, AgentThinkingChangedPayload, CompactionCompletedPayload,
   DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SessionTopicUpdatedPayload, SteerPayload, ThinkingCompletedPayload,
@@ -54,6 +55,14 @@ interface ChatServiceDepsBase {
   readonly session?: Session;
   /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续）。 */
   readonly restoredToolCalls?: readonly ToolCallRecordData[];
+  /**
+   * 提权审批仲裁面（审批闸接线批）：engine_paused 挂闸时走 ask.request
+   * 发卡片（ask.started UI 双帧/60s 超时/answer 收口全复用）；裁决映射
+   * resume 四态。未注入（测试形态）时挂闸防御性 resume(reject)——
+   * 不挂死 run。注入面 = AskService 单例（主会话；SubAgent 子进程闸制
+   * 面未接——异步工具制不变）。
+   */
+  readonly ask?: Pick<AskService, "request">;
   /**
    * 主会话任务切片注入器（W2-D R9/R10，设计 D2 段①）：idle 分支真实用户
    * 消息（source 缺省）首轮开工前一次性过 kg 约束切片注入——返回引擎实际
@@ -488,6 +497,8 @@ export class ChatService implements ChatPort {
       case "tool_execution_end": this.recordToolExecutionEnd(e); break;
       // 可观测+失败落账（不崩会话）：engine_error 落 error 条目（error entry 批）
       case "engine_error": this.recordEngineError(e.message); break;
+      // 审批闸接线批：挂闸暂停 → AskService 卡片仲裁 → 裁决映射 resume
+      case "engine_paused": this.handleEnginePaused(e); break;
       // P2 ⑦：LLM 瞬时失败退避重试——chat 可见反馈（状态行数据源；瞬态非
       // 里程碑：流恢复（chat.stream.delta）/engine.error/轮终由前端清除）
       case "engine_retrying":
@@ -501,6 +512,61 @@ export class ChatService implements ChatPort {
       default:
         break; // agent_start/turn_start 无领域动作
     }
+  }
+
+  // ── 审批闸桥（最窄档：permission_request 闸制化） ─────────────
+
+  /**
+   * engine_paused 消费（审批闸接线批）：提取挂闸参数 → AskService 卡片
+   * 仲裁（ask.started UI 双帧/60s 超时/answer 收口全复用——闸制与异步
+   * 工具制同链路）→ 裁决映射 resume：approved → approve（放行工具裸跑）；
+   * denied/timeout/异常/防御面 → reject + 引导文案（模型知情改道）。
+   * 异步链路（不 await——挂闸期间 run 挂起，事件流照常流转）。
+   */
+  private handleEnginePaused(e: EngineEventOf<"engine_paused">): void {
+    const args = (e.args ?? {}) as { command?: unknown; reason?: unknown };
+    const command = typeof args.command === "string" ? args.command : undefined;
+    const reason = typeof args.reason === "string" ? args.reason : "";
+    void this.resolveGate(
+      e.pauseToken,
+      command !== undefined
+        ? this.deps.ask?.request({
+            sessionId: this.session.id,
+            instanceId: "main",
+            command,
+            reason,
+            kind: "permission_request",
+          })
+        : Promise.reject(new Error("挂闸参数形状异常（非 permission_request 载荷）")),
+    );
+  }
+
+  /** 裁决收敛：outcome/异常 → resume 决策（全部出口都收口，不挂死）。 */
+  private async resolveGate(
+    pauseToken: string,
+    pending: Promise<"approved" | "denied" | "timeout"> | undefined,
+  ): Promise<void> {
+    let decision: { kind: "approve" } | { kind: "reject"; text: string };
+    if (pending === undefined) {
+      decision = { kind: "reject", text: "审批面不可用（会话未接仲裁服务），本次申请已拒绝——请改道沙箱内方案或向用户说明。" };
+    } else {
+      try {
+        const outcome = await pending;
+        decision =
+          outcome === "approved"
+            ? { kind: "approve" }
+            : {
+                kind: "reject",
+                text:
+                  outcome === "timeout"
+                    ? "提权执行申请被拒绝（60 秒内未获用户裁决，超时自动拒绝）——请改道沙箱内方案（写入工作区或 ~/.helix 下路径），或向用户说明后请其在设置页调整沙箱配置。"
+                    : "提权执行申请被拒绝（用户拒绝）——请改道沙箱内方案（写入工作区或 ~/.helix 下路径），或向用户说明后请其在设置页调整沙箱配置。",
+              };
+      } catch (err) {
+        decision = { kind: "reject", text: `提权申请未能发起：${(err as Error).message}——请稍后重试或改道沙箱内方案。` };
+      }
+    }
+    await this.deps.engine.resume?.(pauseToken, decision);
   }
 
   // ── 流式透传族（中间态不落盘、不改聚合） ──────────────────

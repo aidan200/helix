@@ -27,6 +27,8 @@ export interface ApprovalGatePausedInfo {
   readonly toolName: string;
   /** 挂闸调用参数 JSON 摘要（审批提示展示面，截断 200 字符）。 */
   readonly argsSummary: string;
+  /** 挂闸调用原始参数（审批闸接线批：桥提取 command/reason 发卡片）。 */
+  readonly args: unknown;
 }
 
 /** 钩子层决策（适配器层 EngineResumeDecision → 此处的映射产物）。 */
@@ -104,6 +106,7 @@ export class ApprovalGateHook implements HookSet {
       toolCallId: context.toolCall.id,
       toolName,
       argsSummary: summarizeArgs(context.args),
+      args: context.args,
     });
     const outcome = await raceAbort(decision, signal);
     this.pending.delete(pauseToken); // 任意出口清理（决策/abort 同面）

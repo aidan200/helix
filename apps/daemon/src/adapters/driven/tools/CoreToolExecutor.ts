@@ -24,7 +24,11 @@ import type {
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
-import { createPermissionRequestTool, type PermissionRequestToolDeps } from "./permission-request/PermissionRequestTool";
+import {
+  createPermissionRequestGatedTool,
+  createPermissionRequestTool,
+  type PermissionRequestToolDeps,
+} from "./permission-request/PermissionRequestTool";
 import { DEPRECATED_TOOL_NAMES } from "./deprecated-tool-names";
 import { createEditTool, type EditToolDeps } from "./edit/EditTool";
 import { createReadTool } from "./read/ReadTool";
@@ -268,6 +272,13 @@ export interface CoreToolExecutorOptions {
    * 缺省不注册（既有测试形态）。
    */
   readonly permissionRequest?: PermissionRequestToolDeps;
+  /**
+   * 闸制版开关（审批闸接线批）：true 时注册 createPermissionRequestGatedTool
+   *（纯裸跑版——审批在 beforeToolCall 闸完成，execute 不再走 ask.request
+   * 防双卡片）；主会话闸装配时与 approvalGate 同批注入。异步版（SubAgent
+   * 子进程 RemoteAskPort 链）不受影响。
+   */
+  readonly permissionRequestGated?: boolean;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -393,8 +404,13 @@ export class CoreToolExecutor implements ToolExecutorPort {
     }
     if (options.permissionRequest !== undefined) {
       // permission_request（提权申请批）：沙箱开启时装配面注入——agent 一次性
-      // 提权执行申请通道（批准后裸跑，不记 always-allow）
-      tools.push(createPermissionRequestTool(options.permissionRequest));
+      // 提权执行申请通道（批准后裸跑，不记 always-allow）；闸制开关（审批闸
+      // 接线批）切纯裸跑版（审批前置到 beforeToolCall，execute 防双卡片）。
+      tools.push(
+        options.permissionRequestGated === true
+          ? createPermissionRequestGatedTool({ unsandboxedExec: options.permissionRequest.unsandboxedExec })
+          : createPermissionRequestTool(options.permissionRequest),
+      );
     }
     if (options.mcp !== undefined && options.mcp.tools.length > 0) {
       // 第九族（mcp 批）：MCP 动态发现工具——组合根先行发现适配后注入

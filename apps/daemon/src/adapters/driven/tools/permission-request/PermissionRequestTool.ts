@@ -113,3 +113,44 @@ export function createPermissionRequestTool(
     },
   };
 }
+
+/**
+ * 闸制版 permission_request（审批闸接线批）：主会话审批闸装配时使用。
+ *
+ * 与异步工具制的分工：闸制下审批发生在 beforeToolCall（ApprovalGateHook
+ * 挂闸 → engine_paused → ChatService 桥走 AskService 卡片 → resume），
+ * execute 到达 = 已批准——本工具只剩纯裸跑（再走 ask.request 会双卡片）。
+ * 异步工具制（原工厂）保留给 SubAgent 子进程（闸制面未接——RemoteAskPort
+ * 转发父进程仲裁的既有链路不变）。工具名/参数/描述与原版同面（模型认知
+ * 零变化，profile 声明不动）。
+ */
+export function createPermissionRequestGatedTool(
+  deps: Pick<PermissionRequestToolDeps, "unsandboxedExec">,
+): AgentHarnessTool<ExecutionToolContext, any, undefined> {
+  return {
+    name: "permission_request",
+    label: "申请提权执行",
+    description:
+      "权限申请：申请一次性提升权限执行命令（写沙箱可写根外、全局安装、宿主机系统命令等被沙箱拦截的场景）。用户批准后仅本次执行放行（不记 always-allow）；拒绝或 60s 超时后收到引导，应改道沙箱内方案或放弃。",
+    parameters: permissionRequestParameters,
+    execute: async (_toolCallId, params): Promise<AgentToolResult<undefined>> => {
+      const { command } = params as { command: string; reason: string };
+      try {
+        const res = await deps.unsandboxedExec(command);
+        const text =
+          (res.stdout !== "" ? res.stdout : "") +
+          (res.stderr !== "" ? `${res.stdout !== "" ? "\n" : ""}[stderr]\n${res.stderr}` : "") +
+          (res.exitCode !== 0 ? `\n[exit ${res.exitCode}]` : "");
+        return {
+          content: [{ type: "text", text: text === "" ? "(no output)" : text }],
+          details: undefined,
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `提权执行失败：${(err as Error).message}` }],
+          details: undefined,
+        };
+      }
+    },
+  };
+}
