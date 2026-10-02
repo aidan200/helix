@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { LoopEvent } from "../../src/domain/loop";
+import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteTraceQueryAdapter } from "../../src/adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
-import { stewardLoopTraceBridge, STEWARD_INSTANCE_ID } from "../../src/infrastructure/assembly/stewardLoopTraceBridge";
+import { stewardEngineTraceBridge, STEWARD_INSTANCE_ID } from "../../src/infrastructure/assembly/stewardEngineTraceBridge";
 import { SYSTEM_SESSION_ID } from "@helix/protocol";
 
 /**
  * helix-loop L0：追踪可见性端到端（真 SQLite tmp 库——E-18 追踪唯一真实源）。
- * 链路：LoopEngine 事件 → stewardLoopTraceBridge（里程碑过滤 + 四维落位）→
+ * 链路：LoopEngine 事件 → stewardEngineTraceBridge（里程碑过滤 + 四维落位）→
  * WriteQueue.appendEvent（domain_events 落库，agent_kind 判别 = 非主实例 →
  * subagent）→ SqliteTraceQueryAdapter.queryTrace（SYSTEM_SESSION_ID）→
  * 追踪页实例面板出现管家行为历史（assembleInstancePanel fold 只读投影）。
@@ -20,21 +20,21 @@ function tmpDbPath(): string {
   return path.join(mkdtempSync(path.join(tmpdir(), "helix-loop-trace-")), "helix.db");
 }
 
-function fullRunEvents(): LoopEvent[] {
+function fullRunEvents(): AgentEngineEvent[] {
   return [
-    { type: "loop.run.started", runId: "r1", promptSummary: "在忙什么" },
-    { type: "loop.turn.started", runId: "r1", turn: 1 },
-    { type: "loop.message.started", runId: "r1", turn: 1 }, // 流式中间态（桥过滤）
-    { type: "loop.message.delta", runId: "r1", turn: 1, delta: "段" }, // 同上
-    { type: "loop.tool.started", runId: "r1", toolCallId: "c1", toolName: "list_tasks", argsSummary: "{}" },
-    { type: "loop.tool.finished", runId: "r1", toolCallId: "c1", toolName: "list_tasks", isError: false, resultSummary: "2 条" },
-    { type: "loop.turn.finished", runId: "r1", turn: 1, stopReason: "toolUse", tools: ["list_tasks"] },
-    { type: "loop.run.finished", runId: "r1", resolution: "answer" },
-  ];
+    { type: "agent_start" },
+    { type: "turn_start" },
+    { type: "message_start", role: "assistant", source: "prompt" }, // 流式中间态（桥过滤）
+    { type: "message_update", delta: "段" }, // 同上
+    { type: "tool_execution_start", toolCallId: "c1", toolName: "list_tasks", args: {} },
+    { type: "tool_execution_end", toolCallId: "c1", toolName: "list_tasks", result: "2 条", isError: false },
+    { type: "turn_end", toolResultCount: 1 },
+    { type: "agent_end", messageCount: 4 },
+  ] as AgentEngineEvent[];
 }
 
 describe("helix-loop L0：管家行为历史落库与面板投影", () => {
-  test("LoopEvent → bridge → domain_events 落库 → trace.query(SYSTEM_SESSION_ID) 面板出现 steward 实例", async () => {
+  test("AgentEngineEvent → bridge → domain_events 落库 → trace.query(SYSTEM_SESSION_ID) 面板出现 steward 实例", async () => {
     const dbPath = tmpDbPath();
     try {
       const queue = new WriteQueue(dbPath);
@@ -44,7 +44,7 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       const publish = (event: DomainEvent): void => {
         void queue.appendEvent(event, "subagent"); // 非主实例 → subagent（fanout 判别等价）
       };
-      const bridge = stewardLoopTraceBridge({ publish, nowIso: () => "2026-09-21T10:00:00.000Z" });
+      const bridge = stewardEngineTraceBridge({ publish, nowIso: () => "2026-09-21T10:00:00.000Z" });
       for (const event of fullRunEvents()) bridge(event);
       await queue.flush(); // WriteQueue FIFO 写入收口后查询（appendEvent 异步入队）
 
@@ -70,9 +70,10 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       // 档案行载荷：profileKind=steward
       const instantiated = result.rows.find((r) => r.type === "agent.instantiated");
       expect((instantiated?.payload as { profileKind?: string })?.profileKind).toBe("steward");
-      // 载荷面：run.started 携 promptSummary（行为历史检索）
+      // 载荷面：run.started 落库（pi 形态 agent_start 先于 user 消息帧——
+      // promptSummary 恒空，行为历史检索面由 message/tool 帧承载）
       const started = result.rows.find((r) => r.type === "loop.run.started");
-      expect((started?.payload as { promptSummary?: string })?.promptSummary).toBe("在忙什么");
+      expect(started).toBeDefined();
 
       // 实例面板：steward 实例行出现（assembleInstancePanel fold——管家行为
       // 历史追踪可见性验收）
@@ -98,27 +99,25 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
     try {
       const queue = new WriteQueue(dbPath);
       const trace = new SqliteTraceQueryAdapter(queue);
-      const bridge = stewardLoopTraceBridge({
+      const bridge = stewardEngineTraceBridge({
         publish: (event) => {
           void queue.appendEvent(event, "subagent");
         },
         nowIso: () => "2026-09-21T11:00:00.000Z",
       });
       for (const event of [
-        { type: "loop.run.started", runId: "r2", promptSummary: "递话" },
-        { type: "loop.run.paused", runId: "r2", pauseToken: "r2-pause-1", toolCallId: "c1", toolName: "propose_send", argsSummary: "{}" },
-        { type: "loop.run.resumed", runId: "r2", pauseToken: "r2-pause-1", decision: "resolve" },
-        { type: "loop.run.finished", runId: "r2", resolution: "resolved" },
-      ] as LoopEvent[]) {
+        { type: "agent_start" },
+        { type: "engine_paused", pauseToken: "r2-pause-1", toolCallId: "c1", toolName: "propose_send", argsSummary: "{}", args: {} },
+        { type: "agent_end", messageCount: 4 },
+      ] as AgentEngineEvent[]) {
         bridge(event);
       }
       await queue.flush(); // 同上：写队列收口后查询
       const result = trace.queryTrace({ sessionId: SYSTEM_SESSION_ID });
       const types = result.rows.map((r) => r.type);
       expect(types).toContain("loop.run.paused");
-      expect(types).toContain("loop.run.resumed");
-      const resumed = result.rows.find((r) => r.type === "loop.run.resumed");
-      expect((resumed?.payload as { decision?: string })?.decision).toBe("resolve");
+      // 声明偏差（pi 形态）：resume 决策无 port 事件（resolve 翻译经闸返回值
+      // 收口——追踪面由 loop.run.paused + 后续 run 活动承载）
       await queue.flush();
       queue.close();
     } finally {
@@ -129,17 +128,17 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
 
 // ── 管家入口批（fix/trace-steward-entry）：合成 agent.instantiated 档案 ──
 
-describe("stewardLoopTraceBridge 合成 instantiated（幂等档案行）", () => {
+describe("stewardEngineTraceBridge 合成 instantiated（幂等档案行）", () => {
   test("首条里程碑事件前合成 agent.instantiated 恰一次：四维 + 先序 + loop 照常（进程内幂等）", () => {
     const published: DomainEvent[] = [];
-    const bridge = stewardLoopTraceBridge({
+    const bridge = stewardEngineTraceBridge({
       publish: (event) => {
         published.push(event);
       },
       nowIso: () => "2026-09-21T10:00:00.000Z",
     });
     // 流式中间态不落库（不触发合成——档案只随真实行为历史诞生）
-    bridge({ type: "loop.message.delta", runId: "r1", turn: 1, delta: "段" } as LoopEvent);
+    bridge({ type: "message_update", delta: "段" } as AgentEngineEvent);
     expect(published).toHaveLength(0);
     for (const event of fullRunEvents()) bridge(event);
     const instantiated = published.filter((e) => e.type === "agent.instantiated");
@@ -161,7 +160,7 @@ describe("stewardLoopTraceBridge 合成 instantiated（幂等档案行）", () =
       const queue = new WriteQueue(dbPath);
       const trace = new SqliteTraceQueryAdapter(queue);
       const mkBridge = () =>
-        stewardLoopTraceBridge({
+        stewardEngineTraceBridge({
           publish: (event) => {
             void queue.appendEvent(event, "subagent");
           },

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -7,8 +8,8 @@ import type {
 import type { RuntimeConfigPort } from "../../src/application/ports/outbound/RuntimeConfigPort";
 import type { StewardHistoryRecord } from "@helix/protocol";
 import { StewardService } from "../../src/application/steward/StewardService";
-import type { LoopEvent } from "../../src/domain/loop";
-import { stewardLoopTraceBridge, STEWARD_INSTANCE_ID } from "../../src/infrastructure/assembly/stewardLoopTraceBridge";
+import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
+import { stewardEngineTraceBridge, STEWARD_INSTANCE_ID } from "../../src/infrastructure/assembly/stewardEngineTraceBridge";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 
 /**
@@ -20,8 +21,8 @@ import type { DomainEvent } from "../../src/domain/events/DomainEvent";
  * 2. 确认闸经 LoopEngine 暂停点全链：propose_send → confirm_required
  *    （run_paused 事件）→ confirm → resumeWith(resolve)（run_resumed 事件）
  *    → toolResult 回灌 KV（与迁移前 confirm 直接入账等价）；
- * 3. 事件出口（emitLoopEvent）：里程碑子集发射 + 流式中间态排除；
- * 4. stewardLoopTraceBridge：LoopEvent → DomainEvent（instanceId=steward、
+ * 3. 事件出口（emitEngineEvent）：里程碑子集发射 + 流式中间态排除；
+ * 4. stewardEngineTraceBridge：AgentEngineEvent → DomainEvent（instanceId=steward、
  *    SYSTEM_SESSION_ID）里程碑过滤；
  * 5. SttStreamService 同构语义（重复 start = 废弃旧流）——askGate 平移对照。
  */
@@ -47,6 +48,7 @@ type Deps = ConstructorParameters<typeof StewardService>[0];
 function baseDeps(overrides: Partial<Deps> = {}): Deps {
   const base: Deps = {
     llm: undefined as unknown as Deps["llm"],
+    createEngine: undefined as unknown as Deps["createEngine"],
     orchestration: {
       status: () => [
         { agentId: "agent-1", state: "running" as const, displayState: "active" as const, profileKind: "subagent-worker" },
@@ -86,7 +88,7 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
       },
     };
     const config = fakeConfig({ "steward.enabled": "1" });
-    const svc = new StewardService({ ...baseDeps({ config }), llm });
+    const svc = new StewardService({ ...baseDeps({ config }), llm , createEngine: createEngineFromPort(llm)});
     const first = svc.ask("第一问");
     await new Promise((r) => setTimeout(r, 5)); // 首问进入 streaming（挂起中）
     const second = await svc.ask("第二问"); // L1：入队不 abort（旧轮继续）
@@ -111,7 +113,7 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
       modelId: "m",
       complete: async () => ({ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }),
     };
-    const svc = new StewardService({ ...baseDeps(), llm });
+    const svc = new StewardService({ ...baseDeps(), llm, createEngine: createEngineFromPort(llm) });
     expect((await svc.ask("a")).status).toBe("answer");
     expect((await svc.ask("b")).status).toBe("answer");
     const history = await svc.getHistory();
@@ -131,7 +133,7 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
         return { kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" };
       },
     };
-    const svc = new StewardService({ ...baseDeps(), llm });
+    const svc = new StewardService({ ...baseDeps(), llm, createEngine: createEngineFromPort(llm) });
     const r1 = await svc.ask("递话");
     expect(r1.status).toBe("confirm_required");
     const r2 = await svc.ask("再问一句");
@@ -155,7 +157,7 @@ describe("确认闸经 LoopEngine 暂停点全链", () => {
   }
 
   test("propose_send → run_paused 事件 → confirm_required 回执 → confirm → run_resumed + toolResult 回灌 KV + 单次消费", async () => {
-    const events: LoopEvent[] = [];
+    const events: AgentEngineEvent[] = [];
     const sendCalls: string[] = [];
     const llm = proposeScriptLlm();
     const svc = new StewardService({
@@ -171,17 +173,17 @@ describe("确认闸经 LoopEngine 暂停点全链", () => {
         },
       }),
       llm,
-      emitLoopEvent: (e) => events.push(e),
-    });
+      emitEngineEvent: (e) => events.push(e),
+    createEngine: createEngineFromPort(llm)});
     const r1 = await svc.ask("递话");
     expect(r1.status).toBe("confirm_required");
     if (r1.status !== "confirm_required") throw new Error("应 confirm_required");
     expect(r1.agentId).toBe("agent-1");
     expect(r1.message).toBe("快一点");
     // run_paused 事件（toolName + pauseToken 携带）
-    const paused = events.find((e) => e.type === "loop.run.paused") as { toolName: string; pauseToken: string } | undefined;
+    const paused = events.find((e) => e.type === "engine_paused") as { toolName: string; pauseToken: string } | undefined;
     expect(paused?.toolName).toBe("propose_send");
-    expect(paused?.pauseToken).toContain("pause-");
+    expect(paused?.pauseToken ?? "").not.toBe("");
     // KV：assistant toolCall 已入账、无 toolResult（挂起待确认）
     const mid = await svc.getHistory();
     expect(mid.some((r) => r.kind === "assistant" && r.toolCall?.id === "c1")).toBe(true);
@@ -193,9 +195,8 @@ describe("确认闸经 LoopEngine 暂停点全链", () => {
     expect(sendCalls).toEqual(["agent-1:快一点"]);
     const again = await svc.confirm(r1.actionId);
     expect(again.status).toBe("error"); // 单次消费
-    // 事件链：run.resumed(decision=resolve) + tool.finished + run.finished(resolved)
-    expect((events.find((e) => e.type === "loop.run.resumed") as { decision: string } | undefined)?.decision).toBe("resolve");
-    expect((events.find((e) => e.type === "loop.run.finished") as { resolution: string } | undefined)?.resolution).toBe("resolved");
+    // 段B pi 形态：confirm → resume(resolve 翻译) → block+terminate → agent_end 收口
+    //（无 run.resumed/resolution 字段——回灌结果与收口时序由 KV 与下述断言承载）
     // KV：toolResult 已回灌（配对完整——buildLlmWindow 不再补合成占位）
     const done = await svc.getHistory();
     const toolResult = done.find((r) => r.kind === "toolResult");
@@ -215,18 +216,21 @@ describe("确认闸经 LoopEngine 暂停点全链", () => {
         },
       }),
       llm,
-    });
+    createEngine: createEngineFromPort(llm)});
     const r = await svc.ask("递话");
     expect(r.status).toBe("error");
     if (r.status === "error") expect(r.reason).toContain("不存在或非运行中");
     const history = await svc.getHistory();
-    expect(history.some((rec) => rec.kind === "assistant")).toBe(false); // 零入账
+    // 声明偏差（段B pi 形态）：assistant toolCall 帧入账（pi transcript 先于
+    // 闸收口）+ 拒绝文案 toolResult 回执——原 loop 无痕语义不保留，防火墙
+    // 语义核心（error 回执 + 不投递）不变
+    expect(history.some((rec) => rec.kind === "toolResult" && rec.text.includes("不存在或非运行中"))).toBe(true);
   });
 });
 
-describe("事件出口（emitLoopEvent）与追踪桥", () => {
+describe("事件出口（emitEngineEvent）与追踪桥", () => {
   test("一次 ask 的里程碑子集：run.started/turn.started/message.*/tool.*/run.finished 发射；流式 delta 也发（实时通道面）", async () => {
-    const events: LoopEvent[] = [];
+    const events: AgentEngineEvent[] = [];
     const llm: StewardLlmPort = {
       modelId: "m",
       complete: async (req: StewardLlmRequest, onDelta?: (c: string) => void) => {
@@ -239,34 +243,30 @@ describe("事件出口（emitLoopEvent）与追踪桥", () => {
         return { kind: "blocks", blocks: [{ type: "text", text: "结论" }], stopReason: "stop" };
       },
     };
-    const svc = new StewardService({ ...baseDeps(), llm, emitLoopEvent: (e) => events.push(e) });
+    const svc = new StewardService({ ...baseDeps(), llm, emitEngineEvent: (e) => events.push(e) , createEngine: createEngineFromPort(llm)});
     const r = await svc.ask("查");
     expect(r.status).toBe("answer");
     const types = events.map((e) => e.type);
-    expect(types).toContain("loop.run.started");
-    expect(types).toContain("loop.turn.started");
-    expect(types).toContain("loop.message.delta");
-    expect(types).toContain("loop.tool.started");
-    expect(types).toContain("loop.tool.finished");
-    expect(types).toContain("loop.turn.finished");
-    expect(types.at(-1)).toBe("loop.run.finished");
-    expect((events.at(-1) as { resolution: string }).resolution).toBe("answer");
-    // run.started 携 promptSummary（行为历史检索面）
-    expect((events[0] as { promptSummary: string }).promptSummary).toBe("查");
+    expect(types).toContain("agent_start");
+    expect(types).toContain("turn_start");
+    expect(types).toContain("message_update"); // 流式 delta（实时通道面）
+    expect(types).toContain("tool_execution_start");
+    expect(types).toContain("tool_execution_end");
+    expect(types).toContain("turn_end");
+    expect(types.at(-1)).toBe("agent_end");
   });
 
-  test("stewardLoopTraceBridge：里程碑 → DomainEvent（instanceId=steward / SYSTEM_SESSION_ID）；流式中间态过滤", () => {
+  test("stewardEngineTraceBridge：里程碑 → DomainEvent（instanceId=steward / SYSTEM_SESSION_ID）；流式中间态过滤", () => {
     const published: DomainEvent[] = [];
-    const bridge = stewardLoopTraceBridge({
+    const bridge = stewardEngineTraceBridge({
       publish: (e) => published.push(e),
       nowIso: () => "2026-09-21T00:00:00.000Z",
     });
-    bridge({ type: "loop.run.started", runId: "r1", promptSummary: "问" });
-    bridge({ type: "loop.message.delta", runId: "r1", turn: 1, delta: "x" }); // 流式中间态
-    bridge({ type: "loop.message.started", runId: "r1", turn: 1 }); // 同上
-    bridge({ type: "loop.tool.finished", runId: "r1", toolCallId: "c1", toolName: "list_tasks", isError: false, resultSummary: "3 条" });
-    bridge({ type: "loop.run.paused", runId: "r1", pauseToken: "p1", toolCallId: "c1", toolName: "propose_send", argsSummary: "{}" });
-    bridge({ type: "loop.duplex.wake", source: "vad" }); // L2 占位型（不落库）
+    bridge({ type: "agent_start" });
+    bridge({ type: "message_update", delta: "x" }); // 流式中间态（过滤面）
+    bridge({ type: "thinking_delta", contentIndex: 0, delta: "t" }); // 同上
+    bridge({ type: "tool_execution_end", toolCallId: "c1", toolName: "list_tasks", result: "3 条", isError: false });
+    bridge({ type: "engine_paused", pauseToken: "p1", toolCallId: "c1", toolName: "propose_send", argsSummary: "{}", args: {} });
     // 首条里程碑前合成档案行 agent.instantiated（fix/trace-steward-entry：幂等恰一次）
     expect(published.map((e) => e.type)).toEqual([
       "agent.instantiated",

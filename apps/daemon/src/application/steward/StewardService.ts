@@ -53,23 +53,38 @@ import type {
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
-import type {
-  LoopEvent,
-  LoopMessage,
-  LoopPauseDecision,
-  LoopResumeDecision,
-  LoopRunResult,
-  LoopStreamFn,
-  LoopStreamResult,
-  LoopToolCallContext,
-  LoopToolOutcome,
-} from "../../domain/loop";
-import { LOOP_COMPACTION_SUMMARY_PROMPT, LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/loop";
-import { firstToolCallBlock, loopBlocksText } from "../../domain/loop/contracts/message";
-import { createCompactionStep } from "../../domain/loop/policy";
-import type { LoopRunOptions, LoopRunPhase } from "../../domain/loop/runtime";
-import { LoopAgent, ToolRegistry } from "../../domain/loop";
-import type { LoopInjection } from "../../domain/loop";
+import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
+import type { StewardToolResult, StewardToolSpec } from "../ports/outbound/StewardToolSpec";
+import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/loop/contracts/markers";
+import { LOOP_COMPACTION_SUMMARY_PROMPT } from "../../domain/loop/policy";
+
+/** 挂闸校验上下文（中立——原 GateToolContext 的 application 形态）。 */
+interface GateToolContext {
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly args: Record<string, unknown>;
+}
+
+/** 挂闸校验结果（中立——原 {pause, outcome} 判别：result/terminate 两出口）。 */
+type GateToolOutcome =
+  | { readonly kind: "result"; readonly text: string; readonly isError?: boolean }
+  | { readonly kind: "terminate"; readonly reason: string };
+
+/** args 摘要（feed 帧面——JSON 截断 120 字符）。 */
+function summarizeArgsLite(args: unknown): string {
+  try {
+    const json = JSON.stringify(args) ?? "null";
+    return json.length > 120 ? `${json.slice(0, 120)}…` : json;
+  } catch {
+    return "(unserializable)";
+  }
+}
+
+/** 块集文本派生（port 块模型——text 块拼接；原 loopBlocksText 的 port 形态）。 */
+function portBlocksText(blocks: readonly import("../ports/outbound/StewardLlmPort").StewardLlmContentBlock[]): string {
+  return blocks.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
+}
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
 export const STEWARD_FEED_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -548,12 +563,16 @@ export interface StewardServiceDeps {
   /** A2：code-review 前置校验——项目 git 仓存在性（组合根 fs 注入；
    *  application 零直接 IO）。 */
   readonly hasGitRepo?: (projectRoot: string) => boolean;
-  /** helix-loop L0：loop 事件出口（追踪可见性——组合根接 domain_events
-   *  投影：LoopEvent → DomainEvent{instanceId:"steward"} 落库；缺席 =
+  /** 引擎构造工厂（段B翻转：唯一配方 buildStewardEngine 的 application 面——
+   *  生产装配（组合根）与测试（剧本 streamFnOverride）共用同一 driven 配方；
+   *  首问时懒调用（dialog 回填 initialMessages 需懒加载后取）。 */
+  readonly createEngine: (opts: StewardEngineAssemblyOptions) => AgentEnginePort;
+  /** 引擎事件出口（追踪可见性——组合根接 domain_events 投影：
+   *  AgentEngineEvent → DomainEvent{instanceId:"steward"} 落库；缺席 =
    *  零落库零广播，对话主链路零降级）。 */
-  readonly emitLoopEvent?: (event: LoopEvent) => void;
-  /** L1 件一：压缩参数覆盖（thresholdTokens/keepRecent 缺省回落导出常量；
-   *  本体能力在 LoopEngine compaction 挂点——管家是首个消费者）。 */
+  readonly emitEngineEvent?: (event: AgentEngineEvent) => void;
+  /** 压缩参数覆盖（thresholdTokens/keepRecent 缺省回落导出常量；本体能力
+   *  = pi CompactionHook（turn 边界）经 createEngine 装配——同轨共享钩子）。 */
   readonly compaction?: { readonly thresholdTokens?: number; readonly keepRecent?: number };
   /** 管家记忆 B1：长期记忆编排面（召回段注入 + remember 执行体 + 配置读写）。
    *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
@@ -745,19 +764,38 @@ const GATED_TOOLS: ReadonlySet<string> = new Set([
 /** 挂闸中待确认项（pause 态的 resume 凭据 + 提案动作——actionId 单次消费）。 */
 interface PendingEntry {
   readonly action: PendingAction;
-  /** LoopEngine 暂停点 resume（B4a 轮外提案（自动沉淀）缺席——confirm 时
-   *  跳过回灌直接收口）。 */
-  readonly resume?: (decision: LoopResumeDecision) => Promise<LoopRunResult>;
+  /** 挂闸凭据（段B：engine_paused 的 pauseToken——confirm 执行后经
+   *  engine.resume(resolve 翻译) 回灌终结 run；B4a 轮外提案（自动沉淀）
+   *  缺席——confirm 时跳过回灌直接收口）。 */
+  readonly pauseToken?: string;
 }
 
-/** L1 件二→Phase 2：排队 ask 项（E-197 pending 队列下沉为 LoopAgent followUp
- *  队列元素——D4 同族：接管起新 run + rounds 重置 + 深度上限；events/deliver
- *  是应用面载荷，经 LoopAgent 泛型参数携带（domain 不持应用载荷类型）。
- *  deliver = 轮次完成回执面（queued 帧已由 ask promise 发出，结果帧经此
- *  闭包直达原发起方——仅 followUp 接管轮调用）。 */
-interface StewardAskItem extends LoopInjection {
+/** 排队 ask 项（方案甲自持队列——E-197 行为等价：上限/收口后自动下一轮/
+ *  queued 双帧回执；events/deliver 是应用面载荷（pi followUp 队列不自动
+ *  开 run——E-239，自持队列 + agent_end 驱动）。 */
+interface StewardAskItem {
+  readonly text: string;
   readonly events: StewardAskEvents;
   readonly deliver?: (payload: StewardAskResultPayload) => void;
+}
+
+/** 引擎装配上下文（createEngine 入参——application 中立形状，driven 侧
+ *  buildStewardEngine 唯一配方消费）。 */
+export interface StewardEngineAssemblyOptions {
+  readonly systemPrompt: string;
+  readonly tools: readonly StewardToolSpec[];
+  readonly gatedTools: ReadonlySet<string>;
+  readonly persistentListener: AgentEngineListener;
+  readonly initialMessages: readonly StewardLlmMessage[];
+  readonly compaction?: {
+    readonly thresholdTokens: number;
+    readonly keepRecent: number;
+    readonly summarizeInstructions?: string;
+    /** 触发档位（缺省 request——管家纯问答轮也压）。 */
+    readonly trigger?: "turn" | "request";
+    /** 摘要单轮执行体（缺省 = deps.llm.complete 无工具形态）。 */
+    readonly summarize?: (systemPrompt: string, messages: readonly StewardLlmMessage[]) => Promise<string>;
+  };
 }
 
 export class StewardService {
@@ -768,106 +806,55 @@ export class StewardService {
   private readonly now: () => number;
   /** 待确认写动作（actionId 单次消费；不持久化——过期即失效不跨重启）。 */
   private readonly pending = new Map<string, PendingEntry>();
+  /** 八工具中立规格（createEngine 装配面——driven 工具桥投影 pi AgentTool）。 */
+  private readonly toolSpecs: StewardToolSpec[] = [];
+  /** 隐藏面板原语名（不进引擎工具面——getProfile 观测面合并显示）。 */
+  private readonly hiddenToolNames: string[] = [];
   private actionSeq = 0;
   private feedSeq = 0;
-  /** helix-loop L0：工具注册表（八工具注册——LoopAgent deps 注入）。 */
-  private readonly registry: ToolRegistry;
-  /** helix-loop Phase 2：LoopAgent 会话运行时驱动（kernel 主循环 + 跨 run
-   *  transcript + followUp 队列接管——E-197 输入缓冲下沉：pending 队列/
-   *  在飞门控/abortInFlight 三件退役，行为等价：上限 3（followUpLimit）/
-   *  queued 不丢（任何收口后接管链）/幂等（abort 无在飞 false）。 */
-  private readonly agent: LoopAgent<StewardAskItem>;
-  /** transcript 初始化闸（dialog 懒加载——首问 prepareRun 时回填历史窗口）。 */
-  private agentReady = false;
+  /** 段B翻转：pi 引擎（懒构造——首问时经 createEngine 唯一配方装配，
+   *  dialog 懒加载回填 initialMessages）。 */
+  private engine: AgentEnginePort | undefined;
   /** 当前在途轮的 userAt（directRemember 归属轮识别——防双写标记用）。 */
   private currentAskAt = -1;
-  /** 最近一次轮内显式 remember 成功所属轮（同轮轮末沉淀跳过——B5 防双写；
-   *  轮标识比对天然防跨轮残留）。 */
+  /** 最近一次轮内显式 remember 成功所属轮（同轮轮末沉淀跳过——B5 防双写）。 */
   private turnRememberedAt = -1;
   /** 当前 run 的挂闸提案候选（confirm_required 回执映射锚——每 run 重置）。 */
   private currentPause: { actionId: string; action: PendingAction }[] = [];
+  /** ask 自持队列（方案甲——E-197 行为等价：上限 3/收口后自动下一轮）。 */
+  private readonly askQueue: StewardAskItem[] = [];
+  /** 当前 run 驱动的 ask 项（收口 deliver 回执锚）。 */
+  private pendingRunAsk: StewardAskItem | undefined;
+  /** ask promise 收口器（confirm_required 在 engine_paused 即收，其余 agent_end）。 */
+  private askSettler: ((payload: StewardAskResultPayload) => void) | undefined;
+  /** 当前 run 事件投影链（KV 写入与收口定序——事件乱序投影即数据竞争）。 */
+  private projectionChain: Promise<void> = Promise.resolve();
+  /** 当前 ask 的流式回调（事件转发面）。 */
+  private askStreamEvents: StewardAskEvents = {};
+  /** 当前 run 结果推导态（agent_end 时收口映射）。 */
+  private runState: {
+    lastAnswerText: string;
+    hardError: string | undefined; // 消息级（stopReason=error）：error 回执优先于 answer
+    softError: string | undefined; // 事件级 engine_error（压缩失败等 fail-open）：answer 在则让位
+    sawAborted: boolean;
+    roundLimit: boolean;
+    toolCalls: number;
+  } = { lastAnswerText: "", hardError: undefined, softError: undefined, sawAborted: false, roundLimit: false, toolCalls: 0 };
+  /** 当前挂闸中的 pauseToken（暂停态新 ask 的 abort-再驱动判别锚）。 */
+  private pausedGateToken: string | undefined;
+  /** run 收口通知（driveAsk 的 abort-再驱动路径等 settle）。 */
+  private runSettled: Promise<void> = Promise.resolve();
+  /** run 在途自持位（busy 判别不依赖 engine.isStreaming——投影链 settle 微任务
+   *  早于 pi agent 态翻转，误判 busy 会把直答 ask 错误入队）。 */
+  private runActive = false;
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
     this.dialog = deps.dialog ?? new StewardDialogMemory();
     this.now = deps.clock ?? (() => Date.now());
-    this.registry = new ToolRegistry();
     this.registerTools();
-    this.agent = new LoopAgent<StewardAskItem>({
-      streamFn: this.streamFn.bind(this),
-      registry: this.registry,
-      emit: (event) => this.deps.emitLoopEvent?.(event),
-      // L1 件一：循环内压缩（loop 域能力，管家首个消费者）——摘要执行体
-      // 复用 StewardLlmPort 单轮无工具形态（pi streamSimple 同体），失败
-      // 由引擎降级（事件 failed + 原窗口继续，16k 粗裁剪兑底）。Phase 2：
-      // 压缩步直接装配注入（LoopEngine 门面退役出管家消费面）。
-      compactStep: createCompactionStep({
-        compaction: {
-          thresholdTokens: deps.compaction?.thresholdTokens ?? STEWARD_COMPACTION_THRESHOLD_TOKENS,
-          keepRecent: deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
-          summarize: (messages) => this.summarizeForCompaction(messages),
-        },
-        emit: (event) => this.deps.emitLoopEvent?.(event),
-      }),
-      systemPrompt: STEWARD_SYSTEM_PROMPT,
-      maxRounds: STEWARD_MAX_TOOL_ROUNDS,
-      // L1 件二（E-197 行为等价）：followUp 深度上限 = 现役 pending 上限。
-      followUpLimit: STEWARD_PENDING_ASKS_MAX,
-      // 跨 run transcript 投影同源（user 入账含 E-198 截断标记与注入消息）。
-      onNewMessage: async (message) => this.recordLoopMessage(message),
-      // G-B 请求期防御文案（A1-hotfix 迁移前行为等价：挂起 toolCall 下轮
-      // 窗口合成 STEWARD_MISSING_TOOL_RESULT_TEXT 占位）。
-      unsettledToolResultText: () => STEWARD_MISSING_TOOL_RESULT_TEXT,
-      onCompacted: async (info) => {
-        await this.dialog.compact(
-          { kind: "user", text: info.summaryMessage.text, at: this.now(), compaction: true },
-          this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
-        );
-      },
-      prepareRun: async ({ phase, injection }) => this.prepareAskRun(phase, injection),
-      onRunSettled: async (result, { phase, injection }) => this.settleAskRun(result, phase, injection),
-    });
   }
 
-  /** StewardLlmPort（散参面）→ LoopStreamFn（loop 域契约）包装——application
-   *  内零 pi 胶水（pi-ai 真体在 driven adapter；LLM 失败前缀与 warn 与迁移前
-   *  行为等价）。 */
-  private async streamFn(
-    input: Parameters<LoopStreamFn>[0],
-    callbacks?: Parameters<LoopStreamFn>[1],
-  ): Promise<LoopStreamResult> {
-    try {
-      return await this.deps.llm.complete(
-        {
-          systemPrompt: input.systemPrompt,
-          messages: input.messages,
-          tools: input.tools,
-        },
-        callbacks?.onDelta, // 文本生成段透传（工具轮 LLM 不产 text 增量 = 天然静默）
-        callbacks?.onThinking, // thinking 段级（一个完成态块一帧）
-        callbacks?.signal,
-        callbacks?.onBlockEnd, // E-198 块级收尾帧（打断 partial 收集面；LoopStreamBlock 与 StewardLlmBlock 结构同构）
-      );
-    } catch (err) {
-      this.deps.logger?.warn(`管家 LLM 调用失败：${(err as Error).message}`);
-      throw new Error(`管家模型调用失败：${(err as Error).message}`);
-    }
-  }
-
-  /**
-   * 管家对话一轮（steward.ask 回执；events = 过程回调面——文本增量/
-   * thinking 段级/工具开始结束，A1 批工具与 thinking 过程对屏幕通道可见；
-   * 工具执行段无文本增量，终态以返回值为权威）。
-   * money gate：开关关 → error 判别零 LLM 调用零回调。
-   *
-   * helix-loop Phase 2：LoopAgent 会话运行时驱动（八工具 ToolRegistry 分发
-   * + 确认闸 beforeToolCallPause 暂停点 + 跨 run transcript + followUp 队列）。
-   * L1 件二（E-197 下沉后行为等价）：在途轮未收口时新 ask 入 LoopAgent
-   * followUp 队列（上限 3，超限 error 提示）不拒答；本轮收口（任何终态）
-   * 后 followUp 接管自动起新 run（abort 语义下队列同样不丢）。回执双帧：
-   * queued 确认帧（promise 立即 settle）+ 轮次结果帧（经 deliver 闭包
-   * 直达原发起方——仅接管轮回执）。
-   */
   async ask(
     text: string,
     events: StewardAskEvents = {},
@@ -882,155 +869,336 @@ export class StewardService {
         reason: "管家未开启：请在设置页 → 通用配置开启（开关关 = 零 LLM 调用）",
       };
     }
-    // L1 件二：忙碌态入队不拒绝（followUp 队列——D4 同族；替代 L0 的
-    // abort-and-drain 取代语义；直接路径不挂 deliver——promise 即结果）
-    if (this.agent.isStreaming()) {
-      const pushed = this.agent.followUp({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
-      if (!pushed.ok) {
+    // 暂停态（挂闸阻塞中）新 ask：loop 语义 = 旧 run 已 settle 过期、新 ask
+    // 照常（E-197 迁移前等价）——pi 映射：abort 阻塞中的 run（闸内 raceAbort
+    // 唤醒、工具不执行）→ 收口后驱动新 ask（确认卡保持有效：confirm 时
+    // pauseToken 已过期自然失效）。
+    if (this.runActive) {
+      if (this.pausedGateToken !== undefined && this.engine !== undefined) {
+        this.engine.abort();
+        await this.runSettled;
+        return this.driveAsk({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
+      }
+      if (this.askQueue.length >= STEWARD_PENDING_ASKS_MAX) {
         return {
           status: "error",
           reason: `管家正在处理中，排队已满（上限 ${STEWARD_PENDING_ASKS_MAX} 条）——请稍后再试`,
         };
       }
-      return { status: "queued", queued: true, position: pushed.position };
+      this.askQueue.push({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
+      return { status: "queued", queued: true, position: this.askQueue.length };
     }
-    const result = await this.agent.start({ text, events });
-    return this.mapRunResult(result);
+    return this.driveAsk({ text, events });
   }
 
-  /** 在途轮 abort（L2 interrupt/barge-in 地基；幂等——非在途态 no-op 返回
-   *  false）。abort 只作用 LLM 流式段（工具段不打断）；收口后 followUp
-   * 队列自动接管（L1 件二序不变量：队列不丢）。 */
+  /** 在途轮 abort（幂等——非在途态 no-op 返回 false；挂闸阻塞中同样唤醒
+   *  收口）。收口后自持队列自动接管（序不变量：队列不丢）。 */
   abortInFlight(reason: string): boolean {
-    return this.agent.abort(reason);
+    void reason;
+    if (!this.runActive || this.engine === undefined) return false;
+    this.engine.abort();
+    return true;
   }
 
-  /** run 装配钩子（LoopAgent.prepareRun 注入——start/followUp 接管/continue
-   *  每 run 调用）：dialog 懒加载 + 首问 transcript 回填（历史窗口 = 投影
-   *  KV 同源）+ B4a 重启补偿 + 动态 systemPrompt 组装 + 每 run 挂闸闭包。
-   *  时序保证：本钩子先于本轮 user 消息入账（补偿 snapshot 同步取定不含
-   *  本轮——与迁移前 runAskPipeline 序等价）。 */
-  private async prepareAskRun(phase: LoopRunPhase, injection: StewardAskItem | undefined): Promise<Partial<LoopRunOptions>> {
+  /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt
+   *  组装（感知快照 + 记忆召回——setSystemPrompt 运行期变异面）+ B4a 补偿
+   *  （队列接管轮）+ 事件收口挂载。 */
+  private async driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
     this.dialog.ensureLoaded();
-    if (!this.agentReady) {
-      this.agent.reset(this.dialogSnapshotMessages());
-      this.agentReady = true;
-    }
-    if (injection !== undefined) {
-      // B4a 重启补偿：补判水位后未判定尾部（fire-and-forget；主钩子覆盖本轮）
+    const systemPrompt = assembleStewardSystemPrompt(
+      await this.buildSnapshotSafely(),
+      await this.deps.memory?.recallSection(item.text),
+    );
+    if (this.engine === undefined) {
+      const keepRecent = this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT;
+      // 代际守卫：persistentListener 捕获本引擎引用——clearHistory 弃旧引擎后
+      // 其残余事件（abort 收口帧）不再进入服务面（防污染新 run 状态）
+      let engineRef: AgentEnginePort;
+      engineRef = this.deps.createEngine({
+        systemPrompt,
+        tools: this.toolSpecs,
+        gatedTools: GATED_TOOLS,
+        persistentListener: (event) => {
+          if (this.engine === engineRef) this.onEngineEvent(event);
+        },
+        initialMessages: this.dialogSnapshotMessages(),
+        compaction: {
+          thresholdTokens: this.deps.compaction?.thresholdTokens ?? STEWARD_COMPACTION_THRESHOLD_TOKENS,
+          keepRecent,
+          summarizeInstructions: LOOP_COMPACTION_SUMMARY_PROMPT,
+          summarize: async (_systemPrompt, messages) => {
+            // 管家摘要身份自带（LOOP_COMPACTION_SUMMARY_PROMPT）——pi 侧
+            // systemPrompt 是英文常量（customInstructions 落 user 消息不落 sys）
+            const response = await this.deps.llm.complete({
+              systemPrompt: LOOP_COMPACTION_SUMMARY_PROMPT,
+              messages,
+              tools: [],
+            });
+            if (response.kind !== "blocks") {
+              throw new Error(`压缩摘要响应非块集（${response.kind}）`);
+            }
+            return portBlocksText(response.blocks);
+          },
+        },
+      });
+      this.engine = engineRef; // 代际守卫锚（listener 闭包比对同一引用）
+    } else {
+      this.engine.setSystemPrompt?.(systemPrompt);
+      // B4a 重启补偿（队列接管轮——补判水位后未判定尾部；fire-and-forget）
       this.trackSediment(
         this.sedimentUnjudgedTail().catch((err) =>
           this.deps.logger?.warn(`自动沉淀重启补偿降级：${(err as Error).message}`),
         ),
       );
     }
-    // A2：动态情景快照（每次 run 组装一次——工具轮内状态变化由工具结果
-    // 反映，不重取；感知查询失败静默降级为无快照段，绝不挡对话主链路）。
-    // 管家记忆 B1：长期记忆召回段同口径（记忆未启用/召回失败 → 无记忆段）。
-    const text = injection?.text ?? "";
-    const systemPrompt = assembleStewardSystemPrompt(
-      await this.buildSnapshotSafely(),
-      await this.deps.memory?.recallSection(text),
-    );
-    this.currentPause = []; // 每 run 新挂闸候选（confirm_required 回执映射锚）
-    return {
-      systemPrompt,
-      beforeToolCallPause: async (ctx: LoopToolCallContext): Promise<LoopPauseDecision> => {
-        if (!GATED_TOOLS.has(ctx.toolName)) return { pause: false };
-        const gated = await this.gateWriteTool(ctx);
-        if (gated.pause) {
-          this.actionSeq += 1;
-          const actionId = `steward-action-${this.actionSeq}`;
-          this.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
-          this.currentPause.push({
-            actionId,
-            action: { ...gated.action, toolCall: { id: ctx.toolCallId, name: ctx.toolName } },
-          });
-          return { pause: true };
-        }
-        return gated.outcome !== undefined ? { pause: false, outcome: gated.outcome } : { pause: false };
-      },
-      ...(injection !== undefined
-        ? {
-            callbacks: {
-              ...(injection.events.onDelta !== undefined ? { onDelta: injection.events.onDelta } : {}),
-              ...(injection.events.onThinking !== undefined ? { onThinking: injection.events.onThinking } : {}),
-              ...(injection.events.onToolStart !== undefined ? { onToolStart: injection.events.onToolStart } : {}),
-              ...(injection.events.onToolEnd !== undefined ? { onToolEnd: injection.events.onToolEnd } : {}),
-            },
-            promptSummary: text.slice(0, 80),
-          }
-        : {}),
-    };
+    this.runActive = true;
+    this.pendingRunAsk = item;
+    this.askStreamEvents = item.events;
+    this.runState = { lastAnswerText: "", hardError: undefined, softError: undefined, sawAborted: false, roundLimit: false, toolCalls: 0 };
+    this.currentPause = [];
+    this.pausedGateToken = undefined;
+    const settled = new Promise<StewardAskResultPayload>((resolve) => {
+      this.askSettler = resolve;
+    });
+    let markSettled!: () => void;
+    this.runSettled = new Promise<void>((resolve) => {
+      markSettled = resolve;
+    });
+    this.runSettledMark = markSettled;
+    // run 收口由 start() promise 驱动（agent_end 事件早于 pi run promise 收口
+    // ——事件面 settle 会与引擎 busy 态竞态：队列驱动 start 撞「already
+    // processing」；promise 面收口 = 真 idle 保证）
+    void this.engine!
+      .start(item.text, () => undefined)
+      .then(() => {
+        this.enqueueProjection(async () => {
+          await this.finishRun();
+        });
+      })
+      .catch((err: unknown) => {
+        this.enqueueProjection(async () => {
+          await this.finishRun(`引擎驱动异常：${(err as Error).message}`);
+        });
+      });
+    return settled;
   }
 
-  /** run 终态钩子（LoopAgent.onRunSettled 注入）：paused 登记 resume 句柄
-   *  （确认闸）+ B4a 主钩子（answer 轮收口异步判定）+ queued 轮结果帧
-   *  （deliver 闭包——仅 followUp 接管轮回执；直接路径 promise 即结果）。 */
-  private async settleAskRun(
-    result: LoopRunResult,
-    phase: LoopRunPhase,
-    injection: StewardAskItem | undefined,
-  ): Promise<void> {
-    if (result.kind === "paused") {
-      const candidate = this.currentPause[this.currentPause.length - 1];
-      if (candidate !== undefined) {
-        this.pending.set(candidate.actionId, { action: candidate.action, resume: result.resumeWith });
+  /** run 收口通知标记（runSettled promise 的 resolve 句柄）。 */
+  private runSettledMark: (() => void) | undefined;
+
+  /** 引擎事件入口（persistentListener——trace 出口 + 流式回调转发 + 顺序化投影）。 */
+  private onEngineEvent(event: AgentEngineEvent): void {
+    this.deps.emitEngineEvent?.(event);
+    this.forwardStreamCallbacks(event);
+    // 轮数熔断（同步判定——async 投影链赶不上无思考工具风暴；abort 越早越省）
+    if (event.type === "tool_execution_start") {
+      this.runState.toolCalls += 1;
+      if (this.runState.toolCalls > STEWARD_MAX_TOOL_ROUNDS && !this.runState.roundLimit) {
+        this.runState.roundLimit = true;
+        this.engine?.abort();
       }
     }
-    if (result.kind === "finished") {
-      // B4a 主钩子：answer 轮收口 → 异步判定（fire-and-forget 不阻塞接管链；
-      // error/confirm_required/aborted 半成品轮不判定）
+    this.enqueueProjection(() => this.projectEngineEvent(event));
+  }
+
+  /** 投影链追加（顺序化：KV 写入与收口/队列驱动严格定序）。 */
+  private enqueueProjection(step: () => Promise<void>): void {
+    this.projectionChain = this.projectionChain.then(step).catch((err) => {
+      this.deps.logger?.warn(`管家事件投影异常：${(err as Error).message}`);
+    });
+  }
+
+  /** ask 流式回调转发（message_update/thinking_delta/tool_execution → events 面
+   *  ——签名对齐 StewardAskEvents：argsSummary/resultSummary 以事件面可得字段派生）。 */
+  private forwardStreamCallbacks(event: AgentEngineEvent): void {
+    const ev = this.askStreamEvents;
+    if (ev.onDelta !== undefined && event.type === "message_update") {
+      ev.onDelta(event.delta);
+    } else if (ev.onThinking !== undefined && event.type === "thinking_delta") {
+      ev.onThinking(event.delta);
+    } else if (ev.onToolStart !== undefined && event.type === "tool_execution_start") {
+      ev.onToolStart(event.toolName, summarizeArgsLite(event.args));
+    } else if (ev.onToolEnd !== undefined && event.type === "tool_execution_end") {
+      ev.onToolEnd(event.toolName, event.isError === true ? "（执行失败）" : event.result.slice(0, 120));
+    }
+  }
+
+  /** 引擎事件投影（顺序化执行：KV 入账 / 暂停处理 / 压缩 / run 收口）。 */
+  private async projectEngineEvent(event: AgentEngineEvent): Promise<void> {
+    switch (event.type) {
+      case "message_end":
+        await this.projectMessageEnd(event);
+        return;
+      case "engine_error":
+        if (this.runState.softError === undefined) this.runState.softError = event.message;
+        return;
+      case "tool_execution_start":
+        return; // 计数与熔断在 onEngineEvent 同步段（见上）
+      case "engine_paused":
+        await this.handleEnginePaused(event);
+        return;
+      case "compaction_completed":
+        await this.dialog.compact(
+          { kind: "user", text: event.summary, at: this.now(), compaction: true },
+          this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
+        );
+        return;
+      case "agent_end":
+        return; // run 收口由 start() promise 驱动（真 idle 保证——见 driveAsk 注释）
+      default:
+        return;
+    }
+  }
+
+  /** message_end → 工作记忆 KV（原 recordLoopMessage 的事件投影形态）。 */
+  private async projectMessageEnd(
+    event: Extract<AgentEngineEvent, { type: "message_end" }>,
+  ): Promise<void> {
+    if (event.role === "user") {
+      // E-198 截断标记（AbortShaping 注入——固定常量文本非用户输入；sediment
+      // 判定面按常量过滤）。真实 user 入账同步捕获轮归属锚（防时钟双源漂移）。
+      const at = this.now();
+      if (event.text !== LOOP_INTERRUPTED_MARKER_TEXT) this.currentAskAt = at;
+      await this.pushRecord({ kind: "user", text: event.text, at });
+      return;
+    }
+    if (event.role === "toolResult") {
+      await this.pushRecord({
+        kind: "toolResult",
+        toolCallId: event.toolCallId ?? "",
+        name: event.toolName ?? "",
+        text: event.text,
+        at: this.now(),
+      });
+      return;
+    }
+    if (event.stopReason === "aborted") this.runState.sawAborted = true;
+    if (event.stopReason === "error") {
+      // 回执文案前缀（与迁移前 streamFn 包装等价——provider 原文随附）
+      this.runState.hardError =
+        event.text.trim() !== "" ? `模型调用失败：${event.text}` : this.runState.hardError ?? "模型调用失败";
+      return; // error 消息不入 KV（半成品）——错误经回执交代
+    }
+    const blocks = event.blocks ?? [];
+    // abort 半截轮无完整内容：零 assistant 记录（无「（无回答）」污染——
+    // loop 无痕语义的对齐面；有文本/thinking 时照记）
+    if (event.stopReason === "aborted" && blocks.length === 0 && event.text.trim() === "") return;
+    const toolCall = blocks.find((b): b is Extract<typeof b, { type: "toolCall" }> => b.type === "toolCall");
+    const thinkingBlocks = blocks.filter((b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking");
+    const text = toolCall !== undefined || event.text.trim() !== "" ? event.text : "（无回答）";
+    if (toolCall === undefined && event.text.trim() !== "") this.runState.lastAnswerText = event.text;
+    const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
+    const signature = thinkingBlocks.find((b) => b.signature !== undefined && b.signature !== "")?.signature;
+    await this.pushRecord({
+      kind: "assistant",
+      ...(text !== "" || toolCall !== undefined ? { text } : {}),
+      ...(thinkingText !== ""
+        ? { thinking: signature !== undefined ? { text: thinkingText, signature } : { text: thinkingText } }
+        : {}),
+      ...(toolCall !== undefined ? { toolCall: { id: toolCall.id, name: toolCall.name, args: toolCall.args } } : {}),
+      at: this.now(),
+    });
+  }
+
+  /** 挂闸处理（原 beforeToolCallPause 校验体的 engine_paused 形态）。 */
+  private async handleEnginePaused(
+    event: Extract<AgentEngineEvent, { type: "engine_paused" }>,
+  ): Promise<void> {
+    const gated = await this.gateWriteTool({
+      runId: "",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      args: (event.args ?? {}) as Record<string, unknown>,
+    });
+    if (!gated.pause) {
+      // 校验未过直出（原 pause:false + outcome 路径）：guidance → reject
+      // （模型知情续跑）；terminate → resolve 翻译（结果入账 + run 终结）。
+      const outcome = gated.outcome;
+      if (outcome !== undefined && outcome.kind === "terminate") {
+        this.runState.hardError = outcome.reason;
+        await this.engine?.resume?.(event.pauseToken, { kind: "resolve", text: outcome.reason });
+      } else {
+        const text = outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验";
+        await this.engine?.resume?.(event.pauseToken, { kind: "reject", text });
+      }
+      return;
+    }
+    this.actionSeq += 1;
+    const actionId = `steward-action-${this.actionSeq}`;
+    this.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
+    this.currentPause.push({
+      actionId,
+      action: { ...gated.action, toolCall: { id: event.toolCallId, name: event.toolName } },
+    });
+    this.pending.set(actionId, {
+      action: this.currentPause[0]!.action,
+      pauseToken: event.pauseToken,
+    });
+    this.pausedGateToken = event.pauseToken;
+    this.settleAsk({
+      status: "confirm_required",
+      actionId,
+      agentId: gated.action.displayTarget,
+      message: gated.action.message,
+    });
+  }
+
+  /** run 收口（agent_end）：结果推导 + B4a 主钩子 + deliver + 队列驱动。 */
+  private async finishRun(startError?: string): Promise<void> {
+    this.runActive = false;
+    this.runSettledMark?.();
+    this.runSettledMark = undefined;
+    const outcome = startError !== undefined ? { status: "error" as const, reason: startError } : this.outcomeOfRun();
+    const item = this.pendingRunAsk;
+    this.pendingRunAsk = undefined;
+    this.pausedGateToken = undefined;
+    this.askStreamEvents = {};
+    this.settleAsk(outcome);
+    if (outcome.status === "answer") {
+      // B4a 主钩子：answer 轮收口 → 异步判定（半成品轮不判定）
       this.maybeAutoSediment(this.currentAskAt);
     }
-    if (phase === "followUp" && injection?.deliver !== undefined) {
-      injection.deliver(this.mapRunResult(result));
+    item?.deliver?.(outcome);
+    const next = this.askQueue.shift();
+    if (next !== undefined) {
+      void this.driveAsk(next).catch((err) => {
+        this.deps.logger?.warn(`队列驱动异常：${(err as Error).message}`);
+      });
     }
   }
 
-  /** LoopRunResult → steward.ask 回执判别映射（runAskLoop 尾段迁移）。 */
-  private mapRunResult(result: LoopRunResult): StewardAskResultPayload {
-    if (result.kind === "finished") {
-      // Phase 1 块模型：终答文本自块集提取（text 块拼接——回执播报面）
-      return { status: "answer", text: loopBlocksText(result.blocks) };
-    }
-    if (result.kind === "paused") {
-      const candidate = this.currentPause[this.currentPause.length - 1];
-      if (candidate === undefined) {
-        // 结构性不可达（挂闸必然置候选——防御分支，不静默）
-        return { status: "error", reason: "确认闸挂起异常：提案候选缺失" };
-      }
-      return {
-        status: "confirm_required",
-        actionId: candidate.actionId,
-        agentId: candidate.action.displayTarget,
-        message: candidate.action.message,
-      };
-    }
-    if (result.kind === "roundLimit") {
+  /** run 结果推导（事件态 → 回执判别——原 mapRunResult）。 */
+  private outcomeOfRun(): StewardAskResultPayload {
+    // aborted 优先于一切（半截文本不作终答回执——协议面回执恒 aborted error）；
+    // 次之 answer（压缩失败 engine_error 不吞终答——fail-open）；最后 error
+    if (this.runState.roundLimit) {
       return {
         status: "error",
         reason: `工具循环超限（>${STEWARD_MAX_TOOL_ROUNDS} 轮熔断）——请缩小问题范围或重试`,
       };
     }
-    if (result.kind === "aborted") {
-      // E-198 audit（I6：丢弃内容日志必留——审计面与模型面分离）
-      if (result.audit !== undefined) {
-        const dropped =
-          result.audit.droppedBlocks.length > 0
-            ? `，丢弃 ${result.audit.droppedBlocks.map((b) => `${b.kind}（${b.reason}）`).join("；")}`
-            : "";
-        this.deps.logger?.warn(
-          `管家对话被中断：入账 ${result.audit.keptMessages} 条安全块${dropped}（截断标记已落）`,
-        );
-      }
+    if (this.runState.sawAborted) {
       return { status: "error", reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）" };
     }
-    if (result.kind === "resolved") {
-      // 结构性不可达（resolved 只在 confirm→resume 轨道收口——ask 轨道防御分支）
-      return { status: "error", reason: "管家对话已由确认闸收口" };
+    if (this.runState.hardError !== undefined) {
+      return { status: "error", reason: this.runState.hardError };
     }
-    return { status: "error", reason: result.message };
+    if (this.runState.lastAnswerText.trim() !== "") {
+      return { status: "answer", text: this.runState.lastAnswerText };
+    }
+    if (this.runState.softError !== undefined) {
+      return { status: "error", reason: this.runState.softError };
+    }
+    return { status: "answer", text: "（无回答）" };
+  }
+
+  /** ask promise 收口（confirm_required 在挂闸即收；其余在 finishRun）。
+   *  runSettled 不在此收——移 finishRun（暂停态新 ask 的 abort-再驱动需等
+   *  引擎真 idle，而非 confirm_required 收口时点）。 */
+  private settleAsk(payload: StewardAskResultPayload): void {
+    const settle = this.askSettler;
+    this.askSettler = undefined;
+    settle?.(payload);
   }
 
   // ── B4a 自动沉淀判定管线（轮次主钩子 + 重启补偿 + 清空兜底三面复用同一内核）──
@@ -1136,7 +1304,7 @@ export class StewardService {
     if (resp.kind !== "blocks") {
       throw new Error(`记忆提取面收到意外的 ${resp.kind} 响应（tools 为空不应发生）`);
     }
-    return loopBlocksText(resp.blocks);
+    return portBlocksText(resp.blocks);
   }
 
   /** 轮末沉淀钩子（runAskPipeline finally；fire-and-forget 不阻塞 drain）。 */
@@ -1160,22 +1328,6 @@ export class StewardService {
     return this.sedimentAndStore(latest.at);
   }
 
-  /** L1 件一：压缩摘要执行体（StewardLlmPort 单轮无工具形态——与主对话
-   *  同一 adapter/模型槽位；prompt 要点见 LOOP_COMPACTION_SUMMARY_PROMPT）。
-   *  抛错由 LoopEngine 收口为 failed 事件 + 原窗口继续（降级粗裁剪）。 */
-  private async summarizeForCompaction(messages: readonly LoopMessage[]): Promise<string> {
-    const response = await this.deps.llm.complete({
-      systemPrompt: LOOP_COMPACTION_SUMMARY_PROMPT,
-      messages: messages as readonly import("../ports/outbound/StewardLlmPort").StewardLlmMessage[],
-      tools: [],
-    });
-    if (response.kind !== "blocks") {
-      throw new Error(`压缩摘要响应非块集（${response.kind}）`);
-    }
-    return loopBlocksText(response.blocks);
-  }
-
-
   /** 工作记忆读面（steward.history 回放：完整记录数组——UI 渲染与 LLM 窗口
    *  同源重建；A1 批）。 */
   async getHistory(): Promise<readonly StewardHistoryRecord[]> {
@@ -1193,9 +1345,14 @@ export class StewardService {
     await this.flushSediment();
     this.pending.clear();
     await this.dialog.clear();
-    // Phase 2：LoopAgent 双队列 + 跨 run transcript 同清（下一问从空窗口
-    // 重建——与清空后 KV 同源；与迁移前「每 run 从 KV 重建窗口」等价）。
-    this.agent.reset();
+    // 段B：引擎销毁重建（下一问从空窗口——与清空后 KV 同源；dialog 已清，
+    // 懒构造下一问以空 initialMessages 重建）。挂闸阻塞中的 run 先 abort 释放
+    //（闸内 raceAbort 唤醒）再弃引用；runActive 复位防新 ask 误判 busy。
+    this.engine?.abort();
+    this.engine = undefined;
+    this.pausedGateToken = undefined;
+    this.runActive = false;
+    this.askSettler = undefined;
   }
 
   /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行——
@@ -1219,6 +1376,9 @@ export class StewardService {
       return { status: "error", reason: `待确认动作不存在或已消费（actionId=${actionId}）` };
     }
     this.pending.delete(actionId); // 先消费（单次语义：执行失败也不可重放）
+    // 暂停态旗同步清（B1 两段式窗口防误伤：执行体异步在飞时新 ask 不走
+    // abort-再驱动路径——被弃的是确认流而非挂闸 run）
+    if (this.pending.size === 0) this.pausedGateToken = undefined;
     // 受理时即广播 navigate（deliverSession——sessionId 提案已知，不再等
     // 执行体全轮；createSession 的 navigate 仍在执行体（sessionId 执行后才
     // 产生））。
@@ -1228,10 +1388,10 @@ export class StewardService {
     // 异步执行体（受理后启动；错误经 onCompleted 交代，不浮出确认链）
     void (async () => {
       const outcome = await this.executePending(entry.action);
-      // 回灌经 LoopEngine 暂停点（resolve 决策：toolResult 入账 + run 终结）；
-      // B4a 轮外提案无暂停点（resume 缺席）——跳过回灌直接收口。
-      if (entry.resume !== undefined) {
-        await entry.resume({
+      // 回灌经引擎暂停面（resolve 翻译：结果入账 + run 终结——block+terminate）；
+      // B4a 轮外提案无暂停点（pauseToken 缺席）——跳过回灌直接收口。
+      if (entry.pauseToken !== undefined && this.engine !== undefined) {
+        await this.engine.resume?.(entry.pauseToken, {
           kind: "resolve",
           text: capToolResultText(outcome.detail),
           isError: !outcome.ok,
@@ -1402,7 +1562,10 @@ export class StewardService {
   getProfile(): { systemPrompt: string; tools: readonly { name: string; description: string }[]; model: string | null; kindLabel: "steward" } {
     return {
       systemPrompt: STEWARD_SYSTEM_PROMPT,
-      tools: this.registry.manifest(),
+      tools: [
+        ...this.toolSpecs.map((t) => ({ name: t.name, description: t.description })),
+        { name: "steward_confirm", description: "确认闸放行（面板确认按钮原语；非 LLM 工具）" },
+      ],
       model: this.deps.config.get(STEWARD_MODEL_KEY) ?? null,
       kindLabel: "steward",
     };
@@ -1519,24 +1682,18 @@ export class StewardService {
    *   E-46「注册面恒宽、声明面管控谁可见」同构）。
    */
   private registerTools(): void {
-    this.registry.register({
+    // 只读三件：直查执行体（结果过 capToolResultText 体量护栏）
+    this.toolSpecs.push({
       ...TOOL_LIST_INSTANCES,
-      handler: async () => {
-        // A1-hotfix：list_instances 走紧凑投影（根因实证：status() 全量含完整
-        //  task brief 文本与全部历史实例，单条 toolResult 可达 537KB）；一切
-        //  工具结果再过 capToolResultText 4000 体量护栏。
+      execute: async () => {
+        // A1-hotfix：list_instances 走紧凑投影（status() 全量单条可达 537KB）
         const rows = compactInstanceRows(this.deps.orchestration.status());
-        const resultText = capToolResultText(JSON.stringify(rows));
-        return {
-          kind: "result",
-          text: resultText,
-          summary: summarizeForFrame(`${rows.length} 条记录：${resultText.slice(0, 80)}`),
-        };
+        return { text: capToolResultText(JSON.stringify(rows)) };
       },
     });
-    this.registry.register({
+    this.toolSpecs.push({
       ...TOOL_LIST_TASKS,
-      handler: async () => {
+      execute: async () => {
         const rows = this.deps.tasks.listTasks({}).map((t) => ({
           jobId: t.jobId,
           title: t.title,
@@ -1547,23 +1704,16 @@ export class StewardService {
               : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
           error: t.error,
         }));
-        const resultText = capToolResultText(JSON.stringify(rows));
-        return {
-          kind: "result",
-          text: resultText,
-          summary: summarizeForFrame(`${rows.length} 条记录：${resultText.slice(0, 80)}`),
-        };
+        return { text: capToolResultText(JSON.stringify(rows)) };
       },
     });
-    this.registry.register({
+    this.toolSpecs.push({
       ...TOOL_QUERY_RECENT_WORK,
-      handler: async (args) => {
-        const resultText = capToolResultText(await this.queryRecentWork(args));
-        return { kind: "result", text: resultText, summary: summarizeForFrame(resultText.slice(0, 120)) };
-      },
+      execute: async (args) => ({ text: capToolResultText(await this.queryRecentWork(args as Record<string, unknown>)) }),
     });
-    // 写注入五件：handler = approve 决策执行体（重新过闸校验 + 执行——与
-    // confirm 的 executePending 同源动作体）
+    // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute 为
+    // approve 决策执行体（重新过闸校验 + 执行——与 confirm 的 executePending
+    // 同源动作体；L0 管家走 confirm→resolve 路径，execute 供未来自动化面）
     for (const [tool, actionOf] of [
       [TOOL_PROPOSE_SEND, this.pendingActionOfProposeSend.bind(this)],
       [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
@@ -1571,102 +1721,37 @@ export class StewardService {
       [TOOL_START_SESSION, this.pendingActionOfStartSession.bind(this)],
       [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
     ] as const) {
-      this.registry.register({
+      void actionOf;
+      this.toolSpecs.push({
         ...tool,
-        handler: async (args) => {
-          const gated = await this.gateWriteTool({ runId: "", toolCallId: "", toolName: tool.name, args });
+        execute: async (args) => {
+          const gated = await this.gateWriteTool({ runId: "", toolCallId: "", toolName: tool.name, args: args as Record<string, unknown> });
           if (!gated.pause) {
-            const outcome = gated.outcome ?? { kind: "result" as const, text: "提案未通过校验（approve 不可达此路径）" };
-            return outcome;
+            const outcome = gated.outcome;
+            if (outcome !== undefined && outcome.kind === "terminate") {
+              return { text: outcome.reason, terminate: true };
+            }
+            return { text: outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验（approve 不可达此路径）" };
           }
           const outcome = await this.executePending(gated.action!);
-          return {
-            kind: "result",
-            text: capToolResultText(outcome.detail),
-            isError: !outcome.ok,
-            summary: summarizeForFrame(outcome.detail),
-          };
+          return { text: capToolResultText(outcome.detail), ...(outcome.ok ? {} : { isError: true }) };
         },
       });
     }
     // remember（B5 摘闸）：直接执行体——静默入库 + 通知，回执回灌续轮。
-    this.registry.register({
+    this.toolSpecs.push({
       ...TOOL_REMEMBER,
-      handler: async (args) => this.directRemember(args),
-    });
-    // steward_confirm：面板确认原语（hidden——LLM 不可见；actionId 单次消费
-    // 语义与 handler 层 steward.confirm 命令等价）
-    this.registry.register({
-      name: "steward_confirm",
-      description: "确认闸放行（面板确认按钮原语——actionId 单次消费；非 LLM 工具）。",
-      parameters: {
-        type: "object",
-        properties: { actionId: { type: "string", description: "待确认动作 id" } },
-        required: ["actionId"],
-        additionalProperties: false,
-      },
-      hiddenFromLlm: true,
-      handler: async (args) => {
-        const actionId = typeof args.actionId === "string" ? args.actionId : "";
-        // B1 两段式：confirm 受理即回（accepted/error）——执行回执经
-        // onCompleted 另发 steward.action.completed（handler 命令面同构）
-        const outcome = await this.confirm(actionId);
-        return {
-          kind: "result",
-          text:
-            outcome.status === "accepted"
-              ? `已受理（actionId=${actionId}；执行回执经 steward.action.completed 另发）`
-              : capToolResultText(outcome.status === "error" ? outcome.reason : `${outcome.agentId}：${outcome.detail}`),
-          isError: outcome.status !== "accepted",
-        };
+      execute: async (args) => {
+        const outcome = await this.directRemember(args as Record<string, unknown>);
+        return outcome.kind === "terminate"
+          ? { text: outcome.reason, terminate: true }
+          : { text: outcome.text, ...(outcome.isError === true ? { isError: true } : {}) };
       },
     });
-  }
-
-  /** LoopMessage → 工作记忆 KV 记录（onNewMessage 持久化回调——空文本兜底
-   *  「（无回答）」与迁移前行为等价；user 不经此面，初始窗口注入——唯一
-   *  例外：E-198 打断截断标记（engine 侧合成的固定常量 user 消息）。
-   *  Phase 1 块模型：assistant content → 投影记录三可选字段（loop BC →
-   *  投影 BC 翻译单点——text 块拼接、thinking 块聚合（多块拼文本、签名取
-   *  首块）、toolCall 取首枚（N=1 语义）；image 块无投影位——防御性忽略
-   *  （图片上行接线是后续 Phase））。 */
-  private async recordLoopMessage(message: LoopMessage): Promise<void> {
-    if (message.role === "toolResult") {
-      await this.pushRecord({
-        kind: "toolResult",
-        toolCallId: message.toolCallId,
-        name: message.name,
-        text: message.text,
-        at: this.now(),
-      });
-      return;
-    }
-    if (message.role === "user") {
-      // E-198 截断标记（engine 打断善后专用通道——固定常量文本，非用户真实
-      // 输入；sediment 判定面按常量过滤）。真实 user 入账同步捕获轮归属锚
-      // （B4a 主钩子水位/双写防御——与记录 at 同源，防时钟双源漂移）
-      const at = this.now();
-      if (message.text !== LOOP_INTERRUPTED_MARKER_TEXT) this.currentAskAt = at;
-      await this.pushRecord({ kind: "user", text: message.text, at });
-      return;
-    }
-    const rawText = loopBlocksText(message.content);
-    const toolCall = firstToolCallBlock(message.content);
-    const thinkingBlocks = message.content.filter(
-      (b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking",
-    );
-    const text = toolCall !== undefined || rawText.trim() !== "" ? rawText : "（无回答）";
-    const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
-    const signature = thinkingBlocks.find((b) => b.signature !== undefined && b.signature !== "")?.signature;
-    await this.pushRecord({
-      kind: "assistant",
-      ...(text !== "" || toolCall !== undefined ? { text } : {}),
-      ...(thinkingText !== ""
-        ? { thinking: signature !== undefined ? { text: thinkingText, signature } : { text: thinkingText } }
-        : {}),
-      ...(toolCall !== undefined ? { toolCall: { id: toolCall.id, name: toolCall.name, args: toolCall.args } } : {}),
-      at: this.now(),
-    });
+    // steward_confirm：面板确认原语（hidden——不进引擎工具面（LLM 不可见）；
+    // actionId 单次消费语义与 handler 层 steward.confirm 命令等价，面板直调
+    // svc.confirm——引擎轨道零注册）
+    this.hiddenToolNames.push("steward_confirm");
   }
 
   // ── 确认闸暂停点（write 类工具挂闸——beforeToolCallPause 实现体） ──────
@@ -1681,8 +1766,8 @@ export class StewardService {
    *   confirm_required；confirm → resumeWith(resolve) 执行 + 回灌）。
    */
   private async gateWriteTool(
-    ctx: LoopToolCallContext,
-  ): Promise<{ pause: true; action: PendingAction } | { pause: false; outcome?: LoopToolOutcome }> {
+    ctx: GateToolContext,
+  ): Promise<{ pause: true; action: PendingAction } | { pause: false; outcome?: GateToolOutcome }> {
     const { toolName: name, args } = ctx;
     if (name === "propose_send") {
       const action = await this.pendingActionOfProposeSend(args);
@@ -1713,7 +1798,7 @@ export class StewardService {
   /** propose_send 提案判定（参数校验 → 运行态校验 → PendingAction）。 */
   private async pendingActionOfProposeSend(
     args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome } | { terminate: true; reason: string }> {
+  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome } | { terminate: true; reason: string }> {
     const agentId = typeof args.agentId === "string" ? args.agentId : "";
     const message = typeof args.message === "string" ? args.message : "";
     if (agentId === "" || message === "") {
@@ -1722,8 +1807,7 @@ export class StewardService {
         outcome: {
           kind: "result",
           text: capToolResultText("参数缺失：agentId 与 message 必填"),
-          summary: "参数缺失：agentId 与 message 必填",
-        },
+          },
       };
     }
     // 提案校验：目标须存在且运行中（防火墙前置——终态实例递话必拒）
@@ -1746,14 +1830,14 @@ export class StewardService {
   /** start_session 提案判定（同 create_session 动作体，initial_message 必填兑底）。 */
   private async pendingActionOfStartSession(
     args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
     return this.pendingActionOfCreateSession(args, { requireInitialMessage: true });
   }
 
   /** deliver_to_session 提案判定（驾驶舱批逻辑平移：参数 → 装配面 → 会话存在性）。 */
   private async pendingActionOfDeliverToSession(
     args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
     const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"].trim() : "";
     const text = typeof args["text"] === "string" ? args["text"] : "";
     if (sessionId === "" || text.trim() === "") {
@@ -1786,7 +1870,7 @@ export class StewardService {
   private async pendingActionOfCreateSession(
     args: Record<string, unknown>,
     opts: { readonly requireInitialMessage?: boolean } = {},
-  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
     const titleRaw = typeof args["title"] === "string" ? args["title"].trim() : "";
     const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
     const guidance = this.checkProjectArg(project);
@@ -1828,7 +1912,7 @@ export class StewardService {
   /** spawn_review_task 提案判定（review_type → 项目 → git 仓/.kg 索引三道校验）。 */
   private async pendingActionOfSpawnReview(
     args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: LoopToolOutcome }> {
+  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
     const reviewTypeRaw = args["review_type"];
     const project = typeof args["project"] === "string" ? args["project"].trim() : "";
     const params =
@@ -1871,7 +1955,7 @@ export class StewardService {
   /** remember 直接执行体（B5 摘闸静默化：参数校验 → 可用性闸 → 两段查重
    *  入库 → memory_written 通知；回执回灌 LLM 续轮）。失败/不可用回执为
    *  引导文本（LLM 转述用户）——与旧 guideOutcome 语义同构。 */
-  private async directRemember(args: Record<string, unknown>): Promise<LoopToolOutcome> {
+  private async directRemember(args: Record<string, unknown>): Promise<GateToolOutcome> {
     const text = typeof args.text === "string" ? args.text.trim() : "";
     const kindRaw = args.kind;
     if (text === "") {
@@ -1892,17 +1976,17 @@ export class StewardService {
       this.turnRememberedAt = this.currentAskAt; // 同轮轮末沉淀跳过（B5 防双写）
       this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
       const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
-      return { kind: "result", text: capToolResultText(detail), summary: summarizeForFrame(detail) };
+      return { kind: "result", text: capToolResultText(detail) };
     } catch (err) {
       const detail = `记忆沉淀失败：${(err as Error).message}`;
-      return { kind: "result", text: capToolResultText(detail), summary: summarizeForFrame(detail) };
+      return { kind: "result", text: capToolResultText(detail) };
     }
   }
 
   /** 引导式工具结果（toolResult 回灌 LLM 循环继续可转述/自纠——迁移前
    *  toolErrorResult 的校验路径产物）。 */
-  private guideOutcome(guidance: string): { guidance: true; outcome: LoopToolOutcome } {
-    return { guidance: true, outcome: { kind: "result", text: capToolResultText(guidance), summary: summarizeForFrame(guidance) } };
+  private guideOutcome(guidance: string): { guidance: true; outcome: GateToolOutcome } {
+    return { guidance: true, outcome: { kind: "result", text: capToolResultText(guidance) } };
   }
 
   // ── A2：情景快照组装 ────────────────────────────────

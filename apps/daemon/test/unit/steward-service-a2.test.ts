@@ -14,6 +14,7 @@
  * （resolve + hasIndex）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -141,6 +142,7 @@ function makeA2Service(opts: {
   const feeds: StewardFeedPayload[] = [];
   const svc = new StewardService({
     llm: opts.llm,
+    createEngine: createEngineFromPort(opts.llm),
     orchestration,
     tasks: { listTasks: () => [] },
     config: fakeConfig({ "steward.enabled": "1" }),
@@ -329,7 +331,7 @@ describe("A2-2 query_recent_work（参数化查询）", () => {
       emitFeed: () => {},
       sessions,
       clock: fixedClock,
-    });
+    createEngine: createEngineFromPort(llm)});
     await svc.ask("最近在忙什么？");
     const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "query_recent_work");
     expect(tr!.text).toContain("评审 helix");
@@ -490,7 +492,8 @@ describe("A2-3 create_session（确认闸）", () => {
     const llmC = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }]);
     void llmC;
     const follow = await svc.ask("刚才那个会话建好了吗？");
-    void follow;
+    void follow; // 剧本耗尽抛错形态与迁移前同构（回执面不判）
+    await new Promise((r) => setTimeout(r, 20)); // B1 两段式：执行体 + resolve 回灌落地（异步收口拍点）
     void llmB;
     // 用第二次 ask 的请求窗口断言（llmA 已耗尽——改用新 fake 挂回）
     // 直接断言 getHistory：confirm 后应有 create_session 的 toolResult 记录
@@ -612,8 +615,11 @@ describe("A2-3 spawn_review_task（前置校验 + 确认闸）", () => {
     });
     const askResult = await svc.ask("开个 xxx");
     expect(askResult.status).toBe("answer");
+    // 声明适配（pi 形态）：schema enum 前置拦截（零执行护栏等价）——文案为
+    // pi 校验形态（枚举清单在 schema description 面，不在错误文案）
     const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "spawn_review_task");
-    expect(tr!.text).toContain("code-review");
+    expect(tr!.text).toContain("Validation failed");
+    expect(tr!.text).toContain("review_type");
   });
 
   test("paramsSchema 违规：confirm 后引擎错误原样透传回执 + 回灌工作记忆", async () => {

@@ -15,6 +15,7 @@
  * 6. executePending 里 deliverSession 分支不再 emitNavigate（已提前受理时）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -106,7 +107,7 @@ function makeRig(opts: {
       startDraftSession: async () => ({ sessionId: "sess-draft" }),
       createTitledSession: async () => ({ sessionId: "sess-new" }),
     },
-  });
+  createEngine: createEngineFromPort(fakeLlm(opts.llmScript))});
   return { svc, navigates, deliveries, releaseDelivery: release, resumeCalls };
 }
 

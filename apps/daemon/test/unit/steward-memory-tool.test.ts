@@ -14,6 +14,7 @@
  *    setConfig memory 组委托校验（开启前端点必填错误透传）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -113,6 +114,7 @@ function makeService(opts: {
   const notes: import("@helix/protocol").StewardMemoryWrittenPayload[] = [];
   const svc = new StewardService({
     llm: opts.llm,
+    createEngine: createEngineFromPort(opts.llm),
     orchestration: { status: () => [], send: () => ({ delivered: false, detail: "无实例" }) },
     tasks: { listTasks: () => [] },
     config: opts.config ?? fakeConfig({ "steward.enabled": "1" }),

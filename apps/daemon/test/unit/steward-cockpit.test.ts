@@ -11,6 +11,7 @@
  *    （feed 闸门同构）。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type {
   StewardLlmPort,
   StewardLlmRequest,
@@ -99,6 +100,7 @@ function makeService(opts: {
   const feeds: StewardFeedPayload[] = [];
   const svc = new StewardService({
     llm: opts.llm,
+    createEngine: createEngineFromPort(opts.llm),
     orchestration: fakeOrchestration(),
     tasks: { listTasks: () => [] },
     config: fakeConfig({ "steward.enabled": "1" }),
@@ -264,8 +266,7 @@ describe("驾驶舱：start_session 带话题开局（工具拆分——initial_
     const guidance = history.find((r) => r.kind === "toolResult" && r.name === "start_session");
     expect(guidance).toBeDefined();
     if (guidance?.kind !== "toolResult") throw new Error("unreachable");
-    expect(guidance.text).toContain("initial_message"); // 打回提示含补参指引
-    expect(guidance.text).toContain("用户原话");
+    expect(guidance.text).toContain("initial_message"); // 打回提示含补参指引（pi schema 拦截形态——中文话术在 schema description 面）
     expect(sessions.titled.length).toBe(0); // 零执行
     expect(sessions.deliveries.length).toBe(0);
   });

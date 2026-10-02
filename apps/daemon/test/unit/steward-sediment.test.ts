@@ -18,6 +18,7 @@
  *    直接入库 + 通知，toolResult 回灌 LLM 续轮。
  */
 import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
 import type { RuntimeConfigPort } from "../../src/application/ports/outbound/RuntimeConfigPort";
 import type { StewardLlmPort, StewardLlmRequest, StewardLlmResponse } from "../../src/application/ports/outbound/StewardLlmPort";
 import type { StewardMemoryWrittenPayload } from "@helix/protocol";
@@ -98,6 +99,7 @@ function makeService(opts: {
   );
   const svc = new StewardService({
     llm: opts.llm,
+    createEngine: createEngineFromPort(opts.llm),
     orchestration: { status: () => [], send: () => ({ delivered: true, detail: "ok" }) },
     tasks: { listTasks: () => [] },
     config: opts.config,
