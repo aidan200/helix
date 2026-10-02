@@ -30,7 +30,7 @@ function probe(): DiffPushProbe {
   };
 }
 
-import { generateUnifiedPatch } from "../../src/adapters/driven/tools/edit/kernel/edit-diff";
+import { generateUnifiedPatch } from "../../src/adapters/driven/tools/vendor/pi-harness/tools/edit-diff";
 
 /** 即时统计 IO fake：内存文件系统（写后终读即读内存现值；patch 用真 kernel——统计口径与生产一致）。 */
 function memIo(files: Map<string, string>): TurnDiffIoDeps {

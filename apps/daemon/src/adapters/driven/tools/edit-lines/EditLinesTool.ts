@@ -11,8 +11,8 @@ import {
   normalizeToLF,
   restoreLineEndings,
   stripBom,
-} from "../edit/kernel/edit-diff.js";
-import { withFileMutationQueue } from "../edit/kernel/file-mutation-queue.js";
+} from "../vendor/pi-harness/tools/edit-diff.ts";
+import { withFileMutationQueue } from "../vendor/pi-harness/tools/file-mutation-queue.ts";
 import { numberLine } from "../edit/recovery";
 import { resolveProjectRoot, type EditWriteNotify, type ProjectRootOf } from "../edit/EditTool";
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -562,21 +562,23 @@ describe("⑦ 同名覆盖注册（CL-1.A12）：edit/read 自写生效，write/
   });
 });
 
-describe("⑧ VENDORED 纪律（AF-1）：零 pi import 冻结件（上游锚已消亡）", () => {
-  const kernelDir = path.join(import.meta.dir, "..", "..", "src", "adapters", "driven", "tools", "edit", "kernel");
-  // pi 1.0.0 删除 agent-core 的 harness 全量（E-235 升级批次 1）——上游
-  // dist/harness/tools 目录不复存在，「与上游逐字节一致」断言永久失效。
-  // kernel 冻结件（0.87.0 dist 复制）运行时自足（零 pi import），继续服役；
-  // 统一并入 vendor/pi-harness（src 形态）是后续独立决策，不属本批。
-  test("kernel/ 零 pi import；edit-diff 运行体依赖 diff 包（AG-05 依据）", () => {
-    for (const name of ["edit-diff.js", "edit-diff.d.ts", "file-mutation-queue.js", "file-mutation-queue.d.ts"]) {
-      const src = readFileSync(path.join(kernelDir, name), "utf8");
-      expect(src.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.87.0"), `${name} 头注释溯源缺失`).toBe(true);
-      // 剥离 VENDORED 头注释两行后断言零 pi 符号（头注释含溯源包名）
-      const body = src.split("\n").slice(2).join("\n");
+describe("⑧ VENDORED 纪律（AF-1）：编辑内核并入 vendor/pi-harness 冻结面（双 vendored 统一批）", () => {
+  // pi 1.0.0 删除 agent-core harness 全量（E-235 升级批次 1）→ 上游锚消亡；
+  // 双 vendored 统一批（本批）：EditTool/EditLinesTool/turn-diff 的编辑内核
+  // 自旧 kernel/（0.87.0 dist 复制件，已删除）切至 vendor/pi-harness/tools
+  // （0.87.1 src 形态，与工具四件套同源同版）——单 vendored 面收口，零 pi
+  // import 纪律改在 vendor 面断言（运行体依赖 diff 包，AG-05 依据不变）。
+  const vendorDir = path.join(import.meta.dir, "..", "..", "src", "adapters", "driven", "tools", "vendor", "pi-harness", "tools");
+  test("vendor edit-diff/file-mutation-queue 零 pi import；edit-diff 依赖 diff 包（AG-05 依据）；旧 kernel/ 已退役", () => {
+    for (const name of ["edit-diff.ts", "file-mutation-queue.ts"]) {
+      const src = readFileSync(path.join(vendorDir, name), "utf8");
+      // 剥离 @ts-nocheck 头行后断言零 pi 符号（后续注释含溯源包名）
+      const body = src.split("\n").slice(1).join("\n");
       expect(body.includes("@earendil-works/"), `${name} 不得出现 pi import`).toBe(false);
     }
-    expect(readFileSync(path.join(kernelDir, "edit-diff.js"), "utf8")).toContain('from "diff"');
+    expect(readFileSync(path.join(vendorDir, "edit-diff.ts"), "utf8")).toContain('from "diff"');
+    // 旧 kernel/（0.87.0 dist 冻结件）已随统一批退役——目录不存在即守护
+    expect(existsSync(path.join(import.meta.dir, "..", "..", "src", "adapters", "driven", "tools", "edit", "kernel")), "kernel/ 应已退役").toBe(false);
   });
 });
 

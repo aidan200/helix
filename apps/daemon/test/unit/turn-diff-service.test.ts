@@ -9,7 +9,7 @@ import {
   type TurnDiffIoDeps,
   type WorkspaceStatIndexLite,
 } from "../../src/application/services/TurnDiffService";
-import { generateUnifiedPatch } from "../../src/adapters/driven/tools/edit/kernel/edit-diff";
+import { generateUnifiedPatch } from "../../src/adapters/driven/tools/vendor/pi-harness/tools/edit-diff";
 
 /**
  * T2 轮次级内存态 diff——TurnDiffService 单测（数据链核心语义）：

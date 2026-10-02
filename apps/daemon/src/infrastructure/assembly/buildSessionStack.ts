@@ -32,7 +32,7 @@ import { WriteFactRegistry } from "../../application/services/WriteFactRegistry"
 import { CoordinationService } from "../../application/services/CoordinationService";
 import { WriteManifestStore, manifestDir } from "../../application/services/WriteManifestStore";
 import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
-import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
+import { generateUnifiedPatch } from "../../adapters/driven/tools/vendor/pi-harness/tools/edit-diff";
 import { readFile } from "node:fs/promises";
 import { DEFAULT_COMPACTION, type CompactionSettings } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 import { SubAgentProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";

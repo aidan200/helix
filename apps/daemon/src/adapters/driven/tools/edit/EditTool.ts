@@ -13,16 +13,17 @@ import {
   normalizeToLF,
   restoreLineEndings,
   stripBom,
-} from "./kernel/edit-diff.js";
-import { withFileMutationQueue } from "./kernel/file-mutation-queue.js";
+} from "../vendor/pi-harness/tools/edit-diff.ts";
+import { withFileMutationQueue } from "../vendor/pi-harness/tools/file-mutation-queue.ts";
 import { buildRecovery, lineOfOffset, renderRecovery } from "./recovery";
 
 /**
  * EditTool —— 自写 edit 外壳（AD-12 方案 C + AF-1 复制收口）。
  *
- * 编辑内核 = ./kernel/（pi-agent-core@0.84.2 纯函数逐字复制，exports 白名单
- * 拦截 import——AF-1 裁决），外壳行为与 pi createEditTool 平权（同名覆盖注册，
- * 平权对照测试以 pi 工具为行为 oracle）。与 pi 的差异只有两处增量：
+ * 编辑内核 = ../vendor/pi-harness/tools/edit-diff.ts（pi-agent-core@0.87.1 src
+ * 形态 vendored 冻结面，与工具四件套同源同版；旧 ./kernel/（0.87.0 dist
+ * 复制件）已随双 vendored 统一批退役），外壳行为与 pi createEditTool 平权
+ * （同名覆盖注册，平权对照测试以 pi 工具为行为 oracle）。与 pi 的差异只有两处增量：
  * 1. **失败三级推荐管线（F1.4）**：not-found 失败在 kernel 错误原文后附录
  *    「最近似现场（实际内容+行号，失败即 read）+ 按序三建议」；
  * 2. **成功路径挂点**：落盘后投递 notifyWrite（T2.2 KgSyncService 契约签名，
