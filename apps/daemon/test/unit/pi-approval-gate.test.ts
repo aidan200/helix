@@ -130,13 +130,24 @@ describe("ApprovalGateHook（pi 通道审批闸——钩子位）", () => {
     expect(await pending).toEqual({ block: true, reason: "用户拒绝：危险操作" });
   });
 
-  test("A5 resume(approveWith/resolve) → 显式报错（pi 能力面外，不静默降级）", async () => {
+  test("A5 resume(approveWith) → 显式报错（pi 能力面外，不静默降级）；resolve → block+terminate 翻译（段B）", async () => {
     const gate = new ApprovalGateHook({ shouldGate: () => true, onPaused: () => {}, generateToken: () => "tok-A5" });
     const pending = gate.beforeToolCall(gateContext("danger", {}));
     expect(() => gate.resume("tok-A5", { kind: "approveWith", args: {} } as never)).toThrow(/approveWith/);
-    expect(() => gate.resume("tok-A5", { kind: "resolve", text: "x" } as never)).toThrow(/resolve/);
-    gate.resume("tok-A5", { kind: "approve" }); // 清理挂起
-    expect(await pending).toBeUndefined();
+    // resolve 翻译：结果入账（拒绝框定）+ run 终结——loop 域 resolve 的 pi 映射
+    gate.resume("tok-A5", { kind: "resolve", text: "确认动作执行完毕：已沉淀" });
+    expect(await pending).toEqual({ block: true, reason: "确认动作执行完毕：已沉淀", terminate: true });
+  });
+
+  test("A5b resolve 与 reject 形态对照：同框定文本，仅 terminate 位分野", async () => {
+    const gateR = new ApprovalGateHook({ shouldGate: () => true, onPaused: () => {}, generateToken: () => "tok-R" });
+    const gateJ = new ApprovalGateHook({ shouldGate: () => true, onPaused: () => {}, generateToken: () => "tok-J" });
+    const pR = gateR.beforeToolCall(gateContext("t", {}));
+    const pJ = gateJ.beforeToolCall(gateContext("t", {}));
+    gateR.resume("tok-R", { kind: "resolve", text: "同文案" });
+    gateJ.resume("tok-J", { kind: "reject", text: "同文案" });
+    expect(await pR).toEqual({ block: true, reason: "同文案", terminate: true });
+    expect(await pJ).toEqual({ block: true, reason: "同文案" }); // reject：模型续跑
   });
 
   test("A6 未知 token → 报错（过期/伪造凭据不炸闸）", () => {
@@ -309,10 +320,13 @@ describe("PiAgentEngineAdapter 审批闸接线（engine_paused + resume 四态�
     await expect(adapter.resume("any", { kind: "approve" })).rejects.toThrow(/审批闸/);
   });
 
-  test("B6 approveWith/resolve 经适配器面 → 显式能力面报错", async () => {
+  test("B6 approveWith 能力面外报错；resolve 经 block+terminate 翻译——结果入账 + run 终结（段B）", async () => {
     const events: AgentEngineEvent[] = [];
     const adapter = makeAdapter({
-      script: [assistant([{ type: "toolCall", id: "tc-6", name: "danger", arguments: { target: "v" } } as never], "toolCall")],
+      script: [
+        assistant([{ type: "toolCall", id: "tc-6", name: "danger", arguments: { target: "v" } } as never], "toolCall"),
+        assistant([{ type: "text", text: "不应到达（resolve 终结零续跑）" }], "text"), // 终结后不应消费
+      ],
       gate: true,
       events,
     });
@@ -320,8 +334,13 @@ describe("PiAgentEngineAdapter 审批闸接线（engine_paused + resume 四态�
     await waitFor(() => events.some((e) => e.type === "engine_paused"), 3000, "engine_paused");
     const paused = events.find((e) => e.type === "engine_paused") as { pauseToken: string };
     await expect(adapter.resume(paused.pauseToken, { kind: "approveWith", args: {} } as EngineResumeDecision)).rejects.toThrow(/approveWith/);
-    await expect(adapter.resume(paused.pauseToken, { kind: "resolve", text: "x" } as EngineResumeDecision)).rejects.toThrow(/resolve/);
-    adapter.abort();
+    // resolve 翻译：拒绝框定结果入账 + run 终结（零续跑——尾轮剧本不应消费）
+    await adapter.resume(paused.pauseToken, { kind: "resolve", text: "确认动作执行完毕：已沉淀" } as EngineResumeDecision);
     await run;
+    const ends = events.filter((e): e is Extract<AgentEngineEvent, { type: "tool_execution_end" }> => e.type === "tool_execution_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]!.result).toBe("确认动作执行完毕：已沉淀");
+    expect(events.some((e) => e.type === "message_end" && e.role === "assistant" && e.text === "不应到达（resolve 终结零续跑）")).toBe(false);
+    expect(events.at(-1)?.type).toBe("agent_end");
   });
 });

@@ -32,7 +32,13 @@ export interface ApprovalGatePausedInfo {
 }
 
 /** 钩子层决策（适配器层 EngineResumeDecision → 此处的映射产物）。 */
-export type ApprovalGateDecision = { readonly kind: "approve" } | { readonly kind: "reject"; readonly text: string };
+export type ApprovalGateDecision =
+  | { readonly kind: "approve" }
+  | { readonly kind: "reject"; readonly text: string }
+  /** 段B resolve 翻译：结果入账 + run 终结（loop 域 resolve 语义的 pi 映射
+   *  ——block+terminate：拒绝框定结果入账 + 终止零续跑；isError 由 pi
+   *  block 路径强制 true，loop resolve 的 isError=false 无法表达——声明偏差）。 */
+  | { readonly kind: "resolve"; readonly text: string };
 
 export interface ApprovalGateDeps {
   /** 挂闸策略：返回 true 的工具调用挂闸（逐调用询问，可按 args 细化）。 */
@@ -116,17 +122,19 @@ export class ApprovalGateHook implements HookSet {
       return undefined;
     }
     if (outcome.kind === "approve") return undefined;
-    return { block: true, reason: outcome.text };
+    // reject：拒绝框定结果入账，模型知情续跑；resolve：同框定 + terminate
+    //（结果入账 + run 终结——loop 域 resolve 的 pi 翻译）。
+    return { block: true, reason: outcome.text, ...(outcome.kind === "resolve" ? { terminate: true } : {}) };
   }
 
-  /** 挂闸凭据提交决策（适配器 resume 面 → 此处；契约防御：非 approve/reject 形态拒绝）。 */
+  /** 挂闸凭据提交决策（适配器 resume 面 → 此处；契约防御：非已知形态拒绝）。 */
   resume(pauseToken: string, decision: ApprovalGateDecision): void {
     const resolve = this.pending.get(pauseToken);
     if (resolve === undefined) {
       throw new Error(`审批闸未知 pauseToken：${pauseToken}（已过期或伪造——run 中止/已裁决的凭据不可复用）`);
     }
-    if (decision.kind !== "approve" && decision.kind !== "reject") {
-      throw new Error(`审批闸不接受决策形态 ${String((decision as { kind?: string }).kind)}（钩子契约仅 approve/reject）`);
+    if (decision.kind !== "approve" && decision.kind !== "reject" && decision.kind !== "resolve") {
+      throw new Error(`审批闸不接受决策形态 ${String((decision as { kind?: string }).kind)}（钩子契约仅 approve/reject/resolve）`);
     }
     resolve(decision);
   }
