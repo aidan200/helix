@@ -70,3 +70,17 @@ export function hasSteer(hook: HookSet): hook is HookSet & SteerCapable {
   const candidate = hook as unknown as Partial<SteerCapable>;
   return typeof candidate.steer === "function" && typeof candidate.abort === "function";
 }
+
+/** followUp 接线能力接口（管家批段B additive）：运行中入队、当前 run 收口后
+ *  自动开新 run 消费——与 steer（turn 边界 drain 进当前 run）互补的输入通道。
+ *  pi Agent 原生 followUp 语义（PendingMessageQueue 队列模式）直通。 */
+export interface FollowUpCapable {
+  /** 入队 followUp 消息（转发 agent.followUp，run 边界自动消费）。 */
+  followUp(text: string): void;
+}
+
+/** 类型谓词：钩子是否具备 followUp 接线能力。 */
+export function hasFollowUp(hook: HookSet): hook is HookSet & FollowUpCapable {
+  const candidate = hook as unknown as Partial<FollowUpCapable>;
+  return typeof candidate.followUp === "function";
+}

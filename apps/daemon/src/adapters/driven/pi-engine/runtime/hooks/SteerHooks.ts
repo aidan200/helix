@@ -49,6 +49,12 @@ export class SteerHooks implements HookSet, SteerCapable {
     this.requireAgent().steer({ role: "user", content: text, timestamp: Date.now() });
   }
 
+  /** followUp 入队（段B additive）：当前 run 收口后自动开新 run 消费
+   *  （pi PendingMessageQueue 队列模式——与 steer 的 turn 边界 drain 互补）。 */
+  followUp(text: string): void {
+    this.requireAgent().followUp({ role: "user", content: text, timestamp: Date.now() });
+  }
+
   abort(): void {
     this.controller?.abort();
     this.requireAgent().abort();
