@@ -12,7 +12,7 @@ import type {
 } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model, Models } from "@earendil-works/pi-ai";
 import type { AgentProfile } from "./AgentProfile";
-import { hasSteer, type HookSet, type SteerCapable } from "./HookSet";
+import { hasFollowUp, hasSteer, type FollowUpCapable, type HookSet, type SteerCapable } from "./HookSet";
 import { CompactionHook, type CompactionOutcome } from "./hooks/CompactionHook";
 import { parseDataUrlImages } from "../../../../application/services/images";
 
@@ -68,6 +68,8 @@ export interface AgentRuntimeDeps {
 export class AgentRuntime {
   private readonly agent: Agent;
   private readonly steerHook?: HookSet & SteerCapable;
+  /** followUp 接线钩子（段B additive——具备能力的 HookSet，如 SteerHooks）。 */
+  private readonly followUpHook?: HookSet & FollowUpCapable;
   /** 运行期 thinking 覆盖（thinking 批①，AD-4①；setModel 同构直改链，下一
    *  turn 生效）。helix 自持覆盖字段——**不走** pi AgentState.thinkingLevel：
    *  其缺省 off 且 pi loop config 会把它直注 options.reasoning（无 §3.3 能力
@@ -118,6 +120,7 @@ export class AgentRuntime {
     });
     for (const hook of hooks) hook.bind?.(this.agent);
     this.steerHook = hooks.find(hasSteer);
+    this.followUpHook = hooks.find(hasFollowUp);
   }
 
   /** 驱动一轮 run：prompt 输入并等待 run 完全结束（含工具轮与注入 drain 轮）。
@@ -143,6 +146,13 @@ export class AgentRuntime {
   steer(text: string): void {
     if (!this.steerHook) throw new Error(`profile 未装配具备 steer 接线的 HookSet，不支持注入`);
     this.steerHook.steer(text);
+  }
+
+  /** followUp 入队（段B additive）：当前 run 收口后自动开新 run 消费——经
+   *  FollowUpCapable 钩子转发；未装配即该 profile 不支持（与 steer 同守卫形态）。 */
+  followUp(text: string): void {
+    if (!this.followUpHook) throw new Error(`profile 未装配具备 followUp 接线的 HookSet，不支持入队`);
+    this.followUpHook.followUp(text);
   }
 
   /** 中断当前 run（非销毁）。 */

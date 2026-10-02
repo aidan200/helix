@@ -188,6 +188,15 @@ export interface AgentEnginePort {
    * （kernel D5 惰性化承接）。
    */
   resume?(pauseToken: string, decision: EngineResumeDecision): Promise<void>;
+  /**
+   * followUp 入队（管家批段B additive，pi 原生语义）：即时入队不打断当前
+   * run；活跃 run 在 turn 边界消费（steering 队列优先）；idle 后队列存活，
+   * 由下一次 start()/continueRun() 驱动消费（不自动开 run）。与 steer 的
+   * 区别：steer 优先 drain 且语义上是「注入当前对话」，followUp 是「待接续
+   * 输入」（优先级低，可跨 run 存活）。跨 run 事件消费方需引擎侧常驻监听面
+   * （pi 引擎 = persistentListener 构造选项）。未实现 = 引擎不支持。
+   */
+  followUp?(text: string): void;
 }
 
 /** 暂停恢复决策（loop 域 LoopResumeDecision 的 port 镜像——四态同构，

@@ -92,11 +92,21 @@ export interface PiEngineOptions {
   readonly approvalGate?: {
     readonly shouldGate: (toolName: string, args: unknown) => boolean;
   };
+  /**
+   * 常驻事件监听器（管家批段B additive）：跨 run 存活的事件通道——与
+   * start()/continueRun() 的逐 run listener 互补（后者在 run 收口后置空，
+   * 而 followUp 队列驱动的后继 run 在 start() 返回后才自动开，逐 run 面
+   * 看不到）。跨 run 消费者（管家：对话投影/队列收口/暂停侦测）经此面
+   * 订阅；缺省不装（既有行为不变）。
+   */
+  readonly persistentListener?: AgentEngineListener;
 }
 
 export class PiAgentEngineAdapter implements AgentEnginePort {
   private readonly runtime: AgentRuntime;
   private listener: AgentEngineListener | null = null;
+  /** 常驻监听器（persistentListener 选项——跨 run 事件通道）。 */
+  private readonly persistentListener: AgentEngineListener | null;
   /** 审批闸钩子（本批）：未装配 = undefined（resume 面恒报错）。 */
   private readonly gate?: ApprovalGateHook;
   /** 已 steer 的文本（FIFO）：drain 边界的 user 消息据此判别来源。 */
@@ -120,6 +130,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
 
   constructor(options: PiEngineOptions) {
     const models = options.models ?? buildModels();
+    this.persistentListener = options.persistentListener ?? null;
     this.resolveById = options.resolveModelById ?? ((id) => resolveModel(models, id));
     this.resolveToolsFn = options.resolveTools;
     this.resolveThinkingFn = options.resolveThinking;
@@ -214,6 +225,15 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     // user 消息被误判 source=steer-drain（drain 判别见 onPiEvent message_start）
     this.runtime.steer(text);
     this.steeredTexts.push(text);
+  }
+
+  /** followUp 入队（管家批段B additive，pi 原生语义）：即时入队；活跃 run
+   *  在 turn 边界消费（steering 优先），idle 后队列存活待下次 start()/
+   *  continueRun() 驱动（不自动开 run；不进 steeredTexts，drain 消息
+   *  source="prompt"——pi 事件面无 drain 源标记）。跨 run 事件面见
+   *  persistentListener 选项。 */
+  followUp(text: string): void {
+    this.runtime.followUp(text);
   }
 
   abort(): void {
@@ -314,9 +334,14 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     return { override, effective };
   }
 
-  /** pi AgentEvent → port 引擎事件（时序契约 §5 等价的真引擎侧）。 */
+  /** pi AgentEvent → port 引擎事件（时序契约 §5 等价的真引擎侧）。
+   * 逐 run listener（start/continueRun）之外，常驻监听器（persistentListener）
+   * 同步转发——跨 run 消费面（followUp 后继 run）可见。 */
   private onPiEvent(event: AgentEvent): void {
-    const emit = (e: AgentEngineEvent) => this.listener?.(e);
+    const emit = (e: AgentEngineEvent) => {
+      this.listener?.(e);
+      this.persistentListener?.(e);
+    };
     switch (event.type) {
       case "agent_start":
         this.seenUserInRun = false; // run 边界重置（首条 user 判别计数位）
