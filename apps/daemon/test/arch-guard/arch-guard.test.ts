@@ -37,7 +37,14 @@ function importSpecifiers(source: string): string[] {
 }
 
 describe("AG-01：port 文件只有接口/类型", () => {
-  test("ports/** 无函数体、无 class、非 type-only import 缺失", () => {
+  // 管家批（AG 基线清偿）：port 面包导入白名单 = {@helix/protocol}，且必须
+  // type-only——值导入会把运行时依赖拖进接口层。协议类型是 wire 契约唯一真源
+  // （StewardDialogStorePort 的 StewardHistoryRecord 先例：落盘 payload 即协议
+  // JSON 原文，接口层另声明一份即双真源）；AG-02② 已给 application 层同款
+  // 白名单，此处对 ports 收紧为 type-only。
+  const PORT_PACKAGE_TYPE_WHITELIST: ReadonlySet<string> = new Set(["@helix/protocol"]);
+
+  test("ports/** 无函数体、无 class、包导入仅 @helix/protocol 且 type-only", () => {
     const files = listFiles(path.join(srcRoot, "application", "ports"));
     expect(files.length).toBeGreaterThanOrEqual(9);
     for (const rel of files) {
@@ -46,7 +53,19 @@ describe("AG-01：port 文件只有接口/类型", () => {
       expect(src.match(/\bclass\s+\w+/), `${rel} 含 class`).toBeNull();
       expect(src.match(/=>\s*\{/), `${rel} 含箭头函数体`).toBeNull();
       for (const spec of importSpecifiers(src)) {
-        expect(spec, `${rel} 的 import 必须是 type-only 相对路径`).toMatch(/^(\.\.?\/|node:)/);
+        expect(
+          spec.startsWith(".") || spec.startsWith("node:") || PORT_PACKAGE_TYPE_WHITELIST.has(spec),
+          `${rel} 的 import 必须是相对路径、node: 或白名单包 {@helix/protocol}：${spec}`,
+        ).toBe(true);
+      }
+      // 白名单包导入逐句验 type-only（export-from 无 type 关键字 = 值再导出，同罪）
+      const stmtRe = /^[ \t]*(?:import|export)\s+(type\s+)?[^;'"]*?from\s+['"]([^'"]+)['"]/gm;
+      let stmt: RegExpExecArray | null;
+      while ((stmt = stmtRe.exec(src)) !== null) {
+        const spec = stmt[2]!;
+        if (spec.startsWith(".") || spec.startsWith("node:")) continue;
+        expect(PORT_PACKAGE_TYPE_WHITELIST.has(spec), `${rel} 的包导入越出白名单：${spec}`).toBe(true);
+        expect(stmt[1] !== undefined, `${rel} 的包导入 ${spec} 必须 type-only（import type / export type）`).toBe(true);
       }
     }
   });
@@ -336,6 +355,12 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     // 库独立写点）：本库仅管家记忆域单写者，连接级串行 + 事务写入，
     // 无跨面并发（端口 StewardMemoryPort 唯一消费面 = StewardMemoryService）。
     path.join("adapters", "driven", "steward-memory", "SqliteVecMemoryStore.ts"),
+    // 管家记忆 B6（AG 基线清偿批登记）：steward_memory.db 第二连接写面——行式
+    // 对话存储（steward_messages + meta 表）与 B1 vec 面（entries/vec_items）
+    // 同库不同表：管家域数据单库聚合（与 helix.db 物理隔离），两连接同文件
+    // WAL 并存、表域不相交无跨面写冲突；本连接仅对话域单写者（端口
+    // StewardDialogStorePort 唯一消费面 = StewardDialogMemory），事务写入。
+    path.join("adapters", "driven", "steward-memory", "SqliteStewardDialogStore.ts"),
   ]);
   // T2.1（AF-2）：codegraph.db 只读读点登记（**非写点**）——codegraph-engine
   // 投影面 new Database（mode=ro 系只读连接，零 DML/DDL/写类 PRAGMA，绝不
