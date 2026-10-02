@@ -32,6 +32,13 @@ export interface AgentEngineUsage {
   readonly totalTokens: number;
   readonly cost: number;
 }
+/** 引擎中立内容块（管家批段B additive：dialog 投影/工具调用回放消费——
+ * port 自持类型，不耦合 domain/loop（段C 退役面）也不泄 pi 形状）。 */
+export type AgentEngineContentBlock =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "thinking"; readonly text: string; readonly signature?: string }
+  | { readonly type: "toolCall"; readonly id: string; readonly name: string; readonly args: Record<string, unknown> };
+
 export type AgentEngineEvent =
   | { readonly type: "agent_start" }
   | { readonly type: "agent_end"; readonly messageCount: number }
@@ -69,6 +76,13 @@ export type AgentEngineEvent =
       readonly stopReason?: string;
       /** 本 turn 用量（assistant 消息携带时提取；七字段，cost 拍平——账目归 UsageLedger）。 */
       readonly usage?: AgentEngineUsage;
+      /** toolResult 配对锚（管家批段B additive：toolCallId + 工具名——dialog
+       * 投影与回放配对消费；引擎侧可选——不携带时消费方自行降级）。 */
+      readonly toolCallId?: string;
+      readonly toolName?: string;
+      /** assistant 完整块集（管家批段B additive：thinking/toolCall 块投影消费——
+       * text 字段是块集文本拼接的便利面，块集是精度面；可选——不携带时消费方降级）。 */
+      readonly blocks?: readonly AgentEngineContentBlock[];
     }
   | {
       readonly type: "tool_execution_start";
