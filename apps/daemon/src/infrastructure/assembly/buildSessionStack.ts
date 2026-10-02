@@ -108,9 +108,8 @@ export interface AssemblyBackfill {
  * 静态工具目录与 MCP 准入白名单（M5 切片迁 mcpCatalogSurface——MCP_ALLOWED_OF
  * import 复用，SubagentLauncher mcpServersFor 门控同源）。
  */
-export type { AgentEngineKind, EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
-import type { AgentEngineKind, EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
-import { agentEngineFromEnv } from "./sessionEngineFactory";
+export type { EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
+import type { EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
 import { buildMainEngineFactory, buildSessionRuntimeFactory } from "./sessionEngineFactory";
 import { buildMcpCatalogSurface, MCP_ALLOWED_OF } from "./mcpCatalogSurface";
 
@@ -998,9 +997,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // 读现值（refreshAssembly 重算 let 缓存——与原闭包直读变量同语义）。
   const engineFor = buildMainEngineFactory({
     engineMode,
-    // helix-loop Phase 5：engine flag（缺省 pi 现役零漂移；loop = 显式开启
-    // 验证通道——env 唯一读点 agentEngineFromEnv）
-    agentEngine: agentEngineFromEnv(),
     scheduler,
     resolveSubagentModelId: () => resolveSubagentModelId(),
     resourceService,

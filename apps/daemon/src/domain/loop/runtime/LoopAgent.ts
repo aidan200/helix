@@ -27,8 +27,9 @@
  *
  * 事件面（Phase 2 评估结论）：不扩 LoopEvent 15 型——waitForIdle 经内部
  * waiter 实现、isStreaming 同步轮询，均无需事件；agent 级 idle/processing
- * 状态事件留给 Phase 5 引擎适配器（LoopAgentEngineAdapter 事件映射面）按
- * AgentEngineEvent 消费需要 additive 评估。
+ * 状态事件面（原 Phase 5 LoopAgentEngineAdapter 事件映射——随主会话 loop
+ * 通道退役删）已不在本内核消费面，未来消费需要时按 AgentEngineEvent
+ * additive 评估（git 历史可考）。
  *
  * 依赖纪律：runtime → policy → kernel → contracts 单向（TR-223）；零 pi
  * import（AG-02）。

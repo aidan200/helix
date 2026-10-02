@@ -37,9 +37,6 @@ import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/drive
 import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
 import { MainSessionProfile } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import type { CompactionSettings } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
-import { LoopAgentEngineAdapter, agentMessagesToLoop } from "../../adapters/driven/loop/LoopAgentEngineAdapter";
-import { createLoopSessionStreamFn } from "../../adapters/driven/loop/LoopEngineStream";
-import { ToolRegistry } from "../../domain/loop/kernel/ToolRegistry";
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { TodoToolDeps } from "../../adapters/driven/tools/todo/TodoTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
@@ -60,17 +57,6 @@ export type EngineAssemblyMode =
   | { readonly kind: "production" }
   | { readonly kind: "override"; readonly factory: (sessionId: string) => AgentEnginePort };
 
-/** agent 引擎选择（helix-loop Phase 5 检查点 5 前 flag）。
- *  缺省 "pi"（现役行为零漂移）；"loop" = LoopAgentEngineAdapter 通道
- *  （显式开启验证——已知缺口见 adapter 件头：usage 账/thinking 细流/压缩
- *  未接，翻默认是检查点 5 与用户确认后的独立动作）。 */
-export type AgentEngineKind = "pi" | "loop";
-
-/** HELIX_AGENT_ENGINE env 解析（唯一读点；非法值回落 pi 不告警——验证通道
- *  不引入新故障面）。组合根（buildSessionStack）显式传入；未注入缺省 pi。 */
-export function agentEngineFromEnv(): AgentEngineKind {
-  return process.env.HELIX_AGENT_ENGINE === "loop" ? "loop" : "pi";
-}
 
 /**
  * 主会话 LLM 覆盖（测试接缝：fake 剧本 streamFn + 可解析 model + apiKeys）。
@@ -129,9 +115,6 @@ export function effectiveMainToolNames(
 
 export interface MainEngineFactoryCtx {
   readonly engineMode: EngineAssemblyMode;
-  /** agent 引擎选择（helix-loop Phase 5；缺省 pi 现役零漂移；组合根经
-   *  agentEngineFromEnv 注入——测试不设 env 即 pi）。 */
-  readonly agentEngine?: AgentEngineKind;
   readonly scheduler: SchedulerService;
   /** SubAgent 模型两级链解析单点（engineFor spawn 透传恒无参调用 = worker 链）。 */
   readonly resolveSubagentModelId: () => string;
@@ -199,7 +182,6 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
   if (engineMode.kind === "override") {
     return (sessionId: string) => engineMode.factory(sessionId);
   }
-  const engineKind = ctx.agentEngine ?? "pi";
   return (sessionId, mode, seed, bind): AgentEnginePort => {
     const sessionOrchestration: AgentOrchestrationPort = {
       spawn: (task, profileKind, reportIntervalMs) =>
@@ -364,52 +346,6 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       coord: ctx.coordination !== undefined,
       permissionRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
     });
-    // ── helix-loop 通道（Phase 5 flag 验证面；缺省不走）─────────
-    // 已知降位（验证通道口径，findings 申报）：① engine_retrying 可观测事件
-    // 未投影（重试本身生效——withNetworkRetry 包装在 streamFn 内，仅等待期
-    // 事件缺席）；② thinking 会话覆盖面未接（链 = 槽位+全局两档，setThinking
-    // 缺口）；③ 压缩策略未接（LoopKernelDeps.compactStep 可注入位留待切换批）。
-    if (engineKind === "loop") {
-      const registry = new ToolRegistry();
-      for (const registration of toolExecutor.resolveLoopTools(effectiveToolNames)) {
-        registry.register(registration);
-      }
-      // 模型 mutable 槽（setModel 下一请求生效，AD-2 同构）：id 与对象双持
-      //（id 供可观测面，对象供 streamFn 每请求重读）
-      const slotModel =
-        ctx.mainSessionLlmOverride?.model() ??
-        resolveConfigModel(
-          ctx.resourceService.modelSlot(profileKindOf(mode)) ?? ctx.defaultModel.current(),
-          ctx.catalog.modelsView(),
-        );
-      const modelSlot = { model: slotModel, id: `${slotModel.provider}/${slotModel.id}` };
-      const apiKeysOf = (): Record<string, string> => ({
-        ...ctx.authStore.apiKeysSnapshot(),
-        ...(ctx.mainSessionLlmOverride?.apiKeys?.() ?? {}),
-      });
-      return new LoopAgentEngineAdapter({
-        systemPrompt: mainSystemPrompt(),
-        streamFn: createLoopSessionStreamFn({
-          models: ctx.catalog.modelsView(),
-          model: () => modelSlot.model,
-          getApiKey: (provider) => apiKeysOf()[provider],
-          resolveThinking: (model) =>
-            resolveEffectiveThinking(
-              [ctx.resourceService.thinkingSlot(profileKindOf(mode)), ctx.globalThinking()],
-              model,
-            ),
-        }),
-        registry,
-        modelRef: {
-          get: () => modelSlot.id,
-          set: (id) => {
-            modelSlot.model = ctx.mainSessionLlmOverride?.model() ?? resolveConfigModel(id, ctx.catalog.modelsView());
-            modelSlot.id = id;
-          },
-        },
-        ...(seed !== undefined ? { initialMessages: agentMessagesToLoop(seed) } : {}),
-      });
-    }
     // thinking 解析链（§3.1 落点一/§3.3，thinking 批 T1.2）：链 =
     // [会话覆盖（引擎读面回读）, 会话模式 profileKind 槽位]逐值能力适配
     // 取首个生效值；全链未配置 / reasoning=false / 链值 "off"（显式关
