@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createWebFetchTool } from "../../src/adapters/driven/tools/web/WebFetchTool";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * M25 单元：WebFetchTool Jina 备选分支约束——

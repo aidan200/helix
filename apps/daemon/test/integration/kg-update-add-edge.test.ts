@@ -10,7 +10,7 @@ import { KgWriteService } from "../../src/application/services/kg/KgWriteService
 import { KgQueryService } from "../../src/application/services/kg/KgQueryService";
 import { createKgUpdateTool } from "../../src/adapters/driven/tools/kg-update/KgUpdateTool";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层（真 SQLite tmp 库）：kg-update 工具面 addEdge op——

@@ -2,14 +2,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { parentWorkLedger } from "../../src/adapters/driven/sqlite-session/WorkLedger";
 import { LazyWorkLedger } from "../../src/adapters/driven/sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../src/application/services/task/WorkLedgerService";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：todo 工具族（plan 三工具改名批，C+B）——真 SQLite @ tmp。

@@ -16,7 +16,7 @@
  * **写前**触发（快照语义——必须先于落盘读到原文），零冲突。
  */
 
-import type { Context } from "@earendil-works/pi-agent-core/node";
+import type { Context } from "../../../adapters/driven/tools/vendor/pi-harness";
 
 /** 包装目标的最小结构面（NodeExecutionEnv 的 writeFile 切片）。 */
 export interface EnvWriteTarget {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { createPermissionRequestTool, type PermissionRequestToolDeps } from "../../src/adapters/driven/tools/permission-request/PermissionRequestTool";
 
 function depsOf(overrides: Partial<PermissionRequestToolDeps> = {}): PermissionRequestToolDeps {

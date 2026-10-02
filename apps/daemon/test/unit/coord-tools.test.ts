@@ -11,9 +11,9 @@ import {
   createCoordQueryTool,
   createCoordReleaseTool,
 } from "../../src/adapters/driven/tools/coord/CoordTools";
-import type { AgentHarnessTool, AgentToolResult, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import type { AgentHarnessTool, AgentToolResult, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 const WS = "/ws";
 

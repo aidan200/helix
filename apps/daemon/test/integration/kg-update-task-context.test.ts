@@ -14,7 +14,7 @@ import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue"
 import { TaskStore } from "../../src/adapters/driven/sqlite-session/TaskStore";
 import { EDGE_VERBS, type KnowledgeWriteOp } from "../../src/domain/kg/types";
 import { counterClock } from "../helpers/task-fixtures";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层（真 SQLite @ tmp）：kg-update 任务归属元数据机械注入（T4.2，AD-10

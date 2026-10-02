@@ -1,4 +1,4 @@
-import type { ExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { ExecutionEnv } from "../../../../../adapters/driven/tools/vendor/pi-harness";
 import { globToRegExp } from "../contract";
 import type { GrepBackend, GrepMatch, GrepQuery } from "../contract";
 

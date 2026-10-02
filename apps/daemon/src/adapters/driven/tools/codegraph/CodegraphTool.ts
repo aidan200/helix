@@ -2,7 +2,7 @@ import type {
   AgentHarnessTool,
   AgentToolResult,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../../adapters/driven/tools/vendor/pi-harness";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type {

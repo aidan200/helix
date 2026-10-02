@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import {
   createTaskCreateTool,
   type TaskCreateToolDeps,
@@ -19,7 +19,7 @@ import { planToolStub } from "../helpers/planToolStub";
 import { taskReportStub } from "../helpers/taskReportStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { withTaskEnv } from "../helpers/task-fixtures";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：task_create 工具（T2.4，CL-1/F1.3，AD-7 chat 第二创建入口）——

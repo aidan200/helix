@@ -2,7 +2,7 @@ import type {
   AgentHarnessTool,
   AgentToolResult,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../../adapters/driven/tools/vendor/pi-harness";
 import { readFile } from "node:fs/promises";
 import type { BrowserPort, ScrollDirection } from "../../../../application/ports/outbound/BrowserPort";
 import { MAX_IMAGE_BYTES } from "../../../../application/services/images";

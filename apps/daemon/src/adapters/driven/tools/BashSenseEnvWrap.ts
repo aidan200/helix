@@ -45,7 +45,7 @@ export interface BashSenseRuntime {
   readonly now?: () => number;
 }
 
-import type { Context } from "@earendil-works/pi-agent-core/node";
+import type { Context } from "../../../adapters/driven/tools/vendor/pi-harness";
 
 /** 包装目标最小结构面。 */
 export interface BashSenseEnvTarget {

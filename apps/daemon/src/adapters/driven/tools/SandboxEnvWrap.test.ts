@@ -12,7 +12,7 @@ import {
   type ShellExecResult,
   type ShellOutputMetadata,
   type ShellOutputView,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../adapters/driven/tools/vendor/pi-harness";
 
 import { parseSandboxConfig } from "../../../domain/sandbox/SandboxPolicy";
 import { wrapEnvForSandbox, type SandboxEnvTarget, type SandboxRuntime } from "./SandboxEnvWrap";

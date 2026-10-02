@@ -265,6 +265,16 @@ export class ModelCatalog implements ModelCatalogPort {
       fetchDeferred: (model, handle, options) => catalog.base.fetchDeferred(model, handle, options),
       cancelDeferred: (model, handle, options) => catalog.base.cancelDeferred(model, handle, options),
       streamDeferred: (model, handle, options) => catalog.base.streamDeferred(model, handle, options),
+      // pi-ai 1.0.0 Models 新面（image/classifier 型目录）：底座透传（缺方法
+      // 的底座实现天然 undefined 语义——Models 接口部分声明为可选）。helix
+      // 消费面尚未用这些面，透传不改变行为（升级批次 1）。
+      getModelsOfType: catalog.base.getModelsOfType?.bind(catalog.base),
+      getModelOfType: catalog.base.getModelOfType?.bind(catalog.base),
+      getAllModels: catalog.base.getAllModels?.bind(catalog.base),
+      getAvailableOfType: catalog.base.getAvailableOfType?.bind(catalog.base),
+      getAllAvailable: catalog.base.getAllAvailable?.bind(catalog.base),
+      generateImages: catalog.base.generateImages?.bind(catalog.base),
+      classify: catalog.base.classify?.bind(catalog.base),
     };
   }
 

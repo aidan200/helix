@@ -1,4 +1,6 @@
-import { Agent, convertToLlm } from "@earendil-works/pi-agent-core";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { convertToLlm } from "../../tools/vendor/pi-harness";
+import { abortShapingConvertToLlm } from "../AbortShaping";
 import type {
   AgentEvent,
   AgentLoopTurnUpdate,
@@ -104,9 +106,10 @@ export class AgentRuntime {
       streamFn: deps.streamFn,
       getApiKey: deps.getApiKey,
       steeringMode: "one-at-a-time", // 每条注入独占一个 turn（实测默认）
-      // 压缩接线时同步启用 pi 的 LLM 转换器：compactionSummary 角色 →
-      // 带前缀的 user 消息（缺省转换器会直接丢弃 summary，压缩历史丢失）
-      ...(compaction.length > 0 ? { convertToLlm } : {}),
+      // convertToLlm 恒接：①打断善后修形层（E-198 判据 pi 形状，批次 3）——
+      // aborted assistant 安全块入账+标记，thinking/toolCall 剔除；②内层
+      // vendored 转换器（compactionSummary → 带前缀 user，缺省转换器会丢）
+      convertToLlm: abortShapingConvertToLlm(convertToLlm),
       transformContext: combineTransformContext(hooks),
       beforeToolCall: combineBeforeToolCall(hooks),
       // deferred 批：turn 边界钩子改接 pi 官方 WithContext 通道（旧位

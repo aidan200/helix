@@ -2,7 +2,7 @@ import type {
   AgentHarnessTool,
   AgentToolResult,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../../../adapters/driven/tools/vendor/pi-harness";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import type { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import { EDGE_VERBS } from "../../../../domain/kg/types";

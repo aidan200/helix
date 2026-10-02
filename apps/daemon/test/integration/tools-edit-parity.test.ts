@@ -7,13 +7,13 @@ import {
   createEditTool as createPiEditTool,
   createWriteTool as createPiWriteTool,
   NodeExecutionEnv,
-} from "@earendil-works/pi-agent-core/node";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+} from "../../src/adapters/driven/tools/vendor/pi-harness";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { createEditTool } from "../../src/adapters/driven/tools/edit/EditTool";
 import { createReadTool } from "../../src/adapters/driven/tools/read/ReadTool";
 import { createEditLinesTool } from "../../src/adapters/driven/tools/edit-lines/EditLinesTool";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
-import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * T3.1 自写 edit / read / edit-lines 三工具（F1.4，AD-12 方案 C + AF-1 复制收口）。
@@ -562,52 +562,19 @@ describe("⑦ 同名覆盖注册（CL-1.A12）：edit/read 自写生效，write/
   });
 });
 
-describe("⑧ VENDORED 纪律（AF-1）：逐字复制 + 零 pi import", () => {
+describe("⑧ VENDORED 纪律（AF-1）：零 pi import 冻结件（上游锚已消亡）", () => {
   const kernelDir = path.join(import.meta.dir, "..", "..", "src", "adapters", "driven", "tools", "edit", "kernel");
-  const upstreamDir = path.join(
-    import.meta.dir, "..", "..", "node_modules",
-    "@earendil-works", "pi-agent-core", "dist", "harness", "tools",
-  );
-  const sha = (s: string) => createHash("sha256").update(s).digest("hex");
-  /** 剥离 VENDORED 三行头注释后的正文。 */
-  const body = (s: string) => s.split("\n").slice(3).join("\n");
-
-  test.each(["edit-diff.js", "edit-diff.d.ts", "file-mutation-queue.d.ts"])(
-    "%s 正文与上游逐字节一致（sha256）",
-    (name) => {
-      const ours = readFileSync(path.join(kernelDir, name), "utf8");
-      const upstream = readFileSync(path.join(upstreamDir, name), "utf8");
-      expect(ours.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.87.0")).toBe(true);
-      expect(sha(body(ours))).toBe(sha(upstream));
-    },
-  );
-
-  test("file-mutation-queue.js：唯一手改 = getOrThrow 内联（其余逐字）", () => {
-    const ours = readFileSync(path.join(kernelDir, "file-mutation-queue.js"), "utf8");
-    const upstream = readFileSync(path.join(upstreamDir, "file-mutation-queue.js"), "utf8");
-    expect(ours).not.toContain('from "../types.js"');
-    // 差异面收口：上游删掉 import 行；我方删掉内联块（2 行注释 + 6 行函数）后逐行相等
-    const upstreamLines = upstream.split("\n").filter((l) => l !== 'import { getOrThrow } from "../types.js";');
-    const deviationBlock = [
-      "// [AF-1 sole allowed deviation] getOrThrow inlined from upstream ../types.js",
-      "// (relative import not vendored; 6-line helper, semantics identical).",
-      "function getOrThrow(result) {",
-      "    if (!result.ok)",
-      "        throw result.error;",
-      "    return result.value;",
-      "}",
-    ];
-    // 正文开头恰为内联块（8 行），其后与上游（去掉 import 行）逐行相等
-    const bodyLines = body(ours).split("\n");
-    expect(bodyLines.slice(0, deviationBlock.length)).toEqual(deviationBlock);
-    expect(bodyLines.slice(deviationBlock.length)).toEqual(upstreamLines);
-  });
-
-  test("kernel/ 零 pi import；edit-diff 运行体依赖 diff 包（AG-05 五键依据）", () => {
+  // pi 1.0.0 删除 agent-core 的 harness 全量（E-235 升级批次 1）——上游
+  // dist/harness/tools 目录不复存在，「与上游逐字节一致」断言永久失效。
+  // kernel 冻结件（0.87.0 dist 复制）运行时自足（零 pi import），继续服役；
+  // 统一并入 vendor/pi-harness（src 形态）是后续独立决策，不属本批。
+  test("kernel/ 零 pi import；edit-diff 运行体依赖 diff 包（AG-05 依据）", () => {
     for (const name of ["edit-diff.js", "edit-diff.d.ts", "file-mutation-queue.js", "file-mutation-queue.d.ts"]) {
       const src = readFileSync(path.join(kernelDir, name), "utf8");
-      // 头注释的 VENDORED 溯源标注含包名（非 import）——剥头后断言零 pi 符号
-      expect(body(src).includes("@earendil-works"), `${name} 不得出现 pi import`).toBe(false);
+      expect(src.startsWith("// VENDORED from @earendil-works/pi-agent-core@0.87.0"), `${name} 头注释溯源缺失`).toBe(true);
+      // 剥离 VENDORED 头注释两行后断言零 pi 符号（头注释含溯源包名）
+      const body = src.split("\n").slice(2).join("\n");
+      expect(body.includes("@earendil-works/"), `${name} 不得出现 pi import`).toBe(false);
     }
     expect(readFileSync(path.join(kernelDir, "edit-diff.js"), "utf8")).toContain('from "diff"');
   });

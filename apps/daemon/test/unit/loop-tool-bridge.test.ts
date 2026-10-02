@@ -3,7 +3,7 @@ import type {
   AgentHarnessTool,
   AgentHarnessToolInvocation,
   ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+} from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import type { LoopToolCallContext } from "../../src/domain/loop";
 

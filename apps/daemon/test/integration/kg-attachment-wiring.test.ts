@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import type { AgentHarnessTool, ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import { NodeExecutionEnv } from "../../src/adapters/driven/tools/vendor/pi-harness";
+import type { AgentHarnessTool, ExecutionToolContext } from "../../src/adapters/driven/tools/vendor/pi-harness";
 import { KgDatabase } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
@@ -14,7 +14,7 @@ import { buildEditToolDeps } from "../../src/infrastructure/assembly/buildKnowle
 import { createEditTool } from "../../src/adapters/driven/tools/edit/EditTool";
 import { ATTACHMENT_PROTOCOL_LINE } from "../../src/domain/kg/attachment/render";
 import type { AnchorDeclaration, MaterializedAnchor, SymbolBatch } from "../../src/domain/kg/types";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
+import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
  * I 层：edit 附着接线（T3.2，CL-1 F1.1/F1.2，AD-4/AD-7 补充/AD-13/AD-15）。
