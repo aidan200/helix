@@ -107,6 +107,14 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   private listener: AgentEngineListener | null = null;
   /** 常驻监听器（persistentListener 选项——跨 run 事件通道）。 */
   private readonly persistentListener: AgentEngineListener | null;
+
+  /** 双发（段B）：逐 run listener + 常驻监听器同步转发——构造期回调用此面
+   *  （engine_paused/compaction/retrying 等生命周期事件不得绕过常驻面：
+   *  followUp 后继 run 与挂闸暂停只发生在 start() 逐 run listener 之外）。 */
+  private emitAll(event: AgentEngineEvent): void {
+    this.listener?.(event);
+    this.persistentListener?.(event);
+  }
   /** 审批闸钩子（本批）：未装配 = undefined（resume 面恒报错）。 */
   private readonly gate?: ApprovalGateHook;
   /** 已 steer 的文本（FIFO）：drain 边界的 user 消息据此判别来源。 */
@@ -150,7 +158,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       ...(options.retry?.streamBackoffMs !== undefined ? { streamBackoffMs: options.retry.streamBackoffMs } : {}),
       ...(options.retry?.sleep !== undefined ? { sleep: options.retry.sleep } : {}),
       onRetry: (info) =>
-        this.listener?.({
+        this.emitAll({
           type: "engine_retrying",
           attempt: info.attempt,
           totalAttempts: info.totalAttempts,
@@ -166,7 +174,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         ? undefined
         : new ApprovalGateHook({
             shouldGate: options.approvalGate.shouldGate,
-            onPaused: (info: ApprovalGatePausedInfo) => this.listener?.({ type: "engine_paused", ...info }),
+            onPaused: (info: ApprovalGatePausedInfo) => this.emitAll({ type: "engine_paused", ...info }),
           });
     this.runtime = new AgentRuntime(options.profile, {
       streamFn,
@@ -180,14 +188,14 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       ...(options.initialMessages !== undefined ? { initialMessages: options.initialMessages } : {}),
       // turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
       onCompactionCompleted: (r) =>
-        this.listener?.({
+        this.emitAll({
           type: "compaction_completed",
           tokensBefore: r.tokensBefore,
           tokensAfter: r.tokensAfter,
           summary: r.summary,
           ...(r.usage !== undefined ? { usage: r.usage } : {}),
         }),
-      onCompactionFailed: (message) => this.listener?.({ type: "engine_error", message }),
+      onCompactionFailed: (message) => this.emitAll({ type: "engine_error", message }),
     });
     this.runtime.subscribe((event) => this.onPiEvent(event));
   }
@@ -398,12 +406,21 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         // assistant 消息携带 usage 时提取（七字段防腐，账目本体归 UsageLedger）
         const usage = role === "assistant" ? usageOf(event.message) : undefined;
         const stopReason = role === "assistant" ? stopReasonOf(event.message) : undefined;
+        // 管家批段B additive 载荷：toolResult 配对锚 + assistant 完整块集
+        //（thinking/toolCall 投影精度面——text 是拼接便利面）
+        const tr = role === "toolResult" ? (event.message as { toolCallId?: string; toolName?: string }) : undefined;
+        const toolCallId = tr?.toolCallId;
+        const toolName = tr?.toolName;
+        const blocks = role === "assistant" ? engineBlocksOf((event.message as { content?: readonly unknown[] }).content) : undefined;
         emit({
           type: "message_end",
           role,
           text: textOfMessage(event.message),
           stopReason,
           ...(usage !== undefined ? { usage } : {}),
+          ...(toolCallId !== undefined ? { toolCallId } : {}),
+          ...(toolName !== undefined ? { toolName } : {}),
+          ...(blocks !== undefined ? { blocks } : {}),
         });
         // 终验热修：模型调用失败（stopReason=error，pi 归一化帧/消息）→
         // engine_error 事件透传 provider 原文（adapter 不吞错，不崩会话）。
@@ -436,4 +453,21 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         return; // tool_execution_update 等中间观测面暂不透传（工具接线时评估）
     }
   }
+}
+
+/** pi assistant content 块 → port 中立块集（段B additive：dialog 投影精度面——
+ * thinking 异名双射（pi thinking ↔ port text）、toolCall arguments→args）。 */
+function engineBlocksOf(content: readonly unknown[] | undefined): import("../../../application/ports/outbound/AgentEnginePort").AgentEngineContentBlock[] | undefined {
+  if (content === undefined) return undefined;
+  return content.map((b) => {
+    const blk = b as Record<string, unknown>;
+    if (blk.type === "text") return { type: "text", text: String(blk.text ?? "") };
+    if (blk.type === "thinking") {
+      return { type: "thinking", text: String(blk.thinking ?? ""), ...(blk.signature !== undefined ? { signature: String(blk.signature) } : {}) };
+    }
+    if (blk.type === "toolCall") {
+      return { type: "toolCall", id: String(blk.id), name: String(blk.name), args: (blk.arguments ?? {}) as Record<string, unknown> };
+    }
+    return { type: "text", text: JSON.stringify(blk) };
+  });
 }
