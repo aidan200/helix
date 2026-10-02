@@ -16,7 +16,8 @@
  * 权威承载（onDelta 只作显示增量，不参与响应聚合）。
  *
  * 块模型（helix-loop Phase 1，与 domain LoopMessage/LoopStreamResult 结构
- * 同构——PiLoopStreamAdapter 编译锚锁定形状）：
+ * 同构——原 PiLoopStreamAdapter 编译锚随主会话 loop 通道退役删，同构
+ * 断言历史可考）：
  * - assistant 消息 content = 块数组（text/thinking/toolCall/image 混排，
  *   块序即流序——单 toolCall 与多 toolCall 是同一形状的 1 和 N，Phase 3
  *   批执行接手）；thinking 块 signature = provider 不透明回传凭据

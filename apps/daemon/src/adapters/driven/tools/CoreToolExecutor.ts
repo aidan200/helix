@@ -8,7 +8,6 @@ import type {
 } from "../../../adapters/driven/tools/vendor/pi-harness";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "../../../adapters/driven/tools/vendor/pi-harness";
 import type { JsonObject, TextContent } from "@earendil-works/pi-ai";
-import { validateToolArguments } from "@earendil-works/pi-ai";
 import {
   createBashTool,
   createEditTool as createPiEditTool,
@@ -55,7 +54,6 @@ import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
 import { wrapEnvForDiff, type EnvWriteHook } from "./TurnDiffEnvWrap";
 import { wrapEnvForSandbox, type SandboxRuntime } from "./SandboxEnvWrap";
 import { wrapEnvForBashSense, type BashSenseRuntime } from "./BashSenseEnvWrap";
-import type { LoopToolOutcome, LoopToolRegistration } from "../../../domain/loop";
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
  * 落位 adapters/driven/tools，AD-17/AD-10）。
@@ -75,9 +73,8 @@ import type { LoopToolOutcome, LoopToolRegistration } from "../../../domain/loop
  * 本目录互不 import，装配经组合根（AG 套件守护）。日后整体替换本目录
  * （如换工具实现）不动其他层。
  *
- * 3. **loop 投影**（resolveLoopTools，helix-loop Phase 4 工具桥）：同一
- *    注册表向 domain/loop 投影 LoopToolRegistration（两参 handler）——
- *    pi 链路（execute/resolveTools）照旧，纯加法面（设计 §7.3）。
+ * 历史：loop 投影面（resolveLoopTools 工具桥，Phase 4）随主会话 loop
+ * 通道退役（loop 通道退役批）移除——git 历史可考。
  */
 
 /**
@@ -453,81 +450,6 @@ export class CoreToolExecutor implements ToolExecutorPort {
    */
   resolveToolsResilient(names: readonly string[]): AgentTool<any>[] {
     return this.resolveNames(names, { lenient: true });
-  }
-
-  /**
-   * loop 域投影面（helix-loop Phase 4 工具桥，C 缺口；设计 §7.3）：profile
-   * 声明的工具集 → LoopToolRegistration 清单（LoopToolHandler 两参形状），
-   * 交 domain/loop 消费（ToolRegistry.register 后经 kernel ToolPhase dispatch）
-   * ——注册表内 25+ 工具零重写即可被 helix-loop 消费。
-   *
-   * 解析链与 resolveTools 同源（resolveNames：别名委派/permission_request
-   * 容忍/fail-fast 同文案）；六参装配亦同源（bindToolContext 闭包——非投影
-   * 面另写一套）。投影面三件事：args 前置校验（pi agent-loop
-   * prepareToolCall 同源语义——pi-ai validateToolArguments，失败转 isError
-   * result 直投 pi 校验文案，pi execute 不被调用）、onUpdate 转发
-   * （partialResult → 文本投影 → ctx.onUpdate，单枚内 FIFO——R1.10）、
-   * 结果投影（AgentToolResult → LoopToolOutcome；terminate 透传防火墙面）。
-   */
-  resolveLoopTools(names: readonly string[]): LoopToolRegistration[] {
-    return this.resolveNames(names, { lenient: false }).map((tool) => this.projectToLoop(tool));
-  }
-
-  /** 单工具投影：AgentTool（已绑定 context 的四参形态）→ LoopToolRegistration。 */
-  private projectToLoop(tool: AgentTool<any>): LoopToolRegistration {
-    return {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters as Record<string, unknown>,
-      handler: async (args, ctx): Promise<LoopToolOutcome> => {
-        // ① args 前置校验（pi 引擎在 agent-loop 内做，helix-loop 侧无此面——
-        //    桥补位；校验失败 ≠ 工具失败：不触 execute，pi 校验文案直投）
-        let validated: unknown = args;
-        try {
-          validated = validateToolArguments(tool, {
-            type: "toolCall",
-            id: ctx.toolCallId,
-            name: ctx.toolName,
-            arguments: args as JsonObject,
-          });
-        } catch (error) {
-          return { kind: "result", text: error instanceof Error ? error.message : String(error), isError: true };
-        }
-        // ② 执行：signal/onUpdate 经 bindToolContext 闭包装配六参（与 execute()
-        //    同一装配链）；onUpdate 同步直调转发保调用序（单枚内 FIFO）。
-        //    Phase 5 TODO 面评估结论（CAND-540，2026-09-30）：
-        //    · 工具级 usage 纪账——【不需要】AgentToolResult.usage 是工具自身执行的
-        //      账（pi 语义明示「不进主上下文记账」），pi 路径同样不上 port
-        //      （tool_execution_end 无 usage 位）；SubAgent 账目走 scheduler 事件
-        //      通道不经引擎 port；loop 桥补此面反而造成双通道不对齐。
-        //    · replay 标记——【不需要】pi AgentTool.replay 是 harness 恢复策略
-        //      元数据，helix 全仓零消费面（写事实/恢复体系归 WriteFactRegistry
-        //      独立链路），透传无消费者。
-        //    · 注：LLM 轮 usage（message_end.assistant.usage）是另一面——pi 路径
-        //      有、loop 路径 LoopStreamResult 无 usage 位（缺口，翻默认前必修）。
-        //    TODO(块模型合入后)：images 下行（content 内 image 块 → data URL
-        //    数组进 LoopToolOutcome.images）——现阶段以 (image) 占位文案进 text。
-        try {
-          const result = await tool.execute(
-            ctx.toolCallId,
-            validated as never,
-            ctx.signal,
-            ctx.onUpdate === undefined ? undefined : (partial) => ctx.onUpdate?.(textOfResult(partial)),
-          );
-          const text = textOfResult(result);
-          // terminate 透传（防火墙语义面：pi 批 early-termination hint →
-          // loop 零入账直出 error 回执判别）
-          if (result.terminate === true) {
-            return { kind: "terminate", reason: text };
-          }
-          return { kind: "result", text };
-        } catch (error) {
-          // 工具以异常表达失败（pi 契约：throw on failure）：转 isError result
-          // 不抛出（与 execute() catch 分支同语义）
-          return { kind: "result", text: error instanceof Error ? error.message : String(error), isError: true };
-        }
-      },
-    };
   }
 
   /** 共享解析循环（resolveTools / resolveToolsResilient 单点）：lenient
