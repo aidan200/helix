@@ -3,6 +3,7 @@ import type {
   AgentEngineListener,
   AgentEnginePort,
   AgentThinkingState,
+  EngineResumeDecision,
 } from "../../../application/ports/outbound/AgentEnginePort";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model, Models } from "@earendil-works/pi-ai";
@@ -10,6 +11,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
+import { ApprovalGateHook, type ApprovalGatePausedInfo } from "./runtime/hooks/ApprovalGateHook";
 import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot, wrapStreamFnThinking } from "../llm";
 import { withNetworkRetry } from "../llm";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
@@ -81,11 +83,22 @@ export interface PiEngineOptions {
     readonly streamBackoffMs?: readonly number[];
     readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   };
+  /**
+   * 审批闸（暂停四态 POC 落地批）：携带即装配 ApprovalGateHook——
+   * 命中策略的工具调用挂闸（engine_paused + resume 四态，POC 15/15 验证）；
+   * 缺省不装配（既有装配行为不变，零漂移）。approve/reject 完整；
+   * approveWith/resolve 超 pi BeforeToolCallResult 能力面（resume 显式报错）。
+   */
+  readonly approvalGate?: {
+    readonly shouldGate: (toolName: string, args: unknown) => boolean;
+  };
 }
 
 export class PiAgentEngineAdapter implements AgentEnginePort {
   private readonly runtime: AgentRuntime;
   private listener: AgentEngineListener | null = null;
+  /** 审批闸钩子（本批）：未装配 = undefined（resume 面恒报错）。 */
+  private readonly gate?: ApprovalGateHook;
   /** 已 steer 的文本（FIFO）：drain 边界的 user 消息据此判别来源。 */
   private readonly steeredTexts: string[] = [];
   /**
@@ -134,13 +147,25 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
           message: info.message,
         }),
     });
+    // 审批闸（本批）：携带即装配——engine_paused 经 listener 直发（挂闸即发，
+    // 早于决策 await——消费方拿到凭据即可 resume）；已实例化钩子经 extraHooks
+    // 入链（运行期状态注入面，AgentRuntimeDeps 契约）。
+    this.gate =
+      options.approvalGate === undefined
+        ? undefined
+        : new ApprovalGateHook({
+            shouldGate: options.approvalGate.shouldGate,
+            onPaused: (info: ApprovalGatePausedInfo) => this.listener?.({ type: "engine_paused", ...info }),
+          });
     this.runtime = new AgentRuntime(options.profile, {
       streamFn,
       model: resolveModelSlot(options.profile.model, options.model, models),
       models,
       getApiKey: explicitGetApiKey(options.apiKeys),
       resolveTools: options.resolveTools,
-      ...(options.extraHooks !== undefined ? { extraHooks: options.extraHooks } : {}),
+      ...(options.extraHooks !== undefined || this.gate !== undefined
+        ? { extraHooks: [...(options.extraHooks ?? []), ...(this.gate ? [this.gate] : [])] }
+        : {}),
       ...(options.initialMessages !== undefined ? { initialMessages: options.initialMessages } : {}),
       // turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
       onCompactionCompleted: (r) =>
@@ -193,6 +218,27 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
 
   abort(): void {
     this.runtime.abort();
+  }
+
+  /**
+   * 挂闸暂停恢复（port additive 面，设计 §7.4；loop 通道同构）：凭据 → 决策
+   * 续跑。四态中 approve/reject 完整；approveWith/resolve 超 pi 能力面
+   * （BeforeToolCallResult 无参数改写/结果伪造）——显式报错不静默降级。
+   * 未装配审批闸的 adapter 本面恒报错（能力面自描述）。
+   */
+  async resume(pauseToken: string, decision: EngineResumeDecision): Promise<void> {
+    if (this.gate === undefined) {
+      throw new Error("本引擎未装配审批闸（approvalGate）——resume 面不可用");
+    }
+    if (decision.kind === "approveWith" || decision.kind === "resolve") {
+      throw new Error(
+        `pi 通道审批闸不支持 ${decision.kind}（BeforeToolCallResult 仅 block/reason——能力面差异，loop 通道原生支持）`,
+      );
+    }
+    this.gate.resume(
+      pauseToken,
+      decision.kind === "approve" ? { kind: "approve" } : { kind: "reject", text: decision.text },
+    );
   }
 
   isStreaming(): boolean {
