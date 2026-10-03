@@ -22,7 +22,7 @@ import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
 import type { TopicConfig } from "../../ports/outbound/TopicConfigPort";
 import type { StewardLlmPort } from "../../ports/outbound/StewardLlmPort";
-import { loopBlocksText } from "../../../domain/loop/contracts/message";
+import { stewardBlocksText } from "../../steward/stewardBlocks";
 import { deriveTitle } from "../SessionRegistry";
 
 // ── 配置（单键 topic_config JSON——TopicConfigStore 读写单点；服务只吃形状） ──
@@ -211,7 +211,7 @@ export class SessionTitleService {
         tools: [],
       });
       if (response.kind !== "blocks") return; // aborted 非主题产出面——降级过掉
-      const topic = cleanTopicText(loopBlocksText(response.blocks));
+      const topic = cleanTopicText(stewardBlocksText(response.blocks));
       if (topic === null || topic === displayTitle) return;
       target.updateTopic(topic, displayTitle, turnCount);
       this.deps.announceTopicChanged(sessionId);

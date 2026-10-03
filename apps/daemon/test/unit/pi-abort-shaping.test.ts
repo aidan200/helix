@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { abortShapingConvertToLlm } from "../../src/adapters/driven/pi-engine/AbortShaping";
-import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/loop/contracts/markers";
+import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/agent/InterruptionMarkers";
 import { convertToLlm as baseConvertToLlm } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 function user(text: string): UserMessage {

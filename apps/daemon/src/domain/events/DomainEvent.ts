@@ -59,7 +59,7 @@ export type DomainEventType =
   | "ask.started"
   | "ask.resolved"
   // ── loop.* 自有 agent loop 族（helix-loop L0 批；只落盘不广播——管家
-  // LoopEngine 事件投影（instanceId=steward），行为历史追踪可见性；广播面
+  // 引擎事件投影（instanceId=steward，pi loop 经 AgentEnginePort），行为历史追踪可见性；广播面
   // L0 不接（EnvelopeMapper default→null），L3 替换 pi 主会话引擎时接 ──
   | "loop.run.started"
   | "loop.run.finished"

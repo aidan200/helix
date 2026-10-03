@@ -55,8 +55,8 @@ import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
 import type { StewardToolResult, StewardToolSpec } from "../ports/outbound/StewardToolSpec";
-import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/loop/contracts/markers";
-import { LOOP_COMPACTION_SUMMARY_PROMPT } from "../../domain/loop/policy";
+import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/agent/InterruptionMarkers";
+import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 
 /** 挂闸校验上下文（中立——原 GateToolContext 的 application 形态）。 */
 interface GateToolContext {
@@ -925,12 +925,12 @@ export class StewardService {
         compaction: {
           thresholdTokens: this.deps.compaction?.thresholdTokens ?? STEWARD_COMPACTION_THRESHOLD_TOKENS,
           keepRecent,
-          summarizeInstructions: LOOP_COMPACTION_SUMMARY_PROMPT,
+          summarizeInstructions: STEWARD_COMPACTION_SUMMARY_PROMPT,
           summarize: async (_systemPrompt, messages) => {
-            // 管家摘要身份自带（LOOP_COMPACTION_SUMMARY_PROMPT）——pi 侧
+            // 管家摘要身份自带（STEWARD_COMPACTION_SUMMARY_PROMPT）——pi 侧
             // systemPrompt 是英文常量（customInstructions 落 user 消息不落 sys）
             const response = await this.deps.llm.complete({
-              systemPrompt: LOOP_COMPACTION_SUMMARY_PROMPT,
+              systemPrompt: STEWARD_COMPACTION_SUMMARY_PROMPT,
               messages,
               tools: [],
             });

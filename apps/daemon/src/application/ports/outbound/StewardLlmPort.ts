@@ -50,6 +50,7 @@ export type StewardLlmContentBlock =
  *  同一形状——adapter 编译锚锁定；image 块 Phase 1 无帧面）。 */
 export type StewardLlmBlock = StewardLlmContentBlock;
 
+
 /** 对话消息（port 窄面：user / assistant（content 块数组）/ 工具结果；与
  *  domain LoopMessage 结构同构——协议 StewardHistoryRecord 的投影翻译在
  *  StewardService 单点）。 */

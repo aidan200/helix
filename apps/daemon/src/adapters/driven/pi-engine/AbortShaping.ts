@@ -28,7 +28,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
-import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../../domain/loop/contracts/markers";
+import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../../domain/agent/InterruptionMarkers";
 
 /** 修形 user 消息的声明前缀（模型面：说明这段内容的来源与截断性质）。 */
 export const INTERRUPTED_ASSISTANT_PREFIX =
