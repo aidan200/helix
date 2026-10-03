@@ -1,4 +1,4 @@
-import type { Agent, AgentLoopTurnUpdate, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentLoopTurnUpdate, AgentMessage, PrepareRequestContext, AgentRequestUpdate } from "@earendil-works/pi-agent-core";
 import type { Entry } from "../../../tools/vendor/pi-harness";
 import {
   BACKGROUND_CONTEXT,
@@ -17,7 +17,8 @@ import type { CompactionSettings } from "../AgentProfile";
 import type { HookSet } from "../HookSet";
 
 /**
- * CompactionHook —— turn 边界上下文压缩接线（prepareNextTurn 挂点）。
+ * CompactionHook ——上下文压缩接线（双挂点：turn 档 = prepareNextTurn、
+ *  request 档 = prepareRequest（钩子位批自 transformContext 迁移正位））。
  *
  * 触发链：estimateContextTokens → shouldCompact
  * （contextTokens > contextWindow - reserveTokens）→ messagesToEntries 转换桥
@@ -68,9 +69,12 @@ export interface CompactionHookDeps {
   /** 摘要请求覆写（管家批段B：completeSimple 替身——管家单轮 LLM port 承载；
    *  窗口切分/previousSummary/重建机器不变）。 */
   readonly summarizeRequest?: (aiContext: unknown, options: unknown, context: unknown) => Promise<unknown>;
-  /** 触发档位（管家批段B）："turn"（缺省——prepareNextTurn，纯问答 run 不触发
-   *  TR-47 pi 语义，主会话口径）|"request"（transformContext——每 LLM 请求前
-   *  检查，纯问答轮也压，管家口径 E-197 首轮前检查语义）。 */
+  /** 触发档位（钩子位批迁移）:"turn"（缺省——prepareNextTurn，纯问答 run 不触发
+   *  TR-47 pi 语义，主会话口径）|"request"（prepareRequest——每对话式 provider
+   *  请求前检查含 run 首轮，纯问答轮也压，管家口径 E-197 首轮前检查语义。
+   *  原挂点 transformContext（流内消息变换通道）为历史滥位——无法替换
+   *  tools/model 且语义错位，pi 0.87 prepareRequest 位为正位，同覆盖面
+   *  （含首轮）迁移，消费方 trigger 声明面不变）。 */
   readonly trigger?: "turn" | "request";
 }
 
@@ -174,20 +178,26 @@ export class CompactionHook implements HookSet {
     }
   }
 
-  /** request 档（管家）：每 LLM 请求前压缩检查（transformContext 挂点——
-   *  纯问答轮也触发，E-197 首轮前检查语义；失败不抛——原样透传）。 */
-  async transformContext(messages: AgentMessage[], signal?: AbortSignal): Promise<AgentMessage[]> {
-    if (this.deps.trigger !== "request" || !this.agent) return messages;
+  /** request 档（管家）：每对话式 provider 请求前压缩检查（prepareRequest
+   *  挂点，钩子位批自 transformContext 迁移——pi 0.87 正位，含 run 首轮；
+   *  压缩源 = request.context.messages ≡ 原入参 messages（同为即将发出的
+   *  完整上下文，时点在流式请求前）；失败不抛——返回 undefined 原窗口继续）。 */
+  async prepareRequest(
+    request: PrepareRequestContext,
+    signal?: AbortSignal,
+  ): Promise<AgentRequestUpdate | undefined> {
+    if (this.deps.trigger !== "request" || !this.agent) return undefined;
     const model = (this.agent.state.model ?? this.deps.model) as Model<any>;
     const { settings, models } = this.deps;
+    const messages = request.context.messages;
     const est = estimateContextTokens(messages);
-    if (!shouldCompact(est.tokens, model.contextWindow, settings)) return messages;
+    if (!shouldCompact(est.tokens, model.contextWindow, settings)) return undefined;
     try {
       const apiKey = this.deps.getApiKey?.(model.provider);
       const summaryModels = apiKey !== undefined ? withApiKey(models, apiKey) : models;
       const entries = messagesToEntries(messages);
       const prep = prepareCompaction(entries, settings);
-      if (!prep.ok || !prep.value) return messages;
+      if (!prep.ok || !prep.value) return undefined;
       const context = signal === undefined ? BACKGROUND_CONTEXT : withAbortSignal(signal, BACKGROUND_CONTEXT);
       const result =
         this.deps.summarizeRequest !== undefined
@@ -195,7 +205,7 @@ export class CompactionHook implements HookSet {
           : await compact(prep.value, summaryModels, model, this.deps.customInstructions, undefined, undefined, undefined, context);
       if (!result.ok) {
         this.deps.onFailed?.(`compaction 摘要失败：${JSON.stringify(result.error).slice(0, 200)}`);
-        return messages;
+        return undefined;
       }
       const cr = result.value;
       const first = messages[0];
@@ -213,10 +223,17 @@ export class CompactionHook implements HookSet {
         summary: cr.summary,
         ...(cr.usage !== undefined ? { usage: usageOfPi(cr.usage) } : {}),
       });
-      return rebuilt;
+      // 与 turn 档同构：context 携 tools（request.context.tools 现值——挂点位
+      // 在首轮时快照未漂移，非首轮时 prepareNextTurn 链已对齐）。
+      return {
+        context: {
+          messages: rebuilt,
+          tools: this.agent.state.tools,
+        },
+      };
     } catch (error) {
       this.deps.onFailed?.(`compaction 摘要异常：${(error as Error).message}`);
-      return messages; // 失败不抛（transformContext 禁抛）——原窗口继续
+      return undefined; // 失败不抛（钩子禁抛）——原窗口继续
     }
   }
 }

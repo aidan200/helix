@@ -2,9 +2,13 @@ import type {
   Agent,
   AgentLoopTurnUpdate,
   AgentMessage,
+  AgentRequestUpdate,
+  AgentTurnContext,
+  AgentTurnDecision,
   BeforeToolCallContext,
   BeforeToolCallResult,
   PrepareNextTurnContext,
+  PrepareRequestContext,
 } from "@earendil-works/pi-agent-core";
 
 /**
@@ -14,7 +18,8 @@ import type {
  * profile 装配即启用；作用域是钩子处理器的属性，不是目录结构（AD-15）。
  * 每个处理器**只实现自己关心的钩子位**，其余留空——组合逻辑在
  * AgentRuntime 装配期完成（beforeToolCall 链上首个 block 短路、
- * transformContext 依序串接、prepareNextTurn 首个非空生效）。
+ * transformContext 依序串接、prepareNextTurn/prepareRequest 首个非空
+ * 生效、finishTurn 任一 end 即短路否则首个非空生效）。
  */
 export interface HookSet {
   /** 处理器名（装配诊断/日志用）。 */
@@ -48,6 +53,38 @@ export interface HookSet {
     turn: PrepareNextTurnContext,
     signal?: AbortSignal,
   ): Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+  /**
+   * 请求前钩子（pi 0.87 新位，agent-loop 源码核实时序）：每次对话式
+   * provider 请求前运行——**含 run 首轮请求**（prepareNextTurn 不覆盖的
+   * 盲区）；时点在待注入消息已 append/emit 之后、流式请求发起之前，
+   * **不轮询队列**。返回非空即替换本次及后续请求的 context/model/
+   * thinkingLevel（AgentRequestUpdate）。组合语义：首个非空生效（与
+   * prepareNextTurn 同构——替换状态语义多钧冲突，先到先得）。
+   *
+   * 适配场景：回填/重建型上下文安装（在已选定输入 emit 后安装 canonical
+   * context，不引入额外队列轮询）、首轮前检查类工作（如 compaction
+   * request 档——重会话首轮即超阈的场景）。
+   */
+  prepareRequest?(
+    request: PrepareRequestContext,
+    signal?: AbortSignal,
+  ): Promise<AgentRequestUpdate | undefined> | AgentRequestUpdate | undefined;
+  /**
+   * turn 收口钩子（pi 0.87 新位）：assistant 消息与全部工具结果 finalize
+   * 之后、turn_end 之前运行——对 normal/error/aborted 三种终止都运行
+   * （error/aborted 是硬出口，决策被 loop 忽略，仅作观测点）。
+   *
+   * 决策语义（agent-loop 源码核实）：{action:"end"} = 不轮询队列、跳过
+   * prepareNextTurn，直接结束 run（steer/followUp 队列原封保留）；
+   * {action:"continue"} = 保证一次后续请求——已有 toolResult/steer/
+   * followUp 调度可满足则复用（不追加请求），否则补一次纯上下文请求；
+   * undefined = 保持自然调度。组合语义：任一钩子裁决 end 即短路返回
+   * （终止优先——后续钩子的 continue 无意义），否则首个非空生效。
+   */
+  finishTurn?(
+    turn: AgentTurnContext,
+    signal?: AbortSignal,
+  ): Promise<AgentTurnDecision | undefined> | AgentTurnDecision | undefined;
   /**
    * 上下文变换（外部注入等扩展点）。契约：不得抛错，安全降级返回原消息。
    */

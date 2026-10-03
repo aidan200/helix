@@ -5,9 +5,13 @@ import type {
   AgentEvent,
   AgentLoopTurnUpdate,
   AgentMessage,
+  AgentRequestUpdate,
   AgentTool,
+  AgentTurnContext,
+  AgentTurnDecision,
   BeforeToolCallContext,
   BeforeToolCallResult,
+  PrepareRequestContext,
   StreamFn,
 } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model, Models } from "@earendil-works/pi-ai";
@@ -124,6 +128,10 @@ export class AgentRuntime {
       // deferred 批：turn 边界钩子改接 pi 官方 WithContext 通道（旧位
       // 类型声明错位——loop 实现传 turn 对象当 signal；见 HookSet 注释）。
       prepareNextTurnWithContext: combinePrepareNextTurn(hooks),
+      // pi 0.87 新位（钩子位批）：请求前/收口钩子——含首轮请求覆盖与
+      // turn 级 end/continue 裁决（组合语义见 HookSet 位注释）。
+      prepareRequest: combinePrepareRequest(hooks),
+      finishTurn: combineFinishTurn(hooks),
     });
     for (const hook of hooks) hook.bind?.(this.agent);
     this.steerHook = hooks.find(hasSteer);
@@ -160,6 +168,17 @@ export class AgentRuntime {
   followUp(text: string): void {
     if (!this.followUpHook) throw new Error(`profile 未装配具备 followUp 接线的 HookSet，不支持入队`);
     this.followUpHook.followUp(text);
+  }
+
+  /**
+   * 队列预览读面（pi 0.87 peekQueuedMessages 透传）：不消费地看下一批
+   * 将被 drain 的注入消息——steer 队列优先、followUp 队列兜底（与 pi
+   * loop 的消费优先级同序）。用途：finishTurn end 裁决前的队列事实
+   * 检查（end 会跳过队列轮询但保留队列——先 peek 再裁决可避免把已在
+   * 队列的 closure/steer 消息锁到下一 run）、可观测面（UI 展示待注入）。
+   */
+  peekQueuedMessages(): AgentMessage[] {
+    return this.agent.peekQueuedMessages();
   }
 
   /** 中断当前 run（非销毁）。 */
@@ -274,6 +293,42 @@ function combinePrepareNextTurn(hooks: readonly HookSet[]) {
       if (!hook.prepareNextTurn) continue;
       const update = await hook.prepareNextTurn(turn, signal);
       if (update) return update;
+    }
+    return undefined;
+  };
+}
+
+/** prepareRequest 链（pi 0.87 新位）：首个非空替换状态生效——与
+ *  prepareNextTurn 同构（替换语义，先到先得）；含首轮请求覆盖。 */
+function combinePrepareRequest(hooks: readonly HookSet[]) {
+  if (!hooks.some((h) => h.prepareRequest)) return undefined;
+  return async (
+    request: PrepareRequestContext,
+    signal?: AbortSignal,
+  ): Promise<AgentRequestUpdate | undefined> => {
+    for (const hook of hooks) {
+      if (!hook.prepareRequest) continue;
+      const update = await hook.prepareRequest(request, signal);
+      if (update) return update;
+    }
+    return undefined;
+  };
+}
+
+/** finishTurn 链（pi 0.87 新位）：任一 end 即短路返回（终止优先——后
+ *  续钩子的 continue 对已终止 run 无意义）；否则首个非空决策生效。
+ *  error/aborted 硬出口的决策由 pi loop 忽略，组合层不预判。 */
+function combineFinishTurn(hooks: readonly HookSet[]) {
+  if (!hooks.some((h) => h.finishTurn)) return undefined;
+  return async (
+    turn: AgentTurnContext,
+    signal?: AbortSignal,
+  ): Promise<AgentTurnDecision | undefined> => {
+    for (const hook of hooks) {
+      if (!hook.finishTurn) continue;
+      const decision = await hook.finishTurn(turn, signal);
+      if (decision?.action === "end") return { action: "end" };
+      if (decision) return decision;
     }
     return undefined;
   };
