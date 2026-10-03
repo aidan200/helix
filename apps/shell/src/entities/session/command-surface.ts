@@ -345,15 +345,17 @@ export const COMMAND_SURFACE = {
   sendEmbeddingList: (deps) =>
     (): boolean => deps.send(embeddingListCommand()),
   /** 端点新增/更新（回执 embedding.list.result 新清单；kind 可选——
-   *  classifier = 分类判官端点）。 */
+   *  classifier = 分类判官端点；variant 可选——classifier 专用，
+   *  "pi-ai" 目录通道 baseUrl 免填，缺席 = jev 直连）。 */
   sendEmbeddingSet: (deps) =>
     (payload: {
       id?: string;
       name: string;
-      baseUrl: string;
+      baseUrl?: string;
       apiKey?: string;
       model: string;
       kind?: "embedding" | "classifier";
+      variant?: string;
     }): boolean => deps.send(embeddingSetCommand(payload)),
   /** 端点删除（回执 embedding.list.result 新清单）。 */
   sendEmbeddingDelete: (deps) =>

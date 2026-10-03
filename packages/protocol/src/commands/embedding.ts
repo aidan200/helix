@@ -31,8 +31,9 @@ export interface EmbeddingSetPayload {
   id?: string;
   /** 端点显示名（非空；如 "Ollama 本地"）。 */
   name: string;
-  /** OpenAI 兼容服务根（如 "http://localhost:11434/v1"）。 */
-  baseUrl: string;
+  /** OpenAI 兼容服务根（如 "http://localhost:11434/v1"）。variant="pi-ai"
+   *  目录通道免填（model 填目录模型串，走 provider key）。 */
+  baseUrl?: string;
   /** API key（本地免 key 端点可空；更新形态下空串 = 清除）。 */
   apiKey?: string;
   /** 模型名（embedding = 嵌入模型如 "bge-m3"；classifier = 判别模型如
@@ -41,6 +42,10 @@ export interface EmbeddingSetPayload {
   /** 端点用途（B4a）：embedding = 向量嵌入（缺省）；classifier = 分类
    *  判官（Jev /systemone noul 探测面）。更新形态下缺省 = 不动。 */
   kind?: "embedding" | "classifier";
+  /** 分类端点协议变体（kind=classifier 专用）："pi-ai" = 目录通道
+   *  （model 填目录模型串、baseUrl 免填、apiKey 缺省回落 provider key）；
+   *  缺席 = "jev" 直连存量形态。更新形态下缺省 = 不动。 */
+  variant?: string;
 }
 
 /** embedding.set：新增/更新端点（点对点回执 embedding.list.result 新清单）。 */

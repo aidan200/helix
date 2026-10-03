@@ -28,11 +28,11 @@ import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败）──
 
-// set 载荷：id 可选（缺省新增/带 id 更新），name/baseUrl/model 必填，
-// apiKey 可选（空串 = 清除）
+// set 载荷：id 可选（缺省新增/带 id 更新），name/model 必填，baseUrl 可选
+// （pi-ai 目录通道免填），apiKey 可选（空串 = 清除）
 type _SetId = Expect<Equal<EmbeddingSetCommand["payload"]["id"], string | undefined>>;
 type _SetName = Expect<Equal<EmbeddingSetCommand["payload"]["name"], string>>;
-type _SetBaseUrl = Expect<Equal<EmbeddingSetCommand["payload"]["baseUrl"], string>>;
+type _SetBaseUrl = Expect<Equal<EmbeddingSetCommand["payload"]["baseUrl"], string | undefined>>;
 type _SetApiKey = Expect<Equal<EmbeddingSetCommand["payload"]["apiKey"], string | undefined>>;
 type _SetModel = Expect<Equal<EmbeddingSetCommand["payload"]["model"], string>>;
 
@@ -43,11 +43,16 @@ type _VerifyId = Expect<Equal<EmbeddingVerifyCommand["payload"]["id"], string>>;
 // set 载荷 kind（B4a）：可选——缺省 = embedding；两枚举
  type _SetKind = Expect<Equal<EmbeddingSetCommand["payload"]["kind"], "embedding" | "classifier" | undefined>>;
 
+// set 载荷 variant（判官 pi-ai 批）：可选——缺席 = jev 直连存量形态
+type _SetVariant = Expect<Equal<EmbeddingSetCommand["payload"]["variant"], string | undefined>>;
+
 // 清单行凭据卫生：hasApiKey 布尔 + verifiedAt（null = 从未验证），
 // 无 apiKey 原值字段；kind 必填（B4a——daemon 回执恒显式）
 type _ViewHasKey = Expect<Equal<EmbeddingEndpointView["hasApiKey"], boolean>>;
 type _ViewVerifiedAt = Expect<Equal<EmbeddingEndpointView["verifiedAt"], number | null>>;
 type _ViewKind = Expect<Equal<EmbeddingEndpointView["kind"], "embedding" | "classifier">>;
+// 清单行 variant（判官 pi-ai 批）：可选——缺席 = 存量 jev 直连
+type _ViewVariant = Expect<Equal<EmbeddingEndpointView["variant"], string | undefined>>;
 
 // verify.result 两判别窄化（ok 携 dim 或 prob 二选一 / fail 含 error）
 type _VerifyOk = Expect<Equal<Extract<EmbeddingVerifyResultEvent["payload"], { state: "ok"; dim: number }>["dim"], number>>;

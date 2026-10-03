@@ -354,6 +354,15 @@ describe("模型页 tab 化（B2-③）", () => {
     expect(container.querySelector("[data-models-tab-embedding]")!.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("切到分类模型 tab：ClassifierModelsTab 挂载（进入拉取）+ 钮互斥高亮", () => {
+    const { container } = ui();
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-models-tab-classifier]")!);
+    expect(container.querySelector("[data-classifier-tab]")!).not.toBeNull();
+    expect(container.querySelector("[data-clf-add]")!).not.toBeNull();
+    expect(container.querySelector("[data-models-tab-classifier]")!.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector("[data-models-tab-embedding]")!.getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("initialTab=embedding（引导链接跳入形态）：挂载即向量 tab", () => {
     const { container } = ui("embedding");
     expect(container.querySelector("[data-embedding-tab]")!).not.toBeNull();

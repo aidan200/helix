@@ -685,10 +685,11 @@ export function embeddingListCommand(): EmbeddingListCommand {
 export function embeddingSetCommand(payload: {
   id?: string;
   name: string;
-  baseUrl: string;
+  baseUrl?: string;
   apiKey?: string;
   model: string;
   kind?: "embedding" | "classifier";
+  variant?: string;
 }): EmbeddingSetCommand {
   return { v: PROTOCOL_VERSION, type: "embedding.set", payload };
 }

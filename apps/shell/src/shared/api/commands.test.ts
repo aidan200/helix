@@ -250,6 +250,23 @@ describe("steward memory_* / embedding.* 构造器（管家记忆 B2）", () => 
     });
   });
 
+  it("embedding.set：variant 透传 + pi-ai 目录形态免 baseUrl（分类 tab 链路守护）", () => {
+    expect(embeddingSetCommand({ name: "目录判官", model: "typesafe/jev-latest", kind: "classifier", variant: "pi-ai" }).payload).toEqual({
+      name: "目录判官",
+      model: "typesafe/jev-latest",
+      kind: "classifier",
+      variant: "pi-ai",
+    });
+    expect(embeddingSetCommand({ id: "ep-3", name: "Jev", baseUrl: "https://api.typesafe.ai/v1", model: "jev-latest", kind: "classifier", variant: "jev" }).payload).toEqual({
+      id: "ep-3",
+      name: "Jev",
+      baseUrl: "https://api.typesafe.ai/v1",
+      model: "jev-latest",
+      kind: "classifier",
+      variant: "jev",
+    });
+  });
+
   it("embedding.list / delete / verify：最小帧", () => {
     expect(embeddingListCommand()).toEqual({ v: PROTOCOL_VERSION, type: "embedding.list", payload: {} });
     expect(embeddingDeleteCommand("ep-1").payload).toEqual({ id: "ep-1" });

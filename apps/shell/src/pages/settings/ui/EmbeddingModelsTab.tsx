@@ -1,5 +1,6 @@
 /**
- * 向量模型 tab（模型页 tab 化 B2-③）：embedding 端点配置域管理面。
+ * 向量模型 tab（模型页 tab 化 B2-③；分类模型拆独立 tab 后收窄为纯向量
+ * 端点——classifier 端点由 ClassifierModelsTab 管理，本 tab 不渲染不编辑）。
  *
  * 数据零权威：端点全集来自 embedding.list.result 结果帧驱动
  * （list/set/delete 三命令共用回执——写后即刷新清单）；verify 连通态 =
@@ -34,18 +35,17 @@ type VerifyState =
   | { phase: "ok"; dim?: number; prob?: number }
   | { phase: "fail"; error: string };
 
-/** 编辑弹层表单态（null 编辑位 = 未编辑；kind 缺省 embedding——新增表单
- *  可选，编辑保留现端点用途）。 */
+/** 编辑弹层表单态（null 编辑位 = 未编辑；kind 不进表单——本 tab 恒向量
+ * 端点：新增缺省 embedding，编辑经 id 更新时 daemon 保留现值）。 */
 interface EndpointForm {
   readonly id?: string;
   name: string;
   baseUrl: string;
   model: string;
   apiKey: string | null;
-  kind: "embedding" | "classifier";
 }
 
-const EMPTY_FORM: EndpointForm = { name: "", baseUrl: "", model: "", apiKey: null, kind: "embedding" };
+const EMPTY_FORM: EndpointForm = { name: "", baseUrl: "", model: "", apiKey: null };
 
 /** 相对时间短文案（刚刚 / N 分钟前 / N 小时前——目录刷新先例同族）。 */
 function verifiedLabel(at: number, t: (k: string, v?: Record<string, string | number>) => string): string {
@@ -170,13 +170,13 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
             baseUrl: endpoint.baseUrl,
             model: endpoint.model,
             apiKey: null,
-            kind: endpoint.kind ?? "embedding",
           },
     );
     window.setTimeout(() => nameInputRef.current?.focus(), MODAL_FOCUS_DELAY_MS);
   };
 
-  /** 保存（非空校验三必填字段；apiKey 留空 = 不动——凭据只进不出）。 */
+  /** 保存（非空校验三必填字段；apiKey 留空 = 不动——凭据只进不出；
+   *  kind 不传——新增缺省 embedding，编辑保留现值）。 */
   const saveForm = (): void => {
     if (form === null) return;
     const name = form.name.trim();
@@ -191,7 +191,6 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
       name,
       baseUrl,
       model,
-      kind: form.kind,
       ...(form.apiKey !== null ? { apiKey: form.apiKey } : {}),
     });
     if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
@@ -230,27 +229,18 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
         </div>
       </div>
 
-      {endpoints !== null && endpoints.length === 0 && (
+      {endpoints !== null && endpoints.filter((ep) => (ep.kind ?? "embedding") === "embedding").length === 0 && (
         <p className="ag-note" data-emb-empty>
           {t("chat.settings.general.embEmpty")}
         </p>
       )}
 
-      {/* 内部分组（B4a）：向量（embedding）与分类模型（classifier）两组——
-          空组不渲染标题 */}
-      {([
-        { kind: "embedding", groupKey: "chat.settings.general.embGroupEmbedding" },
-        { kind: "classifier", groupKey: "chat.settings.general.embGroupClassifier" },
-      ] as const).map(
-        ({ kind, groupKey }) =>
-          (endpoints ?? []).filter((ep) => (ep.kind ?? "embedding") === kind).length > 0 && (
-            <div key={kind} data-emb-group={kind}>
-              <p className="ag-note group-title" data-emb-group-label={kind}>
-                {t(groupKey)}
-              </p>
-              {(endpoints ?? [])
-                .filter((ep) => (ep.kind ?? "embedding") === kind)
-                .map((ep) => (
+      {/* 端点行（纯向量组——classifier 端点在分类模型 tab 渲染） */}
+      {(endpoints ?? []).filter((ep) => (ep.kind ?? "embedding") === "embedding").length > 0 && (
+        <div data-emb-group="embedding">
+          {(endpoints ?? [])
+            .filter((ep) => (ep.kind ?? "embedding") === "embedding")
+            .map((ep) => (
                   <div className="hud-card" data-emb-row={ep.id} key={ep.id}>
                     <div className="toolbar">
                       <div className="toolbar-row">
@@ -297,8 +287,7 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                     </div>
                   </div>
                 ))}
-            </div>
-          ),
+        </div>
       )}
 
       {/* 新增/编辑弹层（hud-modal：key 弹层先例同构；非空校验内联错误） */}
@@ -319,25 +308,6 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
             </div>
             <p className="modal-sub">{t("chat.settings.general.embModalSub")}</p>
             <div className="modal-body">
-              <label className="hud-label">{t("chat.settings.general.embKind")}</label>
-              <div className="kind-picker" data-emb-form-kind>
-                {(
-                  [
-                    { value: "embedding", label: t("chat.settings.general.embKindEmbedding") },
-                    { value: "classifier", label: t("chat.settings.general.embKindClassifier") },
-                  ] as const
-                ).map(({ value, label }) => (
-                  <button
-                    key={value}
-                    className={cn("hud-btn sm", form.kind === value ? "hud-btn-cyan" : "hud-btn-ghost")}
-                    type="button"
-                    data-emb-kind-opt={value}
-                    onClick={() => setForm({ ...form, kind: value })}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
               <label className="hud-label" htmlFor="emb-name">
                 {t("chat.settings.general.embName")}
               </label>
@@ -357,9 +327,7 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                 className={cn("hud-input", formErr !== null && form.baseUrl.trim() === "" && "err")}
                 id="emb-baseurl"
                 type="text"
-                placeholder={
-                  form.kind === "classifier" ? "https://api.typesafe.ai/v1" : "http://localhost:11434/v1"
-                }
+                placeholder="http://localhost:11434/v1"
                 value={form.baseUrl}
                 data-emb-form-baseurl
                 onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
@@ -371,7 +339,7 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                 className={cn("hud-input", formErr !== null && form.model.trim() === "" && "err")}
                 id="emb-model"
                 type="text"
-                placeholder={form.kind === "classifier" ? "jev-latest" : "bge-m3"}
+                placeholder="bge-m3"
                 value={form.model}
                 data-emb-form-model
                 onChange={(e) => setForm({ ...form, model: e.target.value })}

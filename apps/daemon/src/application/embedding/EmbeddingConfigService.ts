@@ -56,13 +56,15 @@ export interface EmbeddingEndpointRecord {
   readonly verifiedAt?: number;
 }
 
-/** 回执视图行（凭据卫生：apiKey → hasApiKey + 尾 4 位脱敏）。 */
+/** 回执视图行（凭据卫生：apiKey → hasApiKey + 尾 4 位脱敏；variant 透传
+ *  ——缺席 = 存量 jev 直连形态）。 */
 export interface EmbeddingEndpointDto {
   readonly id: string;
   readonly name: string;
   readonly baseUrl: string;
   readonly model: string;
   readonly kind: EndpointKind;
+  readonly variant?: string;
   readonly hasApiKey: boolean;
   readonly keyMasked?: string;
   readonly verifiedAt: number | null;
@@ -129,7 +131,8 @@ export class EmbeddingConfigService {
     }));
   }
 
-  /** 回执视图（凭据卫生：apiKey → hasApiKey + 尾 4 位脱敏）。 */
+  /** 回执视图（凭据卫生：apiKey → hasApiKey + 尾 4 位脱敏；variant 透传——
+   *  缺席 = 存量 jev 直连形态，出口不带字段）。 */
   listView(): readonly EmbeddingEndpointDto[] {
     return this.list().map((r) => ({
       id: r.id,
@@ -137,6 +140,7 @@ export class EmbeddingConfigService {
       baseUrl: r.baseUrl,
       model: r.model,
       kind: r.kind ?? "embedding",
+      ...(r.variant !== undefined && r.variant !== "" ? { variant: r.variant } : {}),
       hasApiKey: r.apiKey !== undefined,
       ...(r.apiKey !== undefined ? { keyMasked: `····${r.apiKey.slice(-4)}` } : {}),
       verifiedAt: r.verifiedAt ?? null,
@@ -151,17 +155,26 @@ export class EmbeddingConfigService {
   async set(input: {
     id?: string;
     name: string;
-    baseUrl: string;
+    /** 直连型必填（variant=pi-ai 目录型免填——缺省空串）。 */
+    baseUrl?: string;
     apiKey?: string;
     model: string;
     kind?: EndpointKind;
     variant?: string;
   }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
     const name = input.name.trim();
-    const baseUrl = input.baseUrl.trim();
+    const baseUrl = (input.baseUrl ?? "").trim();
     const model = input.model.trim();
-    if (name === "" || baseUrl === "" || model === "") {
-      return { ok: false, error: "端点字段不得为空（name/baseUrl/model）" };
+    // baseUrl 按 variant 条件必填：目录型（pi-ai——目录 + provider key，不经
+    // 自定义服务根）免填；直连型（jev 存量形态）仍必填。新目录 variant 接入
+    // 时扩展本集合（JudgeAdapterFactory 同步登记）。
+    const catalogVariants = new Set(["pi-ai"]);
+    const needsBaseUrl = !(input.variant !== undefined && catalogVariants.has(input.variant));
+    if (name === "" || model === "" || (needsBaseUrl && baseUrl === "")) {
+      return {
+        ok: false,
+        error: needsBaseUrl ? "端点字段不得为空（name/baseUrl/model）" : "端点字段不得为空（name/model）",
+      };
     }
     const records = [...this.list()];
     if (input.id === undefined) {

@@ -342,3 +342,40 @@ describe("EmbeddingConfigService：kind 维度（B4a——分类端点）", () =
     expect(probeVariants).toEqual([undefined, "pi-ai"]);
   });
 });
+
+describe("EmbeddingConfigService：variant 通道（pi-ai 目录形态）", () => {
+  test("set variant=pi-ai 时 baseUrl 免填（目录模型不经自定义端点）", async () => {
+    const config = memoryConfig();
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
+    const outcome = await svc.set({
+      name: "目录判官",
+      baseUrl: "",
+      model: "typesafe/jev-latest",
+      kind: "classifier",
+      variant: "pi-ai",
+    });
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("set 无 variant（jev 直连存量形态）baseUrl 仍必填", async () => {
+    const config = memoryConfig();
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
+    const outcome = await svc.set({
+      name: "Jev 直连",
+      baseUrl: "",
+      model: "jev-latest",
+      kind: "classifier",
+    });
+    expect(outcome).toEqual({ ok: false, error: expect.stringContaining("baseUrl") });
+  });
+
+  test("listView 透传 variant（缺席 = 存量 jev 端点不带字段）", async () => {
+    const config = memoryConfig();
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
+    await svc.set({ name: "目录判官", baseUrl: "", model: "typesafe/jev-latest", kind: "classifier", variant: "pi-ai" });
+    await svc.set({ name: "Jev 直连", baseUrl: "https://api.typesafe.ai/v1", model: "jev-latest", kind: "classifier" });
+    const views = svc.listView();
+    expect(views.find((v) => v.name === "目录判官")?.variant).toBe("pi-ai");
+    expect(views.find((v) => v.name === "Jev 直连")?.variant).toBeUndefined();
+  });
+});

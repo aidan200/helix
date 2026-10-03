@@ -26,6 +26,9 @@ export interface EmbeddingEndpointView {
   /** 端点用途（B4a）：embedding = 向量嵌入；classifier = 分类判官。
    *  daemon 回执恒显式（存量缺席已归一）。 */
   kind: "embedding" | "classifier";
+  /** 分类端点协议变体（kind=classifier 携带；缺席 = "jev" 存量直连）。
+   *  "pi-ai" = pi-ai 模型目录通道（model 填目录模型串，baseUrl 空）。 */
+  variant?: string;
   /** 是否已配 API key。 */
   hasApiKey: boolean;
   /** key 尾 4 位脱敏（如 "····7f3a"；未配 key = 缺席）。 */

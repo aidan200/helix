@@ -46,6 +46,7 @@ import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
 import { useArmedConfirm } from "./settings-hooks";
+import ClassifierModelsTab from "./ClassifierModelsTab";
 import EmbeddingModelsTab from "./EmbeddingModelsTab";
 import CustomProvidersTab from "./CustomProvidersTab";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
@@ -312,6 +313,15 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
         </button>
         <button
           type="button"
+          className={cn("hud-btn sm", tab === "classifier" ? "hud-btn-cyan" : "hud-btn-ghost")}
+          data-models-tab-classifier
+          aria-pressed={tab === "classifier"}
+          onClick={() => setTab("classifier")}
+        >
+          {t("chat.settings.general.modelsTabClassifier")}
+        </button>
+        <button
+          type="button"
           className={cn("hud-btn sm", tab === "provider" ? "hud-btn-cyan" : "hud-btn-ghost")}
           data-models-tab-provider
           aria-pressed={tab === "provider"}
@@ -323,6 +333,8 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
 
       {tab === "embedding" ? (
         <EmbeddingModelsTab />
+      ) : tab === "classifier" ? (
+        <ClassifierModelsTab />
       ) : tab === "provider" ? (
         <CustomProvidersTab onGoAuth={() => setTab("chat")} />
       ) : (

@@ -38,11 +38,15 @@ export function handleEmbeddingList(ctx: EmbeddingCommandContext): void {
 
 /** embedding.set（全局命令）：新增/更新端点 → 回执清单；invalid_payload 防御。 */
 export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
-  const { id, name, baseUrl, apiKey, model, kind } = ctx.payload;
+  const { id, name, baseUrl, apiKey, model, kind, variant } = ctx.payload;
   if (id !== undefined && (typeof id !== "string" || id === "")) {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string（缺省 = 新增）");
   }
-  for (const key of ["name", "baseUrl", "model"] as const) {
+  // baseUrl 按 variant 条件必填：目录型（pi-ai）免填，直连型（jev 存量
+  // 形态）仍必填——与 EmbeddingConfigService.set 同口径
+  const requiredKeys: readonly string[] =
+    variant === "pi-ai" ? ["name", "model"] : ["name", "baseUrl", "model"];
+  for (const key of requiredKeys) {
     const v = ctx.payload[key];
     if (typeof v !== "string" || v.trim() === "") {
       return ctx.commandError(ctx.type, "command.invalid_payload", `payload.${key} 应为非空 string`);
@@ -54,14 +58,18 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
   if (kind !== undefined && kind !== "embedding" && kind !== "classifier") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.kind 应为 \"embedding\" | \"classifier\"（缺省 = embedding）");
   }
+  if (variant !== undefined && (typeof variant !== "string" || variant.trim() === "")) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.variant 应为非空 string（缺省 = jev 直连）");
+  }
   void ctx.embedding.service
     .set({
       ...(id !== undefined ? { id } : {}),
       name: name as string,
-      baseUrl: baseUrl as string,
+      ...(baseUrl === undefined ? {} : { baseUrl: baseUrl as string }),
       model: model as string,
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(kind !== undefined ? { kind } : {}),
+      ...(variant !== undefined && variant !== "" ? { variant } : {}),
     })
     .then((outcome) => {
       if (!outcome.ok) {

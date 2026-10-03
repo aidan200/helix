@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 向量模型 tab 测试（B2-③）：
+ * 向量模型 tab 测试（B2-③；分类拆独立 tab 后收窄为纯向量端点面）：
  * - 端点行渲染：名称/baseUrl·model/key 尾 4 位脱敏/连通徽标（verifiedAt 持久态）；
  * - verify：点击 → verifying in-flight → embedding.verify.result 两判别回填；
  * - 新增/编辑弹层：非空校验（红边 + 内联错误）→ sendEmbeddingSet；
@@ -135,26 +135,18 @@ describe("向量模型 tab（B2-③）", () => {
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-verify=ep-2]")!);
     act(() => feedVerify("ep-2", { state: "fail", error: "端点不可达" }));
     expect(container.querySelector("[data-emb-conn=fail]")!).not.toBeNull();
-    // classifier 端点（B4a）：ok prob 判别——徽标显示百分比（限定 ep-3 行内）
-    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-verify=ep-3]")!);
-    act(() => feedVerify("ep-3", { state: "ok", prob: 0.91 }));
-    expect(container.querySelector("[data-emb-row=ep-3] [data-emb-conn=ok]")!.textContent).toContain("91");
   });
 
-  it("内部分组（B4a）：embedding 与 classifier 两组标题各归其位", () => {
+  it("收窄（分类拆 tab）：仅渲染 embedding 端点——classifier 端点（ep-3）不出现在本 tab", () => {
     const { container } = ui();
     act(() => feedList(ENDPOINTS));
     const embGroup = container.querySelector("[data-emb-group=embedding]")!;
-    const clsGroup = container.querySelector("[data-emb-group=classifier]")!;
-    expect(embGroup).not.toBeNull();
-    expect(clsGroup).not.toBeNull();
     expect(embGroup.querySelectorAll("[data-emb-row]")).toHaveLength(2); // ep-1 + ep-2
-    expect(clsGroup.querySelectorAll("[data-emb-row]")).toHaveLength(1); // ep-3
-    expect(clsGroup.querySelector("[data-emb-name=ep-3]")!.textContent).toBe("Jev");
-    // 空组不渲染标题：只有 embedding 端点时无 classifier 组
+    expect(container.querySelector("[data-emb-row=ep-3]")).toBeNull(); // 分类端点归分类 tab
+    // 纯 embedding 清单 → 无空组标题问题（恒单组）
     const { container: onlyEmb } = ui();
     act(() => feedList(ENDPOINTS.filter((e) => e.kind === "embedding")));
-    expect(onlyEmb.querySelector("[data-emb-group=classifier]")).toBeNull();
+    expect(onlyEmb.querySelectorAll("[data-emb-row]")).toHaveLength(2);
   });
 
   it("新增弹层：非空校验红边 + 内联错误 → 三字段齐 → sendEmbeddingSet", () => {
@@ -170,23 +162,8 @@ describe("向量模型 tab（B2-③）", () => {
     fireEvent.change(container.querySelector<HTMLInputElement>("[data-emb-form-baseurl]")!, { target: { value: "http://x/v1" } });
     fireEvent.change(container.querySelector<HTMLInputElement>("[data-emb-form-model]")!, { target: { value: "m1" } });
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-form-save]")!);
-    expect(sendEmbeddingSet).toHaveBeenCalledWith({ name: "新端点", baseUrl: "http://x/v1", model: "m1", kind: "embedding" });
+    expect(sendEmbeddingSet).toHaveBeenCalledWith({ name: "新端点", baseUrl: "http://x/v1", model: "m1" });
     expect(container.querySelector("[data-emb-form-name]")).toBeNull(); // 弹层关闭
-  });
-
-  it("新增弹层（B4a）：用途选择器切 classifier → placeholder 切换 + kind 透传", () => {
-    const { container } = ui();
-    act(() => feedList(ENDPOINTS));
-    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-add]")!);
-    // 切用途 → baseUrl/model placeholder 随 kind 切换
-    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-kind-opt=classifier]")!);
-    expect(container.querySelector<HTMLInputElement>("[data-emb-form-baseurl]")!.placeholder).toBe("https://api.typesafe.ai/v1");
-    expect(container.querySelector<HTMLInputElement>("[data-emb-form-model]")!.placeholder).toBe("jev-latest");
-    fireEvent.change(container.querySelector<HTMLInputElement>("[data-emb-form-name]")!, { target: { value: "Jev 云端" } });
-    fireEvent.change(container.querySelector<HTMLInputElement>("[data-emb-form-baseurl]")!, { target: { value: "https://api.typesafe.ai/v1" } });
-    fireEvent.change(container.querySelector<HTMLInputElement>("[data-emb-form-model]")!, { target: { value: "jev-latest" } });
-    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-form-save]")!);
-    expect(sendEmbeddingSet).toHaveBeenCalledWith({ name: "Jev 云端", baseUrl: "https://api.typesafe.ai/v1", model: "jev-latest", kind: "classifier" });
   });
 
   it("编辑弹层回填现值（apiKey 编辑位留空 = 不携带；kind 回填——凭据只进不出）", () => {
@@ -196,11 +173,7 @@ describe("向量模型 tab（B2-③）", () => {
     expect(container.querySelector<HTMLInputElement>("[data-emb-form-name]")!.value).toBe("Ollama 本地");
     expect(container.querySelector<HTMLInputElement>("[data-emb-form-baseurl]")!.value).toBe("http://localhost:11434/v1");
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-form-save]")!);
-    expect(sendEmbeddingSet).toHaveBeenCalledWith({ id: "ep-1", name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "bge-m3", kind: "embedding" });
-    // classifier 端点编辑：kind 回填 classifier
-    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-edit=ep-3]")!);
-    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-form-save]")!);
-    expect(sendEmbeddingSet).toHaveBeenLastCalledWith({ id: "ep-3", name: "Jev", baseUrl: "https://api.typesafe.ai/v1", model: "jev-latest", kind: "classifier" });
+    expect(sendEmbeddingSet).toHaveBeenCalledWith({ id: "ep-1", name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "bge-m3" });
   });
 
   it("两段式 armed 删除：首击 armed（2.5s 复原）→ 二击 sendEmbeddingDelete", () => {
