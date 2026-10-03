@@ -21,7 +21,29 @@
  *   （大小写不敏感）→ 剥离唤醒词前缀返剩余话语；未命中零产出；空串 = 关
  *   门槛直通（命中判定在 webview 本地，命中前内容不入对话）。
  */
-import { VOICE_MIN_DURATION_MS, VOICE_RMS_THRESHOLD, type VoiceState } from "@/shared/lib/useVoiceInput";
+import { VOICE_MIN_DURATION_MS, type VoiceState } from "@/shared/lib/useVoiceInput";
+// 人声判据共基面（语音判定钝感批）：ZCR 族与单帧判据唯一定义点在 shared/lib/voice-gate
+// ——本文件 re-export 保兼容（既有测试/导入零断）；stepBargeInGate 改用
+// isVoiceLikeFrame，与聆听收口门（useVoiceInput VAD）物理同源（E-221 P1 基准分裂修复）。
+import {
+  isVoiceLikeFrame,
+  VOICE_RMS_THRESHOLD,
+  VOICE_ZCR_MAX_LENIENT,
+  VOICE_ZCR_MAX_STRICT,
+  VOICE_ZCR_MIN,
+  VOICE_ZCR_TOLERANCE_DEFAULT,
+  zcrInVoiceBand,
+  zcrVoiceBandCeiling,
+} from "@/shared/lib/voice-gate";
+
+export {
+  VOICE_ZCR_MAX_LENIENT,
+  VOICE_ZCR_MAX_STRICT,
+  VOICE_ZCR_MIN,
+  VOICE_ZCR_TOLERANCE_DEFAULT,
+  zcrInVoiceBand,
+  zcrVoiceBandCeiling,
+};
 
 /** 面板输入双模（互斥；打开默认语音模式——mic 不可用自动回退文本态）。 */
 export type StewardInputMode = "voice" | "text";
@@ -150,34 +172,13 @@ export function matchWakeWord(text: string, wakeWord: string): WakeMatch {
 export const BARGE_IN_SILENCE_WINDOW_MS = 300;
 
 // ── B3 回声防线（双参判定 + 门限分档）────────────────────────
+// ZCR 人声带判据族（VOICE_ZCR_* / zcrInVoiceBand / zcrVoiceBandCeiling）已
+// 下沉 shared/lib/voice-gate（两门共基唯一定义点）——本文件 re-export 保兼容。
 
 /** 门限分档系数（B3 ②线）：speaking/asking 相位（TTS 自声经空气/机身回灌
  *  窗口）基准阈值抬档防自触发；listening 相位维持基准灵敏度。固定档位
  *  （不暴露强度参数——灵敏度基准已可调，档位系数属内部回声防护逻辑）。 */
 export const BARGE_IN_ECHO_THRESHOLD_SCALE = 3;
-
-/** 人声带下界（ZCR 每样本过零率）：低于此 = 直流/低频隆隆，非浊音带。 */
-export const VOICE_ZCR_MIN = 0.01;
-
-/** 容忍带强度 0（严格档）人声带上界：宽带脉冲/键盘声主要落此上。 */
-export const VOICE_ZCR_MAX_STRICT = 0.25;
-
-/** 容忍带强度 100（宽容档）人声带上界：清音/齿音 ZCR 偏高不误杀。 */
-export const VOICE_ZCR_MAX_LENIENT = 0.45;
-
-/** ZCR 判定缺省容忍带强度（0-100；严格/宽容中档）。 */
-export const VOICE_ZCR_TOLERANCE_DEFAULT = 50;
-
-/** 容忍带强度 → 人声带上界（线性映射；越界强度钳制）。 */
-export function zcrVoiceBandCeiling(tolerance: number = VOICE_ZCR_TOLERANCE_DEFAULT): number {
-  const t = Math.max(0, Math.min(100, tolerance)) / 100;
-  return VOICE_ZCR_MAX_STRICT + t * (VOICE_ZCR_MAX_LENIENT - VOICE_ZCR_MAX_STRICT);
-}
-
-/** 双参判定人声带判据：ZCR 落 [VOICE_ZCR_MIN, 上界（容忍带强度驱动）]。 */
-export function zcrInVoiceBand(zcr: number, tolerance: number = VOICE_ZCR_TOLERANCE_DEFAULT): boolean {
-  return zcr >= VOICE_ZCR_MIN && zcr <= zcrVoiceBandCeiling(tolerance);
-}
 
 /** 门限分档（B3）：speaking/asking 相位阈值 × 档位系数；他相位/缺省 = 基准。 */
 export function bargeInThreshold(phase: StewardVoicePhase | undefined, base: number): number {
@@ -251,9 +252,11 @@ export function stepBargeInGate(state: BargeInGateState, input: BargeInGateInput
   if (input.atMs < state.muteUntilMs) {
     return { state: { loudSinceMs: null, ...carry, fired: false }, trigger: false };
   }
-  const voiceLike =
-    input.rms >= threshold &&
-    (input.voiceCheck === false || input.zcr === undefined || zcrInVoiceBand(input.zcr, input.zcrTolerance ?? VOICE_ZCR_TOLERANCE_DEFAULT));
+  const voiceLike = isVoiceLikeFrame(input, {
+    threshold,
+    voiceCheck: input.voiceCheck,
+    zcrTolerance: input.zcrTolerance,
+  });
   if (!voiceLike) {
     return { state: { loudSinceMs: null, ...carry }, trigger: false };
   }

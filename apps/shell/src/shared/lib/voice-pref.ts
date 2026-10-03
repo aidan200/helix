@@ -4,7 +4,7 @@
  * （stt-provider-pref.ts）同构存储面。localStorage 不可用（隐私模式等）
  * → 兜底默认值（播报关——不偷偷发音频花钱）。
  */
-import { VOICE_RMS_THRESHOLD } from "./useVoiceInput";
+import { VOICE_RMS_THRESHOLD } from "./voice-gate";
 
 /** 播报开关存储键（"1"=开；缺省/其它 = 关——默认 off）。 */
 export const VOICE_BROADCAST_PREF_KEY = "helix.voice.broadcast";
