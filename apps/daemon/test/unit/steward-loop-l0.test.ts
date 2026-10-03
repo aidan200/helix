@@ -18,7 +18,7 @@ import type { DomainEvent } from "../../src/domain/events/DomainEvent";
  *    在途轮 streaming 中新 ask 到达 → abort 旧轮（signal 只作用 LLM 段）→
  *    drain 旧 promise settle（KV 写入收尾）→ 开新轮；KV 顺序不变量
  *    （旧轮最后写入 < 新轮首写）；旧轮回执 error 判别（被取代）；
- * 2. 确认闸经 LoopEngine 暂停点全链：propose_send → confirm_required
+ * 2. 确认闸经引擎暂停面全链：propose_send → confirm_required
  *    （run_paused 事件）→ confirm → resumeWith(resolve)（run_resumed 事件）
  *    → toolResult 回灌 KV（与迁移前 confirm 直接入账等价）；
  * 3. 事件出口（emitEngineEvent）：里程碑子集发射 + 流式中间态排除；
@@ -141,7 +141,7 @@ describe("输入缓冲序（L1 件二取代 L0 abort-and-drain 取代语义）",
   });
 });
 
-describe("确认闸经 LoopEngine 暂停点全链", () => {
+describe("确认闸经引擎暂停面全链", () => {
   function proposeScriptLlm(): StewardLlmPort {
     return {
       modelId: "m",

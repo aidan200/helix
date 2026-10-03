@@ -244,7 +244,7 @@ export class StewardDialogMemory {
 
   /** 压缩替换（helix-loop L1 件一）：[summary, ...尾部 keepRecentCount 条原文]
    *  整窗替换（TR-47：压的是历史不是工作集——尾部滚动窗保留；头部孤儿
-   *  toolResult 连带清理）。与 LoopEngine 侧窗口替换同步（onCompacted 回调
+   *  toolResult 连带清理）。与引擎侧压缩窗口替换同步（engine_compaction_completed 回调
    *  驱动——落盘与 LLM 窗口同源不变量）；低频全量写（单事务）。 */
   async compact(summary: StewardHistoryRecord, keepRecentCount: number): Promise<void> {
     this.ensureLoaded();

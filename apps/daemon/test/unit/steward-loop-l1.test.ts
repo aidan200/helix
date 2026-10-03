@@ -6,7 +6,7 @@ import type { StewardAskResultPayload, StewardHistoryRecord } from "@helix/proto
 import { StewardService } from "../../src/application/steward/StewardService";
 import { StewardDialogMemory } from "../../src/application/steward/StewardDialogMemory";
 import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
-import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/loop";
+import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../src/domain/agent/InterruptionMarkers";
 
 /**
  * helix-loop L1 批新增面单测：

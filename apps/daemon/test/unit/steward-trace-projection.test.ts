@@ -11,7 +11,7 @@ import { SYSTEM_SESSION_ID } from "@helix/protocol";
 
 /**
  * helix-loop L0：追踪可见性端到端（真 SQLite tmp 库——E-18 追踪唯一真实源）。
- * 链路：LoopEngine 事件 → stewardEngineTraceBridge（里程碑过滤 + 四维落位）→
+ * 链路：引擎 port 事件 → stewardEngineTraceBridge（里程碑过滤 + 四维落位）→
  * WriteQueue.appendEvent（domain_events 落库，agent_kind 判别 = 非主实例 →
  * subagent）→ SqliteTraceQueryAdapter.queryTrace（SYSTEM_SESSION_ID）→
  * 追踪页实例面板出现管家行为历史（assembleInstancePanel fold 只读投影）。

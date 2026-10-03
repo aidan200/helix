@@ -16,7 +16,7 @@
  * 不借服务）。
  */
 import type { StewardLlmPort } from "../../../application/ports/outbound/StewardLlmPort";
-import { firstToolCallBlock, loopBlocksText } from "../../../domain/loop/contracts/message";
+import { firstToolCallBlock, stewardBlocksText } from "../../../application/steward/stewardBlocks";
 import type {
   VoiceSummarizerPort,
   VoiceSummaryPrompt,
@@ -55,6 +55,6 @@ export class StewardVoiceSummarizerAdapter implements VoiceSummarizerPort {
     if (toolCallBlock !== undefined) {
       throw new Error(`播报摘要面收到意外的工具调用（${toolCallBlock.name}——tools 为空不应发生）`);
     }
-    return loopBlocksText(response.blocks);
+    return stewardBlocksText(response.blocks);
   }
 }
