@@ -5,12 +5,14 @@
  * 形态（E-135 浮层三分法第 1 档：真全屏语义——fixed 视口层，AppRoutes
  * 独立挂载 .app-shell 兄弟位，路由切换不卸载，z 序压过 StewardDock/
  * scanline；**不做 OS 级置顶**——组件按独立 root 设计保留升 B3 可能）：
- * - **StewardOrb** 光球（右下角 ~96px；P1 像素光球精灵皮面）：相位=表情
- *   （listening 睁眼偶眨 / welcome 眯眼笑 / thinking 瞄上+嘴变省略号脉冲 /
- *   speaking 均衡嘴随声压 / waking 半睁 / closing+muted 闭眼驻息）；像素面
- *   =硬止径向色阶+棋盘 dither+阶梯光晕（动效仅 transform/opacity，E-124；
- *   电平三变量 --stv-b1..b3 由本组件预计算——calc 乘法不进 CSS）；
- *   相位色彩走 accent/violet 通道 token 零内联 hex；
+ * - **StewardOrb** 光球（右下角 ~96px；手绘帧动画雪碧图皮面——用户作图
+ *   orb.png 216²/6×6 网格/36px 帧）：相位=动画序列（waking 待机循环 /
+ *   listening 倾听转换+循环 / thinking 疑问开场→思考两段式（图布局
+ *   (3,1)(3,2) 物理相邻即为此衔接）/ speaking+welcome 说话转换+循环 /
+ *   muted·closing 冻结当前帧）；帧停点=background-position 逐 keyframe
+ *   steps（E-124 合规：animation 简写全常量）；RMS=整图微缩放
+ *   --stv-lv 由本组件预计算（var 只入 transform 不入 animation）；
+ *   36px 帧硬边放大（image-rendering: pixelated）——详见 app.css .stv 段注；
  * - **StewardCaption** 字幕条（光球上方，玻璃族）：用户行（interim 灰/
  *   final 实）与管家行（ask.delta 聚合）弱区分，堆叠渐隐最新在下（上限
  *   4 行）；纯 fixed 文本层零滚动容器（E-124 WKWebView sticky 坑）；
@@ -179,8 +181,8 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
 
   if (orbPhase === null) return null;
   const showInterim = sv.interim !== null && sv.interim !== "";
-  // 均衡嘴电平三变量（E-124：calc 乘法不进 CSS——多档系数在组件端预计算，
-  // CSS 只吃现成 scaleY 基线；与旧 --stv-lv 同源同 clamp）
+  // RMS 微缩放系数（E-124：calc 乘法不进 CSS——组件端预计算成现成 scale
+  // 值，CSS 只吃 --stv-lv；与 P1 均衡嘴三变量同源同 clamp）
   const lv = Math.max(0.15, sv.level);
   return (
     <div
@@ -205,30 +207,14 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
         className={`stv-orb stv-phase-${orbPhase}${sv.muted ? " stv-muted" : ""}`}
         data-testid="steward-orb"
         data-phase={orbPhase}
-        style={
-          {
-            "--stv-b1": (0.22 + lv * 0.55).toFixed(3),
-            "--stv-b2": (0.3 + lv * 0.95).toFixed(3),
-            "--stv-b3": (0.22 + lv * 0.7).toFixed(3),
-          } as React.CSSProperties
-        }
+        style={{ "--stv-lv": (0.98 + lv * 0.05).toFixed(3) } as React.CSSProperties}
         aria-label={sv.muted ? t("steward.voice.orbMuted") : sv.speaking ? t("steward.voice.orbStopRead") : t("steward.voice.orbLabel")}
         title={sv.speaking ? t("steward.voice.orbStopRead") : undefined}
         onClick={onOrbClick}
       >
-        {/* P1 像素光球精灵（glow 阶梯光晕 / body 像素球体 / face 表情面：
-            双眼 + 三条均衡器嘴——相位=表情，RMS=嘴动；均为纯皮面 aria-hidden）*/}
-        <span className="stv-orb-glow" aria-hidden="true" />
-        <span className="stv-orb-body" aria-hidden="true" />
-        <span className="stv-orb-face" aria-hidden="true">
-          <span className="stv-eye" />
-          <span className="stv-eye" />
-          <span className="stv-mouth">
-            <span className="stv-bar" />
-            <span className="stv-bar" />
-            <span className="stv-bar" />
-          </span>
-        </span>
+        {/* 帧动画雪碧图皮面（单层——orb.png 6×6 网格，相位动画与帧表全在
+            app.css .stv 段；纯皮面 aria-hidden）*/}
+        <span className="stv-sprite" aria-hidden="true" />
       </button>
     </div>
   );
