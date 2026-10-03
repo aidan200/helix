@@ -35,7 +35,7 @@ import type { AnchorDeclRow, KnowledgeNode, MaterializedAnchor, NodeRef } from "
 /** draft 处置需求分类（裁决通道分流的数据源）。 */
 export type DraftItemKind = "anchor-debt" | "ready" | "stale";
 
-/** 草稿分类项：节点引用 + 分类 + 人读叙述 + 落账天数（NaN 防御 = null）+ 是否带锚声明（③ 路区分补挂/重挂；带声明 anchor-debt ②③ 按声明豁免不报，须由本读面直接供入）。 */
+/** 草稿分类项：节点引用 + 分类 + 人读叙述 + 落账天数（NaN 防御 = null）+ 是否带锚声明（③ 路区分补挂/重挂；带声明 anchor-debt ②③ 按声明豁免不报，须由本读面直接供入）+ 升级留痕（change_log escalate: 前缀最新行，service 层 join——纯函数不产，无则 undefined）。 */
 export interface DraftItem {
   readonly kind: DraftItemKind;
   readonly node: NodeRef;
@@ -44,6 +44,8 @@ export interface DraftItem {
   readonly ageDays: number | null;
   /** 是否带锚声明（仅 global / path / symbol 任一）。 */
   readonly declared: boolean;
+  /** 人审升级留痕（最新一条白话裁决问题）；未被升级过的草稿 undefined。 */
+  readonly note?: string;
 }
 
 /** 扫描输入：全节点（仅 draft 参与分类）/全物化锚（含 orphan 标记）/锚声明全集/当前时刻。 */

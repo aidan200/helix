@@ -62,6 +62,8 @@ import type {
   KgListPayload,
   KgNodeConfirmCommand,
   KgNodeConfirmPayload,
+  KgNodeDiscardCommand,
+  KgNodeDiscardPayload,
   KgNodeDetailCommand,
   KgNodeDetailPayload,
   KgProjectsCommand,
@@ -786,6 +788,11 @@ export function kgChangeReportCommand(payload: KgChangeReportPayload): KgChangeR
 /** kg.node.confirm：draft 审阅转正（F5.4 页面唯一写动作；仅 draft 可转正）。 */
 export function kgNodeConfirmCommand(payload: KgNodeConfirmPayload): KgNodeConfirmCommand {
   return { v: PROTOCOL_VERSION, type: "kg.node.confirm", payload };
+}
+
+/** kg.node.discard：草稿人审驳回（P5 裁决动作集之二——supersede 无 replacement 留审计链，仅 draft 可驳回）。 */
+export function kgNodeDiscardCommand(payload: KgNodeDiscardPayload): KgNodeDiscardCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.node.discard", payload };
 }
 
 /** kg.index.status：索引状态四态面板（F5.5；rebuild:true = 触发构建/重建，

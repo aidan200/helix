@@ -186,6 +186,17 @@ export interface AutoAuditEntry {
   readonly ts: string;
 }
 
+/**
+ * 人审升级留痕行（P5 草稿裁决文案数据面）：change_log 中 reason 带
+ * `escalate: ` 前缀的行（kg-triage ④ 路升级动作写入——白话裁决问题；
+ * 面板草稿栏取每节点最新一条作裁决说明，与 auto: 审计前缀同构互不重叠）。
+ */
+export interface EscalationEntry {
+  readonly nodeId: string;
+  readonly reason: string;
+  readonly ts: string;
+}
+
 /** candidates 台账列表查询（读面三件套：status 过滤 + limit/offset 分页；缺省全量最新在前）。 */
 export interface CandidateListQuery {
   readonly status?: CandidateStatus;

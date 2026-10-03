@@ -116,6 +116,7 @@ import type {
   KgIndexStatusResultEvent,
   KgListResultEvent,
   KgNodeConfirmResultEvent,
+  KgNodeDiscardResultEvent,
   KgNodeDetailResultEvent,
   KgNodeSupersedeResultEvent,
   KgNodeUpdateResultEvent,
@@ -289,6 +290,7 @@ export type EventEnvelope =
   | KgNodeDetailResultEvent
   | KgChangeReportResultEvent
   | KgNodeConfirmResultEvent
+  | KgNodeDiscardResultEvent
   | KgIndexStatusResultEvent
   | KgBootstrapCreateResultEvent
   | KgBootstrapProduceResultEvent
@@ -436,6 +438,7 @@ export const EVENT_TYPES = [
   "kg.node.detail.result",
   "kg.change.report.result",
   "kg.node.confirm.result",
+  "kg.node.discard.result",
   "kg.index.status.result",
   "kg.bootstrap.create.result",
   "kg.bootstrap.produce.result",
@@ -610,6 +613,7 @@ export const EVENT_CHANNELS = {
   "kg.node.detail.result": "kg",
   "kg.change.report.result": "kg",
   "kg.node.confirm.result": "kg",
+  "kg.node.discard.result": "kg",
   "kg.index.status.result": "kg",
   "kg.bootstrap.create.result": "kg",
   "kg.bootstrap.produce.result": "kg",

@@ -908,6 +908,8 @@ describe("P3 体检拆栏：deadAnchors / unanchoredNodes / drafts 三段渲染"
       { kind: "ready", summary: "规则「分层依赖单向」为草稿且锚点健康——内容待裁决转正，可交 kg-triage 消化（④ 路）。", ageDays: 2 },
       { kind: "stale", summary: "规则「旧口径」草稿已 12 天未裁决（锚点健康）——超龄积压，建议 kg-triage 消化（④ 路）。", ageDays: 12 },
       { kind: "anchor-debt", summary: "规则「新写路径规则」草稿无活锚且无锚声明——需先挂锚（kg-triage 定位管辖符号，③ 路）再裁决转正。", ageDays: 4 },
+      // P5：升级留痕样本（id 携带 → 动作钮渲染；note → 裁决文案主行）
+      { kind: "ready", id: "TR-77", name: "冲突样本", summary: "规则「冲突样本」为草稿且锚点健康——内容待裁决转正。", ageDays: 1, note: "escalate: 与 TR-52 说法冲突，无法机械裁决信哪个" },
     ],
     index: { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" },
     candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
@@ -937,10 +939,10 @@ describe("P3 体检拆栏：deadAnchors / unanchoredNodes / drafts 三段渲染"
     expect(unanchored).not.toBeNull();
     expect(unanchored.textContent).toContain("无锚节点");
     expect(unanchored.textContent).toContain("写路径守护乙");
-    // ③ 草稿栏：三分类计数（待裁决 1 / 积压 1 / 缺挂锚 1）+ 条目 age 后缀
+    // ③ 草稿栏：三分类计数（待裁决 2（含 P5 升级留痕样本）/ 积压 1 / 缺挂锚 1）+ 条目 age 后缀
     const drafts = qs("[data-kg-health-drafts]");
     expect(drafts).not.toBeNull();
-    expect(drafts.querySelector('[data-stat="draft-ready"]')!.textContent).toContain("1");
+    expect(drafts.querySelector('[data-stat="draft-ready"]')!.textContent).toContain("2");
     expect(drafts.querySelector('[data-stat="draft-stale"]')!.textContent).toContain("1");
     expect(drafts.querySelector('[data-stat="draft-debt"]')!.textContent).toContain("1");
     expect(drafts.textContent).toContain("分层依赖单向");
@@ -980,6 +982,21 @@ describe("P3 体检拆栏：deadAnchors / unanchoredNodes / drafts 三段渲染"
     expect(qs("[data-kg-health-unanchored]")).toBeNull();
     expect(qs("[data-kg-health-drafts]")).toBeNull();
     expect(qs("[data-kg-health-healthy]")).not.toBeNull(); // 结构健康空态照旧
+  });
+
+  it("P5：升级留痕为裁决文案主行 + 携 id 条目渲染 [转正][驳回] 动作钮（无 id 条目不渲染）", () => {
+    inSplitPane();
+    const drafts = qs("[data-kg-health-drafts]")!;
+    // ① note 主行（白话裁决问题）+ 分类 summary 降为次行
+    expect(drafts.textContent).toContain("escalate: 与 TR-52 说法冲突，无法机械裁决信哪个");
+    expect(drafts.textContent).toContain("冲突样本");
+    // ② 动作钮：仅携 id 条目渲染（fixture 四条仅 TR-77 携 id）
+    const confirmBtns = drafts.querySelectorAll('[data-kg-draft-act="confirm"]');
+    const discardBtns = drafts.querySelectorAll('[data-kg-draft-act="discard"]');
+    expect(confirmBtns).toHaveLength(1);
+    expect(discardBtns).toHaveLength(1);
+    expect(confirmBtns[0]!.getAttribute("data-kg-draft-id")).toBe("TR-77");
+    expect(discardBtns[0]!.textContent).toContain("驳回");
   });
 });
 

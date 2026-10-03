@@ -242,11 +242,12 @@ describe("kg-triage skill 装载（P1 待办面裁决任务）", () => {
     expect(body).toContain("findDrafts"); // P3 ④ 路
     expect(body).toContain("无锚节点"); // P3 ③ 路
     expect(body).toContain("≤20");
-    // 升级判据（证据缺失/冲突/影响面含 replacement 草稿/索引态/预算）与证据纪律
+    // 升级判据（证据缺失/冲突/影响面/索引态/预算）与证据纪律
     expect(body).toContain("升级人审判据");
     expect(body).toContain("file:line");
     expect(body).toContain("domain=business");
-    expect(body).toContain("replacement 草稿"); // P3：supersede 链草稿升级
+    expect(body).toContain("不按结构类型一刀切"); // P5：replacement 不再仅因结构身份升级——冲突为纲
+    expect(body).toContain("escalate: "); // P5：升级留痕（updateNode 仅 reason → 面板裁决文案数据源）
     // dry-run 与落地口径（confirmed + auto: 溯源）
     expect(body).toContain("dryRun");
     expect(body).toContain("confirmed");

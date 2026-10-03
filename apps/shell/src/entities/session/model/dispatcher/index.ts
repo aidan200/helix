@@ -215,6 +215,7 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "kg.node.detail.result",
   "kg.change.report.result",
   "kg.node.confirm.result",
+  "kg.node.discard.result",
   "kg.index.status.result",
   "kg.bootstrap.create.result",
   "kg.bootstrap.produce.result",

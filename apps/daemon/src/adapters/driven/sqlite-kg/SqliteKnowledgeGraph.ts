@@ -11,6 +11,7 @@ import type {
   AttachmentAnchor,
   AttachmentSnapshot,
   AutoAuditEntry,
+  EscalationEntry,
   CandidateListQuery,
   CandidateRow,
   CandidateStatusCounts,
@@ -555,6 +556,19 @@ export class SqliteKnowledgeGraph {
       taskId: row.task_id,
       ts: row.ts,
     }));
+  }
+
+  /**
+   * 人审升级留痕读面（P5 草稿裁决文案数据源）：change_log escalate: 前缀行
+   * 最新在前（seq 序）。只读 SELECT；缺库 → 空数组（不新建库文件）。
+   */
+  listEscalations(projectRoot: string): readonly EscalationEntry[] {
+    const db = this.readDb(projectRoot);
+    if (db === null) return [];
+    const rows = db
+      .prepare("SELECT node_id, reason, ts FROM change_log WHERE reason LIKE 'escalate: %' ORDER BY seq DESC")
+      .all() as { node_id: string; reason: string; ts: string }[];
+    return rows.map((row) => ({ nodeId: row.node_id, reason: row.reason, ts: row.ts }));
   }
 
   /**

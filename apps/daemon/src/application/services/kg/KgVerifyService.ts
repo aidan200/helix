@@ -61,14 +61,24 @@ export class KgVerifyService {
     });
   }
 
-  /** draft 处置需求三分类清单（P3 L0 读面；豁免与口径见 domain/kg/verify/drafts）。 */
+  /** draft 处置需求三分类清单（P3 L0 读面；豁免与口径见 domain/kg/verify/drafts）。P5：join 人审升级留痕（escalate: 前缀最新一条 → note，面板裁决文案）。 */
   findDrafts(projectRoot: string): readonly DraftItem[] {
     const view = this.deps.graph.getVerifyView(projectRoot);
-    return classifyDrafts({
+    const items = classifyDrafts({
       nodes: view.nodes,
       anchors: view.anchors,
       anchorDeclarations: view.anchorDeclarations,
       now: Date.now(),
+    });
+    // escalate: 留痕 join（seq 序最新在前——每节点首见即最新；与分类纯函数解耦）
+    const latestByNode = new Map<string, string>();
+    for (const e of this.deps.graph.listEscalations(projectRoot)) {
+      if (!latestByNode.has(e.nodeId)) latestByNode.set(e.nodeId, e.reason);
+    }
+    if (latestByNode.size === 0) return items;
+    return items.map((item) => {
+      const note = latestByNode.get(item.node.id);
+      return note === undefined ? item : { ...item, note };
     });
   }
 

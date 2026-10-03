@@ -3,6 +3,7 @@ import type {
   AnchorReverseHit,
   AttachmentSnapshot,
   AutoAuditEntry,
+  EscalationEntry,
   CandidateListQuery,
   CandidateRow,
   CandidateStatusCounts,
@@ -129,6 +130,14 @@ export interface KnowledgeGraphPort {
    * 新建库文件）。
    */
   listAutoAdjudications(projectRoot: string): readonly AutoAuditEntry[];
+
+  /**
+   * 人审升级留痕读面（P5 草稿裁决文案数据源）：change_log 中 reason 带
+   * `escalate: ` 前缀的行，最新在前（seq 序）——kg-triage ④ 路升级动作写入
+   * （白话裁决问题），面板草稿栏取每节点最新一条。只读 SELECT，缺库 →
+   * 空数组（不新建库文件）。
+   */
+  listEscalations(projectRoot: string): readonly EscalationEntry[];
 
   /**
    * candidates 台账列表读面（台账读面三件套：agent kg candidates op /

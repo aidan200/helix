@@ -48,6 +48,17 @@ export interface KgNodeConfirmCommand extends CommandFrame<KgNodeConfirmPayload>
   type: "kg.node.confirm";
 }
 
+export interface KgNodeDiscardPayload {
+  project: string;
+  id: string;
+  /** 驳回理由（可选——审计叙述落 change_log.reason；缺省「面板人审驳回（未填理由）」）。 */
+  reason?: string;
+}
+/** 草稿人审驳回（P5 裁决动作集之二；走 KgWriteService supersede 无 replacement——审计型库无物理删除，驳回即翻 superseded 终态留审计链）；仅 draft 可驳回。 */
+export interface KgNodeDiscardCommand extends CommandFrame<KgNodeDiscardPayload> {
+  type: "kg.node.discard";
+}
+
 export interface KgIndexStatusPayload {
   project: string;
   /** true = 触发构建/重建（纯 codegraph 机械动作无知识层写，AD-10；absent 态触发即首次构建 B1）。 */

@@ -161,6 +161,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-report:${event.payload.iterationId}:${event.payload.entries.length}`;
     case "kg.node.confirm.result":
       return `kg-confirm:${event.payload.node.status}`;
+    case "kg.node.discard.result":
+      return `kg-discard:${event.payload.node.status}`;
     case "kg.index.status.result":
       return `kg-index:${event.payload.state}`;
     // ── kg-bootstrap 批（iter-20260829-ys7q T3.2；五命令点对点回执，契约 kg-bootstrap-api）──
@@ -477,6 +479,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-report:${cmd.payload.project}:${cmd.payload.iterationId ?? "current"}`;
     case "kg.node.confirm":
       return `kg-confirm:${cmd.payload.project}:${cmd.payload.id}`;
+    case "kg.node.discard":
+      return `kg-discard:${cmd.payload.project}:${cmd.payload.id}:${cmd.payload.reason ?? "-"}`;
     case "kg.index.status":
       return `kg-index:${cmd.payload.project}:${cmd.payload.rebuild === true ? "rebuild" : "status"}`;
     case "kg.projects":

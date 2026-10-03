@@ -31,6 +31,7 @@ function setup(opts: { sel?: string | null; settleResult?: boolean; detailSendOk
     sendKgChangeReport: vi.fn(() => true),
     sendKgIndexStatus: vi.fn(() => true),
     sendKgProjects: vi.fn(() => true),
+    sendKgHealth: vi.fn(() => true),
     projectDispatch: vi.fn(),
     toast: { push: (kind, text) => toasts.push({ kind, text }) },
     t: (key) => key,
@@ -136,5 +137,23 @@ describe("code-review 族A：confirm 后 detail 重发失败收口（TR-84）", 
     const { listener, dispatched } = setup({ sel: "TR-1" });
     listener(frame("kg.node.confirm.result", { node: { id: "TR-1", name: "n", status: "confirmed" } }));
     expect(dispatched.some((a) => a.type === "detail-failed")).toBe(false);
+  });
+});
+
+describe("P5：草稿裁决回执（confirm/discard 双面刷新）", () => {
+  it("confirm.result → 列表 + 体检面双刷新（草稿栏随转正实时收敛）", () => {
+    const { listener, deps } = setup({ sel: "TR-1" });
+    listener(frame("kg.node.confirm.result", { node: { id: "TR-1", name: "n", status: "confirmed" } }));
+    expect(deps.sendKgList).toHaveBeenCalledWith({ project: "helix" });
+    expect(deps.sendKgHealth).toHaveBeenCalledWith({ project: "helix" });
+  });
+
+  it("discard.result → 列表 + 体检面刷新 + toast（无 detail 重发）", () => {
+    const { listener, deps, toasts } = setup({ sel: "TR-1" });
+    listener(frame("kg.node.discard.result", { node: { id: "TR-2", name: "驳回样本", status: "superseded" } }));
+    expect(deps.sendKgList).toHaveBeenCalledWith({ project: "helix" });
+    expect(deps.sendKgHealth).toHaveBeenCalledWith({ project: "helix" });
+    expect(deps.sendKgNodeDetail).not.toHaveBeenCalled(); // 驳回节点退出可选面
+    expect(toasts.some((x) => x.text === "pj.kg.discardToast")).toBe(true);
   });
 });

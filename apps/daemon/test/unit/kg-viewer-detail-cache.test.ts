@@ -140,6 +140,9 @@ class CountingGraph implements KnowledgeGraphPort {
   listAutoAdjudications(): readonly import("../../src/domain/kg/types").AutoAuditEntry[] {
     return [];
   }
+  listEscalations(): readonly import("../../src/domain/kg/types").EscalationEntry[] {
+    return [];
+  }
 
   listCandidates(): readonly CandidateRow[] {
     return [];

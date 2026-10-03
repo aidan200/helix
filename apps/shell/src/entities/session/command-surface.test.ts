@@ -47,6 +47,7 @@ describe("LISTEN_SURFACE.subscribeKgFrames", () => {
     expect(match("kg.node.detail.result")).toBe(true);
     expect(match("kg.bootstrap.create.result")).toBe(true);
     expect(match("kg.review.create.result")).toBe(true);
+    expect(match("kg.node.discard.result")).toBe(true); // P5 草稿驳回回执（前缀谓词结构覆盖，钉住防谓词改窄）
     // F5 批 #5：code-review 回执挂既有 kg 通道（E-99）——漏登 = flight.codeReview
     // 永真发起钮永久禁用（TR-89 事故模式），本断言钉住双登记
     expect(match("code.review.create.result")).toBe(true);

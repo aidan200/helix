@@ -131,6 +131,9 @@ class StubGraph implements KnowledgeGraphPort {
   listAutoAdjudications(): readonly import("../../src/domain/kg/types").AutoAuditEntry[] {
     return [];
   }
+  listEscalations(): readonly import("../../src/domain/kg/types").EscalationEntry[] {
+    return [];
+  }
 
   listCandidates(): readonly CandidateRow[] {
     return []; // 台账读面三件套：本测试不消费

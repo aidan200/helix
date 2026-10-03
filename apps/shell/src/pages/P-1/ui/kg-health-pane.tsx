@@ -111,6 +111,7 @@ export default function KgHealthPane({
   onLaunchTriage,
   onAuditRefresh,
   onOpenTasks,
+  onDraftAction,
 }: {
   /** kg.health 回执（null = 未拉取/读取中）。 */
   health: KgHealthDto | null;
@@ -149,6 +150,8 @@ export default function KgHealthPane({
   onLaunchTriage: () => void;
   onAuditRefresh: () => void;
   onOpenTasks: () => void;
+  /** P5 草稿裁决动作（仅携 id 的条目渲染动作钮；confirm=转正 / discard=驳回）。 */
+  onDraftAction?: (kind: "confirm" | "discard", id: string) => void;
 }) {
   if (loading || health === null) {
     if (failed && !loading) {
@@ -382,9 +385,38 @@ export default function KgHealthPane({
           <ul className="kg-health-list">
             {drafts.map((d, i) => (
               <li key={i} className="kg-health-item" data-kind={d.kind}>
-                {d.summary}
+                {d.note !== undefined && d.note !== "" ? (
+                  <span className="kg-health-note">{d.note}</span>
+                ) : (
+                  d.summary
+                )}
                 {d.ageDays !== null && (
                   <span className="kg-health-age"> · {t("pj.health.draftAgeDays", { n: d.ageDays })}</span>
+                )}
+                {d.note !== undefined && d.note !== "" && (
+                  <span className="kg-health-age"> · {d.summary}</span>
+                )}
+                {d.id !== undefined && onDraftAction !== undefined && (
+                  <span className="kg-health-draft-acts">
+                    <button
+                      type="button"
+                      className="kg-health-act-btn"
+                      data-kg-draft-act="confirm"
+                      data-kg-draft-id={d.id}
+                      onClick={() => onDraftAction("confirm", d.id!)}
+                    >
+                      {t("pj.health.draftConfirmBtn")}
+                    </button>
+                    <button
+                      type="button"
+                      className="kg-health-act-btn kg-health-act-danger"
+                      data-kg-draft-act="discard"
+                      data-kg-draft-id={d.id}
+                      onClick={() => onDraftAction("discard", d.id!)}
+                    >
+                      {t("pj.health.draftDiscardBtn")}
+                    </button>
+                  </span>
                 )}
               </li>
             ))}

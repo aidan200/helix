@@ -32,6 +32,7 @@ import type {
   KgIndexStatusPayload,
   KgListPayload,
   KgNodeConfirmPayload,
+  KgNodeDiscardPayload,
   KgNodeDetailPayload,
   KgReviewCreatePayload,
   TaskArtifactsPayload,
@@ -119,6 +120,7 @@ import {
   kgTriageCreateCommand,
   kgListCommand,
   kgNodeConfirmCommand,
+  kgNodeDiscardCommand,
   kgNodeDetailCommand,
   kgProjectsCommand,
   kgReviewCreateCommand,
@@ -770,6 +772,9 @@ export const COMMAND_SURFACE = {
   /** 发送 kg.node.confirm（页面唯一写：draft 转正；回执翻转后状态回读）。 */
   sendKgNodeConfirm: (deps) =>
     (payload: KgNodeConfirmPayload) => deps.send(kgNodeConfirmCommand(payload)),
+  /** 发送 kg.node.discard（P5 草稿人审驳回——supersede 留审计链；回执 superseded 终态回读）。 */
+  sendKgNodeDiscard: (deps) =>
+    (payload: KgNodeDiscardPayload) => deps.send(kgNodeDiscardCommand(payload)),
   /** 发送 kg.index.status（索引四态；rebuild:true 触发构建，O-6 轮询通道）。 */
   sendKgIndexStatus: (deps) =>
     (payload: KgIndexStatusPayload) => deps.send(kgIndexStatusCommand(payload)),

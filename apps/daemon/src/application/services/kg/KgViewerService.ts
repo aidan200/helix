@@ -138,6 +138,12 @@ export interface KgConfirmView {
   readonly row: KgListRow;
 }
 
+/** kg.node.discard 结果（superseded 终态回读；confirm 同构）。 */
+export interface KgDiscardView {
+  readonly applied: true;
+  readonly row: KgListRow;
+}
+
 /** kg.candidates.list 结果（台账读面三件套之三：P-1 台账面板数据面；只读零裁决）。 */
 export interface KgCandidatesListView {
   /** 过滤后全集计数（分页不改变）。 */
@@ -249,6 +255,70 @@ export class KgViewerService {
   }
 
   // ── F5.4 kg.node.confirm（唯一写命令；仅 draft 可转正） ──
+
+  /**
+   * 草稿人审驳回（P5 裁决动作集之二；confirm 镜像）：走 KgWriteService
+   * supersede 无 replacement——审计型库无物理删除，驳回即翻 superseded
+   * 终态留审计链（reason="人审驳回：…"）。仅 draft 可驳回；错误映射同
+   * confirm（KG_E_ID → NOT_FOUND，其余兑底 STATE）。
+   */
+  discard(project: string, id: string, reason?: string): KgViewerResult<KgDiscardView> {
+    const resolved = this.resolveIndexed(project);
+    if (!resolved.ok) return resolved;
+    const detail = this.deps.graph.getNode(resolved.value, id);
+    if (detail === null) {
+      return { ok: false, error: { code: "KG_E_NOT_FOUND", message: `节点 ${id} 不存在`, path: "payload.id" } };
+    }
+    if (detail.node.status !== "draft") {
+      return {
+        ok: false,
+        error: {
+          code: "KG_E_STATE",
+          message: `节点当前状态为 ${detail.node.status}，仅 draft 可驳回`,
+          path: "payload.id",
+        },
+      };
+    }
+    const reasonText = reason !== undefined && reason.trim() !== "" ? reason.trim() : "面板人审驳回（未填理由）";
+    const iterationId = this.deps.graph.latestIteration(resolved.value) ?? null;
+    const write = this.deps.write.write(resolved.value, {
+      kind: "supersede",
+      iterationId,
+      nodeId: id,
+      reason: `人审驳回：${reasonText}`,
+    });
+    if (!write.ok) {
+      return {
+        ok: false,
+        error: {
+          code: write.error.code === "KG_E_ID" ? "KG_E_NOT_FOUND" : "KG_E_STATE",
+          message: `驳回写失败（${write.error.code}）：${write.error.message}`,
+          path: "payload.id",
+        },
+      };
+    }
+    const after = this.deps.graph.getNode(resolved.value, id);
+    if (after === null) {
+      return { ok: false, error: { code: "KG_E_NOT_FOUND", message: `节点 ${id} 驳回后回读失败`, path: "payload.id" } };
+    }
+    const { node } = after;
+    this.detailScanCache.delete(resolved.value); // 同 confirm：写路径即时失效缓存
+    return {
+      ok: true,
+      value: {
+        applied: true,
+        row: {
+          id: node.id,
+          kind: node.kind,
+          name: node.name,
+          digest: node.digest,
+          scene: node.scene,
+          status: node.status,
+          domain: node.domain,
+        },
+      },
+    };
+  }
 
   confirm(project: string, id: string): KgViewerResult<KgConfirmView> {
     const resolved = this.resolveIndexed(project);

@@ -71,6 +71,7 @@ const KgViewer = function KgViewer({
     sendKgNodeDetail,
     sendKgChangeReport,
     sendKgNodeConfirm,
+    sendKgNodeDiscard,
     sendKgIndexStatus,
     sendKgBootstrapCreate,
     sendKgGraphPurge,
@@ -147,6 +148,7 @@ const KgViewer = function KgViewer({
           sendKgChangeReport,
           sendKgIndexStatus,
           sendKgProjects,
+          sendKgHealth,
           projectDispatch,
           toast,
           t,
@@ -168,7 +170,7 @@ const KgViewer = function KgViewer({
           onAutoAuditResult: (data) => setAuditView({ loading: false, data }),
         }),
       ),
-    [subscribeKgFrames, project.name, settle, notifyError, sendKgNodeDetail, sendKgList, sendKgChangeReport, sendKgIndexStatus, sendKgProjects, projectDispatch, toast, t],
+    [subscribeKgFrames, project.name, settle, notifyError, sendKgNodeDetail, sendKgList, sendKgChangeReport, sendKgIndexStatus, sendKgProjects, sendKgHealth, projectDispatch, toast, t],
   );
 
   // F5.5 面板重建轮询（degraded→building 触发后至离开 building）
@@ -572,6 +574,15 @@ const KgViewer = function KgViewer({
                     onLaunchTriage={onLaunchTriage}
                     onAuditRefresh={onAuditRefresh}
                     onOpenTasks={onOpenTasks}
+                    onDraftAction={(kind, id) => {
+                      // P5 草稿裁决动作：转正/驳回（回执经 listener 双刷新；无在途钮态——
+                      // 重复点击由 daemon 状态门兑底 KG_E_STATE，错误回执 toast 提示）
+                      const sent =
+                        kind === "confirm"
+                          ? sendKgNodeConfirm({ project: project.name, id })
+                          : sendKgNodeDiscard({ project: project.name, id });
+                      if (sent === false) toast.push("err", t("pj.health.draftActionSendFail"));
+                    }}
                   />
                   <KgCandidatesPanel
                     loading={candView.loading}

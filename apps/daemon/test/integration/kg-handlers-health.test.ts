@@ -115,6 +115,34 @@ describe("kg.health I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
     expect(healthy.result.unanchoredNodes).toEqual([]);
   }, 15000);
 
+  // ── P5：草稿裁决文案（escalate: 留痕 join）+ 动作参数透传（TR-159：id/name/note 漏拷即红） ──
+
+  test("P5：草稿条目携带 id/name（动作钮命令参数）+ escalate: 留痕最新一条 join 为 note", async () => {
+    const rig = await openRig();
+    await seedAlpha(rig);
+    // 未升级过 → 无 note；id/name 已透传
+    const plain = await rig.client.kg("kg.health", { project: "alpha" });
+    expect(plain.ok).toBe(true);
+    const before = (plain.result.drafts as { id?: string; name?: string; note?: string }[])[0]!;
+    expect(before.id).toBe("TR-2");
+    expect(before.name).toContain("写路径白名单");
+    expect(before.note).toBeUndefined();
+    // 两轮升级留痕（旧/新）→ note 取最新一条（seq 序）
+    expectOk(
+      rig.write.write(rig.alpha, { kind: "updateNode", iterationId: ITER, nodeId: "TR-2", patch: { reason: "escalate: 旧留痕——与 TR-52 说法冲突，需人裁" } }),
+      rig.write.write(rig.alpha, { kind: "updateNode", iterationId: ITER, nodeId: "TR-2", patch: { reason: "escalate: 新留痕——内容与代码不一致，无法机械裁决信哪个" } }),
+    );
+    const res = await rig.client.kg("kg.health", { project: "alpha" });
+    expect(res.ok).toBe(true);
+    const tr2 = (res.result.drafts as { id?: string; note?: string }[]).find((d) => d.id === "TR-2")!;
+    expect(tr2.note).toBe("escalate: 新留痕——内容与代码不一致，无法机械裁决信哪个");
+    // auto: 审计行不入升级留痕面（前缀互不重叠）
+    expectOk(rig.write.write(rig.alpha, { kind: "updateNode", iterationId: ITER, nodeId: "TR-4", patch: { reason: "auto: 机器裁决留痕不应混入 note" } }));
+    const res2 = await rig.client.kg("kg.health", { project: "alpha" });
+    const tr4 = (res2.result.drafts as { id?: string; note?: string }[]).find((d) => d.id === "TR-4")!;
+    expect(tr4.note).toBeUndefined();
+  }, 15000);
+
   test("无问题径：结构健康空态 + absent 短路空态不建库 + project 无法解析 KG_E_PARAM", async () => {
     const rig = await openRig();
     // epsilon：两节点 + 一条边 + 双方锚声明（有边有锚非孤儿非无锚、无冲突、

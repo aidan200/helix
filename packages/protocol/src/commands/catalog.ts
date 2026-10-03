@@ -62,6 +62,7 @@ import type {
   KgNodeDetailCommand,
   KgChangeReportCommand,
   KgNodeConfirmCommand,
+  KgNodeDiscardCommand,
   KgIndexStatusCommand,
   KgBootstrapCreateCommand,
   KgBootstrapProduceCommand,
@@ -186,6 +187,7 @@ export type CommandEnvelope =
   | KgNodeDetailCommand
   | KgChangeReportCommand
   | KgNodeConfirmCommand
+  | KgNodeDiscardCommand
   | KgIndexStatusCommand
   | KgProjectsCommand
   | KgBootstrapCreateCommand
@@ -351,6 +353,7 @@ export const COMMAND_TYPES = [
   "kg.node.detail",
   "kg.change.report",
   "kg.node.confirm",
+  "kg.node.discard",
   "kg.index.status",
   "kg.projects",
   "kg.bootstrap.create",

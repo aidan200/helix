@@ -188,6 +188,12 @@ export interface KgHealthDraftDto {
   summary: string;
   /** 落账至今天数（createdAt 不可解析 = null，按 stale 列）。 */
   ageDays: number | null;
+  /** 节点 id（P5 草稿栏裁决动作 [转正][驳回] 的命令参数；可选——旧 daemon 不携带时动作钮不渲染）。 */
+  id?: string;
+  /** 节点名（id 携带时同步携带——动作钮可达性与动作后回执对照）。 */
+  name?: string;
+  /** 人审升级留痕（P5：change_log escalate: 前缀最新一条，白话裁决问题——面板裁决文案主行；未被升级过的草稿不携带）。 */
+  note?: string;
 }
 
 /** candidates 台账四态计数（candidates 表按 status 聚合，W1-C 已建表）。 */

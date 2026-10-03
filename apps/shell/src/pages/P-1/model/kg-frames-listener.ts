@@ -40,6 +40,8 @@ export interface KgFramesListenerDeps {
   readonly sendKgChangeReport: (payload: KgChangeReportPayload) => boolean;
   readonly sendKgIndexStatus: (payload: KgIndexStatusPayload) => boolean;
   readonly sendKgProjects: () => boolean;
+  /** P5：confirm/discard 后体检面刷新（草稿栏随裁决动作实时收敛）。 */
+  readonly sendKgHealth: (payload: import("@helix/protocol").KgHealthPayload) => boolean;
   readonly projectDispatch: Dispatch<ProjectAction>;
   readonly toast: { push: (kind: ToastKind, text: string, sub?: string) => void };
   readonly t: (key: string, vars?: Record<string, string | number>) => string;
@@ -98,7 +100,16 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
           dispatch({ type: "detail-failed", id: e.payload.node.id });
         }
         deps.sendKgList({ project: projectName });
+        deps.sendKgHealth({ project: projectName }); // P5：草稿栏随转正实时收敛
         toast.push("ok", t("pj.kg.promoteToast", { name: e.payload.node.name }));
+        return;
+      }
+      case "kg.node.discard.result": {
+        // P5 草稿人审驳回回执：superseded 终态——列表/体检面双刷新（无 detail
+        // 重发：驳回节点退出可选面，重拉详情无消费面）
+        deps.sendKgList({ project: projectName });
+        deps.sendKgHealth({ project: projectName });
+        toast.push("ok", t("pj.kg.discardToast", { name: e.payload.node.name }));
         return;
       }
       // ── kg-bootstrap 批五回执（T3.2；单飞归因——回执零关联位）──

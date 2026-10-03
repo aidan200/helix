@@ -73,15 +73,17 @@ task:
 | 内容与代码现实一致（逐条验证 digest/scene/body 断言） | `updateNode(patch.status=confirmed)`（reason 带 `auto:` 前缀——经裁决背书非人审点击） |
 | 内容与代码现实矛盾/过时 | `supersede`（可选 replacement） |
 | 部分断言过时 | `updateNode`（修内容）+ `updateNode(patch.status=confirmed)` |
-| 拿不准 | draft 保留 + 报告升级条目 |
+| 拿不准 / 命中升级判据 | draft 保留 + `updateNode`（patch 仅 reason，前缀 `escalate: ` + 白话裁决问题——升级留痕与面板裁决文案数据源）+ 报告升级条目 |
 
 ### 升级人审判据（命中任一 → 不自动裁决，逐条核对）
 
 1. **证据缺失**：无法引用成立的代码事实（找不到去向、file:line 与索引不符）；
 2. **冲突**：与既有节点语义矛盾（findConflicts 面）、与同批其他条目互斥；
-3. **影响面大**：目标为 L0 层节点；被 ≥3 条边引用节点的 supersede；domain=business 节点（事实源在业务决策不在代码，LLM 无从验证）；**supersede 链上的 replacement 草稿**（推翻链影响面大，人审确认）；
+3. **影响面大**：目标为 L0 层节点；被 ≥3 条边引用节点的 supersede；domain=business 节点（事实源在业务决策不在代码，LLM 无从验证）；
 4. **索引态异常**：索引 degraded/building → 锚类条目整批搁置（建议 rebuild 后重跑）；
 5. **预算**：单批自动裁决（applied 路径）上限 30 条，超出条目强制 deferred。
+
+**升级以冲突为纲，不按结构类型一刀切**：supersede 链上的 replacement 草稿**不再仅因结构身份升级**——推翻链的裁决权在产生端 supersede 那一刻已行使，replacement 转正只是新描述定稿（事实源仍是代码）。内容与代码一致且无冲突的 replacement 照常 `auto:` confirm；仅当其命中上列判据（证据缺失/冲突/影响面）才升级（P5 修正：首版一刀切曾致 5 条零冲突草稿无限循环人审）。
 
 ### 硬约束
 

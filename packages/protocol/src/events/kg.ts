@@ -47,6 +47,12 @@ export interface KgNodeConfirmResultPayload {
   node: KgNodeListRow;
 }
 
+/** kg.node.discard.result：草稿人审驳回回执（superseded 终态回读）。 */
+export interface KgNodeDiscardResultPayload {
+  applied: true;
+  node: KgNodeListRow;
+}
+
 /** kg.index.status.result：索引状态面板（四态；轮询通道本体）。 */
 export type KgIndexStatusResultPayload = KgIndexStatusDto;
 
@@ -69,6 +75,10 @@ export interface KgChangeReportResultEvent extends EventFrame<KgChangeReportResu
 export interface KgNodeConfirmResultEvent extends EventFrame<KgNodeConfirmResultPayload> {
   channel?: "kg";
   type: "kg.node.confirm.result";
+}
+export interface KgNodeDiscardResultEvent extends EventFrame<KgNodeDiscardResultPayload> {
+  channel?: "kg";
+  type: "kg.node.discard.result";
 }
 export interface KgIndexStatusResultEvent extends EventFrame<KgIndexStatusResultPayload> {
   channel?: "kg";

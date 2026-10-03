@@ -287,6 +287,18 @@ export class KgMockStore {
         n.log = [{ date: NOW, iterationId: ITER, eventText: "草稿转正（页面人工确认）" }, ...n.log];
         return this.frame("kg.node.confirm.result", { applied: true, node: this.listRow(n) });
       }
+      case "kg.node.discard": {
+        // P5 草稿人审驳回镜像（daemon：supersede 无 replacement 留审计链）
+        const row = resolveProjectName(p.project, this.projects);
+        if (row === undefined) return this.paramError();
+        const n = this.nodes.find((x) => x.id === p.id);
+        if (n === undefined) return this.errorFrame("KG_E_NOT_FOUND", `节点 ${String(p.id)} 不存在`);
+        if (n.status !== "draft") return this.errorFrame("KG_E_STATE", "仅草稿节点可驳回");
+        n.status = "superseded";
+        const reason = typeof p.reason === "string" && p.reason.trim() !== "" ? p.reason.trim() : "面板人审驳回（未填理由）";
+        n.log = [{ date: NOW, iterationId: ITER, eventText: `人审驳回：${reason}` }, ...n.log];
+        return this.frame("kg.node.discard.result", { applied: true, node: this.listRow(n) });
+      }
       case "kg.index.status":
         return this.replyIndex(p);
       // ── kg-bootstrap 准入命令（T3.2；契约 kg-bootstrap-api.md 镜像）。
@@ -526,7 +538,7 @@ export const kgMockStore = new KgMockStore();
 export function isKgCommand(type: string): boolean {
   return (
     type === "kg.projects" || type === "kg.list" || type === "kg.node.detail" ||
-    type === "kg.change.report" || type === "kg.node.confirm" || type === "kg.index.status" ||
+    type === "kg.change.report" || type === "kg.node.confirm" || type === "kg.node.discard" || type === "kg.index.status" ||
     // kg-bootstrap 准入命令（T3.2；produce/update/supersede/impact 四命令的
     // mock 应答已随「产出呈现」tab 移除剪除——E-118：无 UI 消费者）
     type === "kg.bootstrap.create" ||

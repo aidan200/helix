@@ -109,6 +109,7 @@ import {
   handleKgIndexStatus,
   handleKgList,
   handleKgNodeConfirm,
+  handleKgNodeDiscard,
   handleKgNodeDetail,
   handleKgProjects,
   handleKgReviewCreate,
@@ -614,6 +615,8 @@ export class WsServerAdapter {
         return handleKgChangeReport(this.contexts.kgContext(ws, type, payload));
       case "kg.node.confirm":
         return handleKgNodeConfirm(this.contexts.kgContext(ws, type, payload));
+      case "kg.node.discard":
+        return handleKgNodeDiscard(this.contexts.kgContext(ws, type, payload));
       case "kg.index.status":
         return handleKgIndexStatus(this.contexts.kgContext(ws, type, payload));
       // ── kg-bootstrap 批（T3.2，契约 kg-bootstrap-api；handlers/kg.ts）──

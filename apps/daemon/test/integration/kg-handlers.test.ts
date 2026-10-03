@@ -283,6 +283,41 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     expect(missing.error!.code).toBe("KG_E_NOT_FOUND");
   }, 15000);
 
+  test("kg.node.discard：草稿人审驳回走 supersede 无 replacement + 非 draft KG_E_STATE（P5）", async () => {
+    const rig = rigs[0]!;
+    const before = knowledgeCounts(rig, rig.alpha);
+
+    const res = await rig.client.kg("kg.node.discard", { project: "alpha", id: "TR-4", reason: "判断错误：与 TR-1 重复" });
+    expect(res.ok).toBe(true);
+    expect(res.result.applied).toBe(true);
+    expect((res.result.node as Record<string, unknown>).status).toBe("superseded");
+
+    // 审计型库无物理删除：nodes +1 零（翻态不删行）、edges 零变化、
+    // change_log 恰 +1（supersede 行携带人审驳回理由）
+    const after = knowledgeCounts(rig, rig.alpha);
+    expect(after.nodes).toBe(before.nodes);
+    expect(after.edges).toBe(before.edges);
+    expect(after.log).toBe(before.log + 1);
+    const logAfter = rig.database
+      .knowledgeConnection(rig.alpha)
+      .prepare("SELECT reason FROM change_log WHERE node_id = ? ORDER BY seq")
+      .all("TR-4") as { reason: string | null }[];
+    expect(logAfter[logAfter.length - 1]!.reason).toBe("人审驳回：判断错误：与 TR-1 重复");
+
+    // 驳回后退出草稿面（health drafts 不再列 TR-4）
+    const health = await rig.client.kg("kg.health", { project: "alpha" });
+    const ids = (health.result.drafts as { id?: string }[]).map((d) => d.id);
+    expect(ids).not.toContain("TR-4");
+
+    // 非 draft（已 superseded）→ KG_E_STATE；不存在 → KG_E_NOT_FOUND
+    const again = await rig.client.kg("kg.node.discard", { project: "alpha", id: "TR-4" });
+    expect(again.ok).toBe(false);
+    expect(again.error!.code).toBe("KG_E_STATE");
+    const missing = await rig.client.kg("kg.node.discard", { project: "alpha", id: "TR-999" });
+    expect(missing.ok).toBe(false);
+    expect(missing.error!.code).toBe("KG_E_NOT_FOUND");
+  }, 15000);
+
   test("kg.index.status：四态透传 + rebuild building + 知识层零写 + absent 冷启动（A5/A9）", async () => {
     const rig = rigs[0]!;
 

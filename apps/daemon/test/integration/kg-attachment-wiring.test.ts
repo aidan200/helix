@@ -264,6 +264,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
         countActiveLayeredNodes: () => 0, // O-9 精化口径面（本测试不消费）
         countCandidatesByStatus: () => ({ pending: 0, deferred: 0, applied: 0, discarded: 0 }), // W2-E kg.health 数据源面（本测试不消费）
         listAutoAdjudications: () => [], // P2 审计读面（本测试不消费）
+        listEscalations: () => [], // P5 升级留痕读面（本测试不消费）
         listCandidates: () => [], // 台账读面三件套（本测试不消费）
         listGlobalResidentRules: () => [], // 常驻规则索引读面（本测试不消费）
         latestIteration: () => null,

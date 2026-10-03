@@ -34,6 +34,7 @@ import type {
   KgIndexStatusResultEvent,
   KgListResultEvent,
   KgNodeConfirmResultEvent,
+  KgNodeDiscardResultEvent,
   KgNodeDetailDto,
   KgNodeDetailResultEvent,
   KgNodeListRow,
@@ -200,6 +201,28 @@ export function handleKgNodeConfirm(ctx: KgCommandContext): void {
     sessionId: SYSTEM_SESSION_ID,
     channel: "kg",
     type: "kg.node.confirm.result",
+    payload: { applied: true, node: listRowToDto(result.value.row) },
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
+/** kg.node.discard（P5 裁决动作集之二：草稿人审驳回——supersede 无 replacement 留审计链，仅 draft 可驳回）。 */
+export function handleKgNodeDiscard(ctx: KgCommandContext): void {
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const id = requireString(ctx, "id");
+  if (id === undefined) return;
+  if (ctx.payload.reason !== undefined && typeof ctx.payload.reason !== "string") {
+    return ctx.commandError(ctx.type, "KG_E_PARAM", "payload.reason 应为 string");
+  }
+  const result = ctx.kg.discard(project, id, ctx.payload.reason);
+  if (!result.ok) return serviceError(ctx, result.error);
+  const frame: KgNodeDiscardResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.node.discard.result",
     payload: { applied: true, node: listRowToDto(result.value.row) },
   };
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
@@ -741,7 +764,14 @@ function healthViewToDto(view: KgHealthView): KgHealthResultEvent["payload"] {
     // TR-159：可选字段显式透传（漏拷即静默剥离——帧级断言钉死于 kg-handlers-health.test）
     deadAnchors: view.orphans.filter((o) => o.kind === "dead_anchor").map(orphanDto),
     unanchoredNodes: view.orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").map(orphanDto),
-    drafts: view.drafts.map((d) => ({ kind: d.kind, summary: d.summary, ageDays: d.ageDays })),
+    drafts: view.drafts.map((d) => ({
+      kind: d.kind,
+      summary: d.summary,
+      ageDays: d.ageDays,
+      id: d.node.id,
+      name: d.node.name,
+      ...(d.note !== undefined ? { note: d.note } : {}),
+    })),
     index: statusViewToDto(view.index),
     candidates: {
       pending: view.candidates.pending,
