@@ -74,8 +74,9 @@ export interface EmbeddingConfigServiceDeps {
    *  OpenAiCompatEmbeddingAdapter 工厂；与 steward 记忆主端口同实现类）。 */
   readonly createProbe: (cfg: EmbeddingEndpointConfig) => EmbeddingPort;
   /** 按目标端点现配构造判官探测端口（classifier 端点 verify 面——B4a；
-   *  组合根注入 JevJudgeAdapter 工厂）。 */
-  readonly createJudgeProbe: (cfg: EmbeddingEndpointConfig) => JudgePort;
+   *  组合根注入 makeJudgeAdapter 工厂——含 variant 协议变体标注，探测
+   *  面与真体同链分派，新 variant 自动覆盖）。 */
+  readonly createJudgeProbe: (cfg: EmbeddingEndpointConfig & { readonly variant?: string }) => JudgePort;
   /** uuid 生成器（测试注入；缺省 crypto.randomUUID）。 */
   readonly newId?: () => string;
   readonly clock?: () => number;
@@ -240,7 +241,12 @@ export class EmbeddingConfigService {
         // 判官应回高置信 ~0.95+，连通徽标显示直观（强问题弱回执 = 服务异常）。
         // 不用弱语义哨兵（"Is this a valid test query?"）——实测只回 ~0.69，
 // 显示困惑值（用户实测 2026-09）。
-        const judge = this.deps.createJudgeProbe(endpointCfg);
+        const judge = this.deps.createJudgeProbe({
+          baseUrl: record.baseUrl,
+          model: record.model,
+          ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
+          ...(typeof record.variant === "string" && record.variant !== "" ? { variant: record.variant } : {}),
+        });
         const prob = await judge.noul(
           "The number two is an even prime number.",
           "Is the number two even?",

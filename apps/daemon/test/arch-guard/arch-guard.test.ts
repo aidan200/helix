@@ -179,6 +179,10 @@ describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/suba
       // 平移）；agent-loop 替换时永存，TR-AD-7「pi import 只在 driven 域」
       // 语义不变，白名单新增 driven 根。
       path.join("adapters", "driven", "llm"),
+      // pi-ai 判官批：embedding/ 下 PiAiJudgeAdapter 是判官域的 pi-ai 分类器
+      // 防腐墙（Models.classify→JudgePort 翻译——与 loop/ 的 streamSimple 同
+      // 构；判官注册表 JudgeAdapterFactory 同域，跨目录反而破坏注册表内聚）
+      path.join("adapters", "driven", "embedding"),
     ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));

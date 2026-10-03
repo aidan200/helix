@@ -733,12 +733,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    KV embedding_endpoints；apiKey 明文存储对齐 auth.json 同款（不另造
   //    加密）。一次性迁移：旧 steward.memory.embedding（B1 三字段）→ 首条
   //    端点 + steward.memory.endpointId 指向 + 清旧键（幂等——新域非空零动作）。
+  // 判官目录依赖面（pi-ai variant 消费：目录合并视图 + provider key——与
+  // PiStewardLlmAdapter 同源；每判调用惰性重读，换 key/换目录零重启跟随）。
+  const judgeServices = {
+    getModels: () => modelStack.catalog.modelsView(),
+    getApiKey: (provider: string) => modelStack.authStore.apiKeyOf(provider),
+  };
   const embeddingConfig = new EmbeddingConfigService({
     config: persistence.runtimeConfig,
     createProbe: (cfg) => new OpenAiCompatEmbeddingAdapter({ getConfig: () => cfg }),
     // B4a：classifier 端点 verify 探测面（分类模型注册表分派——variant
     // 区分实现）——与 createProbe 同构（按目标端点现配一次性构造，探测完即弃）
-    createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg),
+    createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg, judgeServices),
   });
   void embeddingConfig
     .migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)
@@ -818,7 +824,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           const record = embeddingConfig.resolveRecord(judgeEndpointId);
           if (record === null || record.kind !== "classifier") return null;
           return record;
-        }),
+        }, judgeServices),
         logger: { warn: (message) => logger.warn(message) },
       });
   })();
@@ -1083,7 +1089,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         const record = embeddingConfig.resolveRecord(endpointId);
         if (record === null || record.kind !== "classifier") throw new Error(`分类端点无效：${endpointId}`);
         return record;
-      }),
+      }, judgeServices),
       resolveTarget: (sessionId) => {
         const runtime = registry.peekHotRuntime(sessionId);
         if (runtime === undefined) return undefined;

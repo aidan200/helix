@@ -315,4 +315,30 @@ describe("EmbeddingConfigService：kind 维度（B4a——分类端点）", () =
     if (outcome.state === "fail") expect(outcome.error).toContain("401");
     expect(svc.listView()[0]!.verifiedAt).toBeNull();
   });
+
+  test("verify 透传 variant（探测面与真体同链分派——pi-ai 端点探测不再误归 jev）", async () => {
+    const config = memoryConfig();
+    const probeVariants: Array<string | undefined> = [];
+    const svc = new EmbeddingConfigService({
+      config,
+      createProbe: fakeProbeFactory(),
+      createJudgeProbe: (cfg) => {
+        probeVariants.push(cfg.variant);
+        return {
+          noul: async () => 0.91,
+          endpointLabel: () => "judge-fake",
+        };
+      },
+    });
+    const jev = await svc.set({ name: "Jev 直连", baseUrl: "https://api.typesafe.ai/v1", model: "jev-latest", kind: "classifier" });
+    const piAi = await svc.set({ name: "pi-ai 目录", baseUrl: "pi-ai", model: "typesafe/jev-latest", kind: "classifier", variant: "pi-ai" });
+    if (!jev.ok || !piAi.ok) throw new Error("unreachable");
+
+    const jevOutcome = await svc.verify(jev.id);
+    expect(jevOutcome.state).toBe("ok");
+    const piAiOutcome = await svc.verify(piAi.id);
+    expect(piAiOutcome.state).toBe("ok");
+    // jev 缺省（undefined）与显式 pi-ai 都到达探测工厂——分派与真体同链
+    expect(probeVariants).toEqual([undefined, "pi-ai"]);
+  });
 });
