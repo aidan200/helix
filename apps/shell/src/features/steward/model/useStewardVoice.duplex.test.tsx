@@ -93,6 +93,7 @@ vi.mock("@/shared/lib/wake-hotkey", () => ({
 
 import { useStewardVoice } from "./useStewardVoice";
 import { requestOpenSteward } from "@/shared/lib/steward-open-signal";
+import type { MeterFrame } from "@/shared/lib/rms-meter";
 
 class FakeMediaRecorder {
   static instances: FakeMediaRecorder[] = [];
@@ -389,5 +390,214 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
     expect(r.current.duplexActive).toBe(true);
     // hook 面不再发起 requestOpenSteward（接线方已改光球）：以返回面无面板依赖为断言
     // （requestOpenSteward 的接线测试归 StewardVoiceLayer/App.steward-global）
+  });
+});
+
+// ── 底噪校准（语音判定钝感批：duplex 前置采样 → 两门阈值抬升）──────────
+
+/** Fake meter（emit 驱动门判定；closed 后帧零转发——与真 meter 同构）。 */
+class CalibMeter {
+  static instances: CalibMeter[] = [];
+  cb: ((frame: MeterFrame) => void) | null = null;
+  closed = false;
+  onLevel(cb: (frame: MeterFrame) => void): void {
+    this.cb = cb;
+  }
+  close(): void {
+    this.closed = true;
+  }
+  emit(rms: number, zcr = 0.1): void {
+    if (!this.closed) this.cb?.({ rms, zcr });
+  }
+}
+
+describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值抬升）", () => {
+  let restoreEnv: (() => void) | null = null;
+  let nowMs = 0;
+  let nowSpy: ReturnType<typeof vi.spyOn> | null = null;
+  const createMeter = async () => {
+    const m = new CalibMeter();
+    CalibMeter.instances.push(m);
+    return m;
+  };
+  /** 开着的 meter（toggleMute 后仅剩耳 meter；挂载序不定——取未关闭者）。 */
+  const ear = (): CalibMeter => CalibMeter.instances.find((m) => !m.closed) ?? CalibMeter.instances[0]!;
+
+  /** 进双工 + 双 meter 就位 + 临时静音留耳（reachSpeaking 需 voiceState 离开 recording）。 */
+  async function enterDuplexMuted(r?: HookResult): Promise<void> {
+    await pressHotkey(r);
+    await waitFor(() => expect(CalibMeter.instances.length).toBeGreaterThanOrEqual(2));
+    if (r !== undefined) {
+      act(() => {
+        r.current.toggleMute();
+      });
+    }
+    await tick();
+  }
+
+  /** 采样窗驱动：窗内 count 帧底噪 0.02 + 每 5 帧一枚 TTS 回灌尖峰（帧间 100ms
+   *  同构节流）；末帧落在窗边界外 → 定稿底噪估计。 */
+  function calibrate(count = 25): void {
+    for (let i = 0; i < count; i += 1) {
+      act(() => {
+        ear().emit(i % 5 === 4 ? 0.3 : 0.02); // 欢迎语回灌是偶发尖峰——低百分位鲁棒
+      });
+      nowMs += 100;
+    }
+    act(() => {
+      ear().emit(0.02); // ≥ 窗长（2500ms）→ 采样窗关闭定稿
+    });
+  }
+
+  /** 帧驱动（帧间 100ms）。 */
+  function frames(count: number, rms: number, zcr = 0.1): void {
+    for (let i = 0; i < count; i += 1) {
+      act(() => {
+        ear().emit(rms, zcr);
+      });
+      nowMs += 100;
+    }
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    localStorage.setItem("helix.steward.wakeWord", "");
+    for (const s of Object.values(listeners)) s.clear();
+    fireWakeHotkey = null;
+    playerEnqueued.length = 0;
+    streamSeq = 0;
+    CalibMeter.instances = [];
+    nowMs = Date.now();
+    nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    CalibMeter.instances = [];
+    nowSpy?.mockRestore();
+    nowSpy = null;
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  it("底噪估计（低百分位）抬升 barge-in 门：偏好阈值下会触发的帧（0.04）抬升后不触发；够响帧照常触发", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r);
+    // 采样窗：底噪 0.02 混 TTS 尖峰 → P20 ≈ 0.02 → 阈值 max(0.012, 0.02×2.5=0.05)
+    calibrate(25);
+    await stewardAnswers(true); // 流式朗读在途 → speaking
+    expect(r.current.phase).toBe("speaking");
+    // 0.04 帧：纯偏好下（speaking ×3 = 0.036）会触发；抬升后（×3 = 0.15）不触发
+    frames(10, 0.04);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    // 对照：够响帧（0.2 > 0.15）持续 → 照常触发（门未被校准钉死）
+    frames(10, 0.2);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("采样帧不足（<10）→ 不校准回落纯偏好值：同幅帧（0.04）照常触发", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r);
+    // 仅 5 帧采样 + 越窗定稿 → 回落纯偏好（0.012）
+    for (let i = 0; i < 5; i += 1) {
+      act(() => {
+        ear().emit(0.02);
+      });
+      nowMs += 100;
+    }
+    nowMs += 3_000; // 采样窗关闭
+    act(() => {
+      ear().emit(0.02);
+    });
+    await stewardAnswers(true);
+    expect(r.current.phase).toBe("speaking");
+    frames(8, 0.04); // speaking ×3 = 0.036 < 0.04 → 触发（纯偏好行为不变）
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancelWake 后再开双工 → 重新校准：同幅帧（0.05）两轮判定随底噪重采翻转", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r);
+    calibrate(25); // 轮 1：底噪 0.02 → 阈值 0.05（speaking ×3 = 0.15）
+    await stewardAnswers(true);
+    frames(8, 0.05);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled(); // 0.05 < 0.15：不触发
+    // 关麦收口 → 再开双工：重采（底噪 0.004 → 阈值回落纯偏好 0.012）
+    act(() => {
+      r.current.cancelWake();
+    });
+    await tick();
+    CalibMeter.instances = CalibMeter.instances.filter((m) => !m.closed);
+    await enterDuplexMuted(r);
+    for (let i = 0; i < 25; i += 1) {
+      act(() => {
+        ear().emit(0.004); // 安静房：底噪低
+      });
+      nowMs += 100;
+    }
+    act(() => {
+      ear().emit(0.004);
+    });
+    await stewardAnswers(true);
+    frames(8, 0.05); // 0.012×3 = 0.036 < 0.05 → 触发（同幅帧翻转）
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("同源单点：同一帧序列两门判定一致——收口门拒帧（零 finish）+ barge-in 门拒帧（零打断）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await pressHotkey(r);
+    await waitFor(() => expect(CalibMeter.instances.length).toBeGreaterThanOrEqual(2));
+    // 鉴别录音/耳 meter：低幅探测帧（0.009 < 一切阈值——不污染 spoke/校准）
+    // 唯 level 面回响：录音 meter 驱动 level 状态
+    let recM = CalibMeter.instances[0]!;
+    let earM = CalibMeter.instances[1]!;
+    act(() => {
+      recM.emit(0.009);
+    });
+    if (r.current.level < 0.03) {
+      [recM, earM] = [earM, recM];
+    }
+    // 耳侧校准（底噪 0.02 → 两门阈值 0.05）
+    for (let i = 0; i < 25; i += 1) {
+      act(() => {
+        earM.emit(0.02);
+      });
+      nowMs += 100;
+    }
+    act(() => {
+      earM.emit(0.02);
+    });
+    const finishBefore = sendSttStreamFinish.mock.calls.length;
+    // 录音侧同幅帧（0.04 < 0.05 抬升阈值、> 0.012 纯偏好）：收口门若消费纯
+    // 偏好则计为开口（静音窗满足后走 finish 转写）；消费抬升阈值则按未开口丢弃
+    for (let i = 0; i < 3; i += 1) {
+      act(() => {
+        recM.emit(0.04);
+      });
+      nowMs += 100;
+    }
+    for (let i = 0; i < 19; i += 1) {
+      act(() => {
+        recM.emit(0.001);
+      });
+      nowMs += 100;
+    }
+    await tick();
+    expect(sendSttStreamFinish.mock.calls.length).toBe(finishBefore); // 按未开口丢弃（零转写零计费）
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    // 打断门同帧一致拒：speaking 期 0.04 帧零打断（0.04 < 0.15）
+    await stewardAnswers(true);
+    frames(10, 0.04);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
   });
 });

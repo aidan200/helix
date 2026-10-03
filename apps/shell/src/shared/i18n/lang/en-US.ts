@@ -301,13 +301,13 @@ export const enUS = {
         notConfigured: "No key",
         groupGate: "Barge-in detection",
         gate: {
-          note: "You can interrupt helix while it is talking. These parameters decide what counts as human speech, so key clicks and echo cause fewer false breaks.",
+          note: "You can interrupt helix while it is talking. These parameters apply to both listening close-out and barge-in interruption, so key clicks, echo, and background noise cause fewer false stops and false breaks.",
           sensitivity: "Sensitivity",
           minDuration: "Min speech duration",
           silenceWindow: "Silence window after stop",
           voiceCheck: "Voice-only check (dual criteria)",
           tolerance: "Tolerance band",
-          hint: "Higher sensitivity hears breaks more easily. Min duration filters short bursts like key clicks. The silence window ignores residual echo right after playback stops. The voice-only check rejects broadband noise like keyboards via the zero-crossing rate. Changes take effect immediately.",
+          hint: "Higher sensitivity hears speech more easily. Min duration filters short bursts like key clicks. The silence window ignores residual echo right after playback stops. The voice-only check rejects broadband noise like keyboards via the zero-crossing rate. The same parameters now shape both listening close-out and barge-in interruption. Changes take effect immediately.",
         },
       },
       voiceTts: {

@@ -28,6 +28,7 @@ import {
   VOICE_ZCR_MIN,
   VOICE_ZCR_MAX_STRICT,
   VOICE_ZCR_MAX_LENIENT,
+  VOICE_ZCR_TOLERANCE_DEFAULT,
   STEWARD_SPEECH_TEXT_MAX,
   type BargeInGateState,
   type StewardVoicePhase,
@@ -293,6 +294,24 @@ describe("zcrInVoiceBand（人声带判定——容忍带强度驱动）", () =>
   it("带下界：过低 ZCR（直流/低频隆隆）判拒", () => {
     expect(zcrInVoiceBand(VOICE_ZCR_MIN)).toBe(true);
     expect(zcrInVoiceBand(VOICE_ZCR_MIN - 0.005)).toBe(false);
+  });
+});
+
+// ── re-export 兼容面（语音判定钝感批：ZCR 族定义已下沉 shared/lib/voice-gate）──
+
+describe("ZCR 族 re-export 兼容（定义在 voice-gate，本文件旧导出面零断）", () => {
+  it("旧路径导出与 voice-gate 定义同值同行为", async () => {
+    const gate = await import("@/shared/lib/voice-gate");
+    expect(VOICE_ZCR_MIN).toBe(gate.VOICE_ZCR_MIN);
+    expect(VOICE_ZCR_MAX_STRICT).toBe(gate.VOICE_ZCR_MAX_STRICT);
+    expect(VOICE_ZCR_MAX_LENIENT).toBe(gate.VOICE_ZCR_MAX_LENIENT);
+    expect(VOICE_ZCR_TOLERANCE_DEFAULT).toBe(gate.VOICE_ZCR_TOLERANCE_DEFAULT);
+    expect(zcrInVoiceBand(ZCR_KEYBOARD)).toBe(gate.zcrInVoiceBand(ZCR_KEYBOARD));
+    expect(zcrVoiceBandCeiling(75)).toBe(gate.zcrVoiceBandCeiling(75));
+    // 两门判据物理同源：stepBargeInGate 内联判据改用 isVoiceLikeFrame 后
+    // 行为零变（同帧同判——常量与判据双同源）
+    expect(gate.isVoiceLikeFrame({ rms: 0.05, zcr: ZCR_KEYBOARD }, { threshold: 0.012 })).toBe(false);
+    expect(gate.isVoiceLikeFrame({ rms: 0.05, zcr: ZCR_VOICE }, { threshold: 0.012 })).toBe(true);
   });
 });
 

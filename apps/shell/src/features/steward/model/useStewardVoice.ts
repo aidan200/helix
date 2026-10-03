@@ -89,6 +89,12 @@ import {
 } from "@/shared/lib/voice-pref";
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
+import {
+  effectiveRmsThreshold,
+  noiseFloorEstimate,
+  VOICE_NOISE_CALIB_MIN_FRAMES,
+  VOICE_NOISE_CALIB_WINDOW_MS,
+} from "@/shared/lib/voice-gate";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 import type { EventEnvelope } from "@helix/protocol";
 import { useSteward, type StewardPanelItem } from "./useSteward";
@@ -232,9 +238,30 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   //    可见性呈现面；两处同点写归 markDuplex（TR-173 禁渲染体裸写镜像 ref）──
   const [duplexActive, setDuplexActive] = useState(false);
   const duplexRef = useRef(false);
+  // ── 底噪校准状态（语音判定钝感批）：duplex 开启后前 ~2.5s 耳帧采样窗估
+  //    计环境底噪（P20 低百分位——欢迎语 TTS 回灌是偶发尖峰不拉高估计）；
+  //    两门阈值抬升 max(偏好, 底噪×2.5)（effectiveThreshold 单点）。采样帧
+  //    不足 → 不校准回落纯偏好值；校准值仅会话期有效（duplex 落清位重采）。──
+  const duplexStartedAtRef = useRef(0);
+  const calibSamplesRef = useRef<number[]>([]);
+  const calibOpenRef = useRef(false);
+  /** 底噪估计（null = 未校准/回落——两门用纯偏好值）。 */
+  const noiseFloorRef = useRef<number | null>(null);
   const markDuplex = useCallback((v: boolean) => {
     duplexRef.current = v;
     setDuplexActive(v);
+    if (v) {
+      // 开启即开采样窗（重采）
+      duplexStartedAtRef.current = Date.now();
+      calibSamplesRef.current = [];
+      calibOpenRef.current = true;
+      noiseFloorRef.current = null;
+    } else {
+      // 落位清校准：下次双工重采（cancelWake/关麦后不携旧底噪）
+      calibOpenRef.current = false;
+      noiseFloorRef.current = null;
+      calibSamplesRef.current = [];
+    }
   }, []);
   /** 欢迎语期标记（duplex 开启置位；用户第一句终帧定稿清位——光球 welcome 相位）。 */
   const [welcomeActive, setWelcomeActive] = useState(false);
@@ -367,30 +394,62 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   modeRef.current = mode;
 
   // ── B2 barge-in 门帧消费（耳 meter 回调；armed = 相位派生）──
-  // B3：门参数逐帧读偏好（灵敏度→阈值映射/最短发声/静默窗/双参判定/容忍带）
-  // + 门限分档（phase 抬档防 TTS 自声回灌）——设置面改偏好，下一次门判定即用
-  // 新值（不必重开麦）；触发帧特征入误触埋点环形缓冲（校准数据面）。
-  const onBargeInLevel = useCallback((frame: MeterFrame) => {
-    const armed = isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current });
-    const atMs = Date.now();
-    const out = stepBargeInGate(bargeInGateRef.current, {
-      rms: frame.rms,
-      zcr: frame.zcr,
-      atMs,
-      armed,
-      phase: phaseRef.current,
-      threshold: voiceRmsThresholdFromSensitivity(readVoiceVadSensitivityPref()),
-      minDurationMs: readVoiceMinDurationPref(),
-      silenceWindowMs: readVoiceSilenceWindowPref(),
-      voiceCheck: readVoiceCheckPref(),
-      zcrTolerance: readZcrTolerancePref(),
-    });
-    bargeInGateRef.current = out.state;
-    if (out.trigger) {
-      recordBargeInTrace({ at: atMs, rms: frame.rms, zcr: frame.zcr, phase: phaseRef.current });
-      bargeInRef.current();
-    }
-  }, []);
+  // B3：门参数逐帧读偏好（最短发声/静默窗/双参判定/容忍带）+ 门限分档
+  //（phase 抬档防 TTS 自声回灌）——设置面改偏好，下一次门判定即用新值
+  //（不必重开麦）；触发帧特征入误触埋点环形缓冲（校准数据面）。
+  // 底噪校准（语音判定钝感批）：阈值经 effectiveThreshold 单点——与聆听
+  // 收口门（useVoiceInput getRmsThreshold 注入）同源，两门一起钝/灵。
+  const effectiveThreshold = useCallback(
+    () => effectiveRmsThreshold(voiceRmsThresholdFromSensitivity(readVoiceVadSensitivityPref()), noiseFloorRef.current),
+    [],
+  );
+  const onBargeInLevel = useCallback(
+    (frame: MeterFrame) => {
+      const armed = isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current });
+      const atMs = Date.now();
+      const out = stepBargeInGate(bargeInGateRef.current, {
+        rms: frame.rms,
+        zcr: frame.zcr,
+        atMs,
+        armed,
+        phase: phaseRef.current,
+        threshold: effectiveThreshold(),
+        minDurationMs: readVoiceMinDurationPref(),
+        silenceWindowMs: readVoiceSilenceWindowPref(),
+        voiceCheck: readVoiceCheckPref(),
+        zcrTolerance: readZcrTolerancePref(),
+      });
+      bargeInGateRef.current = out.state;
+      if (out.trigger) {
+        recordBargeInTrace({ at: atMs, rms: frame.rms, zcr: frame.zcr, phase: phaseRef.current });
+        bargeInRef.current();
+      }
+    },
+    [effectiveThreshold],
+  );
+
+  // 耳帧消费（校准采样前置 + barge-in 门）：采样窗内先收帧入样本集；首帧
+  // 落在窗外即定稿（≥10 帧取 P20，不足回落 null 纯偏好）——校准完成前两门
+  // 用纯偏好值（不因校准挂起判定）。P4 近似（E-221，本批接受现状）：耳侧
+  // 底噪估计作用于录音门（双 meter 双路径）——两门同源的是阈值单点，不是
+  // 采集路径；meter 合一不在本批。
+  const onEarFrame = useCallback(
+    (frame: MeterFrame) => {
+      if (calibOpenRef.current) {
+        if (Date.now() - duplexStartedAtRef.current >= VOICE_NOISE_CALIB_WINDOW_MS) {
+          calibOpenRef.current = false; // 采样窗关闭：定稿
+          noiseFloorRef.current =
+            calibSamplesRef.current.length >= VOICE_NOISE_CALIB_MIN_FRAMES
+              ? noiseFloorEstimate(calibSamplesRef.current)
+              : null; // 采样不足 → 回落纯偏好
+        } else {
+          calibSamplesRef.current.push(frame.rms);
+        }
+      }
+      onBargeInLevel(frame);
+    },
+    [onBargeInLevel],
+  );
 
   // ── B2 barge-in 耳朵：双工会话期 RMS 采样（duplex 活跃 × 语音模式；
   //    meter 注入面从「面板活跃」平移「双工会话活跃」——语义同构，判据
@@ -420,7 +479,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         meter = created;
         created.onLevel((frame) => {
           if (cancelled) return;
-          onBargeInLevel(frame);
+          onEarFrame(frame);
         });
       } catch {
         // 麦不可用/被拒：barge-in 降级关闭（环境面——语音主链不受影响）
@@ -431,7 +490,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       meter?.close();
       if (stream !== null) for (const track of stream.getTracks()) track.stop();
     };
-  }, [duplexActive, mode, onBargeInLevel]);
+  }, [duplexActive, mode, onEarFrame]);
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return;
     return subscribeStewardFrames((event: EventEnvelope) => {
@@ -674,6 +733,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     // B4：唤醒待命期（命中前）静音自动停挂起（等唤醒词不被 ~1.8s 静音误收）；
     // 命中后/普通轮照旧（既有 VAD 语义零改动）
     allowSilenceStop: () => wakeRef.current === null || wakeRef.current.hit,
+    // 收口门共基（语音判定钝感批）：阈值注入底噪校准单点——与 barge-in 门
+    // 同源（max(偏好, 底噪×2.5)）；缺省（无注入）时 useVoiceInput 自读偏好
+    getRmsThreshold: effectiveThreshold,
     ...(options?.createMeter !== undefined ? { createMeter: options.createMeter } : {}),
     ...(options?.createPump !== undefined ? { createPump: options.createPump } : {}),
   });

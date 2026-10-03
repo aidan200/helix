@@ -37,7 +37,12 @@ vi.mock("@/shared/lib/stt-provider-pref", () => ({
   readSttProviderPref: () => undefined,
 }));
 
-import { useVoiceInput, VOICE_MIN_DURATION_MS, VOICE_SILENCE_STOP_MS, VOICE_LEAD_IN_MS } from "./useVoiceInput";
+import { useVoiceInput, VOICE_MIN_DURATION_MS, VOICE_SILENCE_STOP_MS, VOICE_LEAD_IN_MS, VOICE_SPEECH_MIN_MS } from "./useVoiceInput";
+import {
+  VOICE_VAD_SENSITIVITY_PREF_KEY,
+  VOICE_VOICE_CHECK_PREF_KEY,
+  voiceRmsThresholdFromSensitivity,
+} from "./voice-pref";
 import type { MeterFrame, RmsMeter } from "./rms-meter";
 
 /** fake MediaRecorder（jsdom 无实现——start/stop/ondataavailable/onstop 时序 stub）。 */
@@ -67,16 +72,17 @@ class FakeMediaRecorder {
   }
 }
 
-/** fake RMS meter（VAD 帧注入面：emit(rms) 模拟 worklet/Analyser 帧回调；
- *  B3 帧载荷扩 ZCR——本面只消费 rms，zcr 补 0）。 */
-function makeFakeMeter(): RmsMeter & { emit: (rms: number) => void } {
+/** fake RMS meter（VAD 帧注入面：emit(rms, zcr) 模拟 worklet/Analyser 帧回调；
+ *  B3 帧载荷扩 ZCR——缺省 0.1 人声带内值（存量 VAD 时序断言行为不变；
+ *  带外帧用例显式传第二参）。 */
+function makeFakeMeter(): RmsMeter & { emit: (rms: number, zcr?: number) => void } {
   let cb: ((frame: MeterFrame) => void) | null = null;
   return {
     onLevel: (fn: (frame: MeterFrame) => void) => {
       cb = fn;
     },
     close: vi.fn(),
-    emit: (rms: number) => cb?.({ rms, zcr: 0 }),
+    emit: (rms: number, zcr = 0.1) => cb?.({ rms, zcr }),
   };
 }
 
@@ -179,13 +185,17 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     });
     expect(result.current.state).toBe("recording");
 
-    // 开口帧（超阈值）→ spoke + lastLoud 更新；等分片落地（转写链前置）
-    await act(async () => {
-      meter.emit(0.2);
-    });
+    // 开口帧（超阈值 ×4 帧，帧间 100ms——累计 400ms ≥ VOICE_SPEECH_MIN_MS
+    // 有效发声闸内；spoke + lastLoud 更新）；等分片落地（转写链前置）
+    for (let i = 0; i < 4; i += 1) {
+      await act(async () => {
+        meter.emit(0.2);
+      });
+      clock.advance(100);
+    }
     await tick();
     // 静音窗越过 LEAD_IN + SILENCE_STOP（基点 = max(开始+LEAD_IN, lastLoud)）
-    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200 - 400);
     await act(async () => {
       meter.emit(0.001);
     });
@@ -606,6 +616,182 @@ describe("useVoiceInput（V3b-1：deferredTranscribe 流式收口面）", () => 
       await result.current.start();
     });
     expect(createPump).not.toHaveBeenCalled();
+    restore();
+  });
+});
+
+// ── 收口门共基（语音判定钝感批：灵敏度/ZCR 双参同源 + 有效发声闸）──────
+
+describe("useVoiceInput（收口门共基：灵敏度偏好驱动 + ZCR 双参 + 有效发声闸）", () => {
+  const origMediaDevices = navigator.mediaDevices;
+  const origRecorder = (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+  let clockRestore: (() => void) | null = null;
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    frameListener = null;
+    FakeMediaRecorder.instances = [];
+    clockRestore?.();
+    clockRestore = null;
+    localStorage.removeItem(VOICE_VAD_SENSITIVITY_PREF_KEY);
+    localStorage.removeItem(VOICE_VOICE_CHECK_PREF_KEY);
+    Object.defineProperty(navigator, "mediaDevices", { value: origMediaDevices, configurable: true });
+    if (origRecorder === undefined) delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+    else (globalThis as { MediaRecorder?: unknown }).MediaRecorder = origRecorder;
+  });
+
+  /** 持续声帧驱动（帧间 100ms 同构真实节流；count 帧 ≈ count×100ms 有效发声）。 */
+  async function driveFrames(meter: { emit: (rms: number, zcr?: number) => void }, count: number, rms: number, zcr?: number, clock?: { advance: (ms: number) => void }) {
+    for (let i = 0; i < count; i += 1) {
+      await act(async () => {
+        meter.emit(rms, zcr);
+      });
+      clock?.advance(100);
+    }
+  }
+
+  it("灵敏度偏好驱动收口：调低（0 → 阈值 0.036）后 0.02 持续声帧不计开口 → 静音收口走丢弃；缺省档同幅帧照常转写", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    localStorage.setItem(VOICE_VAD_SENSITIVITY_PREF_KEY, "0"); // 钝档：阈值 0.036
+    expect(voiceRmsThresholdFromSensitivity(0)).toBeCloseTo(0.036, 6);
+    const meter = makeFakeMeter();
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    // 0.02 帧（> 旧缺省 0.012、< 钝档 0.036）持续——不置 spoke 不刷新 lastLoud
+    await driveFrames(meter, 8, 0.02, undefined, clock);
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    await act(async () => {
+      meter.emit(0.02);
+    });
+    expect(result.current.state).toBe("idle"); // 未开口 VAD 丢弃（零转写零计费）
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    // 对照：缺省灵敏度（50 → 0.012）同幅帧计入开口 → 静音收口照常转写
+    localStorage.removeItem(VOICE_VAD_SENSITIVITY_PREF_KEY);
+    await act(async () => {
+      await result.current.start();
+    });
+    await driveFrames(meter, 4, 0.02, undefined, clock);
+    await tick(); // 分片落地（转写链前置）
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    restore();
+  });
+
+  it("ZCR 带外帧（键盘噪声）不计开口：静音收口走丢弃；voiceCheck 关放行（单参回退）", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    const meter = makeFakeMeter();
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    // rms 0.05 超阈但 zcr 0.6 带外（键盘噪声特征，voiceCheck 缺省开）——不计开口
+    await driveFrames(meter, 8, 0.05, 0.6, clock);
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    await act(async () => {
+      meter.emit(0.05, 0.6);
+    });
+    expect(result.current.state).toBe("idle"); // 按未开口丢弃
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    // voiceCheck 关（"0"）：同帧放行（rms 单参回退行为）→ 转写
+    localStorage.setItem(VOICE_VOICE_CHECK_PREF_KEY, "0");
+    await act(async () => {
+      await result.current.start();
+    });
+    await driveFrames(meter, 4, 0.05, 0.6, clock);
+    await tick(); // 分片落地（转写链前置）
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    restore();
+  });
+
+  it("有效发声闸：短促人声帧累计 < VOICE_SPEECH_MIN_MS 后长静音 → 自动停零转写（噪声幻听兑底）", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    expect(VOICE_SPEECH_MIN_MS).toBe(250);
+    const meter = makeFakeMeter();
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    // 2 帧（200ms < 250ms）真判据帧后长静音——spoke 已置但有效发声不足
+    await driveFrames(meter, 2, 0.05, undefined, clock);
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    expect(result.current.state).toBe("idle"); // 按未开口丢弃（零转写零计费）
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    restore();
+  });
+
+  it("点击强制停不看发声闸：同短促帧场景强制停 → 照常转写（显式收口宁转写不丢话）", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    const meter = makeFakeMeter();
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    await tick();
+    // 同上短促帧（200ms < 250ms）——但用户点击强制停
+    await driveFrames(meter, 2, 0.05, undefined, clock);
+    clock.advance(VOICE_MIN_DURATION_MS + 100);
+    act(() => {
+      result.current.stop();
+    });
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    restore();
+  });
+
+  it("getRmsThreshold 注入覆盖偏好：返回高阈值 → 低幅帧不计开口（底噪校准消费面）", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    const getRmsThreshold = vi.fn(() => 0.05);
+    const meter = makeFakeMeter();
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter), getRmsThreshold }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    // 0.02 帧（> 缺省偏好阈值 0.012、< 注入 0.05）×4 帧 = 400ms（排除发声闸干扰）
+    await driveFrames(meter, 4, 0.02, undefined, clock);
+    expect(getRmsThreshold).toHaveBeenCalled(); // 注入面逐帧消费
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    expect(result.current.state).toBe("idle"); // 注入阈值拒帧 → 按未开口丢弃
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
     restore();
   });
 });

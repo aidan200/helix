@@ -16,14 +16,17 @@
  * 链路（设计 §4 + V2 改造）：点击开始 → getUserMedia({audio}) →
  * MediaRecorder（mime 序 audio/webm;codecs=opus → audio/webm → audio/mp4，
  * spike 实测支持面；64k 码率）+ RMS meter（AudioWorklet 主/Analyser 兜底，
- * rms-meter.ts）→ 电平帧驱动 VAD 门：开口帧（≥ VOICE_RMS_THRESHOLD）刷新
- * lastLoud，自 max(开始+LEAD_IN, lastLoud) 起连续静音 ≥ VOICE_SILENCE_STOP_MS
- * → 自动停。录音中点击 = 强制停（显式意图，不看 spoke）。停 → blob →
+ * rms-meter.ts）→ 电平帧驱动 VAD 门（收口门共基，语音判定钝感批）：开口
+ * = 单帧人声判据 isVoiceLikeFrame（rms ≥ 阈值 × ZCR 人声带，与插话打断门
+ * 物理同源；阈值逐帧读灵敏度偏好或 getRmsThreshold 注入）刷新 lastLoud，
+ * 自 max(开始+LEAD_IN, lastLoud) 起连续静音 ≥ VOICE_SILENCE_STOP_MS →
+ * 自动停。录音中点击 = 强制停（显式意图，不看 spoke）。停 → blob →
  * base64 data URL → sendSttTranscribe（注入面）→ 回执经 subscribeSttFrames
  * （注入面）→ onResult 回调（消费方各自的最后一道闸）。
  *
- * VAD 丢弃：自动停且全程未开口 → 直接回 idle 零转写零计费（静音片不值得
- * 一次 ASR 调用）；强制停不看 spoke（用户显式收口，宁可转写不丢话）。
+ * VAD 丢弃：自动停且（全程无人声判据帧 || 有效发声累计 < VOICE_SPEECH_MIN_MS
+ * 250ms）→ 直接回 idle 零转写零计费（静音片/短促噪声不值得一次 ASR 调用
+ * ——噪声幻听兑底闸）；强制停不看此闸（用户显式收口，宁可转写不丢话）。
  *
  * 状态机：idle → recording（点击）→ transcribing（上传/转写中）→ idle
  * （ok/error 收口）。三态互斥：transcribing 态 start() no-op（防二次
@@ -37,8 +40,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
-import { createWorkletRmsMeter, type RmsMeterFactory } from "./rms-meter";
+import { createWorkletRmsMeter, type RmsMeterFactory, VOICE_METER_INTERVAL_MS } from "./rms-meter";
 import { createWorkletPcmPump, type PcmPumpFactory } from "./pcm-pump";
+import { isVoiceLikeFrame } from "./voice-gate";
+import {
+  readVoiceCheckPref,
+  readVoiceVadSensitivityPref,
+  readZcrTolerancePref,
+  voiceRmsThresholdFromSensitivity,
+} from "./voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
 export type VoiceState = "unsupported" | "idle" | "recording" | "transcribing";
@@ -46,8 +56,10 @@ export type VoiceState = "unsupported" | "idle" | "recording" | "transcribing";
 /** MediaRecorder 码率（64kbps——语音 opus 足量，spike 实测 156kbps 可压）。 */
 const AUDIO_BITS_PER_SECOND = 64_000;
 
-/** VAD 开口判定阈值（RMS ≥ 此值视为有声帧；mic 增益常态语音 0.05-0.3，取低阈保守）。 */
-export const VOICE_RMS_THRESHOLD = 0.012;
+/** VAD 开口判定阈值（RMS ≥ 此值视为有声帧；mic 增益常态语音 0.05-0.3，取低阈保守）。
+ *  定义已迁 shared/lib/voice-gate（两门共基唯一定义点）；此处 re-export 保
+ *  兼容（E-221 物化锚 useVoiceInput.ts#VOICE_RMS_THRESHOLD 仍在文件面）。 */
+export { VOICE_RMS_THRESHOLD } from "./voice-gate";
 
 /** 连续静音自动停窗口（ms；brief 口径 1.5-2s，取 1.8s 中档——常量可调）。 */
 export const VOICE_SILENCE_STOP_MS = 1_800;
@@ -58,6 +70,12 @@ export const VOICE_LEAD_IN_MS = 1_200;
 
 /** 最短有效录音（ms）：短于此不转写（误触防静音幻觉计费）。 */
 export const VOICE_MIN_DURATION_MS = 300;
+
+/** 有效发声时长闸（ms，语音判定钝感批）：自动收口时累计「人声判据帧」时长
+ *  不足此值 → 按未开口丢弃（零转写零计费——噪声幻听拿去回答的兑底闸：
+ *  短促噪声帧即使过了双参判据也不足以构成一次说话）；点击强制停不看此闸
+ *  （显式收口宁转写不丢话）。帧级累计粒度 = VOICE_METER_INTERVAL_MS ≈100ms。 */
+export const VOICE_SPEECH_MIN_MS = 250;
 
 /** 电平显示增益（RMS→可视电平；常态说话 RMS ~0.1 → 电平 ~0.6）。 */
 const VOICE_LEVEL_GAIN = 6;
@@ -104,6 +122,13 @@ export interface UseVoiceInputOptions {
    *（待命期等唤醒词，不被 ~1.8s 静音误收）；缺省恒 true = V2 行为不变。
    */
   readonly allowSilenceStop?: () => boolean;
+  /**
+   * VAD 阈值注入面（逐帧读，语音判定钝感批；allowSilenceStop 同构先例）：
+   * 缺省 = 灵敏度偏好映射 voiceRmsThresholdFromSensitivity(
+   * readVoiceVadSensitivityPref())——与插话打断门同源；底噪校准
+   *（useStewardVoice）注入 max(偏好, 底噪×2.5) 有效阈值，两门共基单点。
+   */
+  readonly getRmsThreshold?: () => number;
 }
 
 export interface VoiceInput {
@@ -161,6 +186,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   const uploadInFlightRef = useRef(false);
   const spokeRef = useRef(false);
   const lastLoudAtRef = useRef(0);
+  /** 人声判据帧累计时长（ms，有效发声闸）：连续判据帧按时戳差累计，静音帧
+   *  断段重起；自动停时 < VOICE_SPEECH_MIN_MS 按未开口丢弃。 */
+  const speechMsRef = useRef(0);
+  const lastVoiceAtRef = useRef<number | null>(null);
   const levelRef = useRef(0);
   const stateRef = useRef<VoiceState>(state);
   /** 取消代数（修复排查）：cancel 递增——start 在 await getUserMedia 窗口内
@@ -180,6 +209,8 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   onDeferredHoldRef.current = options?.onDeferredHold;
   const allowSilenceStopRef = useRef(options?.allowSilenceStop);
   allowSilenceStopRef.current = options?.allowSilenceStop;
+  const getRmsThresholdRef = useRef(options?.getRmsThreshold);
+  getRmsThresholdRef.current = options?.getRmsThreshold;
 
   // 状态 ref 镜像（meter 帧回调闭包不随渲染刷新——帧回调读实时态；
   //  读画封装为函数：tsc 对 ref.current 的直线窄化不因跨函数调用重置，
@@ -290,6 +321,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
         return;
       }
       const spoke = spokeRef.current;
+      const speechMs = speechMsRef.current;
       const durationMs = Date.now() - startedAtRef.current;
       const stopGen = cancelGenRef.current; // onstop 迟归守卫（4282f4ca 同根族）：
       // 关麦落在 stop→onstop 异步窗口时，迟归 onstop 凭代数失配全弃。当前
@@ -301,8 +333,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
         const chunks = chunksRef.current;
         cleanupMedia();
         if (stopGen !== cancelGenRef.current) return; // 关麦已发生：零 blob 零状态复活零 deferred
-        // VAD 丢弃：自动停且全程未开口 → 零转写零计费（静音片不值一次 ASR 调用）
-        if (fromVad && !spoke) {
+        // VAD 丢弃：自动停且（全程无人声判据帧 || 有效发声不足 250ms）→
+        // 零转写零计费（静音片/短促噪声不值一次 ASR 调用——噪声幻听兑底闸；
+        // 点击强制停 fromVad=false 不看此闸：显式收口宁转写不丢话）
+        if (fromVad && (!spoke || speechMs < VOICE_SPEECH_MIN_MS)) {
           setStateSafe("idle");
           return;
         }
@@ -354,6 +388,8 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       recorderRef.current = recorder;
       startedAtRef.current = Date.now();
       spokeRef.current = false;
+      speechMsRef.current = 0;
+      lastVoiceAtRef.current = null;
       lastLoudAtRef.current = startedAtRef.current;
       recorder.start(250); // 250ms slices: tail chunk safe before stop
       setStateSafe("recording");
@@ -364,18 +400,36 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
         const meter = await createMeterRef.current(stream);
         if (meter !== null && isRecording()) {
           meterRef.current = meter;
-          meter.onLevel(({ rms }) => {
+          meter.onLevel((frame) => {
             if (!isRecording()) return;
             // 电平显示平滑（loud 抬升/静音衰减——电平条数据源）
-            const shown = Math.min(1, Math.max(rms * VOICE_LEVEL_GAIN, levelRef.current * VOICE_LEVEL_DECAY));
+            const shown = Math.min(1, Math.max(frame.rms * VOICE_LEVEL_GAIN, levelRef.current * VOICE_LEVEL_DECAY));
             levelRef.current = shown;
             setLevel(shown);
-            // VAD 门：开口帧刷新 lastLoud；静音时钟自 max(开始+LEAD_IN, lastLoud) 起算
+            // VAD 门（收口门共基，语音判定钝感批）：单帧人声判据与插话打断门
+            //（stepBargeInGate）物理同源（isVoiceLikeFrame）；阈值逐帧读——
+            // getRmsThreshold 注入面（底噪校准消费）优先，缺省 = 灵敏度偏好
+            // 映射；ZCR/voiceCheck 同参（meter 无 zcr 帧 → fail-open，行为同旧）
+            const voiceLike = isVoiceLikeFrame(frame, {
+              threshold: getRmsThresholdRef.current?.() ?? voiceRmsThresholdFromSensitivity(readVoiceVadSensitivityPref()),
+              voiceCheck: readVoiceCheckPref(),
+              zcrTolerance: readZcrTolerancePref(),
+            });
             const now = Date.now();
-            if (rms >= VOICE_RMS_THRESHOLD) {
+            if (voiceLike) {
               spokeRef.current = true;
               lastLoudAtRef.current = now;
+              // 有效发声累计：连续判据帧按时戳差累计（首帧计一拍；上限两拍——
+              // meter 掉帧/时钟跳变不虚增）；静音帧断段重起
+              speechMsRef.current +=
+                lastVoiceAtRef.current === null
+                  ? VOICE_METER_INTERVAL_MS
+                  : Math.min(now - lastVoiceAtRef.current, VOICE_METER_INTERVAL_MS * 2);
+              lastVoiceAtRef.current = now;
+            } else {
+              lastVoiceAtRef.current = null;
             }
+            // 静音时钟自 max(开始+LEAD_IN, lastLoud) 起算；连续静音 ≥ STOP 收口
             const silenceSince = Math.max(startedAtRef.current + VOICE_LEAD_IN_MS, lastLoudAtRef.current);
             if (now - silenceSince >= VOICE_SILENCE_STOP_MS && (allowSilenceStopRef.current?.() ?? true)) stop(true);
           });
