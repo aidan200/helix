@@ -8,6 +8,7 @@
  */
 import type { Message } from "@earendil-works/pi-ai";
 import type { StewardLlmContentBlock, StewardLlmMessage } from "../../../application/ports/outbound/StewardLlmPort";
+import { ZERO_USAGE } from "../pi-engine/mappers/SessionMapper";
 
 export function piMessagesToSteward(messages: readonly Message[]): StewardLlmMessage[] {
   const out: StewardLlmMessage[] = [];
@@ -54,6 +55,9 @@ export function stewardMessagesToPi(messages: readonly StewardLlmMessage[]): imp
     if (m.role === "user") {
       out.push({ role: "user", content: m.text, timestamp: Date.now() } as never);
     } else if (m.role === "assistant") {
+      // 回填 assistant 必带零值 usage（pi-ai 1.0.0 estimate 无判空直读
+      // usage.totalTokens——缺字段在请求构造期 maxTokens 鉗制路径抛 TypeError；
+      // 防回归锚 test/unit/steward-llm-messages.test.ts）。
       out.push({
         role: "assistant",
         content: m.content.map((b) => {
@@ -70,6 +74,7 @@ export function stewardMessagesToPi(messages: readonly StewardLlmMessage[]): imp
         provider: "fake",
         model: "model",
         stopReason: "stop",
+        usage: ZERO_USAGE,
         timestamp: Date.now(),
       } as never);
     } else {

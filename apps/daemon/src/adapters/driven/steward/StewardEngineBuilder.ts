@@ -26,6 +26,7 @@ import type { CompactionSettings } from "../pi-engine/runtime/AgentProfile";
 import { StewardProfile } from "../pi-engine/runtime/profiles/StewardProfile";
 import { projectStewardTools } from "./StewardToolBridge";
 import { piMessagesToSteward, stewardMessagesToPi } from "./StewardLlmMessages";
+import { ZERO_USAGE } from "../pi-engine/mappers/SessionMapper";
 
 export interface StewardEngineOptions {
   /** 装配期系统提示（管家每 run 动态组装的初值——后续 run 经 setSystemPrompt 变异）。 */
@@ -103,6 +104,9 @@ export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngine
               provider: options.model.provider,
               model: options.model.id,
               stopReason: "stop",
+              // 摘要回包必带零值 usage（同一 pi-ai estimate 无判空面——回填/合成
+              // assistant 缺 usage 即抛；单源 ZERO_USAGE 见 SessionMapper）
+              usage: ZERO_USAGE,
               timestamp: Date.now(),
             };
           }) as never,

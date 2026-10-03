@@ -89,8 +89,14 @@ export interface SeedModelMeta {
   readonly model: string;
 }
 
-/** 零值 usage（回填的历史 assistant 消息不携带真实计费——账目归 UsageLedger 事件流）。 */
-const ZERO_USAGE: Usage = {
+/** 零值 usage（回填的历史 assistant 消息不携带真实计费——账目归 UsageLedger 事件流）。
+ * 导出面：StewardLlmMessages（管家 dialog 回填）与 StewardEngineBuilder（压缩摘要
+ * 覆写回包）同源引用——pi-ai 1.0.0 estimate.getLastAssistantUsageInfo 对
+ * assistant.usage 无判空（calculateContextTokens 直读 usage.totalTokens），
+ * 回填面缺 usage 即在请求构造期 maxTokens 鉗制路径抛 TypeError
+ * （2026-10-03 管家全量「模型调用失败」事故；防回归锚见
+ * test/unit/steward-llm-messages.test.ts）。 */
+export const ZERO_USAGE: Usage = {
   input: 0,
   output: 0,
   cacheRead: 0,
