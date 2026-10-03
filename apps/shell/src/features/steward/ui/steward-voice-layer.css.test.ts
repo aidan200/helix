@@ -21,6 +21,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const css = readFileSync(
@@ -71,6 +73,11 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
   it("雪碧图皮面：单层 .stv-sprite 引 orb.png + 6×6 满格（600%）+ 像素硬边放大", () => {
     const sprite = seg.match(/\.stv-sprite\s*\{[^}]*\}/)![0];
     expect(sprite).toMatch(/background-image:\s*url\("[^"]*assets\/steward\/orb\.png"\)/);
+    // url 相对路径必须真实解析到文件（app.css 位于 shared/ui/styles/——差一层
+    // 就是运行时 404 无图；--no-verify 提交漏网教训，文件系统钉住）
+    const rel = sprite.match(/url\("([^"]+)"\)/)?.[1] ?? "";
+    const cssDir = fileURLToPath(new URL("../../../shared/ui/styles/", import.meta.url));
+    expect(existsSync(resolve(cssDir, rel))).toBe(true);
     expect(sprite).toMatch(/background-size:\s*600% 600%/); // 6×6 网格整图 6 倍容器
     expect(sprite).toMatch(/background-repeat:\s*no-repeat/);
     expect(sprite).toMatch(/image-rendering:\s*pixelated/); // 36px 帧硬边放大（像素风）

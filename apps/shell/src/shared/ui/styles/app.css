@@ -1616,7 +1616,7 @@ html.light .stv-caption {
    百分比公式 (列-1)×20% (行-1)×20% 为构建期常量直写 keyframes）*/
 .stv-sprite {
   position: absolute; inset: 0;
-  background-image: url("../../assets/steward/orb.png");
+  background-image: url("../../../assets/steward/orb.png");
   background-size: 600% 600%;
   background-repeat: no-repeat;
   background-position: 0% 0%; /* 无动画兜底：待机首帧 (1,1) */
