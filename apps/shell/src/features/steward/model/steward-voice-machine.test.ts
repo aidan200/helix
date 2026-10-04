@@ -389,9 +389,14 @@ describe("deriveOrbPhase 欢迎语期待机驻留（欢迎词固化批）", () =
     expect(deriveOrbPhase({ phase: "unsupported", duplex: true, fading: false, welcome: true })).toBe("waking");
   });
 
-  it("用户开口即录音：listening/transcribing 压过欢迎位转倾听动画", () => {
-    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: true })).toBe("listening");
+  it("用户开口即录音：listening/transcribing 压过欢迎位转倾听动画（开口 = userSpeaking）", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: true, userSpeaking: true })).toBe("listening");
     expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: true })).toBe("listening");
+  });
+
+  it("开麦未开口：listening 且 userSpeaking=false → waking 待机驻留（麦克风开着 ≠ 倾听）", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, userSpeaking: false })).toBe("waking");
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: true, userSpeaking: false })).toBe("waking");
   });
 
   it("欢迎位不压在途对话相位（ask/朗读照常）", () => {
@@ -407,10 +412,14 @@ describe("deriveOrbPhase（B2 光球相位状态机）", () => {
     expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: false, welcome: false })).toBeNull();
   });
 
-  it("listening：listening/transcribing/unsupported 外待听呼吸（duplex 中 idle 是瞬态）", () => {
-    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false })).toBe("listening");
+  it("listening：开口（userSpeaking=true）转倾听；未开口（false）/transcribing 待听；unsupported 待机退化", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, userSpeaking: true })).toBe("listening");
     expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: false })).toBe("listening");
-    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("listening");
+    expect(deriveOrbPhase({ phase: "unsupported", duplex: true, fading: false, welcome: false })).toBe("waking");
+  });
+
+  it("idle（duplex 在场未开麦间隙：续听重开/mute 恢复瞬态）→ waking 待机", () => {
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("waking");
   });
 
   it("thinking：ask 在途（asking）", () => {
@@ -426,18 +435,18 @@ describe("deriveOrbPhase（B2 光球相位状态机）", () => {
     expect(deriveOrbPhase({ phase: "asking", duplex: false, fading: true, welcome: false })).toBe("closing");
   });
 
-  it("迁移链钉子：waking（欢迎期待机）→（用户开口）listening →（final 喂 ask）thinking →（delta 到达）speaking →（读完）listening →（关麦）closing → null", () => {
-    // waking（欢迎语期待机驻留——开麦前瞬态）
-    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: true })).toBe("waking");
-    // 用户开口录音 → listening（转写在途同相；欢迎位被压过）
-    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false })).toBe("listening");
+  it("迁移链钉子：waking（呼出待机）→（开口）listening →（final 喂 ask）thinking →（delta 到达）speaking →（读完）waking →（关麦）closing → null", () => {
+    // waking（呼出后开麦未开口——待机驻留）
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, userSpeaking: false })).toBe("waking");
+    // 用户开口 → listening（转写在途同相）
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, userSpeaking: true })).toBe("listening");
     expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: false })).toBe("listening");
     // final 喂 ask → thinking
     expect(deriveOrbPhase({ phase: "asking", duplex: true, fading: false, welcome: false })).toBe("thinking");
     // delta 到达 TTS 出声 → speaking
     expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: false })).toBe("speaking");
-    // 读完回 idle（duplex 中自动续听呼吸）→ listening
-    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("listening");
+    // 读完回 idle（duplex 中自动续听）→ waking 待机
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("waking");
     // 关麦 → closing →（淡出结束）null
     expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: true, welcome: false })).toBe("closing");
     expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: false, welcome: false })).toBeNull();

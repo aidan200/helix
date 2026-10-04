@@ -266,12 +266,14 @@ export function isBargeInArmed(input: { mode: StewardInputMode; phase: StewardVo
 export type OrbPhase = "waking" | "listening" | "thinking" | "speaking" | "closing";
 
 /** 光球相位派生输入（duplex = 双工会话活跃；fading = 关麦淡出窗；
- *  welcome = 欢迎语播报期——待机动画驻留标记）。 */
+ *  welcome = 欢迎语播报期——待机动画驻留标记；userSpeaking = 用户正在
+ *  发声（useVoiceInput 保持窗——缺省 true = 旧语义「开麦即倾听」零断兼容）。 */
 export interface OrbPhaseInput {
   readonly phase: StewardVoicePhase;
   readonly duplex: boolean;
   readonly fading: boolean;
   readonly welcome: boolean;
+  readonly userSpeaking?: boolean;
 }
 
 /**
@@ -279,9 +281,12 @@ export interface OrbPhaseInput {
  * - 不在场：duplex=false 且无淡出；
  * - closing 压过一切（关麦淡出窗——duplex 已落但动画在途）；
  * - welcome 且开麦前瞬态（idle/unsupported）→ waking（欢迎语播报期待机
- *   驻留——欢迎语是伴随声非回复，不摆说话姿）；用户开口即录音，listening
- *   相位压过欢迎位转倾听动画；
- * - listening/transcribing/idle → listening（呼吸待听）；
+ *   驻留——欢迎语是伴随声非回复，不摆说话姿）；
+ * - listening 且用户未发声（userSpeaking=false，VAD 保持窗外）→ waking
+ *   待机驻留（麦克风开着 ≠ 倾听——duplex 常开麦下没开口就一直待机，
+ *   开口瞬间转倾听，说完 ~0.9s 回待机）；
+ * - transcribing → listening（刚说完话的收口延续）；idle → waking
+ *   （duplex 在场未开麦间隙：静音自动停后续听重开/mute 恢复瞬态）；
  * - asking → thinking；speaking → speaking。
  */
 export function deriveOrbPhase(input: OrbPhaseInput): OrbPhase | null {
@@ -294,11 +299,13 @@ export function deriveOrbPhase(input: OrbPhaseInput): OrbPhase | null {
     case "speaking":
       return "speaking";
     case "listening":
+      return input.userSpeaking === false ? "waking" : "listening";
     case "transcribing":
+      return "listening";
     case "idle":
-      return "listening";
+      return "waking";
     default:
-      // unsupported 等：duplex 在场但链路不可用——待听呼吸（呈现退化不缺席）
-      return "listening";
+      // unsupported 等：duplex 在场但链路不可用——待机（呈现退化不缺席）
+      return "waking";
   }
 }

@@ -46,6 +46,7 @@ vi.mock("@/shared/lib/useVoiceInput", () => ({
   useVoiceInput: (): VoiceInput => ({
     state: voiceState,
     level: voiceLevel,
+    userSpeaking: false,
     error: null,
     start,
     stop,

@@ -37,7 +37,7 @@ vi.mock("@/shared/lib/stt-provider-pref", () => ({
   readSttProviderPref: () => undefined,
 }));
 
-import { useVoiceInput, VOICE_MIN_DURATION_MS, VOICE_SILENCE_STOP_MS, VOICE_LEAD_IN_MS, VOICE_SPEECH_MIN_MS } from "./useVoiceInput";
+import { useVoiceInput, VOICE_MIN_DURATION_MS, VOICE_SILENCE_STOP_MS, VOICE_LEAD_IN_MS, VOICE_SPEECH_MIN_MS, VOICE_SPEAKING_HOLD_MS } from "./useVoiceInput";
 import {
   VOICE_VAD_SENSITIVITY_PREF_KEY,
   VOICE_VOICE_CHECK_PREF_KEY,
@@ -650,6 +650,39 @@ describe("useVoiceInput（收口门共基：灵敏度偏好驱动 + ZCR 双参 +
       clock?.advance(100);
     }
   }
+
+  it("userSpeaking 保持窗：开麦未开口 false → 人声帧置 true → 静音超窗（900ms）回落 false；停录即复位", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    const meter = makeFakeMeter();
+    const { result } = renderHook(
+      () => useVoiceInput(vi.fn(), { ...deps, createMeter: () => Promise.resolve(meter) }),
+      { wrapper: I18nProvider },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.userSpeaking).toBe(false); // 开麦未开口：待机驻留依据
+    // 人声帧（rms 0.1 带内 ZCR 缺省 0.1）→ 立即 true（开口瞬间转倾听）
+    await act(async () => {
+      meter.emit(0.1);
+    });
+    expect(result.current.userSpeaking).toBe(true);
+    // 静音帧持续：保持窗内（<900ms）不回落（词间停顿不闪断）
+    clock.advance(500);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    expect(result.current.userSpeaking).toBe(true);
+    // 静音超窗 → 回落 false（说完回待机；比静音自动停 1.8s 早——视觉先行）
+    clock.advance(VOICE_SPEAKING_HOLD_MS + 100);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    expect(result.current.userSpeaking).toBe(false);
+    restore();
+  });
 
   it("灵敏度偏好驱动收口：调低（0 → 阈值 0.036）后 0.02 持续声帧不计开口 → 静音收口走丢弃；缺省档同幅帧照常转写", async () => {
     const restore = installRecorder();

@@ -153,6 +153,9 @@ export interface UseStewardVoice {
   readonly phase: StewardVoicePhase;
   /** 实时电平 0..1（listening 波形可视化数据源；他态恒 0）。 */
   readonly level: number;
+  /** 用户正在发声（最近 ~900ms 人声判据帧；recording 外恒 false）——光球
+   *  相位细分：开麦未开口 → 待机驻留（waking），开口才转倾听。 */
+  readonly userSpeaking: boolean;
   /** 流式 interim 文本（listening/transcribing 态实时上屏；prior+text+stash
    *  拼接态；final 到达替换、出态清空；null = 无）。 */
   readonly interim: string | null;
@@ -969,6 +972,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     setMode,
     phase,
     level: voice.level,
+    userSpeaking: voice.userSpeaking,
     interim,
     streamDegraded,
     speaking,

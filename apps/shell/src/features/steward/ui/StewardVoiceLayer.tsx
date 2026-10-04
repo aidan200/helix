@@ -169,6 +169,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
     duplex: sv.duplexActive,
     fading,
     welcome: sv.welcomeActive,
+    userSpeaking: sv.userSpeaking,
   });
 
   // 点击（D5）：speaking → 停读；listening/muted → 临时静音切换（恢复）

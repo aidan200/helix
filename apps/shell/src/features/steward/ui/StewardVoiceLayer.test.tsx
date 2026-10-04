@@ -85,6 +85,7 @@ let svState: {
   welcomeActive: boolean;
   muted: boolean;
   phase: string;
+  userSpeaking: boolean;
   speaking: boolean;
   interim: string | null;
   streamingText: string | null;
@@ -94,6 +95,7 @@ let svState: {
   welcomeActive: false,
   muted: false,
   phase: "idle",
+  userSpeaking: false,
   speaking: false,
   interim: null,
   streamingText: null,
@@ -117,13 +119,12 @@ vi.mock("../model/useStewardVoice", () => ({
       setMode: () => undefined,
       phase: svState.phase,
       level: 0.6,
+      userSpeaking: svState.userSpeaking,
       interim: svState.interim,
       streamDegraded: false,
       speaking: svState.speaking,
       voiceError: null,
       voiceDraft: null,
-      wakeState: "off",
-      cancelWake: () => undefined,
       startListening: async () => undefined,
       stopListening: () => undefined,
       stopSpeaking,
@@ -173,6 +174,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
       welcomeActive: false,
       muted: false,
       phase: "idle",
+      userSpeaking: false,
       speaking: false,
       interim: null,
       streamingText: null,
@@ -191,7 +193,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     expect(screen.queryByTestId("steward-caption")).toBeNull();
   });
 
-  it("duplex=true → 光球 + 字幕条在场；欢迎语期（开麦前）→ waking 待机驻留 + 欢迎语入字幕；用户开口录音 → listening（欢迎位被压过）", async () => {
+  it("duplex=true → 光球 + 字幕条在场；呼出全程待机驻留（欢迎语期/开麦未开口）+ 欢迎语入字幕；开口（userSpeaking）→ listening", async () => {
     svState.duplexActive = true;
     svState.welcomeActive = true;
     svState.phase = "idle";
@@ -201,19 +203,27 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     // 欢迎语字幕行（管家行）
     const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind]');
     expect(Array.from(lines).some((l) => l.textContent === "我在，请说。")).toBe(true);
-    // 用户开口录音：listening 压过欢迎位（转倾听动画）；欢迎期收位后回 idle 续听呼吸
+    // 开麦但未开口（userSpeaking=false）：待机驻留——麦克风开着 ≠ 倾听
     svState.phase = "listening";
+    svState.userSpeaking = false;
+    rerenderLayer({});
+    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("waking");
+    // 用户开口（userSpeaking=true）：listening 压过欢迎位（转倾听动画）
+    svState.userSpeaking = true;
     rerenderLayer({});
     expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("listening");
+    // 欢迎期收位后回 idle 续听间隙 → 待机
     svState.welcomeActive = false;
     svState.phase = "idle";
+    svState.userSpeaking = false;
     rerenderLayer({});
-    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("listening");
+    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("waking");
   });
 
-  it("相位呈现链：listening/thinking/speaking（data-phase 反映）", () => {
+  it("相位呈现链：listening（开口）/thinking/speaking（data-phase 反映）", () => {
     svState.duplexActive = true;
     svState.phase = "listening";
+    svState.userSpeaking = true;
     renderLayer();
     expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("listening");
     cleanup();

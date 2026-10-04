@@ -77,6 +77,11 @@ export const VOICE_MIN_DURATION_MS = 300;
  *  （显式收口宁转写不丢话）。帧级累计粒度 = VOICE_METER_INTERVAL_MS ≈100ms。 */
 export const VOICE_SPEECH_MIN_MS = 250;
 
+/** 开口保持窗（ms）：最近人声判据帧距今超出此窗 → userSpeaking 回落 false
+ *  （说完话 ~0.9s 光球回待机——词间停顿不闪断；比静音自动停 1.8s 早，
+ *  视觉先行回待机、链路收口在后）。 */
+export const VOICE_SPEAKING_HOLD_MS = 900;
+
 /** 电平显示增益（RMS→可视电平；常态说话 RMS ~0.1 → 电平 ~0.6）。 */
 const VOICE_LEVEL_GAIN = 6;
 
@@ -135,6 +140,9 @@ export interface VoiceInput {
   readonly state: VoiceState;
   /** 实时电平（0..1，帧驱动平滑；recording 外恒 0）——三态可视化电平条数据源。 */
   readonly level: number;
+  /** 用户正在发声（最近 VOICE_SPEAKING_HOLD_MS 内有人声判据帧；recording
+   *  外恒 false）——光球相位细分数据源：开麦未开口 ≠ 倾听（待机驻留）。 */
+  readonly userSpeaking: boolean;
   /** 最近一次失败原因（idle 后保留供 toast 消费；开始新录音即清）。 */
   readonly error: string | null;
   /** 点击开始录音（unsupported/transcribing 态 no-op）。 */
@@ -173,6 +181,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   );
   const [error, setError] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
+  const [userSpeaking, setUserSpeaking] = useState(false);
+  /** 最近人声判据帧时戳（userSpeaking 保持窗判据；null = 本轮未开口）。 */
+  const lastVoiceLikeAtRef = useRef<number | null>(null);
+  const userSpeakingRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -222,6 +234,9 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     if (next !== "recording") {
       levelRef.current = 0;
       setLevel(0);
+      userSpeakingRef.current = false;
+      lastVoiceLikeAtRef.current = null;
+      setUserSpeaking(false);
     }
   }, []);
 
@@ -391,6 +406,9 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       speechMsRef.current = 0;
       lastVoiceAtRef.current = null;
       lastLoudAtRef.current = startedAtRef.current;
+      lastVoiceLikeAtRef.current = null;
+      userSpeakingRef.current = false;
+      setUserSpeaking(false);
       recorder.start(250); // 250ms slices: tail chunk safe before stop
       setStateSafe("recording");
 
@@ -419,6 +437,12 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
             if (voiceLike) {
               spokeRef.current = true;
               lastLoudAtRef.current = now;
+              // userSpeaking 保持窗抬升（翻转才 set——帧频 100ms 防渲染抖）
+              lastVoiceLikeAtRef.current = now;
+              if (!userSpeakingRef.current) {
+                userSpeakingRef.current = true;
+                setUserSpeaking(true);
+              }
               // 有效发声累计：连续判据帧按时戳差累计（首帧计一拍；上限两拍——
               // meter 掉帧/时钟跳变不虚增）；静音帧断段重起
               speechMsRef.current +=
@@ -428,6 +452,16 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
               lastVoiceAtRef.current = now;
             } else {
               lastVoiceAtRef.current = null;
+            }
+            // userSpeaking 回落（保持窗外，非 recording 态帧早退不达此处）：
+            // 静音帧也持续到帧——窗判定不依赖有声帧自带时钟
+            if (
+              userSpeakingRef.current &&
+              lastVoiceLikeAtRef.current !== null &&
+              now - lastVoiceLikeAtRef.current > VOICE_SPEAKING_HOLD_MS
+            ) {
+              userSpeakingRef.current = false;
+              setUserSpeaking(false);
             }
             // 静音时钟自 max(开始+LEAD_IN, lastLoud) 起算；连续静音 ≥ STOP 收口
             const silenceSince = Math.max(startedAtRef.current + VOICE_LEAD_IN_MS, lastLoudAtRef.current);
@@ -511,5 +545,5 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     uploadBlob(blob);
   }, [uploadBlob]);
 
-  return { state, level, error, start, stop, cancel, resolveStreaming, transcribeNow };
+  return { state, level, userSpeaking, error, start, stop, cancel, resolveStreaming, transcribeNow };
 }
