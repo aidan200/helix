@@ -91,6 +91,19 @@ export interface StewardSetConfigPayload {
      *  未配置 = 自动沉淀静默不挂——对话主链路零影响）。 */
     judgeEndpointId?: string;
   };
+  /** 会话进展记忆组（progress 批；全部位可选）：轮末联合摘要器节制面。
+   *  三条件 gate（开 ∧ 模型已配 ∧ 记忆域可用）全满足才产 progress 条目；
+   *  模型无默认——不配不产（E-232 同构纪律）。 */
+  sessionMemory?: {
+    /** 会话进展记忆开关（默认关）。 */
+    enabled?: boolean;
+    /** 节流阈值（每 N 个完成轮产一次；默认 3 对齐 topic 锚点；合法 1-20）。 */
+    everyTurns?: number;
+    /** 总结模型槽位（"provider/model-id"；**无默认模型**——未配置 = progress
+     *  不产；空串 = 清空槽位回未配置态）。联合调用槽位解析序：本槽位 →
+     *  topic_config.model（旧键回落链——已配 topic 模型的用户零迁移升级）。 */
+    model?: string;
+  };
 }
 
 /** steward.set_config：写管家设置（点对点回执 steward.config.result 新态）。 */

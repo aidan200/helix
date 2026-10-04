@@ -99,6 +99,10 @@ function fakeSessions(rows: readonly StewardSessionMetaRow[]) {
     },
     sessionExists: async (_sessionId: string) => true,
     deliverToSession: async (_sessionId: string, _text: string) => ({ delivered: true, detail: "已投递" }),
+    readSessionTail: async (
+      _sessionId: string,
+      _tail: number,
+    ): Promise<readonly { role: string; text: string }[] | undefined> => undefined,
   };
 }
 
@@ -230,6 +234,9 @@ describe("A2-1 动态 prompt：context_snapshot 段", () => {
       createTitledSession: async () => ({ sessionId: "x" }),
       sessionExists: async () => true,
       deliverToSession: async () => ({ delivered: true, detail: "x" }),
+      readSessionTail: async () => {
+        throw new Error("db boom");
+      },
     };
     const { svc } = makeA2Service({ llm, sessions: broken, now: fixedClock });
     const result = await svc.ask("最近在忙什么？");
@@ -686,5 +693,88 @@ describe("A2-4 快照与工具口径一致性", () => {
     const runningCount = orchestration.status().filter((s) => s.state === "running").length;
     expect(runningCount).toBe(2);
     expect(snapshotBlock).toContain(`活跃 agent：${runningCount}`);
+  });
+});
+
+// ── A2-6：read_session（会话尾部内容深读——progress 批 M3）─────
+
+describe("A2-6 read_session（会话尾部内容深读）", () => {
+  function fakeSessionsWithTail(
+    rows: readonly StewardSessionMetaRow[],
+    tails: Record<string, readonly { role: string; text: string }[] | undefined>,
+  ) {
+    const base = fakeSessions(rows);
+    const tailCalls: { sessionId: string; tail: number }[] = [];
+    return {
+      ...base,
+      tailCalls,
+      readSessionTail: async (sessionId: string, tail: number) => {
+        tailCalls.push({ sessionId, tail });
+        return tails[sessionId];
+      },
+    };
+  }
+
+  const rows = [
+    sessRow({ sessionId: "sess-work", title: "光球视觉效果设计" }),
+    sessRow({ sessionId: "sess-chat", firstUserText: "闲聊会话" }),
+  ];
+
+  test("① happy：LLM 调 read_session → toolResult 含标题行 + 尾部消息行（role 标注）", async () => {
+    const llm = fakeLlm([
+      toolCall("read_session", { sessionId: "sess-work" }),
+      { kind: "blocks", blocks: [{ type: "text", text: "总结" }], stopReason: "stop" },
+    ]);
+    const sessions = fakeSessionsWithTail(rows, {
+      "sess-work": [
+        { role: "user", text: "把亮度调低一点" },
+        { role: "assistant", text: "已调整三档亮度方案" },
+      ],
+    });
+    const { svc } = makeA2Service({ llm, sessions });
+    await svc.ask("那个会话聊到哪了？");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "read_session");
+    expect(tr).toBeDefined();
+    expect(tr!.text).toContain("光球视觉效果设计");
+    expect(tr!.text).toContain("sess-work");
+    expect(tr!.text).toContain("[user] 把亮度调低一点");
+    expect(tr!.text).toContain("[assistant] 已调整三档亮度方案");
+  });
+
+  test("② tail 钳制：缺省 6；超上限钳 20", async () => {
+    const llm = fakeLlm([
+      toolCall("read_session", { sessionId: "sess-work" }),
+      { kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" },
+    ]);
+    const sessions = fakeSessionsWithTail(rows, { "sess-work": [] });
+    const { svc } = makeA2Service({ llm, sessions });
+    await svc.ask("看看");
+    expect(sessions.tailCalls[0]).toEqual({ sessionId: "sess-work", tail: 6 });
+
+    const llm2 = fakeLlm([
+      toolCall("read_session", { sessionId: "sess-work", tail: 999 }),
+      { kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" },
+    ]);
+    const sessions2 = fakeSessionsWithTail(rows, { "sess-work": [] });
+    const { svc: svc2 } = makeA2Service({ llm: llm2, sessions: sessions2 });
+    await svc2.ask("看看");
+    expect(sessions2.tailCalls[0]!.tail).toBe(20);
+  });
+
+  test("③ 不存在/已删：引导回 query_recent_work（查 meta 行缺失 + readSessionTail undefined 双径）", async () => {
+    const llm = fakeLlm([
+      toolCall("read_session", { sessionId: "sess-ghost" }),
+      { kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" },
+    ]);
+    const sessions = fakeSessionsWithTail(rows, { "sess-ghost": undefined });
+    const { svc } = makeA2Service({ llm, sessions });
+    await svc.ask("看看");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "read_session");
+    expect(tr).toBeDefined();
+    expect(tr!.text).toContain("query_recent_work");
+  });
+
+  test("④ system prompt 路由行：问管家取数工具清单含 read_session", () => {
+    expect(STEWARD_SYSTEM_PROMPT).toContain("read_session");
   });
 });

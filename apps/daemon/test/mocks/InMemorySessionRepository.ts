@@ -96,6 +96,26 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     return rows;
   }
 
+  /** 尾部消息投影（progress 批 M3 真实仓对位：旧→新 + 单条截 300 码点）。 */
+  async readSessionTail(
+    sessionId: string,
+    tailEntries: number,
+  ): Promise<readonly { role: string; text: string }[] | undefined> {
+    const snap = this.store.get(sessionId);
+    if (snap === undefined) return undefined;
+    const n = Number.isInteger(tailEntries) && tailEntries > 0 ? tailEntries : 1;
+    return snap.session.entries
+      .filter((e): e is (typeof e) & { role: string; text: string } => "role" in e)
+      .slice(-n)
+      .map((e) => {
+        const chars = [...(e.text ?? "")];
+        return {
+          role: e.role,
+          text: chars.length > 300 ? `${chars.slice(0, 300).join("")}…` : (e.text ?? ""),
+        };
+      });
+  }
+
   /** T2.2 会话删除：内存仓同步清行。 */
   async deleteSession(sessionId: string): Promise<void> {
     this.store.delete(sessionId);

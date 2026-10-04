@@ -67,12 +67,14 @@ function makeService(config: RuntimeConfigPort): StewardService {
   createEngine: createEngineFromPort(noopLlm())});
 }
 
-/** 管家注册面十工具全集（注册序——九 LLM 可见 + steward_confirm 面板原语；
- *  管家记忆 B1 增 remember；start_session 批增带话题开局双工具分工）。 */
+/** 管家注册面十一工具全集（注册序——十 LLM 可见 + steward_confirm 面板原语；
+ *  管家记忆 B1 增 remember；start_session 批增带话题开局双工具分工；progress
+ *  批 M3 增 read_session 尾部深读）。 */
 const STEWARD_TOOL_NAMES = [
   "list_instances",
   "list_tasks",
   "query_recent_work",
+  "read_session",
   "propose_send",
   "deliver_to_session",
   "create_session",
@@ -90,7 +92,7 @@ describe("StewardService.getProfile（管家只读档案导出面）", () => {
     expect(profile.systemPrompt).toBe(STEWARD_SYSTEM_PROMPT);
   });
 
-  test("十工具全名（注册面全集——九 LLM 可见 + steward_confirm）+ 每行描述非空", () => {
+  test("十一工具全名（注册面全集——十 LLM 可见 + steward_confirm）+ 每行描述非空", () => {
     const svc = makeService(fakeConfig());
     const profile = svc.getProfile();
     expect(profile.tools.map((t) => t.name)).toEqual([...STEWARD_TOOL_NAMES]);

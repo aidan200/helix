@@ -98,6 +98,7 @@ function makeRig(opts: {
     emitNavigate: (payload) => navigates.push(payload),
     sessions: {
       sessionExists: async () => true,
+      readSessionTail: async () => undefined,
       deliverToSession: async (sessionId: string, text: string) => {
         deliveries.push({ sessionId, text });
         await gate; // idle 全轮模拟：受理后长时间不返回

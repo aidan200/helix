@@ -50,6 +50,13 @@ export interface SessionRepository {
    */
   listSessionMetadata(): Promise<readonly SessionMetadataRow[]>;
   /**
+   * 会话尾部消息投影（progress 批 M3——管家 read_session 工具数据源）：
+   * 单会话点读最后 N 条 {role, text}（旧→新；单条截 300 码点——LLM 面
+   * 体量护栏在出口处）。点读单行与 restore 同级成本，投影后原文即弃；
+   * 不存在 → undefined。不重建聚合、不触写面。
+   */
+  readSessionTail(sessionId: string, tailEntries: number): Promise<readonly { role: string; text: string }[] | undefined>;
+  /**
    * 会话删除（AD-4，删除收口链的删库步）：六表按 session_id 清行，
    * 经单写通道串行（同会话仓内 FIFO——先于本调用的写全部先落盘）。
    */

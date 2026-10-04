@@ -63,6 +63,7 @@ import {
 import {
   SessionTitleService,
   recentUserTextsOf,
+  recentTurnPairsOf,
 } from "../application/services/session-title/SessionTitleService";
 import { TopicConfigStore } from "../adapters/driven/sqlite-session/TopicConfigStore";
 import type { DomainEvent } from "../domain/events/DomainEvent";import {
@@ -926,6 +927,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // 全轮不再阻塞确认链；同步拒绝段照常抛错经 action.completed 交代，
       // 轮次内失败走会话事件面）。
       sessionExists: (sessionId) => registry.sessionExists(sessionId),
+      // progress 批 M3：尾部消息投影透传（repo 单行点读，单条已截 300）
+      readSessionTail: (sessionId, tailEntries) => persistence.repository.readSessionTail(sessionId, tailEntries),
       deliverToSession: async (sessionId, text) => {
         try {
           const runtime = registry.peek(sessionId) ?? (await registry.get(sessionId));
@@ -1071,13 +1074,30 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    端点删除/改型 → 抛错降级），未选 = 生成模型兼任判断；money gate：
   //    开关关 = 锚点短路零 LLM 调用。──
   const topicConfig = new TopicConfigStore(persistence.runtimeConfig);
+  // progress 批：sessionMemory 配置读面（轮末联合摘要器节制面；KV 三键——
+  // 与管家配置族同存储，读面实时读零热重启）。
+  const readSessionMemoryConfig = () => {
+    const get = persistence.runtimeConfig.get.bind(persistence.runtimeConfig);
+    const enabled = get("steward.sessionmemory.enabled") === "1";
+    const model = get("steward.sessionmemory.model");
+    const rawTurns = Number.parseInt(get("steward.sessionmemory.everyturns") ?? "", 10);
+    const everyTurns = Number.isInteger(rawTurns) && rawTurns >= 1 && rawTurns <= 20 ? rawTurns : 3;
+    return { enabled, model: model !== undefined && model.trim() !== "" ? model : null, everyTurns };
+  };
   const sessionTitleService =
     deps.sessionTitleOverride ??
     new SessionTitleService({
       readConfig: () => topicConfig.current(),
       llm: new PiStewardLlmAdapter({
         models: modelStack.catalog.modelsView(),
-        modelSlot: () => topicConfig.current().model ?? undefined,
+        // progress 批槽位回落链：sessionMemory 开且模型已配 → 用它（联合调用
+        // 单一模型）；否则 topic_config.model（旧键——已配用户零迁移）→
+        // adapter 默认 flash。服务层无感知（单一 adapter 单次调用）。
+        modelSlot: () => {
+          const sm = readSessionMemoryConfig();
+          if (sm.enabled && sm.model !== null) return sm.model;
+          return topicConfig.current().model ?? undefined;
+        },
         defaultModel: STEWARD_DEFAULT_MODEL,
         getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
       }),
@@ -1102,6 +1122,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           topic: view.currentTopic(),
           turnCount: view.turnCount,
           recentUserTexts: recentUserTextsOf(entries, 10),
+          // progress 批：轮次对投影（user + 同轮末条 assistant = 最终结论）
+          recentTurnPairs: recentTurnPairsOf(entries, 6),
           ...(firstAssistant !== undefined && typeof firstAssistant.text === "string"
             ? { firstAssistantText: [...firstAssistant.text].slice(0, 500).join("") }
             : {}),
@@ -1109,6 +1131,17 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           updateTopic: (topic, previous, anchorTurn) => runtime.chatService.updateTopic(topic, previous, anchorTurn),
         };
       },
+      // progress 批：sessionMemory 读面 + progress 写面（stewardMemory 缺席
+      // = 降级不产——联合摘要器 deps 可选语义）
+      sessionMemory: { read: readSessionMemoryConfig },
+      ...(stewardMemory !== undefined
+        ? {
+            progressStore: {
+              recordSessionProgress: (sessionId: string, text: string) =>
+                stewardMemory.recordSessionProgress(sessionId, text),
+            },
+          }
+        : {}),
       announceTopicChanged: (sessionId) => registry.announceTopicChanged(sessionId),
       logger: { warn: (message) => logger.warn(message) },
     });

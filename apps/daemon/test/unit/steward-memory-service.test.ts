@@ -149,6 +149,10 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
       state.entries = state.entries.map((e) => (e.id === id ? { ...e, text } : e));
       return true;
     },
+    findProgressId(sessionId: string): number | null {
+      const hit = state.entries.find((e) => e.kind === "progress" && e.sessionId === sessionId);
+      return hit !== undefined ? hit.id : null;
+    },
     markRecalled(ids, at) {
       state.recalled.push({ ids: [...ids], at });
       const hit = new Set(ids);
@@ -435,6 +439,7 @@ describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () =>
         updated.push({ id, text, updatedAt });
         return true;
       },
+      findProgressId: () => null,
       markRecalled: () => {},
       setPinned: () => false,
       restore: () => false,

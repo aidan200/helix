@@ -561,6 +561,7 @@ export const zhCN = {
         memoryKind: {
           preference: "偏好",
           fact: "事实",
+          progress: "进展",
         },
         stewardSwitchOn: "开启",
         groupWorkspace: "工作空间",

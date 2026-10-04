@@ -151,6 +151,23 @@ export const STEWARD_SUMMARY_ENABLED_KEY = "steward.summary.enabled";
  *  摘要面不可用；语音播报不念原文走极简通知，不另配默认防大模型拖慢）。 */
 export const STEWARD_SUMMARY_MODEL_KEY = "steward.summary.model";
 
+/** 会话进展记忆开关 KV 键（progress 批：轮末联合摘要器 progress 产物总闸）。 */
+export const STEWARD_SESSION_MEMORY_ENABLED_KEY = "steward.sessionmemory.enabled";
+
+/** 会话进展记忆节流阈值 KV 键（每 N 完成轮产一次；默认 3 对齐 topic 锚点）。 */
+export const STEWARD_SESSION_MEMORY_EVERY_TURNS_KEY = "steward.sessionmemory.everyturns";
+
+/** 会话进展记忆总结模型槽位 KV 键（"provider/model-id"；**无默认模型**——
+ *  未配置 = progress 不产；联合调用槽位解析序：本键 → topic_config.model
+ *  旧键回落链，已配 topic 模型的用户零迁移升级）。 */
+export const STEWARD_SESSION_MEMORY_MODEL_KEY = "steward.sessionmemory.model";
+
+/** 会话进展记忆节流默认值（对齐 topic 锚点节奏 1/3/6/9…）。 */
+export const STEWARD_SESSION_MEMORY_EVERY_TURNS_DEFAULT = 3;
+
+/** 会话进展记忆节流合法范围（下限 1 = 每轮都产；上限 20 防配置事故久旱）。 */
+export const STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX = 20;
+
 /** L1 件一：压缩触发阈值（token 估算口径与 estimateLoopTokens 同族；
  *  任务书默认 12k——低于工作记忆 16k 预算闸，压缩先于粗裁剪接管）。 */
 export const STEWARD_COMPACTION_THRESHOLD_TOKENS = 12_288;
@@ -198,7 +215,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 - 不伪装用户身份、不代替用户做决策。
 
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
-- 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数）。
+- 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数；追问某会话具体聊了什么/进展细节时用 read_session 深读尾部消息——记忆召回行的「[进展]…（sid: xxx）」可直接作 read_session 的 sessionId）。
 - 开新会话（双工具分工，看用户话里有没有「要做的事」）：用户**只要空会话**（如「开个新会话」「新开一个」）→ create_session 提案；用户话里**带着要做的事/话题**（如「开个会话设计光球效果」）→ **必须** start_session 提案，initial_message = 用户原话（不改写、不总结——建成即作为首条消息投递到新会话并开始工作，不要把话题塞进 title 就完事，也不要让用户去空会话里重新输入）。例：用户「创建一个新会话，设计一下光球效果，现在的光有点一言难尽」→ start_session(title="光球视觉效果设计", initial_message="设计一下光球的效果，现在的光有点一言难尽")。两个工具建成后界面都会自动切到新会话。
 - 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → 调用 remember（立即静默入库并弹通知卡，无需确认——text 要提炼成一句简单易懂、主题明确的记忆句，不要照搬用户原话口语）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。系统也会在轮末自动提炼记忆，你主动记得准就轮不到自动提炼。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
@@ -209,6 +226,12 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。
 
 长期记忆（若 system prompt 末尾附「长期记忆」段）：那是按本轮输入语义召回的历史沉淀，仅供作答参考——与本轮指令冲突时以本轮指令为准。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
+
+/** 会话显示标题单源（TR-207：title > topic > firstUserText > 兜底——
+ *  快照/清单/read_session 三消费面共用，不得另写推导链）。 */
+function displayTitleOf(r: StewardSessionMetaRow): string {
+  return r.title ?? r.topic ?? r.firstUserText ?? "（无主题）";
+}
 
 function truncateSummary(summary: string): string {
   if (summary.length <= FEED_SUMMARY_MAX_CHARS) return summary;
@@ -509,6 +532,10 @@ export interface StewardSessionsSource {
    *  与用户在该会话页直接输入同语义）。delivered=false = 拒绝（detail 含
    *  引导）；成功后由调用方广播 steward.navigate 切页。 */
   deliverToSession(sessionId: string, text: string): Promise<{ delivered: boolean; detail: string }>;
+  /** 尾部消息投影读面（progress 批 M3——read_session 工具数据源）：单会话
+   *  最后 N 条 {role, text}（旧→新，repo 层单条已截 300）；sessionId 不存在
+   *  = undefined（引导层判据）。 */
+  readSessionTail(sessionId: string, tailEntries: number): Promise<readonly { role: string; text: string }[] | undefined>;
 }
 
 /** A2：kg 项目解析面（KgProjectService 同款窄接口——spawn_review_task
@@ -658,6 +685,21 @@ const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
   },
 };
 
+const TOOL_READ_SESSION: StewardLlmTool = {
+  name: "read_session",
+  description:
+    "读取指定会话的最近消息内容（尾部窗口，旧→新）——回答「那个会话聊到哪了/进展如何/具体说了什么」类问题时深读用；只读不改。sessionId 先用 query_recent_work 查（或用记忆召回行里的 sid）。返回尾部若干条 [user]/[assistant] 消息（长文截断）。",
+  parameters: {
+    type: "object",
+    properties: {
+      sessionId: { type: "string", description: "目标会话 id（query_recent_work 结果或记忆召回行的 sid）" },
+      tail: { type: "number", description: "尾部条数（可选，缺省 6，上限 20）" },
+    },
+    required: ["sessionId"],
+    additionalProperties: false,
+  },
+};
+
 const TOOL_CREATE_SESSION: StewardLlmTool = {
   name: "create_session",
   description:
@@ -742,6 +784,7 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_LIST_INSTANCES,
   TOOL_LIST_TASKS,
   TOOL_QUERY_RECENT_WORK,
+  TOOL_READ_SESSION,
   TOOL_PROPOSE_SEND,
   TOOL_DELIVER_TO_SESSION,
   TOOL_CREATE_SESSION,
@@ -1529,6 +1572,7 @@ export class StewardService {
     model: string;
     summary: { enabled: boolean; model: string | null };
     memory: import("./StewardMemoryService").StewardMemoryState;
+    sessionMemory: { enabled: boolean; everyTurns: number; model: string | null };
   } {
     return {
       enabled: this.isEnabled(),
@@ -1551,6 +1595,20 @@ export class StewardService {
         entryCount: 0,
         dim: null,
       },
+      // progress 批：会话进展记忆现态（everyTurns 非法/缺席回落默认）
+      sessionMemory: (() => {
+        const model = this.deps.config.get(STEWARD_SESSION_MEMORY_MODEL_KEY);
+        const rawTurns = Number.parseInt(this.deps.config.get(STEWARD_SESSION_MEMORY_EVERY_TURNS_KEY) ?? "", 10);
+        const everyTurns =
+          Number.isInteger(rawTurns) && rawTurns >= 1 && rawTurns <= STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX
+            ? rawTurns
+            : STEWARD_SESSION_MEMORY_EVERY_TURNS_DEFAULT;
+        return {
+          enabled: this.deps.config.get(STEWARD_SESSION_MEMORY_ENABLED_KEY) === "1",
+          everyTurns,
+          model: model !== undefined && model.trim() !== "" ? model : null,
+        };
+      })(),
     };
   }
 
@@ -1619,7 +1677,31 @@ export class StewardService {
     model?: string;
     summary?: { enabled?: boolean; model?: string };
     memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
+    sessionMemory?: { enabled?: boolean; everyTurns?: number; model?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (patch.sessionMemory !== undefined) {
+      const sm = patch.sessionMemory;
+      if (sm.everyTurns !== undefined) {
+        if (!Number.isInteger(sm.everyTurns) || sm.everyTurns < 1 || sm.everyTurns > STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX) {
+          return {
+            ok: false,
+            error: `节流阈值非法：${String(sm.everyTurns)}（应为 1-${STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX} 的整数）`,
+          };
+        }
+        await this.deps.config.set(STEWARD_SESSION_MEMORY_EVERY_TURNS_KEY, String(sm.everyTurns));
+      }
+      if (sm.model !== undefined) {
+        // 空串 = 清空槽位回未配置态（无默认纪律——与 summary.model 同构）
+        const model = sm.model.trim();
+        if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
+          return { ok: false, error: `总结模型格式非法：${model}（应为 "provider/model-id" 形态）` };
+        }
+        await this.deps.config.set(STEWARD_SESSION_MEMORY_MODEL_KEY, model);
+      }
+      if (sm.enabled !== undefined) {
+        await this.deps.config.set(STEWARD_SESSION_MEMORY_ENABLED_KEY, sm.enabled ? "1" : "0");
+      }
+    }
     if (patch.summary !== undefined) {
       if (patch.summary.model !== undefined) {
         // 空串 = 清空槽位回未配置态（与管家对话 model 槽位「忽略空串」不同——
@@ -1710,6 +1792,12 @@ export class StewardService {
     this.toolSpecs.push({
       ...TOOL_QUERY_RECENT_WORK,
       execute: async (args) => ({ text: capToolResultText(await this.queryRecentWork(args as Record<string, unknown>)) }),
+    });
+    // progress 批 M3：read_session——只读深读面（与三件只读同族，不挂闸）。
+    // sessions 源缺席 = 引导式降级（与 query_recent_work 同姿态）。
+    this.toolSpecs.push({
+      ...TOOL_READ_SESSION,
+      execute: async (args) => ({ text: capToolResultText(await this.readSession(args as Record<string, unknown>)) }),
     });
     // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute 为
     // approve 决策执行体（重新过闸校验 + 执行——与 confirm 的 executePending
@@ -2043,8 +2131,8 @@ export class StewardService {
         const rowsAll = (await this.deps.sessions.listSessionMetadata()).filter((r) => inWindow(r.updatedAt));
         // 显示标题口径（与快照/会话页同语义）：显式标题列优先，旧行 NULL
         // 回落首条用户消息截断推导（repo 层注释的消费侧兑现——L1 投影修复批）。
-        // displayTitle 单源（TR-205 口径 + 动态主题批）：title > topic > firstUserText
-        const displayTitle = (r: StewardSessionMetaRow): string => r.title ?? r.topic ?? r.firstUserText ?? "（无主题）";
+        // displayTitle 单源（displayTitleOf——TR-207 三消费面共用）
+        const displayTitle = (r: StewardSessionMetaRow): string => displayTitleOf(r);
         // title_contains 过滤在投影前（计数同口径：段头【会话·N】= 过滤后
         // 剩余数；大小写不敏感包含匹配，判据 = 显示标题）。
         const rows =
@@ -2104,6 +2192,45 @@ export class StewardService {
       return `项目 ${project} 不在当前 workspace——请与用户确认项目名`;
     }
     return undefined;
+  }
+
+  // ── progress 批 M3：read_session（会话尾部内容深读）────────
+
+  /** 尾部条数缺省与上限（LLM 面体量面：缺省 6 上限 20，repo 层单条已截 300，
+   *  capToolResultText 4000 总护栏兑底）。 */
+  private static readonly READ_SESSION_TAIL_DEFAULT = 6;
+  private static readonly READ_SESSION_TAIL_MAX = 20;
+
+  /** read_session 工具体：meta 行定位（displayTitle 单源）→ 尾窗投影 →
+   *  文本组装；双失败径（meta 缺/尾读 undefined）统一引导回 query_recent_work。 */
+  private async readSession(args: Record<string, unknown>): Promise<string> {
+    const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"] : "";
+    if (sessionId === "") {
+      return "参数缺失：sessionId 必填（可先用 query_recent_work 查询，结果含 sessionId）";
+    }
+    const tailRaw = typeof args["tail"] === "number" ? args["tail"] : StewardService.READ_SESSION_TAIL_DEFAULT;
+    const tail = Math.min(
+      Number.isInteger(tailRaw) && tailRaw > 0 ? tailRaw : StewardService.READ_SESSION_TAIL_DEFAULT,
+      StewardService.READ_SESSION_TAIL_MAX,
+    );
+    if (this.deps.sessions === undefined) {
+      return "会话读面不可用（daemon 装配缺 sessions 源）";
+    }
+    try {
+      const meta = (await this.deps.sessions.listSessionMetadata()).find((r) => r.sessionId === sessionId);
+      const tailRows = await this.deps.sessions.readSessionTail(sessionId, tail);
+      if (meta === undefined || tailRows === undefined) {
+        return `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`;
+      }
+      const lines = [`${tailRows.length === 0 ? "（会话暂无消息）" : `最近 ${tailRows.length} 条消息（旧→新）：`}`];
+      for (const e of tailRows) {
+        lines.push(`[${e.role}] ${e.text}`);
+      }
+      return `会话「${capChars(displayTitleOf(meta), RECENT_WORK_TITLE_MAX_CHARS)}」(sid: ${sessionId})\n${lines.join("\n")}`;
+    } catch (err) {
+      this.deps.logger?.warn(`read_session 读面失败：${(err as Error).message}`);
+      return `会话 ${sessionId} 读取失败：${(err as Error).message}`;
+    }
   }
 
 }

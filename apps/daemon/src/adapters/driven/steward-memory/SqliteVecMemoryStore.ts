@@ -32,7 +32,7 @@ import type {
 
 interface EntryRow {
   id: number;
-  kind: "fact" | "preference";
+  kind: "fact" | "preference" | "progress";
   text: string;
   source: string;
   created_at: number;
@@ -41,6 +41,8 @@ interface EntryRow {
   recall_count: number;
   faded_at: number;
   pinned: number;
+  /** progress 批：关联会话锄（存量行 ALTER 补列后为 ''——非 progress 形态）。 */
+  session_id?: string;
 }
 
 function toEntry(row: EntryRow): StewardMemoryEntry {
@@ -55,6 +57,8 @@ function toEntry(row: EntryRow): StewardMemoryEntry {
     recallCount: row.recall_count,
     fadedAt: row.faded_at,
     pinned: row.pinned === 1,
+    // progress 批：空串 = 非 progress 条目（无会话锄）——投影不携带
+    ...(row.session_id !== undefined && row.session_id !== "" ? { sessionId: row.session_id } : {}),
   };
 }
 
@@ -105,6 +109,10 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (!columns.some((c) => c.name === "pinned")) {
       this.db.exec("ALTER TABLE entries ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
     }
+    // progress 批幂等补列：会话锚（空串 = 非 progress 条目——避免 NULL 三态）。
+    if (!columns.some((c) => c.name === "session_id")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN session_id TEXT NOT NULL DEFAULT ''");
+    }
   }
 
   storedDim(): number | null {
@@ -137,14 +145,14 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (items.length === 0) return;
     this.ensureVecTable(items[0]!.vector.length);
     const insertEntry = this.db.prepare(
-      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)",
+      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?)",
     );
     const insertVec = this.db.prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)");
     const tx = this.db.transaction((rows: readonly StewardMemoryAppendItem[]) => {
       for (const item of rows) {
         // 遗忘机制批：新条目满强度起步（last_recalled_at = createdAt——锄点
         // 即创建时刻，新条目不吃存量衰减亏）。
-        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt);
+        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt, item.sessionId ?? "");
         // Bun NAPI better-sqlite3 把 JS number 绑定为 REAL——vec0 rowid 只
         // 收 INTEGER 字面类型（"Only integers are allowed" 实证），BigInt
         // 才绑定为 INTEGER（条目数 << 2^53 无精度问题）。
@@ -165,7 +173,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (this.storedDim() === null || topK <= 0) return [];
     const rows = this.db
       .prepare(
-        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, v.distance
+        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, e.session_id, v.distance
          FROM vec_items v JOIN entries e ON e.id = v.rowid
          WHERE v.embedding MATCH ? AND k = ?
          ORDER BY v.distance ASC`,
@@ -177,10 +185,17 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
   list(): readonly StewardMemoryEntry[] {
     const rows = this.db
       .prepare(
-        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned FROM entries ORDER BY created_at ASC",
+        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id FROM entries ORDER BY created_at ASC",
       )
       .all() as EntryRow[];
     return rows.map(toEntry);
+  }
+
+  findProgressId(sessionId: string): number | null {
+    const row = this.db
+      .prepare("SELECT id FROM entries WHERE kind = 'progress' AND session_id = ? ORDER BY id DESC LIMIT 1")
+      .get(sessionId) as { id: number } | undefined;
+    return row?.id ?? null;
   }
 
   forget(id: number): boolean {

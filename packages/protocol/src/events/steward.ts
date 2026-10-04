@@ -198,6 +198,16 @@ export interface StewardConfigResultPayload {
     /** 当前向量维度（未初始化 = null）。 */
     dim: number | null;
   };
+  /** 会话进展记忆面现态（progress 批，additive——旧 shell 忽略无损）。 */
+  sessionMemory?: {
+    /** 会话进展记忆开关现态（默认 false）。 */
+    enabled: boolean;
+    /** 节流阈值现态（每 N 完成轮产一次；默认 3）。 */
+    everyTurns: number;
+    /** 总结模型槽位现值（"provider/model-id"；未配置 = null——无默认，
+     *  不配不产 progress；联合调用槽位回落链 → topic_config.model）。 */
+    model: string | null;
+  };
 }
 
 /** steward.config.result：设置读写回执（channel = "steward"；点对点）。 */
@@ -320,15 +330,16 @@ export interface StewardNavigateEvent extends EventFrame<StewardNavigatePayload>
 }
 
 /** 长期记忆条目行（管家记忆 B2：memory_list 回执形态；kind 枚举对齐
- *  存储面既有值 fact/preference；遗忘机制批 additive 生命周期字段——
- *  旧 shell 忽略无损）。 */
+ *  存储面既有值 fact/preference，progress 批扩 progress = 会话进展状态
+ *  （同 session 覆盖更新；additive——旧 shell 忽略无损）；遗忘机制批 additive
+ *  生命周期字段——旧 shell 忽略无损）。 */
 export interface StewardMemoryEntryView {
   /** 条目 id（存储 rowid）。 */
   id: number;
   /** 记忆文本。 */
   text: string;
   /** 条目类别。 */
-  kind: "fact" | "preference";
+  kind: "fact" | "preference" | "progress";
   /** 创建时间（epoch ms）。 */
   createdAt: number;
   /** 来源标注（如 "steward-turn"（remember 工具）/ "manual"（人工新增））。 */
@@ -343,6 +354,9 @@ export interface StewardMemoryEntryView {
   faded?: boolean;
   /** 已置顶（永不淡忘、永不 GC，强度恒满——additive）。 */
   pinned?: boolean;
+  /** 关联会话 id（progress 批：kind=progress 专属锚——记忆页筛选/详情/跳转
+   *  read_session 用；其他 kind 不携带；additive）。 */
+  sessionId?: string;
 }
 
 /** steward.memory_list.result payload：条目清单（memory_list/append/

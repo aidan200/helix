@@ -17,8 +17,10 @@
 /** 记忆条目（存储面全字段）。 */
 export interface StewardMemoryEntry {
   readonly id: number;
-  /** 条目类别（B1 封闭两值：fact = 事实沉淀 / preference = 用户偏好）。 */
-  readonly kind: "fact" | "preference";
+  /** 条目类别（B1 封闭两值 + progress 扩展：fact = 事实沉淀 /
+   *  preference = 用户偏好 / progress = 会话进展状态——轮末联合摘要器
+   *  生产的阶段性状态句，同 session 覆盖更新不堆叠，半衰语义同轨参与）。 */
+  readonly kind: "fact" | "preference" | "progress";
   /** 记忆文本（自然语言一句——写入闸纪律：只沉淀认知增量）。 */
   readonly text: string;
   /** 来源标注（如 "steward-turn"——溯源展示用）。 */
@@ -36,6 +38,9 @@ export interface StewardMemoryEntry {
   readonly fadedAt: number;
   /** 已置顶（永不淡忘永不 GC，强度恒满；用户 explicit 保护位）。 */
   readonly pinned: boolean;
+  /** 关联会话 id（progress 批——kind=progress 专属锚：同 session 覆盖更新
+   *  的精确匹配键 + 召回行文的 read_session 跳转凭据；其他 kind 不携带）。 */
+  readonly sessionId?: string;
 }
 
 /** 召回命中（条目 + 相似度分数——cosine distance 转 similarity，越大越像）。 */
@@ -45,11 +50,13 @@ export interface StewardMemoryHit extends StewardMemoryEntry {
 
 /** 待写入条目（向量由服务层 embed 后随条目一并交付）。 */
 export interface StewardMemoryAppendItem {
-  readonly kind: "fact" | "preference";
+  readonly kind: "fact" | "preference" | "progress";
   readonly text: string;
   readonly source: string;
   readonly createdAt: number;
   readonly vector: Float32Array;
+  /** 关联会话 id（kind=progress 专属；其他 kind 不携带）。 */
+  readonly sessionId?: string;
 }
 
 export interface StewardMemoryPort {
@@ -64,6 +71,10 @@ export interface StewardMemoryPort {
   /** 条目编辑重写（text + 向量 + updatedAt 单事务；编辑即救活——faded
    *  同事务归零；id 不存在 → false）。 */
   updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number): boolean;
+  /** 会话进展条目定位（progress 批）：session_id + kind=progress 精确
+   *  匹配——命中返回条目 id（覆盖更新目标），无 → null。非 progress 条目
+   *  即使携带同 session_id 也不命中（进展覆盖不误伤其他类别）。 */
+  findProgressId(sessionId: string): number | null;
   /** 召回幸存者回写（lastRecalledAt=at + recallCount+1；仅注入者算复习——
    *  候选池陪跑不记）。 */
   markRecalled(ids: readonly number[], at: number): void;

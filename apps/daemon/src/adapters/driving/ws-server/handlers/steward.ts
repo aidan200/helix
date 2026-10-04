@@ -229,7 +229,7 @@ export function handleStewardGetConfig(ctx: StewardCommandContext): void {
 /** steward.set_config（全局命令）：设置写面 + 新态回执；格式非法 → invalid_payload。 */
 export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model, summary, memory } = ctx.payload;
+  const { enabled, model, summary, memory, sessionMemory } = ctx.payload;
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
   }
@@ -264,6 +264,23 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.endpointId 应为 string（空串 = 清除引用）");
     }
   }
+  // progress 批：sessionMemory 组校验（{enabled?,everyTurns?,model?}——
+  // TR-159 逐字段透传纪律）
+  if (sessionMemory !== undefined) {
+    if (typeof sessionMemory !== "object" || sessionMemory === null) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.sessionMemory 应为 object");
+    }
+    const sm = sessionMemory as { enabled?: unknown; everyTurns?: unknown; model?: unknown };
+    if (sm.enabled !== undefined && typeof sm.enabled !== "boolean") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.sessionMemory.enabled 应为 boolean");
+    }
+    if (sm.everyTurns !== undefined && typeof sm.everyTurns !== "number") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.sessionMemory.everyTurns 应为 number");
+    }
+    if (sm.model !== undefined && typeof sm.model !== "string") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.sessionMemory.model 应为 string（空串 = 清空槽位）");
+    }
+  }
   void ctx.steward.service
     .setConfig({
       ...(enabled !== undefined ? { enabled } : {}),
@@ -273,6 +290,9 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
         : {}),
       ...(memory !== undefined
         ? { memory: memory as { enabled?: boolean; endpointId?: string } }
+        : {}),
+      ...(sessionMemory !== undefined
+        ? { sessionMemory: sessionMemory as { enabled?: boolean; everyTurns?: number; model?: string } }
         : {}),
     })
     .then((outcome) => {
@@ -338,6 +358,9 @@ function respondMemoryList(ctx: StewardCommandContext): void {
         recallCount: e.recallCount,
         faded: e.fadedAt !== 0,
         pinned: e.pinned,
+        // progress 批：会话锚透传（additive——记忆页筛选/详情可用；旧 shell
+        //  忽略无损）
+        ...(e.sessionId !== undefined ? { sessionId: e.sessionId } : {}),
       })),
     },
   };

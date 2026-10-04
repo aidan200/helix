@@ -22,6 +22,9 @@ import type {
   ToolCallRow,
 } from "./rows/Rows";
 
+/** 尾部投影单条截断（Unicode 码点——progress 批 M3，LLM 面体量护栏出口）。 */
+const READ_TAIL_ENTRY_MAX_CHARS = 300;
+
 /** closure_records 行投影（读面；findings 为 JSON 串，由消费方解析）。 */
 export interface ClosureRecordRow {
   readonly id: number;
@@ -87,6 +90,34 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT session_id FROM session_state ORDER BY created_at, rowid")
       .all() as { session_id: string }[];
     return rows.map((r) => r.session_id);
+  }
+
+  /** 尾部消息投影（progress 批 M3）：单行点读（与 restore 同级成本——每次
+   *  只读一行，非全表扫）；TS 层 parse 后立即投影丢弃原文，出口单条截 300
+   *  码点——LLM 面体量护栏在 repo 出口处收口（任何消费面天然受控）。 */
+  async readSessionTail(
+    sessionId: string,
+    tailEntries: number,
+  ): Promise<readonly { role: string; text: string }[] | undefined> {
+    const row = this.queue.database
+      .prepare("SELECT entries FROM session_state WHERE session_id = ?")
+      .get(sessionId) as { entries: string } | null | undefined;
+    if (row === undefined || row === null) return undefined;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.entries) as unknown;
+    } catch {
+      return []; // 脏行防御：entries 非法 JSON 不炸读面（空投影语义）
+    }
+    if (!Array.isArray(parsed)) return [];
+    const n = Number.isInteger(tailEntries) && tailEntries > 0 ? tailEntries : 1;
+    return parsed.slice(-n).map((e) => {
+      const entry = e as { role?: unknown; text?: unknown };
+      const text = typeof entry.text === "string" ? [...entry.text] : [];
+      const capped =
+        text.length > READ_TAIL_ENTRY_MAX_CHARS ? `${text.slice(0, READ_TAIL_ENTRY_MAX_CHARS).join("")}…` : text.join("");
+      return { role: typeof entry.role === "string" ? entry.role : "?", text: capped };
+    });
   }
 
   /**

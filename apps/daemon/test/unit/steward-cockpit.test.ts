@@ -73,6 +73,7 @@ function fakeCockpitSessions(opts: { existing?: readonly string[]; deliverOutcom
     deliveries,
     titled,
     sessionExists: async (sessionId: string) => existing.has(sessionId),
+    readSessionTail: async () => undefined,
     deliverToSession: async (sessionId: string, text: string) => {
       deliveries.push({ sessionId, text });
       return opts.deliverOutcome ?? { delivered: true, detail: "已注入目标会话 steer 队列" };

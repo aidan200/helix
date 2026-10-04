@@ -556,6 +556,7 @@ export const enUS = {
         memoryKind: {
           preference: "Preference",
           fact: "Fact",
+          progress: "Progress",
         },
         stewardSwitchOn: "On",
         groupWorkspace: "Workspace",

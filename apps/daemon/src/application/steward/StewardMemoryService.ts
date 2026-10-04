@@ -83,10 +83,12 @@ export const STEWARD_MEMORY_SAME_QUESTION =
 const REBUILD_BATCH_SIZE = 32;
 
 // ── 遗忘机制批（半衰强化 + 淡忘观察 + 软上限 GC）────────────────
-/** 基础半衰期（ms；kind 分档：偏好过时快、事实活得久）。 */
-export const STEWARD_MEMORY_HALF_LIFE_MS: Readonly<Record<"fact" | "preference", number>> = {
+/** 基础半衰期（ms；kind 分档：偏好过时快、事实活得久；progress 与事实
+ *  同档 60d——进展状态的事实性衰减，不活跃会话的旧进展自然淡出召回）。 */
+export const STEWARD_MEMORY_HALF_LIFE_MS: Readonly<Record<"fact" | "preference" | "progress", number>> = {
   preference: 30 * 24 * 3_600_000,
   fact: 60 * 24 * 3_600_000,
+  progress: 60 * 24 * 3_600_000,
 };
 /** 每被召回一次半衰期倍率（复习强化——越被想起越牢）。 */
 export const STEWARD_MEMORY_STRENGTHEN = 2;
@@ -109,6 +111,22 @@ export const STEWARD_MEMORY_GC_INTERVAL_MS = 24 * 3_600_000;
 
 /** 记忆强度（纯函数导出供单测）：距上次被想起隔了几个半衰期——
  *  1=满格、0.5=一个半衰期、0.08≈三个半衰期；manual/pinned 恒满。 */
+/** 召回 progress 配额（progress 批）：topK 内 progress 类最多占位数——防会话进展挤占偏好/事实召回（进展条目产生速度远超 fact/preference）。 */
+export const STEWARD_MEMORY_PROGRESS_RECALL_QUOTA = 2;
+
+/** progress 文本上限（Unicode 码点——超限截断加省略号）。 */
+export const STEWARD_MEMORY_PROGRESS_MAX_CHARS = 120;
+
+/** progress 来源标注（轮末联合摘要器写入——溯源展示用）。 */
+export const STEWARD_MEMORY_PROGRESS_SOURCE = "session-progress";
+
+/** 召回行文 kind 标签单源（progress 批：封闭三值）。 */
+const KIND_LABELS: Readonly<Record<"fact" | "preference" | "progress", string>> = {
+  fact: "事实",
+  preference: "偏好",
+  progress: "进展",
+};
+
 export function memoryStrength(
   entry: Pick<StewardMemoryEntry, "kind" | "source" | "createdAt" | "updatedAt" | "lastRecalledAt" | "recallCount" | "pinned">,
   now: number,
@@ -295,15 +313,28 @@ export class StewardMemoryService {
         .filter((h) => h.fadedAt === 0)
         .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE);
       pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
-      const hits = pool.slice(0, STEWARD_MEMORY_RECALL_TOP_K);
+      // progress 批：topK 选取加 kind 配额——排序位不变，progress 超配额让位
+      // 于后续非 progress 候选（池内竞争，不是事后剔除——不浪费 topK 名额）。
+      const hits: typeof pool = [];
+      let progressTaken = 0;
+      for (const h of pool) {
+        if (hits.length >= STEWARD_MEMORY_RECALL_TOP_K) break;
+        if (h.kind === "progress") {
+          if (progressTaken >= STEWARD_MEMORY_PROGRESS_RECALL_QUOTA) continue;
+          progressTaken += 1;
+        }
+        hits.push(h);
+      }
       if (hits.length === 0) return undefined;
       // 幸存者回写（复习强化——只记注入者，候选池陪跑不记，防马太加速）
       this.deps.store!.markRecalled(
         hits.map((h) => h.id),
         now,
       );
-      const lines = hits.map(
-        (h) => `- [${h.kind === "preference" ? "偏好" : "事实"}] ${h.text}`,
+      const lines = hits.map((h) =>
+        h.kind === "progress" && h.sessionId !== undefined
+          ? `- [进展] ${h.text}（sid: ${h.sessionId}）`
+          : `- [${KIND_LABELS[h.kind]}] ${h.text}`,
       );
       return `## 长期记忆（按本轮输入语义召回，仅供作答参考——与本轮指令冲突时以本轮指令为准）\n${lines.join("\n")}`;
     } catch (err) {
@@ -340,6 +371,40 @@ export class StewardMemoryService {
     store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]! }]);
     const entries = store.list();
     return { id: entries[entries.length - 1]!.id, updated: false };
+  }
+
+  /**
+   * 会话进展写入（progress 批：轮末联合摘要器调用——旁路自动生产，无确认卡）。
+   * 不走两段查重：同一会话的进展是演进状态，sessionKey（session_id + kind）
+   * 精确匹配覆盖更新取代相似度判定——语义上「同一条」是定义出来的，不是
+   * 判出来的。任何失败静默 false + warn（与 remember 的抛错语义不同：写路径
+   * 不静默的纪律针对用户主动写——有回执面要交代；progress 是后台生产，
+   * 失败只丢一次阶段性快照，下个锚点自然重试）。
+   */
+  async recordSessionProgress(sessionId: string, text: string): Promise<boolean> {
+    if (!this.isAvailable()) return false;
+    const sid = sessionId.trim();
+    const trimmed = text.trim();
+    if (sid === "" || trimmed === "") return false;
+    try {
+      const chars = [...trimmed];
+      const capped = chars.length > STEWARD_MEMORY_PROGRESS_MAX_CHARS ? `${chars.slice(0, STEWARD_MEMORY_PROGRESS_MAX_CHARS).join("")}…` : trimmed;
+      const { vectors, dim } = await this.deps.embedding.embed([capped]);
+      await this.ensureDim(dim);
+      const store = this.deps.store!;
+      const existing = store.findProgressId(sid);
+      if (existing !== null) {
+        store.updateEntry(existing, capped, vectors[0]!, this.now());
+      } else {
+        store.append([
+          { kind: "progress", text: capped, source: STEWARD_MEMORY_PROGRESS_SOURCE, sessionId: sid, createdAt: this.now(), vector: vectors[0]! },
+        ]);
+      }
+      return true;
+    } catch (err) {
+      this.deps.logger?.warn(`会话进展记忆降级（${sid}）：${(err as Error).message}`);
+      return false;
+    }
   }
 
   /**
