@@ -245,7 +245,7 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("helix-lang", "zh-CN"); // jsdom 默认 en-US：钉 zh-CN（AG-14 白名单键）
-    localStorage.setItem("helix.steward.wakeWord", ""); // 空串直通：组合键即入 listening
+
     for (const s of Object.values(listeners)) s.clear();
     fireWakeHotkey = null;
     playerEnqueued.length = 0;
@@ -271,6 +271,37 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
     const welcomeText = (sendVoiceSynthesizeStream.mock.calls[0] as unknown as [string, string])[1];
     expect(welcomeText.length).toBeGreaterThan(0); // i18n 常量文案（Layer 测试钉具体文本）
     expect(sendVoiceSynthesize).not.toHaveBeenCalled(); // 非一次性回退路径
+  });
+
+  it("欢迎语固化优先（欢迎词固化批）：localStorage 固化音频在 → new Audio 直播 + 零 TTS 合成；未固化 → 回退 say 现合成", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    // Audio stub（jsdom 无 Audio——固化路径播面；play 回执计数）
+    const plays: string[] = [];
+    const audioInstances: { src: string; volume: number }[] = [];
+    vi.stubGlobal(
+      "Audio",
+      // function 形态 mock（箭头函数非构造器——new 调用抛错会走错路径）
+      vi.fn().mockImplementation(function (this: { src: string; volume: number; play: () => Promise<void>; pause: () => void; onended: null }, src: string) {
+        this.src = src;
+        this.volume = 1;
+        this.play = () => (plays.push(src), Promise.resolve());
+        this.pause = () => {};
+        this.onended = null;
+        audioInstances.push(this);
+      }),
+    );
+    localStorage.setItem("helix.steward.welcomeAudio", "data:audio/mp4;base64,FIXED");
+    localStorage.setItem("helix.steward.welcomeText", "主人好。");
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    await pressHotkey(r);
+    expect(r.current.duplexActive).toBe(true);
+    await waitFor(() => expect(plays).toEqual(["data:audio/mp4;base64,FIXED"])); // 固化音频直接播
+    expect(sendVoiceSynthesizeStream).not.toHaveBeenCalled(); // 零 TTS 合成（零合成延迟）
+    expect(sendVoiceSynthesize).not.toHaveBeenCalled();
+    expect(r.current.speaking).toBe(false); // 固化路径不占 speaking 相位（球待机驻留）
+    expect(audioInstances[0]?.volume).toBeGreaterThan(0); // 音量偏好应用
+    vi.unstubAllGlobals();
   });
 
   it("双工循环：终帧喂 ask → delta TTS → 播放收口后自动续听（新 stt.stream.start，直到关麦）", async () => {
@@ -365,8 +396,8 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
   it("B2-hotfix：热键直通无待命超时——唤醒词非空 + 短窗注入 duplex 也不落（旧待命超时收场语义退役）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
-    localStorage.setItem("helix.steward.wakeWord", "helix"); // 唤醒词在也直通（热键=显式手势）
-    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer, wakeTimeoutMs: 50 });
+
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
     await act(async () => {
       fireWakeHotkey?.();
     });
@@ -462,7 +493,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("helix-lang", "zh-CN");
-    localStorage.setItem("helix.steward.wakeWord", "");
+
     for (const s of Object.values(listeners)) s.clear();
     fireWakeHotkey = null;
     playerEnqueued.length = 0;

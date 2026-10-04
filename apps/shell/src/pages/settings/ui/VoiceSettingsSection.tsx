@@ -61,6 +61,10 @@ import {
   writeVoiceVadSensitivityPref,
   writeVoiceVolumePref,
   writeZcrTolerancePref,
+  readWelcomeAudioPref,
+  writeWelcomeAudioPref,
+  readWelcomeTextPref,
+  writeWelcomeTextPref,
 } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
@@ -93,21 +97,45 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
   const [tolerance, setTolerance] = useState<number>(() => readZcrTolerancePref());
   const [auditioning, setAuditioning] = useState(false);
   const auditionPendingRef = useRef(false);
+  // ── 欢迎词工坊（欢迎词固化批）：生成试听 → 确认固化 → 热键呼出直播 ──
+  const [welcomeText, setWelcomeText] = useState(() => readWelcomeTextPref() ?? "");
+  const [welcomePending, setWelcomePending] = useState(false);
+  const [welcomeFixed, setWelcomeFixed] = useState(() => readWelcomeAudioPref() !== null);
+  const [welcomeDraft, setWelcomeDraft] = useState<string | null>(null);
+  const welcomePendingRef = useRef(false);
 
   useEffect(() => {
     requestAuthList();
   }, [requestAuthList]);
 
   // 试听回执消费（单飞门控：仅 pending 时消费；TR-89 双登记——LISTEN_SURFACE
-  // subscribeVoiceFrames 谓词 + 此消费清单）
+  // subscribeVoiceFrames 谓词 + 此消费清单；欢迎词生成与音色试听各自独立单飞）
   useEffect(() => {
     if (subscribeVoiceFrames === undefined) return;
     return subscribeVoiceFrames((event: EventEnvelope) => {
       if (event.type !== "voice.synthesize.result") return;
+      const payload = event.payload as unknown as SynthResultPayload;
+      // 欢迎词生成回执：存 draft（待确认固化）+ 自动试播
+      if (welcomePendingRef.current) {
+        welcomePendingRef.current = false;
+        setWelcomePending(false);
+        if (payload.status === "ok" && typeof payload.audio === "string") {
+          setWelcomeDraft(payload.audio);
+          try {
+            const audio = new Audio(payload.audio);
+            audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
+            void audio.play().catch(() => toast.push("err", t("chat.settings.voiceTts.welcomeBlocked")));
+          } catch {
+            toast.push("err", t("chat.settings.voiceTts.welcomeBlocked"));
+          }
+        } else {
+          toast.push("err", String(payload.reason ?? t("chat.settings.voiceTts.welcomeFail")));
+        }
+        return;
+      }
       if (!auditionPendingRef.current) return;
       auditionPendingRef.current = false;
       setAuditioning(false);
-      const payload = event.payload as unknown as SynthResultPayload;
       if (payload.status === "ok" && typeof payload.audio === "string") {
         try {
           const audio = new Audio(payload.audio);
@@ -179,6 +207,39 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
     }
     auditionPendingRef.current = true;
     setAuditioning(true);
+  };
+
+  // ── 欢迎词工坊操作面（生成试听→确认固化→恢复默认）──
+  const onWelcomeGenerate = () => {
+    if (welcomePendingRef.current) return;
+    const text = welcomeText.trim();
+    if (text === "") {
+      toast.push("err", t("chat.settings.voiceTts.welcomeEmpty"));
+      return;
+    }
+    const sent = sendVoiceSynthesize(text, { voice, language: "zh" });
+    if (!sent) {
+      toast.push("err", t("chat.settings.voiceTts.welcomeSendFail"));
+      return;
+    }
+    welcomePendingRef.current = true;
+    setWelcomePending(true);
+    // 文本改动后旧 draft 失效（固化的是「刚才那次合成」）
+    setWelcomeDraft(null);
+  };
+  const onWelcomeConfirm = () => {
+    if (welcomeDraft === null) return;
+    writeWelcomeAudioPref(welcomeDraft);
+    writeWelcomeTextPref(welcomeText.trim());
+    setWelcomeFixed(true);
+    setWelcomeDraft(null);
+  };
+  const onWelcomeReset = () => {
+    writeWelcomeAudioPref(null);
+    writeWelcomeTextPref(null);
+    setWelcomeFixed(false);
+    setWelcomeDraft(null);
+    setWelcomeText("");
   };
 
   const auth = topology.modelConfig.auth;
@@ -378,6 +439,64 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
           </div>
         </div>
         <span className="ag-note">{t("chat.settings.voiceTts.voiceHint")}</span>
+      </div>
+
+      {/* ── 欢迎词工坊（欢迎词固化批）：生成试听 → 确认固化；热键呼出直
+          播固化音频（useStewardVoice.speakWelcome 消费）────────── */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.voiceTts.welcomeGroup")}</h3>
+      <div className="hud-card" data-tts-welcome>
+        <p className="ag-note">{t("chat.settings.voiceTts.welcomeNote")}</p>
+        <div className="fld">
+          <label className="hud-label" htmlFor="tts-welcome-text">
+            {t("chat.settings.voiceTts.welcomeTextLabel")}
+          </label>
+          <div className="set-inline">
+            <input
+              id="tts-welcome-text"
+              className="hud-input"
+              data-tts-welcome-text
+              type="text"
+              value={welcomeText}
+              placeholder={t("steward.voice.welcome")}
+              onChange={(e) => setWelcomeText(e.target.value)}
+            />
+            <span className="hud-chip" data-tts-welcome-fixed data-fixed={welcomeFixed ? "on" : "off"}>
+              {welcomeFixed ? t("chat.settings.voiceTts.welcomeFixed") : t("chat.settings.voiceTts.welcomeUnfixed")}
+            </span>
+          </div>
+        </div>
+        <div className="fld">
+          <div className="set-inline">
+            <button
+              type="button"
+              className="hud-btn hud-btn-cyan"
+              data-tts-welcome-generate
+              disabled={welcomePending}
+              onClick={onWelcomeGenerate}
+            >
+              {welcomePending ? t("chat.settings.voiceTts.welcomeGenerating") : t("chat.settings.voiceTts.welcomeGenerate")}
+            </button>
+            <button
+              type="button"
+              className="hud-btn hud-btn-ghost"
+              data-tts-welcome-confirm
+              disabled={welcomeDraft === null}
+              onClick={onWelcomeConfirm}
+            >
+              {t("chat.settings.voiceTts.welcomeConfirm")}
+            </button>
+            <button
+              type="button"
+              className="hud-btn hud-btn-ghost"
+              data-tts-welcome-reset
+              disabled={!welcomeFixed}
+              onClick={onWelcomeReset}
+            >
+              {t("chat.settings.voiceTts.welcomeReset")}
+            </button>
+          </div>
+        </div>
+        <span className="ag-note">{t("chat.settings.voiceTts.welcomeConfirmHint")}</span>
       </div>
     </div>
   );

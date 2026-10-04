@@ -1645,9 +1645,8 @@ html.light .stv-caption {
     stv-think-in 0.5s steps(1,end) 1 2.3s forwards,
     stv-think-loop 0.9s steps(1,end) infinite 2.8s;
 }
-.stv-orb.stv-phase-speaking .stv-sprite,
-.stv-orb.stv-phase-welcome .stv-sprite {
-  background-position: 60% 100%; /* (6,4)；welcome 复用说话（欢迎语即管家输出） */
+.stv-orb.stv-phase-speaking .stv-sprite {
+  background-position: 60% 100%; /* (6,4) */
   animation: stv-speak-in 0.5s steps(1,end) 1 forwards, stv-speak-loop 0.9s steps(1,end) infinite 0.5s;
 }
 .stv-orb.stv-phase-closing .stv-sprite { animation-play-state: paused; } /* 冻结当前帧——整层 .stv-fading 0.18s 淡出 */

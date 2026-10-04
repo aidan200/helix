@@ -33,7 +33,6 @@ import {
   type BargeInGateState,
   type StewardVoicePhase,
   type StewardVoiceSnapshot,
-  matchWakeWord,
   deriveOrbPhase,
 } from "./steward-voice-machine";
 
@@ -384,54 +383,28 @@ describe("stepBargeInGate 双参判定（RMS × ZCR 人声带）", () => {
   });
 });
 
-describe("matchWakeWord（B4 唤醒词本地文本匹配）", () => {
-  it("命中：剥离唤醒词前缀（命中前内容不带出——不入对话）", () => {
-    expect(matchWakeWord("helix 明天天气怎么样", "helix")).toEqual({ hit: true, rest: " 明天天气怎么样" });
-    // 命中前有前言：整段前缀（含唤醒词）剥掉，只留剩余话语
-    expect(matchWakeWord("嗯哼 helix 帮我查下", "helix")).toEqual({ hit: true, rest: " 帮我查下" });
+describe("deriveOrbPhase 欢迎语期待机驻留（欢迎词固化批）", () => {
+  it("欢迎位 × 开麦前瞬态（idle/unsupported）→ waking 待机动画（欢迎语是伴随声非回复）", () => {
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: true })).toBe("waking");
+    expect(deriveOrbPhase({ phase: "unsupported", duplex: true, fading: false, welcome: true })).toBe("waking");
   });
 
-  it("大小写不敏感命中", () => {
-    expect(matchWakeWord("HeLiX 你好", "helix")).toEqual({ hit: true, rest: " 你好" });
-    expect(matchWakeWord("说 HELIX 了吗", "Helix")).toEqual({ hit: true, rest: " 了吗" });
+  it("用户开口即录音：listening/transcribing 压过欢迎位转倾听动画", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: true })).toBe("listening");
+    expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: true })).toBe("listening");
   });
 
-  it("未命中：hit=false（命中前的转写内容不入对话）", () => {
-    expect(matchWakeWord("今天天气不错", "helix")).toEqual({ hit: false, rest: "" });
-  });
-
-  it("空串直通：唤醒词关 = 零门槛，全文作为剩余话语", () => {
-    expect(matchWakeWord("今天有什么任务", "")).toEqual({ hit: true, rest: "今天有什么任务" });
-    expect(matchWakeWord("", "")).toEqual({ hit: true, rest: "" });
+  it("欢迎位不压在途对话相位（ask/朗读照常）", () => {
+    expect(deriveOrbPhase({ phase: "asking", duplex: true, fading: false, welcome: true })).toBe("thinking");
+    expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: true })).toBe("speaking");
   });
 });
 
-describe("deriveStewardVoicePhase × wake-armed（B4 状态机新增态）", () => {
-  it("录音 + 唤醒待命 → wake_armed（命中前）；待命结束 → listening（命中后同链）", () => {
-    expect(deriveStewardVoicePhase(snap({ voiceState: "recording", wakeStandby: true }))).toBe("wake_armed");
-    expect(deriveStewardVoicePhase(snap({ voiceState: "recording", wakeStandby: false }))).toBe("listening");
-  });
-
-  it("unsupported 优先于待命态；wakeStandby 缺省 = 既有派生不变", () => {
-    expect(deriveStewardVoicePhase(snap({ voiceState: "unsupported", wakeStandby: true }))).toBe("unsupported");
-    expect(deriveStewardVoicePhase(snap({ voiceState: "recording" }))).toBe("listening");
-  });
-});
-
-// ── B2 光球相位派生（OrbPhase：waking→welcome→listening→thinking→speaking→closing）──
+// ── B2 光球相位派生（OrbPhase：waking→listening→thinking→speaking→closing）──
 
 describe("deriveOrbPhase（B2 光球相位状态机）", () => {
   it("不在场：duplex=false 且无淡出 → null（零 DOM）", () => {
     expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: false, welcome: false })).toBeNull();
-  });
-
-  it("waking：wake_armed 待命（等唤醒词命中）", () => {
-    expect(deriveOrbPhase({ phase: "wake_armed", duplex: true, fading: false, welcome: false })).toBe("waking");
-  });
-
-  it("welcome：欢迎语播报期优先于一切在途相位", () => {
-    expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: true })).toBe("welcome");
-    expect(deriveOrbPhase({ phase: "wake_armed", duplex: true, fading: false, welcome: true })).toBe("welcome");
   });
 
   it("listening：listening/transcribing/unsupported 外待听呼吸（duplex 中 idle 是瞬态）", () => {
@@ -453,10 +426,10 @@ describe("deriveOrbPhase（B2 光球相位状态机）", () => {
     expect(deriveOrbPhase({ phase: "asking", duplex: false, fading: true, welcome: false })).toBe("closing");
   });
 
-  it("迁移链钉子：waking →（命中）listening →（final 喂 ask）thinking →（delta 到达）speaking →（读完）listening →（关麦）closing → null", () => {
-    // waking（待命）
-    expect(deriveOrbPhase({ phase: "wake_armed", duplex: true, fading: false, welcome: false })).toBe("waking");
-    // 唤醒命中 → listening（转写在途同相）
+  it("迁移链钉子：waking（欢迎期待机）→（用户开口）listening →（final 喂 ask）thinking →（delta 到达）speaking →（读完）listening →（关麦）closing → null", () => {
+    // waking（欢迎语期待机驻留——开麦前瞬态）
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: true })).toBe("waking");
+    // 用户开口录音 → listening（转写在途同相；欢迎位被压过）
     expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false })).toBe("listening");
     expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: false })).toBe("listening");
     // final 喂 ask → thinking

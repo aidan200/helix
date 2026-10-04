@@ -226,23 +226,12 @@ export function writeZcrTolerancePref(tolerance: number): void {
   writeNumericPref(VOICE_ZCR_TOLERANCE_PREF_KEY, tolerance, ZCR_TOLERANCE_RANGE);
 }
 
-// ── B4 唤醒链偏好（全局组合键 + 唤醒词 + 待命超时；设置页管家组写入 /
-// wake-hotkey 注册面与 useStewardVoice 唤醒链消费）────────────────
+// ── 管家唤醒链偏好（全局组合键；设置页管家组写入 / wake-hotkey 注册面
+//    消费）。唤醒词/待命超时机制已随「热键直通双工」退役（唤醒词门槛仅属
+//    被动监听场景，从未启用——死代码拆除批）。────────────────
 
 /** 组合键存储键（回显串如 "⌘⇧K"；缺省 = 未设置——不偷注册全局快捷键）。 */
 export const STEWARD_WAKE_HOTKEY_PREF_KEY = "helix.steward.wakeHotkey";
-
-/** 唤醒词存储键（缺省 DEFAULT_WAKE_WORD；显式空串 = 关门槛直通）。 */
-export const STEWARD_WAKE_WORD_PREF_KEY = "helix.steward.wakeWord";
-
-/** 待命超时存储键（ms；缺省 30s——隐私兜底：静默无人声即关麦收场）。 */
-export const STEWARD_WAKE_TIMEOUT_PREF_KEY = "helix.steward.wakeTimeout";
-
-/** 默认唤醒词（大小写不敏感本地文本匹配）。 */
-export const DEFAULT_WAKE_WORD = "helix";
-
-/** 待命超时区间（写入钳制 / 读取合法性判定共用）。 */
-export const WAKE_TIMEOUT_RANGE = { min: 5000, max: 300000, default: 30000 } as const;
 
 /** 读组合键偏好（缺省/空串 = 未设置 null）。 */
 export function readWakeHotkeyPref(): string | null {
@@ -264,31 +253,49 @@ export function writeWakeHotkeyPref(combo: string | null): void {
   }
 }
 
-/** 读唤醒词（缺省 "helix"；显式空串 = 关门槛直通——Number(null) 陷阱同构：先判 null）。 */
-export function readWakeWordPref(): string {
+// ── 欢迎词固化（欢迎词工坊批：设置页「生成试听 → 确认固化」的存储面；
+//    useStewardVoice 呼出播放链消费——固化音频直接播，零 TTS 合成）────
+
+/** 固化欢迎语音频存储键（TTS 回执 audio 原样存——base64 data URL）。 */
+export const STEWARD_WELCOME_AUDIO_PREF_KEY = "helix.steward.welcomeAudio";
+
+/** 固化欢迎词文本存储键（字幕条显示用；null = 未固化，用 i18n 默认文案）。 */
+export const STEWARD_WELCOME_TEXT_PREF_KEY = "helix.steward.welcomeText";
+
+/** 读固化欢迎语音频（未固化 = null → 呼出链回退 TTS 现合成）。 */
+export function readWelcomeAudioPref(): string | null {
   try {
-    const v = localStorage.getItem(STEWARD_WAKE_WORD_PREF_KEY);
-    return v !== null ? v : DEFAULT_WAKE_WORD;
+    return localStorage.getItem(STEWARD_WELCOME_AUDIO_PREF_KEY);
   } catch {
-    return DEFAULT_WAKE_WORD;
+    return null;
   }
 }
 
-/** 写唤醒词（trim 后落盘——纯空白等价关门槛）。 */
-export function writeWakeWordPref(word: string): void {
+/** 写固化欢迎语音频（null = 清除恢复默认）。 */
+export function writeWelcomeAudioPref(audio: string | null): void {
   try {
-    localStorage.setItem(STEWARD_WAKE_WORD_PREF_KEY, word.trim());
+    if (audio === null) localStorage.removeItem(STEWARD_WELCOME_AUDIO_PREF_KEY);
+    else localStorage.setItem(STEWARD_WELCOME_AUDIO_PREF_KEY, audio);
   } catch {
-    // 静默兜底（等价默认唤醒词）
+    // 静默兜底（等价未固化）
   }
 }
 
-/** 读待命超时（ms；缺省 30000，非法/越界回落区间默认）。 */
-export function readWakeTimeoutPref(): number {
-  return readNumericPref(STEWARD_WAKE_TIMEOUT_PREF_KEY, WAKE_TIMEOUT_RANGE);
+/** 读固化欢迎词文本（未固化 = null）。 */
+export function readWelcomeTextPref(): string | null {
+  try {
+    return localStorage.getItem(STEWARD_WELCOME_TEXT_PREF_KEY);
+  } catch {
+    return null;
+  }
 }
 
-/** 写待命超时（round + 区间钳制）。 */
-export function writeWakeTimeoutPref(ms: number): void {
-  writeNumericPref(STEWARD_WAKE_TIMEOUT_PREF_KEY, ms, WAKE_TIMEOUT_RANGE);
+/** 写固化欢迎词文本（null = 清除恢复默认）。 */
+export function writeWelcomeTextPref(text: string | null): void {
+  try {
+    if (text === null) localStorage.removeItem(STEWARD_WELCOME_TEXT_PREF_KEY);
+    else localStorage.setItem(STEWARD_WELCOME_TEXT_PREF_KEY, text);
+  } catch {
+    // 静默兜底（等价未固化）
+  }
 }

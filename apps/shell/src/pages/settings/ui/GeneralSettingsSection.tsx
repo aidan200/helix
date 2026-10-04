@@ -39,7 +39,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
-import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref, readWakeWordPref, writeWakeWordPref, DEFAULT_WAKE_WORD } from "@/shared/lib/voice-pref";
+import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import HotkeyRecorder from "./HotkeyRecorder";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
@@ -96,9 +96,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // 任务总结子功能（独立槽位批）：daemon 权威现态（config.result 回填不乐观）；
   // model null = 未配置（无默认模型——不配不摘要，播报走极简终态通知）
   const [summaryCfg, setSummaryCfg] = useState<{ enabled: boolean; model: string | null } | null>(null);
-  // B4 唤醒链两项本地偏好（voice-pref 同构）：组合键归 HotkeyRecorder 自持，
-  // 唤醒词 = 本组件受控输入（即改即写——朗读开关同规）
-  const [wakeWord, setWakeWord] = useState<string>(() => readWakeWordPref());
   // 记忆（管家记忆 B2 瘦身）：daemon 权威现态（config.result 回执回填，不乐观）；
   // 端点选择 = embedding 配置域引用（下拉写 endpointId，回执引用态回填）
   const [memoryCfg, setMemoryCfg] = useState<{
@@ -457,23 +454,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             <span className="hud-label">{t("chat.settings.general.stewardHotkey")}</span>
             <HotkeyRecorder />
             <span className="ag-note">{t("chat.settings.general.stewardHotkeyNote")}</span>
-          </div>
-        )}
-        {stewardEnabled === true && (
-          <div className="fld fld-sub" data-steward-wake-word>
-            <span className="hud-label">{t("chat.settings.general.stewardWakeWord")}</span>
-            <input
-              className="hud-input"
-              data-testid="steward-wake-word-input"
-              data-steward-wake-word-input
-              value={wakeWord}
-              placeholder={DEFAULT_WAKE_WORD}
-              onChange={(e) => {
-                setWakeWord(e.target.value);
-                writeWakeWordPref(e.target.value);
-              }}
-            />
-            <span className="ag-note">{t("chat.settings.general.stewardWakeWordNote")}</span>
           </div>
         )}
         {/* 任务总结（管家子功能，独立槽位批）：后台任务收口的 LLM 白话摘要供语音

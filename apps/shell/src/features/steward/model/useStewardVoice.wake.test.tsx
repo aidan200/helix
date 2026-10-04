@@ -15,7 +15,8 @@
  * - 面板关闭即关麦（麦克风生命周期纪律）：duplex 会话随面板关闭取消收场。
  *
  * 机制面（wakeSession 结构/matchWakeWord/deriveOrbPhase wake_armed 分支）
- * 保留待未来「被动监听唤起」批复用——纯函数面测试不动（machine.test）。
+ * 已随欢迎词固化批拆除（热键直通后永不触发的死机制）——本文件钉直通语义
+ * 与关麦收口不回退。
  *
  * mock 面：SessionContext（同 useStewardVoice.test）+ FakeMediaRecorder +
  * wake-hotkey 注册面（fire handler 捕获 = 全局组合键触发模拟）。
@@ -163,10 +164,10 @@ async function tick(): Promise<void> {
 
 type HookResult = { current: ReturnType<typeof useStewardVoice> };
 
-function renderVoice(options?: { readonly wakeTimeoutMs?: number }): HookResult {
+function renderVoice(): HookResult {
   // 返回 result ref（r.current = 钩子面）——renderHook 返回值解构常见坑钉死；
   // B2：open 参数退役（耳面采样门改 duplex 会话活跃——面板语音已随 B2 退役）
-  return renderHook(() => useStewardVoice({ createMeter: fakeCreateMeter, ...options }), {
+  return renderHook(() => useStewardVoice({ createMeter: fakeCreateMeter }), {
     wrapper: I18nProvider,
   }).result;
 }
@@ -224,8 +225,7 @@ describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）
     trackStop = env.trackStop;
     const r = renderVoice();
     await pressHotkey();
-    // 直通：无待命会话（wakeState off）、相位即 listening、双工活跃
-    expect(r.current.wakeState).toBe("off");
+    // 直通：无待命会话、相位即 listening、双工活跃
     expect(r.current.phase).toBe("listening");
     expect(r.current.duplexActive).toBe(true);
     expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
@@ -235,19 +235,18 @@ describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）
       fireWakeHotkey?.();
     });
     await tick();
-    expect(r.current.wakeState).toBe("off");
     expect(r.current.phase).toBe("idle");
     expect(r.current.duplexActive).toBe(false);
     expect(trackStop).toHaveBeenCalled();
     expect(sendSttStreamStop).toHaveBeenCalled();
   });
 
-  it("回归钉子（B2-hotfix 报障修复）：唤醒词默认非空（helix）也直通——说任意话（不含唤醒词）→ 终帧全文进 ask", async () => {
+  it("回归钉子（B2-hotfix 报障修复）：唤醒词机制已拆——说任意话（不含唤醒词）→ 终帧全文进 ask", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     const r = renderVoice();
-    // 不设 wakeWord 偏好：readWakeWordPref 缺省 "helix"（非空）——旧语义下
-    // 此配置 = 待命态等词（报障现场：说完零回应 + 30s 超时光球消失）
+    // 唤醒词机制已随欢迎词固化批拆除（旧报障现场：待命态等词，说完零回应
+    // + 30s 超时光球消失——热键直通后无此路径）
     await pressHotkey();
     expect(r.current.phase).toBe("listening"); // 直通待听（非 wake_armed）
     await finishRound(r, "今天有什么任务在跑");
@@ -261,10 +260,10 @@ describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）
     const env = installEnv();
     restoreEnv = env.restore;
     trackStop = env.trackStop;
-    const r = renderVoice({ wakeTimeoutMs: 50 });
+    const r = renderVoice();
     await pressHotkey();
     expect(r.current.phase).toBe("listening");
-    // 短窗 50ms × 4 倍余量：直通会话无超时计时器（旧语义待命超时收场）
+    // 短窗 200ms 余量：直通会话无超时计时器（旧语义待命超时收场已拆）
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(r.current.duplexActive).toBe(true);
     expect(trackStop).not.toHaveBeenCalled();
@@ -280,7 +279,6 @@ describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）
     act(() => {
       fireEvent.keyDown(window, { key: "Escape" });
     });
-    expect(r.current.wakeState).toBe("off");
     expect(r.current.duplexActive).toBe(false);
     expect(trackStop).toHaveBeenCalled();
   });

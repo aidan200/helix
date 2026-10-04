@@ -119,8 +119,7 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
     expect(think).toMatch(/stv-query-loop 0\.9s steps\(1,end\) 2 0\.5s forwards/); // 疑问循环×2（1.8s）
     expect(think).toMatch(/stv-think-in 0\.5s steps\(1,end\) 1 2\.3s forwards/); // →思考 intro（图布局 (3,1)(3,2) 衔接）
     expect(think).toMatch(/stv-think-loop 0\.9s steps\(1,end\) infinite 2\.8s/);
-    // welcome 复用说话（欢迎语即管家输出——同动画声明不重启，衔接不闪）
-    const speakSel = seg.match(/\.stv-orb\.stv-phase-speaking \.stv-sprite,\s*\.stv-orb\.stv-phase-welcome \.stv-sprite\s*\{[^}]*\}/);
+    const speakSel = seg.match(/\.stv-orb\.stv-phase-speaking \.stv-sprite\s*\{[^}]*\}/);
     expect(speakSel).not.toBeNull();
   });
 
@@ -155,6 +154,6 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
     expect(seg).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.stv-sprite\s*\{[^}]*animation:\s*none !important/);
     // 相位类带静态 background-position（动画关停后落位代表帧）
     expect(seg).toMatch(/\.stv-orb\.stv-phase-listening \.stv-sprite\s*\{[^}]*background-position:\s*40% 80%/); // (5,3)
-    expect(seg).toMatch(/\.stv-orb\.stv-phase-speaking \.stv-sprite,\s*\.stv-orb\.stv-phase-welcome \.stv-sprite\s*\{[^}]*background-position:\s*60% 100%/); // (6,4)
+    expect(seg).toMatch(/\.stv-orb\.stv-phase-speaking \.stv-sprite\s*\{[^}]*background-position:\s*60% 100%/); // (6,4)
   });
 });

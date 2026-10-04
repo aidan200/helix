@@ -191,20 +191,24 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     expect(screen.queryByTestId("steward-caption")).toBeNull();
   });
 
-  it("duplex=true → 光球 + 字幕条在场；欢迎语期（含待命）→ welcome 相位 + 欢迎语入字幕；欢迎后待命 → waking", async () => {
+  it("duplex=true → 光球 + 字幕条在场；欢迎语期（开麦前）→ waking 待机驻留 + 欢迎语入字幕；用户开口录音 → listening（欢迎位被压过）", async () => {
     svState.duplexActive = true;
     svState.welcomeActive = true;
-    svState.phase = "wake_armed";
+    svState.phase = "idle";
     const { rerenderLayer } = renderLayer();
-    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("welcome"); // 欢迎语优先（纯函数钉）
+    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("waking"); // 欢语期待机驻留（纯函数钉——欢迎语是伴随声非回复）
     expect(screen.getByTestId("steward-caption")).toBeTruthy();
     // 欢迎语字幕行（管家行）
     const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind]');
     expect(Array.from(lines).some((l) => l.textContent === "我在，请说。")).toBe(true);
-    // 欢迎语期结束（用户第一句定稿后）：待命相位呈现 waking
-    svState.welcomeActive = false;
+    // 用户开口录音：listening 压过欢迎位（转倾听动画）；欢迎期收位后回 idle 续听呼吸
+    svState.phase = "listening";
     rerenderLayer({});
-    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("waking");
+    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("listening");
+    svState.welcomeActive = false;
+    svState.phase = "idle";
+    rerenderLayer({});
+    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("listening");
   });
 
   it("相位呈现链：listening/thinking/speaking（data-phase 反映）", () => {

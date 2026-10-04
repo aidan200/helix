@@ -945,7 +945,6 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("helix.steward.wakeWord", ""); // 空串直通：组合键即入 listening
     for (const s of Object.values(listeners)) s.clear();
     FakeMeter.instances = [];
     streamStartEnabled = true;
@@ -1109,7 +1108,6 @@ describe("useStewardVoice（B3 回声防线）", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem("helix.steward.wakeWord", ""); // 空串直通：组合键即入 listening
     for (const s of Object.values(listeners)) s.clear();
     FakeMeter.instances = [];
     streamStartEnabled = true;

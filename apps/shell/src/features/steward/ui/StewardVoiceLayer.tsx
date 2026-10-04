@@ -8,7 +8,8 @@
  * - **StewardOrb** 光球（右下角 ~96px；手绘帧动画雪碧图皮面——用户作图
  *   orb.png 216²/6×6 网格/36px 帧）：相位=动画序列（waking 待机循环 /
  *   listening 倾听转换+循环 / thinking 疑问开场→思考两段式（图布局
- *   (3,1)(3,2) 物理相邻即为此衔接）/ speaking+welcome 说话转换+循环 /
+ *   (3,1)(3,2) 物理相邻即为此衔接）/ speaking 说话转换+循环（welcome 相位
+ *   已随欢迎词工坊批退役——欢迎语期待机驻留） /
  *   muted·closing 冻结当前帧）；帧停点=background-position 逐 keyframe
  *   steps（E-124 合规：animation 简写全常量）；RMS=整图微缩放
  *   --stv-lv 由本组件预计算（var 只入 transform 不入 animation）；

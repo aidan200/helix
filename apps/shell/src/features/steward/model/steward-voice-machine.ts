@@ -17,9 +17,6 @@
  *   闩锁防重复触发）+ openBargeInSilenceWindow（停播即开窗）——打断序本体
  *   在消费端（stopSpeaking → steward.interrupt → 新转写流），本面只裁决
  *   「这一帧算不算人声插话」；
- * - matchWakeWord（B4 唤醒词门槛）：待命态流式转写文本的本地匹配——命中
- *   （大小写不敏感）→ 剥离唤醒词前缀返剩余话语；未命中零产出；空串 = 关
- *   门槛直通（命中判定在 webview 本地，命中前内容不入对话）。
  */
 import { VOICE_MIN_DURATION_MS, type VoiceState } from "@/shared/lib/useVoiceInput";
 // 人声判据共基面（语音判定钝感批）：ZCR 族与单帧判据唯一定义点在 shared/lib/voice-gate
@@ -52,7 +49,6 @@ export type StewardInputMode = "voice" | "text";
 export type StewardVoicePhase =
   | "unsupported" // mic 环境不可用（getUserMedia/MediaRecorder 缺失）
   | "idle" // 待命（可点 mic 开始说话）
-  | "wake_armed" // 唤醒待命（B4：组合键开麦，等唤醒词命中；命中前内容不入对话）
   | "listening" // 录音中（VAD 静音 ~1.8s 自动停）
   | "transcribing" // 音频上传 + 转写在途
   | "asking" // steward.ask 在途（流式 Markdown 回答中）
@@ -63,20 +59,15 @@ export interface StewardVoiceSnapshot {
   readonly voiceState: VoiceState;
   readonly askInFlight: boolean;
   readonly speaking: boolean;
-  /** B4 唤醒待命位（命中前 true——录音 × wakeStandby → wake_armed；缺省
-   *  false 既有派生不变）。 */
-  readonly wakeStandby?: boolean;
 }
 
 /**
  * 阶段派生（优先级 = 录音链在途 > ask 在途 > 朗读 > 待命）：
  * 新一轮说话压过上轮残留态（录音/转写期间旧朗读已由消费端停读）。
- * B4：录音 × 唤醒待命 → wake_armed（命中后同为 recording 但待命位落下
- * → 转入既有 listening 流——「命中 → listening → transcribing → asking」同链）。
  */
 export function deriveStewardVoicePhase(s: StewardVoiceSnapshot): StewardVoicePhase {
   if (s.voiceState === "unsupported") return "unsupported";
-  if (s.voiceState === "recording") return s.wakeStandby === true ? "wake_armed" : "listening";
+  if (s.voiceState === "recording") return "listening";
   if (s.voiceState === "transcribing") return "transcribing";
   if (s.askInFlight) return "asking";
   if (s.speaking) return "speaking";
@@ -141,28 +132,6 @@ export type TranscriptOutcome =
 export function planTranscript(text: string, askSent: boolean): TranscriptOutcome {
   if (askSent) return { kind: "asked" };
   return { kind: "fallback", draft: text };
-}
-
-// ── B4 唤醒词门槛（本地文本匹配；命中判定在 webview 零后置花费）────────
-
-/** 唤醒匹配结果：hit=false 零产出；hit=true 携剥离唤醒词前缀后的剩余话语。 */
-export type WakeMatch =
-  | { readonly hit: false; readonly rest: "" }
-  | { readonly hit: true; readonly rest: string };
-
-/**
- * 唤醒词本地匹配（纯函数）：
- * - 唤醒词空（trim 后）= 关门槛直通：hit 恒真、全文即剩余话语；
- * - 命中 = 文本内首次出现（大小写不敏感）：剥离唤醒词**及其之前**的全部
- *   内容（命中前的转写内容不入对话），余下为剩余话语；
- * - 未命中 → hit=false（消费端据此零 ask）。
- */
-export function matchWakeWord(text: string, wakeWord: string): WakeMatch {
-  const word = wakeWord.trim();
-  if (word === "") return { hit: true, rest: text };
-  const idx = text.toLowerCase().indexOf(word.toLowerCase());
-  if (idx === -1) return { hit: false, rest: "" };
-  return { hit: true, rest: text.slice(idx + word.length) };
 }
 
 // ── B2 barge-in 门判定（V3b-3 全双工触发面；fake meter 帧驱动可测）──────
@@ -285,19 +254,19 @@ export function isBargeInArmed(input: { mode: StewardInputMode; phase: StewardVo
   return input.mode === "voice" && (input.phase === "speaking" || input.phase === "asking");
 }
 
-// ── B2 光球相位（StewardOrb 呈现面；waking→welcome→listening→thinking→speaking→closing）──
+// ── B2 光球相位（StewardOrb 呈现面；waking→listening→thinking→speaking→closing）──
 
 /** 光球相位（B2 全局语音批，设计稿 §3.2）：
- *  - waking：唤醒待命（wake_armed——等唤醒词命中）；
- *  - welcome：欢迎语播报期（进入双工的问候）；
+ *  - waking：待机（热键呼出/欢迎语播报期——欢迎语是伴随声非回复，球待机
+ *    驻留不摆说话姿）；
  *  - listening：聆听中（含转写在途；duplex 中 idle 是续听瞬态，视觉同相呼吸）；
  *  - thinking：ask 在途；
  *  - speaking：TTS 朗读回复中；
  *  - closing：关麦淡出窗（duplex 已落 + 淡出动画在途）。 */
-export type OrbPhase = "waking" | "welcome" | "listening" | "thinking" | "speaking" | "closing";
+export type OrbPhase = "waking" | "listening" | "thinking" | "speaking" | "closing";
 
 /** 光球相位派生输入（duplex = 双工会话活跃；fading = 关麦淡出窗；
- *  welcome = 欢迎语播报期标记）。 */
+ *  welcome = 欢迎语播报期——待机动画驻留标记）。 */
 export interface OrbPhaseInput {
   readonly phase: StewardVoicePhase;
   readonly duplex: boolean;
@@ -309,17 +278,17 @@ export interface OrbPhaseInput {
  * 光球相位派生（纯函数；null = 光球不在场零 DOM）：
  * - 不在场：duplex=false 且无淡出；
  * - closing 压过一切（关麦淡出窗——duplex 已落但动画在途）；
- * - welcome 优先于在途相位（欢迎语期即使已经在听也呈问候相）；
- * - wake_armed → waking；listening/transcribing/idle → listening（呼吸待听）；
+ * - welcome 且开麦前瞬态（idle/unsupported）→ waking（欢迎语播报期待机
+ *   驻留——欢迎语是伴随声非回复，不摆说话姿）；用户开口即录音，listening
+ *   相位压过欢迎位转倾听动画；
+ * - listening/transcribing/idle → listening（呼吸待听）；
  * - asking → thinking；speaking → speaking。
  */
 export function deriveOrbPhase(input: OrbPhaseInput): OrbPhase | null {
   if (!input.duplex && !input.fading) return null;
   if (input.fading && !input.duplex) return "closing";
-  if (input.welcome) return "welcome";
+  if (input.welcome && (input.phase === "idle" || input.phase === "unsupported")) return "waking";
   switch (input.phase) {
-    case "wake_armed":
-      return "waking";
     case "asking":
       return "thinking";
     case "speaking":

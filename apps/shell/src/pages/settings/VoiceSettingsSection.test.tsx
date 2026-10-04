@@ -159,7 +159,7 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
   it("key 录入入口零残留：无密码输入框（key 管理归「模型」分区，不做第二入口）", () => {
     const r = rig();
     expect(r.container.querySelectorAll('input[type="password"]')).toHaveLength(0);
-    expect(r.container.querySelectorAll("button").length).toBe(4); // 3 偏好按钮 + 1 试听
+    expect(r.container.querySelectorAll("button").length).toBe(7); // 3 偏好按钮 + 1 试听 + 3 欢迎词工坊（生成/确认/恢复——欢迎词固化批）
   });
 });
 
@@ -233,7 +233,7 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）
 
   it("试听：按钮 → sendVoiceSynthesize(固定短句+voice+zh) → 回执 ok Audio 播放", async () => {
     rig();
-    const btn = screen.getByRole("button", { name: /试听|Audition/ });
+    const btn = screen.getByRole("button", { name: "试听" });
     fireEvent.click(btn);
     expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1);
     expect(sendVoiceSynthesize).toHaveBeenCalledWith(
@@ -256,7 +256,7 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）
     });
     expect(FakeAudio.instances.length).toBe(0);
 
-    const btn = screen.getByRole("button", { name: /试听|Audition/ });
+    const btn = screen.getByRole("button", { name: "试听" });
     fireEvent.click(btn);
     await act(async () => {
       frameListener!(AUDITION_ERR);
@@ -270,7 +270,7 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）
   it("试听 send false（未连接）→ 不置 pending、toast err", async () => {
     sendVoiceSynthesize.mockReturnValueOnce(false);
     rig();
-    fireEvent.click(screen.getByRole("button", { name: /试听|Audition/ }));
+    fireEvent.click(screen.getByRole("button", { name: "试听" }));
     // 未连接失败后，陈旧回执不被消费
     await act(async () => {
       frameListener!(AUDITION_OK);

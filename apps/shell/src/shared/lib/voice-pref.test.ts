@@ -35,10 +35,6 @@ import {
   voiceRmsThresholdFromSensitivity,
   readWakeHotkeyPref,
   writeWakeHotkeyPref,
-  readWakeWordPref,
-  writeWakeWordPref,
-  readWakeTimeoutPref,
-  writeWakeTimeoutPref,
   STEWARD_WAKE_HOTKEY_PREF_KEY,
 } from "./voice-pref";
 import { VOICE_RMS_THRESHOLD } from "./useVoiceInput";
@@ -193,7 +189,7 @@ describe("voiceRmsThresholdFromSensitivity（灵敏度 → RMS 阈值映射）",
   });
 });
 
-describe("B4 唤醒链偏好（组合键 / 唤醒词 / 待命超时）", () => {
+describe("B4 唤醒链偏好（组合键——唤醒词/待命超时已随「热键直通双工」退役）", () => {
   it("组合键偏好：缺省 null（未设置——不偷注册全局快捷键）；读写往返 + 清除", () => {
     expect(STEWARD_WAKE_HOTKEY_PREF_KEY).toBe("helix.steward.wakeHotkey");
     expect(readWakeHotkeyPref()).toBeNull();
@@ -201,21 +197,5 @@ describe("B4 唤醒链偏好（组合键 / 唤醒词 / 待命超时）", () => {
     expect(readWakeHotkeyPref()).toBe("⌘⇧K");
     writeWakeHotkeyPref(null);
     expect(readWakeHotkeyPref()).toBeNull();
-  });
-
-  it("唤醒词偏好：缺省 helix；空串 = 显式关（直通）；读写往返", () => {
-    expect(readWakeWordPref()).toBe("helix");
-    writeWakeWordPref("");
-    expect(readWakeWordPref()).toBe("");
-    writeWakeWordPref("Hey There");
-    expect(readWakeWordPref()).toBe("Hey There");
-  });
-
-  it("待命超时偏好：缺省 30s；读写往返 + 越界钳制（同 readNumericPref 同构）", () => {
-    expect(readWakeTimeoutPref()).toBe(30000);
-    writeWakeTimeoutPref(60000);
-    expect(readWakeTimeoutPref()).toBe(60000);
-    writeWakeTimeoutPref(1); // 钳制到下界 5000
-    expect(readWakeTimeoutPref()).toBe(5000);
   });
 });
