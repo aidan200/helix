@@ -35,7 +35,7 @@
  * 本地校验失败（空串/非整数/越界）的行内提示归本组件三卡独立位，
  * 输入变更即清（code-review 低危：不再静默 return）。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
@@ -96,6 +96,12 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // 任务总结子功能（独立槽位批）：daemon 权威现态（config.result 回填不乐观）；
   // model null = 未配置（无默认模型——不配不摘要，播报走极简终态通知）
   const [summaryCfg, setSummaryCfg] = useState<{ enabled: boolean; model: string | null } | null>(null);
+  // 会话进展记忆（progress 批）：daemon 权威现态；model null = 未配置（无默认
+  // 模型——不配 = 轮末只演进标题不产进展记忆）；everyTurns 草稿本地态，
+  // 失焦/回车提交（回执前不乐观），非法值回落最近已提交值零命令
+  const [smCfg, setSmCfg] = useState<{ enabled: boolean; everyTurns: number; model: string | null } | null>(null);
+  const [turnsDraft, setTurnsDraft] = useState<string>("");
+  const turnsCommitted = useRef<number>(3);
   // 记忆（管家记忆 B2 瘦身）：daemon 权威现态（config.result 回执回填，不乐观）；
   // 端点选择 = embedding 配置域引用（下拉写 endpointId，回执引用态回填）
   const [memoryCfg, setMemoryCfg] = useState<{
@@ -120,6 +126,11 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             enabled: boolean;
             model: string | null;
           };
+          sessionMemory?: {
+            enabled: boolean;
+            everyTurns: number;
+            model: string | null;
+          };
           memory?: {
             enabled: boolean;
             available: boolean;
@@ -131,6 +142,11 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         };
         setStewardEnabled(payload.enabled === true);
         if (payload.summary !== undefined) setSummaryCfg(payload.summary);
+        if (payload.sessionMemory !== undefined) {
+          setSmCfg(payload.sessionMemory);
+          turnsCommitted.current = payload.sessionMemory.everyTurns;
+          setTurnsDraft(String(payload.sessionMemory.everyTurns));
+        }
         if (payload.memory !== undefined) setMemoryCfg(payload.memory);
       }),
     [subscribeStewardFrames],
@@ -177,6 +193,39 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       setStewardError(t("chat.settings.general.sendFail"));
       return;
     }
+    setStewardError(null);
+  };
+  // 会话进展记忆写面（progress 批）：开关 + 模型（空串 = 清空槽位）+ 间隔
+  // （失焦/回车提交，非法值回落最近已提交值零命令）；回执驱动回填不乐观
+  const toggleSessionMemory = (enabled: boolean): void => {
+    if (sendStewardSetConfig({ sessionMemory: { enabled } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  const selectSessionMemoryModel = (model: string): void => {
+    if (sendStewardSetConfig({ sessionMemory: { model } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  const commitSessionMemoryTurns = (): void => {
+    const parsed = Number.parseInt(turnsDraft, 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+      setTurnsDraft(String(turnsCommitted.current)); // 非法回落零命令
+      return;
+    }
+    if (parsed === turnsCommitted.current) {
+      setTurnsDraft(String(parsed));
+      return;
+    }
+    if (sendStewardSetConfig({ sessionMemory: { everyTurns: parsed } }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    turnsCommitted.current = parsed;
     setStewardError(null);
   };
   // 向量模型选择（写 endpointId 引用；空串 = 清除引用）；回执驱动回填不乐观
@@ -264,6 +313,29 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     }
     return map;
   }, [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.model]);
+  // 会话进展总结模型下拉（progress 批：summary 同款口径——filterAvailableModels
+  // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
+  const sessionMemoryModelsByProvider = useMemo(() => {
+    const visible = filterAvailableModels({
+      models: topology.modelConfig.catalog?.models ?? [],
+      auth,
+      authLoaded,
+      currentModel: smCfg?.model ?? undefined,
+      query: "",
+    });
+    const current = smCfg?.model ?? null;
+    const withCurrent =
+      current !== null && !visible.some((m) => m.id === current)
+        ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
+        : visible;
+    const map = new Map<string, CatalogModel[]>();
+    for (const m of withCurrent) {
+      const list = map.get(m.providerId);
+      if (list) list.push(m);
+      else map.set(m.providerId, [m]);
+    }
+    return map;
+  }, [topology.modelConfig.catalog, auth, authLoaded, smCfg?.model]);
   const selectTopicModel = (value: string): void => {
     if (setTopicConfig({ model: value === "" ? null : value }) === false) {
       setTopicError(t("chat.settings.general.sendFail"));
@@ -498,6 +570,71 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             </div>
             <span className="ag-note">{t("chat.settings.general.stewardSummaryModelNote")}</span>
           </div>
+        )}
+        {/* 会话进展记忆（progress 批）：轮末联合摘要的进展产物总闸——开关 +
+            总结模型（无默认：未配 = 只演进标题不产进展记忆）+ 间隔（每 N 完成轮） */}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-session-memory>
+            <span className="hud-label">{t("chat.settings.general.stewardSessionMemory")}</span>
+            <label className="set-check" data-steward-session-memory-enabled>
+              <input
+                type="checkbox"
+                checked={smCfg?.enabled === true}
+                onChange={(e) => toggleSessionMemory(e.target.checked)}
+              />
+              {t("chat.settings.general.stewardSwitchOn")}
+            </label>
+          </div>
+        )}
+        {stewardEnabled === true && smCfg?.enabled === true && (
+          <>
+            <div className="fld fld-sub" data-steward-session-memory-model>
+              <label className="hud-label" htmlFor="steward-session-memory-model-select">
+                {t("chat.settings.general.stewardSessionMemoryModelLabel")}
+              </label>
+              <div className="sel-wrap">
+                <select
+                  id="steward-session-memory-model-select"
+                  className="hud-input"
+                  data-steward-session-memory-model-select
+                  value={smCfg.model ?? ""}
+                  onChange={(e) => selectSessionMemoryModel(e.target.value)}
+                >
+                  <option value="">{t("chat.settings.general.stewardSessionMemoryModelPlaceholder")}</option>
+                  {[...sessionMemoryModelsByProvider.entries()].map(([providerId, models]) => (
+                    <optgroup label={providerId} key={providerId}>
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+              <span className="ag-note">{t("chat.settings.general.stewardSessionMemoryModelNote")}</span>
+            </div>
+            <div className="fld fld-sub" data-steward-session-memory-turns>
+              <label className="hud-label" htmlFor="steward-session-memory-turns-input">
+                {t("chat.settings.general.stewardSessionMemoryTurnsLabel")}
+              </label>
+              <input
+                id="steward-session-memory-turns-input"
+                className="hud-input"
+                type="number"
+                min={1}
+                max={20}
+                data-steward-session-memory-turns-input
+                value={turnsDraft}
+                onChange={(e) => setTurnsDraft(e.target.value)}
+                onBlur={commitSessionMemoryTurns}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitSessionMemoryTurns();
+                }}
+              />
+              <span className="ag-note">{t("chat.settings.general.stewardSessionMemoryTurnsNote")}</span>
+            </div>
+          </>
         )}
         {/* 记忆（管家记忆 B2 瘦身）：启用管家的从属项（缩进一层）——开关 +
             「向量模型」下拉（embedding.list 驱动，选中写 endpointId 引用）；

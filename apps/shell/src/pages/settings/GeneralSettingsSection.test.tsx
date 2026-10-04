@@ -46,7 +46,17 @@ let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null =
 let configListeners: ((e: EventEnvelope) => void)[] = [];
 /** 管家配置并轨批：steward 命令面 mock（进入拉取 + 写面记录 + 回执听众）。 */
 const sendStewardGetConfig = vi.fn(() => true);
-const sendStewardSetConfig = vi.fn((_patch: { enabled?: boolean; model?: string }) => true);
+const sendStewardSetConfig = vi.fn(
+  (
+    _patch: {
+      enabled?: boolean;
+      model?: string;
+      summary?: { enabled?: boolean; model?: string };
+      memory?: Record<string, unknown>;
+      sessionMemory?: { enabled?: boolean; everyTurns?: number; model?: string };
+    },
+  ) => true,
+);
 let stewardListeners: ((e: EventEnvelope) => void)[] = [];
 /** 管家记忆 B2：embedding 配置域命令/订阅面 mock。 */
 const sendEmbeddingList = vi.fn(() => true);
@@ -185,6 +195,7 @@ function feedStewardConfig(
     dim: number | null;
   },
   summary?: { enabled: boolean; model: string | null },
+  sessionMemory?: { enabled: boolean; everyTurns: number; model: string | null },
 ) {
   const frame = {
     v: PROTOCOL_VERSION,
@@ -197,6 +208,7 @@ function feedStewardConfig(
       model: "deepseek/deepseek-v4-flash",
       summary: summary ?? { enabled: false, model: null },
       memory: memory ?? { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+      sessionMemory: sessionMemory ?? { enabled: false, everyTurns: 3, model: null },
     },
   } as unknown as EventEnvelope;
   act(() => {
@@ -600,6 +612,86 @@ describe("任务总结子功能（独立槽位批：开关 + 总结模型下拉�
       mockCatalog = null;
       mockAuth = {};
     }
+  });
+});
+
+describe("会话进展记忆（progress 批：开关 + 总结模型下拉 + 间隔输入）", () => {
+  it("管家未启用 → 进展项不渲染；启用 → 开关项出现（fld-sub 缩进，缺省关）；未开不展开从属两行", () => {
+    const { container } = ui();
+    feedStewardConfig(false, undefined, undefined, { enabled: true, everyTurns: 3, model: "openai/gpt-x" });
+    expect(container.querySelector("[data-steward-session-memory]")).toBeNull();
+    feedStewardConfig(true, undefined, undefined, { enabled: false, everyTurns: 3, model: null });
+    const sm = container.querySelector("[data-steward-session-memory]")!;
+    expect(sm).not.toBeNull();
+    expect(sm.className).toContain("fld-sub");
+    expect(sm.querySelector<HTMLInputElement>("[data-steward-session-memory-enabled] input")!.checked).toBe(false);
+    expect(container.querySelector("[data-steward-session-memory-model]")).toBeNull(); // 未开不展开
+    expect(container.querySelector("[data-steward-session-memory-turns]")).toBeNull();
+  });
+
+  it("开关切换 → sendStewardSetConfig({sessionMemory:{enabled}}) 不乐观翻转；回执回填", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, undefined, { enabled: false, everyTurns: 3, model: null });
+    const toggle = container.querySelector<HTMLInputElement>("[data-steward-session-memory-enabled] input")!;
+    fireEvent.click(toggle);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { enabled: true } });
+    expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
+    feedStewardConfig(true, undefined, undefined, { enabled: true, everyTurns: 3, model: null });
+    expect(toggle.checked).toBe(true);
+  });
+
+  it("进展总结模型下拉：开启后渲染（现值兑底选中 + 未配置 provider 模型不列）；选择写 {sessionMemory:{model}}；空选项 = 清空槽位", () => {
+    const { container } = ui();
+    try {
+      mockCatalog = {
+        models: [
+          { id: "openai/gpt-x", providerId: "openai" },
+          { id: "local/llm-y", providerId: "local" },
+        ],
+      };
+      mockAuth = { openai: { configured: true } };
+      feedStewardConfig(true, undefined, undefined, { enabled: true, everyTurns: 3, model: "deepseek/deepseek-v4-flash" });
+      const select = container.querySelector<HTMLSelectElement>("[data-steward-session-memory-model-select]")!;
+      expect(select).not.toBeNull();
+      expect(select.value).toBe("deepseek/deepseek-v4-flash"); // 现值兑底（不在目录仍保留）
+      const optionIds = [...select.options].map((o) => o.value);
+      expect(optionIds).toContain("openai/gpt-x");
+      expect(optionIds).not.toContain("local/llm-y"); // 未配置 provider 过滤
+      fireEvent.change(select, { target: { value: "openai/gpt-x" } });
+      expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { model: "openai/gpt-x" } });
+      fireEvent.change(select, { target: { value: "" } });
+      expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { model: "" } }); // 空串 = 清空槽位
+    } finally {
+      mockCatalog = null;
+      mockAuth = {};
+    }
+  });
+
+  it("间隔输入：回执现值回填；改值失焦提交 {sessionMemory:{everyTurns}}；非法值（0/99）回落现值不发命令", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, undefined, { enabled: true, everyTurns: 3, model: null });
+    const input = container.querySelector<HTMLInputElement>("[data-steward-session-memory-turns-input]")!;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe("3");
+    // 合法改值：失焦提交
+    fireEvent.change(input, { target: { value: "5" } });
+    fireEvent.blur(input);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { everyTurns: 5 } });
+    // 非法下界：回落现值零命令（回执前本地值 5）
+    sendStewardSetConfig.mockClear();
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.blur(input);
+    expect(sendStewardSetConfig).not.toHaveBeenCalled();
+    expect(input.value).toBe("5");
+    // 非法上界：同上
+    fireEvent.change(input, { target: { value: "99" } });
+    fireEvent.blur(input);
+    expect(sendStewardSetConfig).not.toHaveBeenCalled();
+    expect(input.value).toBe("5");
+    // 回车也提交
+    fireEvent.change(input, { target: { value: "7" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { everyTurns: 7 } });
   });
 });
 
