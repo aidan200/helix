@@ -58,6 +58,7 @@ import ConfirmStack from "@/features/steward/ui/ConfirmStack";
 import StewardVoiceLayer from "@/features/steward/ui/StewardVoiceLayer";
 import StewardMemoryPage from "@/pages/steward-memory/StewardMemoryPage";
 import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
+import { useShellSurface } from "@/features/surface/model/useShellSurface";
 
 /** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
@@ -153,6 +154,10 @@ export function AppRoutes() {
       [route, navigate, switchSession],
     ),
   );
+  // M0 表面协议地基：shell surface adapter（页面级——连接就绪恒注册
+  // surface.register；感知开关（默认 off）门内 activated/navigated 上行；
+  // App 根单份，与路由层同生命周期）
+  useShellSurface(route);
   return (
     <>
       <div className="app-shell">

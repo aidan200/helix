@@ -147,6 +147,12 @@ import {
   handleStewardUnsubscribe,
 } from "./handlers/steward";
 import {
+  handleSurfaceRegister,
+  handleSurfaceUnregister,
+  handleSurfaceEvent,
+  handleSurfaceActionResult,
+} from "./handlers/surface";
+import {
   handleEmbeddingDelete,
   handleEmbeddingList,
   handleEmbeddingSet,
@@ -366,6 +372,8 @@ export class WsServerAdapter {
       this.deps.stt?.stream?.service.closeSender(ws.data.sender);
       // 流式 TTS 批（V3b-2）：连接级在途句 abort 清位（money 纪律零孤儿任务）
       this.deps.voice?.ttsStream?.closeSender(ws.data.sender);
+      // surface 批（M0）：连接级表面注册清账（steward 订阅位断连清位同构）
+      this.deps.surface?.registry.unregister(ws.data.sender);
     }
   }
 
@@ -821,6 +829,24 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardMemoryRestore(this.contexts.stewardContext(ws, type, payload));
+      // ── surface 批（M0 表面协议地基）：表面注册/注销/事件上行/动作回执
+      //    （全局命令先例 = steward 批——表面是连接级概念无会话维）──
+      case "surface.register":
+        return this.deps.surface === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleSurfaceRegister(this.contexts.surfaceContext(ws, type, payload));
+      case "surface.unregister":
+        return this.deps.surface === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleSurfaceUnregister(this.contexts.surfaceContext(ws, type, payload));
+      case "surface.event":
+        return this.deps.surface === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleSurfaceEvent(this.contexts.surfaceContext(ws, type, payload));
+      case "surface.action.result":
+        return this.deps.surface === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleSurfaceActionResult(this.contexts.surfaceContext(ws, type, payload));
       // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试；
       //    全局命令先例 = auth 族（配置域无会话维）──
       case "embedding.list":

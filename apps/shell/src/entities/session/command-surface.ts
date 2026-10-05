@@ -41,6 +41,8 @@ import type {
   TraceQueryPayload,
   DiffGetPayload,
   StewardSetConfigPayload,
+  SurfaceDescriptor,
+  SurfaceEventUplinkPayload,
   ProviderDeleteCommand,
   ProviderListCommand,
   ProviderSetCommand,
@@ -131,6 +133,10 @@ import {
   modelSetDefaultCommand,
   modelSetThinkingDefaultCommand,
   sessionDeleteCommand,
+  surfaceActionResultCommand,
+  surfaceEventCommand,
+  surfaceRegisterCommand,
+  surfaceUnregisterCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
   sessionInstanceChannelsCommand,
@@ -320,6 +326,23 @@ export const COMMAND_SURFACE = {
    *  loop.run.interrupted + ask 终态已够；返回 false = 未连接）。 */
   sendStewardInterrupt: (deps) =>
     (reason?: string): boolean => deps.send(stewardInterruptCommand(reason)),
+
+  // ── surface 面（M0 表面协议地基批）：注册/事件上行/动作回执 ─────────
+  /** 表面自述注册（连接就绪恒发——navigate 收编不依赖感知开关；重连重放
+   *  由 useShellSurface conn 迁移驱动；回执 surface.registered 点对点）。 */
+  sendSurfaceRegister: (deps) =>
+    (descriptor: SurfaceDescriptor): boolean => deps.send(surfaceRegisterCommand(descriptor)),
+  /** 表面注销（对称语义；断连自动等效）。 */
+  sendSurfaceUnregister: (deps) =>
+    (): boolean => deps.send(surfaceUnregisterCommand()),
+  /** 页面级事件上行（感知开关默认 off——off 时 useShellSurface 不调用本面；
+   *  payload 类型 = 协议 SoT 上行载荷）。 */
+  sendSurfaceEvent: (deps) =>
+    (event: SurfaceEventUplinkPayload): boolean => deps.send(surfaceEventCommand(event)),
+  /** 动作执行回执（D7-1 seq 对账——toast 呈现即回；返回 false = 未连接）。 */
+  sendSurfaceActionResult: (deps) =>
+    (seq: number, ok: boolean, detail?: string): boolean =>
+      deps.send(surfaceActionResultCommand(seq, ok, detail)),
   // ── 管家记忆 B2：长期记忆条目管理四命令（回执 steward.memory_list.result
   //    四命令共用——写后即回新清单）────────────────────────────
   /** 条目读面（记忆页列表数据源）。 */
@@ -1017,6 +1040,16 @@ export const LISTEN_SURFACE = {
   /** 订阅 embedding 族帧（管家记忆 B2：list.result 清单回执（list/set/delete
    *  共用）+ verify.result 连通回执（两判别，id 回携）——模型页向量 tab /
    *  管家记忆区下拉两消费面）。 */
+  /** 订阅 surface 族帧（M0 表面协议地基批）：surface.action 动作指令帧
+   *  （定向到已注册表面连接——useStewardNavigate verb=navigate 消费面）+
+   *  surface.registered 注册回执（useShellSurface 身份诊断面）+
+   *  connection.error；TR-89 双登记纪律（dispatcher 直通清单同步）。 */
+  subscribeSurfaceFrames: {
+    match: (type) =>
+      type === "surface.action" ||
+      type === "surface.registered" ||
+      type === "connection.error",
+  },
   subscribeEmbeddingFrames: {
     match: (type) =>
       type === "embedding.list.result" ||

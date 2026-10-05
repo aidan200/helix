@@ -168,6 +168,13 @@ import type {
   StewardActionCompletedEvent,
 } from "./steward";
 import type {
+  SurfaceActionEvent,
+  SurfaceRegisteredEvent,
+  SurfaceDescriptor,
+  SurfaceEvent,
+  SurfaceEventUplinkPayload,
+} from "./surface";
+import type {
   EmbeddingListResultEvent,
   EmbeddingVerifyResultEvent,
 } from "./embedding";
@@ -210,6 +217,7 @@ export * from "./interaction";
 export * from "./stt";
 export * from "./voice";
 export * from "./steward";
+export * from "./surface";
 export * from "./embedding";
 export * from "./loop";
 export * from "./provider";
@@ -339,6 +347,8 @@ export type EventEnvelope =
   | StewardNavigateEvent
   | StewardMemoryWrittenEvent
   | StewardMemoryListResultEvent
+  | SurfaceActionEvent
+  | SurfaceRegisteredEvent
   | EmbeddingListResultEvent
   | EmbeddingVerifyResultEvent
   | ProviderListResultEvent
@@ -489,6 +499,10 @@ export const EVENT_TYPES = [
   "steward.navigate",
   // 管家记忆 B5 批 +steward.memory_written（记忆落盘通知——静默入库后广播，与 feed 同订阅闸）
   "steward.memory_written",
+  // 表面协议地基批（M0）：统一动作指令帧（D8 指令帧恒一种——管家→页面）
+  // + 注册回执（点对点）；channel "surface"
+  "surface.action",
+  "surface.registered",
   // B1 两段式确认批 +steward.action.completed（确认动作执行完成帧——
   // confirm 受理即回后异步执行体收口时点对点下发）
   "steward.action.completed",
@@ -531,6 +545,14 @@ export const EVENT_TYPES = [
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
+
+/**
+ * 已退役事件登记面（机械可检验 deprecated 标记；M0 表面协议地基批起）：
+ * 兼容期在册双发、新消费面禁用；删除点 = M1 前检查点（D8 存量收编③）。
+ * - steward.navigate：单需求专用指令帧 → 迁 surface.action {verb:"navigate"}
+ *   （兼容期 daemon 双发；shell 消费面已切新帧——旧帧零消费）。
+ */
+export const DEPRECATED_EVENT_TYPES = ["steward.navigate"] as const;
 
 /**
  * 事件 → 通道登记目录（v0.2 新增，契约 A §2 映射表；运行时单点）。
@@ -664,6 +686,8 @@ export const EVENT_CHANNELS = {
   "steward.memory_written": "steward",
   "steward.action.completed": "steward",
   "steward.memory_list.result": "steward",
+  "surface.action": "surface",
+  "surface.registered": "surface",
   "embedding.list.result": "embedding",
   "embedding.verify.result": "embedding",
   "provider.list.result": "provider",

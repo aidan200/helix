@@ -688,11 +688,14 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // stt/tts/steward/embedding 四批（V1~V3b-1 语音与管家线）：流式/
           // 记忆/向量配置服务回口同口径（application/{stt,tts,steward,
           // embedding}/ 下按文件名单列，仅限 type-only——批落地时漏登记，
-          // AG-12 曾长期红，pi-0.87 批收口补齐）。
+          // AG-12 曾长期红，pi-0.87 批收口补齐）。surface 批（M0 表面协议
+          // 地基）：SurfaceRegistry 回口同口径（仅 type-only——registry 实体
+          // 经组合根注入，ws-server 零运行时耦合）。
           const serviceTypeOnly =
             (/\/services\/(kg|workspace|task)\//.test(spec) ||
               /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
-              /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec)) &&
+              /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec) ||
+              /\/surface\/SurfaceRegistry$/.test(spec)) &&
             typeOnly(spec, src);
           // stt 批显式例外：VocabularyBuilder = 纯函数词汇表工具面
           //（BASE_VOCABULARY 常量 + buildAsrContext/extractSessionTokens
@@ -712,7 +715,8 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
         if (
           (/\/services\/(kg|workspace|task)\//.test(spec) ||
             /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
-            /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec)) &&
+            /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec) ||
+            /\/surface\/SurfaceRegistry$/.test(spec)) &&
           typeOnly(spec, src)
         )
           continue;

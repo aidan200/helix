@@ -314,7 +314,10 @@ export interface StewardThinkingEvent extends EventFrame<StewardThinkingPayload>
   type: "steward.thinking";
 }
 
-/** steward.navigate payload（管家驾驶舱批，additive）：页面切换指令——
+/** steward.navigate payload（管家驾驶舱批；**已退役 deprecated**——M0 表面
+ *  协议地基批 D8 存量收编：单需求专用指令帧迁 surface.action
+ *  {verb:"navigate", args:{sessionId}}；兼容期 daemon 双发（DEPRECATED_EVENT_TYPES
+ *  在册），新消费面禁用本帧，删除点 = M1 前检查点）：页面切换指令——
  *  daemon 在 deliver_to_session 确认投递成功 / create_session 建成后广播，
  *  shell 收到后切到目标会话页（与侧栏点击同一路径）。 */
 export interface StewardNavigatePayload {
@@ -323,7 +326,8 @@ export interface StewardNavigatePayload {
 }
 
 /** steward.navigate：页面切换指令帧（channel = "steward"；广播——仅发
- *  已订阅 steward 的连接，与 steward.feed 同闸门）。 */
+ *  已订阅 steward 的连接，与 steward.feed 同闸门）。已退役 deprecated——
+ *  见 StewardNavigatePayload 头注（D8 收编 + 兼容期双发）。 */
 export interface StewardNavigateEvent extends EventFrame<StewardNavigatePayload> {
   channel?: "steward";
   type: "steward.navigate";

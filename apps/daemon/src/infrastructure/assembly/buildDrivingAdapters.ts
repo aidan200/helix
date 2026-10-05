@@ -29,7 +29,12 @@ import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-
 import { createDaemonFreshnessProvider } from "../../adapters/driven/freshness/SourceFreshness";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { VoiceCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
-import type { StewardCommandDeps, EmbeddingCommandDeps, ProviderCommandDeps } from "../../adapters/driving/ws-server/handlers/context";
+import type {
+  StewardCommandDeps,
+  SurfaceCommandDeps,
+  EmbeddingCommandDeps,
+  ProviderCommandDeps,
+} from "../../adapters/driving/ws-server/handlers/context";
 import { StaticServe } from "../../adapters/driven/static-serve/StaticServe";
 import type { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
@@ -208,6 +213,12 @@ export interface WsDrivingDeps {
    */
   readonly steward?: StewardCommandDeps;
   /**
+   * 表面协议面（M0 表面协议地基批）：surface 族四命令回口
+   * （SurfaceRegistry——注册/事件上行/回执只转发不决策）。可选：未注入
+   * → 四命令回 command.unimplemented（steward 先例；stub rig 兼容）。
+   */
+  readonly surface?: SurfaceCommandDeps;
+  /**
    * embedding 配置域回口（管家记忆 B2）：端点 CRUD + 连通测试
    * （EmbeddingConfigService）。可选：未注入 → 四命令回
    * command.unimplemented（steward 先例；stub rig 兼容）。
@@ -376,6 +387,9 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     ...(deps.voice !== undefined ? { voice: deps.voice } : {}),
     // 文本管家批 V2.5：steward 族六命令回口（StewardService + feed 订阅面）
     ...(deps.steward !== undefined ? { steward: deps.steward } : {}),
+    // surface 批（M0 表面协议地基）：surface 族四命令回口（未注入 → 回
+    // unimplemented——stub rig 兼容）
+    ...(deps.surface !== undefined ? { surface: deps.surface } : {}),
     // 管家记忆 B2：embedding 配置域回口（端点 CRUD + 连通测试；未注入 →
     // 四命令回 unimplemented——stub rig 兼容）
     ...(deps.embedding !== undefined ? { embedding: deps.embedding } : {}),

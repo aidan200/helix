@@ -62,6 +62,8 @@ import type {
   SttCommandDeps,
   StewardCommandContext,
   StewardCommandDeps,
+  SurfaceCommandContext,
+  SurfaceCommandDeps,
   EmbeddingCommandDeps,
   EmbeddingCommandContext,
   ProviderCommandDeps,
@@ -148,6 +150,12 @@ export interface WsServerAdapterDeps {
    * command.unimplemented（voice 先例；stub rig 兼容）。
    */
   readonly steward?: StewardCommandDeps;
+  /**
+   * 表面协议面（M0 表面协议地基批）：surface 族命令回口
+   * （SurfaceRegistry——只转发不决策）。可选：未注入 → 回
+   * command.unimplemented（steward 先例；stub rig 兼容）。
+   */
+  readonly surface?: SurfaceCommandDeps;
   /**
    * embedding 配置域回口（管家记忆 B2）：端点 CRUD + 连通测试
    * （EmbeddingConfigService；只转发不决策）。可选：未注入 → 回
@@ -687,6 +695,27 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
   };
 
   /**
+   * surface 族命令处理上下文（M0 表面协议地基批）：SurfaceCommandDeps +
+   * 共享辅助（stewardContext 同构；全局命令不消费信封 sessionId）。未装配
+   *（deps.surface undefined）在 routeCommand 已拒，此处非空断言安全。
+   */
+  const surfaceContext = (
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): SurfaceCommandContext => {
+    return {
+      ws,
+      type,
+      payload,
+      surface: deps.surface!,
+      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      rawSender: () => helpers.rawSender(ws),
+      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+    };
+  };
+
+  /**
    * embedding 配置域命令处理上下文（管家记忆 B2 批）：EmbeddingCommandDeps
    * + 共享辅助。装配缺席（deps.embedding undefined）在 routeCommand 已拒，
    * 此处非空断言安全。
@@ -744,6 +773,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
     sttContext,
     voiceContext,
     stewardContext,
+    surfaceContext,
     embeddingContext,
     providerContext,
   };

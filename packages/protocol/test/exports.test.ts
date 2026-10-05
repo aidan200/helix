@@ -255,10 +255,16 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       // （MAIN_INSTANCE_ID 已随 T10c 常量退役删除——legacy 判别归读侧 helper）
       "COMMAND_TYPES",
       "DEFAULT_MODE_ID", // P1 会话模式批 T2（缺省 mode 单点；§18 微批）
+      "DEPRECATED_EVENT_TYPES", // 表面协议地基批（M0）：已退役事件登记面（D8 收编兼容期）
       "EVENT_CHANNELS",
       "EVENT_TYPES",
       "MODES", // P1 会话模式批 T2（模式注册表常量；§18 微批）
       "PROTOCOL_VERSION",
+      "SURFACE_EVENT_KINDS", // 表面协议地基批（M0）：SurfaceEvent kind 封闭词汇表（D2）
+      "SURFACE_EVENT_ORIGINS", // 表面协议地基批（M0）：origin 三值（D7-2 回声过滤基础）
+      "SURFACE_INSTRUCTION_FRAME_TYPES", // 表面协议地基批（M0）：指令帧注册面恒一种（D8）
+      "SURFACE_NAMESPACE_KINDS", // 表面协议地基批（M0）：surfaceId 命名空间词汇表
+      "SURFACE_RISK_LEVELS", // 表面协议地基批（M0）：risk 三档（D3 挂动作）
       "SYSTEM_SESSION_ID",
       "TAIL_WINDOW_SIZE", // W3 #2.36：快照尾窗口径单源（daemon 组装 + shell 恢复骨架文案共引）
       "TRACE_PAGE_DEFAULT",
@@ -280,18 +286,26 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       // 投影·usage 域（续）+ instance 域判定
       "instanceUsageOf",
       "isMainInstance",
+      // 表面协议地基批（M0）：surface 域类型守卫
+      "isSurfaceDescriptor",
+      "isSurfaceEventKind",
+      "isSurfaceEventOrigin",
+      "isSurfaceNamespaceKind",
+      "isSurfaceRisk",
       "lastMainAnchorId",
       // 投影·trace 域（续）
       "normalizeTraceQuery",
       "pageTraceEvents",
+      // 表面协议地基批（M0）续
+      "surfaceIdOf",
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（+ helix-loop L1 批：命令 93 / 事件 129；v0.14）", () => {
+  test("② 常量语义值 + 目录计数（+ 表面协议地基批：命令 120 / 事件 146；v0.14）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.14"); // v0.14 批次版本位（管家工作记忆批；契约 = changelog/v0.14.md §17.17）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(116); // P5 草稿驳回批 +1（kg.node.discard）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1（steward.history）// 流式转写批 +4（stt.stream 四命令）// 文本管家批 +6（steward 六命令）
-    expect(protocol.EVENT_TYPES.length).toBe(144); // P5 草稿驳回批 +1（kg.node.discard.result）// P2 审计批 +1（kg.auto.audit.result） // kg-triage 批 +1（kg.triage.create.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1（steward.navigate）// 管家工作记忆批 +3（history.result/tool/thinking）// 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(144); // P5 草稿驳回批 +1 // P2 审计批 +1 // 登记目录恰等（+B1 两段式确认批 1）（+ 管家记忆 B2 批 3 / helix-loop L1 批 1 / 管家公民权批 1 / helix-loop L0 批 loop 族 15）
+    expect(protocol.COMMAND_TYPES.length).toBe(120); // 表面协议地基批 +4（surface.register/unregister/event/action.result）// P5 草稿驳回批 +1（kg.node.discard）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1（steward.history）// 流式转写批 +4（stt.stream 四命令）// 文本管家批 +6（steward 六命令）
+    expect(protocol.EVENT_TYPES.length).toBe(146); // 表面协议地基批 +2（surface.action 指令帧 + surface.registered 回执）// P5 草稿驳回批 +1（kg.node.discard.result）// P2 审计批 +1（kg.auto.audit.result） // kg-triage 批 +1（kg.triage.create.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1（steward.navigate）// 管家工作记忆批 +3（history.result/tool/thinking）// 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(146); // 表面协议地基批 +2（surface 族两帧登记 channel "surface"）// P5 草稿驳回批 +1 // P2 审计批 +1 // 登记目录恰等（+B1 两段式确认批 1）（+ 管家记忆 B2 批 3 / helix-loop L1 批 1 / 管家公民权批 1 / helix-loop L0 批 loop 族 15）
   });
 });
