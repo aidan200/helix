@@ -10,7 +10,8 @@
  *   直切（零 timer 等待）；
  * - 点击行为（D5）：speaking 点击 → stopSpeaking；listening 点击 →
  *   toggleMute（临时静音）；muted 点击 → 恢复；
- * - 字幕：用户行/管家行弱区分（data-kind）；行数上限 4（最新在下）；
+ * - 字幕：用户行/管家行弱区分（data-kind）；短驻批：上限 2 行 + TTL 6s
+ *   驻留（静置自动移除、流式更新保活、空栈容器隐藏）；
  *   interim 实时行灰显（data-interim）；
  * - 欢迎语：进入 duplex → steward 行入字幕（i18n 常量文案）；
  * - 语音口令（D3=b）：final 整句口令 → steward.confirm/steward.cancel
@@ -140,6 +141,7 @@ vi.mock("../model/useStewardVoice", () => ({
 }));
 
 import StewardVoiceLayer from "./StewardVoiceLayer";
+import { CAPTION_EVICT_TICK_MS } from "../model/caption-log";
 
 localStorage.setItem("helix-lang", "zh-CN");
 
@@ -325,6 +327,37 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     const stewardLines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
     expect(stewardLines.length).toBe(countBefore); // in-place 更新不涨行
     expect(stewardLines[stewardLines.length - 1]!.textContent).toBe("回答前半后半");
+  });
+
+  it("短驻批：行静置 6s 自动移除；行全空且无 interim → 字幕容器隐藏", () => {
+    vi.useFakeTimers();
+    try {
+      svState.duplexActive = true;
+      renderLayer();
+      expect(screen.getByTestId("steward-caption")).toBeTruthy(); // 欢迎语行在场
+      // TTL 内驻留（驱逐 tick 500ms 一拍——静置 5.5s 行仍在）
+      act(() => {
+        vi.advanceTimersByTime(5_500);
+      });
+      expect(screen.getByTestId("steward-caption")).toBeTruthy();
+      // 过 TTL + 一拍：欢迎语行到期移除；行空且无 interim → 容器整面隐藏
+      act(() => {
+        vi.advanceTimersByTime(CAPTION_EVICT_TICK_MS + 1_000);
+      });
+      expect(screen.queryByTestId("steward-caption")).toBeNull();
+      // 光球本体不受字幕驱逐影响（在场如常）
+      expect(screen.getByTestId("steward-orb")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("短驻批：interim 在场则容器驻留（行空不隐藏——正在说话也算事件发生期）", () => {
+    svState.duplexActive = true;
+    svState.interim = "正在说这句话";
+    renderLayer();
+    expect(screen.getByTestId("steward-caption")).toBeTruthy();
+    expect(screen.getByTestId("steward-interim")).toBeTruthy();
   });
 
   it("语音口令（D3=b）：整句「确认」→ steward.confirm 既有命令 + 回读字幕；无卡零动作回读", async () => {

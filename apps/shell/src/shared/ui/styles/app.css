@@ -1043,8 +1043,8 @@ html.light .bubble code.inline { color: var(--accent); }
 }
 .img-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
 
-/* ═══ Toast（恢复提示，右下角）═══ */
-.toast-zone { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; gap: 8px; }
+/* ═══ Toast（恢复提示，右上角——顶栏 48px 下方 16px，不遮挡 header 操作钮）═══ */
+.toast-zone { position: fixed; right: 16px; top: 64px; z-index: 70; display: flex; flex-direction: column; gap: 8px; }
 .toast {
   display: flex; align-items: center; gap: 9px;
   min-width: 260px; max-width: 360px; padding: 9px 13px;
@@ -1054,7 +1054,7 @@ html.light .bubble code.inline { color: var(--accent); }
   font-size: var(--text-body); color: var(--text);
   animation: toast-in 0.22s ease-out;
 }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 .toast.ok { border-color: rgb(var(--success-rgb) / 0.35); }
 .toast.ok .t-dot { background: var(--success); }
 .toast.warn { border-color: rgb(var(--warning-rgb) / 0.35); }
@@ -1587,9 +1587,8 @@ html.light .stv-caption {
 .stv-line { font-size: var(--text-body); color: var(--text); overflow-wrap: anywhere; }
 .stv-line[data-kind="user"] { color: var(--text-faint); } /* 用户行弱区分（final 实色偏弱） */
 .stv-interim { font-style: italic; color: var(--text-dim); } /* interim 灰（未定稿） */
-/* 堆叠渐隐：最新在下最实，往上逐行淡出（纯 opacity，E-124） */
-.stv-line:nth-last-child(5) { opacity: 0.35; }
-.stv-line:nth-last-child(4) { opacity: 0.55; }
+/* 堆叠渐隐：最新在下最实（短驻批：栈上限 2 + interim 实时行——最多 3 个
+   .stv-line；旧行更早被 TTL 驱逐，梯度只铺两级；纯 opacity，E-124） */
 .stv-line:nth-last-child(3) { opacity: 0.75; }
 .stv-line:nth-last-child(2) { opacity: 0.9; }
 .stv-line:nth-last-child(1) { opacity: 1; }

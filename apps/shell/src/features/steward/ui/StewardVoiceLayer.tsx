@@ -15,8 +15,10 @@
  *   --stv-lv 由本组件预计算（var 只入 transform 不入 animation）；
  *   36px 帧硬边放大（image-rendering: pixelated）——详见 app.css .stv 段注；
  * - **StewardCaption** 字幕条（光球上方，玻璃族）：用户行（interim 灰/
- *   final 实）与管家行（ask.delta 聚合）弱区分，堆叠渐隐最新在下（上限
- *   4 行）；纯 fixed 文本层零滚动容器（E-124 WKWebView sticky 坑）；
+ *   final 实）与管家行（ask.delta 聚合）弱区分，最新在下（短驻批：上限
+ *   2 行 + TTL 6s 驻留——静置自动移除，流式更新刷新保活；行全空且无
+ *   interim 时容器整面隐藏，气泡只在事件发生期可见）；纯 fixed 文本层
+ *   零滚动容器（E-124 WKWebView sticky 坑）；
  *   视觉=用户裁决例外（直角/无边框/满窗高，溢出裁顶保最新行——
  *   详见 app.css .stv-caption 段注）；
  * - 点击行为（D5）：speaking 点击 = 停读；listening/muted 点击 = 临时
@@ -37,7 +39,7 @@ import { useStewardVoice } from "../model/useStewardVoice";
 import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
 import { parseVoiceCommand, resolveVoiceCommand } from "../model/voice-command";
-import { captionPush, captionUpdateTail, type CaptionLine } from "../model/caption-log";
+import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
 import { useI18n } from "@/shared/i18n";
 
 /** 光球淡出时长（ms；reduced-motion 直切不等待）。 */
@@ -101,6 +103,17 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
 
   const sv = useStewardVoice({ onFinalText, welcomeText: t("steward.voice.welcome") });
   sayRef.current = sv.say;
+
+  // ── 行 TTL 驱逐（短驻批）：duplex 活跃期周期驱逐静置超时行（captionEvict
+  //    无淘汰原引用返回——tick 空转零重渲）；行全空且无 interim 时字幕容器
+  //    整面隐藏（渲染面 captionVisible——气泡只在事件发生期可见）。──
+  useEffect(() => {
+    if (!sv.duplexActive) return;
+    const timer = setInterval(() => {
+      setLines((prev) => captionEvict(prev, Date.now()));
+    }, CAPTION_EVICT_TICK_MS);
+    return () => clearInterval(timer);
+  }, [sv.duplexActive]);
 
   // ── 欢迎语字幕（进入双工：steward 行入栈——TTS 归 hook 欢迎语链）──
   const welcomedForRef = useRef(false);
@@ -183,6 +196,8 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
 
   if (orbPhase === null) return null;
   const showInterim = sv.interim !== null && sv.interim !== "";
+  // 短驻批：行全空且无 interim → 字幕容器不渲染（事件发生期外零气泡面）
+  const captionVisible = lines.length > 0 || showInterim;
   // RMS 微缩放系数（E-124：calc 乘法不进 CSS——组件端预计算成现成 scale
   // 值，CSS 只吃 --stv-lv；与 P1 均衡嘴三变量同源同 clamp）
   const lv = Math.max(0.15, sv.level);
@@ -192,18 +207,20 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
       data-testid="steward-voice-layer"
       data-fading={fading ? "on" : "off"}
     >
-      <div className="stv-caption" data-testid="steward-caption" aria-live="polite">
-        {lines.map((line) => (
-          <div key={line.id} className="stv-line" data-kind={line.kind}>
-            {line.text}
-          </div>
-        ))}
-        {showInterim && (
-          <div className="stv-line stv-interim" data-kind="user" data-interim="on" data-testid="steward-interim">
-            {sv.interim}
-          </div>
-        )}
-      </div>
+      {captionVisible && (
+        <div className="stv-caption" data-testid="steward-caption" aria-live="polite">
+          {lines.map((line) => (
+            <div key={line.id} className="stv-line" data-kind={line.kind}>
+              {line.text}
+            </div>
+          ))}
+          {showInterim && (
+            <div className="stv-line stv-interim" data-kind="user" data-interim="on" data-testid="steward-interim">
+              {sv.interim}
+            </div>
+          )}
+        </div>
+      )}
       <button
         type="button"
         className={`stv-orb stv-phase-${orbPhase}${sv.muted ? " stv-muted" : ""}`}
