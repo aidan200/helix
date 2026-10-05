@@ -1,5 +1,5 @@
 /**
- * 轻量 Toast（P-1：恢复/重试成功提示，右下角；原型 toast-zone 契约）。
+ * 轻量 Toast（P-1：恢复/重试成功提示，右上角（顶栏下方）；原型 toast-zone 契约）。
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";

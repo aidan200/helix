@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
+import { useOneShot } from "@/shared/lib/useOneShot";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import MessageFlow, { type MessageFlowHandle } from "@/widgets/chat-stream/ui/MessageFlow";
 import ChatStatusBar from "@/widgets/chat-stream/ui/ChatStatusBar";
@@ -37,36 +38,41 @@ const ChatPage = function ChatPage() {
   const closeDrawer = useCallback(() => setSelectedAgentId(null), []);
 
   // 恢复 toast：重连/手动重试成功后由快照条数填满（F(7).4，一次性消费）
-  useEffect(() => {
-    const r = state.restoreToast;
-    if (!r) return;
-    if (r.kind === "restore") {
-      toast.push("ok", t("chat.restore.toast"), t("chat.restore.toastSub", { n: r.count }));
-    } else {
-      toast.push("ok", t("chat.error.retryOk"), t("chat.error.retryOkSub"));
-    }
-    consumeRestoreToast();
-  }, [state.restoreToast, toast, t, consumeRestoreToast]);
+  // —— useOneShot 幂等收口：StrictMode 双效应下 dispatch 消费未落地前重入
+  // 同一槽，旧写法双弹（实证 2026-10-05）；fire/consume 内联传递安全（hook 内 ref 化）
+  useOneShot(
+    state.restoreToast,
+    (r) => {
+      if (r.kind === "restore") {
+        toast.push("ok", t("chat.restore.toast"), t("chat.restore.toastSub", { n: r.count }));
+      } else {
+        toast.push("ok", t("chat.error.retryOk"), t("chat.error.retryOkSub"));
+      }
+    },
+    consumeRestoreToast,
+  );
 
   // spawn 秒回 toast（F1.5）：agent.spawned 事件即出卡即提示，不等 closure
-  useEffect(() => {
-    const s = state.spawnToast;
-    if (!s) return;
-    toast.push(
-      "violet",
-      t("chat.sa.spawn.toast"),
-      t("chat.sa.spawn.toastSub", { id: s.instanceId, profile: s.profileKind }),
-    );
-    consumeSpawnToast();
-  }, [state.spawnToast, toast, t, consumeSpawnToast]);
+  useOneShot(
+    state.spawnToast,
+    (s) => {
+      toast.push(
+        "violet",
+        t("chat.sa.spawn.toast"),
+        t("chat.sa.spawn.toastSub", { id: s.instanceId, profile: s.profileKind }),
+      );
+    },
+    consumeSpawnToast,
+  );
 
   // kill 终止链末端 toast（F1.2）：agent.killed 到达即交代（卡片/抽屉双视图同帧翻 failed）
-  useEffect(() => {
-    const k = state.killToast;
-    if (!k) return;
-    toast.push("err", t("chat.drawer.killedToast"), t("chat.drawer.killedToastSub", { id: k.instanceId }));
-    consumeKillToast();
-  }, [state.killToast, toast, t, consumeKillToast]);
+  useOneShot(
+    state.killToast,
+    (k) => {
+      toast.push("err", t("chat.drawer.killedToast"), t("chat.drawer.killedToastSub", { id: k.instanceId }));
+    },
+    consumeKillToast,
+  );
 
   const empty = selectIsEmpty(state);
 
