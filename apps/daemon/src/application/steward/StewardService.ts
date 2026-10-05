@@ -566,8 +566,10 @@ export interface StewardServiceDeps {
   /** 自动沉淀提案帧出口（B4a；组合根接 EventStream.broadcastStewardSedimentProposal
    *  ——与 feed 同订阅闸；缺席 = 提案挂 pending 但零广播，确认仍可经 actionId 直达）。 */
   readonly emitMemoryWritten?: (payload: StewardMemoryWrittenPayload) => void;
-  /** 页面切换指令帧出口（驾驶舱批；组合根接 EventStream.broadcastStewardNavigate
-   *  ——deliver_to_session 投递成功 / create_session 建成后广播，shell 切页）。
+  /** 页面导航出口（M0 表面协议地基批收编：组合根接 SurfaceRegistry
+   *  .act("navigate")——deliver_to_session 受理 / create_session 建成后
+   *  路由 surface.action {verb:"navigate"}；旧 steward.navigate 帧由 Registry
+   *  兼容镜像双发，M1 前检查点删除。域层纯 payload 端口零组帧。
    *  缺席 = 无切页指令（语义面零降级，仅行为缺席）。 */
   readonly emitNavigate?: (payload: StewardNavigatePayload) => void;
   /** A2：L1 感知面（快照 + query_recent_work + create_session 执行面）。

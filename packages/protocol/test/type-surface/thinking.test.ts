@@ -76,9 +76,9 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(EVENT_TYPES).toContain("thinking.changed");
     expect(EVENT_CHANNELS["thinking.changed"]).toBe("thinking");
     // 计数：27 → 28 命令 / 47 → 48 事件（thinking 批历史口径；当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1、kg-bootstrap 批 +5/+5、kg 维护批 +2/+2 → 52/65）
-    expect(COMMAND_TYPES.length).toBe(116); // P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel） // B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
-    expect(EVENT_TYPES.length).toBe(144); // P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1（kg.auto.audit.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(144); // P5 草稿驳回批 +1 // B1 两段式确认批 +1（steward.action.completed）+ P2 审计批 +1（kg.auto.audit.result）// 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
+    expect(COMMAND_TYPES.length).toBe(120); // 表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel） // B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
+    expect(EVENT_TYPES.length).toBe(146); // 表面协议地基批 +2（surface 两帧）// P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1（kg.auto.audit.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(146); // 表面协议地基批 +2（surface 两帧）// P5 草稿驳回批 +1 // B1 两段式确认批 +1（steward.action.completed）+ P2 审计批 +1（kg.auto.audit.result）// 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
   });
 
   test("thinking.set：信封 sessionId 必填（per-session），payload level 字符串透传", () => {
@@ -146,8 +146,8 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     // 当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1 → 45/58）
     expect(section).toContain("27 → 28");
     expect(section).toContain("47 → 48");
-    expect(COMMAND_TYPES.length).toBe(116); // P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel） // B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
-    expect(EVENT_TYPES.length).toBe(144); // P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1（kg.auto.audit.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
+    expect(COMMAND_TYPES.length).toBe(120); // 表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel） // B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
+    expect(EVENT_TYPES.length).toBe(146); // 表面协议地基批 +2（surface 两帧）// P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1（kg.auto.audit.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
     // ④ chat.send 零字段负断言在批次节有登记（NFR-2① 红线文档面）
     expect(section).toContain("chat.send` **零字段**");
   });

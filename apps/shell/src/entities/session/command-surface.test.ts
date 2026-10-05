@@ -384,6 +384,31 @@ describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
   });
 });
 
+describe("LISTEN_SURFACE.subscribeSurfaceFrames（M0 表面协议地基批——TR-89 双登记钉死）", () => {
+  const { match } = LISTEN_SURFACE.subscribeSurfaceFrames;
+
+  it("转发 surface 族两帧 + connection.error（action 指令帧定向消费 + registered 回执）", () => {
+    expect(match("surface.action")).toBe(true);
+    expect(match("surface.registered")).toBe(true);
+    expect(match("connection.error")).toBe(true);
+  });
+
+  it("不转发命令帧/兼容期旧帧（steward.navigate 消费面已切新帧——旧帧零消费）与其他域帧", () => {
+    expect(match("surface.register")).toBe(false); // 命令帧
+    expect(match("steward.navigate")).toBe(false); // 旧帧（deprecated——不消费）
+    expect(match("steward.feed")).toBe(false);
+    expect(match("voice.broadcast")).toBe(false);
+  });
+
+  it("dispatcher 直通登记的 surface.* 帧全部落在 match 白名单（TR-89 双清单互检）", () => {
+    const passthroughSurface = PASSTHROUGH_EVENT_TYPES.filter((t) => t.startsWith("surface."));
+    expect(passthroughSurface.length).toBeGreaterThan(0);
+    for (const type of passthroughSurface) {
+      expect(match(type), `dispatcher 登记了 ${type} 但 match 谓词未转发`).toBe(true);
+    }
+  });
+});
+
 describe("LISTEN_SURFACE.subscribeProviderFrames（三方平台批——TR-89 双登记钉死）", () => {
   const { match } = LISTEN_SURFACE.subscribeProviderFrames;
 

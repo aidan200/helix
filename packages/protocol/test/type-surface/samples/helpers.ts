@@ -370,6 +370,12 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.action.completed":
       // B1 两段式确认批：确认动作执行完成帧（点对点）
       return `steward-action-completed:${event.payload.actionId}:${String(event.payload.ok)}:${event.payload.detail}`;
+    case "surface.action":
+      // 表面协议地基批（M0）：统一动作指令帧窄化（verb + risk + seq + 定向面）
+      return `surface-action:${event.payload.verb}:${event.payload.risk}:${event.payload.seq}:${event.payload.surfaceIds?.join(",") ?? "-"}`;
+    case "surface.registered":
+      // 表面协议地基批（M0）：注册回执窄化（namespace + connId）
+      return `surface-registered:${event.payload.namespace}:${event.payload.connId}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -639,6 +645,18 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.memory_restore":
       // 遗忘机制批：淡忘恢复
       return `steward-memory-restore:${cmd.payload.id}`;
+    case "surface.register":
+      // 表面协议地基批（M0）：表面自述注册（capabilities 动词清单）
+      return `surface-register:${cmd.payload.descriptor.kind}:${cmd.payload.descriptor.capabilities.join(",")}`;
+    case "surface.unregister":
+      // 表面协议地基批（M0）：注销（断连自动等效）
+      return "surface-unregister";
+    case "surface.event":
+      // 表面协议地基批（M0）：页面级事件上行（kind + page）
+      return `surface-event:${cmd.payload.kind}:${cmd.payload.page}`;
+    case "surface.action.result":
+      // 表面协议地基批（M0）：动作执行回执（D7-1 seq 对账）
+      return `surface-action-result:seq=${cmd.payload.seq}:${String(cmd.payload.ok)}`;
     case "kg.triage.create":
       // kg-triage 批：待办面裁决任务发起
       return `kg-triage-create:${cmd.payload.project}`;
@@ -720,6 +738,11 @@ export function familyOf(event: EventEnvelope): string {
       // embedding 配置域（B2）：embedding 新族窄化（清单回执 + 连通回执）
       const t: TypeOfChannel<"embedding"> = event.type;
       return `embedding/${t}`;
+    }
+    case "surface": {
+      // 表面协议地基批（M0）：surface 新族窄化（动作指令帧 + 注册回执）
+      const t: TypeOfChannel<"surface"> = event.type;
+      return `surface/${t}`;
     }
     default:
       // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）

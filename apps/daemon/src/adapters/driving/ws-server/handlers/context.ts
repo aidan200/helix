@@ -46,6 +46,7 @@ import type { SttStreamService } from "../../../../application/stt/SttStreamServ
 import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
 import type { TtsStreamService } from "../../../../application/tts/TtsStreamService";
 import type { StewardService } from "../../../../application/steward/StewardService";
+import type { SurfaceRegistry } from "../../../../application/surface/SurfaceRegistry";
 import type { EmbeddingConfigService } from "../../../../application/embedding/EmbeddingConfigService";
 import type { CustomProviderService } from "../../../../application/services/CustomProviderService";
 import type { EventStream, FrameSender } from "../EventStream";
@@ -570,6 +571,34 @@ export interface StewardCommandContext {
   readonly payload: Record<string, unknown>;
   /** 管家服务体 + EventStream 订阅面（只转发不决策）。 */
   readonly steward: StewardCommandDeps;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/** surface 族命令回口（M0 表面协议地基批：SurfaceRegistry 注册/归一/路由/
+ *  回口——只转发不决策，决策收口 application/surface 层）。 */
+export interface SurfaceCommandDeps {
+  /** 表面注册表（注册/observe 归一/act 路由/receipt 销账）。 */
+  readonly registry: SurfaceRegistry;
+}
+
+/**
+ * surface 族命令处理上下文（M0 表面协议地基批）：全局命令（信封 sessionId
+ * 不消费）——表面是连接级概念，无会话维。
+ */
+export interface SurfaceCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 表面注册表（只转发不决策）。 */
+  readonly surface: SurfaceCommandDeps;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

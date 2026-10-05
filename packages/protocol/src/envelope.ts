@@ -72,6 +72,7 @@ export type Channel =
   | "stt"
   | "voice"
   | "steward"
+  | "surface"
   | "loop"
   | "embedding"
   | "provider";

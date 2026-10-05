@@ -37,6 +37,8 @@ import type {
   StewardFeedPayload,
   StewardNavigateEvent,
   StewardNavigatePayload,
+  SurfaceActionEvent,
+  SurfaceActionPayload,
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
@@ -528,6 +530,27 @@ export class EventStream implements EventPublisherPort {
       } catch {
         // 发送失败由该连接自身的 close 流程收尾，此处隔离
       }
+    }
+  }
+
+  /**
+   * surface.action 统一动作指令帧下发（M0 表面协议地基批；D8 指令帧恒
+   * 一种）：定向到具体已注册表面连接（SurfaceRegistry act 路由后点发——
+   * 与 broadcastStewardNavigate 广播面正交）；单连接异常隔离（push 同口径）。
+   */
+  sendSurfaceAction(sender: FrameSender | null, payload: SurfaceActionPayload): void {
+    if (sender === null) return;
+    const frame: SurfaceActionEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "surface",
+      type: "surface.action",
+      payload,
+    };
+    try {
+      sender(frame);
+    } catch {
+      // 发送失败由该连接自身的 close 流程收尾，此处隔离
     }
   }
 

@@ -15,6 +15,8 @@ import { SessionRegistry } from "../application/services/SessionRegistry";
 import type { WriteFactRegistry } from "../application/services/WriteFactRegistry";
 import { ResourceService } from "../application/services/ResourceService";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
+import { SurfaceRegistry } from "../application/surface/SurfaceRegistry";
+import type { FrameSender } from "../adapters/driving/ws-server/EventStream";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { isMainInstanceId } from "../domain/agent/AgentInstance";
@@ -839,6 +841,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       modelStack.catalog.modelsView(),
       persistence.runtimeConfig.get(STEWARD_MODEL_KEY) ?? STEWARD_DEFAULT_MODEL,
     );
+  // ── surface 批（M0 表面协议地基）：SurfaceRegistry（组合根）——
+  //    注册/observe 归一/act 路由/回执销账；sendAction 定向发帧（与广播面
+  //    正交），emitLegacyNavigate = 兼容期双发镜像（D8 ③——**M1 前检查点
+  //    删除点**，本行是旧帧广播的唯一非 EventStream 接线）。
+  const surfaceRegistry = new SurfaceRegistry({
+    sendAction: (key, action) => eventStream.sendSurfaceAction(key as FrameSender, action),
+    emitLegacyNavigate: (args) => eventStream.broadcastStewardNavigate(args),
+  });
   const stewardService = new StewardService({
     llm: stewardLlm,
     ...(dialog !== undefined ? { dialog } : {}),
@@ -895,8 +905,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
     // B4a 自动沉淀提案帧出口（与 feed 同订阅闸——判官判定后轮外投递确认卡）
     emitMemoryWritten: (payload) => eventStream.broadcastStewardMemoryWritten(payload),
-    // 驾驶舱批：页面切换指令帧出口（投递成功/建会话即切——仅已订阅 steward 连接收）
-    emitNavigate: (payload) => eventStream.broadcastStewardNavigate(payload),
+    // M0 表面协议地基批（D8 navigate 收编）：emitNavigate 域出口改经
+    // SurfaceRegistry.act 路由 surface.action {verb:"navigate"}（域工具执行
+    // 体不再直接广播页面指令帧）；旧 steward.navigate 由 Registry 兼容镜像
+    // 双发（M1 前检查点删除）。risk=write——D3 挂动作（呈现面用户点按闸）。
+    emitNavigate: (payload) => surfaceRegistry.act("navigate", { sessionId: payload.sessionId }, { risk: "write" }),
     // A2：L1 感知面（快照 + query_recent_work 读面 + create_session 执行面
     // ——与 shell 新建会话同一 startDraftSession 服务路径；entryCount additive）。
     sessions: {
@@ -1293,6 +1306,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     steward: {
       service: stewardService,
       stream: eventStream,
+    },
+    // surface 批（M0 表面协议地基）：surface 族四命令回口（SurfaceRegistry
+    // ——注册/事件上行/回执只转发不决策）
+    surface: {
+      registry: surfaceRegistry,
     },
     // 管家记忆 B2：embedding 配置域回口（EmbeddingConfigService——端点
     // CRUD + 连通测试；只转发不决策）

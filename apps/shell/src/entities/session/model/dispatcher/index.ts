@@ -187,6 +187,12 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.navigate",
   "steward.memory_written",
   "steward.memory_list.result",
+  // 表面协议地基批（M0）：surface 两帧 = 连接私有（action 指令帧定向到已
+  // 注册表面连接 + registered 注册回执点对点），真消费归 useStewardNavigate
+  //（verb=navigate 建议导航）与 useShellSurface（注册面）——TR-89 双登记
+  //（LISTEN_SURFACE.subscribeSurfaceFrames 谓词同步）
+  "surface.action",
+  "surface.registered",
   // embedding 配置域（管家记忆 B2）：两帧 = 连接私有（清单回执 list/set/
   // delete 共用 + 连通回执 verify），真消费归模型页向量 tab 与管家记忆区
   // 下拉（SessionContext 转发层 subscribeEmbeddingFrames——voice 先例同构）

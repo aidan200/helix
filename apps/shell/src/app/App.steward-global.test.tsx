@@ -27,9 +27,12 @@ vi.mock("./useAppRoute", () => ({
   useAppRoute: () => ({ route, navigate }),
 }));
 
-// 驾驶舱批：switchSession 切页断言面 + steward 帧听众捕获（navigate 帧驱动）
+// 驾驶舱批：switchSession 切页断言面 + steward 帧听众捕获（ask/confirm 帧
+// 驱动）+ M0 表面协议地基批：surface 帧听众捕获（surface.action 驱动——
+// navigate 收编后建议导航走新帧）
 const switchSession = vi.fn();
 const stewardListeners = new Set<(e: unknown) => void>();
+const surfaceListeners = new Set<(e: unknown) => void>();
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
     state: { conn: "connected", connAttempts: 1 },
@@ -47,6 +50,15 @@ vi.mock("@/entities/session/SessionContext", () => ({
         stewardListeners.delete(cb);
       };
     },
+    // M0 表面协议地基批：surface 帧听众 + 动作回执面（useStewardNavigate/
+    // useShellSurface 消费；sendSurfaceRegister/Event 缺席 = 感知面 no-op）
+    subscribeSurfaceFrames: (cb: (e: unknown) => void) => {
+      surfaceListeners.add(cb);
+      return () => {
+        surfaceListeners.delete(cb);
+      };
+    },
+    sendSurfaceActionResult: () => true,
   }),
 }));
 
@@ -92,6 +104,7 @@ describe("管家全局常驻（app 壳级能力）", () => {
     vi.clearAllMocks();
     route = "/settings";
     stewardListeners.clear();
+    surfaceListeners.clear();
     layerProps.length = 0;
     // jsdom navigator.language 默认 en-US：钉 zh-CN（AG-14 白名单键）
     localStorage.setItem("helix-lang", "zh-CN");
@@ -153,12 +166,15 @@ describe("管家全局常驻（app 壳级能力）", () => {
     expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
   });
 
-  it("B1 建议导航（steward.navigate）：帧到达不强切——toast 通知 + [去看看] 点按才切（navigate + switchSession 侧栏同路径）", () => {
+  it("M0 建议导航（surface.action navigate）：帧到达不强切——toast 通知 + [去看看] 点按才切（navigate + switchSession 侧栏同路径）", () => {
     ui();
-    expect(stewardListeners.size).toBeGreaterThan(0);
+    expect(surfaceListeners.size).toBeGreaterThan(0);
     act(() => {
-      for (const l of stewardListeners) {
-        l({ type: "steward.navigate", payload: { sessionId: "sess-target" } });
+      for (const l of surfaceListeners) {
+        l({
+          type: "surface.action",
+          payload: { verb: "navigate", args: { sessionId: "sess-target" }, risk: "write", seq: 1, origin: "steward" },
+        });
       }
     });
     // 不点按钮：零切页（G5——不打断当前操作）
@@ -173,12 +189,15 @@ describe("管家全局常驻（app 壳级能力）", () => {
     expect(switchSession).toHaveBeenCalledWith("sess-target");
   });
 
-  it("B1 建议导航：已在工作台路由 → 点按仅 switchSession，零路由导航", () => {
+  it("M0 建议导航：已在工作台路由 → 点按仅 switchSession，零路由导航", () => {
     route = "/";
     ui();
     act(() => {
-      for (const l of stewardListeners) {
-        l({ type: "steward.navigate", payload: { sessionId: "sess-2" } });
+      for (const l of surfaceListeners) {
+        l({
+          type: "surface.action",
+          payload: { verb: "navigate", args: { sessionId: "sess-2" }, risk: "write", seq: 2, origin: "steward" },
+        });
       }
     });
     const action = document.querySelector('[data-testid="toast-action"]') as HTMLButtonElement | null;

@@ -127,6 +127,12 @@ import type {
   StewardMemoryRestoreCommand,
 } from "./steward";
 import type {
+  SurfaceRegisterCommand,
+  SurfaceUnregisterCommand,
+  SurfaceEventCommand,
+  SurfaceActionResultCommand,
+} from "./surface";
+import type {
   EmbeddingListCommand,
   EmbeddingSetCommand,
   EmbeddingDeleteCommand,
@@ -247,6 +253,10 @@ export type CommandEnvelope =
   | StewardMemoryDeleteCommand
   | StewardMemoryPinCommand
   | StewardMemoryRestoreCommand
+  | SurfaceRegisterCommand
+  | SurfaceUnregisterCommand
+  | SurfaceEventCommand
+  | SurfaceActionResultCommand
   | EmbeddingListCommand
   | EmbeddingSetCommand
   | EmbeddingDeleteCommand
@@ -298,6 +308,12 @@ export const COMMAND_TYPES = [
   // 遗忘机制批：置顶（永不淡忘永不 GC）+ 淡忘恢复（共用 memory_list.result 回执）
   "steward.memory_pin",
   "steward.memory_restore",
+  // 表面协议地基批（M0）：表面注册/注销/事件上行/动作回执（全局命令——
+  // 信封省略 sessionId，E-84；上行 = 表面→daemon）
+  "surface.register",
+  "surface.unregister",
+  "surface.event",
+  "surface.action.result",
   // embedding 配置域（管家记忆 B2）：向量端点 CRUD + 连通测试（独立配置域，
   // 模型页向量 tab 消费；apiKey 只进不出）
   "embedding.list",
