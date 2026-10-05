@@ -11,3 +11,7 @@
 # shell = vitest（jsdom 组件环境）；e2e = playwright（.spec.ts 不入 bun 收集面）。
 # root 限定使 bun 不误收集 vitest-only shell 测试与 playwright spec（环境性失败）。
 root = "apps/daemon"
+# 宿主 HELIX_* 注入结构性免疫（CAND-581）：preload 在所有测试文件 import 之前
+# 剥离 process.env 全部 HELIX_ 前缀键（会话内跑测试两污染面同免疫；守护测试
+# test/unit/env-preload-guard.test.ts）。路径相对本 bunfig 所在目录（仓根）。
+preload = ["./apps/daemon/test/helpers/helix-env-strip.ts"]

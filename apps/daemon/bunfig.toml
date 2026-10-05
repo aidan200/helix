@@ -1,0 +1,12 @@
+# daemon 包级 bunfig：仅覆盖「cd apps/daemon && bun test」本地姿势的 preload 接线。
+# bun 不向上查找 bunfig.toml（实测 1.4.2：cwd 无 bunfig 即零配置跑），仓根
+# bunfig 的 [test] preload 只在从仓根跑（CI 同构 `bun test apps/daemon`）时生效——
+# 本文件补齐本地姿势，双配置双姿势同构（守护：test/unit/env-preload-guard.test.ts）。
+# 注意：这里刻意不写 test.root——root 语义与仓根 bunfig 的 root="apps/daemon"
+# 分属两种 cwd 姿势，包级缺省 "." 即本包，勿复制仓根值（会拼出不存在的子路径）。
+
+[test]
+# 宿主 HELIX_* 注入结构性免疫（CAND-581）：preload 在所有测试文件 import 之前
+# 剥离 process.env 全部 HELIX_ 前缀键。裸相对路径（无 ./ 前缀）会被按模块名
+# 解析而 not found——必须 ./ 前缀（相对 cwd，即本包根）。
+preload = ["./test/helpers/helix-env-strip.ts"]
