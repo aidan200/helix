@@ -265,6 +265,9 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "SURFACE_INSTRUCTION_FRAME_TYPES", // 表面协议地基批（M0）：指令帧注册面恒一种（D8）
       "SURFACE_NAMESPACE_KINDS", // 表面协议地基批（M0）：surfaceId 命名空间词汇表
       "SURFACE_RISK_LEVELS", // 表面协议地基批（M0）：risk 三档（D3 挂动作）
+      "SURFACE_VERBS", // M2 动词注册校验面：动词封闭词汇表（D4）
+      "SURFACE_VERB_CAPABILITIES", // M2 动词注册校验面：命名空间→动词封闭注册（D4）
+      "SURFACE_VERB_RISKS", // M2 动词注册校验面：动词→risk 注册档（D3 挂动作）
       "SYSTEM_SESSION_ID",
       "TAIL_WINDOW_SIZE", // W3 #2.36：快照尾窗口径单源（daemon 组装 + shell 恢复骨架文案共引）
       "TRACE_PAGE_DEFAULT",
@@ -292,12 +295,15 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "isSurfaceEventOrigin",
       "isSurfaceNamespaceKind",
       "isSurfaceRisk",
+      "isSurfaceVerb", // M2 动词注册校验面：私造动词拒收守卫
+      "isSurfaceVerbAllowed", // M2 动词注册校验面：跨表面越权注册拒收守卫
       "lastMainAnchorId",
       // 投影·trace 域（续）
       "normalizeTraceQuery",
       "pageTraceEvents",
       // 表面协议地基批（M0）续
       "surfaceIdOf",
+      "surfaceVerbRisk", // M2 动词注册校验面：动词 risk 注册档读取
     ]);
   });
 

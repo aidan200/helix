@@ -5,7 +5,8 @@
  * - surface.register → SurfaceRegistry.register（幂等覆盖 descriptor）→
  *   surface.registered 点对点回执（daemon 分配 connId 身份）；payload 校验：
  *   descriptor 经 isSurfaceDescriptor（kind ∈ 命名空间 + capabilities 非空
- *   动词清单）；
+ *   动词清单）+ Registry 动词注册校验面（M2 D4——私造动词/命名空间越权
+ *   抛错 → command.invalid_payload）；
  * - surface.unregister → Registry.unregister（对称语义；断连自动等效）；
  * - surface.event → Registry.observe 归一（surfaceId 盖章 + 词汇表校验 +
  *   投递观察者）；结构性非法回 command.invalid_payload；
@@ -27,7 +28,13 @@ export function handleSurfaceRegister(ctx: SurfaceCommandContext): void {
       "payload.descriptor 应为合法 SurfaceDescriptor（kind ∈ shell/browser/cli + capabilities 非空动词清单）",
     );
   }
-  const reg = ctx.surface.registry.register(sender, descriptor);
+  let reg;
+  try {
+    reg = ctx.surface.registry.register(sender, descriptor);
+  } catch (err) {
+    // 动词注册校验面（D4）：私造动词/命名空间越权——结构性非法回执
+    return ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+  }
   const frame: SurfaceRegisteredEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,

@@ -67,9 +67,10 @@ function makeService(config: RuntimeConfigPort): StewardService {
   createEngine: createEngineFromPort(noopLlm())});
 }
 
-/** 管家注册面十一工具全集（注册序——十 LLM 可见 + steward_confirm 面板原语；
+/** 管家注册面十五工具全集（注册序——十四 LLM 可见 + steward_confirm 面板原语；
  *  管家记忆 B1 增 remember；start_session 批增带话题开局双工具分工；progress
- *  批 M3 增 read_session 尾部深读）。 */
+ *  批 M3 增 read_session 尾部深读；M2 表面批增四泛型工具
+ *  surface_list/snapshot/read/act——D4 能力协商不加工具膨胀）。 */
 const STEWARD_TOOL_NAMES = [
   "list_instances",
   "list_tasks",
@@ -81,6 +82,10 @@ const STEWARD_TOOL_NAMES = [
   "start_session",
   "spawn_review_task",
   "remember",
+  "surface_list",
+  "snapshot",
+  "read",
+  "act",
   "steward_confirm",
 ] as const;
 

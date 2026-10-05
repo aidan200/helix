@@ -307,22 +307,26 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
     expect(prompt).toContain("不伪装用户身份");
   });
 
-  test("工具面恰为十个（四只读 + 六提案原语——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember；start_session 批扩带话题开局；progress 批 M3 扩 read_session）——无 spawn/kill 等旁路", async () => {
+  test("工具面恰为十四个（四只读 + 六提案原语 + M2 四泛型表面工具 surface_list/snapshot/read/act——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember；start_session 批扩带话题开局；progress 批 M3 扩 read_session）——无 spawn/kill 等旁路", async () => {
     const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }]);
     const { svc } = makeService({ llm });
     await svc.ask("hi");
     const names = llm.calls[0]!.request.tools.map((t) => t.name).sort();
     expect(names).toEqual([
+      "act",
       "create_session",
       "deliver_to_session",
       "list_instances",
       "list_tasks",
       "propose_send",
       "query_recent_work",
+      "read",
       "read_session",
       "remember",
+      "snapshot",
       "spawn_review_task",
       "start_session",
+      "surface_list",
     ]);
   });
 });

@@ -16,6 +16,7 @@ import type { WriteFactRegistry } from "../application/services/WriteFactRegistr
 import { ResourceService } from "../application/services/ResourceService";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { SurfaceRegistry } from "../application/surface/SurfaceRegistry";
+import { SurfaceActionService } from "../application/surface/SurfaceActionService";
 import type { FrameSender } from "../adapters/driving/ws-server/EventStream";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
@@ -903,7 +904,17 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const browserSurfaceAdapter = new BrowserSurfaceAdapter({
     registry: surfaceRegistry,
     awarenessOn: () => persistence.runtimeConfig.get(SURFACE_AWARENESS_KEY) === "1",
+    // M2 act 执行面：CDP 操作面窄接口（BrowserPort 结构性子集）
+    browser: browserPort,
     logger,
+  });
+  // M2：browser 表面动作执行面注册（SurfaceRegistry act 路由 → adapter.act
+  //  ——同一动作管道，D8 不另开通道；回声窗口在 adapter 执行面内开关）。
+  surfaceRegistry.registerLocal(browserSurfaceAdapter);
+  // M2：管家消费面四泛型工具执行体（surface_list/snapshot/read/act）
+  const surfaceActionService = new SurfaceActionService({
+    registry: surfaceRegistry,
+    browser: browserSurfaceAdapter,
   });
   surfaceRegistry.addObserver((event) => stewardPerception.onSurfaceEvent(event));
   if (browserPort instanceof CdpConnectionManager) {
@@ -973,6 +984,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 体不再直接广播页面指令帧）；旧 steward.navigate 由 Registry 兼容镜像
     // 双发（M1 前检查点删除）。risk=write——D3 挂动作（呈现面用户点按闸）。
     emitNavigate: (payload) => surfaceRegistry.act("navigate", { sessionId: payload.sessionId }, { risk: "write" }),
+    // M2 表面消费面（四泛型工具执行体——act 经确认闸后走同一动作管道）
+    surfaces: surfaceActionService,
     // A2：L1 感知面（快照 + query_recent_work 读面 + create_session 执行面
     // ——与 shell 新建会话同一 startDraftSession 服务路径；entryCount additive）。
     sessions: {

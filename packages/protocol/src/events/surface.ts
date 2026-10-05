@@ -82,6 +82,56 @@ export function isSurfaceNamespaceKind(v: unknown): v is SurfaceNamespaceKind {
   return typeof v === "string" && (SURFACE_NAMESPACE_KINDS as readonly string[]).includes(v);
 }
 
+// ── 动词封闭词汇表 + 注册校验面（M2，D4）──────────────────────
+
+/**
+ * 动词封闭词汇表（D4 跨表面通用封闭集——M2 动词注册校验面）：想让表面做
+ * 新事 = 声明本词汇表内的动词能力，**缺词停下申报不私造**；各表面私造
+ * 动词/跨表面同义不同名（如 click/tap/press 并存）由注册校验面拒绝。
+ */
+export const SURFACE_VERBS = ["click", "type", "navigate", "scroll", "focus"] as const;
+
+/** 动作动词（封闭词汇表成员）。 */
+export type SurfaceVerb = (typeof SURFACE_VERBS)[number];
+
+/**
+ * 命名空间→已注册动词清单（D4 封闭注册：browser 五动词 / shell 恰
+ * navigate（M0 收编存量）/ cli 空（M3 CLI surface 批补面））。
+ */
+export const SURFACE_VERB_CAPABILITIES: Record<SurfaceNamespaceKind, readonly SurfaceVerb[]> = {
+  shell: ["navigate"],
+  browser: ["click", "type", "navigate", "scroll", "focus"],
+  cli: [],
+};
+
+/**
+ * 动词→risk 注册档（D3 risk 挂动作不挂宿主：档是动作的内在属性——
+ * 请求 risk 只可升档不可降档）。scroll/focus 为浏览态读操作（read 免
+ * 确认）；click/type/navigate 改变页面与目标（write 走确认闸）。
+ */
+export const SURFACE_VERB_RISKS: Record<SurfaceVerb, SurfaceRisk> = {
+  click: "write",
+  type: "write",
+  navigate: "write",
+  scroll: "read",
+  focus: "read",
+};
+
+/** 动词词汇表成员判定（运行时守卫——私造动词拒收）。 */
+export function isSurfaceVerb(v: unknown): v is SurfaceVerb {
+  return typeof v === "string" && (SURFACE_VERBS as readonly string[]).includes(v);
+}
+
+/** 动词→命名空间注册面校验（跨表面越权/同义不同名防点）。 */
+export function isSurfaceVerbAllowed(kind: SurfaceNamespaceKind, verb: string): boolean {
+  return (SURFACE_VERB_CAPABILITIES[kind] as readonly string[]).includes(verb);
+}
+
+/** 动词 risk 注册档读取（D3 挂动作——降档即拒的判定基准）。 */
+export function surfaceVerbRisk(verb: SurfaceVerb): SurfaceRisk {
+  return SURFACE_VERB_RISKS[verb];
+}
+
 /** SurfaceDescriptor 结构判定（kind ∈ 命名空间 + capabilities 非空动词清单）。 */
 export function isSurfaceDescriptor(v: unknown): v is SurfaceDescriptor {
   if (typeof v !== "object" || v === null) return false;

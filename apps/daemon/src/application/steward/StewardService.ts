@@ -55,6 +55,9 @@ import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
 import type { StewardToolResult, StewardToolSpec } from "../ports/outbound/StewardToolSpec";
+import type { StewardSurfacePort, StewardSurfaceActRequest } from "../ports/outbound/StewardSurfacePort";
+import { evaluateSurfaceRisk, surfaceRiskRank } from "../surface/SurfaceRiskGate";
+import { isSurfaceVerb, surfaceVerbRisk, type SurfaceRisk } from "@helix/protocol";
 import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/agent/InterruptionMarkers";
 import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 
@@ -79,6 +82,19 @@ function summarizeArgsLite(args: unknown): string {
   } catch {
     return "(unserializable)";
   }
+}
+
+/** 豁免旗标嗅探（M2 突变面）：任何「免确认」企图位——闸面整单拒绝。 */
+function hasExemptionAffordance(args: Record<string, unknown>): boolean {
+  for (const key of ["exempt", "auto_confirm", "autoConfirm", "skip_confirmation", "skipConfirm", "confirmed"]) {
+    if (args[key] === true) return true;
+  }
+  return false;
+}
+
+/** act 回执文本（带序列号回流——D7-1）。 */
+function formatActReceipt(result: { ok: boolean; seq: number; detail: string }): string {
+  return `动作回执（seq=${result.seq}）：${result.ok ? "成功" : "失败"}——${result.detail}`;
 }
 
 /** 块集文本派生（port 块模型——text 块拼接；原 loopBlocksText 的 port 形态）。 */
@@ -572,6 +588,10 @@ export interface StewardServiceDeps {
    *  兼容镜像双发，M1 前检查点删除。域层纯 payload 端口零组帧。
    *  缺席 = 无切页指令（语义面零降级，仅行为缺席）。 */
   readonly emitNavigate?: (payload: StewardNavigatePayload) => void;
+  /** M2 表面消费面（四泛型工具 surface_list/snapshot/read/act 执行体——
+   *  StewardSurfacePort；act 经确认闸后走同一动作管道）。缺席 = 四工具
+   *  引导式降级（零抛错，对话主链路不受影响）。 */
+  readonly surfaces?: StewardSurfacePort;
   /** A2：L1 感知面（快照 + query_recent_work + create_session 执行面）。
    *  缺席 = 无快照段/query_recent_work 降级提示/create_session 引导式不可用
    *  ——感知查询绝不能挡住对话主链路（缺席零抛错）。 */
@@ -615,9 +635,10 @@ export interface StewardServiceDeps {
 }
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
- *  spawnReview = 动作标识；deliverSession = 递话目标会话——见各分支注释）。 */
+ *  spawnReview = 动作标识；deliverSession = 递话目标会话；surfaceAct = 表面
+ *  动作目标 surfaceId——见各分支注释）。 */
 interface PendingAction {
-  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession";
+  readonly kind: "send" | "createSession" | "spawnReview" | "deliverSession" | "surfaceAct";
   /** 面板确认卡「目标」行显示值（send = agentId；createSession = "新会话"；
    *  spawnReview = "<reviewType>@<project>"；deliverSession = sessionId）。 */
   readonly displayTarget: string;
@@ -639,6 +660,8 @@ interface PendingAction {
     project: string;
     params: Record<string, unknown>;
   };
+  /** surfaceAct 形态载荷（M2 表面动作——risk 已定档，经确认闸后走同一动作管道）。 */
+  readonly surfaceAct?: StewardSurfaceActRequest;
 }
 
 /** 工具声明（JSON Schema 面——flash 级模型的 function calling 契约）。 */
@@ -786,6 +809,69 @@ const TOOL_REMEMBER: StewardLlmTool = {
   },
 };
 
+/** surface_list（M2 四泛型工具之一，D4）：动态发现表面与能力——新表面/新
+ *  动词靠它发现，不加工具膨胀。 */
+const TOOL_SURFACE_LIST: StewardLlmTool = {
+  name: "surface_list",
+  description:
+    "列出当前全部表面（浏览器 tab / helix 页面等）及其能力动词清单——不知道 surfaceId 或想知道能做什么时先用本工具。只读免确认。",
+  parameters: { type: "object", properties: {}, additionalProperties: false },
+};
+
+/** snapshot：表面状态快照（只读免确认）。 */
+const TOOL_SNAPSHOT: StewardLlmTool = {
+  name: "snapshot",
+  description:
+    "读取指定表面的当前状态快照（页面标题/网址/可见文本摘要）——帮用户看页面现状时用。只读免确认；surfaceId 用 surface_list 查（如 browser:xxx）。",
+  parameters: {
+    type: "object",
+    properties: {
+      surfaceId: { type: "string", description: "目标表面 id（如 browser:<targetId>，先用 surface_list 查）" },
+    },
+    required: ["surfaceId"],
+    additionalProperties: false,
+  },
+};
+
+/** read：表面内容读取（只读免确认）。 */
+const TOOL_READ: StewardLlmTool = {
+  name: "read",
+  description:
+    "读取指定表面的页面内容（可见文本全文，可限定元素范围）——需要看页面具体写了什么时用。只读免确认。",
+  parameters: {
+    type: "object",
+    properties: {
+      surfaceId: { type: "string", description: "目标表面 id（如 browser:<targetId>）" },
+      selector: { type: "string", description: "CSS 选择器限定范围（可选，缺省整页）" },
+      max_chars: { type: "number", description: "返回长度上限（可选，缺省 4000）" },
+    },
+    required: ["surfaceId"],
+    additionalProperties: false,
+  },
+};
+
+/** act：表面动作（risk 三级闸——read 直行 / write·destructive 提案确认后执行）。 */
+const TOOL_ACT: StewardLlmTool = {
+  name: "act",
+  description:
+    "在指定表面上执行动作（verb 封闭词汇表：click/type/navigate/scroll/focus）。risk 挂动作：scroll/focus 免确认直行；click/type/navigate 属 write——仅提案，系统会请求用户确认后才执行；destructive 强制确认不可豁免。args 按动词：click {selector}、type {selector,text}、navigate {url}、scroll {y,direction}、focus {selector}。",
+  parameters: {
+    type: "object",
+    properties: {
+      surfaceId: { type: "string", description: "目标表面 id（如 browser:<targetId>，先用 surface_list 查）" },
+      verb: { type: "string", enum: ["click", "type", "navigate", "scroll", "focus"], description: "动作动词（封闭词汇表，不得私造）" },
+      args: { type: "object", description: "动词参数（按动词形状，见工具描述）" },
+      risk: {
+        type: "string",
+        enum: ["read", "write", "destructive"],
+        description: "风险档（可选，缺省按动词注册档；只可升档不可降档）",
+      },
+    },
+    required: ["surfaceId", "verb"],
+    additionalProperties: false,
+  },
+};
+
 const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_LIST_INSTANCES,
   TOOL_LIST_TASKS,
@@ -797,15 +883,22 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_START_SESSION,
   TOOL_SPAWN_REVIEW_TASK,
   TOOL_REMEMBER,
+  TOOL_SURFACE_LIST,
+  TOOL_SNAPSHOT,
+  TOOL_READ,
+  TOOL_ACT,
 ];
 
-/** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行）。 */
+/** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行；
+ *  act 为 risk 动态档——read 直行/write·destructive 挂闸，判定在
+ *  gateSurfaceAct）。 */
 const GATED_TOOLS: ReadonlySet<string> = new Set([
   "propose_send",
   "deliver_to_session",
   "create_session",
   "start_session",
   "spawn_review_task",
+  "act",
   // remember 已摘闸（B5：记忆写入静默化——工具调用即入库 + memory_written
   // 通知，不再挂确认卡；防误吞闸仍由 directRemember 内校验承担）。
 ]);
@@ -1162,6 +1255,11 @@ export class StewardService {
       args: (event.args ?? {}) as Record<string, unknown>,
     });
     if (!gated.pause) {
+      // read 档直行（M2 act）：approve 放行——工具正常执行（免确认直行）
+      if (gated.approve === true) {
+        await this.engine?.resume?.(event.pauseToken, { kind: "approve" });
+        return;
+      }
       // 校验未过直出（原 pause:false + outcome 路径）：guidance → reject
       // （模型知情续跑）；terminate → resolve 翻译（结果入账 + run 终结）。
       const outcome = gated.outcome;
@@ -1470,6 +1568,19 @@ export class StewardService {
    *  执行后才产生，仍在执行体；deliverSession 的 navigate 已提前到受理时——
    *  设计稿 §3.4）。 */
   private async executePending(action: PendingAction): Promise<{ ok: boolean; detail: string }> {
+    if (action.kind === "surfaceAct") {
+      // M2 表面动作：确认后走同一动作管道（Registry act 路由 + seq 回执）
+      const request = action.surfaceAct!;
+      if (this.deps.surfaces === undefined) {
+        return { ok: false, detail: "表面能力面未装配（daemon 装配缺 surfaces 源）" };
+      }
+      try {
+        const result = await this.deps.surfaces.act(request);
+        return { ok: result.ok, detail: capToolResultText(formatActReceipt(result)) };
+      } catch (err) {
+        return { ok: false, detail: `表面动作执行异常：${(err as Error).message}` };
+      }
+    }
     if (action.kind === "send") {
       const outcome = this.deps.orchestration.send(action.send!.agentId, action.send!.message);
       return outcome.delivered
@@ -1860,6 +1971,55 @@ export class StewardService {
           : { text: outcome.text, ...(outcome.isError === true ? { isError: true } : {}) };
       },
     });
+    // ── M2 四泛型工具（D4）：surface_list / snapshot / read 只读直行；
+    //    act 挂闸（GATED_TOOLS）——read 档经引擎 approve 面直行执行体，
+    //    write/destructive 走确认闸（本执行面不直行——防绕过）。
+    this.toolSpecs.push({
+      ...TOOL_SURFACE_LIST,
+      execute: async () => {
+        if (this.deps.surfaces === undefined) {
+          return { text: "表面能力面未装配（daemon 装配缺 surfaces 源）", isError: true };
+        }
+        try {
+          const rows = await this.deps.surfaces.list();
+          return { text: capToolResultText(JSON.stringify(rows)) };
+        } catch (err) {
+          return { text: `表面清单读取失败：${(err as Error).message}`, isError: true };
+        }
+      },
+    });
+    this.toolSpecs.push({
+      ...TOOL_SNAPSHOT,
+      execute: async (args) => ({
+        text: capToolResultText(await this.surfaceReadOf(args as Record<string, unknown>, "snapshot")),
+      }),
+    });
+    this.toolSpecs.push({
+      ...TOOL_READ,
+      execute: async (args) => ({
+        text: capToolResultText(await this.surfaceReadOf(args as Record<string, unknown>, "read")),
+      }),
+    });
+    this.toolSpecs.push({
+      ...TOOL_ACT,
+      execute: async (args) => {
+        const decision = await this.gateSurfaceAct(args as Record<string, unknown>);
+        if (decision.kind === "refuse") return { text: decision.reason, isError: true };
+        if (decision.kind === "proposal") {
+          // 防绕过：write/destructive 不经用户确认恒不执行（包括自动化面）
+          return {
+            text: "write/destructive 动作须经确认闸（propose→用户确认→执行）——本执行面不直行",
+            isError: true,
+          };
+        }
+        try {
+          const result = await this.deps.surfaces!.act(decision.request);
+          return { text: capToolResultText(formatActReceipt(result)), ...(result.ok ? {} : { isError: true }) };
+        } catch (err) {
+          return { text: `表面动作执行异常：${(err as Error).message}`, isError: true };
+        }
+      },
+    });
     // steward_confirm：面板确认原语（hidden——不进引擎工具面（LLM 不可见）；
     // actionId 单次消费语义与 handler 层 steward.confirm 命令等价，面板直调
     // svc.confirm——引擎轨道零注册）
@@ -1879,8 +2039,20 @@ export class StewardService {
    */
   private async gateWriteTool(
     ctx: GateToolContext,
-  ): Promise<{ pause: true; action: PendingAction } | { pause: false; outcome?: GateToolOutcome }> {
+  ): Promise<
+    | { pause: true; action: PendingAction }
+    | { pause: false; approve?: true; outcome?: GateToolOutcome }
+  > {
     const { toolName: name, args } = ctx;
+    if (name === "act") {
+      // M2 表面动作（risk 动态档）：read 直行（approve 放行工具执行）/
+      // write·destructive 挂闸（同一 steward.confirmations 两段式）/
+      // 拒（私造动词/risk 降档/豁免尝试）。
+      const decision = await this.gateSurfaceAct(args);
+      if (decision.kind === "refuse") return { pause: false, outcome: { kind: "result", text: decision.reason, isError: true } };
+      if (decision.kind === "direct") return { pause: false, approve: true };
+      return { pause: true, action: decision.action };
+    }
     if (name === "propose_send") {
       const action = await this.pendingActionOfProposeSend(args);
       if ("guidance" in action) return { pause: false, outcome: action.outcome };
@@ -1905,6 +2077,93 @@ export class StewardService {
       return { pause: true, action: gated };
     }
     return { pause: false };
+  }
+
+  /**
+   * 表面动作闸判定（M2 risk 三级闸——D3 risk 挂动作）：
+   * - 校验面：surfaceId/verb（封闭词汇表——私造动词拒）/risk（只可升档
+   *   不可降档）；豁免旗标（auto_confirm/exempt 类）嗅探 → 闸面整单拒绝
+   *   （【突变验证钉子】destructive 不可豁免）；
+   * - 判定面（SurfaceRiskGate）：read → direct（approve 直行）；write/
+   *   destructive → proposal（同一 steward.confirmations 两段式——
+   *   propose→用户确认→执行）。
+   */
+  private async gateSurfaceAct(
+    args: Record<string, unknown>,
+  ): Promise<
+    | { kind: "direct"; request: StewardSurfaceActRequest }
+    | { kind: "proposal"; action: PendingAction }
+    | { kind: "refuse"; reason: string }
+  > {
+    if (this.deps.surfaces === undefined) {
+      return { kind: "refuse", reason: "表面能力面未装配（daemon 装配缺 surfaces 源）" };
+    }
+    const surfaceId = typeof args.surfaceId === "string" ? args.surfaceId.trim() : "";
+    if (surfaceId === "") {
+      return { kind: "refuse", reason: "参数缺失：surfaceId 必填（先用 surface_list 发现表面）" };
+    }
+    const verbRaw = args.verb;
+    if (!isSurfaceVerb(verbRaw)) {
+      return {
+        kind: "refuse",
+        reason: `动词未注册（verb=${String(verbRaw)}）——封闭词汇表 click/type/navigate/scroll/focus（缺词停下申报，不私造）`,
+      };
+    }
+    const verb = verbRaw;
+    const actionArgs =
+      typeof args.args === "object" && args.args !== null && !Array.isArray(args.args)
+        ? (args.args as Record<string, unknown>)
+        : {};
+    const floor = surfaceVerbRisk(verb);
+    let risk: SurfaceRisk = floor;
+    const riskRaw = args.risk;
+    if (riskRaw !== undefined) {
+      if (riskRaw !== "read" && riskRaw !== "write" && riskRaw !== "destructive") {
+        return { kind: "refuse", reason: `risk 非法：${JSON.stringify(riskRaw)}（应为 read/write/destructive）` };
+      }
+      if (surfaceRiskRank(riskRaw) < surfaceRiskRank(floor)) {
+        return {
+          kind: "refuse",
+          reason: `risk 降级拒绝：verb=${verb} 注册档=${floor}，请求=${riskRaw}（D3 risk 挂动作——只可升档）`,
+        };
+      }
+      risk = riskRaw;
+    }
+    // 豁免尝试嗅探（top-level 与 args 内两处）——闸面拒绝不可豁免
+    const exempt = hasExemptionAffordance(args) || hasExemptionAffordance(actionArgs);
+    const decision = evaluateSurfaceRisk(risk, { exempt });
+    if (decision.outcome === "reject") return { kind: "refuse", reason: decision.reason };
+    const request: StewardSurfaceActRequest = { surfaceId, verb, args: actionArgs, risk };
+    if (decision.outcome === "direct") return { kind: "direct", request };
+    return {
+      kind: "proposal",
+      action: {
+        kind: "surfaceAct",
+        displayTarget: surfaceId,
+        message: `表面动作提案：${verb} @ ${surfaceId}（risk=${risk}）：${summarizeArgsLite(actionArgs)}`,
+        toolCall: { id: "", name: "act" },
+        surfaceAct: request,
+      },
+    };
+  }
+
+  /** 只读工具执行体（snapshot/read——免确认直行）。 */
+  private async surfaceReadOf(args: Record<string, unknown>, mode: "snapshot" | "read"): Promise<string> {
+    if (this.deps.surfaces === undefined) return "表面能力面未装配（daemon 装配缺 surfaces 源）";
+    const surfaceId = typeof args.surfaceId === "string" ? args.surfaceId.trim() : "";
+    if (surfaceId === "") return "参数缺失：surfaceId 必填（先用 surface_list 发现表面）";
+    try {
+      const result =
+        mode === "snapshot"
+          ? await this.deps.surfaces.snapshot(surfaceId)
+          : await this.deps.surfaces.read(surfaceId, {
+              ...(typeof args.selector === "string" && args.selector !== "" ? { selector: args.selector } : {}),
+              ...(typeof args.max_chars === "number" && Number.isFinite(args.max_chars) ? { maxChars: args.max_chars } : {}),
+            });
+      return result.ok ? result.text : `读取失败：${result.text}`;
+    } catch (err) {
+      return `表面读取异常：${(err as Error).message}`;
+    }
   }
 
   /** propose_send 提案判定（参数校验 → 运行态校验 → PendingAction）。 */

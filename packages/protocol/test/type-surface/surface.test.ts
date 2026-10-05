@@ -20,12 +20,18 @@ import {
   SURFACE_INSTRUCTION_FRAME_TYPES,
   SURFACE_NAMESPACE_KINDS,
   SURFACE_RISK_LEVELS,
+  SURFACE_VERB_CAPABILITIES,
+  SURFACE_VERB_RISKS,
+  SURFACE_VERBS,
   isSurfaceDescriptor,
   isSurfaceEventKind,
   isSurfaceEventOrigin,
   isSurfaceNamespaceKind,
   isSurfaceRisk,
+  isSurfaceVerb,
+  isSurfaceVerbAllowed,
   surfaceIdOf,
+  surfaceVerbRisk,
 } from "../../src/index";
 import type {
   SurfaceActionEvent,
@@ -41,6 +47,7 @@ import type {
   SurfaceRisk,
   SurfaceUnregisterCommand,
   SurfaceActionResultCommand,
+  SurfaceVerb,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -148,6 +155,51 @@ describe("指令帧唯一性（D8 通道治理）", () => {
       expect((SURFACE_INSTRUCTION_FRAME_TYPES as readonly string[]).includes(t)).toBe(false);
       expect((EVENT_TYPES as readonly string[]).includes(t)).toBe(true); // 兼容期仍在册（M1 前删除）
     }
+  });
+});
+
+// ── 动词封闭词汇表（M2 动词注册校验面，D4）────────────────────
+
+describe("surface 动词封闭词汇表（D4 注册校验面——防私造动词/跨表面同义不同名）", () => {
+  test("动词词汇表恰五值（click/type/navigate/scroll/focus）且无重复", () => {
+    expect([...SURFACE_VERBS]).toEqual(["click", "type", "navigate", "scroll", "focus"]);
+    expect(new Set(SURFACE_VERBS).size).toBe(SURFACE_VERBS.length);
+  });
+
+  test("命名空间→动词注册面：browser 五动词 / shell 恰 navigate / cli 空（M3）", () => {
+    expect([...SURFACE_VERB_CAPABILITIES.browser]).toEqual(["click", "type", "navigate", "scroll", "focus"]);
+    expect([...SURFACE_VERB_CAPABILITIES.shell]).toEqual(["navigate"]);
+    expect([...SURFACE_VERB_CAPABILITIES.cli]).toEqual([]);
+    // 注册面成员必须在封闭词汇表内（注册校验面自身的自洽）
+    for (const verbs of Object.values(SURFACE_VERB_CAPABILITIES)) {
+      for (const verb of verbs) {
+        expect((SURFACE_VERBS as readonly string[]).includes(verb), `注册面含词汇表外动词：${verb}`).toBe(true);
+      }
+    }
+  });
+
+  test("动词→risk 注册档（D3 risk 挂动作：scroll/focus=read，click/type/navigate=write）", () => {
+    expect(surfaceVerbRisk("scroll")).toBe("read");
+    expect(surfaceVerbRisk("focus")).toBe("read");
+    expect(surfaceVerbRisk("click")).toBe("write");
+    expect(surfaceVerbRisk("type")).toBe("write");
+    expect(surfaceVerbRisk("navigate")).toBe("write");
+    expect(Object.keys(SURFACE_VERB_RISKS).sort()).toEqual([...SURFACE_VERBS].sort());
+  });
+
+  test("isSurfaceVerb / isSurfaceVerbAllowed 运行时守卫", () => {
+    expect(isSurfaceVerb("click")).toBe(true);
+    expect(isSurfaceVerb("frobnicate")).toBe(false); // 私造动词（突变验证词汇面）
+    expect(isSurfaceVerb(1)).toBe(false);
+    expect(isSurfaceVerbAllowed("browser", "type")).toBe(true);
+    expect(isSurfaceVerbAllowed("shell", "type")).toBe(false); // 跨表面越权注册拒绝
+    expect(isSurfaceVerbAllowed("shell", "navigate")).toBe(true);
+    expect(isSurfaceVerbAllowed("cli", "navigate")).toBe(false); // cli 未接（M3）
+    // 词汇表外动词任何命名空间都不可注册
+    expect(isSurfaceVerbAllowed("browser", "frobnicate")).toBe(false);
+    // 编译期窄化：词汇表成员是 SurfaceVerb（类型级契约）
+    const verb: SurfaceVerb = "click";
+    expect(isSurfaceVerb(verb)).toBe(true);
   });
 });
 

@@ -98,7 +98,7 @@ describe("SurfaceRegistry：act 路由（verb→adapter）", () => {
     expect(rig.sent[0]!.action.surfaceIds?.[0]?.startsWith("browser:")).toBe(true);
   });
 
-  test("未注册 verb 拒绝：delivered 0 + reason（M0 无动词注册校验面——M2）", () => {
+  test("未注册 verb 拒绝：delivered 0 + reason（M2 动词注册校验面——词汇表外动词注册/执行均拒）", () => {
     const rig = makeRig();
     rig.registry.register("conn-shell", SHELL_DESC);
     const out = rig.registry.act("scroll_into_view", {}, { risk: "read" });
@@ -235,5 +235,142 @@ describe("SurfaceRegistry：observeDirect（daemon 内 adapter 直出归一—�
     expect(rig.registry.observeDirect({ kind: "navigated", origin: "system", surfaceId: "browser" })).toBeNull();
     expect(rig.registry.observeDirect({ kind: "navigated", origin: "system", surfaceId: "browser:t1" })).not.toBeNull();
     expect(rig.observed).toHaveLength(1);
+  });
+});
+
+// ── M2：动词注册校验面（D4）+ 本地执行面（browser act 路由）+ risk 档 ──
+
+/** 假本地执行器（M2 act 路由面——记录派发、可剧本化成败）。 */
+function fakeLocalExecutor(opts: {
+  namespace?: "browser" | "shell" | "cli";
+  capabilities?: readonly string[];
+  behavior?: (verb: string, args: Record<string, unknown>) => Promise<{ ok: boolean; detail?: string }>;
+} = {}) {
+  const calls: { verb: string; args: Record<string, unknown>; ctx: { seq: number; risk: string; surfaceId?: string } }[] = [];
+  const executor = {
+    namespace: opts.namespace ?? ("browser" as const),
+    capabilities: () => opts.capabilities ?? ["click", "type", "navigate", "scroll", "focus"],
+    act: async (
+      verb: string,
+      args: Record<string, unknown>,
+      ctx: { seq: number; risk: string; surfaceId?: string },
+    ) => {
+      calls.push({ verb, args, ctx });
+      return opts.behavior ? opts.behavior(verb, args) : { ok: true, detail: `${verb} 已执行` };
+    },
+  };
+  return { executor, calls };
+}
+
+describe("SurfaceRegistry：动词注册校验面（D4 封闭词汇表——防私造动词）", () => {
+  test("【突变验证】私造动词注册被拒：descriptor capabilities 含词汇表外动词 → register 抛错", () => {
+    const rig = makeRig();
+    expect(() =>
+      rig.registry.register("conn-a", { kind: "browser", capabilities: ["click", "frobnicate"] }),
+    ).toThrow(/frobnicate/);
+    expect(() => rig.registry.register("conn-a", { kind: "shell", capabilities: ["type"] })).toThrow(/type/);
+  });
+
+  test("【突变验证】私造动词 act 被拒：delivered 0 + rejected + reason 带动词名", () => {
+    const rig = makeRig();
+    rig.registry.register("conn-a", SHELL_DESC);
+    const out = rig.registry.act("frobnicate", {}, { risk: "read" });
+    expect(out.rejected).toBe(true);
+    expect(out.delivered).toBe(0);
+    expect(out.targets).toEqual([]);
+    expect(out.reason ?? "").toContain("frobnicate");
+    expect(rig.sent.length).toBe(0);
+  });
+
+  test("命名空间越权动词拒绝：act 带 surfaceId 时动词须注册于该命名空间", () => {
+    const rig = makeRig();
+    rig.registry.register("conn-a", SHELL_DESC);
+    // type 未注册于 shell——即使某表面 capabilities 声明也走不到派发
+    const out = rig.registry.act("type", { selector: "#a", text: "x" }, { risk: "write", surfaceId: "shell:c1:chat" });
+    expect(out.rejected).toBe(true);
+    expect(out.reason ?? "").toContain("type");
+  });
+
+  test("risk 档挂动作（D3）：请求低于动词注册档 → 降级拒绝（scroll=read 档不可更低；click=write 档拒 read）", () => {
+    const rig = makeRig();
+    rig.registry.register("conn-b", BROWSER_DESC);
+    const out = rig.registry.act("click", {}, { risk: "read" });
+    expect(out.rejected).toBe(true);
+    expect(out.reason ?? "").toContain("read");
+    expect(rig.sent.length).toBe(0);
+  });
+});
+
+describe("SurfaceRegistry：本地执行面（daemon 内 adapter——M2 browser act）", () => {
+  test("act 路由到本地执行器：seq 分配 + ctx 带 seq/risk/surfaceId + settled 回执销账", async () => {
+    const rig = makeRig();
+    const { executor, calls } = fakeLocalExecutor();
+    rig.registry.registerLocal(executor);
+    const out = rig.registry.act("click", { selector: "#submit" }, { risk: "write", surfaceId: "browser:tab-1" });
+    expect(out.delivered).toBe(1);
+    expect(out.seq).toBe(1);
+    expect(out.targets).toEqual(["browser:tab-1"]);
+    const receipt = await out.settled;
+    expect(receipt.seq).toBe(1);
+    expect(receipt.results).toEqual([{ target: "browser:tab-1", ok: true, detail: "click 已执行" }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.verb).toBe("click");
+    expect(calls[0]!.args).toEqual({ selector: "#submit" });
+    expect(calls[0]!.ctx.seq).toBe(1);
+    expect(calls[0]!.ctx.risk).toBe("write");
+    expect(calls[0]!.ctx.surfaceId).toBe("browser:tab-1");
+    // D7-1 回执销账：settled 后 pending → completed
+    expect(rig.registry.pendingActions()).toHaveLength(0);
+    const done = rig.registry.completedActions();
+    expect(done).toHaveLength(1);
+    expect(done[0]!.ok).toBe(true);
+  });
+
+  test("回执带序列号回流：执行失败/抛错 → completed ok=false（失败可定位不半途）", async () => {
+    const rig = makeRig();
+    const fail = fakeLocalExecutor({
+      behavior: async () => ({ ok: false, detail: "元素未命中" }),
+    });
+    const boom = fakeLocalExecutor({
+      behavior: async () => {
+        throw new Error("执行超时（click，30ms）");
+      },
+    });
+    rig.registry.registerLocal(fail.executor);
+    rig.registry.registerLocal(boom.executor);
+    const out = rig.registry.act("click", {}, { risk: "write", surfaceId: "browser:t1" });
+    const receipt = await out.settled;
+    expect(receipt.seq).toBe(out.seq);
+    expect(receipt.results.map((r) => r.ok)).toEqual([false, false]);
+    expect(receipt.results[0]!.detail).toBe("元素未命中");
+    expect(receipt.results[1]!.detail ?? "").toContain("超时");
+    const done = rig.registry.completedActions();
+    expect(done.map((d) => d.ok)).toEqual([false, false]);
+    expect(done[0]!.seq).toBe(out.seq);
+    expect(done[1]!.seq).toBe(out.seq);
+  });
+
+  test("surfaceId 定向路由：只派发到目标命名空间执行器；动词不在执行器能力面 → 零目标拒绝", async () => {
+    const rig = makeRig();
+    const { executor, calls } = fakeLocalExecutor();
+    rig.registry.registerLocal(executor);
+    rig.registry.register("conn-shell", SHELL_DESC);
+    const out = rig.registry.act("scroll", { y: 500 }, { risk: "read", surfaceId: "browser:t2" });
+    expect(out.delivered).toBe(1);
+    expect(calls[0]!.ctx.surfaceId).toBe("browser:t2");
+    expect(rig.sent.length).toBe(0); // shell 表面无 scroll 能力零打扰
+    const none = rig.registry.act("click", {}, { risk: "write", surfaceId: "shell:c1:chat" });
+    expect(none.rejected).toBe(true); // 越权动词（click 未注册于 shell）——注册校验面拒绝
+    expect(none.delivered).toBe(0);
+    expect(none.reason ?? "").toContain("click");
+    await out.settled;
+    await none.settled;
+  });
+
+  test("describe 读面：已注册表面 + 能力清单（surface_list 动态发现面）", () => {
+    const rig = makeRig();
+    rig.registry.register("conn-a", SHELL_DESC);
+    const listed = rig.registry.describe();
+    expect(listed).toEqual([{ surfaceId: "shell:c1", kind: "shell", capabilities: ["navigate"] }]);
   });
 });
