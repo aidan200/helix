@@ -377,3 +377,39 @@ export interface StewardMemoryListResultEvent extends EventFrame<StewardMemoryLi
   channel?: "steward";
   type: "steward.memory_list.result";
 }
+
+/** steward.notify 建议（接续提案）：label = 按钮文案；verb = 动词指针
+ *  （建议动作的动词标识——点按才动、动作落地仍过确认闸，v1 词表 open_tasks；
+ *  M2 surface.action 协议后扩全动词清单）；sessionId 可选跳转锚。 */
+export interface StewardNotifySuggestion {
+  /** 按钮文案（人读，如「去任务页看看」）。 */
+  label: string;
+  /** 动词指针（可选——缺席 = 无动作面，纯展示建议）。 */
+  verb?: string;
+  /** 跳转锚（可选——verb 涉及具体会话/任务时携带）。 */
+  sessionId?: string;
+}
+
+/** steward.notify payload（管家感知批 M0.5，additive）：主动通知帧——
+ *  分诊器（激活态一次 LLM 双轨产物）的呈现轨载体；**事件帧非指令帧**
+ *  （D8 通道治理：告知发生了什么，建议按钮点按才动、写类动作仍过
+ *  确认闸），与 feed 同订阅闸广播。 */
+export interface StewardNotifyPayload {
+  /** 紧急度：normal = 常规通知（限流 ≤4 条/小时）；high = 门控高危（豁免限流）。 */
+  urgency: "normal" | "high";
+  /** 通知标题（短词，如「任务完成」）。 */
+  title: string;
+  /** 呈现轨正文（≤60 字口语——语音与 toast 同源同判断）。 */
+  body: string;
+  /** 接续提案（可选；点按才动）。 */
+  suggestions?: readonly StewardNotifySuggestion[];
+  /** 连接内单调顺序号（1 起；shell 侧顺序保障/丢帧检测面）。 */
+  seq: number;
+}
+
+/** steward.notify：管家主动通知广播帧（channel = "steward"；仅发已订阅
+ *  连接——与 steward.feed 同闸门同构；呈现即焚，不进对话上下文）。 */
+export interface StewardNotifyEvent extends EventFrame<StewardNotifyPayload> {
+  channel?: "steward";
+  type: "steward.notify";
+}

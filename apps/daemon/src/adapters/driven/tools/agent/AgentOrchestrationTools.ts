@@ -100,7 +100,9 @@ export function createAgentSpawnTool(
     description:
       "指派一个 SubAgent 实例独立执行任务并立即返回（{agentId, spawned}，不等完成）。" +
       "任务完成后其 closure 结论会以 \"agent-N closure: …\" 注入主线驱动下一轮；" +
-      "长任务（预估执行超过 10 分钟）设 reportIntervalMs 开启周期进展报告（建议 600000 起步，自估），" +
+      "周期进展报告（reportIntervalMs）默认不开且每条都会唤醒主线上下文消耗 token——" +
+      "仅超长任务（预估超过 30 分钟）才显式设（建议 1800000 起步）；" +
+      "周期进展已同步进管家感知（无需周期报告也可事后问管家）；" +
       "报告连续零增量时用 agent_inspect 核实执行轨迹；agent_status 仅在用户主动询问进度时使用。" +
       "调度预算耗尽时返回错误说明。",
     parameters: spawnParameters as any,

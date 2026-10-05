@@ -10,8 +10,10 @@
  */
 import type { EventFrame } from "../envelope";
 
-/** 触发播报的领域事件判别（V2 播报集合 = 终态族；开始类默认不播——噪声控制）。 */
-export type VoiceBroadcastKind = "agent.completed" | "agent.failed" | "agent.killed";
+/** 触发播报的领域事件判别（V2 播报集合 = 终态族 + 任务级完成锚；开始类
+ *  默认不播——噪声控制；task:* 会话的 agent.completed 聚合到任务级
+ *  task.done，管家感知批 M0.5 additive）。 */
+export type VoiceBroadcastKind = "agent.completed" | "agent.failed" | "agent.killed" | "task.done";
 
 /** voice.broadcast payload：合成产物广播（一帧一播报）。 */
 export interface VoiceBroadcastPayload {

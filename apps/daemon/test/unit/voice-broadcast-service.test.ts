@@ -1,37 +1,43 @@
 /**
  * BroadcastService 单测（语音播报批 V2；TDD 红绿证据链——设计 §5.3 ①②层；
- * 任务总结子功能批：②层模板直出 → 极简终态通知）。
+ * 任务总结子功能批：②层模板直出 → 极简终态通知；管家感知批 M0.5：③层
+ * 独立摘要调用退役 → 内容源回调（分诊呈现轨）+ 完成类聚合任务级）。
  *
  * 断言面：
- * 1. 规则粗筛（①层）：V2 播报集合 = agent.completed/failed/killed 三终态；
+ * 1. 规则粗筛（①层）：播报集合 = agent.completed/failed/killed 三终态 +
+ *    完成类聚合（task:* 会话的 agent.completed 不在 agent 级播报）；
  *    开始类（spawned/queued/started/stalled/parked/resumed）与无关事件
  *    （chat 族）零合成零发（噪声控制，设计 §7-1）；
  * 2. 极简终态通知（②层）：三形态只报终态本身——不念 agentId（UUID 逐字
  *    播报无意义）/closure 摘要（技术黑话截断听不懂）/error 原文（英文报错
- *    是噪声）；内容生产归③层 LLM 摘要，极简是回退兜底；
+ *    是噪声）；内容生产归分诊器（感知服务），极简是回退兜底；
  * 3. 播放队列：串行合成串行发（顺序保证）；上限 5 条溢出丢最旧、下一条
  *    播报 text 合并「另有 N 条较早播报已跳过」提示；
  * 4. 闸门：无订阅连接（voice.subscribe 零登记）→ 事件直接丢弃（零花费——
- *    开关默认 off 的落地面）；合成失败 → 跳过该条不中断后续（warn 观测）。
+ *    开关默认 off 的落地面，内容源零调用）；合成失败 → 跳过该条不中断
+ *    后续（warn 观测）；
+ * 5. 内容源（管家感知批归一面）：text = 呈现轨直供；unavailable = 回退
+ *    极简；silent = 静默丢弃占位；超时 = 回退极简；产物超长截断防御；
+ * 6. enqueueDiagnosed：任务级/分诊直供播报（入队即 ready；闸门单点）。
  */
 import { describe, expect, test } from "bun:test";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { TtsPort, TtsRequest, TtsResult } from "../../src/application/ports/outbound/TtsPort";
-import type { VoiceSummarizerPort } from "../../src/application/ports/outbound/VoiceSummarizerPort";
 import {
   BroadcastService,
   buildBroadcastText,
-  buildSummaryUserPrompt,
+  isAggregatedToTaskLevel,
   isBroadcastEligible,
   SUMMARY_MAX_CHARS,
-  SUMMARY_TIMEOUT_MS,
+  CONTENT_TIMEOUT_MS,
+  type BroadcastContentResult,
 } from "../../src/application/voice/BroadcastService";
 import type { VoiceBroadcastPayload } from "@helix/protocol";
 
-function agentEvent(type: string, payload: unknown): DomainEvent {
+function agentEvent(type: string, payload: unknown, sessionId = "sess-1"): DomainEvent {
   return {
     type: type as DomainEvent["type"],
-    sessionId: "sess-1",
+    sessionId,
     instanceId: "agent-2",
     payload,
     occurredAt: "2026-09-19T06:00:00.000Z",
@@ -55,8 +61,36 @@ function fakeTts(): TtsPort & { calls: TtsRequest[]; fail: boolean } {
   } as TtsPort & { calls: TtsRequest[]; fail: boolean };
 }
 
+/** fake 内容源（管家感知批归一面）：记录事件；可控行为（text/silent/
+ *  unavailable/抛错/延迟）。 */
+function fakeContent(
+  behavior?: {
+    outcome?: BroadcastContentResult;
+    error?: Error;
+    delayMs?: number;
+  },
+): ((event: DomainEvent) => Promise<BroadcastContentResult>) & { events: DomainEvent[] } {
+  const events: DomainEvent[] = [];
+  return Object.assign(
+    async (event: DomainEvent): Promise<BroadcastContentResult> => {
+      events.push(event);
+      if ((behavior?.delayMs ?? 0) > 0) {
+        await new Promise((r) => setTimeout(r, behavior!.delayMs));
+      }
+      if (behavior?.error !== undefined) throw behavior.error;
+      return behavior?.outcome ?? { kind: "unavailable" };
+    },
+    { events },
+  );
+}
+
 function makeService(
-  opts?: { subscribers?: number; voice?: string; summarizer?: VoiceSummarizerPort; summaryTimeoutMs?: number },
+  opts?: {
+    subscribers?: number;
+    voice?: string;
+    content?: (event: DomainEvent) => Promise<BroadcastContentResult>;
+    contentTimeoutMs?: number;
+  },
 ) {
   const tts = fakeTts();
   const frames: VoiceBroadcastPayload[] = [];
@@ -69,33 +103,14 @@ function makeService(
     tts,
     gate,
     emit: (payload) => frames.push(payload),
-    logger: { warn: (m: string) => warns.push(m) },
-    ...(opts?.summarizer !== undefined ? { summarizer: opts.summarizer } : {}),
-    ...(opts?.summaryTimeoutMs !== undefined ? { summaryTimeoutMs: opts.summaryTimeoutMs } : {}),
+    logger: { warn: (m) => warns.push(m) },
+    ...(opts?.content !== undefined ? { content: opts.content } : {}),
+    ...(opts?.contentTimeoutMs !== undefined ? { contentTimeoutMs: opts.contentTimeoutMs } : {}),
   });
   return { svc, tts, frames, warns };
 }
 
-/** fake 摘要 port（③层测试面）：记录调用 prompt；可控行为（文本/抛错/延迟/不可用）。 */
-function fakeSummarizer(
-  behavior?: { text?: string; error?: Error; delayMs?: number; available?: boolean },
-): VoiceSummarizerPort & { calls: { systemPrompt: string; userPrompt: string }[] } {
-  const calls: { systemPrompt: string; userPrompt: string }[] = [];
-  return {
-    calls,
-    isAvailable: () => behavior?.available !== false,
-    async complete(prompt) {
-      calls.push({ systemPrompt: prompt.systemPrompt, userPrompt: prompt.userPrompt });
-      if ((behavior?.delayMs ?? 0) > 0) {
-        await new Promise((r) => setTimeout(r, behavior!.delayMs));
-      }
-      if (behavior?.error !== undefined) throw behavior.error;
-      return behavior?.text ?? "（fake 摘要播报稿）";
-    },
-  };
-}
-
-describe("规则粗筛（①层）：isBroadcastEligible + buildBroadcastText", () => {
+describe("规则粗筛（①层）：isBroadcastEligible + isAggregatedToTaskLevel + buildBroadcastText", () => {
   test("V2 播报集合恰为三终态；开始/挂起族全不播", () => {
     expect(isBroadcastEligible("agent.completed")).toBe(true);
     expect(isBroadcastEligible("agent.failed")).toBe(true);
@@ -103,6 +118,13 @@ describe("规则粗筛（①层）：isBroadcastEligible + buildBroadcastText", 
     for (const t of ["agent.spawned", "agent.queued", "agent.started", "agent.stalled", "agent.parked", "agent.resumed", "chat.turn.completed", "tool.call.result"]) {
       expect(isBroadcastEligible(t as never)).toBe(false);
     }
+  });
+
+  test("完成类聚合：task:* 会话的 agent.completed 判聚合（非 task 会话不聚）", () => {
+    expect(isAggregatedToTaskLevel(agentEvent("agent.completed", { agentId: "a" }, "task:job-1"))).toBe(true);
+    expect(isAggregatedToTaskLevel(agentEvent("agent.completed", { agentId: "a" }, "sess-1"))).toBe(false);
+    expect(isAggregatedToTaskLevel(agentEvent("agent.failed", { agentId: "a", error: "x" }, "task:job-1"))).toBe(false);
+    expect(isAggregatedToTaskLevel(agentEvent("agent.killed", { agentId: "a" }, "task:job-1"))).toBe(false);
   });
 
   test("极简三形态：只报终态本身（完成/失败/终止）", () => {
@@ -128,15 +150,17 @@ describe("规则粗筛（①层）：isBroadcastEligible + buildBroadcastText", 
 });
 
 describe("BroadcastService：闸门/极简通知/队列/串行（②层）", () => {
-  test("闸门关闭（零订阅连接）→ 事件直接丢弃，零合成零发", async () => {
-    const { svc, tts, frames } = makeService({ subscribers: 0 });
+  test("闸门关闭（零订阅连接）→ 事件直接丢弃，零合成零发零内容调用", async () => {
+    const content = fakeContent();
+    const { svc, tts, frames } = makeService({ subscribers: 0, content });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
     await svc.drain();
     expect(tts.calls.length).toBe(0);
     expect(frames.length).toBe(0);
+    expect(content.events.length).toBe(0); // 内容源零调用（money gate 覆盖 LLM 层）
   });
 
-  test("全链：完成事件 → 极简通知合成 → 广播帧（kind/agentId/text/audio/seq）", async () => {
+  test("全链：完成事件（非 task 会话）→ 极简通知合成 → 广播帧（kind/agentId/text/audio/seq）", async () => {
     const { svc, tts, frames } = makeService({ voice: "Cherry" });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
     await svc.drain();
@@ -152,6 +176,16 @@ describe("BroadcastService：闸门/极简通知/队列/串行（②层）", () 
       seq: 1,
     });
     expect(frames[0]!.audio.startsWith("data:audio/wav;base64,")).toBe(true);
+  });
+
+  test("完成类聚合：task 会话的 agent.completed 零播报（任务级锚直供路径归 StewardPerceptionService）", async () => {
+    const content = fakeContent();
+    const { svc, tts, frames } = makeService({ content });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b1", closure: closure("批次完成") }, "task:job-1"));
+    await svc.drain();
+    expect(tts.calls.length).toBe(0);
+    expect(frames.length).toBe(0);
+    expect(content.events.length).toBe(0); // 聚合事件不进内容源
   });
 
   test("不播事件（spawned/stalled 等）零合成", async () => {
@@ -176,7 +210,7 @@ describe("BroadcastService：闸门/极简通知/队列/串行（②层）", () 
   test("队列上限 5：溢出丢最旧，下一条播报合并「另有 N 条已跳过」提示", async () => {
     const { svc, frames } = makeService();
     for (let i = 1; i <= 8; i++) {
-      svc.onDomainEvent(agentEvent("agent.completed", { agentId: `agent-${i}`, closure: closure(`任务${i}`) }));
+      svc.onDomainEvent(agentEvent("agent.failed", { agentId: `agent-${i}`, error: "x", closure: closure(`任务${i}`) }));
     }
     await svc.drain();
     // 8 条入队、上限 5 → 丢 3 条最旧（agent-1/2/3）
@@ -184,7 +218,7 @@ describe("BroadcastService：闸门/极简通知/队列/串行（②层）", () 
     expect(frames[0]!.agentId).toBe("agent-4");
     expect(frames[0]!.text).toContain("另有 3 条较早播报已跳过");
     expect(frames[0]!.droppedCount).toBe(3);
-    expect(frames[0]!.text).toContain("后台任务已完成");
+    expect(frames[0]!.text).toContain("后台任务失败");
   });
 
   test("合成失败：跳过该条不中断后续（warn 观测），seq 连续", async () => {
@@ -202,74 +236,50 @@ describe("BroadcastService：闸门/极简通知/队列/串行（②层）", () 
   });
 });
 
-describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", () => {
-  test("摘要全链：LLM 白话摘要替代极简通知进队列合成广播", async () => {
-    const summarizer = fakeSummarizer({ text: "任务搞定了，登录超时的问题已经修好。" });
-    const { svc, tts, frames } = makeService({ summarizer });
+describe("内容源（管家感知批 M0.5 归一面）：呈现轨直供/回退/静默", () => {
+  test("text 判别：分诊呈现轨替代极简通知进队列合成广播", async () => {
+    const content = fakeContent({ outcome: { kind: "text", text: "任务搞定了，登录超时的问题已经修好。" } });
+    const { svc, tts, frames } = makeService({ content });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
     await svc.drain();
-    expect(summarizer.calls.length).toBe(1);
+    expect(content.events.length).toBe(1);
     expect(tts.calls[0]!.text).toBe("任务搞定了，登录超时的问题已经修好。");
     expect(frames[0]!.text).toBe("任务搞定了，登录超时的问题已经修好。");
     expect(frames[0]!.kind).toBe("agent.completed");
   });
 
-  test("prompt 要点：systemPrompt 含长度/口语化指令；userPrompt 含 agentId 与 closure 摘要原文（不截断）", async () => {
-    const long = "细节".repeat(120); // 240 字符（输入侧 2000 保护内）
-    const summarizer = fakeSummarizer();
-    const { svc } = makeService({ summarizer });
-    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure(long) }));
-    await svc.drain();
-    const { systemPrompt, userPrompt } = summarizer.calls[0]!;
-    // 长度指令 + 口语化指令（面向人类听众的播报稿约束）
-    expect(systemPrompt).toContain("不超过");
-    expect(systemPrompt).toContain("口语");
-    // closure 摘要全文进 prompt（LLM 看全貌才能摘要——极简通知不喂 LLM 判断面）
-    expect(userPrompt).toContain("agent-2");
-    expect(userPrompt).toContain(long);
-  });
-
-  test("failed 事件：userPrompt 含错误信息原文（失败原因人话化的输入面）", async () => {
-    const summarizer = fakeSummarizer();
-    const { svc } = makeService({ summarizer });
-    svc.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "ECONNRESET: socket hang up", closure: closure("") }));
-    await svc.drain();
-    expect(summarizer.calls[0]!.userPrompt).toContain("ECONNRESET: socket hang up");
-    expect(summarizer.calls[0]!.userPrompt).toContain("失败");
-  });
-
-  test("LLM 产物超长截断（prompt 约束外的防御面）：> 80 字符加省略号", async () => {
-    const summarizer = fakeSummarizer({ text: "啰".repeat(200) });
-    const { svc, tts } = makeService({ summarizer });
-    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
-    await svc.drain();
-    expect(tts.calls[0]!.text.length).toBe(SUMMARY_MAX_CHARS + 1);
-    expect(tts.calls[0]!.text.endsWith("…")).toBe(true);
-  });
-
-  test("money gate 前移：零订阅连接 → 零 LLM 调用零合成零发", async () => {
-    const summarizer = fakeSummarizer();
-    const { svc, tts, frames } = makeService({ subscribers: 0, summarizer });
-    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
-    await svc.drain();
-    expect(summarizer.calls.length).toBe(0); // 摘要也花钱：gate 覆盖 LLM 层
-    expect(tts.calls.length).toBe(0);
-    expect(frames.length).toBe(0);
-  });
-
-  test("摘要面不可用（isAvailable=false，管家关/总结关/模型未配）→ 零 LLM 调用 + ②层极简通知", async () => {
-    const summarizer = fakeSummarizer({ available: false });
-    const { svc, tts, frames } = makeService({ summarizer });
+  test("unavailable 判别（未激活/gate 断点）→ 回退②层极简通知", async () => {
+    const content = fakeContent({ outcome: { kind: "unavailable" } });
+    const { svc, tts, frames } = makeService({ content });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));
     await svc.drain();
-    expect(summarizer.calls.length).toBe(0);
+    expect(content.events.length).toBe(1);
     expect(tts.calls[0]!.text).toBe("后台任务已完成");
     expect(frames[0]!.text).toBe("后台任务已完成");
   });
 
-  test("LLM 抛错 → 回退②层极简通知 + warn 观测", async () => {
-    const summarizer = fakeSummarizer({ error: new Error("模型调用失败模拟") });
-    const { svc, tts, frames, warns } = makeService({ summarizer });
+  test("silent 判别（分诊裁决静默）→ 丢弃占位不播（不播极简）", async () => {
+    const content = fakeContent({ outcome: { kind: "silent" } });
+    const { svc, tts, frames } = makeService({ content });
+    svc.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "x", closure: closure("") }));
+    await svc.drain();
+    expect(tts.calls.length).toBe(0);
+    expect(frames.length).toBe(0);
+  });
+
+  test("内容源超时（timeoutMs 注入面）→ 回退②层极简通知 + warn 含超时", async () => {
+    const content = fakeContent({ outcome: { kind: "text", text: "迟到的呈现轨" }, delayMs: 200 });
+    const { svc, tts, frames, warns } = makeService({ content, contentTimeoutMs: 20 });
+    svc.onDomainEvent(agentEvent("agent.killed", { agentId: "agent-4", closure: closure("用户手动停止") }));
+    await svc.drain();
+    expect(tts.calls[0]!.text).toBe("后台任务已终止");
+    expect(frames[0]!.text).toBe("后台任务已终止");
+    expect(warns.some((w) => w.includes("超时"))).toBe(true);
+  });
+
+  test("内容源抛错 → 回退②层极简通知 + warn 观测", async () => {
+    const content = fakeContent({ error: new Error("模型调用失败模拟") });
+    const { svc, tts, frames, warns } = makeService({ content });
     svc.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "网络超时", closure: closure("") }));
     await svc.drain();
     expect(tts.calls[0]!.text).toBe("后台任务失败");
@@ -278,53 +288,54 @@ describe("LLM 摘要层（③层）：摘要调用/gate 前移/回退降级", ()
     expect(warns[0]).toContain("回退");
   });
 
-  test("LLM 超时（timeoutMs 注入面）→ 回退②层极简通知 + warn 含超时", async () => {
-    const summarizer = fakeSummarizer({ delayMs: 200 });
-    const { svc, tts, frames, warns } = makeService({ summarizer, summaryTimeoutMs: 20 });
-    svc.onDomainEvent(agentEvent("agent.killed", { agentId: "agent-4", closure: closure("用户手动停止") }));
+  test("呈现轨产物超长截断（分诊 60 字防御外的第二道兜底）：> 80 字符加省略号", async () => {
+    const content = fakeContent({ outcome: { kind: "text", text: "啰".repeat(200) } });
+    const { svc, tts } = makeService({ content });
+    svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("ok") }));
     await svc.drain();
-    expect(tts.calls[0]!.text).toBe("后台任务已终止");
-    expect(frames[0]!.text).toBe("后台任务已终止");
-    expect(warns.length).toBe(1);
-    expect(warns[0]).toContain("超时");
+    expect(tts.calls[0]!.text.length).toBe(SUMMARY_MAX_CHARS + 1);
+    expect(tts.calls[0]!.text.endsWith("…")).toBe(true);
   });
 
-  test("摘要耗时不均不乱序：后到快摘要不得先播（串行链按事件到达序）", async () => {
+  test("内容耗时不均不乱序：后到快内容不得先播（串行链按事件到达序）", async () => {
     let calls = 0;
-    const summarizer: VoiceSummarizerPort = {
-      isAvailable: () => true,
-      async complete() {
+    const content = Object.assign(
+      async (): Promise<BroadcastContentResult> => {
         calls += 1;
         await new Promise((r) => setTimeout(r, calls === 1 ? 40 : 1)); // 第一条慢、第二条快
-        return `第${calls}条白话摘要`;
+        return { kind: "text", text: `第${calls}条呈现轨` };
       },
-    };
-    const { svc, frames } = makeService({ summarizer });
+      { events: [] as DomainEvent[] },
+    );
+    const { svc, frames } = makeService({ content });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-a", closure: closure("一") }));
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b", closure: closure("二") }));
     await svc.drain();
     expect(frames.map((f) => f.agentId)).toEqual(["agent-a", "agent-b"]);
-    expect(frames.map((f) => f.text)).toEqual(["第1条白话摘要", "第2条白话摘要"]);
+    expect(frames.map((f) => f.text)).toEqual(["第1条呈现轨", "第2条呈现轨"]);
     expect(frames.map((f) => f.seq)).toEqual([1, 2]);
+  });
+
+  test("缺省超时 8s（deps 注入面缺省值）", () => {
+    expect(CONTENT_TIMEOUT_MS).toBe(8000);
   });
 });
 
-describe("buildSummaryUserPrompt（纯函数）：终态三形态", () => {
-  test("默认超时 8s（deps 注入面缺省值）", () => {
-    expect(SUMMARY_TIMEOUT_MS).toBe(8000);
+describe("enqueueDiagnosed：任务级/分诊直供播报（管家感知批）", () => {
+  test("直供文本入队即播（kind=task.done + 闸门单点）", async () => {
+    const { svc, tts, frames } = makeService({ voice: "Cherry" });
+    svc.enqueueDiagnosed({ kind: "task.done", agentId: "task:job-1", text: "任务全部批次收口完成，可以看报告了。" });
+    await svc.drain();
+    expect(tts.calls.length).toBe(1);
+    expect(tts.calls[0]!.text).toBe("任务全部批次收口完成，可以看报告了。");
+    expect(frames[0]).toMatchObject({ kind: "task.done", agentId: "task:job-1", seq: 1 });
   });
 
-  test("三形态：完成/失败（含 error）/被杀各含对应字段", () => {
-    const completed = buildSummaryUserPrompt(agentEvent("agent.completed", { agentId: "a1", closure: closure("任务完成摘要") }))!;
-    expect(completed).toContain("完成");
-    expect(completed).toContain("a1");
-    expect(completed).toContain("任务完成摘要");
-    const failed = buildSummaryUserPrompt(agentEvent("agent.failed", { agentId: "a2", error: "boom", closure: closure("") }))!;
-    expect(failed).toContain("失败");
-    expect(failed).toContain("boom");
-    const killed = buildSummaryUserPrompt(agentEvent("agent.killed", { agentId: "a3", closure: closure("被停了") }))!;
-    expect(killed).toContain("终止");
-    expect(killed).toContain("被停了");
-    expect(buildSummaryUserPrompt(agentEvent("agent.spawned", { agentId: "a4", task: "t" }))).toBeUndefined();
+  test("闸门关闭（零订阅）→ 直供零入队零合成", async () => {
+    const { svc, tts, frames } = makeService({ subscribers: 0 });
+    svc.enqueueDiagnosed({ kind: "task.done", agentId: "task:job-1", text: "后台任务已完成" });
+    await svc.drain();
+    expect(tts.calls.length).toBe(0);
+    expect(frames.length).toBe(0);
   });
 });

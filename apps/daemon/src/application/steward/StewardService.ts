@@ -604,9 +604,13 @@ export interface StewardServiceDeps {
    *  = pi CompactionHook（turn 边界）经 createEngine 装配——同轨共享钩子）。 */
   readonly compaction?: { readonly thresholdTokens?: number; readonly keepRecent?: number };
   /** 管家记忆 B1：长期记忆编排面（召回段注入 + remember 执行体 + 配置读写）。
-   *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
-   *  available=false）——对话主链路零影响。 */
+ *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
+ *  available=false）——对话主链路零影响。 */
   readonly memory?: StewardMemoryService;
+  /** 管家感知批（M0.5）：用户 ask 活动信号（感知服务激活衰减窗点亮——
+   *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
+   *  .noteUserActivity；缺席 = 零信号）。 */
+  readonly onUserActivity?: () => void;
   readonly logger?: { warn(message: string): void };
 }
 
@@ -914,6 +918,8 @@ export class StewardService {
         reason: "管家未开启：请在设置页 → 通用配置开启（开关关 = 零 LLM 调用）",
       };
     }
+    // 感知激活信号②：ask 即点亮衰减窗（一问即入激活——响应环点亮主动环）
+    this.deps.onUserActivity?.();
     // 暂停态（挂闸阻塞中）新 ask：loop 语义 = 旧 run 已 settle 过期、新 ask
     // 照常（E-197 迁移前等价）——pi 映射：abort 阻塞中的 run（闸内 raceAbort
     // 唤醒、工具不执行）→ 收口后驱动新 ask（确认卡保持有效：confirm 时

@@ -52,6 +52,7 @@ import {
 import { useAppRoute } from "./useAppRoute";
 import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
+import StewardNotifyToast from "./StewardNotifyToast";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 import StewardDock from "@/features/steward/ui/StewardDock";
 import ConfirmStack from "@/features/steward/ui/ConfirmStack";
@@ -204,6 +205,8 @@ export function AppRoutes() {
       <TaskSyncHintToast />
       {/* U5 占用协调轻通知（coord.changed 全局广播直渲；escalated 用 warn 提级） */}
       <CoordNoticeToast />
+      {/* 管家感知批 M0.5 主动通知（steward.notify 分诊呈现轨；接续提案点按才动） */}
+      <StewardNotifyToast onOpenTasks={goTasks} />
     </>
   );
 }

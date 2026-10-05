@@ -1020,7 +1020,9 @@ export const LISTEN_SURFACE = {
    *  ask.delta 流式增量帧（体验批）+ feed 广播 + A1 工作记忆批三帧
    *  （history.result 回放 / tool 两相 / thinking 段级）+ 驾驶舱批页面切换
    *  指令帧（steward.navigate——useStewardNavigate 切页钩子消费）+
-   *  connection.error——面板/设置页/切页钩子三消费面；TR-89 双登记纪律）。 */
+   *  管家感知批 M0.5 主动通知帧（steward.notify——StewardNotifyToast
+   *  全局 toast 消费）+ connection.error——面板/设置页/切页钩子/通知
+   *  toast 四消费面；TR-89 双登记纪律）。 */
   subscribeStewardFrames: {
     match: (type) =>
       type === "steward.ask.result" ||
@@ -1033,6 +1035,7 @@ export const LISTEN_SURFACE = {
       type === "steward.tool" ||
       type === "steward.thinking" ||
       type === "steward.navigate" ||
+      type === "steward.notify" ||
       type === "steward.memory_written" ||
       type === "steward.memory_list.result" ||
       type === "connection.error",

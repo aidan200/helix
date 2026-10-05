@@ -34,7 +34,7 @@ type _SynthVoice = Expect<Equal<VoiceSynthesizeCommand["payload"]["voice"], stri
 type _BroadcastAudio = Expect<Equal<VoiceBroadcastPayload["audio"], string>>;
 type _BroadcastSeq = Expect<Equal<VoiceBroadcastPayload["seq"], number>>;
 type _BroadcastKind = Expect<
-  Equal<VoiceBroadcastPayload["kind"], "agent.completed" | "agent.failed" | "agent.killed">
+  Equal<VoiceBroadcastPayload["kind"], "agent.completed" | "agent.failed" | "agent.killed" | "task.done">
 >;
 
 // 结果帧 payload 两判别联合
