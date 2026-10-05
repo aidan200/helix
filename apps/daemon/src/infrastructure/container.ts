@@ -720,8 +720,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 分诊器 LLM 面（管家感知批 M0.5 归一）：任务总结子功能专用槽位沿用
   //（steward.summary.model，**无默认模型**——未配置 = 分诊面不可用，语音
   // 播报/notify 走极简终态通知）；可用性三条件在 adapter 处收口：管家开
-  // ∧ 总结开 ∧ 模型槽位非空；**激活判定不在此处**（D12-⑪——归感知服务
-  // 单点）。原③层独立摘要调用（StewardVoiceSummarizerAdapter）已归一退役。
+  // ∧ 总结开 ∧ 模型槽位非空 = **启用**（v2.9 D12-⑫：LLM 分诊启用态恒做，
+  // 不看激活）；激活判定不在此处（归感知服务单点，投递面判据）。
+  // 原③层独立摘要调用（StewardVoiceSummarizerAdapter）已归一退役。
   const stewardDiagnose =
     deps.stewardDiagnoseOverride ??
     new StewardDiagnosisAdapter({
@@ -735,10 +736,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1" &&
         persistence.runtimeConfig.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
     });
-  // 感知服务（M0.5）：ring 沉淀 + 激活判定 + 分诊编排 + notify 限流。
+  // 感知服务（M0.5 + M0.5-R）：ring 沉淀 + 激活判定 + 分诊编排 + notify 限流。
   // 晚绑闭包（voice sink 在下方 voiceBroadcast 构造后回填——构造环：
-  // BroadcastService content 源又指向本服务 supplyBroadcastText）。
+  // BroadcastService content 源又指向本服务 supplyBroadcastText；
+  // reportDialog 汇报面在下方 stewardService 构造后回填——同款晚绑）。
   let voiceBroadcastRef: BroadcastService | undefined;
+  let stewardServiceRef: StewardService | undefined;
   const stewardPerception =
     deps.stewardPerceptionOverride ??
     new StewardPerceptionService({
@@ -752,6 +755,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
             : Promise.resolve(false),
       },
       emitNotify: (payload) => eventStream.broadcastStewardNotify(payload),
+      // 对话内主动汇报面（M0.5-R：激活态投递面——工作记忆 assistant 记录，
+      // 对话回放与 LLM 记忆同源）
+      reportDialog: (report) => {
+        void stewardServiceRef?.reportProactive(report).catch((err) => {
+          logger.warn(`管家对话内主动汇报写入失败（${report.title}）：${(err as Error).message}`);
+        });
+      },
       voice: {
         enqueueDiagnosed: (item) => voiceBroadcastRef?.enqueueDiagnosed(item),
       },
@@ -1026,6 +1036,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     hasGitRepo: (projectRoot) => existsSync(path.join(projectRoot, ".git")),
     logger,
   });
+  stewardServiceRef = stewardService; // 晚绑闭合（感知服务对话内主动汇报面回填）
 
   // U2 观测态晚绑闭合：trace 面板 main displayState 的会话运行态读口
   // 接 registry（此前冷会话 idle 兑底）
@@ -1039,7 +1050,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 读面/kill）+ 任务域依赖面（buildTaskStack 同源）。
   broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
   orchestratorService = buildTaskOrchestrator({
-    stewardPerception, // 管家感知批（M0.5）：job 终态回调第二消费者（任务级完成锚）
+    stewardPerception, // 管家感知批（M0.5）：job 终态回调第二消费者（任务级完成锚，title 机械字段 M0.5-R）
     orchestratorCore: taskStack.orchestratorCore,
     scheduler,
     resolveSubagentModelId,

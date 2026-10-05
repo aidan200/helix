@@ -50,8 +50,9 @@ export interface StewardDiagnosisResult {
 export interface StewardDiagnosisPort {
   /**
    * 分诊面可用性读面：false = 零 LLM 降级（管家关 / 总结开关关 / 模型
-   * 槽位未配——三条件 gate 沿用 E-232 语义；**激活判定不在此处**，归
-   * StewardPerceptionService 单点（D12-⑪「激活」先于「启用」））。
+   * 槽位未配——三条件 gate 沿用 E-232 语义）= **未启用**（money gate+模型
+   * 配，v2.9 D12-⑫：LLM 门槛=启用，启用态分诊恒做）；激活判定不在此处，
+   * 归 StewardPerceptionService 单点（投递面判据）。
    */
   isAvailable(): boolean;
   /**

@@ -13,6 +13,7 @@ import { MAX_BATCH_RETRY } from "../../../domain/task/retry";
 import { DEFAULT_PROFILE_KIND } from "../../ports/outbound/ResourceStatePort"; // profileKind 缺省单源（与 SchedulerService.spawn 缺省同值）
 import type { ParkReason } from "../../../domain/events/DomainEvent";
 import type { WorkLedgerService } from "./WorkLedgerService";
+import { titleOf } from "./TaskQueryService";
 
 /**
  * TaskOrchestratorService —— 编排主 agent 运行时（architecture.md §5，T2.2；
@@ -142,8 +143,9 @@ export interface TaskOrchestratorServiceDeps {
    * job 终态提示面（W2-D R13：reap 终态任务时回调——组合根接 pending_sync
    * 扫描 + 用户提示广播；编排层挂点不进引擎，守 AD-10）。仅在循环被 reap
    * 时触发一次（cancel 走 stopOrchestrator 用户主动路径，不触发）；缺省不提示。
+   * title = 任务标题机械字段（titleOf 同源；管家 notify title 用，非 UUID）。
    */
-  readonly onJobTerminal?: (jobId: string, status: JobData["status"]) => void;
+  readonly onJobTerminal?: (jobId: string, status: JobData["status"], title?: string) => void;
   /** 卡装配修复：info 面（驱动开始/完成可观测）+ warn 面（异常/重试链）。 */
   readonly logger?: { info(message: string): void; warn(message: string): void };
   /**
@@ -301,7 +303,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       }
     }
     this.info(`任务失败停摆（任务 ${jobId}）：驱动中止 + 排队实例摘队；在跑实例自然收口（drain）`);
-    this.deps.onJobTerminal?.(jobId, "failed"); // 终态提示前移到停摆点（不等回合结束）
+    this.deps.onJobTerminal?.(jobId, "failed", this.jobTitleOf(jobId)); // 终态提示前移到停摆点（不等回合结束）
     this.reapDrained(loop); // 无在飞时立即自清
   }
 
@@ -446,6 +448,13 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     })();
   }
 
+  /** 任务标题机械字段读面（titleOf 同源；行缺书（jobId 异常形态）→ undefined，
+   *  调用侧回退终态词）。 */
+  private jobTitleOf(jobId: string): string | undefined {
+    const job = this.deps.store.getJob(jobId);
+    return job === undefined ? undefined : titleOf(job, this.deps.skills);
+  }
+
   /** 任务终态 → 丢弃循环（会话可丢弃；权威状态全在行）。drain 态例外——haltJob 已提示且收口未完，归 reapDrained 自清。 */
   private reapIfTerminal(jobId: string): void {
     const job = this.deps.store.getJob(jobId);
@@ -456,7 +465,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         this.clearProgressTimer(loop); // 推进检查定时器随循环退场清理
         this.loops.delete(jobId);
         // W2-D R13 job 完成提示点：扫描 pending_sync 归组合根（本层只报终态事实）
-        this.deps.onJobTerminal?.(jobId, job.status);
+        this.deps.onJobTerminal?.(jobId, job.status, titleOf(job, this.deps.skills));
       }
     }
   }

@@ -1,21 +1,32 @@
 /**
- * 管家感知批（M0.5）单测：StewardPerceptionService（感知地基 + 激活判定 +
- * 分诊编排 + notify 限流）与 BroadcastService 归一链路。
+ * 管家感知批（M0.5 + M0.5-R LLM 参与修正）单测：StewardPerceptionService
+ * （感知地基 + 激活判定 + 分诊编排 + notify 限流）与 BroadcastService 归一
+ * 链路。
+ *
+ * M0.5-R（v2.9 D12-⑫，用户裁决）：LLM 门槛从「激活」放宽回「启用」（money
+ * gate+模型配）——**启用态分诊恒做**（不看激活）；激活降为投递面判据
+ * （激活=对话内主动汇报+notify；未激活=notify+语音异步零对话插话）。
+ * M0.5 的「未激活零 LLM」钉子属被推翻行为，本套已翻转为新行为断言；
+ * 「未启用零 LLM + 极简保底」（money gate）钉子保留。
  *
  * 红绿证据链（brief 测试要求逐条）：
- * 1. 未激活态：终态事件 → 零 LLM port 调用 + 极简播报路径仍在（回归保护）；
- * 2. 激活态：任务完成锚 → notify 帧到达（假 LLM 即时回执）+ 呈现 ≤60 字
- *    且字面可在摄入轨产物中找到（派生关系断言）；
- * 3. 归一：一次事件只触发一次 LLM 调用（perception 入口与 BroadcastService
- *    content 源双触发去重），语音文本与 notify 载荷同源；
- * 4. progress 薄条目走既有 recordSessionProgress 覆盖更新路径（零新记忆机制）；
- * 5. 限流：窗口内第 5 条 normal 通知被丢弃；high 档豁免；
- * 6. 激活判定：feed 订阅在场 ∧ 近期 ask（5 分钟衰减窗）；
- * 7. ring buffer：终态/周期事件入 ring、滚动上限；
- * 8. 聚合粗筛：task:* 会话的 agent.completed 不在 agent 级播报（聚任务级锚）。
+ * 1. 启用+未激活态：任务完成 → 分诊 LLM 调用发生 + notify 携呈现轨摘要与
+ *    接续提案 + 语音同源 + 零对话插话 + 摄入轨照产（回来能看到干了什么）；
+ * 2. 未启用（money gate 关）：零 LLM + 极简保底不变（回归钉子保留）；
+ * 3. 投递面分支：激活=对话内主动汇报路径+notify；未激活=notify+语音无对话
+ *    插话；分诊静默裁决（notify=false）两态一致；
+ * 4. 机械增强：title=任务标题（非 UUID）；suggestions 含机械 [看看报告]
+ *    （点按才动）；
+ * 5. 归一：一次事件只触发一次 LLM 调用，语音文本与 notify 载荷同源；
+ * 6. progress 薄条目走既有 recordSessionProgress 覆盖更新路径；
+ * 7. 限流：窗口内第 5 条 normal 通知被丢弃（未激活同样生效）；high 豁免；
+ * 8. 激活判定：feed 订阅在场 ∧ 近期 ask（5 分钟衰减窗）——投递面判据；
+ * 9. ring buffer：终态/周期事件入 ring、滚动上限；
+ * 10. 聚合粗筛：task:* 会话的 agent.completed 不在 agent 级播报（聚任务级锚）。
  *
- * 设计锚点：docs/temp/steward-browser-awareness-design.md v2.8 D10/D11/D12
- * （⑨激活门/⑩摘要双轨/⑪两环二分）；E-232 ③层归一（gate 收紧为「激活」）。
+ * 设计锚点：docs/temp/steward-browser-awareness-design.md v2.9 D10/D11/D12
+ * （⑨启用门/⑩摘要双轨/⑪两环二分+⑫ LLM 参与修正）；E-249 ③层 gate 回
+ * 「启用」档。
  */
 import { describe, expect, test } from "bun:test";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
@@ -25,7 +36,11 @@ import type {
   StewardDiagnosisPrompt,
   StewardDiagnosisResult,
 } from "../../src/application/ports/outbound/StewardDiagnosisPort";
-import { StewardPerceptionService, STEWARD_ACTIVE_WINDOW_MS } from "../../src/application/steward/StewardPerceptionService";
+import {
+  StewardPerceptionService,
+  STEWARD_ACTIVE_WINDOW_MS,
+  type ProactiveDialogReport,
+} from "../../src/application/steward/StewardPerceptionService";
 import { BroadcastService, isBroadcastEligible, buildBroadcastText } from "../../src/application/voice/BroadcastService";
 import type { StewardNotifyPayload, VoiceBroadcastPayload } from "@helix/protocol";
 
@@ -113,6 +128,7 @@ function makeStack(opts?: {
   const tts = fakeTts();
   const frames: VoiceBroadcastPayload[] = [];
   const notifies: StewardNotifyPayload[] = [];
+  const dialogReports: ProactiveDialogReport[] = [];
   const warns: string[] = [];
   let clockNow = opts?.now ?? 1_000_000;
   const diagnose = opts?.diagnose ?? fakeDiagnose();
@@ -133,6 +149,7 @@ function makeStack(opts?: {
     feedGate: { hasStewardSubscribers: () => opts?.stewardSubscribed !== false },
     memory,
     emitNotify: (payload) => notifies.push(payload),
+    reportDialog: (report) => dialogReports.push(report),
     voice: broadcast, // 直供面（enqueueDiagnosed 窄接口）
     clock: () => clockNow,
     logger: { warn: (m) => warns.push(m) },
@@ -146,6 +163,7 @@ function makeStack(opts?: {
     memory,
     frames,
     notifies,
+    dialogReports,
     warns,
     tts,
     advance: (ms: number) => {
@@ -154,7 +172,7 @@ function makeStack(opts?: {
   };
 }
 
-describe("激活判定（feed 订阅在场 ∧ 近期 ask 衰减窗）", () => {
+describe("激活判定（feed 订阅在场 ∧ 近期 ask 衰减窗）——v2.9：投递面判据（非 LLM 门槛）", () => {
   test("双信号齐备 → 激活", () => {
     const { perception } = makeStack({ stewardSubscribed: true, recentAsk: true });
     expect(perception.isActive()).toBe(true);
@@ -181,10 +199,65 @@ describe("激活判定（feed 订阅在场 ∧ 近期 ask 衰减窗）", () => {
   });
 });
 
-describe("未激活态：零 LLM + 极简播报路径仍在（回归保护）", () => {
-  test("agent.failed → 零分诊调用 + 极简终态语音（②层）", async () => {
+describe("启用 + 未激活态：分诊恒做（v2.9——LLM 门槛=启用，激活降为投递面判据）", () => {
+  test("任务完成锚（启用+未激活）→ 分诊调用 + notify 携呈现轨与接续提案 + 语音同源 + 零对话插话", async () => {
+    const { perception, diagnose, tts, notifies, dialogReports, memory } = makeStack({
+      stewardSubscribed: false, // 未激活（零 feed 订阅）
+      subscribers: 1,
+    });
+    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
+    await broadcast_drain(perception);
+    expect(diagnose.calls.length).toBe(1); // LLM 门槛=启用（money gate+模型配），不再看激活
+    expect(notifies.length).toBe(1);
+    const n = notifies[0]!;
+    expect(n.body).toBe("M0.5 感知链路已交付，测试全部通过。"); // 呈现轨摘要（非「后台任务已完成」纯模板）
+    expect(n.title).toBe("管家感知修正（helix）"); // title=任务标题（机械字段，非 UUID）
+    expect(n.title).not.toContain("job-1");
+    expect(n.suggestions?.some((s) => s.verb === "open_tasks" && s.label === "看看报告")).toBe(true); // 机械接续提案（点按才动）
+    expect(tts.calls.length).toBe(1);
+    expect(tts.calls[0]!.text).toBe(n.body); // 语音同源（呈现轨）
+    expect(dialogReports.length).toBe(0); // 未激活零对话插话（投递面分支）
+    const ring = perception.ringSnapshot();
+    expect(ring.some((r) => r.kind === "task.diagnosed")).toBe(true); // 摄入轨照产（回来能看到干了什么）
+    expect(memory.progress).toEqual([{ sessionId: "task:job-1", text: n.body }]); // progress 薄条目照写
+  });
+
+  test("agent.failed（启用+未激活，双入口）→ 分诊恰一次 + notify/语音同源 + 零对话插话", async () => {
+    const { broadcast, perception, diagnose, tts, notifies, dialogReports } = makeStack({
+      stewardSubscribed: false,
+      subscribers: 1,
+    });
+    const event = agentEvent("agent.failed", { agentId: "agent-2", error: "boom", closure: closure("xx") });
+    broadcast.onDomainEvent(event);
+    perception.onDomainEvent(event);
+    await broadcast.drain();
+    await perception.drain();
+    expect(diagnose.calls.length).toBe(1); // in-flight 归一（一次事件一次调用）
+    expect(notifies.length).toBe(1);
+    expect(tts.calls.length).toBe(1); // 呈现轨经 content 源单条供给（不经双路重播）
+    expect(tts.calls[0]!.text).toBe(notifies[0]!.body);
+    expect(dialogReports.length).toBe(0); // 未激活零对话插话
+  });
+
+  test("未启用（money gate 关）→ 零 LLM + 极简保底不变（回归钉子保留）", async () => {
+    const { perception, diagnose, tts, notifies, dialogReports } = makeStack({
+      diagnose: fakeDiagnose({ available: false }),
+      stewardSubscribed: false,
+      subscribers: 1,
+    });
+    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
+    await broadcast_drain(perception);
+    expect(diagnose.calls.length).toBe(0); // 零 LLM port 调用（money gate 机械保底）
+    expect(tts.calls.length).toBe(1);
+    expect(tts.calls[0]!.text).toBe("后台任务已完成"); // 极简路径仍在
+    expect(notifies.length).toBe(0);
+    expect(dialogReports.length).toBe(0);
+  });
+
+  test("未启用 + agent.failed → 零分诊调用 + 极简终态语音（②层）", async () => {
     const { broadcast, perception, diagnose, tts, frames, notifies } = makeStack({
-      stewardSubscribed: false, // 未激活
+      diagnose: fakeDiagnose({ available: false }),
+      stewardSubscribed: false, // 未激活（此测真正门槛 = money gate）
       subscribers: 1,
     });
     const event = agentEvent("agent.failed", { agentId: "agent-2", error: "boom", closure: closure("xx") });
@@ -196,10 +269,10 @@ describe("未激活态：零 LLM + 极简播报路径仍在（回归保护）", 
     expect(tts.calls.length).toBe(1);
     expect(tts.calls[0]!.text).toBe("后台任务失败"); // 极简路径仍在
     expect(frames[0]!.text).toBe("后台任务失败");
-    expect(notifies.length).toBe(0); // 未激活零 notify
+    expect(notifies.length).toBe(0); // 未启用零 notify
   });
 
-  test("激活但 gate 断点（模型面不可用）→ 零分诊调用 + 极简播报", async () => {
+  test("启用但 gate 断点（模型面不可用）→ 零分诊调用 + 极简播报", async () => {
     const { broadcast, perception, diagnose, tts } = makeStack({
       diagnose: fakeDiagnose({ available: false }),
     });
@@ -211,22 +284,67 @@ describe("未激活态：零 LLM + 极简播报路径仍在（回归保护）", 
     expect(diagnose.calls.length).toBe(0);
     expect(tts.calls[0]!.text).toBe("后台任务已终止");
   });
+});
 
-  test("任务完成锚（未激活）→ 零分诊 + 任务级极简语音直供", async () => {
-    const { perception, diagnose, tts, notifies } = makeStack({
+describe("投递面分支（激活=对话内主动汇报+notify；未激活=notify+语音无对话插话）", () => {
+  test("激活态任务完成 → 对话内主动汇报（title/呈现轨/接续提案）+ notify + 语音同达", async () => {
+    const { perception, diagnose, notifies, tts, dialogReports } = makeStack({ subscribers: 1 }); // 默认激活
+    diagnose.setBehavior({ result: { suggestions: [{ label: "跳报告" }, { label: "开修复" }] } });
+    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
+    await broadcast_drain(perception);
+    expect(dialogReports.length).toBe(1);
+    const r = dialogReports[0]!;
+    expect(r.title).toBe("管家感知修正（helix）");
+    expect(r.text).toBe(notifies[0]!.body); // 对话内汇报与 notify 同源（呈现轨）
+    expect(r.suggestions.map((s) => s.label)).toEqual(["跳报告", "开修复", "看看报告"]); // LLM 接续提案 + 机械 [看看报告]
+    expect(notifies.length).toBe(1);
+    expect(tts.calls.length).toBe(1);
+    expect(tts.calls[0]!.text).toBe(notifies[0]!.body);
+  });
+
+  test("未激活态任务完成 → 零对话插话（notify+语音照达）", async () => {
+    const { perception, notifies, tts, dialogReports } = makeStack({
       stewardSubscribed: false,
       subscribers: 1,
     });
+    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
+    await broadcast_drain(perception);
+    expect(dialogReports.length).toBe(0); // 无对话插话
+    expect(notifies.length).toBe(1); // toast 照达
+    expect(tts.calls.length).toBe(1); // 语音照达
+  });
+
+  test("分诊静默裁决（notify=false）在两态一致：零 notify 零语音零对话插话（分诊照调）", async () => {
+    const active = makeStack({ subscribers: 1 });
+    active.diagnose.setBehavior({ result: { notify: false } });
+    active.perception.onJobTerminal("job-1", "done");
+    await broadcast_drain(active.perception);
+    expect(active.diagnose.calls.length).toBe(1); // 静默是裁决不是门槛
+    expect(active.notifies.length).toBe(0);
+    expect(active.tts.calls.length).toBe(0);
+    expect(active.dialogReports.length).toBe(0);
+
+    const idle = makeStack({ subscribers: 1, stewardSubscribed: false });
+    idle.diagnose.setBehavior({ result: { notify: false } });
+    idle.perception.onJobTerminal("job-2", "done");
+    await broadcast_drain(idle.perception);
+    expect(idle.diagnose.calls.length).toBe(1); // 两态一致
+    expect(idle.notifies.length).toBe(0);
+    expect(idle.tts.calls.length).toBe(0);
+    expect(idle.dialogReports.length).toBe(0);
+  });
+
+  test("title 缺省（无任务标题传入）→ 回退终态词（非 UUID）", async () => {
+    const { perception, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
     perception.onJobTerminal("job-1", "done");
     await broadcast_drain(perception);
-    expect(diagnose.calls.length).toBe(0);
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe("后台任务已完成"); // 恒报终态事实（⑨ 机械降级）
-    expect(notifies.length).toBe(0);
+    expect(notifies.length).toBe(1);
+    expect(notifies[0]!.title).toBe("任务完成");
+    expect(notifies[0]!.title).not.toContain("job-1");
   });
 });
 
-describe("激活态：任务完成 → 分诊双轨产物 + notify 帧", () => {
+describe("启用态：任务完成 → 分诊双轨产物 + notify 帧", () => {
   test("job done → 一次 LLM 双轨：notify 帧到达 + 摄入轨入 ring + progress 薄条目 + 语音直供", async () => {
     const { perception, diagnose, notifies, memory, tts } = makeStack({ subscribers: 1 });
     // 任务会话批次实例先完成（聚合——不触发分诊）
@@ -304,16 +422,19 @@ describe("归一：一次事件只触发一次 LLM 调用，语音与 notify 同
     await perception.drain();
     expect(diagnose.calls.length).toBe(1); // 归一：in-flight 去重
     expect(notifies.length).toBe(1);
+    expect(tts.calls.length).toBe(1); // 呈现轨单条供给（语音同源不重播）
     expect(tts.calls[0]!.text).toBe(notifies[0]!.body); // 语音文本与 notify 载荷同源
   });
 
-  test("BroadcastService 单入口（voice 订阅在、零 steward 订阅——未激活）→ 零 LLM + 极简", async () => {
-    const { broadcast, perception, diagnose, tts } = makeStack({ subscribers: 1, stewardSubscribed: false });
+  test("BroadcastService 单入口（voice 订阅在、零 steward 订阅——未激活）→ 分诊照做（v2.9），语音用呈现轨", async () => {
+    const { broadcast, perception, diagnose, tts, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
     broadcast.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "x", closure: closure("") }));
     await broadcast.drain();
     await perception.drain();
-    expect(diagnose.calls.length).toBe(0);
-    expect(tts.calls[0]!.text).toBe("后台任务失败");
+    expect(diagnose.calls.length).toBe(1); // 启用即分诊（激活非门槛）
+    expect(tts.calls.length).toBe(1);
+    expect(tts.calls[0]!.text).toBe(notifies[0]!.body); // 呈现轨经 content 源供给（非②层极简）
+    expect(tts.calls[0]!.text).not.toBe("后台任务失败");
   });
 });
 
@@ -327,11 +448,13 @@ describe("聚合粗筛：完成类聚任务级（E-232 归一面）", () => {
   });
 
   test("非 task 会话的 agent.completed 照旧 agent 级（散实例无任务锚可聚）", async () => {
-    const { broadcast, tts } = makeStack({ subscribers: 1, stewardSubscribed: false });
+    const { broadcast, perception, diagnose, tts, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
     broadcast.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-9", closure: closure("散实例完成") }));
     await broadcast.drain();
+    await perception.drain();
+    expect(diagnose.calls.length).toBe(1); // 级分诊照做（v2.9 门槛=启用）
     expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe("后台任务已完成");
+    expect(tts.calls[0]!.text).toBe(notifies[0]!.body); // 呈现轨（非极简模板）
   });
 
   test("粗筛纯函数：task 会话完成类判非播报集合（isBroadcastEligible 事件级 + 会话级聚合判定分离）", () => {
@@ -375,15 +498,27 @@ describe("ring buffer：汇报分级沉淀", () => {
   });
 });
 
-describe("通知预算：normal ≤4 条/小时，high 豁免", () => {
+describe("通知预算：normal ≤4 条/小时，high 豁免（未激活同样生效）", () => {
   test("窗口内第 5 条 normal 通知被丢弃（语音照播——语音有自己的队列限流）", async () => {
-    const { perception, notifies, tts } = makeStack({ subscribers: 1 });
+    const { perception, notifies, tts, dialogReports } = makeStack({ subscribers: 1 });
     for (let i = 1; i <= 5; i++) {
       perception.onJobTerminal(`job-${i}`, "done");
       await broadcast_drain(perception);
     }
     expect(notifies.length).toBe(4); // 第 5 条被丢弃
     expect(tts.calls.length).toBe(5); // 语音照播（播报队列独立限流）
+    expect(dialogReports.length).toBe(4); // 对话内汇报同受通知预算（防轰炸）
+  });
+
+  test("限流对未激活 notify 同样生效（激活非门槛——第 5 条丢弃，语音照播）", async () => {
+    const { perception, notifies, tts, dialogReports } = makeStack({ subscribers: 1, stewardSubscribed: false });
+    for (let i = 1; i <= 5; i++) {
+      perception.onJobTerminal(`job-${i}`, "done", `任务${i}`);
+      await broadcast_drain(perception);
+    }
+    expect(notifies.length).toBe(4); // 未激活态同样限流
+    expect(tts.calls.length).toBe(5);
+    expect(dialogReports.length).toBe(0); // 未激活零对话插话
   });
 
   test("窗口滑出后恢复配额", async () => {

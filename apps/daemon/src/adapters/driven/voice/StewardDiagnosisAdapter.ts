@@ -8,7 +8,8 @@
  * 同键位，换模型换 key 自动跟随）。可用性判别（isAvailable）三条件收口：
  * 管家开关开（分诊是管家子功能，管家关 = 随关）∧ 任务总结开关开 ∧ 模型
  * 槽位非空——任一断点 → false → StewardPerceptionService 零 LLM 降级
- * （极简终态语音通知）。**激活判定不在此处**（D12-⑪：归感知服务单点）。
+ * （极简终态语音通知）。三条件 = **启用**（money gate+模型配）；**激活判定
+ * 不在此处**（v2.9 D12-⑫：归感知服务单点，投递面判据——启用态分诊恒做）。
  *
  * 防腐面：{systemPrompt, userPrompt} → StewardLlmRequest（messages 恰一条
  * user、tools 空——分诊无工具面无会话史，单发无状态）；text 响应经

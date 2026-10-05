@@ -248,7 +248,7 @@ describe("内容源（管家感知批 M0.5 归一面）：呈现轨直供/回退
     expect(frames[0]!.kind).toBe("agent.completed");
   });
 
-  test("unavailable 判别（未激活/gate 断点）→ 回退②层极简通知", async () => {
+  test("unavailable 判别（未启用/gate 断点）→ 回退②层极简通知", async () => {
     const content = fakeContent({ outcome: { kind: "unavailable" } });
     const { svc, tts, frames } = makeService({ content });
     svc.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-2", closure: closure("修复登录超时") }));

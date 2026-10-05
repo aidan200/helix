@@ -271,8 +271,9 @@ function artifactDtoOf(artifact: StageArtifact | null): { readonly summary: stri
   return artifact.body === undefined ? { summary: artifact.summary } : { summary: artifact.summary, body: artifact.body };
 }
 
-/** 标题：skill 任务说明首段 + 项目语境（服务端组装，前端不拼文案）。 */
-function titleOf(job: JobData, skills: TaskSkillRegistryPort): string {
+/** 标题：skill 任务说明首段 + 项目语境（服务端组装，前端不拼文案；
+ *  M0.5-R 导出供 TaskOrchestratorService notify title 机械字段同源复用）。 */
+export function titleOf(job: JobData, skills: TaskSkillRegistryPort): string {
   const description = skills.listTaskTypes().find((t) => t.type === job.type)?.description;
   const base = description === undefined ? `${job.type} 任务` : (description.split(/[；;\n]/)[0] ?? description);
   return job.projects.length > 0 ? `${base}（${job.projects.join("、")}）` : base;

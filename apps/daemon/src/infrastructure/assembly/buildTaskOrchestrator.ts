@@ -63,8 +63,9 @@ export interface BuildTaskOrchestratorDeps {
   readonly eventStream: EventStream;
   /** 管家感知批（M0.5）：任务级完成锚——job 终态回调的第二个消费者
    *  （W2-D R13 pending_sync 提示之外；感知服务 ring 沉淀 + done 触发
-   *  分诊。可选——纯测试形态不注入）。 */
-  readonly stewardPerception?: { onJobTerminal(jobId: string, status: string): void };
+   *  分诊。可选——纯测试形态不注入）。title = 任务标题机械字段（notify
+   *  title 用，M0.5-R）。 */
+  readonly stewardPerception?: { onJobTerminal(jobId: string, status: string, title?: string): void };
   /** 编排会话 LLM 覆盖（T4.1 E 层测试接缝；缺省生产形态）。 */
   readonly llmOverride?: Parameters<typeof createOrchestratorSessionFactory>[0]["llmOverride"];
 }
@@ -133,11 +134,11 @@ export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrch
     // W2-D R13 job 完成提示点（编排层，不进引擎守 AD-10）：job 终态 reap 时
     // 扫描该 job 相关 session 的 pending_sync（notified=0）→ 置已提示 + 经
     // 既有 task.changed 广播通路随行 syncHint（机器只记录只提醒，sync 人确认）
-    onJobTerminal: (jobId, status) => {
+    onJobTerminal: (jobId, status, title) => {
       // 管家感知批（M0.5）：任务级完成锚——感知服务消费（ring 沉淀；done
       //  触发分诊——完成类聚合的主播报锚，D12-⑨粒度演进；D10 生产者不直喂
-      //  禁令由组合根回调接线形态保持）
-      deps.stewardPerception?.onJobTerminal(jobId, status);
+      //  禁令由组合根回调接线形态保持；title 任务标题机械字段，M0.5-R）
+      deps.stewardPerception?.onJobTerminal(jobId, status, title);
       const rows = persistence.repository.queryUnnotifiedPendingSync(taskSessionIdOf(jobId), jobId);
       if (rows.length === 0) return;
       void persistence.repository.markPendingSyncNotified(rows.map((r) => r.sessionId));

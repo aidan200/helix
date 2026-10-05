@@ -3,9 +3,10 @@
  * 播报管道①②层：规则粗筛 + 极简终态通知（回退面）+ 内容源回调）。
  *
  * 职责分层（任务总结子功能批重构 + 管家感知批 M0.5 归一）：**内容生产归
- * 管家分诊器**（StewardPerceptionService 一次 LLM 调用双轨产物——激活态
- * 供给呈现轨文本；原③层独立摘要调用已归一退役，E-232 叙述推翻），**语音
- * 播报只负责播**（粗筛/闸门/队列/合成/广播，不关心内容生产）。
+ * 管家分诊器**（StewardPerceptionService 一次 LLM 调用双轨产物——启用态
+ * 供给呈现轨文本（v2.9：LLM 门槛=启用，不看激活）；原③层独立摘要调用已
+ * 归一退役，E-232 叙述推翻），**语音播报只负责播**（粗筛/闸门/队列/
+ * 合成/广播，不关心内容生产）。
  *
  * 链路：fanout 带名目标 voice-broadcast-bridge（wireEventFanout 装配）→
  * onDomainEvent → ①粗筛（agent.failed/killed 即报 + 非 task 会话
@@ -67,10 +68,12 @@ const DROPPED_NOTE = (n: number): string => `（另有 ${n} 条较早播报已�
  * 内容源判别（管家感知批 M0.5 归一面）：
  * - text = 分诊呈现轨文本（直供播报）；
  * - silent = 分诊裁决静默（丢弃播报占位——「可判不打扰而静默」）；
- * - unavailable = 无分诊（未激活/gate 断点/面缺席）→ 回退②层极简终态通知
- *   （回归保护：未激活态播报不哑）。
+ * - unavailable = 无分诊（未启用/gate 断点/面缺席）→ 回退②层极简终态通知
+ *   （回归保护：播报不哑）。
  * 类型定义归消费域单点（voice）；生产实现 = StewardPerceptionService
- * .supplyBroadcastText（一次事件一次 LLM 调用——in-flight 去重归一）。
+ * .supplyBroadcastText（一次事件一次 LLM 调用——in-flight 去重归一；
+ * agent 级呈现轨唯一播报供给路——任务级锚走 enqueueDiagnosed 直供，
+ * 两路互斥防双路重播）。
  */
 export type BroadcastContentResult =
   | { readonly kind: "text"; readonly text: string }
@@ -186,9 +189,10 @@ export class BroadcastService {
   }
 
   /**
-   * 分诊直供播报面（管家感知批 M0.5）：StewardPerceptionService 分诊产物/
-   * 任务级极简直供——文本已产（零内容回调），入队即 ready；闸门单点保持
-   * （无订阅连接 = 零入队零合成）。溢出语义与事件占位同队列同规则。
+   * 分诊直供播报面（管家感知批 M0.5）：StewardPerceptionService 任务级锚
+   *  极简直供（呈现轨/机械保底已产文本，零内容回调），入队即 ready；闸门
+   *  单点保持（无订阅连接 = 零入队零合成）。溢出语义与事件占位同队列同
+   *  规则。agent 级事件不经此面（呈现轨经 content 源占位替换——防双路重播）。
    */
   enqueueDiagnosed(item: { kind: VoiceBroadcastPayload["kind"]; agentId: string; text: string }): void {
     if (!this.gate.hasVoiceSubscribers()) return;
@@ -252,7 +256,7 @@ export class BroadcastService {
       ]);
       if (outcome.kind === "text") return truncateSummary(outcome.text);
       if (outcome.kind === "silent") return null;
-      return fallback; // unavailable（未激活/gate 断点）——②层极简通知
+      return fallback; // unavailable（未启用/gate 断点）——②层极简通知
     } catch (err) {
       this.logger?.warn(`语音播报内容源失败（回退②层极简通知）：${(err as Error).message}`);
       return fallback;

@@ -1745,6 +1745,22 @@ export class StewardService {
     return { ok: true };
   }
 
+  /**
+   * 对话内主动汇报（M0.5-R：激活态主动环投递面，D12-⑫「激活=对话内主动
+   * 汇报+接续提案」）：分诊呈现轨 + 接续提案以 assistant 记录入工作记忆
+   * ——同源链路保持（UI 对话回放显示的 = LLM 记得的，后续 ask 自带已汇报
+   * 现场）；只是记录追加，零引擎驱动零响应环改动；接续提案为文本建议行，
+   * 点按才动/写类动作仍过确认闸（D12-⑤ 不变）。组合根接
+   * StewardPerceptionService.reportDialog 窄接口。
+   */
+  async reportProactive(report: { title: string; text: string; suggestions?: readonly { label: string }[] }): Promise<void> {
+    const lines = [`【主动汇报】${report.title}`, report.text];
+    for (const s of report.suggestions ?? []) {
+      if (s.label.trim() !== "") lines.push(`建议：${s.label}（点按才动）`);
+    }
+    await this.pushRecord({ kind: "assistant", text: lines.join("\n"), at: this.now() });
+  }
+
   // ── 内部 ────────────────────────────────────────────────
 
   /** 工作记忆镜像 → LLM 消息窗口（同源：UI 回放显示的 = LLM 记得的；
