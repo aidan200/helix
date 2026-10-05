@@ -35,6 +35,7 @@ const FANOUT_NAMES = [
   "coord-bridge",
   "voice-broadcast-bridge",
   "steward-feed-bridge",
+  "steward-perception-bridge",
   "session-topic-bridge",
 ] as const;
 

@@ -73,7 +73,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
     expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("provider.list.result"); // 三方平台批为目录尾（embedding 族后追加 provider 族）
-    expect(EVENT_TYPES.length).toBe(144); // P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1（kg.auto.audit.result）；此前：B1 +1 / 动态主题批 +2 / channels 惰性化批 +1
+    expect(EVENT_TYPES.length).toBe(145); // P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1（kg.auto.audit.result）；此前：B1 +1 / 动态主题批 +2 / channels 惰性化批 +1
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -82,7 +82,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(144); // P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1 // 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(145); // P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）+ P2 审计批 +1 // 动态主题批 +2（config.get/set_topic.result）；channels 惰性化批 +1 后当前值（session.instanceChannels.result）
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {

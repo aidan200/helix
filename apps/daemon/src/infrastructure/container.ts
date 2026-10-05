@@ -88,8 +88,9 @@ import { PiStewardLlmAdapter, STEWARD_DEFAULT_MODEL } from "../adapters/driven/l
 import { buildStewardEngine } from "../adapters/driven/steward/StewardEngineBuilder";
 import { resolveModel } from "../adapters/driven/llm";
 import { stewardEngineTraceBridge } from "./assembly/stewardEngineTraceBridge";
-import { StewardVoiceSummarizerAdapter } from "../adapters/driven/voice/StewardVoiceSummarizerAdapter";
-import type { VoiceSummarizerPort } from "../application/ports/outbound/VoiceSummarizerPort";
+import { StewardDiagnosisAdapter } from "../adapters/driven/voice/StewardDiagnosisAdapter";
+import type { StewardDiagnosisPort } from "../application/ports/outbound/StewardDiagnosisPort";
+import { StewardPerceptionService } from "../application/steward/StewardPerceptionService";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
@@ -238,11 +239,17 @@ export interface AssembleDaemonDeps {
    */
   readonly voiceTtsStreamOverride?: TtsStreamService;
   /**
-   * ③层 LLM 摘要面覆盖（语音播报批：测试注入 fake VoiceSummarizerPort 驱动
-   * 摘要/回退路径；缺省 = StewardVoiceSummarizerAdapter 真体——复用管家 LLM
-   * 面与配置槽位）。
+   * 分诊器 LLM 面覆盖（管家感知批 M0.5：测试注入 fake StewardDiagnosisPort
+   * 驱动双轨产物/降级路径；缺省 = StewardDiagnosisAdapter 真体——
+   * steward.summary.model 专用槽位沿用）。③层摘要面覆盖
+   * （voiceSummarizerOverride）已随归一退役。
    */
-  readonly voiceSummarizerOverride?: VoiceSummarizerPort;
+  readonly stewardDiagnoseOverride?: StewardDiagnosisPort;
+  /**
+   * 感知服务覆盖（管家感知批 M0.5：测试注入 fake 驱动激活/限流/任务锚链路；
+   * 缺省 = StewardPerceptionService 真体）。
+   */
+  readonly stewardPerceptionOverride?: StewardPerceptionService;
   /**
    * 管家 LLM 面覆盖（V2.5 文本管家批：测试注入 fake StewardLlmPort 驱动全链；
    * 缺省 = PiStewardLlmAdapter 真体）。
@@ -707,29 +714,56 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
   });
 
-  // ③层播报摘要面：任务总结子功能（管家子功能）专用 LLM 槽位——
-  // steward.summary.model，**无默认模型**（未配置 = 摘要面不可用，语音播报走
-  // 极简终态通知——不配不摘要，不另配默认防管家大模型拖慢摘要超时）；
-  // 管家开关仍 gate（管家关 = 子功能随关）。可用性三条件在 adapter 处收口：
-  // 管家开 ∧ 总结开 ∧ 模型槽位非空。
-  const voiceSummarizer = deps.voiceSummarizerOverride ?? new StewardVoiceSummarizerAdapter({
-    llm: new PiStewardLlmAdapter({
-      models: modelStack.catalog.modelsView(),
-      modelSlot: () => persistence.runtimeConfig.get(STEWARD_SUMMARY_MODEL_KEY),
-      defaultModel: "",
-      getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
-    }),
-    enabled: () =>
-      persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1" &&
-      persistence.runtimeConfig.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
-  });
+  // 分诊器 LLM 面（管家感知批 M0.5 归一）：任务总结子功能专用槽位沿用
+  //（steward.summary.model，**无默认模型**——未配置 = 分诊面不可用，语音
+  // 播报/notify 走极简终态通知）；可用性三条件在 adapter 处收口：管家开
+  // ∧ 总结开 ∧ 模型槽位非空；**激活判定不在此处**（D12-⑪——归感知服务
+  // 单点）。原③层独立摘要调用（StewardVoiceSummarizerAdapter）已归一退役。
+  const stewardDiagnose =
+    deps.stewardDiagnoseOverride ??
+    new StewardDiagnosisAdapter({
+      llm: new PiStewardLlmAdapter({
+        models: modelStack.catalog.modelsView(),
+        modelSlot: () => persistence.runtimeConfig.get(STEWARD_SUMMARY_MODEL_KEY),
+        defaultModel: "",
+        getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+      }),
+      enabled: () =>
+        persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1" &&
+        persistence.runtimeConfig.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
+    });
+  // 感知服务（M0.5）：ring 沉淀 + 激活判定 + 分诊编排 + notify 限流。
+  // 晚绑闭包（voice sink 在下方 voiceBroadcast 构造后回填——构造环：
+  // BroadcastService content 源又指向本服务 supplyBroadcastText）。
+  let voiceBroadcastRef: BroadcastService | undefined;
+  const stewardPerception =
+    deps.stewardPerceptionOverride ??
+    new StewardPerceptionService({
+      diagnose: stewardDiagnose,
+      feedGate: eventStream, // hasStewardSubscribers 窄接口（激活信号①；M0 surface 后升级）
+      // progress 薄条目写面（stewardMemory 在下方构造——晚绑闭包；缺席/未装配 = 静默 false）
+      memory: {
+        recordSessionProgress: (sessionId, text) =>
+          stewardMemory !== undefined
+            ? stewardMemory.recordSessionProgress(sessionId, text)
+            : Promise.resolve(false),
+      },
+      emitNotify: (payload) => eventStream.broadcastStewardNotify(payload),
+      voice: {
+        enqueueDiagnosed: (item) => voiceBroadcastRef?.enqueueDiagnosed(item),
+      },
+      logger,
+    });
   const voiceBroadcast = new BroadcastService({
     tts: voiceTts,
     gate: eventStream, // hasVoiceSubscribers/voicePreference 窄接口（EventStream 实现 BroadcastGate）
     emit: (payload) => eventStream.broadcastVoice(payload),
-    summarizer: voiceSummarizer,
+    // 归一面：内容源 = 分诊呈现轨（一次事件一次 LLM——in-flight 去重在
+    // 感知服务内单点；未激活/gate 断点回退②层极简终态通知）
+    content: (event) => stewardPerception.supplyBroadcastText(event),
     logger,
   });
+  voiceBroadcastRef = voiceBroadcast; // 晚绑闭合（感知服务 voice sink 回填）
   // ── 管家记忆 B2：embedding 配置域服务体（端点 CRUD + verify + 解析）。
   //    KV embedding_endpoints；apiKey 明文存储对齐 auth.json 同款（不另造
   //    加密）。一次性迁移：旧 steward.memory.embedding（B1 三字段）→ 首条
@@ -892,6 +926,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     tasks: taskStack.query, // 任务清单只读面（TaskQueryService.listTasks）
     config: persistence.runtimeConfig, // steward.enabled / steward.model KV 持久化
     feedGate: eventStream, // hasStewardSubscribers 窄接口（连接级订阅闸门）
+    // 管家感知批（M0.5）：ask 即激活信号②——感知服务衰减窗点亮（一问即
+    // 入激活，响应环点亮主动环，D12-⑪）
+    onUserActivity: () => stewardPerception.noteUserActivity(),
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
     // B4a 自动沉淀提案帧出口（与 feed 同订阅闸——判官判定后轮外投递确认卡）
     emitMemoryWritten: (payload) => eventStream.broadcastStewardMemoryWritten(payload),
@@ -973,6 +1010,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 读面/kill）+ 任务域依赖面（buildTaskStack 同源）。
   broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
   orchestratorService = buildTaskOrchestrator({
+    stewardPerception, // 管家感知批（M0.5）：job 终态回调第二消费者（任务级完成锚）
     orchestratorCore: taskStack.orchestratorCore,
     scheduler,
     resolveSubagentModelId,
@@ -1159,6 +1197,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     voice: voiceBroadcast,
     // 文本管家批（V2.5）：生命周期事件 → 粗筛/模板文本行/feed 帧桥
     steward: stewardService,
+    // 管家感知批（M0.5）：agent 终态 + 周期进展 → ring 沉淀 + 分诊锚桥
+    perception: stewardPerception,
     // 动态主题批：主实例完成轮 → 锚点演进桥（末位旁路面）
     sessionTitle: sessionTitleService,
   });

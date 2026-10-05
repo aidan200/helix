@@ -44,6 +44,7 @@ import type {
   StewardMemoryDeleteCommand,
   StewardMemoryListResultEvent,
   StewardMemoryWrittenEvent,
+  StewardNotifyEvent,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -86,7 +87,8 @@ type _FeedSeq = Expect<Equal<StewardFeedPayload["seq"], number>>;
 
 // channel = "steward" 新族窄化（familyOf case 存在 + TypeOfChannel 收窄；
 // 管家驾驶舱批 +steward.navigate——投递/建会话成功后的页面切换指令帧；
-// 管家记忆 B2 批 +steward.memory_list.result——条目清单回执）
+// 管家记忆 B2 批 +steward.memory_list.result——条目清单回执；
+// 管家感知批 M0.5 +steward.notify——分诊呈现轨主动通知帧）
 type _StewardFamily = Expect<
   Equal<
     TypeOfChannel<"steward">,
@@ -100,6 +102,7 @@ type _StewardFamily = Expect<
       | "steward.tool"
       | "steward.thinking"
       | "steward.navigate"
+      | "steward.notify"
       | "steward.memory_written"
       | "steward.memory_list.result"
   >
@@ -555,5 +558,39 @@ describe("管家记忆 B5：judgeEndpointId 引用 + memory_written 通知帧", 
       "steward-memory:added:用户偏好 shell 测试用 vitest",
     );
     expect(familyOf(memoryWrittenFrame)).toBe("steward/steward.memory_written");
+  });
+});
+
+// ── 管家感知批（M0.5）：steward.notify 主动通知帧（feed 族事件帧 additive）──
+
+const notifyFrame: StewardNotifyEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.notify",
+  payload: {
+    urgency: "normal",
+    title: "任务完成",
+    body: "M0.5 感知链路测试已全部通过。",
+    seq: 1,
+    suggestions: [{ label: "去任务页看看", verb: "open_tasks" }],
+  },
+};
+
+describe("管家感知批：steward.notify 主动通知帧（与 feed 同订阅闸，事件帧非指令帧）", () => {
+  test("目录登记（EVENT_TYPES / EVENT_CHANNELS 挂 steward 族）", () => {
+    expect(EVENT_TYPES).toContain("steward.notify");
+    expect(EVENT_CHANNELS["steward.notify"]).toBe("steward");
+  });
+
+  test("payload 窄化：urgency/title/body/suggestions（动词指针可选）/seq + 分发", () => {
+    expect(notifyFrame.payload.urgency).toBe("normal");
+    expect(notifyFrame.payload.title).toBe("任务完成");
+    expect(notifyFrame.payload.body).not.toContain("agent-");
+    expect(notifyFrame.payload.suggestions?.[0]?.label).toBe("去任务页看看");
+    expect(notifyFrame.payload.suggestions?.[0]?.verb).toBe("open_tasks");
+    expect(notifyFrame.payload.seq).toBe(1);
+    expect(summarizeEvent(notifyFrame)).toBe("steward-notify:normal:任务完成:1");
+    expect(familyOf(notifyFrame)).toBe("steward/steward.notify");
   });
 });

@@ -345,7 +345,7 @@ describe("COMMAND_SURFACE setSessionModel 返回值（code-review 族A，TR-168�
 describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
   const { match } = LISTEN_SURFACE.subscribeStewardFrames;
 
-  it("转发 steward 族回执/广播全清单（含 B1 action.completed 完成帧 + B5 memory_written 记忆落盘通知帧）", () => {
+  it("转发 steward 族回执/广播全清单（含 B1 action.completed 完成帧 + B5 memory_written 记忆落盘通知帧 + M0.5 steward.notify 主动通知帧）", () => {
     for (const type of [
       "steward.ask.result",
       "steward.ask.delta",
@@ -357,6 +357,7 @@ describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
       "steward.tool",
       "steward.thinking",
       "steward.navigate",
+      "steward.notify",
       "steward.memory_written",
       "steward.memory_list.result",
       "connection.error",

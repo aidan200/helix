@@ -165,6 +165,7 @@ import type {
   StewardNavigateEvent,
   StewardMemoryWrittenEvent,
   StewardMemoryListResultEvent,
+  StewardNotifyEvent,
   StewardActionCompletedEvent,
 } from "./steward";
 import type {
@@ -339,6 +340,7 @@ export type EventEnvelope =
   | StewardNavigateEvent
   | StewardMemoryWrittenEvent
   | StewardMemoryListResultEvent
+  | StewardNotifyEvent
   | EmbeddingListResultEvent
   | EmbeddingVerifyResultEvent
   | ProviderListResultEvent
@@ -519,6 +521,9 @@ export const EVENT_TYPES = [
   // helix-loop L1 批：上下文压缩里程碑（tokensBefore/After + 摘要；
   // failed 同型记错——压缩失败降级粗裁剪不阻塞对话，追踪页可见）
   "loop.context.compacted",
+  // 管家感知批 M0.5：steward.notify（主动通知帧——分诊呈现轨载体，与 feed
+  // 同订阅闸；事件帧非指令帧）
+  "steward.notify",
   // 管家记忆 B2：steward 记忆条目清单回执（memory_list/append/update/delete
   // 四命令共用）+ embedding 配置域两帧（新族 channel "embedding"——端点
   // 清单回执与连通测试回执）
@@ -664,6 +669,7 @@ export const EVENT_CHANNELS = {
   "steward.memory_written": "steward",
   "steward.action.completed": "steward",
   "steward.memory_list.result": "steward",
+  "steward.notify": "steward",
   "embedding.list.result": "embedding",
   "embedding.verify.result": "embedding",
   "provider.list.result": "provider",

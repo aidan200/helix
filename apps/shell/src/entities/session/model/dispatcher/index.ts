@@ -172,7 +172,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // append/update/delete 四命令共用，真消费归记忆独立页）；
   // 管家记忆 B4a 批登记 +steward.sediment_proposal，B5 静默化改名
   // +steward.memory_written（记忆落盘通知帧——真消费归 useStewardActions
-  // 通知卡合流，feed 同订阅闸广播）
+  // 通知卡合流，feed 同订阅闸广播）；
+  // 管家感知批 M0.5 +steward.notify（主动通知帧——分诊呈现轨载体，真
+  // 消费归 StewardNotifyToast 全局 toast，feed 同订阅闸广播）
   "steward.ask.result",
   "steward.ask.delta",
   "steward.confirm.result",
@@ -185,6 +187,7 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.tool",
   "steward.thinking",
   "steward.navigate",
+  "steward.notify",
   "steward.memory_written",
   "steward.memory_list.result",
   // embedding 配置域（管家记忆 B2）：两帧 = 连接私有（清单回执 list/set/

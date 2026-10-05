@@ -37,6 +37,8 @@ import type {
   StewardFeedPayload,
   StewardNavigateEvent,
   StewardNavigatePayload,
+  StewardNotifyEvent,
+  StewardNotifyPayload,
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
@@ -519,6 +521,32 @@ export class EventStream implements EventPublisherPort {
       sessionId: SYSTEM_SESSION_ID,
       channel: "steward",
       type: "steward.navigate",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /**
+   * steward.notify 主动通知广播（管家感知批 M0.5）：daemon 级全局帧（信封
+   * sessionId = SYSTEM_SESSION_ID、channel = "steward"），投递按连接级 steward
+   * 订阅位过滤（broadcastStewardFeed 同闸门同构）。触发面 =
+   * StewardPerceptionService 分诊器（激活态一次 LLM 双轨产物的呈现轨——
+   * 通知预算限流后发出）。**事件帧非指令帧**（D8 通道治理）：告知 + 建议，
+   * suggestions 按钮点按才动、写类动作仍过确认闸；呈现即焚不进对话上下文。
+   */
+  broadcastStewardNotify(payload: StewardNotifyPayload): void {
+    const frame: StewardNotifyEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.notify",
       payload,
     };
     for (const [sender, conn] of this.connections) {

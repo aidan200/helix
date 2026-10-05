@@ -307,6 +307,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.memory_list.result":
       // 管家记忆 B2：长期记忆条目清单回执窄化（数量 + 首条 kind 面）
       return `steward-memory-list:${event.payload.entries.length}:${event.payload.entries[0]?.kind ?? "-"}`;
+    case "steward.notify":
+      // 管家感知批 M0.5：主动通知帧窄化（urgency/title/seq + 首条建议 label）
+      return `steward-notify:${event.payload.urgency}:${event.payload.title}:${event.payload.seq}`;
     case "embedding.list.result":
       // embedding 配置域（B2）：端点清单回执窄化（数量 + 首条 name 面）
       return `embedding-list:${event.payload.endpoints.length}:${event.payload.endpoints[0]?.name ?? "-"}`;

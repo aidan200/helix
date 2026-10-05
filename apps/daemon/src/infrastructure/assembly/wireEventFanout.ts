@@ -112,6 +112,10 @@ export interface WireEventFanoutDeps {
   readonly voice?: { onDomainEvent(event: DomainEvent): void };
   /** 文本管家批（V2.5，可选——纯调度测试形态不注入）：agent 生命周期事件 → 粗筛/模板文本行/feed 帧的 fanout 入口。 */
   readonly steward?: { onDomainEvent(event: DomainEvent): void };
+  /** 管家感知批（M0.5，可选——纯测试形态不注入）：agent 终态 + 周期进展
+   *  事件 → ring buffer 沉淀 + 分诊锚（激活态一次 LLM 双轨产物）的 fanout
+   *  入口（D10 系统族：订阅总线，生产者不直喂）。 */
+  readonly perception?: { onDomainEvent(event: DomainEvent): void };
   /** 动态主题批（可选——纯调度测试形态不注入）：主实例完成轮 → 锚点演进
    *（LLM 调用全部异步 fire-and-forget，不阻塞 fan-out 全序）的 fanout 入口。 */
   readonly sessionTitle?: { onDomainEvent(event: DomainEvent): void };
@@ -222,6 +226,19 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       name: "steward-feed-bridge",
       target: {
         publish: (event) => steward.onDomainEvent(event),
+        publishDelta: () => undefined,
+      },
+    });
+  }
+  // 管家感知桥（M0.5）：agent 终态 + steer.queued(progress) 流入
+  // StewardPerceptionService（ring 沉淀 + 分诊锚；粗筛在 service 内单点——
+  // 只产出内存记录与 notify 协议帧零领域事件，防自激同上；末位旁路面）。
+  if (deps.perception !== undefined) {
+    const perception = deps.perception;
+    publisher.add({
+      name: "steward-perception-bridge",
+      target: {
+        publish: (event) => perception.onDomainEvent(event),
         publishDelta: () => undefined,
       },
     });
