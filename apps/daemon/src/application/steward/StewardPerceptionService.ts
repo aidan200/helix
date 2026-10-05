@@ -2,10 +2,12 @@
  * StewardPerceptionService —— 管家系统感知 application service（M0.5 批，
  * 设计 D10/D11/D12：感知地基 + 激活判定 + 分诊编排 + notify 限流）。
  *
- * 感知源（D10 系统族）：订阅既有域事件总线（fanout steward-perception-bridge
+ * 感知源（D10）：订阅既有域事件总线（fanout steward-perception-bridge
  * ——agent.* 终态 + steer.queued(source=progress) 周期 ping）+ 任务级完成锚
- * （组合根接 TaskOrchestratorService.onJobTerminal）。全部只读订阅，零新事件
- * 源零新表——「生产者不直喂管家」禁令由 fanout 桥形态保持（组合根接线，
+ * （组合根接 TaskOrchestratorService.onJobTerminal）+ **表面族第三源**（M1
+ * browser adapter：组合根经 SurfaceRegistry 观察者订阅 → onSurfaceEvent
+ * 入 ring，零分诊零 LLM）。全部只读订阅，零新事件源零新表——「生产者不直
+ * 喂管家」禁令由 fanout 桥/Registry 订阅形态保持（组合根接线，
  * SessionTitleService 直写教训的反面）。
  *
  * 存储分层（D11）：ring buffer（daemon 内存滚动上限，不落盘）——原始事件
@@ -47,7 +49,7 @@ import type {
   StewardDiagnosisResult,
 } from "../ports/outbound/StewardDiagnosisPort";
 import type { BroadcastContentResult } from "../voice/BroadcastService";
-import type { StewardNotifyPayload, VoiceBroadcastKind } from "@helix/protocol";
+import type { StewardNotifyPayload, SurfaceEvent, VoiceBroadcastKind } from "@helix/protocol";
 
 /** 任务会话 id 前缀（完成类聚合判别——task:* 会话的 agent.completed 不在
  *  agent 级播报，聚任务级锚；与 TaskOrchestratorService.TASK_SESSION_PREFIX
@@ -76,9 +78,16 @@ export const NOTIFY_NORMAL_HOURLY_LIMIT = 4;
 export interface PerceptionRingEntry {
   /** 记录时刻（epoch ms）。 */
   readonly at: number;
-  /** 记录类别：agent 终态三值 / 周期进展 ping / 任务终态事实 / 分诊摄入轨。 */
-  readonly kind: "agent.completed" | "agent.failed" | "agent.killed" | "progress.ping" | "task.terminal" | "task.diagnosed";
-  /** 归属会话（agent 事件携带 sessionId；任务锚 = task:<jobId>）。 */
+  /** 记录类别：agent 终态三值 / 周期进展 ping / 任务终态事实 / 分诊摄入轨 / 表面事件。 */
+  readonly kind:
+    | "agent.completed"
+    | "agent.failed"
+    | "agent.killed"
+    | "progress.ping"
+    | "task.terminal"
+    | "task.diagnosed"
+    | "surface.event";
+  /** 归属会话（agent 事件携带 sessionId；任务锚 = task:<jobId>；表面事件 = surfaceId）。 */
   readonly sessionId: string;
   /** 触发实例 id（agent 事件；缺席 = 任务级记录）。 */
   readonly agentId?: string;
@@ -219,6 +228,21 @@ export class StewardPerceptionService {
       return;
     }
     this.ensureDiagnosis(this.taskDoneInput(jobId, sessionId));
+  }
+
+  /**
+   * 表面族第三源（M1 browser adapter 接线点——感知源扩面，组合根经
+   * SurfaceRegistry 观察者订阅）：SurfaceEvent 入 ring（D11 ①层零 LLM）。
+   * **不改分诊/激活门语义**：表面事件非分诊锚，永不触发 LLM（消费面（ask
+   * 时投影/聚焦摘要）后续批次接）。
+   */
+  onSurfaceEvent(event: SurfaceEvent): void {
+    this.pushRing({
+      at: event.at ?? this.now(),
+      kind: "surface.event",
+      sessionId: event.surfaceId, // 归属表面（ring sessionId 位承载 surfaceId）
+      text: `${event.kind}${event.detail !== undefined ? ` ${JSON.stringify(event.detail).slice(0, 120)}` : ""}`,
+    });
   }
 
   // ── BroadcastService 归一面（③层摘要调用退役 → content 源） ──────

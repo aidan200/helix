@@ -22,6 +22,12 @@
  * - 断线重连：ws close → 清 sessions/tabs/发现缓存 + 在飞命令立即拒绝 →
  *   状态回 idle；下次调用 lazy 重连。不杀浏览器、不抛致命错。
  * - idle sweep：TabRegistry 周期扫描，闲置超期 closeTarget + 出册。
+ * - 【M1 感知】事件路由面：CDP 事件帧不再丢弃——按 targetId 归属路由到
+ *   感知 sink（BrowserSurfaceAdapter）；观察者注入（Runtime.addBinding +
+ *   Page.addScriptToEvaluateOnNewDocument）与 Target.setAutoAttach（用户
+ *   tab 也进观察面）均在感知开关门内（off = 零注入零上报，D1）；
+ *   bindingCalled 归属以 executionContextId→targetId 映射优先（附录 A
+ *   防串扰难点），回落 sessionId 反查。
  *
  * 【可测性】wsFactory/fsReader/tcpProber/fileWriter/now/各超时参数全部
  * 注入化——integration 测试 fake WS 剧本驱动，不依赖真浏览器。
@@ -48,6 +54,7 @@ import {
   type TcpProber,
 } from "./browser-discovery";
 import { TabRegistry } from "./TabRegistry";
+import { OBSERVER_BINDING_NAME, OBSERVER_SCRIPT } from "./browser-observer";
 
 /** 浏览器兼容 WS 面（bun 原生 globalThis.WebSocket / 测试 fake 共用）。 */
 export interface CdpWebSocket {
@@ -56,6 +63,22 @@ export interface CdpWebSocket {
   close(): void;
   addEventListener(type: string, listener: (event: any) => void): void;
   removeEventListener?(type: string, listener: (event: any) => void): void;
+}
+
+/** CDP 事件归属上下文（targetId 已由 manager 解析——防串扰后送给 sink）。 */
+export interface CdpEventContext {
+  /** 归属目标（bindingCalled 按 executionContextId 归属优先，回落 sessionId 反查；缺席 = 归属不可判）。 */
+  readonly targetId?: string;
+  /** 事件交付 session（flatten 会话 id；诊断面）。 */
+  readonly sessionId?: string;
+}
+
+/** 感知 sink（M1 browser adapter 实现面——CdpConnectionManager 事件路由出口）。 */
+export interface BrowserAwarenessSink {
+  /** 感知开关读面（off = 零注入零上报，D1）。 */
+  isEnabled(): boolean;
+  /** CDP 事件帧分发（事件不再丢弃——含未知 method，由 sink 自行取舍）。 */
+  onCdpEvent(method: string, params: Record<string, unknown>, ctx: CdpEventContext): void;
 }
 
 const WS_OPEN = 1;
@@ -107,7 +130,10 @@ export class CdpConnectionManager implements BrowserPort {
   private cmdId = 0;
   private readonly pending = new Map<number, PendingCommand>();
   private readonly sessions = new Map<string, string>(); // targetId → sessionId
+  private readonly executionTargets = new Map<number, string>(); // executionContextId → targetId（M1 归属防串扰）
+  private readonly observerSessions = new Set<string>(); // 已注入观察者的 session（每 session 恰一次）
   private readonly portGuardedSessions = new Set<string>();
+  private awareness: BrowserAwarenessSink | undefined;
   private readonly registry: TabRegistry;
   private readonly listeners = new Set<BrowserStatusListener>();
 
@@ -170,6 +196,14 @@ export class CdpConnectionManager implements BrowserPort {
   onStatusChange(listener: BrowserStatusListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * 感知 sink 挂载（M1；组合根晚绑——surfaceRegistry/stewardPerception 在
+   * assembleDaemon 后段构造，构造期注入不可达）。卸载传 undefined。
+   */
+  setAwarenessSink(sink: BrowserAwarenessSink | undefined): void {
+    this.awareness = sink;
   }
 
   /** 手动停止：关全部 managed tabs → 断 WS → 回 idle。幂等；未连接安全 no-op。 */
@@ -417,6 +451,8 @@ export class CdpConnectionManager implements BrowserPort {
       throw err;
     }
     this.setState("connected");
+    // M1 感知：目标自动接管（用户 tab 也进观察面——附录 A）；开关 off 零注入
+    await this.enableAutoAttach();
     this.registry.startSweep((ids) => void this.closeIdleTargets(ids));
   }
 
@@ -475,6 +511,8 @@ export class CdpConnectionManager implements BrowserPort {
     this.ws = undefined;
     this.browser = undefined;
     this.sessions.clear();
+    this.executionTargets.clear();
+    this.observerSessions.clear();
     this.portGuardedSessions.clear();
     this.registry.stopSweep();
     this.registry.clear();
@@ -501,6 +539,8 @@ export class CdpConnectionManager implements BrowserPort {
       const { sessionId, targetInfo } = msg.params;
       this.sessions.set(targetInfo.targetId, sessionId);
       this.registry.update(targetInfo.targetId, { url: targetInfo.url, title: targetInfo.title });
+      // M1 观察者注入（自动接管来的用户 tab 同样进观察面；开关门内）
+      void this.ensureObserver(sessionId);
     }
     // 目标生命周期对称：detach/destroy 同步出册清 session——外部关 tab
     // 不留幽灵 tab（否则 15min sweep 才回收）与死 sessionId（后续命令
@@ -534,7 +574,63 @@ export class CdpConnectionManager implements BrowserPort {
           p.resolve(msg);
         }
       }
+      return;
     }
+    // M1 事件路由面：事件帧不再丢弃——按 targetId 归属路由感知 sink
+    if (typeof msg.method === "string") {
+      this.dispatchCdpEvent({ method: msg.method, params: msg.params, sessionId: msg.sessionId });
+    }
+  }
+
+  /**
+   * CDP 事件分发（M1）：executionContext 映射维护 + targetId 归属 + sink 路由。
+   * 感知开关 off = 零上报（与注入面同门）；sink 缺席（未挂感知）同样不路由。
+   */
+  private dispatchCdpEvent(msg: { method: string; params?: any; sessionId?: string }): void {
+    const sink = this.awareness;
+    if (sink === undefined || !sink.isEnabled()) return;
+    const params = (msg.params ?? {}) as Record<string, unknown>;
+    // executionContextId → targetId 映射维护（Runtime 上下文生命周期——
+    // bindingCalled 归属真源，附录 A 防串扰难点）
+    if (msg.method === "Runtime.executionContextCreated") {
+      const ctxId = (params as { context?: { id?: unknown } }).context?.id;
+      const targetId = this.targetIdOfSession(msg.sessionId);
+      if (typeof ctxId === "number" && targetId !== undefined) this.executionTargets.set(ctxId, targetId);
+    } else if (msg.method === "Runtime.executionContextDestroyed") {
+      const ctxId = (params as { executionContextId?: unknown }).executionContextId;
+      if (typeof ctxId === "number") this.executionTargets.delete(ctxId);
+    }
+    const targetId = this.targetIdOfEvent(msg, params);
+    sink.onCdpEvent(msg.method, params, {
+      ...(targetId !== undefined ? { targetId } : {}),
+      ...(msg.sessionId !== undefined ? { sessionId: msg.sessionId } : {}),
+    });
+  }
+
+  /** 事件归属解析：bindingCalled 按 executionContextId 映射优先（防串扰），
+   *  回落 targetId 字段（targetCreated/Destroyed 族）与 sessionId 反查。 */
+  private targetIdOfEvent(
+    msg: { method: string; sessionId?: string },
+    params: Record<string, unknown>,
+  ): string | undefined {
+    if (msg.method === "Runtime.bindingCalled") {
+      const ctxId = (params as { executionContextId?: unknown }).executionContextId;
+      if (typeof ctxId === "number") {
+        const mapped = this.executionTargets.get(ctxId);
+        if (mapped !== undefined) return mapped; // 上下文归属优先（防串扰）
+      }
+    }
+    if (typeof params.targetId === "string") return params.targetId;
+    return this.targetIdOfSession(msg.sessionId);
+  }
+
+  /** sessionId → targetId 反查（flatten 会话归属）。 */
+  private targetIdOfSession(sessionId: unknown): string | undefined {
+    if (typeof sessionId !== "string") return undefined;
+    for (const [targetId, sid] of this.sessions) {
+      if (sid === sessionId) return targetId;
+    }
+    return undefined;
   }
 
   private sendCDP(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<any> {
@@ -566,7 +662,42 @@ export class CdpConnectionManager implements BrowserPort {
     }
     this.sessions.set(targetId, sid);
     await this.enablePortGuard(sid);
+    await this.ensureObserver(sid);
     return sid;
+  }
+
+  /**
+   * 目标自动接管（M1 感知）：用户 tab 也进观察面（附录 A）——仅在感知开关
+   * 开时下发（off = 零注入，D1）；失败不影响命令面。
+   */
+  private async enableAutoAttach(): Promise<void> {
+    if (this.awareness === undefined || !this.awareness.isEnabled()) return;
+    try {
+      await this.sendCDP("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+    } catch {
+      /* 自动接管失败不影响命令面（感知降级） */
+    }
+  }
+
+  /**
+   * 观察者注入（M1 感知；每 session 恰一次）：addBinding 回传（不受 CSP
+   * 约束）+ 新文档自动重注入 + 现页立即生效。感知开关 off = 零注入（D1）；
+   * 注入失败允许下次重试，不影响命令面。
+   */
+  private async ensureObserver(sessionId: string): Promise<void> {
+    if (this.awareness === undefined || !this.awareness.isEnabled()) return;
+    if (this.observerSessions.has(sessionId)) return;
+    this.observerSessions.add(sessionId);
+    try {
+      await this.sendCDP("Runtime.enable", {}, sessionId);
+      await this.sendCDP("Page.enable", {}, sessionId);
+      await this.sendCDP("Runtime.addBinding", { name: OBSERVER_BINDING_NAME }, sessionId);
+      await this.sendCDP("Page.addScriptToEvaluateOnNewDocument", { source: OBSERVER_SCRIPT }, sessionId);
+      // 现页立即生效（addScriptToEvaluateOnNewDocument 只覆盖后续文档）
+      await this.sendCDP("Runtime.evaluate", { expression: OBSERVER_SCRIPT }, sessionId);
+    } catch {
+      this.observerSessions.delete(sessionId); // 失败下次重试
+    }
   }
 
   /** 拦截页面对调试端口的探测（反风控）；Fetch 域启用失败不影响主流程。 */
@@ -664,9 +795,12 @@ export class CdpConnectionManager implements BrowserPort {
     return undefined;
   }
 
-  /** 目标出册：清 session 映射 + tab 注册（命中时广播状态——tab 减）。 */
+  /** 目标出册：清 session 映射 + 上下文归属 + tab 注册（命中时广播状态——tab 减）。 */
   private dropTarget(targetId: string): void {
     this.sessions.delete(targetId);
+    for (const [ctxId, tid] of this.executionTargets) {
+      if (tid === targetId) this.executionTargets.delete(ctxId);
+    }
     if (this.registry.remove(targetId)) this.notifyStatus();
   }
 

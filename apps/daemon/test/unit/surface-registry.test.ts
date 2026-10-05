@@ -199,3 +199,41 @@ describe("SurfaceRegistry：兼容期双发（D8 ③——M1 删除点）", () =
     expect(rig.legacyNavigates).toEqual([{ sessionId: "s1" }]);
   });
 });
+
+describe("SurfaceRegistry：observeDirect（daemon 内 adapter 直出归一——M1 browser）", () => {
+  test("两段寻址 surfaceId（browser:<targetId>）透传 + at 盖章 + 投递观察者", () => {
+    const rig = makeRig();
+    const ev = rig.registry.observeDirect({
+      kind: "user_click",
+      origin: "user",
+      surfaceId: "browser:tab-1",
+      detail: { tag: "button" },
+    });
+    expect(ev).not.toBeNull();
+    expect(ev!.surfaceId).toBe("browser:tab-1");
+    expect(ev!.at).toBe(1_700_000_000_000);
+    expect(rig.observed).toHaveLength(1);
+  });
+
+  test("词汇表守卫（D2 单点不破）：kind/origin 词汇表外拒收", () => {
+    const rig = makeRig();
+    const badKind = { kind: "scrolled", origin: "user", surfaceId: "browser:t1" } as unknown as Parameters<
+      SurfaceRegistry["observeDirect"]
+    >[0];
+    const badOrigin = { kind: "navigated", origin: "bot", surfaceId: "browser:t1" } as unknown as Parameters<
+      SurfaceRegistry["observeDirect"]
+    >[0];
+    expect(rig.registry.observeDirect(badKind)).toBeNull();
+    expect(rig.registry.observeDirect(badOrigin)).toBeNull();
+    expect(rig.observed).toHaveLength(0);
+  });
+
+  test("surfaceId 形状守卫：命名空间外/缺段/空尾段拒收", () => {
+    const rig = makeRig();
+    expect(rig.registry.observeDirect({ kind: "navigated", origin: "system", surfaceId: "other:t1" })).toBeNull();
+    expect(rig.registry.observeDirect({ kind: "navigated", origin: "system", surfaceId: "browser:" })).toBeNull();
+    expect(rig.registry.observeDirect({ kind: "navigated", origin: "system", surfaceId: "browser" })).toBeNull();
+    expect(rig.registry.observeDirect({ kind: "navigated", origin: "system", surfaceId: "browser:t1" })).not.toBeNull();
+    expect(rig.observed).toHaveLength(1);
+  });
+});

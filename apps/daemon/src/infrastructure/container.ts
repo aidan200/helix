@@ -22,6 +22,7 @@ import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚
 import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
+import { BrowserSurfaceAdapter, SURFACE_AWARENESS_KEY } from "../adapters/driven/cdp/BrowserSurfaceAdapter";
 import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import type { PortConfigPort } from "../application/ports/outbound/PortConfigPort";
@@ -883,6 +884,21 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     sendAction: (key, action) => eventStream.sendSurfaceAction(key as FrameSender, action),
     emitLegacyNavigate: (args) => eventStream.broadcastStewardNavigate(args),
   });
+  // ── browser adapter 感知批（M1）：BrowserSurfaceAdapter（CDP 事件 →
+  //    SurfaceRegistry 归一 surfaceId=`browser:<targetId>` → 感知 ring）。
+  //    感知开关 surface.awareness KV（D1 默认 off：off = 零注入零上报）；
+  //    第三源接线 = Registry 观察者订阅（D10「生产者不直喂」——管家订阅
+  //    总线形态）；FocusState 前台 tab 读面在 adapter（后续消费面接）。
+  //    setAwarenessSink 晚绑（CdpConnectionManager 在入口处先构造）。
+  const browserSurfaceAdapter = new BrowserSurfaceAdapter({
+    registry: surfaceRegistry,
+    awarenessOn: () => persistence.runtimeConfig.get(SURFACE_AWARENESS_KEY) === "1",
+    logger,
+  });
+  surfaceRegistry.addObserver((event) => stewardPerception.onSurfaceEvent(event));
+  if (browserPort instanceof CdpConnectionManager) {
+    browserPort.setAwarenessSink(browserSurfaceAdapter);
+  }
   const stewardService = new StewardService({
     llm: stewardLlm,
     ...(dialog !== undefined ? { dialog } : {}),

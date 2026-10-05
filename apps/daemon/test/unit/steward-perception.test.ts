@@ -412,6 +412,49 @@ describe("通知预算：normal ≤4 条/小时，high 豁免", () => {
   });
 });
 
+// ── 表面族第三源（M1 browser adapter 接线点：SurfaceEvent → ring） ───
+
+describe("onSurfaceEvent（感知源扩「表面族」第三源——不改分诊/激活门语义）", () => {
+  test("SurfaceEvent 入 ring：kind=surface.event、sessionId 位承载 surfaceId、text 携 kind 摘要", () => {
+    const { perception } = makeStack();
+    perception.onSurfaceEvent({
+      kind: "user_click",
+      origin: "user",
+      surfaceId: "browser:tab-1",
+      at: 2_000_000,
+      detail: { tag: "button" },
+    });
+    const ring = perception.ringSnapshot();
+    expect(ring).toHaveLength(1);
+    expect(ring[0]).toMatchObject({
+      kind: "surface.event",
+      sessionId: "browser:tab-1",
+      at: 2_000_000,
+    });
+    expect(ring[0]!.text).toContain("user_click");
+  });
+
+  test("表面事件零分诊（激活态 + 分诊可用也零 LLM——分诊锚判定语义不变）", async () => {
+    const { perception, diagnose } = makeStack({ stewardSubscribed: true, recentAsk: true });
+    expect(perception.isActive()).toBe(true);
+    perception.onSurfaceEvent({ kind: "navigated", origin: "system", surfaceId: "browser:tab-1", at: 2_000_000 });
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(0);
+    expect(perception.ringSnapshot()).toHaveLength(1);
+  });
+
+  test("ring 滚动上限（PERCEPTION_RING_LIMIT）对表面事件同效", () => {
+    const { perception } = makeStack();
+    for (let i = 0; i < 205; i++) {
+      perception.onSurfaceEvent({ kind: "user_input", origin: "user", surfaceId: `browser:t${i}`, at: 2_000_000 + i });
+    }
+    const ring = perception.ringSnapshot();
+    expect(ring).toHaveLength(200);
+    expect(ring[ring.length - 1]!.sessionId).toBe("browser:t204"); // 最新在尾
+    expect(ring[0]!.sessionId).toBe("browser:t5"); // 最旧滚出
+  });
+});
+
 // ── 测试辅助 ──────────────────────────────────────────────
 
 

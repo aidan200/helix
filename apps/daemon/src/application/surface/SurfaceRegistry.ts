@@ -18,6 +18,7 @@
 import {
   isSurfaceEventKind,
   isSurfaceEventOrigin,
+  isSurfaceNamespaceKind,
   surfaceIdOf,
   type SurfaceActionPayload,
   type SurfaceDescriptor,
@@ -27,7 +28,7 @@ import {
   type SurfaceRisk,
 } from "@helix/protocol";
 
-/** 归一后事件观察者（M0 无 L2 消费者——ring buffer/SalienceGate 属 M3）。 */
+/** 归一后事件观察者（M1 起组合根订阅面接管家感知 ring——StewardPerceptionService.onSurfaceEvent）。 */
 export type SurfaceEventObserver = (event: SurfaceEvent) => void;
 
 export interface SurfaceRegistryDeps {
@@ -143,6 +144,38 @@ export class SurfaceRegistry {
       surfaceId: surfaceIdOf(entry.descriptor.kind, entry.connId, uplink.page),
       at: this.deps.now?.() ?? Date.now(),
       ...(uplink.detail !== undefined ? { detail: uplink.detail } : {}),
+    };
+    for (const o of this.observers) o(event);
+    return event;
+  }
+
+  /**
+   * daemon 内 adapter 直出归一口（M1 browser adapter）：browser 表面寻址是
+   * 两段 `browser:<targetId>`（设计 §1：tab 即表面，无 page 维度）——与连接
+   * 型表面三段 `<ns>:<connId>:<page>` 盖章不同，surfaceId 由 daemon 内
+   * adapter 盖章（「表面不自报身份」纪律面向外部表面连接；browser adapter
+   * 与 Registry 同进程同信任域）。Registry 仍单点收口 D2 词汇表守卫 +
+   * surfaceId 命名空间形状守卫 + at 盖章 + 观察者分发。
+   *
+   * 拒收面（返 null）：kind/origin 词汇表外 / surfaceId 不是
+   * `<命名空间>:<非空尾段>`——遥测流量拒收不回执。
+   */
+  observeDirect(ingress: {
+    kind: unknown;
+    origin: unknown;
+    surfaceId: string;
+    detail?: Record<string, unknown>;
+  }): SurfaceEvent | null {
+    if (!isSurfaceEventKind(ingress.kind) || !isSurfaceEventOrigin(ingress.origin)) return null;
+    const sep = ingress.surfaceId.indexOf(":");
+    const ns = sep > 0 ? ingress.surfaceId.slice(0, sep) : "";
+    if (!isSurfaceNamespaceKind(ns) || sep === ingress.surfaceId.length - 1) return null;
+    const event: SurfaceEvent = {
+      kind: ingress.kind,
+      origin: ingress.origin,
+      surfaceId: ingress.surfaceId,
+      at: this.deps.now?.() ?? Date.now(),
+      ...(ingress.detail !== undefined ? { detail: ingress.detail } : {}),
     };
     for (const o of this.observers) o(event);
     return event;
