@@ -971,6 +971,19 @@ html.light .bubble code.inline { color: var(--accent); }
 .chat-inputbar textarea::placeholder { color: var(--text-dim); }
 .chat-inputbar textarea:disabled { color: var(--text-faint); }
 .app[data-conn="connected"] .chat-inputbar textarea:disabled { color: var(--text); }
+/* 语音实时识别镜像层（useComposerVoice interim 批）：录音/转写期 textarea
+   自身文本与占位隐去（color: transparent——caret 保留），镜像层同面渲染
+   「草稿（正常色）+ interim（灰）」；字号/行高/换行与 textarea 同参防错位；
+   pointer-events: none 纯展示，滚动同步归 JS（bottom 对齐最新）。 */
+.msg-input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+.msg-interim-layer {
+  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  font-family: var(--font-mono); font-size: var(--text-main); line-height: 1.55;
+  color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word;
+}
+.msg-interim-layer .interim { color: var(--text-dim); }
+.msg-input-wrap.voice-on textarea { color: transparent; }
+.msg-input-wrap.voice-on textarea::placeholder { color: transparent; }
 .steer-hint { display: none; align-items: center; gap: 7px; font-size: var(--text-cap); color: var(--violet); animation: log-rise 0.2s ease-out; }
 .steer-hint .q-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--violet); animation: hud-pulse 2s ease-in-out infinite; flex-shrink: 0; }
 .composer.streaming .steer-hint { display: inline-flex; }

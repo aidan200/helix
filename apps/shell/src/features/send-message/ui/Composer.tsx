@@ -20,7 +20,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { selectCanSend, selectIsGenerating, useSession } from "@/entities/session/SessionContext";
 import { selectActiveRunState } from "@/entities/session/model/topology";
-import { useVoiceInput } from "@/shared/lib/useVoiceInput";
+import { useComposerVoice } from "../model/useComposerVoice";
 import { cn } from "@/shared/lib/cn";
 
 /** textarea 自动增高上限（px；≈7 行），超出后 overflow-y 内滚。 */
@@ -85,8 +85,7 @@ export interface ComposerHandle {
 const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ footEnd }, ref) {
   const { t } = useI18n();
   const toast = useToast();
-  const { state, setDraft, submit, abort, attachImages, removeAttachment, sendSttTranscribe, subscribeSttFrames } =
-    useSession();
+  const { state, setDraft, submit, abort, attachImages, removeAttachment } = useSession();
   const canSend = selectCanSend(state);
   const generating = selectIsGenerating(state);
   // 停止钮可用判据：main session 正在生成（subagent_running = main 空闲，
@@ -96,11 +95,12 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
   const fileRef = useRef<HTMLInputElement>(null);
   // M52：聚焦出口（pages 层经 ref 调起；替代跨层 getElementById 直达）
   useImperativeHandle(ref, () => ({ focus: () => taRef.current?.focus() }), []);
-  // 语音输入（V1；V3a useVoiceInput 下移 shared——session 面 DI 注入）：转写
-  // 文本回填草稿（末尾拼接——保留已输入内容）；失败 toast
-  const voice = useVoiceInput((text) => {
+  // 语音输入（V1 → 实时识别批：useComposerVoice 流式接线——stt.stream 实时
+  // 回流）；interim 经镜像层灰字上屏（见 msg-interim-layer）；final 回填草稿
+  //（末尾拼接——保留已输入内容，最后一道人工闸）；失败 toast
+  const voice = useComposerVoice((text) => {
     setDraft(state.draft === "" ? text : `${state.draft}${text}`);
-  }, { sendSttTranscribe, subscribeSttFrames });
+  });
   useEffect(() => {
     if (voice.error !== null) toast.push("err", voice.error);
   }, [toast, voice.error]);
@@ -118,14 +118,31 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
     [],
   );
 
+  // 语音镜像层 ref（interim 灰字与草稿同面渲染——textarea 自身文本
+  // voice-on 期 CSS 隐去，镜像层接管视觉；jsdom 无布局不落地同步值）
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  // 录音/转写期 = 镜像期（final 回填草稿后立即出态，灰字让位正式文本）
+  const voiceMirroring = voice.state === "recording" || voice.state === "transcribing";
+
   // 自动增高：内容高度增长至上限后内滚。jsdom 无布局（scrollHeight=0）时
-  // 不落内联高度，交还 CSS 默认单行。
+  // 不落内联高度，交还 CSS 默认单行。镜像期以镜像层内容高（草稿+interim）
+  // 为准——输入框边说边长，final 转正后归草稿自身高度。
   useEffect(() => {
     const el = taRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = el.scrollHeight > 0 ? `${Math.min(el.scrollHeight, TA_MAX_HEIGHT)}px` : "";
-  }, [state.draft]);
+    const measure = mirrorRef.current ?? el;
+    el.style.height = measure.scrollHeight > 0 ? `${Math.min(measure.scrollHeight, TA_MAX_HEIGHT)}px` : "";
+  }, [state.draft, voice.interim, voiceMirroring]);
+
+  // 镜像层滚动同步：interim 追尾增长（最新可见——bottom 对齐；不低于
+  // textarea 自身滚动位，草稿长文场景跟随用户视点）
+  useEffect(() => {
+    const el = taRef.current;
+    const mirror = mirrorRef.current;
+    if (el === null || mirror === null) return;
+    mirror.scrollTop = Math.max(el.scrollTop, mirror.scrollHeight - mirror.clientHeight);
+  }, [voice.interim, state.draft, voiceMirroring]);
 
   const placeholder = canSend
     ? t("chat.composer.placeholder")
@@ -266,17 +283,28 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
               )}
             </button>
           )}
-          <textarea
-            id="msg-input"
-            ref={taRef}
-            rows={1}
-            autoComplete="off"
-            value={state.draft}
-            placeholder={placeholder}
-            disabled={!canSend}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
+          {/* 语音镜像层（实时识别批）：录音/转写期 textarea 文本 CSS 隐去，
+              镜像层同面渲染「草稿（正常色）+ interim（灰）」——正在说的话
+              实时上屏，final 回填草稿后出态卸载；纯展示层零交互 */}
+          <div className={cn("msg-input-wrap", voiceMirroring && "voice-on")}>
+            <textarea
+              id="msg-input"
+              ref={taRef}
+              rows={1}
+              autoComplete="off"
+              value={state.draft}
+              placeholder={placeholder}
+              disabled={!canSend}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+            {voiceMirroring && (
+              <div className="msg-interim-layer" aria-hidden="true" ref={mirrorRef}>
+                {state.draft}
+                <span className="interim">{voice.interim ?? ""}</span>
+              </div>
+            )}
+          </div>
           {/* 停止钮（T8）：中断 main 生成；恒渲染不按态卸载（焦点守恒） */}
           <button
             className="hud-btn hud-btn-danger"
