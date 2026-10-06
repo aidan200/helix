@@ -223,4 +223,29 @@ describe("管家全局常驻（app 壳级能力）", () => {
     // 面板不承载卡（B1 移出——面板未开也照常出现）
     expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
   });
+
+  it("管家可靠性批：daemon 零响应 steward 查询 → rail 点击面板仍即时打开（唤出与 daemon 解耦）；数据异步补（迟到的 config.result 照常点亮）", () => {
+    ui();
+    // mock 面从不 emit steward 帧——get_config/history 查询永久无回执
+    //（daemon 挂起场景：唤出链路不得依赖任何 steward 查询回执）
+    const entry = document.querySelector(".rail-steward-btn")! as HTMLButtonElement;
+    fireEvent.click(entry!);
+    // 即时打开（纯 app 层状态——零 ws 依赖）
+    const dock = document.querySelector('[data-testid="steward-dock"]')!;
+    expect(dock.className).not.toContain("stp-dock-hidden");
+    expect(dock.querySelector('[data-testid="steward-panel"]')).not.toBeNull();
+    // 数据异步补：面板在 config 缺席时显示未开启占位（数据驱动，不卡唤出）
+    expect(dock.querySelector('[data-testid="steward-disabled"]')).not.toBeNull();
+    // 迟到的 config.result 到达 → 面板点亮（异步补齐）
+    act(() => {
+      for (const l of stewardListeners) {
+        l({
+          type: "steward.config.result",
+          payload: { enabled: true, model: "fake/flash" },
+        });
+      }
+    });
+    expect(dock.querySelector('[data-testid="steward-disabled"]')).toBeNull();
+    expect(dock.querySelector('[data-testid="steward-input"]')).not.toBeNull();
+  });
 });

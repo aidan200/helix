@@ -837,8 +837,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     }
     const phase = phaseRef.current;
     // mic 不可用 / 录音链在途 no-op；speaking 相位进待命 = 手动开麦同构先序
-    // （先停播——duplex 外的残留朗读）
-    if (phase === "unsupported" || phase === "listening" || phase === "transcribing" || phase === "asking") {
+    // （先停播——duplex 外的残留朗读）。**asking 态不封锁**（管家可靠性批
+    // 2026-10-06 事故根修）：daemon 挂起/排队期 askInFlight 永真 → phase
+    // 恒 asking——此时恰是用户最需要唤出确认入口的时刻（确认卡/口令经
+    // 双工会话可达），旧实现的 asking no-op 会把快捷键永久封锁。
+    if (phase === "unsupported" || phase === "listening" || phase === "transcribing") {
       return;
     }
     stopSpeaking();

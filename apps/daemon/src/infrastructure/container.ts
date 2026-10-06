@@ -977,6 +977,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 入激活，响应环点亮主动环，D12-⑪）
     onUserActivity: () => stewardPerception.noteUserActivity(),
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
+    // 管家可靠性根修批：确认卡 TTL 作废的 action.completed 广播（与 feed 同
+    // 订阅闸——多窗卡栈同步收口）+ 用户提醒帧出口（挂起恢复/确认可达性/TTL
+    // 作废三提醒）
+    emitActionCompleted: (payload) => eventStream.broadcastStewardActionCompleted(payload),
+    emitNotify: (payload) => eventStream.broadcastStewardNotify(payload),
     // B4a 自动沉淀提案帧出口（与 feed 同订阅闸——判官判定后轮外投递确认卡）
     emitMemoryWritten: (payload) => eventStream.broadcastStewardMemoryWritten(payload),
     // M0 表面协议地基批（D8 navigate 收编）：emitNavigate 域出口改经
@@ -1050,6 +1055,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
   });
   stewardServiceRef = stewardService; // 晚绑闭合（感知服务对话内主动汇报面回填）
+  // 管家可靠性根修批：看门狗/确认闸 TTL/可达性提醒巡检定时器（unref +
+  // shutdown 链双保险——stewardMemory.startGcTimer 同规）
+  stewardService.startReliabilityTimers();
 
   // U2 观测态晚绑闭合：trace 面板 main displayState 的会话运行态读口
   // 接 registry（此前冷会话 idle 兑底）
@@ -1440,6 +1448,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     ...(mcpShutdown !== undefined ? { stopMcp: mcpShutdown } : {}),
     // 遗忘机制批：记忆 GC 定时器停面（shutdown 链挂点）
     ...(stewardMemory !== undefined ? { stopStewardMemoryGc: () => stewardMemory.dispose() } : {}),
+    // 管家可靠性根修批：看门狗/TTL 巡检定时器停面（shutdown 链挂点）
+    stopStewardReliabilityTimers: () => stewardService.stopReliabilityTimers(),
     port: resolvedPort, // 完整解析链（argv > KV > 7333）已定格
     // stale-indicator 批：welcome daemonFreshness 比对基准（进程启动时刻单源）
     daemonStartedAtMs: bootedAtMs,

@@ -50,6 +50,7 @@ import type {
   StewardHistoryRecord,
   StewardNavigatePayload,
   StewardMemoryWrittenPayload,
+  StewardNotifyPayload,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
@@ -193,6 +194,35 @@ export const STEWARD_COMPACTION_KEEP_RECENT = 6;
 
 /** L1 件二：输入缓冲 pending 队列上限（忙碌态入队不拒绝；超限提示）。 */
 export const STEWARD_PENDING_ASKS_MAX = 3;
+
+/** ── 管家可靠性根修批（2026-10-06 事故）：三道兜底的时间参数 ──────────
+ *  模块常量 + 注释（配置面不做——M4 隐私面板批统一做）。事故链：write 档
+ *  挂闸无人确认 → runActive 永真 → finishRun 永不执行 → 后续 ask 永远
+ *  queued → 管家对一切输入装死且零日志。三要素对三参数： */
+
+/** run 看门狗阈值：run 内无事件推进持续此时长 → abort 在途轮 + 挂起通知
+ *  （180s ——事故中 20 分钟装死的兑底上限；活跃 run 每事件重置计时）。 */
+export const STEWARD_RUN_WATCHDOG_MS = 180_000;
+
+/** run 看门狗巡检间隔（生产 interval；测试直接调 reliabilityTick 注入时钟）。 */
+export const STEWARD_RUN_WATCHDOG_TICK_MS = 5_000;
+
+/** 看门狗 abort 宽限窗：abort 后仍 runActive 持续此时长 → 强制收口 + 引擎
+ *  重建（pi EventStream 不竞速 abort signal——挂死的 provider 流 abort 后
+ *  run promise 仍永悬，必须弃引擎重建；180+15=195s < 5 分钟自愈口径）。 */
+export const STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS = 15_000;
+
+/** 确认卡 TTL：pending 挂闸无人 confirm/cancel 持续此时长 → 自动作废（复用
+ *  cancel 内部语义——删除即作废；300s）。E-206 残项中「超时作废」部分，
+ *  跨重启重放不做。 */
+export const STEWARD_CONFIRM_TTL_MS = 300_000;
+
+/** 确认卡可达性提醒：confirm_required 发出后无人消费持续此时长 → 提醒帧
+ *  （30s——事故中确认卡入口不可见，提醒是第二入口）。 */
+export const STEWARD_CONFIRM_REMIND_AFTER_MS = 30_000;
+
+/** 确认超时作废的 action.completed detail 文案（用户与 LLM 共同可见）。 */
+export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认，已自动作废——如仍需要请重新提出）";
 
 /** 工具/思考过程帧摘要截断上限（steward.tool 帧面——屏幕折叠行密度）。 */
 export const PROCESS_SUMMARY_MAX_CHARS = 200;
@@ -631,7 +661,16 @@ export interface StewardServiceDeps {
    *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
    *  .noteUserActivity；缺席 = 零信号）。 */
   readonly onUserActivity?: () => void;
-  readonly logger?: { warn(message: string): void };
+  /** 可靠性批：生命周期日志（run 开始/收口/挂闸暂停 info + 看门狗/TTL warn；
+   *  info 可选——旧装配只带 warn 时降级只出 warn）。 */
+  readonly logger?: { info?(message: string): void; warn(message: string): void };
+  /** 可靠性批：确认卡 TTL 作废的 action.completed 广播出口（组合根接
+   *  EventStream.broadcastStewardActionCompleted——与 feed 同订阅闸，多窗
+   *  卡栈同步收口；缺席 = 作废仅 daemon 侧簿记零广播）。 */
+  readonly emitActionCompleted?: (payload: StewardActionCompletedPayload) => void;
+  /** 可靠性批：用户提醒出口（挂起恢复/确认可达性/TTL 作废三提醒帧——组合根
+   *  接 EventStream.broadcastStewardNotify；缺席 = 零提醒）。 */
+  readonly emitNotify?: (payload: StewardNotifyPayload) => void;
 }
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
@@ -910,6 +949,10 @@ interface PendingEntry {
    *  engine.resume(resolve 翻译) 回灌终结 run；B4a 轮外提案（自动沉淀）
    *  缺席——confirm 时跳过回灌直接收口）。 */
   readonly pauseToken?: string;
+  /** 挂闸登记时刻（this.now()——确认卡 TTL/可达性提醒的计时锚；可靠性批）。 */
+  readonly createdAt: number;
+  /** 可达性提醒已发时刻（undefined = 未提醒；可靠性批——一次不重复）。 */
+  remindedAt: number | undefined;
 }
 
 /** 排队 ask 项（方案甲自持队列——E-197 行为等价：上限/收口后自动下一轮/
@@ -989,6 +1032,17 @@ export class StewardService {
   /** run 在途自持位（busy 判别不依赖 engine.isStreaming——投影链 settle 微任务
    *  早于 pi agent 态翻转，误判 busy 会把直答 ask 错误入队）。 */
   private runActive = false;
+  /** 当前 run 内最近事件时刻（可靠性批看门狗锚：driveAsk 置位、每引擎事件
+   *  推进——「无事件推进」才是挂起，活跃轮永不触发）。 */
+  private runLastProgressAt = 0;
+  /** 看门狗已触发时刻（undefined = 未触发；同集 episode 不重复 abort/通知，
+   *  宽限窗后仍未收口进入强制收口轨——abort 丳不醒的挂死流兑底）。 */
+  private watchdogFiredAt: number | undefined;
+  /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
+  private notifySeq = 0;
+  /** 可靠性批巡检定时器（生产 interval 句柄——start/stopReliabilityTimers；
+   *  测试不启定时器直接调 reliabilityTick 注入时钟）。 */
+  private reliabilityTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
@@ -1096,6 +1150,9 @@ export class StewardService {
       );
     }
     this.runActive = true;
+    this.runLastProgressAt = this.now();
+    this.watchdogFiredAt = undefined;
+    this.logInfo(`管家 run 开始：${item.text.slice(0, 40)}`);
     this.pendingRunAsk = item;
     this.askStreamEvents = item.events;
     this.runState = { lastAnswerText: "", hardError: undefined, softError: undefined, sawAborted: false, roundLimit: false, toolCalls: 0 };
@@ -1132,6 +1189,7 @@ export class StewardService {
 
   /** 引擎事件入口（persistentListener——trace 出口 + 流式回调转发 + 顺序化投影）。 */
   private onEngineEvent(event: AgentEngineEvent): void {
+    this.runLastProgressAt = this.now(); // 看门狗推进锚（任何引擎事件 = 活跃）
     this.deps.emitEngineEvent?.(event);
     this.forwardStreamCallbacks(event);
     // 轮数熔断（同步判定——async 投影链赶不上无思考工具风暴；abort 越早越省）
@@ -1274,6 +1332,7 @@ export class StewardService {
     }
     this.actionSeq += 1;
     const actionId = `steward-action-${this.actionSeq}`;
+    this.logInfo(`管家确认闸暂停：${actionId}（${gated.action.kind} → ${gated.action.displayTarget}）`);
     this.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
     this.currentPause.push({
       actionId,
@@ -1282,6 +1341,8 @@ export class StewardService {
     this.pending.set(actionId, {
       action: this.currentPause[0]!.action,
       pauseToken: event.pauseToken,
+      createdAt: this.now(),
+      remindedAt: undefined,
     });
     this.pausedGateToken = event.pauseToken;
     this.settleAsk({
@@ -1295,9 +1356,12 @@ export class StewardService {
   /** run 收口（agent_end）：结果推导 + B4a 主钩子 + deliver + 队列驱动。 */
   private async finishRun(startError?: string): Promise<void> {
     this.runActive = false;
+    this.runLastProgressAt = 0;
+    this.watchdogFiredAt = undefined;
     this.runSettledMark?.();
     this.runSettledMark = undefined;
     const outcome = startError !== undefined ? { status: "error" as const, reason: startError } : this.outcomeOfRun();
+    this.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.askQueue.length} 条）`);
     const item = this.pendingRunAsk;
     this.pendingRunAsk = undefined;
     this.pausedGateToken = undefined;
@@ -1348,6 +1412,117 @@ export class StewardService {
     const settle = this.askSettler;
     this.askSettler = undefined;
     settle?.(payload);
+  }
+
+  // ── 可靠性批（2026-10-06 事故根修）：看门狗 + 确认闸 TTL + 可达性提醒 ──
+  // 三要素兑底：确认闸无超时（TTL）、run 无看门狗（watchdog）、挂起无日志
+  // （生命周期日志面）。生产定时器由组合根 startReliabilityTimers 启动，
+  // 测试直接调 reliabilityTick（注入时钟——E-240 行为等价不变量不受影响）。
+
+  /** 启动可靠性巡检定时器（生产面；幂等——stewardMemory.startGcTimer 先例）。 */
+  startReliabilityTimers(): void {
+    if (this.reliabilityTimer !== undefined) return;
+    const timer = setInterval(() => this.reliabilityTick(), STEWARD_RUN_WATCHDOG_TICK_MS);
+    timer?.unref?.(); // TR-152 落盘面定时器纪律：不阻进程退出
+    this.reliabilityTimer = timer;
+  }
+
+  /** 停巡检定时器（shutdown 链挂点/测试清理）。 */
+  stopReliabilityTimers(): void {
+    if (this.reliabilityTimer === undefined) return;
+    clearInterval(this.reliabilityTimer);
+    this.reliabilityTimer = undefined;
+  }
+
+  /** 可靠性巡检单拍（看门狗 → 可达性提醒 → 确认闸 TTL；幂等可重入）。 */
+  reliabilityTick(): void {
+    const now = this.now();
+    this.checkRunWatchdog(now);
+    this.checkConfirmReminders(now);
+    this.checkConfirmTtl(now);
+  }
+
+  /** run 看门狗：无事件推进超 STEWARD_RUN_WATCHDOG_MS → abort（复用
+   *  abortInFlight 幂等面——不新造 abort）；abort 宽限窗后仍 runActive
+   *  → 强制收口 + 弃引擎重建（pi EventStream 不竞速 abort signal，挂死流
+   *  abort 后 run promise 仍永悬——弃引擎是唯一恢复路径；下一 run 经
+   *  createEngine 从工作记忆 KV 重建，代际守卫隔离旧引擎残余事件）。 */
+  private checkRunWatchdog(now: number): void {
+    if (!this.runActive || this.engine === undefined) {
+      this.watchdogFiredAt = undefined; // 空闲态复位（下一 run 重计）
+      return;
+    }
+    if (this.watchdogFiredAt === undefined) {
+      if (now - this.runLastProgressAt < STEWARD_RUN_WATCHDOG_MS) return;
+      this.watchdogFiredAt = now;
+      const hungSeconds = Math.round((now - this.runLastProgressAt) / 1000);
+      this.deps.logger?.warn(`管家 run 看门狗触发：挂起 ${hungSeconds}s 无事件推进——abort 在途轮并通知`);
+      this.emitLifecycleNotify(
+        "high",
+        "管家已自动恢复",
+        `管家处理挂起 ${hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
+      );
+      this.abortInFlight("run 看门狗：挂起超时"); // 挂闸阻塞的 run 被唤醒收口（raceAbort）
+      return;
+    }
+    // 已触发：宽限窗后仍未收口 → 强制收口（abort 丳不醒的挂死流）
+    if (now - this.watchdogFiredAt >= STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS) {
+      this.watchdogFiredAt = now; // 周期性兜底重置（极端场景下每宽限窗再查）
+      this.deps.logger?.warn(
+        `管家 run 看门狗强制收口：abort 宽限 ${STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS / 1000}s 内 run 未收口——弃引擎重建并恢复队列服务`,
+      );
+      this.engine = undefined; // 弃引擎（下一 run 懒重建；代际守卫隔旧事件）
+      this.pausedGateToken = undefined;
+      this.enqueueProjection(() => this.finishRun("run 看门狗强制收口：引擎挂死且 abort 未唤醒（已弃引擎重建）"));
+    }
+  }
+
+  /** 确认可达性提醒：confirm_required 发出后 STEWARD_CONFIRM_REMIND_AFTER_MS
+   *  无人消费 → 提醒帧恰一次（事故中确认卡入口不可见——提醒是第二入口）。 */
+  private checkConfirmReminders(now: number): void {
+    for (const [actionId, entry] of this.pending) {
+      if (entry.remindedAt !== undefined) continue;
+      if (now - entry.createdAt < STEWARD_CONFIRM_REMIND_AFTER_MS) continue;
+      entry.remindedAt = now;
+      this.logInfo(`管家确认卡可达性提醒：${actionId}（${entry.action.displayTarget}）——${STEWARD_CONFIRM_REMIND_AFTER_MS / 1000}s 无人消费`);
+      this.emitLifecycleNotify(
+        "normal",
+        "待确认操作",
+        `管家有一个操作等你确认（${entry.action.displayTarget}）——打开管家面板处理；${STEWARD_CONFIRM_TTL_MS / 1000}s 内未确认将自动作废`,
+      );
+    }
+  }
+
+  /** 确认闸 TTL：pending 卡 STEWARD_CONFIRM_TTL_MS 无 confirm/cancel →
+   *  自动作废（复用 cancel 内部语义——删除即作废，两段式不变量不动：作废后
+   *  再 confirm 报已消费）+ action.completed 超时回执广播 + 用户提醒。 */
+  private checkConfirmTtl(now: number): void {
+    for (const [actionId, entry] of [...this.pending]) {
+      if (now - entry.createdAt < STEWARD_CONFIRM_TTL_MS) continue;
+      this.pending.delete(actionId); // cancel 同款作废语义（删除即作废）
+      if (this.pending.size === 0) this.pausedGateToken = undefined;
+      this.deps.logger?.warn(
+        `管家确认卡 TTL 作废：${actionId}（${entry.action.kind} → ${entry.action.displayTarget}）——${STEWARD_CONFIRM_TTL_MS / 1000}s 无人确认自动作废`,
+      );
+      this.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL });
+      this.emitLifecycleNotify(
+        "normal",
+        "确认已超时",
+        `操作「${entry.action.displayTarget}」超过 ${STEWARD_CONFIRM_TTL_MS / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+      );
+    }
+  }
+
+  /** 可靠性提醒帧出口（seq 单调；订阅闸/限流在 EventStream 侧——缺席零提醒）。 */
+  private emitLifecycleNotify(urgency: "normal" | "high", title: string, body: string): void {
+    if (this.deps.emitNotify === undefined) return;
+    this.notifySeq += 1;
+    this.deps.emitNotify({ urgency, title, body, seq: this.notifySeq });
+  }
+
+  /** 生命周期 info 日志（旧装配 logger 无 info 位时降级静默）。 */
+  private logInfo(message: string): void {
+    this.deps.logger?.info?.(message);
   }
 
   // ── B4a 自动沉淀判定管线（轮次主钩子 + 重启补偿 + 清空兜底三面复用同一内核）──
@@ -1501,6 +1676,8 @@ export class StewardService {
     this.engine = undefined;
     this.pausedGateToken = undefined;
     this.runActive = false;
+    this.runLastProgressAt = 0;
+    this.watchdogFiredAt = undefined;
     this.askSettler = undefined;
   }
 

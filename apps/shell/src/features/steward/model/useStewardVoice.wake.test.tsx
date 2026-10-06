@@ -283,6 +283,25 @@ describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）
     expect(trackStop).toHaveBeenCalled();
   });
 
+  it("管家可靠性批：askInFlight 卡死（daemon 挂起/排队无终帧）→ 组合键仍唤出双工——确认入口不可封锁（2026-10-06 事故根修）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    trackStop = env.trackStop;
+    const r = renderVoice();
+    // 事故现场：文本面板 ask 已发出但终帧永不到达（daemon 挂起/排队中——
+    // askInFlight 永真 → 旧实现 phase=asking → toggleWake no-op → 快捷键
+    // 唤不出 → 确认入口不存在）
+    act(() => {
+      r.current.ask("帮我切到那个会话");
+    });
+    expect(r.current.askInFlight).toBe(true);
+    // 零帧到达（daemon 无响应——mock 面不 emit 任何 steward 帧）
+    await pressHotkey();
+    // 唤出不被 asking 态封锁：双工开起、麦开、确认入口（光球/口令）可达
+    expect(r.current.duplexActive).toBe(true);
+    expect(r.current.phase).toBe("listening");
+  });
+
   // B2「面板关闭即关麦」随 open 参数退役：duplex 会话收口（关麦/超时/Esc）
   // 共径 cancelWake 已在 useStewardVoice.duplex.test 钉（track.stop 断言面）。
 });

@@ -198,6 +198,9 @@ export interface WsDrivingDeps {
   /** 管家记忆 GC 定时器停面（遗忘机制批：shutdown 清 interval——TR-152
    *  落盘面定时器纪律；未装配记忆 = undefined）。 */
   readonly stopStewardMemoryGc?: () => void;
+  /** 管家可靠性巡检定时器停面（可靠性根修批：看门狗/确认闸 TTL/可达性提醒
+   *  interval——shutdown 双保险，unref 已不阻退出）。 */
+  readonly stopStewardReliabilityTimers?: () => void;
   readonly eventStream: EventStream;
   readonly browserPort: BrowserPort;
   /**
@@ -315,6 +318,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
         deps.unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
         deps.stopMcp?.(); // mcp 批：MCP 状态广播退订 + 全部 server 子进程收尾
         deps.stopStewardMemoryGc?.(); // 遗忘机制批：停记忆 GC 定时器（interval 不阻退出，优雅关停双保险）
+        deps.stopStewardReliabilityTimers?.(); // 可靠性根修批：停看门狗/TTL 巡检定时器
         await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
         await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
         workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）

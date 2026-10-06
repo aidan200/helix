@@ -37,6 +37,8 @@ import type {
   StewardFeedPayload,
   StewardNavigateEvent,
   StewardNavigatePayload,
+  StewardActionCompletedEvent,
+  StewardActionCompletedPayload,
   SurfaceActionEvent,
   SurfaceActionPayload,
   StewardNotifyEvent,
@@ -553,6 +555,31 @@ export class EventStream implements EventPublisherPort {
       sender(frame);
     } catch {
       // 发送失败由该连接自身的 close 流程收尾，此处隔离
+    }
+  }
+
+  /**
+   * steward.action.completed 执行回执帧广播（管家可靠性根修批）：daemon 级
+   * 全局帧，投递按连接级 steward 订阅位过滤（broadcastStewardFeed 同闸门
+   * 同构）。触发面 = StewardService 确认闸 TTL 作废（超时无人确认的卡栈
+   * 同步收口——点对点回执只回发起 confirm 的连接，TTL 作废无发起方，
+   * 广播是唯一交代面；多窗口卡栈同步顺带受益——E-206 G8 残项的部分缓解）。
+   */
+  broadcastStewardActionCompleted(payload: StewardActionCompletedPayload): void {
+    const frame: StewardActionCompletedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.action.completed",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
     }
   }
 
