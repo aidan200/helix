@@ -11,7 +11,7 @@ import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/run
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 三 profile 全集全覆盖：main 26 名 + subagent 14 名 + kg-writer 13 名均有非空 snippet（plan 三工具改名批：todo 双工具——3→2；F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；提权申请批 +permission_request 进 main/worker）", () => {
+  test("① 三 profile 全集全覆盖：main 27 名 + subagent 14 名 + kg-writer 13 名均有非空 snippet（plan 三工具改名批：todo 双工具——3→2；F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；提权申请批 +permission_request 进 main/worker；codemode 批 +codemode 仅 main）", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
@@ -28,14 +28,14 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     // Main 同含 plan 三名两域同构——subagent 计数不变；F4 接通批 +edit-lines
     // main/worker 同扩；提权申请批 +permission_request main/worker 同扩）；
     // kg-writer = subagent 去 edit-lines/permission_request + kg-update（14，豁免面——提权裸跑不渗入图谱产出面）
-    expect(MainSessionProfile.tools).toHaveLength(26); // U4 +coord 三工具；提权申请批 +permission_request；todo 改名批 3→2
+    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具；提权申请批 +permission_request；todo 改名批 3→2；codemode 批 +codemode（仅 main）
     expect(SubAgentProfile.tools).toHaveLength(14);
     expect(SubAgentKgWriterProfile.tools).toHaveLength(13);
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 33 条（main 全集 + plan 三工具 + 编排 task 回口七工具——T2.2 + D3
-    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具；提权申请批 +permission_request）
+    // 恰 34 条（main 全集 + plan 三工具 + 编排 task 回口七工具——T2.2 + D3
+    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具；提权申请批 +permission_request；codemode 批 +codemode）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -47,6 +47,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "bash",
         "browser",
         "codegraph",
+        "codemode",
         "coord_claim",
         "coord_query",
         "coord_release",

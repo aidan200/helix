@@ -58,4 +58,6 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   coord_claim: "登记本会话对某范围的写占用（跨会话共享工作树防踩踏；冲突时返回对方意图与处置建议）",
   coord_release: "释放本会话占用租约（工作完成或让渡时）",
   coord_query: "查询占用协调面（动手改共享项目前查冲突；含 stale/undeclared 标记）",
+  codemode:
+    "在 QuickJS 沙箱写 JavaScript 编排其他工具（链式/并行扇出/循环批处理/大结果过滤）——嵌套中间结果不进上下文，仅脚本输出与返回值返回；审批与编排面（permission_request/agent_*）不进沙箱",
 };

@@ -72,9 +72,9 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
       MainSessionProfile.tools
         .filter((t) => !t.startsWith("agent_"))
         .filter((t) => !t.startsWith("coord_")) // U4：决策工具不进执行者生效集
-        .filter((t) => t !== "task_create")
-        .filter((t) => t !== "task_report")
-        .filter((t) => t !== "kg-update"),
+        .filter((t) => !t.startsWith("task_")) // T2.4 task_create / D3 task_report：按宿主隔离
+        .filter((t) => t !== "kg-update")
+        .filter((t) => t !== "codemode"), // codemode 批：JS 沙箱编排仅主会话
     );
     expect(SubAgentProfile.tools).toEqual([
       "bash",

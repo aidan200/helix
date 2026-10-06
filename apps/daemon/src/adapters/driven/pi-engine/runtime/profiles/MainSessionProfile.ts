@@ -113,6 +113,11 @@ export const MainSessionProfile: AgentProfile = {
     // 声明恒在，注册面门控——沙箱 off 时 executor 未注入该槽则装配面
     // 同步剔除本名，见 sessionEngineFactory engineFor）
     "permission_request",
+    // codemode（pi-codemode 接入批）：JS 沙箱编排其他工具——嵌套中间结果
+    // 不进上下文（并行扇出/批处理/大结果过滤）；沙箱面 = 本会话工具集
+    //（agent_* 编排族/permission_request 除外——审批闸不进脚本）。
+    // 仅主会话声明（SubAgent/编排面不接入）。
+    "codemode",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

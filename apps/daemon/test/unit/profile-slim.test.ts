@@ -45,10 +45,11 @@ const TOOL_NAMES = [
   "coord_release",
   "coord_query",
   "permission_request", // 提权申请批：一次性沙箱外执行申请（main/worker 同面；声明恒在注册面门控）
+  "codemode", // pi-codemode 接入批：JS 沙箱编排其他工具（仅 main——嵌套中间结果不进上下文）
 ] as const;
 
-/** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务；D3 task_report 同理——批次/编排面无查询任务报告职责）。 */
-const MAIN_ONLY_TOOL_NAMES = ["task_create", "task_report", "coord_claim", "coord_release", "coord_query"] as const;
+/** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务；D3 task_report 同理——批次/编排面无查询任务报告职责；codemode 批：JS 沙箱编排仅主会话）。 */
+const MAIN_ONLY_TOOL_NAMES = ["task_create", "task_report", "coord_claim", "coord_release", "coord_query", "codemode"] as const;
 
 /** 静态工具名（T3-C 后提示词仍零命中——委派契约句引用的编排工具名是行为指引非清单枚举）。 */
 const STATIC_TOOL_NAMES = [
@@ -91,7 +92,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 27 / subagent 15（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main；F4 接通批 +edit-lines 两 profile 同扩；提权申请批 +permission_request 两 profile 同扩）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 28 / subagent 15（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main；F4 接通批 +edit-lines 两 profile 同扩；提权申请批 +permission_request 两 profile 同扩；codemode 批 +codemode 仅 main）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       TOOL_NAMES.filter((t) => !t.startsWith("agent_"))

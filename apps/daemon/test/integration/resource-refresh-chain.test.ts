@@ -145,6 +145,7 @@ const MAIN_TOOLS = [
   "coord_release",
   "coord_query",
   "permission_request", // 提权申请批（声明恒在，注册面门控）
+  "codemode", // codemode 批：JS 沙箱编排工具（仅 main）
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "todo_write", "todo_read", "permission_request"]; // H-3：+browser；T3.3：+kg；T1.4 起 todo 双工具（plan 三工具改名批；两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines；提权申请批：+permission_request
 

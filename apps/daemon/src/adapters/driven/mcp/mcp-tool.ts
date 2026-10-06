@@ -68,6 +68,12 @@ export function createMcpTool(
     label: `${server}: ${definition.name}`,
     description,
     parameters,
+    // outputSchema 声明面（S1 类型镜像的落地）：MCP 工具声明了结构化输出时
+    // 同步声明到 AgentTool——provider 侧结构化工具面 + codemode 沙箱编排的
+    // 脚本值形状（structuredContent 优先于文本拼接）。
+    ...(definition.outputSchema === undefined
+      ? {}
+      : { outputSchema: definition.outputSchema as never }),
     async execute(
       _toolCallId: string,
       params: unknown,

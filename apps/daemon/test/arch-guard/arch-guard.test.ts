@@ -267,7 +267,7 @@ describe("TP-CL5-2（A 半）：grep 语义契约面 framework-free（不碰 fs/
 });
 
 describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-coding-agent）", () => {
-  test("daemon dependencies：pi 系为 {pi-agent-core, pi-ai, pi-mcp}（pi-telemetry/chord 不计），全集十三键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带；管家记忆 B1 +better-sqlite3/sqlite-vec：向量存储引擎；MCP 替换批 +pi-mcp：MCP 驱动层薄壳化的协议/传输依赖）", () => {
+  test("daemon dependencies：pi 系为 {pi-agent-core, pi-ai, pi-mcp, pi-codemode}（pi-telemetry/chord 不计），全集十五键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带；管家记忆 B1 +better-sqlite3/sqlite-vec：向量存储引擎；MCP 替换批 +pi-mcp：MCP 驱动层薄壳化的协议/传输依赖；codemode 批 +pi-codemode +quickjs-wasi：QuickJS 沙箱编排工具及其 wasm VM）", () => {
     const pkg = JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
@@ -285,11 +285,15 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // steward_memory.db；NAPI 加载需 Bun ≥1.4.2（1.3.14 panic spike 实证），
     // vec0 扩展随包分发走 rg 先例（resources/bin + HELIX_VEC_PATH）；
     // @earendil-works/pi-mcp（MCP 替换批）：MCP 驱动层薄壳化的协议/传输
-    // 依赖（零自身传递依赖，cross-spawn 除外）——pi-coding-agent 仍不在列
+    // 依赖（零自身传递依赖，cross-spawn 除外）——pi-coding-agent 仍不在列；
+    // @earendil-works/pi-codemode（codemode 批）：QuickJS 沙箱编排工具；
+    // quickjs-wasi（codemode 批）：pi-codemode 的 wasm VM——daemon 源码直接
+    // import 其 quickjs.wasm（编译形态嵌入），升为直接依赖
     expect(deps).toEqual([
       "@earendil-works/chord",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
+      "@earendil-works/pi-codemode",
       "@earendil-works/pi-mcp",
       "@earendil-works/pi-telemetry",
       "@helix/common",
@@ -297,20 +301,22 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
       "better-sqlite3",
       "diff",
       "ignore",
+      "quickjs-wasi",
       "sqlite-vec",
       "typebox",
       "yaml",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
-    // pi 1.0.0 后 pi 系五键（E-235 升级批次 1 + MCP 替换批）：chord（vendored
-    // harness 面的 Context 依赖正源）、pi-telemetry（同上，
+    // pi 1.0.0 后 pi 系六键（E-235 升级批次 1 + MCP 替换批 + codemode 批）：chord
+    //（vendored harness 面的 Context 依赖正源）、pi-telemetry（同上，
     // NOOP_TELEMETRY_CONTEXT）——vendored 冻结件的上游运行时依赖，非 helix
-    // 直接消费；pi-mcp（MCP 替换批）：MCP 驱动层薄壳化的协议/传输依赖，
-    // helix 直接消费。
+    // 直接消费；pi-mcp（MCP 替换批）：MCP 驱动层薄壳化的协议/传输依赖；
+    // pi-codemode（codemode 批）：QuickJS 沙箱编排工具——helix 直接消费。
     expect(piDeps).toEqual([
       "@earendil-works/chord",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
+      "@earendil-works/pi-codemode",
       "@earendil-works/pi-mcp",
       "@earendil-works/pi-telemetry",
     ]);
@@ -539,6 +545,10 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       // 沙箱 helper 批：helper.exe 路径显式覆盖口（打包资源位接入前的
       // 测试/开发通道——探测非配置源，键级登记）
       [path.join("adapters", "driven", "tools", "sandboxSetup.ts"), ["HELIX_SANDBOX_HELPER"]],
+      // codemode 批：worker 入口指定符——**编译期 --define 常量替换**（compile-daemon
+      // 注入嵌入 entrypoint 相对串，dev 运行时恒 undefined）——资源定位差异经
+      // 编译管线注入非配置源（AG-18/R4 同构消解；rg/vec 先例同族）
+      [path.join("adapters", "driven", "tools", "codemode", "CodemodeTool.ts"), ["HELIX_CODEMODE_WORKER_URL"]],
       // 崩溃留痕批（5f3198a）：进程级崩溃钩子对测试 runner 的让位判别
       //（BUN_TEST=1 不接管 crash 日志/退出码——探测非配置源，键级登记）
       [path.join("infrastructure", "lifecycle.ts"), ["BUN_TEST"]],

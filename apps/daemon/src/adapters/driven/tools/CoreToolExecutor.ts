@@ -38,6 +38,7 @@ import { createCodegraphTool, type CodegraphToolDeps } from "./codegraph/Codegra
 import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
 import { createTaskReportTool, type TaskReportToolDeps } from "./task-report/TaskReportTool";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "./task-ops/TaskOpsTools";
+import { createCodemodeTool } from "./codemode/CodemodeTool";
 import {
   createTodoReadTool,
   createTodoWriteTool,
@@ -262,8 +263,8 @@ export interface CoreToolExecutorOptions {
    * （ChildMain → wire bash-fact 行上报）两端同构注入。
    */
   readonly bashSense?: BashSenseRuntime;
+
   /**
-   * permission_request 提权申请工具注入面（提权申请批）：提供则注册
    * permission_request（agent 主动申请一次性沙箱外执行——批准后走
    * unsandboxedExec 裸跑）。仅沙箱开启时注入（装配面判定）；off 态不注册。
    * 缺省不注册（既有测试形态）。
@@ -418,6 +419,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);
+    // codemode（pi-codemode 接入批）：**注册面恒宽、声明面管控**（kg 同款
+    // 先例——MainSessionProfile 声明才可见，SubAgent/编排面不声明即不可见）。
+    // 无外部注入依赖（仅 pi-codemode 包），无条件注册；getTools 读现值快照
+    //（MCP appendTools 增量后即时可见；排除集在 CodemodeTool 侧管）。
+    registry.set("codemode", createCodemodeTool({ getTools: () => [...registry.values()] }));
     this.registry = registry;
   }
 

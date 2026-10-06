@@ -36,7 +36,11 @@ export function compiledDaemonPath(platform: DesktopPlatform): string {
 /** mac 档产物路径（darwin-arm64 缺省档常量；smoke 探针 import 兼容面）。 */
 export const COMPILED_DAEMON_PATH = compiledDaemonPath("darwin-arm64");
 
-const ENTRY = join(root, "apps/daemon/src/main.ts");
+const ENTRY = "./apps/daemon/src/main.ts";
+/** codemode worker 入口（pi-codemode 接入批）：额外 entrypoint 嵌入——
+ * 编译形态下 CodemodeTool 以相对串指定符拉起（resolveCodemodeWorkerUrl）。
+ * 相对串带原始源扩展名是 Bun 全平台兼容形态（pi 官方 Bun binary 同款）。 */
+const CODEMODE_WORKER_ENTRY = "./apps/daemon/src/codemode-worker.ts";
 
 async function main(): Promise<void> {
   const platform = resolvePlatformArg(process.argv, process.env);
@@ -49,7 +53,13 @@ async function main(): Promise<void> {
       "build",
       "--compile",
       `--target=${spec.bunTarget}`,
+      // codemode 批（AG-18/R4 合规注入）：编译期常量替换 daemon 的
+      // process.env.HELIX_CODEMODE_WORKER_URL 读位——形态差异归工程层编译
+      // 管线，daemon src 零形态检测分支。值为嵌入 entrypoint 的相对串指定符
+      //（与下方 CODEMODE_WORKER_ENTRY 同串）。
+      "--define:process.env.HELIX_CODEMODE_WORKER_URL='\"./apps/daemon/src/codemode-worker.ts\"'",
       ENTRY,
+      CODEMODE_WORKER_ENTRY,
       "--outfile",
       outPath,
     ],

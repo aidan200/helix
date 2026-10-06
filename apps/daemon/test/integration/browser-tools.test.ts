@@ -56,7 +56,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       plan: planToolStub(), // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
       coord: stubCoordDeps(), // U4：main 全集声明 coord 三名——stub 保持可装配
     });
-    expect(MainSessionProfile.tools).toHaveLength(26); // U4 +coord 三工具 // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ D3 task_report + W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）+ todo 双工具（plan 三工具改名批，两域同构）+ F4 接通批 edit-lines + 提权申请批 permission_request
+    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具 // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ D3 task_report + W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）+ todo 双工具（plan 三工具改名批，两域同构）+ F4 接通批 edit-lines + 提权申请批 permission_request + codemode 批 codemode（仅 main）
     // 本 executor 未注 permissionRequest 槽——resolveTools 单名容忍跳过（提权批
     // 「声明恒在注册面门控」语义）；故解析结果 = 声明全集 − permission_request
     const resolved = executor.resolveTools(MainSessionProfile.tools);
