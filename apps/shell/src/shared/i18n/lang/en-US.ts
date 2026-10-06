@@ -1252,6 +1252,8 @@ export const enUS = {
     feedTitle: "Event feed",
     feedEmpty: "No events yet",
     thinking: "Thinking…",
+    // ── Process-feedback UI batch: activity status text (tool phase) ──
+    activityTool: "Running {name}…",
     // ── A1 work-memory batch: process visibility (thinking fold / tool rows / new chat) ──
     thinkingLabel: "Reasoning",
     newChat: "New chat",

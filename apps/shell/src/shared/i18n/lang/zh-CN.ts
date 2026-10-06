@@ -1259,6 +1259,8 @@ export const zhCN = {
     feedTitle: "事件流",
     feedEmpty: "暂无事件",
     thinking: "思考中…",
+    // ── 过程反馈 UI 批：状态区状态文（工具执行期；{name} 单大括号——TR-222）──
+    activityTool: "正在调用 {name}…",
     // ── A1 工作记忆批：过程可见面（thinking 折叠 / 工具行 / 新对话）──
     thinkingLabel: "思考过程",
     newChat: "新对话",

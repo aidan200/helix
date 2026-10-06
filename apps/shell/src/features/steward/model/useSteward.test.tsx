@@ -338,3 +338,90 @@ describe("useSteward（A1 工作记忆）", () => {
     expect(result.current.streamingText).toBeNull();
   });
 });
+
+// ══════════════════════════════════════════════════════════
+// 过程反馈 UI 批（问题 9）：ask 进行中态投影（askActivity）+
+// 工具行耗时锦标（startedAt/endedAt 记账）
+// ══════════════════════════════════════════════════════════
+describe("useSteward（过程反馈 UI 批——进行中态投影）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    connState = "connected";
+  });
+  afterEach(() => cleanup());
+
+  it("ask → askActivity 思考态；终态 answer → 收口清 null", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("在跑什么？");
+    });
+    expect(result.current.askActivity).toEqual({ phase: "thinking", toolName: null, thinkingLines: [] });
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "answer", text: "2 个实例运行中。" }));
+    });
+    await waitFor(() => expect(result.current.askActivity).toBeNull());
+  });
+
+  it("steward.thinking → 追加首行摘要（多行取首非空行）；窗口保最近 2 条（第 3 块滚出）", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("在跑什么？");
+    });
+    act(() => {
+      frameListener?.(frame("steward.thinking", { text: "\n  \n第一块首行：先查任务清单。\n次行不进摘要。", seq: 1 }));
+    });
+    await waitFor(() => expect(result.current.askActivity?.thinkingLines).toEqual(["第一块首行：先查任务清单。"]));
+    act(() => {
+      frameListener?.(frame("steward.thinking", { text: "第二块：对比实例。", seq: 2 }));
+      frameListener?.(frame("steward.thinking", { text: "第三块：组织结论。", seq: 3 }));
+    });
+    await waitFor(() => expect(result.current.askActivity?.thinkingLines).toEqual(["第二块：对比实例。", "第三块：组织结论。"]));
+  });
+
+  it("steward.tool start → phase=tool + toolName；end → phase 回 thinking + 条目补 endedAt 定格锦", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("在跑什么？");
+    });
+    act(() => {
+      frameListener?.(frame("steward.tool", { phase: "start", name: "list_instances", argsSummary: "{}", seq: 1 }));
+    });
+    await waitFor(() => expect(result.current.askActivity?.phase).toBe("tool"));
+    expect(result.current.askActivity?.toolName).toBe("list_instances");
+    const started = result.current.items.find((i) => i.kind === "tool");
+    expect(started).toMatchObject({ kind: "tool", name: "list_instances" });
+    if (started?.kind === "tool") expect(started.startedAt).toBeGreaterThan(0);
+    act(() => {
+      frameListener?.(frame("steward.tool", { phase: "end", name: "list_instances", resultSummary: "2 条记录", seq: 2 }));
+    });
+    await waitFor(() => expect(result.current.askActivity?.phase).toBe("thinking"));
+    const done = [...result.current.items].reverse().find((i) => i.kind === "tool");
+    expect(done).toMatchObject({ kind: "tool", resultSummary: "2 条记录" });
+    if (done?.kind === "tool" && started?.kind === "tool") {
+      expect(done.endedAt).not.toBeNull();
+      expect(done.endedAt!).toBeGreaterThanOrEqual(started.startedAt!);
+    }
+  });
+
+  it("回放 tool 条目零耗时锦（startedAt/endedAt null——历史无耗时语义，UI 不显示计时）", async () => {
+    const { result } = renderSteward();
+    await waitFor(() => expect(sendStewardHistoryMock).toHaveBeenCalled());
+    act(() => {
+      frameListener?.(
+        frame("steward.history.result", {
+          records: [
+            { kind: "user", text: "任务状态？", at: 1 },
+            { kind: "assistant", toolCall: { id: "call-0", name: "list_tasks", args: {} }, at: 2 },
+            { kind: "toolResult", toolCallId: "call-0", name: "list_tasks", text: "1 个任务", at: 3 },
+          ],
+        }),
+      );
+    });
+    await waitFor(() => expect(result.current.items.length).toBe(2));
+    const tool = result.current.items.find((i) => i.kind === "tool");
+    if (tool?.kind === "tool") {
+      expect(tool.startedAt).toBeNull();
+      expect(tool.endedAt).toBeNull();
+    }
+  });
+});

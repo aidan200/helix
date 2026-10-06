@@ -14,8 +14,12 @@
  *
  * Markdown 渲染：steward 气泡复用主聊天 MarkdownMessage（react-markdown +
  * gfm + breaks）；user 气泡纯文本（主聊天同口径）。流式期间（askInFlight +
- * streamingText 非空）显示流式气泡（dashed 边在途态）而非「思考中」占位；
- * 终态 result 权威覆盖。
+ * streamingText 非空）显示流式气泡（dashed 边在途态）而非状态区；终态
+ * result 权威覆盖。
+ *
+ * 过程反馈（UI 批）：无流式文本的 ask 进行中显示状态区（状态文随最近
+ * 过程帧切换 + thinking 块首行摘要两行滚动窗）；工具行 pending 态实时
+ * 耗时计时（回放行无锦零计时）。
  *
  * 关闭路径：Esc / 头部 ×（DiffOverlay 先例；onClose ref 定格防重绑——
  * 点外关闭归 StewardDock 壳）；active=false（Dock 隐藏期）时 Esc 监听卸载
@@ -26,6 +30,8 @@ import { Brain, ChevronDown, ChevronRight, Wrench } from "lucide-react";
 import { useSteward } from "../model/useSteward";
 import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
+import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
+import { formatDuration } from "@/shared/lib/format";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
 import { useI18n } from "@/shared/i18n";
 
@@ -58,20 +64,37 @@ function ThinkingRow({ text }: { readonly text: string }) {
   );
 }
 
-/** 工具过程行（「✓ 查询任务列表」可展开结果摘要；A1 批——过程可见）。 */
-function ToolRow({ name, argsSummary, resultSummary }: {
+/** 工具过程行（「✓ 查询任务列表」可展开结果摘要；A1 批——过程可见；
+ *  过程反馈 UI 批：pending 态实时耗时计时（start 帧启表、end 帧定格）——
+ *  区分「在跑」与「卡死」；回放行无耗时锦零计时显示）。 */
+function ToolRow({ name, argsSummary, resultSummary, startedAt, endedAt }: {
   readonly name: string;
   readonly argsSummary: string;
   readonly resultSummary: string | null;
+  readonly startedAt: number | null;
+  readonly endedAt: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const done = resultSummary !== null;
+  // 1s 步进滚动计时（SubAgentCard 同口径原语）；done 后停表，定格值用 endedAt 锦
+  const runningText = useRunningElapsed(!done && startedAt !== null, startedAt ?? undefined);
+  const elapsedText =
+    startedAt === null
+      ? null
+      : done
+        ? endedAt !== null
+          ? formatDuration(Math.max(0, endedAt - startedAt))
+          : null
+        : runningText;
   return (
     <div className={`stp-tool${done ? " done" : ""}`} data-testid="steward-tool-item">
       <button type="button" className="stp-tool-toggle" data-testid="steward-tool-toggle" onClick={() => setOpen((v) => !v)}>
         <Wrench size={11} strokeWidth={1.75} />
         <span className="stp-tool-name">{name}</span>
         <span className="stp-tool-state" data-testid="steward-tool-state">{done ? "✓" : "…"}</span>
+        {elapsedText !== null && (
+          <span className="stp-tool-elapsed" data-testid="steward-tool-elapsed">{elapsedText}</span>
+        )}
       </button>
       {open && (
         <div className="stp-tool-body" data-testid="steward-tool-body">
@@ -102,7 +125,7 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
     );
   }
   if (item.kind === "thinking") return <ThinkingRow text={item.text} />;
-  return <ToolRow name={item.name} argsSummary={item.argsSummary} resultSummary={item.resultSummary} />;
+  return <ToolRow name={item.name} argsSummary={item.argsSummary} resultSummary={item.resultSummary} startedAt={item.startedAt} endedAt={item.endedAt} />;
 }
 
 /** 输入框自动长高上限（px）——主聊天 Composer 同值（超限内滚）。 */
@@ -228,8 +251,24 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
               </div>
             ) : (
               sv.askInFlight && (
+                /* 过程反馈 UI 批：思考中占位升级为状态区——状态文（随最近过程帧
+                   动态：思考中/正在调用工具）+ 已完成 thinking 块首行摘要两行
+                   滚动窗（旧块滚出）；流式开始后退场（流式气泡即反馈），收口收起 */
                 <div className="stp-inflight" data-testid="steward-inflight">
-                  {t("steward.thinking")}
+                  <span className="stp-inflight-status" data-testid="steward-inflight-status">
+                    {sv.askActivity?.phase === "tool" && sv.askActivity.toolName !== null
+                      ? t("steward.activityTool", { name: sv.askActivity.toolName })
+                      : t("steward.thinking")}
+                  </span>
+                  {sv.askActivity !== null && sv.askActivity.thinkingLines.length > 0 && (
+                    <div className="stp-inflight-think" data-testid="steward-inflight-think">
+                      {sv.askActivity.thinkingLines.map((line, i) => (
+                        <div className="stp-inflight-think-line" data-testid="steward-inflight-think-line" key={i}>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             )}

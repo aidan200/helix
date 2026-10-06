@@ -345,3 +345,116 @@ describe("StewardPanel 记忆入口钮（B2-④ 入口①）", () => {
     expect(() => fireEvent.click(btn)).not.toThrow();
   });
 });
+
+// ══════════════════════════════════════════════════════════
+// 过程反馈 UI 批（问题 9）：ask 进行中固定两行滚动状态区 +
+// 工具行耗时计时（fake timer 断言启表/滚动/定格）
+// ══════════════════════════════════════════════════════════
+describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  function renderEnabledPanel() {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", { enabled: true, model: "deepseek/x" }));
+    });
+  }
+
+  async function askInFlight() {
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    fireEvent.change(screen.getByTestId("steward-input"), { target: { value: "在跑什么？" } });
+    fireEvent.click(screen.getByTestId("steward-send"));
+    await waitFor(() => expect(screen.getByTestId("steward-inflight")).toBeTruthy());
+  }
+
+  it("ask 进行中：状态区可见（状态文思考中）；收口后状态区收起", async () => {
+    renderEnabledPanel();
+    await askInFlight();
+    expect(screen.getByTestId("steward-inflight-status").textContent).toContain("思考中");
+    act(() => {
+      emitSteward(frame("steward.ask.result", { status: "answer", text: "2 个实例运行中。" }));
+    });
+    await waitFor(() => expect(screen.queryByTestId("steward-inflight")).toBeNull());
+  });
+
+  it("thinking 段级帧 → 滚动区追加首行摘要；第 3 块到达第 1 块滚出（两行窗）", async () => {
+    renderEnabledPanel();
+    await askInFlight();
+    act(() => {
+      emitSteward(frame("steward.thinking", { text: "块一：先查清单。\n正文次行不进摘要", seq: 1 }));
+      emitSteward(frame("steward.thinking", { text: "块二：对比实例。", seq: 2 }));
+    });
+    await waitFor(() => expect(screen.getAllByTestId("steward-inflight-think-line").length).toBe(2));
+    expect(screen.getByTestId("steward-inflight-think").textContent).toContain("先查清单");
+    expect(screen.getByTestId("steward-inflight-think").textContent).not.toContain("正文次行");
+    act(() => {
+      emitSteward(frame("steward.thinking", { text: "块三：组织结论。", seq: 3 }));
+    });
+    await waitFor(() => expect(screen.getAllByTestId("steward-inflight-think-line").length).toBe(2));
+    expect(screen.getByTestId("steward-inflight-think").textContent).not.toContain("先查清单");
+    expect(screen.getByTestId("steward-inflight-think").textContent).toContain("组织结论");
+  });
+
+  it("工具运行期状态文切「正在调用」；工具行显示名字与实时耗时（fake timer 随时间更新）", async () => {
+    renderEnabledPanel();
+    await askInFlight();
+    // 在真实时钟下完成 render/ask 就绪后再冻结时钟（waitFor 依赖真实 timer）
+    vi.useFakeTimers();
+    act(() => {
+      emitSteward(frame("steward.tool", { phase: "start", name: "list_instances", argsSummary: "{}", seq: 1 }));
+    });
+    // 状态文动态：思考中 → 正在调用（工具名可见）
+    expect(screen.getByTestId("steward-inflight-status").textContent).toContain("正在调用");
+    expect(screen.getByTestId("steward-inflight-status").textContent).toContain("list_instances");
+    // 工具行：名字 + 计时启表随时间滚动
+    expect(screen.getByTestId("steward-tool-item").textContent).toContain("list_instances");
+    expect(screen.getByTestId("steward-tool-elapsed").textContent).toBe("0.0s");
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.getByTestId("steward-tool-elapsed").textContent).toBe("3.0s");
+  });
+
+  it("toolResult 到达 → 计时定格（后续推进零变化）", async () => {
+    renderEnabledPanel();
+    await askInFlight();
+    vi.useFakeTimers();
+    act(() => {
+      emitSteward(frame("steward.tool", { phase: "start", name: "list_tasks", argsSummary: "{}", seq: 1 }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+      emitSteward(frame("steward.tool", { phase: "end", name: "list_tasks", resultSummary: "1 个任务", seq: 2 }));
+    });
+    expect(screen.getByTestId("steward-tool-elapsed").textContent).toBe("5.0s");
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    expect(screen.getByTestId("steward-tool-elapsed").textContent).toBe("5.0s"); // 定格
+    expect(screen.getByTestId("steward-tool-state").textContent).toBe("✓"); // 两态不回退
+  });
+
+  it("回放工具行（无耗时锦）不显示计时", async () => {
+    renderEnabledPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    act(() => {
+      emitSteward(
+        frame("steward.history.result", {
+          records: [
+            { kind: "user", text: "任务状态？", at: 1 },
+            { kind: "assistant", toolCall: { id: "call-0", name: "list_tasks", args: {} }, at: 2 },
+            { kind: "toolResult", toolCallId: "call-0", name: "list_tasks", text: "1 个任务", at: 3 },
+          ],
+        }),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId("steward-tool-item").textContent).toContain("list_tasks"));
+    expect(screen.queryByTestId("steward-tool-elapsed")).toBeNull();
+  });
+});

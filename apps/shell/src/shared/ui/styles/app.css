@@ -1374,7 +1374,39 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 .stp-msg-steward a { color: var(--accent); }
 .stp-msg-steward .md-code { font-size: var(--text-cap); }
 .stp-msg-streaming { border-style: dashed; } /* 流式在途态视觉区分（终态换实线正式气泡） */
-.stp-inflight { font-size: var(--text-cap); color: var(--text-faint); align-self: flex-start; }
+/* 过程反馈 UI 批：状态区（状态文 + thinking 首行摘要两行滚动窗）。
+   固定高度：新块滚入旧块滚出（溢出隐藏，新行追加在下——视觉上恒最新两行）。 */
+.stp-inflight {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: flex-start;
+  padding-left: 8px;
+  border-left: 2px solid rgb(var(--accent-rgb) / 0.35);
+}
+.stp-inflight-status {
+  font-size: var(--text-cap);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.stp-inflight-think {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 3.2em; /* 2 × line-height 1.6（sa-stream-text 同口径）：恒定两行槽 */
+  overflow: hidden;
+}
+.stp-inflight-think-line {
+  font-size: var(--text-cap);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 /* A1 工作记忆批：Dock 关闭 = 隐藏不卸载（display 层收起，组件树保留——
    状态与订阅面跨开关驻留；动画面不重放入场帧） */
 .stp-dock-hidden { display: none; }
@@ -1417,6 +1449,13 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 .stp-tool-name { color: var(--text-dim); font-weight: 600; letter-spacing: 0.02em; }
 .stp-tool-state { color: var(--text-faint); }
 .stp-tool.done .stp-tool-state { color: var(--success); }
+/* 过程反馈 UI 批：工具行耗时计时（pending 滚动 / done 定格同位） */
+.stp-tool-elapsed {
+  margin-left: auto;
+  font-size: var(--text-cap);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
 .stp-tool-body {
   margin-top: 3px; padding: 4px 8px; border-radius: 6px;
   background: rgb(var(--edge-rgb) / 0.08);

@@ -48,7 +48,22 @@ export type StewardPanelItem =
       readonly name: string;
       readonly argsSummary: string;
       readonly resultSummary: string | null;
+      /** 实时帧耗时锦（start 帧到达时刻；回放条目无——历史无耗时语义）。 */
+      readonly startedAt: number | null;
+      /** 定格锦（end 帧到达时刻；pending 态 null）。 */
+      readonly endedAt: number | null;
     };
+
+/** ask 进行中态投影（过程反馈 UI 批：状态区两行滚动——状态文 + 已完成
+ *  thinking 块首行摘要窗口；phase 随最近过程帧切换）。 */
+export interface StewardAskActivity {
+  /** 最近过程帧类型：thinking（思考/消化）| tool（工具执行中）。 */
+  readonly phase: "thinking" | "tool";
+  /** phase=tool 时的工具名（状态文插值）。 */
+  readonly toolName: string | null;
+  /** 已完成 thinking 块首行摘要（最近 THINKING_LINE_WINDOW 条，旧块滚出）。 */
+  readonly thinkingLines: readonly string[];
+}
 
 interface FeedLine {
   readonly kind: string;
@@ -72,6 +87,8 @@ export interface UseSteward {
   readonly feed: readonly FeedLine[];
   /** ask 在途（面板禁用输入面）。 */
   readonly askInFlight: boolean;
+  /** ask 进行中态投影（过程反馈 UI 批；null = 非在途——状态区收起）。 */
+  readonly askActivity: StewardAskActivity | null;
   /** 设置现态（null = 未收到 config.result）。 */
   readonly config: StewardConfig | null;
   /** 发送一轮对话（未连接返回 false——零静默丢消息，submit 同语义）。 */
@@ -85,6 +102,18 @@ const ITEM_WINDOW = 200;
 
 /** 工具参数摘要截断（行内密度面）。 */
 const ARGS_SUMMARY_MAX = 80;
+
+/** 状态区摘要滚动窗（两行——超出滚出；模型层截窗即滚出语义，jsdom 同口径可断言）。 */
+export const STEWARD_THINKING_LINE_WINDOW = 2;
+
+/** 摘要行截断（密度面，ARGS_SUMMARY_MAX 同族）。 */
+const THINKING_SUMMARY_MAX = 60;
+
+/** thinking 块 → 首行摘要（首非空行；超长截断——「知道在想什么」而非读全文）。 */
+function firstThinkingLine(text: string): string {
+  const line = text.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+  return line.length <= THINKING_SUMMARY_MAX ? line : `${line.slice(0, THINKING_SUMMARY_MAX)}…`;
+}
 
 function summarizeArgs(args: Record<string, unknown>): string {
   const s = JSON.stringify(args) ?? "{}";
@@ -114,6 +143,8 @@ export function recordsToItems(records: readonly StewardHistoryRecord[]): Stewar
           name: r.name,
           argsSummary: "",
           resultSummary: r.text.slice(0, ARGS_SUMMARY_MAX),
+          startedAt: null,
+          endedAt: null,
         });
       }
       continue;
@@ -126,6 +157,8 @@ export function recordsToItems(records: readonly StewardHistoryRecord[]): Stewar
         name: r.toolCall.name,
         argsSummary: summarizeArgs(r.toolCall.args),
         resultSummary: null,
+        startedAt: null, // 回放无耗时锦（历史行不显示计时）
+        endedAt: null,
       });
     }
     if (r.text !== undefined && r.text !== "") items.push({ kind: "assistant", text: r.text });
@@ -158,6 +191,7 @@ export function useSteward(): UseSteward {
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [feed, setFeed] = useState<readonly FeedLine[]>([]);
   const [askInFlight, setAskInFlight] = useState(false);
+  const [askActivity, setAskActivity] = useState<StewardAskActivity | null>(null);
   const [config, setConfig] = useState<StewardConfig | null>(null);
   const { t } = useI18n();
 
@@ -228,36 +262,54 @@ export function useSteward(): UseSteward {
         return;
       }
       if (event.type === "steward.thinking") {
-        // thinking 段级（A1）：一完成块一条目（屏幕折叠显示）
+        // thinking 段级（A1）：一完成块一条目（屏幕折叠显示）；首行摘要进
+        // 状态区滚动窗（过程反馈 UI 批——仅在途时更新，防孤立帧脏写）
         const payload = event.payload as { text?: unknown };
         if (typeof payload.text !== "string" || payload.text === "") return;
         pushItem({ kind: "thinking", text: payload.text });
+        if (askInFlightRef.current) {
+          setAskActivity((prev) => {
+            if (prev === null) return null; // 非在途防御（迟到孤立帧）
+            const next = [...prev.thinkingLines, firstThinkingLine(payload.text as string)];
+            return {
+              phase: "thinking",
+              toolName: null,
+              thinkingLines: next.length > STEWARD_THINKING_LINE_WINDOW ? next.slice(-STEWARD_THINKING_LINE_WINDOW) : next,
+            };
+          });
+        }
         return;
       }
       if (event.type === "steward.tool") {
-        // 工具两相（A1）：start 开行（结果待配对）；end 回填最近同名待配对行
+        // 工具两相（A1）：start 开行（结果待配对）；end 回填最近同名待配对行。
+        // 过程反馈 UI 批：start 启表（startedAt 锦）+ activity 切工具态；
+        // end 定格（endedAt 锦）+ activity 回思考态（模型消化结果继续思考）。
         const payload = event.payload as
           | { phase: "start"; name?: unknown; argsSummary?: unknown }
           | { phase: "end"; name?: unknown; resultSummary?: unknown };
         if (payload.phase === "start") {
           if (typeof payload.name !== "string") return;
           const argsSummary = typeof payload.argsSummary === "string" ? payload.argsSummary : "{}";
-          pushItem({ kind: "tool", toolCallId: `live-${Date.now()}`, name: payload.name, argsSummary, resultSummary: null });
+          const startedAt = Date.now();
+          pushItem({ kind: "tool", toolCallId: `live-${startedAt}`, name: payload.name, argsSummary, resultSummary: null, startedAt, endedAt: null });
+          setAskActivity((prev) => (prev === null ? prev : { ...prev, phase: "tool", toolName: payload.name as string }));
           return;
         }
         if (typeof payload.name !== "string") return;
         const resultSummary = typeof payload.resultSummary === "string" ? payload.resultSummary : "";
+        const endedAt = Date.now();
         setItems((prev) => {
           for (let i = prev.length - 1; i >= 0; i -= 1) {
             const it = prev[i]!;
             if (it.kind === "tool" && it.name === payload.name && it.resultSummary === null) {
               const next = [...prev];
-              next[i] = { ...it, resultSummary };
+              next[i] = { ...it, resultSummary, endedAt };
               return next;
             }
           }
           return prev;
         });
+        setAskActivity((prev) => (prev === null ? prev : { ...prev, phase: "thinking", toolName: null }));
         return;
       }
       if (event.type === "steward.history.result") {
@@ -280,6 +332,7 @@ export function useSteward(): UseSteward {
           return;
         }
         setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error 同口径）
+        setAskActivity(null); // 过程反馈 UI 批：收口状态区收起
         if (payload.status === "answer") {
           pushItem({ kind: "assistant", text: payload.text });
         } else {
@@ -328,6 +381,7 @@ export function useSteward(): UseSteward {
       setStreamingText(null); // 新一轮复位（防御：上轮断连残留）
       pushItem({ kind: "user", text: trimmed });
       markAskInFlight(true);
+      setAskActivity({ phase: "thinking", toolName: null, thinkingLines: [] }); // 过程反馈 UI 批：在途态启表
       return true;
     },
     [sendStewardAsk, pushItem],
@@ -341,5 +395,5 @@ export function useSteward(): UseSteward {
     return true;
   }, [sendStewardHistory]);
 
-  return { items, streamingText, feed, askInFlight, config, ask, newDialog };
+  return { items, streamingText, feed, askInFlight, askActivity, config, ask, newDialog };
 }
