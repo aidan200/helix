@@ -554,7 +554,7 @@ export interface StewardCommandDeps {
   /** 管家服务体（ask/confirm LLM 循环 + 确认闸 + 设置面）。 */
   readonly service: StewardService;
   /** EventStream 连接级 steward 订阅面（steward.subscribe/unsubscribe 登记）。 */
-  readonly stream: Pick<EventStream, "subscribeSteward" | "unsubscribeSteward">;
+  readonly stream: Pick<EventStream, "subscribeSteward" | "unsubscribeSteward" | "sendStewardPendingSnapshot">;
 }
 
 /**

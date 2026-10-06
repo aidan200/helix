@@ -188,6 +188,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.thinking",
   "steward.navigate",
   "steward.notify",
+  // 确认链路修复批 +steward.pending.snapshot（在途确认卡快照——订阅对账/
+  // 跨重启清场；真消费归 useStewardActions 撤旧卡）
+  "steward.pending.snapshot",
   "steward.memory_written",
   "steward.memory_list.result",
   // 表面协议地基批（M0）：surface 两帧 = 连接私有（action 指令帧定向到已

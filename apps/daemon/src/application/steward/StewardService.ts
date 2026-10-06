@@ -227,6 +227,78 @@ export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认
 /** 工具/思考过程帧摘要截断上限（steward.tool 帧面——屏幕折叠行密度）。 */
 export const PROCESS_SUMMARY_MAX_CHARS = 200;
 
+/** ── 确认链路修复批（2026-10-06 12:13-12:28 事故）：口令路由词表 + 登记簿 ──
+ * 事故定性：用户每次重述 → 管家新提案 → 新卡（六卡并存）；「确认了很多遍」
+ * 被当新指令又弹卡；已送达后又陆续弹失效通知。三件根治：在途提案登记簿
+ * （弹卡出口唯一）、确认口令路由（词表绑定最近 pending 卡）、终局收敛
+ * （同 key 其余卡静默撤除）。 */
+
+/** 确认类口令词表（单源；纯文本全等匹配零 LLM——命中绑定最近 pending 卡消费）。 */
+export const STEWARD_CONFIRM_PHRASES: readonly string[] = [
+  "确认",
+  "确认执行",
+  "执行",
+  "执行吧",
+  "做吧",
+  "好的",
+  "行",
+  "可以",
+];
+
+/** 取消类口令词表（命中绑定最近 pending 卡作废）。 */
+export const STEWARD_CANCEL_PHRASES: readonly string[] = ["取消", "不要了", "放弃"];
+
+/** 口令归一（trim + 尾部标点剥除——语音转写常带句读；中部不改）。 */ function normalizePhrase(text: string): string {
+  return text.trim().replace(/[。．.!！?？?，,、；;～~\s]+$/u, "");
+}
+
+/** 口令判定（极轻纯函数，零 LLM；非词表全等 → undefined 原样走 LLM）。 */
+export function matchStewardCommandPhrase(text: string): "confirm" | "cancel" | undefined {
+  const normalized = normalizePhrase(text);
+  if (normalized === "") return undefined;
+  if (STEWARD_CONFIRM_PHRASES.includes(normalized)) return "confirm";
+  if (STEWARD_CANCEL_PHRASES.includes(normalized)) return "cancel";
+  return undefined;
+}
+
+/** 内容指纹（FNV-1a 32 位十六进制——登记簿 key 的 contentHash 位；非密码学用途，
+ *  只求同内容同值异内容异值且极轻）。 */
+function contentHashOf(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+/** 提案登记簿 key = verb|targetId|contentHash（弹卡出口唯一化的幂等键；
+ *  targetId 按 verb 语义取：send=agentId / deliver=sessionId / create=title /
+ *  spawnReview=type@project / surfaceAct=verb@surfaceId）。 */
+export function pendingKeyOf(action: PendingAction): string {
+  switch (action.kind) {
+    case "send":
+      return `send|${action.send!.agentId}|${contentHashOf(action.send!.message)}`;
+    case "deliverSession":
+      return `deliverSession|${action.deliverSession!.sessionId}|${contentHashOf(action.deliverSession!.text)}`;
+    case "createSession": {
+      const c = action.createSession!;
+      return `createSession|${c.title}|${contentHashOf(c.initialMessage ?? "")}`;
+    }
+    case "spawnReview": {
+      const r = action.spawnReview!;
+      return `spawnReview|${r.reviewType}@${r.project}|${contentHashOf(JSON.stringify(r.params))}`;
+    }
+    case "surfaceAct": {
+      const s = action.surfaceAct!;
+      return `surfaceAct|${s.verb}@${s.surfaceId}|${s.risk}|${contentHashOf(JSON.stringify(s.args))}`;
+    }
+  }
+}
+
+/** 提案终局登记簿上限（FIFO 淘汰——终局记录仅服务短窗幂等判定，无持久价值）。 */
+export const STEWARD_PROPOSAL_REGISTRY_MAX = 256;
+
 /** ── A2 批：动态情景快照段 ───────────────────────────────
  *  内容预算（字符级硬顶；中文 ~600 字符 ≈ 400-600 token，满足 brief
  *  ≤600 token 口径）：当前时间一行 + 活跃 agent/会话计数两行 + 最近
@@ -945,6 +1017,8 @@ const GATED_TOOLS: ReadonlySet<string> = new Set([
 /** 挂闸中待确认项（pause 态的 resume 凭据 + 提案动作——actionId 单次消费）。 */
 interface PendingEntry {
   readonly action: PendingAction;
+  /** 登记簿幂等键（确认链路修复批——复用/收敛判定锚；缺省时现算回退）。 */
+  readonly key?: string;
   /** 挂闸凭据（段B：engine_paused 的 pauseToken——confirm 执行后经
    *  engine.resume(resolve 翻译) 回灌终结 run；B4a 轮外提案（自动沉淀）
    *  缺席——confirm 时跳过回灌直接收口）。 */
@@ -991,6 +1065,12 @@ export class StewardService {
   private readonly now: () => number;
   /** 待确认写动作（actionId 单次消费；不持久化——过期即失效不跨重启）。 */
   private readonly pending = new Map<string, PendingEntry>();
+  /** 提案终局登记簿（key → 最近终局；确认链路修复批：succeeded 拦截重复提案
+   *  回「已做过」，voided/无记录放行新提案——治六卡并存的重复源）。 */
+  private readonly proposalRegistry = new Map<
+    string,
+    { status: "succeeded" | "voided"; actionId: string; detail: string; settledAt: number }
+  >();
   /** 八工具中立规格（createEngine 装配面——driven 工具桥投影 pi AgentTool）。 */
   private readonly toolSpecs: StewardToolSpec[] = [];
   /** 隐藏面板原语名（不进引擎工具面——getProfile 观测面合并显示）。 */
@@ -1067,6 +1147,15 @@ export class StewardService {
     }
     // 感知激活信号②：ask 即点亮衰减窗（一问即入激活——响应环点亮主动环）
     this.deps.onUserActivity?.();
+    // 确认口令路由（确认链路修复批③，事故 12:27:45 实锤：「确认了很多遍」
+    // 被当新指令又弹卡）：pending 卡存在时纯文本口令绑定最近一张卡消费/作废
+    // ——零 LLM 零新提案；无 pending 卡时原样走 LLM。极轻判定先于队列语义
+    //（挂闸阻塞中口令确认 = 面板点卡的等价入口）。
+    const phrase = matchStewardCommandPhrase(text);
+    if (phrase !== undefined) {
+      const routed = this.routeConfirmPhrase(phrase);
+      if (routed !== undefined) return routed;
+    }
     // 暂停态（挂闸阻塞中）新 ask：loop 语义 = 旧 run 已 settle 过期、新 ask
     // 照常（E-197 迁移前等价）——pi 映射：abort 阻塞中的 run（闸内 raceAbort
     // 唤醒、工具不执行）→ 收口后驱动新 ask（确认卡保持有效：confirm 时
@@ -1332,6 +1421,45 @@ export class StewardService {
     }
     this.actionSeq += 1;
     const actionId = `steward-action-${this.actionSeq}`;
+    const key = pendingKeyOf(gated.action);
+    // ── 登记簿①：在途同 key → 复用旧卡（幂等：不新弹不新凭据；凭据换血
+    //    到活 run 的 pauseToken——回灌链路续活，TTL 重置新确认窗口） ──
+    const existingId = this.findPendingIdByKey(key);
+    if (existingId !== undefined) {
+      const existing = this.pending.get(existingId)!;
+      this.pending.set(existingId, {
+        action: { ...gated.action, toolCall: { id: event.toolCallId, name: event.toolName } },
+        key,
+        pauseToken: event.pauseToken,
+        createdAt: this.now(),
+        remindedAt: existing.remindedAt,
+      });
+      this.currentPause.length = 0;
+      this.currentPause.push({ actionId: existingId, action: this.pending.get(existingId)!.action });
+      this.pausedGateToken = event.pauseToken;
+      this.logInfo(
+        `管家确认闸复用在途提案卡：${existingId}（${gated.action.kind} → ${gated.action.displayTarget}）——同 key 幂等不新弹`,
+      );
+      this.settleAsk({
+        status: "confirm_required",
+        actionId: existingId,
+        agentId: gated.action.displayTarget,
+        message: gated.action.message,
+      });
+      return;
+    }
+    // ── 登记簿②：已成功终局 → 不挂闸：回灌「已做过」（带原 actionId）──
+    const settled = this.proposalRegistry.get(key);
+    if (settled !== undefined && settled.status === "succeeded") {
+      this.logInfo(
+        `管家确认闸拦截重复提案：${gated.action.kind} → ${gated.action.displayTarget}（已执行过 ${settled.actionId}）`,
+      );
+      await this.engine?.resume?.(event.pauseToken, {
+        kind: "resolve",
+        text: capToolResultText(`该操作已执行过（${settled.actionId}）：${settled.detail}——无需重复确认，可向用户说明`),
+      });
+      return;
+    }
     this.logInfo(`管家确认闸暂停：${actionId}（${gated.action.kind} → ${gated.action.displayTarget}）`);
     this.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
     this.currentPause.push({
@@ -1340,6 +1468,7 @@ export class StewardService {
     });
     this.pending.set(actionId, {
       action: this.currentPause[0]!.action,
+      key,
       pauseToken: event.pauseToken,
       createdAt: this.now(),
       remindedAt: undefined,
@@ -1353,7 +1482,9 @@ export class StewardService {
     });
   }
 
-  /** run 收口（agent_end）：结果推导 + B4a 主钩子 + deliver + 队列驱动。 */
+  /** run 收口（agent_end）：结果推导 + B4a 主钩子 + deliver + 队列驱动。
+   *  确认链路修复批：error 收口日志附引擎错误摘要（事故 run#3/#5/#7 无原因）
+   *  + 本 run 挂闸卡生命周期处置（deliver 类续活 / destructive 撤除+明示）。 */
   private async finishRun(startError?: string): Promise<void> {
     this.runActive = false;
     this.runLastProgressAt = 0;
@@ -1361,7 +1492,17 @@ export class StewardService {
     this.runSettledMark?.();
     this.runSettledMark = undefined;
     const outcome = startError !== undefined ? { status: "error" as const, reason: startError } : this.outcomeOfRun();
-    this.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.askQueue.length} 条）`);
+    // ⑤ error 收口附原因摘要（warn 级保证可见——旧装配 info 缺席时事故零日志）
+    if (outcome.status === "error") {
+      this.deps.logger?.warn(
+        `管家 run 收口：error（原因：${capChars(outcome.reason, 200)}；排队 ${this.askQueue.length} 条）`,
+      );
+    } else {
+      this.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.askQueue.length} 条）`);
+    }
+    // ④ 本 run 挂闸卡处置：deliver/send/create/spawnReview 意图不随 run 死
+    //    而失效 → 凭据续活到卡终局；destructive 不可续活 → 即时撤除+明示。
+    this.disposeRunPendingCards();
     const item = this.pendingRunAsk;
     this.pendingRunAsk = undefined;
     this.pausedGateToken = undefined;
@@ -1378,6 +1519,36 @@ export class StewardService {
         this.deps.logger?.warn(`队列驱动异常：${(err as Error).message}`);
       });
     }
+  }
+
+  /** run 收口挂闸卡处置（确认链路修复批④）：currentPause 即本 run 提案锚
+   *  （一次 run 至多一个未决提案）；已终局（confirm/cancel 先行）零处置。 */
+  private disposeRunPendingCards(): void {
+    for (const { actionId, action } of this.currentPause) {
+      const entry = this.pending.get(actionId);
+      if (entry === undefined) continue; // 已终局（确认/作废先行）——无处置
+      const destructive = action.kind === "surfaceAct" && action.surfaceAct?.risk === "destructive";
+      if (!destructive) {
+        this.logInfo(
+          `确认卡续活（run 收口不撤）：${actionId}（${action.kind} → ${action.displayTarget}）——意图不随 run 死而失效`,
+        );
+        continue;
+      }
+      this.pending.delete(actionId);
+      this.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "run 收口撤除（destructive 不可续活）");
+      this.deps.emitActionCompleted?.({
+        actionId,
+        ok: false,
+        detail: "该操作已撤回（原运行已结束，高风险操作不自动保留）——如仍需要请重新提出",
+        outcome: "superseded",
+      });
+      this.emitLifecycleNotify(
+        "normal",
+        "高风险操作已撤回",
+        `原运行已结束，「${action.displayTarget}」的高风险操作卡已撤除；如仍需要请重新提出`,
+      );
+    }
+    this.currentPause = [];
   }
 
   /** run 结果推导（事件态 → 回执判别——原 mapRunResult）。 */
@@ -1499,12 +1670,14 @@ export class StewardService {
   private checkConfirmTtl(now: number): void {
     for (const [actionId, entry] of [...this.pending]) {
       if (now - entry.createdAt < STEWARD_CONFIRM_TTL_MS) continue;
-      this.pending.delete(actionId); // cancel 同款作废语义（删除即作废）
-      if (this.pending.size === 0) this.pausedGateToken = undefined;
+      this.pending.delete(actionId); // cancel 同款作废语义（删除即作废；不清挂闸
+      // 旗——挂闸 run 若仍挂着由看门狗/abort-再驱动收口，同 cancel 注释）
       this.deps.logger?.warn(
         `管家确认卡 TTL 作废：${actionId}（${entry.action.kind} → ${entry.action.displayTarget}）——${STEWARD_CONFIRM_TTL_MS / 1000}s 无人确认自动作废`,
       );
-      this.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL });
+      this.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL, outcome: "timeout" });
+      // 终局登记 + 同 key 收敛（确认链路修复批：作废也收敛，零后续连锁通知）
+      this.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "确认超时作废");
       this.emitLifecycleNotify(
         "normal",
         "确认已超时",
@@ -1699,7 +1872,11 @@ export class StewardService {
   ): Promise<StewardConfirmResultPayload> {
     const entry = this.pending.get(actionId);
     if (entry === undefined) {
-      return { status: "error", reason: `待确认动作不存在或已消费（actionId=${actionId}）` };
+      // 确认链路修复批：用户语义文案（事故 12:17:16 点死卡只看到内部异常）
+      return {
+        status: "error",
+        reason: `该确认已失效（actionId=${actionId} 不存在或已消费——服务重启/超时作废后凭据即失效）；如仍需要请重新提出`,
+      };
     }
     this.pending.delete(actionId); // 先消费（单次语义：执行失败也不可重放）
     // 暂停态旗同步清（B1 两段式窗口防误伤：执行体异步在飞时新 ask 不走
@@ -1711,18 +1888,27 @@ export class StewardService {
     if (entry.action.kind === "deliverSession") {
       this.deps.emitNavigate?.({ sessionId: entry.action.deliverSession!.sessionId });
     }
+    const key = entry.key ?? pendingKeyOf(entry.action);
     // 异步执行体（受理后启动；错误经 onCompleted 交代，不浮出确认链）
     void (async () => {
       const outcome = await this.executePending(entry.action);
       // 回灌经引擎暂停面（resolve 翻译：结果入账 + run 终结——block+terminate）；
       // B4a 轮外提案无暂停点（pauseToken 缺席）——跳过回灌直接收口。
+      // 确认链路修复批：run 已收口/引擎重建后凭据过期 → 降级跳过回灌
+      //（事故实锤「审批闸未知 pauseToken」曾把已送达的执行误报为异常）。
       if (entry.pauseToken !== undefined && this.engine !== undefined) {
-        await this.engine.resume?.(entry.pauseToken, {
-          kind: "resolve",
-          text: capToolResultText(outcome.detail),
-          isError: !outcome.ok,
-        });
+        try {
+          await this.engine.resume?.(entry.pauseToken, {
+            kind: "resolve",
+            text: capToolResultText(outcome.detail),
+            isError: !outcome.ok,
+          });
+        } catch (err) {
+          this.logInfo(`确认卡回灌降级（run 已收口，凭据过期）：${(err as Error).message.slice(0, 80)}`);
+        }
       }
+      // 终局登记 + 同 key 收敛（succeeded 拦重复提案；失败不记=可重试）
+      if (outcome.ok) this.settleProposal(key, "succeeded", actionId, outcome.detail);
       onCompleted?.({ actionId, ok: outcome.ok, detail: outcome.detail });
     })().catch((err: unknown) => {
       // 防御面：执行体异常不该静默（与 outcome.ok=false 同构交代）
@@ -1735,9 +1921,95 @@ export class StewardService {
 
   /** 确认卡作废（B1 steward.cancel）：pending 删除即作废——幂等（不存在/
    *  已消费静默）；作废后同 actionId 再 confirm 报「已消费」。卡片「放弃」
-   *  的 daemon 侧簿记同步（消灭孤儿 actionId），零执行零回执。 */
+   *  的 daemon 侧簿记同步（消灭孤儿 actionId），零执行零回执。
+   *  确认链路修复批：作废即终局——登记簿 voided（同 key 重提按新提案）+
+   *  superseded 帧广播（多窗卡栈同步撤卡，G8 方向）+ 同 key 其余卡收敛。 */
   cancel(actionId: string): void {
+    const entry = this.pending.get(actionId);
+    if (entry === undefined) return;
     this.pending.delete(actionId);
+    // 不因删卡清 pausedGateToken：挂闸 run 若仍挂着（用户放弃的是卡不是 run），
+    // 保留旗让下一个 ask 走 abort-再驱动唤醒收口（否则新 ask 误入队死等看门狗）
+    this.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "用户放弃");
+    this.deps.emitActionCompleted?.({
+      actionId,
+      ok: false,
+      detail: "该操作已放弃（作废）",
+      outcome: "superseded",
+    });
+  }
+
+  /** 在途确认卡快照（steward.pending.snapshot 帧——订阅对账/跨重启清场；
+   *  插入序；确认链路修复批，E-206 预留帧位落地）。 */
+  pendingSnapshot(): readonly string[] {
+    return [...this.pending.keys()];
+  }
+
+  /** 登记簿终局收口（确认链路修复批）：记终局（succeeded 拦重复/voided 放行
+   *  重提）+ 同 key 其余在途卡静默收敛（全订阅者 superseded 帧，零失效
+   *  通知——治「已送达后又弹两条失效投递通知」）。 */
+  private settleProposal(key: string, status: "succeeded" | "voided", actionId: string, detail: string): void {
+    this.proposalRegistry.delete(key);
+    this.proposalRegistry.set(key, { status, actionId, detail, settledAt: this.now() });
+    if (this.proposalRegistry.size > STEWARD_PROPOSAL_REGISTRY_MAX) {
+      const oldest = this.proposalRegistry.keys().next().value;
+      if (oldest !== undefined && oldest !== key) this.proposalRegistry.delete(oldest);
+    }
+    for (const [otherId, other] of [...this.pending]) {
+      if (otherId === actionId) continue;
+      if ((other.key ?? pendingKeyOf(other.action)) !== key) continue;
+      this.pending.delete(otherId);
+      this.deps.emitActionCompleted?.({
+        actionId: otherId,
+        ok: false,
+        detail: "该操作已由其它确认收敛（同内容确认卡撤除）",
+        outcome: "superseded",
+      });
+    }
+  }
+
+  /** 在途同 key 卡定位（复用旧卡判定面；key 缺席时现算回退——防御注入态）。 */
+  private findPendingIdByKey(key: string): string | undefined {
+    for (const [actionId, entry] of this.pending) {
+      if ((entry.key ?? pendingKeyOf(entry.action)) === key) return actionId;
+    }
+    return undefined;
+  }
+
+  /** 最近一张 pending 卡（口令路由绑定锚——createdAt 最大，相等取后入）。 */
+  private latestPendingActionId(): string | undefined {
+    let latest: { id: string; createdAt: number } | undefined;
+    for (const [actionId, entry] of this.pending) {
+      if (latest === undefined || entry.createdAt >= latest.createdAt) latest = { id: actionId, createdAt: entry.createdAt };
+    }
+    return latest?.id;
+  }
+
+  /** 口令路由（确认链路修复批③）：纯文本口令绑定最近 pending 卡消费/作废
+   *  ——零 LLM 零新提案（治「确认了很多遍」被当新指令）；无 pending 卡时
+   *  返回 undefined 原样走 LLM。确认回执经广播出口（口令来自任意连接）。 */
+  private routeConfirmPhrase(phrase: "confirm" | "cancel"): StewardAskResultPayload | undefined {
+    const latest = this.latestPendingActionId();
+    if (latest === undefined) return undefined;
+    const entry = this.pending.get(latest)!;
+    const target = entry.action.displayTarget;
+    if (phrase === "cancel") {
+      this.cancel(latest);
+      return { status: "answer", text: `已放弃该操作（${target}）——卡片已撤除` };
+    }
+    void this
+      .confirm(latest, (payload) => this.deps.emitActionCompleted?.(payload))
+      .then((accepted) => {
+        if (accepted.status !== "accepted") {
+          this.emitLifecycleNotify(
+            "normal",
+            "确认未生效",
+            `口令确认未受理（${accepted.status === "error" ? accepted.reason : "未知原因"}）——请点卡片确认或重试`,
+          );
+        }
+      })
+      .catch((err) => this.deps.logger?.warn(`口令确认异常：${(err as Error).message}`));
+    return { status: "answer", text: `已确认执行（${target}）——执行回执稍后送达` };
   }
 
   /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的

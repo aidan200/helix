@@ -11,7 +11,7 @@
  * 无动词建议（LLM 产物）纯文本呈现，写类动作落地走确认闸（M2 surface
  * 协议后接）。urgency 分档：normal = violet 轻通知、high = warn 提级。
  */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { EventEnvelope, StewardNotifyPayload, StewardNotifySuggestion } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useToast } from "@/shared/ui/Toast";
@@ -21,11 +21,17 @@ const SUGGESTION_ACTIONS: Partial<Record<string, (ctx: { onOpenTasks: () => void
   open_tasks: ({ onOpenTasks }) => onOpenTasks(),
 };
 
+/** 同内容去重短窗（确认链路修复批⑥：服务端去重的 shell 兜底——同 key 两条
+ *  到达只渲染一条；治「已送达后又弹两条失效投递通知」的播报面）。 */
+const NOTIFY_DEDUP_WINDOW_MS = 60_000;
+
 export default function StewardNotifyToast({ onOpenTasks }: { onOpenTasks: () => void }) {
   const { subscribeStewardFrames } = useSession() as {
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
   const toast = useToast();
+  /** 去重窗（组件级实例态——重挂载即新窗；键 title\u0000body → 上次渲染时刻）。 */
+  const dedupRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return; // 防御：部分测试 mock 的 session 面不含 steward 族
@@ -35,6 +41,16 @@ export default function StewardNotifyToast({ onOpenTasks }: { onOpenTasks: () =>
       // text/sub 守卫（CoordNoticeToast 先例）：非 string/空串不入 toast
       if (typeof p.title !== "string" || p.title === "") return;
       if (typeof p.body !== "string" || p.body === "") return;
+      // 同内容短窗兜底去重（服务端出口去重的第二道防线——多路径/重放场景）
+      const dedupKey = `${p.title}\u0000${p.body}`;
+      const now = Date.now();
+      const lastAt = dedupRef.current.get(dedupKey);
+      if (lastAt !== undefined && now - lastAt < NOTIFY_DEDUP_WINDOW_MS) return;
+      dedupRef.current.set(dedupKey, now);
+      if (dedupRef.current.size > 32) {
+        const oldest = dedupRef.current.keys().next().value;
+        if (oldest !== undefined) dedupRef.current.delete(oldest);
+      }
       // 建议副行：全部建议 label 拼接（含无动作项——纯建议也是信息）
       const labels = (Array.isArray(p.suggestions) ? p.suggestions : [])
         .map((s) => (typeof s?.label === "string" ? s.label : ""))

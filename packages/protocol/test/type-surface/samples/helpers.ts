@@ -373,6 +373,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.action.completed":
       // B1 两段式确认批：确认动作执行完成帧（点对点）
       return `steward-action-completed:${event.payload.actionId}:${String(event.payload.ok)}:${event.payload.detail}`;
+    case "steward.pending.snapshot":
+      // 确认链路修复批：在途确认卡快照（订阅对账/清场）
+      return `steward-pending-snapshot:${event.payload.actionIds.join(",")}`;
     case "surface.action":
       // 表面协议地基批（M0）：统一动作指令帧窄化（verb + risk + seq + 定向面）
       return `surface-action:${event.payload.verb}:${event.payload.risk}:${event.payload.seq}:${event.payload.surfaceIds?.join(",") ?? "-"}`;

@@ -167,6 +167,7 @@ import type {
   StewardMemoryListResultEvent,
   StewardNotifyEvent,
   StewardActionCompletedEvent,
+  StewardPendingSnapshotEvent,
 } from "./steward";
 import type {
   SurfaceActionEvent,
@@ -351,6 +352,7 @@ export type EventEnvelope =
   | SurfaceActionEvent
   | SurfaceRegisteredEvent
   | StewardNotifyEvent
+  | StewardPendingSnapshotEvent
   | EmbeddingListResultEvent
   | EmbeddingVerifyResultEvent
   | ProviderListResultEvent
@@ -538,6 +540,9 @@ export const EVENT_TYPES = [
   // 管家感知批 M0.5：steward.notify（主动通知帧——分诊呈现轨载体，与 feed
   // 同订阅闸；事件帧非指令帧）
   "steward.notify",
+  // 确认链路修复批：steward.pending.snapshot（在途确认卡快照——订阅对账/
+  // 跨重启清场帧，E-206 预留帧位落地）
+  "steward.pending.snapshot",
   // 管家记忆 B2：steward 记忆条目清单回执（memory_list/append/update/delete
   // 四命令共用）+ embedding 配置域两帧（新族 channel "embedding"——端点
   // 清单回执与连通测试回执）
@@ -694,6 +699,7 @@ export const EVENT_CHANNELS = {
   "surface.action": "surface",
   "surface.registered": "surface",
   "steward.notify": "steward",
+  "steward.pending.snapshot": "steward",
   "embedding.list.result": "embedding",
   "embedding.verify.result": "embedding",
   "provider.list.result": "provider",

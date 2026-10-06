@@ -292,8 +292,10 @@ export function useSteward(): UseSteward {
       }
       if (event.type === "steward.action.completed") {
         // B1 两段式第二段：执行回执历史留痕（卡栈态流转/结果 toast 归
-        // useStewardActions——多听众扇出各取所需）
-        const payload = event.payload as { actionId?: unknown; ok?: unknown; detail?: unknown };
+        // useStewardActions——多听众扇出各取所需）。收敛/撤回帧（outcome=
+        // superseded）静默——零留痕零通知（确认链路修复批）。
+        const payload = event.payload as { actionId?: unknown; ok?: unknown; detail?: unknown; outcome?: unknown };
+        if (payload.outcome === "superseded") return;
         if (typeof payload.detail !== "string") return;
         pushItem({ kind: "assistant", text: payload.ok === true ? payload.detail : payload.detail });
         return;

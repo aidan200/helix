@@ -1058,6 +1058,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 管家可靠性根修批：看门狗/确认闸 TTL/可达性提醒巡检定时器（unref +
   // shutdown 链双保险——stewardMemory.startGcTimer 同规）
   stewardService.startReliabilityTimers();
+  // 确认链路修复批④：daemon 启动清场广播——此刻内存 pending 必空集（不持久
+  //  化），对启动时已在册的订阅连接撤旧卡（通常零连接；主清场路径 =
+  //  steward.subscribe 受理回发快照对账——跨重启 shell 重连即收）。
+  eventStream.broadcastStewardPendingSnapshot({ actionIds: stewardService.pendingSnapshot() });
 
   // U2 观测态晚绑闭合：trace 面板 main displayState 的会话运行态读口
   // 接 registry（此前冷会话 idle 兑底）

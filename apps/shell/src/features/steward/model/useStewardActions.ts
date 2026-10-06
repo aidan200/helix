@@ -85,6 +85,11 @@ export function useStewardActions(): UseStewardActions {
   const lastConfirmedRef = useRef<string | null>(null);
 
   const [cards, setCards] = useState<readonly StewardActionCard[]>([]);
+  /** 卡栈镜像（事件回调读最新卡集——闭包不依赖 cards 重渲染；幂等去重判据面）。 */
+  const cardsRef = useRef<readonly StewardActionCard[]>([]);
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
   const seqRef = useRef(0);
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   useEffect(
@@ -113,13 +118,26 @@ export function useStewardActions(): UseStewardActions {
         if (payload.status !== "confirm_required") return;
         const actionId = payload.actionId;
         if (typeof actionId !== "string" || actionId === "") return;
+        // 幂等去重（确认链路修复批）：daemon 登记簿复用旧卡时同 actionId 回执
+        //  重放——已入栈的卡不重复弹（治事故六卡并存的呈现面；重连重放同理）
+        if (cardsRef.current.some((c) => c.actionId === actionId)) return;
         const agentId = typeof payload.agentId === "string" ? payload.agentId : "";
         const message = typeof payload.message === "string" ? payload.message : "";
         seqRef.current += 1;
-        setCards((prev) => [
-          ...prev,
-          { actionId, agentId, message, seq: seqRef.current, state: "awaiting", kind: "action" },
-        ]);
+        setCards((prev) =>
+          prev.some((c) => c.actionId === actionId)
+            ? prev
+            : [...prev, { actionId, agentId, message, seq: seqRef.current, state: "awaiting" as const, kind: "action" as const }],
+        );
+        return;
+      }
+      if (event.type === "steward.pending.snapshot") {
+        // 订阅对账/清场（确认链路修复批：daemon 重启后空集即清场指令；非空集
+        //  = 不在册的卡已失效应撤——卡栈以 daemon 快照为权威对账）
+        const payload = event.payload as { actionIds?: unknown };
+        if (!Array.isArray(payload.actionIds)) return;
+        const keep = new Set(payload.actionIds.filter((id): id is string => typeof id === "string"));
+        setCards((prev) => prev.filter((c) => c.kind !== "action" || keep.has(c.actionId)));
         return;
       }
       if (event.type === "steward.memory_written") {
@@ -159,10 +177,16 @@ export function useStewardActions(): UseStewardActions {
         return;
       }
       if (event.type === "steward.action.completed") {
-        // 执行完成：卡转 done（淡出）+ 结果 toast（历史留痕归 useSteward）
-        const payload = event.payload as { actionId?: unknown; ok?: unknown; detail?: unknown };
+        // 执行完成：卡转 done（淡出）+ 结果 toast（历史留痕归 useSteward）。
+        // 收敛/撤回帧（outcome=superseded）：静默移卡——零 toast 零 done 态
+        //（治「已送达后又弹两条失效投递通知」；多窗卡栈同步收口）。
+        const payload = event.payload as { actionId?: unknown; ok?: unknown; detail?: unknown; outcome?: unknown };
         const actionId = payload.actionId;
         if (typeof actionId !== "string") return;
+        if (payload.outcome === "superseded") {
+          setCards((prev) => prev.filter((c) => c.actionId !== actionId));
+          return;
+        }
         const ok = payload.ok === true;
         const detail = typeof payload.detail === "string" ? payload.detail : "";
         setCards((prev) =>

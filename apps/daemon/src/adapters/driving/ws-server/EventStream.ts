@@ -43,6 +43,8 @@ import type {
   SurfaceActionPayload,
   StewardNotifyEvent,
   StewardNotifyPayload,
+  StewardPendingSnapshotEvent,
+  StewardPendingSnapshotPayload,
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
@@ -58,6 +60,13 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import { domainEventToEnvelope, diffChangedFrame, sessionMetaDto } from "./DtoMapper";
 import { isWireMainAttribution, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 import type { SessionListChange } from "../../../application/ports/inbound/SessionDirectoryPort";
+
+/** steward.notify 出口去重短窗（确认链路修复批⑥：同 key 重复在此窗内直接丢弃
+ *  ——叠加感知服务限流（E-250 ≤4/h）之上，不替代）。 */
+export const STEWARD_NOTIFY_DEDUP_WINDOW_MS = 60_000;
+
+/** 去重窗键上限（防御无界——远超正常通知键量时 FIFO 淘汰）。 */
+export const STEWARD_NOTIFY_DEDUP_KEYS_MAX = 64;
 
 /** 单连接的协议帧发送端（WsServerAdapter 按连接构造，内含 readyState 守卫）。 */
 export type FrameSender = (frame: EventEnvelope) => void;
@@ -81,6 +90,8 @@ export interface EventStreamDeps {
    * engine.error 抑制的判别基准；undefined = legacy "main" 判别兜底。
    */
   readonly mainInstanceIdFor?: (sessionId: string) => string | undefined;
+  /** 时钟（确认链路修复批：steward.notify 60s 短窗去重的计时源；缺省 Date.now）。 */
+  readonly clock?: () => number;
 }
 
 /** 单连接投影状态：会话订阅 tier 表 + v0.1 实例订阅表 + task 批连接级任务订阅表（§8.1）。 */
@@ -119,6 +130,9 @@ export class EventStream implements EventPublisherPort {
   private readonly connections = new Map<FrameSender, ConnProjection>();
   /** 多会话：轮次上下文按会话分仓（turn id 序号各会话独立递增）。 */
   private readonly lastTurnIds = new Map<string, string>();
+  /** steward.notify 60s 短窗去重窗（key=title\u0000body → 上次发出时刻；
+   *  确认链路修复批⑥——叠加在感知服务限流之上，不替代）。 */
+  private readonly notifyDedupRecent = new Map<string, number>();
   /** 工具耗时上下文（起止差值）；键 `${sessionId}:${instanceId ?? "main"}:${toolCallId}`
    * （code-review M：并发 SubAgent 同会话 toolCallId 可重号——缺实例段互踩覆盖起点）。 */
   private readonly toolStartedAt = new Map<string, number>();
@@ -590,8 +604,19 @@ export class EventStream implements EventPublisherPort {
    * StewardPerceptionService 分诊器（激活态一次 LLM 双轨产物的呈现轨——
    * 通知预算限流后发出）。**事件帧非指令帧**（D8 通道治理）：告知 + 建议，
    * suggestions 按钮点按才动、写类动作仍过确认闸；呈现即焚不进对话上下文。
+   * 确认链路修复批⑥：出口短窗去重——同 key（事件类型+标题+正文）60s 内
+   * 重复直接丢弃（叠加限流之上；治事故「已送达后又弹两条失效投递通知」）。
    */
   broadcastStewardNotify(payload: StewardNotifyPayload): void {
+    const now = this.deps.clock?.() ?? Date.now();
+    const dedupKey = `${payload.title}\u0000${payload.body}`;
+    const lastAt = this.notifyDedupRecent.get(dedupKey);
+    if (lastAt !== undefined && now - lastAt < STEWARD_NOTIFY_DEDUP_WINDOW_MS) return; // 短窗重复丢弃
+    this.notifyDedupRecent.set(dedupKey, now);
+    if (this.notifyDedupRecent.size > STEWARD_NOTIFY_DEDUP_KEYS_MAX) {
+      const oldest = this.notifyDedupRecent.keys().next().value;
+      if (oldest !== undefined) this.notifyDedupRecent.delete(oldest);
+    }
     const frame: StewardNotifyEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID,
@@ -606,6 +631,48 @@ export class EventStream implements EventPublisherPort {
       } catch {
         // 发送失败由该连接自身的 close 流程收尾，此处隔离
       }
+    }
+  }
+
+  /**
+   * steward.pending.snapshot 在途确认卡快照广播（确认链路修复批；E-206
+   * 预留帧位落地）：daemon 级全局帧，投递按连接级 steward 订阅位过滤。
+   * 触发面 = daemon 启动清场（组合根）——通常零在册连接；主要清场路径是
+   * sendStewardPendingSnapshot 订阅对账（跨重启 shell 重连即收空集撤旧卡）。
+   */
+  broadcastStewardPendingSnapshot(payload: StewardPendingSnapshotPayload): void {
+    const frame: StewardPendingSnapshotEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.pending.snapshot",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /** steward.pending.snapshot 点对点回发（steward.subscribe 受理即对账——
+   *  非空集 = 增量对账：不在册的卡已失效应撤；空集 = 清场指令）。 */
+  sendStewardPendingSnapshot(sender: FrameSender | null, payload: StewardPendingSnapshotPayload): void {
+    if (sender === null) return;
+    const frame: StewardPendingSnapshotEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.pending.snapshot",
+      payload,
+    };
+    try {
+      sender(frame);
+    } catch {
+      // 发送失败由该连接自身的 close 流程收尾，此处隔离
     }
   }
 

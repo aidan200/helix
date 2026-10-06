@@ -106,7 +106,11 @@ export interface StewardConfirmResultEvent extends EventFrame<StewardConfirmResu
 /** steward.action.completed payload（B1 两段式第二段）：确认动作执行完成
  *  回执——confirm 受理（accepted）后异步执行体收口时点对点下发；成败两路
  *  均发（ok=false 时 detail 含失败原因——错误交代面从 confirm.result 的
- *  error 判别迁出，受理后不再复用 error 通道）。 */
+ *  error 判别迁出，受理后不再复用 error 通道）。
+ *  确认链路修复批 additive：outcome 判别——缺省 = executed（正常执行回执，
+ *  成败两路均含）；superseded = 收敛/清场撤卡帧（同 key 卡随终局静默撤除
+ *  / run 收口 destructive 卡撤除——shell 移卡零 toast 零留痕）；timeout =
+ *  TTL 作废帧（可靠性批既有，补判别标注）。 */
 export interface StewardActionCompletedPayload {
   /** 已完成动作 id（与 confirm_required/sediment_proposal 的 actionId 同源）。 */
   actionId: string;
@@ -114,6 +118,8 @@ export interface StewardActionCompletedPayload {
   ok: boolean;
   /** 结果说明（用户与 LLM 共同可见的回执文本——成功详情/失败原因）。 */
   detail: string;
+  /** 终局判别（additive；缺省 = executed）。superseded 帧 = 静默撤卡指令。 */
+  outcome?: "executed" | "superseded" | "timeout";
 }
 
 /** steward.action.completed：确认动作执行完成帧（channel = "steward"；
@@ -412,4 +418,20 @@ export interface StewardNotifyPayload {
 export interface StewardNotifyEvent extends EventFrame<StewardNotifyPayload> {
   channel?: "steward";
   type: "steward.notify";
+}
+
+/** steward.pending.snapshot payload（确认链路修复批；E-206 预留帧位落地）：
+ *  daemon 当前在途确认卡集快照——订阅对账载体。空集即清场指令（daemon
+ *  重启后内存 pending 不持久化，shell 收空集即撤全部旧卡——跨重启残卡
+ *  的唯一正确交代面；非空集 = 增量对账：不在册的卡已失效应撤）。 */
+export interface StewardPendingSnapshotPayload {
+  /** daemon 侧在途待确认 actionId 全集（插入序；shell 以此为权威对账）。 */
+  actionIds: readonly string[];
+}
+
+/** steward.pending.snapshot：在途确认卡快照帧（channel = "steward"；广播
+ *  仅发已订阅连接 + steward.subscribe 受理时点对点回发一次——对账双路）。 */
+export interface StewardPendingSnapshotEvent extends EventFrame<StewardPendingSnapshotPayload> {
+  channel?: "steward";
+  type: "steward.pending.snapshot";
 }

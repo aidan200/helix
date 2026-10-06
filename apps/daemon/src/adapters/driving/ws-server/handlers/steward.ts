@@ -174,9 +174,14 @@ export function handleStewardCancel(ctx: StewardCommandContext): void {
   ctx.steward.service.cancel(actionId);
 }
 
-/** steward.subscribe（全局命令）：事件 feed 连接级订阅登记。 */
+/** steward.subscribe（全局命令）：事件 feed 连接级订阅登记。
+ *  确认链路修复批：受理即点对点回发在途确认卡快照（steward.pending.snapshot
+ *  ——订阅对账：非空集 = 增量对账，空集 = daemon 重启后清场指令，shell 撤
+ *  旧卡；E-206 跨重启残项收编的主路径）。 */
 export function handleStewardSubscribe(ctx: StewardCommandContext): void {
-  ctx.steward.stream.subscribeSteward(ctx.ws.data.sender);
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  ctx.steward.stream.subscribeSteward(sender);
+  ctx.steward.stream.sendStewardPendingSnapshot(sender, { actionIds: ctx.steward.service.pendingSnapshot() });
 }
 
 /** steward.unsubscribe（全局命令）：feed 退订（断连自动等效）。 */

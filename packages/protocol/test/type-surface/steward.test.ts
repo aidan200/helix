@@ -103,6 +103,7 @@ type _StewardFamily = Expect<
       | "steward.thinking"
       | "steward.navigate"
       | "steward.notify"
+      | "steward.pending.snapshot"
       | "steward.memory_written"
       | "steward.memory_list.result"
   >
