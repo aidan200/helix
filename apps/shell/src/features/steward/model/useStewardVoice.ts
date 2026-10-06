@@ -48,6 +48,15 @@
  * VoiceSettingsSection）。组合键再按 / Esc = 关麦收场（cancelWake——
  * duplex 落，在途 ask 轮不动）。
  *
+ * 问题 8 欢迎语音频冷启动（输出通道预热 + 欢迎语错峰）：首次呼出的欢迎
+ * 语首段顿挫 = 两个音频会话并发冷启动（new Audio 输出通道激活 ×
+ * getUserMedia 输入会话建立抢设备）。修复双管：① 挂载即静音播零音量音频
+ * 预热 WKWebView CoreAudio 输出会话（audio-output-warmup，模块级一次性，
+ * 失败静默吞，不预热麦克风——隐私/权限语义）；② speakWelcome 移至
+ * beginListening 完成后（toggleWake 内错峰——输入会话先建立，欢迎语后
+ * 播；错峰窗口内快速关麦由 duplexRef 守卫零补播）。E-208 barge-in 门
+ * 参数零改动（欢迎语本就不置 speaking 相位，仅挪播放起点）。
+ *
  * B2 双工会话（全局语音批，设计稿 §3.2/§3.3）：挂载点从 StewardPanel 迁
  * 至 StewardVoiceLayer（光球层，app 壳级常驻）——open 参数（面板活跃）退
  * 役，采样/耳 meter 注入面改「双工会话活跃」（duplex 态内聚，语义同构平移
@@ -91,6 +100,7 @@ import {
   readWelcomeTextPref,
 } from "@/shared/lib/voice-pref";
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
+import { warmAudioOutputOnce } from "./audio-output-warmup";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import {
   effectiveRmsThreshold,
@@ -852,8 +862,13 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     // 光球开場呈待机动画（welcomeActive + 开麦前瞬态），用户开口即转倾听
     markDuplex(true);
     setWelcomeActive(true);
-    speakWelcome();
+    // 问题 8 错峰：欢迎语移到 beginListening 完成后播——输出（固化音频）
+    // 与输入（getUserMedia 麦会话）两个音频会话不再并发冷启动（首次呼出
+    // 顿挫病根；输出通道已由挂载预热激活）。E-208 门参数零改动：欢迎语
+    // 本就不置 speaking 相位，错峰仅挪播放起点不动门消费。
     await guardedBeginListening();
+    if (!duplexRef.current) return; // 错峰窗口内快速关麦：会话已收口，欢迎语不补播
+    speakWelcome();
   }, [cancelWake, guardedBeginListening, stopSpeaking, markDuplex, speakWelcome]);
   const toggleWakeRef = useRef(toggleWake);
   toggleWakeRef.current = toggleWake;
@@ -865,6 +880,13 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   // 全局组合键注册面（wake-hotkey 单点）：挂载即读偏好注册（壳不读
   // ~/.helix/，偏好读取全在前端——红线不破）；卸载清位。
   useEffect(() => {
+    // ── 输出通道预热（问题 8 冷启动修复）：挂载（光球层常驻——app 壳级
+    //    用户无感窗口）即静音播零音量音频，提前激活 WKWebView CoreAudio
+    //    输出会话——首次呼出的欢迎语不再与通道冷启动竞争。一次性（模块
+    //    级单发位——重复挂载不重复预热）；任何失败静默吞不影响后续链路；
+    //    **不预热麦克风**——静默开麦有隐私/权限语义问题（指示灯/授权提示
+    //    不能无手势点亮），输入侧由欢迎语错峰承担。──
+    warmAudioOutputOnce();
     setWakeHotkeyFireHandler(() => {
       void toggleWakeRef.current();
     });
