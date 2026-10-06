@@ -109,6 +109,9 @@ export function createCodemodeTool(deps: CodemodeToolDeps): AgentHarnessTool<Exe
     description:
       "在 QuickJS 沙箱里写 JavaScript 编排其他工具调用：链式调用、并行扇出（Promise.all）、循环批处理、大结果过滤。" +
       "嵌套调用的中间结果不进入上下文，只有脚本的输出与返回值会返回。\n" +
+      "何时用它：≥8 个相互独立的只读调用且只需过滤/汇总后的结论（不要全量）；或大结果集只要小结论" +
+      "（如千行 grep 命中只要文件清单与计数）。何时不该用：≤7 个独立调用或需要逐个查看全量结果做判断" +
+      "（直接发一轮并行调用）；后调依赖前调结果的顺序链（普通调用）；写类变更工具的编排。\n" +
       "沙箱内无 Node/文件系统/网络/定时器，唯一能力是调用工具。用法：代码是 async 函数体（顶层 await 与 return 可用）；" +
       '`await tools.<name>(args)` 调用工具（名字不是合法标识符时用 tools["<name>"]，如 MCP 命名空间名）；' +
       "`text(value)`/`console.log()` 输出、`return` 返回值（结构化值会 JSON 序列化）、`image(dataUrl)` 附图；" +
