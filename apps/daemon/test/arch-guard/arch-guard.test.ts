@@ -267,7 +267,7 @@ describe("TP-CL5-2（A 半）：grep 语义契约面 framework-free（不碰 fs/
 });
 
 describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-coding-agent）", () => {
-  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为八键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带；管家记忆 B1 +better-sqlite3/sqlite-vec：向量存储引擎）", () => {
+  test("daemon dependencies：pi 系为 {pi-agent-core, pi-ai, pi-mcp}（pi-telemetry/chord 不计），全集十三键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带；管家记忆 B1 +better-sqlite3/sqlite-vec：向量存储引擎；MCP 替换批 +pi-mcp：MCP 驱动层薄壳化的协议/传输依赖）", () => {
     const pkg = JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
@@ -283,11 +283,14 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // better-sqlite3 + sqlite-vec（管家记忆 B1 裁决）：管家长期记忆向量
     // 存储引擎——helix.db（bun:sqlite，AG-06）物理隔离独立文件
     // steward_memory.db；NAPI 加载需 Bun ≥1.4.2（1.3.14 panic spike 实证），
-    // vec0 扩展随包分发走 rg 先例（resources/bin + HELIX_VEC_PATH）
+    // vec0 扩展随包分发走 rg 先例（resources/bin + HELIX_VEC_PATH）；
+    // @earendil-works/pi-mcp（MCP 替换批）：MCP 驱动层薄壳化的协议/传输
+    // 依赖（零自身传递依赖，cross-spawn 除外）——pi-coding-agent 仍不在列
     expect(deps).toEqual([
       "@earendil-works/chord",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
+      "@earendil-works/pi-mcp",
       "@earendil-works/pi-telemetry",
       "@helix/common",
       "@helix/protocol",
@@ -299,14 +302,16 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
       "yaml",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
-    // pi 1.0.0 后 pi 系四键（E-235 升级批次 1）：chord（vendored harness 面
-    // 的 Context 依赖正源）、pi-telemetry（同上，NOOP_TELEMETRY_CONTEXT）、
-    // typebox（vendored 工具 schema）、ignore（vendored skills 的 gitignore
-    // 过滤）——均为 vendored 冻结件的上游运行时依赖，非 helix 直接消费。
+    // pi 1.0.0 后 pi 系五键（E-235 升级批次 1 + MCP 替换批）：chord（vendored
+    // harness 面的 Context 依赖正源）、pi-telemetry（同上，
+    // NOOP_TELEMETRY_CONTEXT）——vendored 冻结件的上游运行时依赖，非 helix
+    // 直接消费；pi-mcp（MCP 替换批）：MCP 驱动层薄壳化的协议/传输依赖，
+    // helix 直接消费。
     expect(piDeps).toEqual([
       "@earendil-works/chord",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
+      "@earendil-works/pi-mcp",
       "@earendil-works/pi-telemetry",
     ]);
   });

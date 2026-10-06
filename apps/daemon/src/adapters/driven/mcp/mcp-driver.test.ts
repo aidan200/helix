@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { McpClient, parseMcpLines } from "./McpClient";
+import { McpClient } from "./McpClient";
 import { McpRegistry } from "./McpRegistry";
 import { createMcpDiscoverTools, createMcpTools, mcpDiscoverToolName } from "./mcp-tool";
 import type { McpServerConfig } from "./types";
@@ -11,6 +11,10 @@ import { BACKGROUND_CONTEXT } from "../../../adapters/driven/tools/vendor/pi-har
 /**
  * mcp 驱动层单测：真子进程 stdio JSON-RPC 往返（假 server 脚本——
  * node 内置解释器，处理 initialize/tools/list/tools/call 三方法）。
+ *
+ * 驱动层已薄壳化为 pi-mcp（@earendil-works/pi-mcp McpClient + StdioTransport）：
+ * 协议/传输细节（行缓冲/分页/stdin error 兜底（TR-140 上游内建）/kill tree）
+ * 由上游承担，本面测 helix 语义（懒重连/状态机/命名空间/适配器）。
  */
 
 /** 假 MCP server 脚本：行式 JSON-RPC，按 method 分发。 */
@@ -31,11 +35,11 @@ function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
 function handle(msg) {
   if (msg.id === undefined) return;
   if (msg.method === "initialize") {
-    send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } } });
+    send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fake-mcp-server", version: "0.0.1" } } });
   } else if (msg.method === "tools/list") {
     send({ jsonrpc: "2.0", id: msg.id, result: { tools: [
       { name: "echo", description: "Echo back", inputSchema: { type: "object", properties: { text: { type: "string" } } } },
-      { name: "ping", description: "Pong" },
+      { name: "ping", description: "Pong", inputSchema: { type: "object", properties: {} } },
     ] } });
   } else if (msg.method === "tools/call") {
     const name = msg.params.name;
@@ -81,17 +85,6 @@ afterAll(() => {
   for (const dir of fakeServerDirs) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("parseMcpLines（纯函数）", () => {
-  test("跨 chunk 行缓冲：半行残余 + 空行跳过", () => {
-    const got: string[] = [];
-    const rest1 = parseMcpLines('{"a":1}\n{"b"', (l) => got.push(l));
-    expect(rest1).toBe('{"b"');
-    const rest2 = parseMcpLines(':2}\n\n{"c":3}\n', (l) => got.push(l), rest1);
-    expect(rest2).toBe("");
-    expect(got).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
-  });
-});
-
 describe("McpClient（真子进程往返）", () => {
   test("initialize + listTools + callTool 全链路", async () => {
     const client = new McpClient(fakeServerConfig("t1"), { logger: undefined });
@@ -103,12 +96,11 @@ describe("McpClient（真子进程往返）", () => {
     expect(client.isReady()).toBe(false);
   });
 
-  test("断线后在飞请求被拒 + 懒重连（再 call 重建）", async () => {
+  test("stop 后调用懒重连（重建 client + transport）", async () => {
     const client = new McpClient(fakeServerConfig("t2"), { logger: undefined });
     await client.listTools();
     client.stop();
-    await expect(client.callTool("echo", {})).rejects.toThrow();
-    // 懒重连：stop 后再调用重新 spawn
+    // 懒重连：stop 后调用整体重建（pi-mcp client close 后不可复用）
     const tools = await client.listTools();
     expect(tools.length).toBe(2);
     client.stop();
@@ -121,17 +113,7 @@ describe("McpClient（真子进程往返）", () => {
     client.stop();
   });
 
-  test("stdin error 兑底监听：进程死亡竞态窗口写入错误不 uncaught（F1 修复）", async () => {
-    const client = new McpClient(fakeServerConfig("t-epipe"), { logger: undefined });
-    await client.connect();
-    const proc = (client as unknown as { proc: { stdin: { listenerCount: (e: string) => number; emit: (e: string, err: Error) => boolean } } }).proc;
-    // 兑底监听就位（无监听时 EventEmitter emit('error') 同步 throw 击穿进程）
-    expect(proc.stdin.listenerCount("error")).toBeGreaterThan(0);
-    expect(() => proc.stdin.emit("error", new Error("write EPIPE"))).not.toThrow();
-    client.stop();
-  });
-
-  test("多字节字符跨 chunk 边界不损坏（StringDecoder 拼接，M3 修复）", async () => {
+  test("多字节字符跨 chunk 边界不损坏（Buffer 拼接，上游承担）", async () => {
     const client = new McpClient(fakeServerConfig("t-split"), { logger: undefined });
     const result = await client.callTool("split-utf8", {});
     expect(result.content[0]).toEqual({ type: "text", text: "你好世界🌍" }); // 无 U+FFFD、响应行未被丢弃
@@ -211,8 +193,8 @@ describe("McpRegistry（多 server 生命周期）", () => {
         if (s.name === "reconn" && s.state === "error") resolve();
       });
     });
-    const entry = (registry as unknown as { servers: Map<string, { client: { proc: { kill: (sig: string) => void } } }> }).servers.get("reconn")!;
-    entry.client.proc.kill("SIGKILL");
+    const entry = (registry as unknown as { servers: Map<string, { client: McpClient }> }).servers.get("reconn")!;
+    process.kill(entry.client.pid!, "SIGKILL");
     await sawError;
     expect(registry.getStatuses()[0]?.state).toBe("error");
     expect(registry.discoveredTools()).toEqual([]); // 非 running 被过滤

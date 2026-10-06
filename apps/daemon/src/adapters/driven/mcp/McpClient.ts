@@ -1,18 +1,25 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { StringDecoder } from "node:string_decoder";
+import {
+  type CallToolResult,
+  McpClient as PiMcpClient,
+  StdioTransport,
+  type Tool,
+} from "@earendil-works/pi-mcp";
 import type { McpCallResult, McpServerConfig, McpToolDefinition } from "./types";
 
 /**
- * McpClient —— stdio JSON-RPC 2.0 常驻客户端（mcp 批；v1 基座升级）。
+ * McpClient —— stdio JSON-RPC 常驻客户端薄壳（pi-mcp 驱动层替换批）。
  *
- * 与 v1（一次性 spawn-call-kill）的差异：连接保活（initialize 一次、
- * 多次 listTools/callTool 复用）+ 懒重连（进程退出后下次调用 connect
- * 重建）。断线语义：exit/error 时 rejectAll 在飞请求；ready 复位——
- * 后续调用触发重连（幂等 connect）。
+ * 协议/传输/进程回收全部由 @earendil-works/pi-mcp 承担（协议版本协商、
+ * tools/list 分页合并、消息体积守卫、stdin error 兜底（TR-140 上游内建）、
+ * 进程组 kill tree（负 pid 杀整组——npx/uvx 包装器不留孤儿，E-168 修复）、
+ * stderr 64KB 环形上限）。本壳只保留 helix 编排面语义：
  *
- * 协议面：initialize（protocolVersion 2024-11-05）+ notifications/initialized
- * + tools/list + tools/call（MCP stdio 传输子集；sse 不实现——shadcn/
- * magicui/官方主流均 stdio）。
+ * - 懒重连：进程退出后下次调用 connect/listTools/callTool 重建连接
+ *   （pi-mcp client close 后不可复用——每次连接全新 client + transport）；
+ * - 主动 stop 不回调 onExit（registry 的意外退出降级只对非 stop 路径；
+ *   removeServer/stopAll 时序竞态不依赖事件异步性，显式解绑 close 监听）；
+ * - onExit 回调时 isReady() 恒 false（ready 先复位再回调——registry
+ *   身份守卫注释钉住的时序前提）。
  *
  * 纯驱动层：无 @helix/protocol 依赖、无 daemon 状态；logger 为本地最小形状
  * （组合根将 infrastructure Logger 直接适配传入——结构兼容；driven 不
@@ -26,56 +33,31 @@ export interface McpLogger {
   error(message: string): void;
 }
 
-interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  id: number;
-  method: string;
-  params?: unknown;
+/** pi-mcp Tool → 镜像类型（含 outputSchema 声明面透传）。 */
+function toToolDefinition(tool: Tool): McpToolDefinition {
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    outputSchema: tool.outputSchema,
+  };
 }
 
-interface JsonRpcNotification {
-  jsonrpc: "2.0";
-  method: string;
-  params?: unknown;
-}
-
-interface JsonRpcResponse {
-  jsonrpc: "2.0";
-  id: number;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
-}
-
-interface PendingRequest {
-  resolve: (value: unknown) => void;
-  reject: (reason: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
-}
-
-/** 行缓冲解析（纯函数——单测面）：chunk 流 → 逐行回调，返回残余 buffer。 */
-export function parseMcpLines(
-  chunk: string,
-  lineHandler: (line: string) => void,
-  buffer = "",
-): string {
-  buffer += chunk;
-  let index: number;
-  while ((index = buffer.indexOf("\n")) >= 0) {
-    const line = buffer.slice(0, index).trim();
-    buffer = buffer.slice(index + 1);
-    if (line) lineHandler(line);
-  }
-  return buffer;
+/** pi-mcp CallToolResult → 镜像类型（structuredContent 透传——程序化消费者直达）。 */
+function toCallResult(result: CallToolResult): McpCallResult {
+  return {
+    content: result.content as unknown[],
+    ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+    ...(result.isError === undefined ? {} : { isError: result.isError }),
+  };
 }
 
 export class McpClient {
-  private proc?: ChildProcess;
-  private buffer = "";
-  private readonly decoder = new StringDecoder("utf8");
-  private nextId = 1;
-  private pending = new Map<number, PendingRequest>();
+  private piClient?: PiMcpClient;
+  private transport?: StdioTransport;
   private ready = false;
   private connecting?: Promise<void>;
+  private closeUnbind?: () => void;
   private readonly config: McpServerConfig;
   private readonly name: string;
   private readonly logger: McpLogger;
@@ -113,143 +95,90 @@ export class McpClient {
 
   async listTools(): Promise<McpToolDefinition[]> {
     await this.connect();
-    const result = (await this.request("tools/list", {})) as {
-      tools?: McpToolDefinition[];
-    };
-    return result.tools ?? [];
+    const tools = await this.piClient!.listTools();
+    return tools.map(toToolDefinition);
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult> {
     await this.connect();
-    return (await this.request("tools/call", { name, arguments: args })) as McpCallResult;
+    return toCallResult(await this.piClient!.callTool(name, args));
   }
 
+  /**
+   * 停止（fire-and-forget 进程回收——进程组 kill tree 序列在 pi-mcp
+   * StdioTransport.close 内：stdin end → 500ms 宽限 SIGTERM → SIGKILL）。
+   * 同步签名保持 registry 同步消费面（removeServer/stopAll）。
+   */
   stop(): void {
-    if (!this.proc) return;
-    this.rejectAll(new Error(`MCP server ${this.name} stopped`));
-    this.proc.kill();
-    this.proc = undefined;
+    const piClient = this.piClient;
+    this.piClient = undefined;
+    this.transport = undefined;
     this.ready = false;
-    // 重置解码器：防旧进程的半字符残余字节渗入重连后的新进程流
-    this.decoder.end();
+    this.closeUnbind?.();
+    this.closeUnbind = undefined;
+    if (!piClient) return;
+    void piClient.close().catch((err) => {
+      this.logger.warn(`mcp[${this.name}] 停止清理异常：${(err as Error).message}`);
+    });
   }
 
   isReady(): boolean {
     return this.ready;
   }
 
+  /** 底层 server 进程 pid（测试/诊断探针；未连接 undefined）。 */
+  get pid(): number | undefined {
+    return this.transport?.pid;
+  }
+
   private async doConnect(): Promise<void> {
-    if (this.proc) return;
-    const command = this.config.command;
-    const args = this.config.args ?? [];
-    const env = { ...process.env, ...this.config.env };
-    const cwd = this.config.cwd ?? process.cwd();
-
-    this.proc = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env, cwd });
-
-    // stdin error 兜底监听：子进程死亡到 close 投递的竞态窗口内 write 会
-    // 触发 EPIPE/ERR_STREAM_DESTROYED，stream error 无监听 = uncaught 击穿
-    // daemon——挂监听吞掉（在飞请求由 close/超时就位拒绝，不丢语义）。
-    this.proc.stdin?.on("error", (err) => {
-      this.logger.warn(`mcp[${this.name}] stdin 写入错误（进程将退出）：${err.message}`);
+    if (this.piClient) return;
+    const config = this.config;
+    const transport = new StdioTransport({
+      command: config.command,
+      args: config.args ?? [],
+      cwd: config.cwd ?? process.cwd(),
+      // inheritEnv 缺省 true = process.env 合入 config.env（子进程环境继承
+      // 语义，与旧实现 {...process.env, ...config.env} 等价）。
+      env: config.env ?? {},
+      onStderr: (chunk) => {
+        const text = chunk.trimEnd();
+        if (text) this.logger.info(`mcp[${this.name}] stderr: ${text}`);
+      },
     });
-    this.proc.stdout?.on("data", (chunk: Buffer) => this.onData(chunk));
-    this.proc.stderr?.on("data", (chunk: Buffer) => {
-      this.logger.info(`mcp[${this.name}] stderr: ${chunk.toString("utf-8").trimEnd()}`);
+    // 每次连接全新 client：pi-mcp client close 后状态机不可复用，懒重连 = 整体重建。
+    const piClient = new PiMcpClient({
+      name: "helix",
+      version: "0.1.0",
+      requestTimeoutMs: config.timeoutMs ?? 30_000,
     });
-    this.proc.on("error", (err) => this.onError(err));
-    this.proc.on("close", (code) => this.onClose(code));
-
+    // close 监听先于 connect 挂好：连接期进程秒退也能落到意外退出回调。
+    this.closeUnbind = piClient.onClose(() => {
+      // 意外断线路径（stop 已解绑此监听）：ready 先复位再回调——registry
+      // 身份守卫的 isReady() 恒 false 前提（McpRegistry onExit 注释钉住）。
+      this.ready = false;
+      this.piClient = undefined;
+      this.transport = undefined;
+      this.closeUnbind = undefined;
+      this.logger.info(`mcp[${this.name}] 进程退出`);
+      this.onExit?.(null);
+    });
+    piClient.onError((err) => {
+      this.logger.error(`mcp[${this.name}] 进程错误：${err.message}`);
+    });
+    this.piClient = piClient;
+    this.transport = transport;
     try {
-      await this.request("initialize", {
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
-        clientInfo: { name: "helix", version: "0.1.0" },
-      });
-      this.sendNotification("notifications/initialized", {});
+      // initialize + notifications/initialized 由 pi-mcp connect 承担
+      // （协议版本协商——server 侧回它支持的版本；capabilities 缺省最小
+      // 声明：不传 roots，roots/list 请求按协议拒绝）。
+      await piClient.connect(transport);
       this.ready = true;
     } catch (err) {
-      // initialize 失败：清进程防僵尸，错误上抛（调用方定 error 状态）
+      // initialize 失败：清连接防僵尸，错误上抛（调用方定 error 状态）
       this.stop();
       throw err instanceof Error ? err : new Error(String(err));
     }
-  }
-
-  private onData(chunk: Buffer): void {
-    // StringDecoder 拼接：多字节字符跨 chunk 边界不产 U+FFFD（逐 chunk
-    // toString 会损坏 JSON——响应整行丢弃致请求挂到超时）
-    this.buffer = parseMcpLines(this.decoder.write(chunk), (line) => this.handleLine(line), this.buffer);
-  }
-
-  private handleLine(line: string): void {
-    let message: JsonRpcResponse;
-    try {
-      message = JSON.parse(line) as JsonRpcResponse;
-    } catch {
-      this.logger.warn(`mcp[${this.name}] 非 JSON 行：${line.slice(0, 200)}`);
-      return;
-    }
-    if (typeof message.id === "number") {
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      clearTimeout(pending.timeout);
-      this.pending.delete(message.id);
-      if (message.error) {
-        pending.reject(new Error(`${message.error.message} (code ${message.error.code})`));
-      } else {
-        pending.resolve(message.result);
-      }
-    }
-    // 通知/请求（server→client 方向）不处理——当前仅消费 tools 族响应
-  }
-
-  private onError(err: Error): void {
-    this.logger.error(`mcp[${this.name}] 进程错误：${err.message}`);
-    this.ready = false;
-    // kill 失败类 error 无 close 跟随时 proc 残留：doConnect 的
-    // if (this.proc) return 会短路后续重连——同步清引用，重连可及
-    this.proc = undefined;
-    this.rejectAll(err);
-  }
-
-  private onClose(code: number | null): void {
-    this.logger.info(`mcp[${this.name}] 退出（code=${code ?? "null"}）`);
-    this.ready = false;
-    this.proc = undefined;
-    this.decoder.end(); // 同 stop()：重置解码器防残余字节渗入重连流
-    this.rejectAll(new Error(`MCP server ${this.name} exited${code !== null ? ` with code ${code}` : ""}`));
-    this.onExit?.(code);
-  }
-
-  private rejectAll(err: Error): void {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(err);
-    }
-    this.pending.clear();
-  }
-
-  private request(method: string, params: unknown): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      if (!this.proc || !this.proc.stdin) {
-        reject(new Error(`MCP server ${this.name} 未运行`));
-        return;
-      }
-      const id = this.nextId++;
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`MCP server ${this.name} 请求超时：${method}`));
-      }, this.config.timeoutMs ?? 30000);
-      this.pending.set(id, { resolve, reject, timeout });
-      const req: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
-      this.proc.stdin.write(`${JSON.stringify(req)}\n`);
-    });
-  }
-
-  private sendNotification(method: string, params: unknown): void {
-    if (!this.proc || !this.proc.stdin) return;
-    const note: JsonRpcNotification = { jsonrpc: "2.0", method, params };
-    this.proc.stdin.write(`${JSON.stringify(note)}\n`);
   }
 }
 

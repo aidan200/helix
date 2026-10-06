@@ -32,16 +32,28 @@ export interface McpServerConfig {
   deferred?: boolean;
 }
 
-/** MCP tools/list 发现的工具定义（inputSchema = 标准 JSON Schema，透传 pi-ai）。 */
+/**
+ * MCP tools/list 发现的工具定义（inputSchema = 标准 JSON Schema，透传 pi-ai）。
+ *
+ * outputSchema：MCP 结构化结果契约声明（pi-mcp 透传；pi-ai Tool 无此槽，
+ * 消费面留 codemode 切片——当前仅类型镜像）。
+ */
 export interface McpToolDefinition {
   name: string;
   description?: string;
   inputSchema?: unknown;
+  outputSchema?: unknown;
 }
 
-/** MCP tools/call 结果（content 块数组 + isError）。 */
+/**
+ * MCP tools/call 结果（content 块数组 + isError）。
+ *
+ * structuredContent：server 声明 outputSchema 时返回的结构化结果——
+ * 透传至 AgentToolResult.structuredContent（程序化消费者直达，不进模型上下文）。
+ */
 export interface McpCallResult {
   content: unknown[];
+  structuredContent?: unknown;
   isError?: boolean;
 }
 

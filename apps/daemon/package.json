@@ -11,6 +11,7 @@
     "@earendil-works/chord": "1.0.4",
     "@earendil-works/pi-agent-core": "1.0.4",
     "@earendil-works/pi-ai": "1.0.4",
+    "@earendil-works/pi-mcp": "1.0.4",
     "@earendil-works/pi-telemetry": "1.0.4",
     "@helix/common": "workspace:*",
     "@helix/protocol": "workspace:*",

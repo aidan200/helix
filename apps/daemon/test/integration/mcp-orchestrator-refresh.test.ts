@@ -55,11 +55,11 @@ function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
 function handle(msg) {
   if (msg.id === undefined) return;
   if (msg.method === "initialize") {
-    send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } } });
+    send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fake-mcp-server", version: "0.0.1" } } });
   } else if (msg.method === "tools/list") {
     send({ jsonrpc: "2.0", id: msg.id, result: { tools: [
       { name: "echo", description: "Echo back", inputSchema: { type: "object", properties: { text: { type: "string" } } } },
-      { name: "ping", description: "Pong" },
+      { name: "ping", description: "Pong", inputSchema: { type: "object", properties: {} } },
     ] } });
   } else if (msg.method === "tools/call") {
     send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "called:" + msg.params.name }] } });
