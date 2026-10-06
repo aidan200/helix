@@ -425,6 +425,34 @@ function capChars(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
 }
 
+/** ── 管家语音交互闭环批 ④ 投递反馈简化（用户第 10 项设计决策） ─────────
+ *  回执查表直拼零 LLM：投递前查目标会话短标题（title > topic > firstUserText
+ *  ——displayTitleOf 同优先级），回执/确认卡/口令回执念人类可读短名，不念
+ *  sessionId；标题缺失回退现文案（含 sessionId——不空指针不空串）。 */
+
+/** 投递回执短标题截断上限（码点）。 */
+export const DELIVER_TITLE_MAX_CHARS = 24;
+
+/** 投递回执组装（纯函数导出供单测+组合根消费——回执文案单源）：
+ *  标题在场 → 「已投递到『<标题>』会话」（idle 新轮次）/「已加入『<标题>』
+ *  执行队列」（steered 入队）；标题缺席 → 维持旧文案（含 sessionId）。 */
+export function formatDeliverReceipt(
+  title: string | undefined,
+  mode: "steered" | "new",
+  sessionId: string,
+): string {
+  if (title !== undefined && title !== "") {
+    const short = capChars(title, DELIVER_TITLE_MAX_CHARS);
+    return mode === "steered" ? `已加入「${short}」执行队列` : `已投递到「${short}」会话`;
+  }
+  return mode === "steered"
+    ? `已注入会话 ${sessionId} 的 steer 队列（turn 边界生效）`
+    : `已送达会话 ${sessionId}（空闲会话——作为新轮次开启）`;
+}
+
+/** 提案期短标题解析（sessionTitleOf 轻量单会话查询；查询失败/面缺席 →
+ *  undefined 回退 sessionId——标题是增强面，绝不阻断提案链；截断在消费点）。 */
+
 /** ── A2：时间档窗口（本地时区；纯函数导出供单测） ───────── */
 export type TimeRange = "today" | "yesterday" | "this_week" | "last_week";
 
@@ -506,13 +534,59 @@ export function buildContextSnapshot(input: {
 }
 
 /** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段 +
- *  记忆召回段（管家记忆 B1）；两附加段缺席（感知/召回失败静默降级）
- *  = 原样静态段。 */
-export function assembleStewardSystemPrompt(snapshot: string | undefined, memorySection?: string | undefined): string {
+ *  记忆召回段（管家记忆 B1）+ 在途提案段（语音闭环批 ①——LLM 路径上下文
+ *  增强）；附加段缺席（感知/召回失败静默降级）= 原样静态段。 */
+export function assembleStewardSystemPrompt(
+  snapshot: string | undefined,
+  memorySection?: string | undefined,
+  pendingSection?: string | undefined,
+): string {
   let prompt = STEWARD_SYSTEM_PROMPT;
   if (memorySection !== undefined) prompt = `${prompt}\n\n${memorySection}`;
   if (snapshot !== undefined) prompt = `${prompt}\n\n${snapshot}`;
+  if (pendingSection !== undefined) prompt = `${prompt}\n\n${pendingSection}`;
   return prompt;
+}
+
+/** 在途提案段行数上限（体量自律——多卡时尾部「另有 N 个」收口）。 */
+export const PENDING_PROPOSALS_MAX_ITEMS = 4;
+
+/** 提案动词短述（在途摘要行文——每 kind 一句人类可读短名）。 */
+function pendingActionPhrase(action: { kind: PendingAction["kind"]; displayTarget: string }): string {
+  switch (action.kind) {
+    case "send":
+      return `递话给「${action.displayTarget}」`;
+    case "deliverSession":
+      return `投递到「${action.displayTarget}」`;
+    case "createSession":
+      return `创建会话「${action.displayTarget}」`;
+    case "spawnReview":
+      return `评审「${action.displayTarget}」`;
+    case "surfaceAct":
+      return `表面动作「${action.displayTarget}」`;
+  }
+}
+
+/** 在途提案段（语音闭环批 ① 纯函数导出供单测——治「补充话语被当新指令」）：
+ *  pending 非空时告知 LLM 在途确认卡及其目标，引导把用户后续话语优先对齐
+ *  确认/取消/目标修正，对齐失败才按新指令理解；空集 → undefined 零段注入。
+ *  与口令词表（TR-240）层次：词表是零 LLM 快路径（ask 入口先行），本段是
+ *  LLM 路径的上下文增强——两者叠加不冲突。 */
+export function buildPendingProposalsSection(
+  actions: readonly { kind: PendingAction["kind"]; displayTarget: string }[],
+): string | undefined {
+  if (actions.length === 0) return undefined;
+  const shown = actions.slice(0, PENDING_PROPOSALS_MAX_ITEMS);
+  const rest = actions.length - shown.length;
+  const lines = shown.map((a) => `- ${pendingActionPhrase(a)}`);
+  if (rest > 0) lines.push(`- 另有 ${rest} 个在途提案`);
+  return [
+    "<pending_proposals>",
+    `当前有 ${actions.length} 个在途提案等你（用户）确认（未确认零执行）：`,
+    ...lines,
+    "判断优先级：用户接下来这句话若是对在途提案的确认（如「确认」「对，就是它」）、取消（如「不要了」）或目标/内容修正（如「投到另一个会话」「改成……」），优先按该语义回应或更新提案——不要把这类补充话语当新指令再发起新提案；只有对齐失败才按新指令理解。",
+    "</pending_proposals>",
+  ].join("\n");
 }
 
 /** 工具结果送 LLM 前体量护栏（A1-hotfix 纯函数，导出供单测）：超
@@ -645,6 +719,10 @@ export interface StewardSessionsSource {
   /** 会话存在性（驾驶舱批：deliver_to_session 提案前引导式校验——不存在
    *  即拒绝提案，引导 LLM 用 query_recent_work 重查）。 */
   sessionExists(sessionId: string): Promise<boolean>;
+  /** 轻量单会话标题查询（语音闭环批 ④：投递提案/回执念短标题——title >
+   *  topic > firstUserText，缺席 = undefined 回退 sessionId；避免全量
+   *  listSessionMetadata 拉表）。 */
+  sessionTitleOf?(sessionId: string): Promise<string | undefined>;
   /** session 级投递执行面（驾驶舱批；确认闸后调用）：把用户输入投进目标
    *  会话——复用主会话 steer 机制（运行中 → steer 队列；空闲 → 新轮次，
    *  与用户在该会话页直接输入同语义）。delivered=false = 拒绝（detail 含
@@ -1195,6 +1273,10 @@ export class StewardService {
     const systemPrompt = assembleStewardSystemPrompt(
       await this.buildSnapshotSafely(),
       await this.deps.memory?.recallSection(item.text),
+      // 语音闭环批 ①：在途提案段（LLM 路径上下文增强——pending 非空时引导
+      // 把用户补充话语对齐确认/取消/目标修正，对齐失败才按新指令；词表快路径
+      //（TR-240）在 ask 入口先行，两者叠加不冲突）
+      buildPendingProposalsSection([...this.pending.values()].map((e) => e.action)),
     );
     if (this.engine === undefined) {
       const keepRecent = this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT;
@@ -1648,28 +1730,54 @@ export class StewardService {
     }
   }
 
-  /** 确认可达性提醒：confirm_required 发出后 STEWARD_CONFIRM_REMIND_AFTER_MS
-   *  无人消费 → 提醒帧恰一次（事故中确认卡入口不可见——提醒是第二入口）。 */
+  /** 确认可达性提醒（语音闭环批 ②聚合版）：任一卡到 30s 未消费 → 按 pending
+   *  全集 N 出**一条**提醒（N=1 维持现单条文案；N≥2 合并「管家有 N 个操作
+   *  等你确认」）且覆盖全集（全部置 remindedAt——后熟卡零二次提醒）。治事故
+   *  「两张同模板卡各弹一条（body 仅目标不同 → 去重 key 不同全放行）」。 */
   private checkConfirmReminders(now: number): void {
+    let matured: { actionId: string; entry: PendingEntry } | undefined;
     for (const [actionId, entry] of this.pending) {
       if (entry.remindedAt !== undefined) continue;
       if (now - entry.createdAt < STEWARD_CONFIRM_REMIND_AFTER_MS) continue;
-      entry.remindedAt = now;
-      this.logInfo(`管家确认卡可达性提醒：${actionId}（${entry.action.displayTarget}）——${STEWARD_CONFIRM_REMIND_AFTER_MS / 1000}s 无人消费`);
+      matured = { actionId, entry };
+      break; // 聚合口径：任一成熟即代表全集出一条（文案按全集 N 组装）
+    }
+    if (matured === undefined) return;
+    const total = this.pending.size;
+    for (const entry of this.pending.values()) entry.remindedAt = now; // 覆盖全集
+    if (total >= 2) {
+      this.logInfo(
+        `管家确认卡可达性提醒（聚合）：pending ${total} 张（首成熟 ${matured.actionId}——${matured.entry.action.displayTarget}）——${STEWARD_CONFIRM_REMIND_AFTER_MS / 1000}s 无人消费`,
+      );
       this.emitLifecycleNotify(
         "normal",
         "待确认操作",
-        `管家有一个操作等你确认（${entry.action.displayTarget}）——打开管家面板处理；${STEWARD_CONFIRM_TTL_MS / 1000}s 内未确认将自动作废`,
+        `管家有 ${total} 个操作等你确认——打开管家面板处理；${STEWARD_CONFIRM_TTL_MS / 1000}s 内未确认将自动作废`,
       );
+      return;
     }
+    this.logInfo(
+      `管家确认卡可达性提醒：${matured.actionId}（${matured.entry.action.displayTarget}）——${STEWARD_CONFIRM_REMIND_AFTER_MS / 1000}s 无人消费`,
+    );
+    this.emitLifecycleNotify(
+      "normal",
+      "待确认操作",
+      `管家有一个操作等你确认（${matured.entry.action.displayTarget}）——打开管家面板处理；${STEWARD_CONFIRM_TTL_MS / 1000}s 内未确认将自动作废`,
+    );
   }
 
-  /** 确认闸 TTL：pending 卡 STEWARD_CONFIRM_TTL_MS 无 confirm/cancel →
-   *  自动作废（复用 cancel 内部语义——删除即作废，两段式不变量不动：作废后
-   *  再 confirm 报已消费）+ action.completed 超时回执广播 + 用户提醒。 */
+  /** 确认闸 TTL（语音闭环批 ②聚合版）：pending 卡 STEWARD_CONFIRM_TTL_MS 无
+   *  confirm/cancel → 自动作废（复用 cancel 内部语义——删除即作废，两段式不变
+   *  量不动：作废后再 confirm 报已消费）+ 逐卡 action.completed 超时回执广播
+   *  （卡栈同步面不聚合）+ **同批用户提醒合并一条**（N=1 现文案 / N≥2「N 个
+   *  确认已超时作废」——治同批多卡逐条弹失效通知轰炸）。 */
   private checkConfirmTtl(now: number): void {
+    const expired: { actionId: string; entry: PendingEntry }[] = [];
     for (const [actionId, entry] of [...this.pending]) {
       if (now - entry.createdAt < STEWARD_CONFIRM_TTL_MS) continue;
+      expired.push({ actionId, entry });
+    }
+    for (const { actionId, entry } of expired) {
       this.pending.delete(actionId); // cancel 同款作废语义（删除即作废；不清挂闸
       // 旗——挂闸 run 若仍挂着由看门狗/abort-再驱动收口，同 cancel 注释）
       this.deps.logger?.warn(
@@ -1678,12 +1786,22 @@ export class StewardService {
       this.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL, outcome: "timeout" });
       // 终局登记 + 同 key 收敛（确认链路修复批：作废也收敛，零后续连锁通知）
       this.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "确认超时作废");
+    }
+    if (expired.length === 0) return;
+    if (expired.length >= 2) {
       this.emitLifecycleNotify(
         "normal",
         "确认已超时",
-        `操作「${entry.action.displayTarget}」超过 ${STEWARD_CONFIRM_TTL_MS / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+        `${expired.length} 个操作超过 ${STEWARD_CONFIRM_TTL_MS / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
       );
+      return;
     }
+    const single = expired[0]!;
+    this.emitLifecycleNotify(
+      "normal",
+      "确认已超时",
+      `操作「${single.entry.action.displayTarget}」超过 ${STEWARD_CONFIRM_TTL_MS / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+    );
   }
 
   /** 可靠性提醒帧出口（seq 单调；订阅闸/限流在 EventStream 侧——缺席零提醒）。 */
@@ -2009,7 +2127,13 @@ export class StewardService {
         }
       })
       .catch((err) => this.deps.logger?.warn(`口令确认异常：${(err as Error).message}`));
-    return { status: "answer", text: `已确认执行（${target}）——执行回执稍后送达` };
+    // 语音闭环批 ④：confirm 受理回执 = 纯语音一句话（零额外卡/toast）——deliver
+    // 卡口语化带短标题（displayTarget 已是短名），其余动词维持现回执形态。
+    const confirmText =
+      entry.action.kind === "deliverSession"
+        ? `已确认，马上投递到「${target}」——投递结果稍后告诉你`
+        : `已确认执行（${target}）——执行回执稍后送达`;
+    return { status: "answer", text: confirmText };
   }
 
   /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的
@@ -2677,9 +2801,18 @@ export class StewardService {
         `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`,
       );
     }
+    // 语音闭环批 ④：提案期查短标题（displayTarget 念人类可读短名——确认卡/
+    // 提醒/口令回执/在途摘要四消费面共用）；查询失败/缺席回退 sessionId。
+    let displayTarget = sessionId;
+    try {
+      const title = await this.deps.sessions.sessionTitleOf?.(sessionId);
+      if (title !== undefined && title !== "") displayTarget = capChars(title, DELIVER_TITLE_MAX_CHARS);
+    } catch {
+      // 标题查询失败是增强面降级（不阻断提案链）
+    }
     return {
       kind: "deliverSession",
-      displayTarget: sessionId,
+      displayTarget,
       message: text,
       toolCall: { id: "", name: "deliver_to_session" },
       deliverSession: { sessionId, text },

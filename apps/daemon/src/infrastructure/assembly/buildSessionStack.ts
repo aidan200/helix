@@ -947,6 +947,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     spawnAnchorFor: (instanceId) => scheduler.spawnAnchorOf(instanceId),
     // T10a kind 判别读面（typed 回填面闭合前 undefined = legacy 判别兜底）
     mainInstanceIdFor: (sessionId) => backfill.mainInstanceIdFor?.(sessionId),
+    // 语音闭环批 ⑤：notify 出口日志（发出 INFO / 去重丢弃 WARN）
+    logger,
   });
 
   // ── 主会话 plan 栈（main-session plan 批）：父进程写面 LazyWorkLedger

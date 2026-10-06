@@ -116,6 +116,16 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
       });
   }
 
+  /** 单会话短标题点读（语音闭环批 ④真实仓对位：title > topic(内存 fake 无此列面) >
+   *  首条 user entry）。 */
+  async readSessionTitle(sessionId: string): Promise<string | undefined> {
+    const snap = this.store.get(sessionId);
+    if (snap === undefined) return undefined;
+    if (snap.session.title !== undefined) return snap.session.title;
+    const first = snap.session.entries.find((e): e is (typeof e) & { role?: string; text?: string } => "role" in e);
+    return first?.role === "user" ? ((first as { text: string }).text ?? undefined) : undefined;
+  }
+
   /** T2.2 会话删除：内存仓同步清行。 */
   async deleteSession(sessionId: string): Promise<void> {
     this.store.delete(sessionId);

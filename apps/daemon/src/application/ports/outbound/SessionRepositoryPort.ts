@@ -57,6 +57,12 @@ export interface SessionRepository {
    */
   readSessionTail(sessionId: string, tailEntries: number): Promise<readonly { role: string; text: string }[] | undefined>;
   /**
+   * 单会话短标题点读（语音闭环批 ④：管家投递回执/提案短名数据源——
+   * title > topic > 首条用户消息，与 listSessionMetadata 同优先级但不拉全表；
+   * 不存在/无标题源 → undefined。点读单行，不重建聚合、不触写面。
+   */
+  readSessionTitle(sessionId: string): Promise<string | undefined>;
+  /**
    * 会话删除（AD-4，删除收口链的删库步）：六表按 session_id 清行，
    * 经单写通道串行（同会话仓内 FIFO——先于本调用的写全部先落盘）。
    */

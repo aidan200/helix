@@ -161,6 +161,25 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     }));
   }
 
+  /**
+   * 单会话短标题点读（语音闭环批 ④）：title > topic > 首条 user entry
+   * （json_extract 首条——与 listSessionMetadata 同列面）；不存在 → undefined。
+   */
+  async readSessionTitle(sessionId: string): Promise<string | undefined> {
+    const row = this.queue.database
+      .prepare(
+        "SELECT title, topic, " +
+          "json_extract(entries, '$[0].role') AS first_role, " +
+          "json_extract(entries, '$[0].text') AS first_text " +
+          "FROM session_state WHERE session_id = ?",
+      )
+      .get(sessionId) as { title: string | null; topic: string | null; first_role: string | null; first_text: string | null } | null | undefined;
+    if (row === undefined || row === null) return undefined;
+    if (row.title !== null) return row.title;
+    if (row.topic !== null) return row.topic;
+    return row.first_role === "user" && row.first_text !== null ? row.first_text : undefined;
+  }
+
   /** 会话删除（AD-4）：会话维全部表（八表：七表 session_id 维 + work_item
    *  instance 维）清行经单写通道（同会话仓内 FIFO 保序）。 */
   async deleteSession(sessionId: string): Promise<void> {

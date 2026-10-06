@@ -63,6 +63,7 @@ import {
   STEWARD_MODEL_KEY,
   STEWARD_SUMMARY_ENABLED_KEY,
   STEWARD_SUMMARY_MODEL_KEY,
+  formatDeliverReceipt,
 } from "../application/steward/StewardService";
 import {
   SessionTitleService,
@@ -1021,18 +1022,24 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // 全轮不再阻塞确认链；同步拒绝段照常抛错经 action.completed 交代，
       // 轮次内失败走会话事件面）。
       sessionExists: (sessionId) => registry.sessionExists(sessionId),
+      // 语音闭环批 ④：轻量单会话标题查询（提案短名/在途摘要数据源——repo 点读
+      // 不拉全表；title > topic > firstUserText）
+      sessionTitleOf: (sessionId) => persistence.repository.readSessionTitle(sessionId),
       // progress 批 M3：尾部消息投影透传（repo 单行点读，单条已截 300）
       readSessionTail: (sessionId, tailEntries) => persistence.repository.readSessionTail(sessionId, tailEntries),
       deliverToSession: async (sessionId, text) => {
         try {
           const runtime = registry.peek(sessionId) ?? (await registry.get(sessionId));
           const outcome = await runtime.chatService.sendMessage(text, undefined, "steward", { fireAndForget: true });
+          // 语音闭环批 ④：回执带目标会话短标题（查表直拼零 LLM——不念
+          // sessionId；标题缺失回退现文案）
+          const title = await persistence.repository.readSessionTitle(sessionId);
           return {
             delivered: true,
             detail:
               outcome.mode === "steered"
-                ? `已注入会话 ${sessionId} 的 steer 队列（turn 边界生效）`
-                : `已送达会话 ${sessionId}（空闲会话——作为新轮次开启）`,
+                ? formatDeliverReceipt(title, "steered", sessionId)
+                : formatDeliverReceipt(title, "new", sessionId),
           };
         } catch (err) {
           return { delivered: false, detail: (err as Error).message };

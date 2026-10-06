@@ -92,6 +92,9 @@ export interface EventStreamDeps {
   readonly mainInstanceIdFor?: (sessionId: string) => string | undefined;
   /** 时钟（确认链路修复批：steward.notify 60s 短窗去重的计时源；缺省 Date.now）。 */
   readonly clock?: () => number;
+  /** 通知出口日志（语音闭环批 ⑤：steward.notify 发出 INFO / 去重丢弃 WARN
+   *  ——排障盲区填堵；缺席 = 零日志不抛错，旧装配兼容）。 */
+  readonly logger?: { info?(message: string): void; warn(message: string): void };
 }
 
 /** 单连接投影状态：会话订阅 tier 表 + v0.1 实例订阅表 + task 批连接级任务订阅表（§8.1）。 */
@@ -611,7 +614,13 @@ export class EventStream implements EventPublisherPort {
     const now = this.deps.clock?.() ?? Date.now();
     const dedupKey = `${payload.title}\u0000${payload.body}`;
     const lastAt = this.notifyDedupRecent.get(dedupKey);
-    if (lastAt !== undefined && now - lastAt < STEWARD_NOTIFY_DEDUP_WINDOW_MS) return; // 短窗重复丢弃
+    if (lastAt !== undefined && now - lastAt < STEWARD_NOTIFY_DEDUP_WINDOW_MS) {
+      // 语音闭环批 ⑤：去重丢弃可观测（事故排障盲区——双端行为零日志全靠猜）
+      this.deps.logger?.warn(
+        `steward.notify 去重丢弃：${payload.title}（seq=${payload.seq}——同 key ${Math.round((now - lastAt) / 1000)}s 内已发过）`,
+      );
+      return; // 短窗重复丢弃
+    }
     this.notifyDedupRecent.set(dedupKey, now);
     if (this.notifyDedupRecent.size > STEWARD_NOTIFY_DEDUP_KEYS_MAX) {
       const oldest = this.notifyDedupRecent.keys().next().value;
@@ -624,14 +633,18 @@ export class EventStream implements EventPublisherPort {
       type: "steward.notify",
       payload,
     };
+    let recipients = 0;
     for (const [sender, conn] of this.connections) {
       if (!conn.stewardSubscribed) continue;
       try {
         sender(frame);
+        recipients += 1;
       } catch {
         // 发送失败由该连接自身的 close 流程收尾，此处隔离
       }
     }
+    // 语音闭环批 ⑤：发出即打 INFO（title + seq + 投递连接数——通知行为可观测）
+    this.deps.logger?.info?.(`steward.notify 发出：${payload.title}（seq=${payload.seq}，投递 ${recipients} 连接）`);
   }
 
   /**

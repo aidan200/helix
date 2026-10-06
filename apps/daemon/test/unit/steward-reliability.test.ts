@@ -48,15 +48,23 @@ import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
 function makeReliabilityService(opts: {
   llm: StewardLlmPort;
   nowRef: { now: number };
+  runningAgents?: readonly string[];
 }) {
   const notifies: StewardNotifyPayload[] = [];
   const actionCompleted: StewardActionCompletedPayload[] = [];
   const feeds: StewardFeedPayload[] = [];
   const aborts: number[] = [];
   const logger = fakeLogger();
-  const orchestration = fakeOrchestration([
-    { agentId: "agent-1", state: "running", displayState: "active", profileKind: "subagent-worker", task: "修复登录超时" },
-  ]);
+  const running = opts.runningAgents ?? ["agent-1"];
+  const orchestration = fakeOrchestration(
+    running.map((agentId) => ({
+      agentId,
+      state: "running",
+      displayState: "active",
+      profileKind: "subagent-worker",
+      task: "修复登录超时",
+    })),
+  );
   const innerCreate = createEngineFromPort(opts.llm);
   const svc = new StewardService({
     llm: opts.llm,
@@ -415,5 +423,97 @@ describe("可靠性⑤：事故场景端到端（write 档确认无人点 → �
     expect(logger.infos.some((m) => m.includes("run 开始"))).toBe(true);
     expect(logger.warns.some((m) => m.includes("看门狗"))).toBe(true);
     expect(logger.warns.some((m) => m.includes("TTL 作废"))).toBe(true);
+  });
+});
+
+// ── ⑥（语音闭环批 ②）提醒聚合——治「两条同模板通知」轰炸 ──────
+//
+// 事故定性（2026-10-06 22:16/22:17）：action-1/action-2 两张同模板待确认卡
+// 各 30s 各弹一条提醒（body 仅目标不同 → 去重 key 不同全放行）——用户视角
+// 「重复两条」。聚合口径：任一卡成熟即按 pending 全集 N 出一条（N=1 维持现
+// 单条文案；N≥2 合并「管家有 N 个操作等你确认」且覆盖全集——后熟卡零二次
+// 提醒）；TTL 同批作废同理合并「N 个确认已超时作废」。聚合通知 body 含 N
+// （60s 去重 key 随 N 稳定）。
+
+describe("语音闭环批②：可达性提醒聚合（多卡合并单条，覆盖全集零二次提醒）", () => {
+  async function spawnPendingCards(nowRef: { now: number }, agents: readonly string[]): Promise<string[]> {
+    const script = agents.flatMap((a) => [
+      toolCall("propose_send", { agentId: a, message: `递话-${a}` }),
+      answer("后续答"),
+    ]);
+    const llm = fakeLlm(script);
+    const { svc } = makeReliabilityService({ llm, nowRef });
+    const actionIds: string[] = [];
+    for (const _a of agents) {
+      const r = await svc.ask("递话");
+      if (r.status !== "confirm_required") throw new Error(`expected confirm_required, got ${r.status}`);
+      actionIds.push(r.actionId);
+      await settle(3);
+    }
+    return actionIds;
+  }
+
+  test("三卡在场 30s → 恰一条聚合提醒（body 含 N=3）；覆盖全集后熟卡零二次提醒", async () => {
+    const nowRef = { now: 0 };
+    const llm = fakeLlm([
+      toolCall("propose_send", { agentId: "agent-1", message: "递话1" }),
+      toolCall("propose_send", { agentId: "agent-2", message: "递话2" }),
+      toolCall("propose_send", { agentId: "agent-3", message: "递话3" }),
+    ]);
+    const { svc, notifies } = makeReliabilityService({ llm, nowRef, runningAgents: ["agent-1", "agent-2", "agent-3"] });
+    for (let i = 0; i < 3; i += 1) {
+      const r = await svc.ask(`递话 ${i + 1}`);
+      if (r.status !== "confirm_required") throw new Error(`expected confirm_required, got ${r.status}`);
+      await settle(3);
+    }
+
+    nowRef.now = 30_000;
+    svc.reliabilityTick();
+    svc.reliabilityTick(); // 幂等：不因二次 tick 重复
+    const reminders = notifies.filter((n) => n.title === "待确认操作");
+    expect(reminders.length).toBe(1);
+    expect(reminders[0]!.body).toContain("3 个操作等你确认");
+
+    // 后熟卡（更晚创建、30s 后到点）已被聚合覆盖 → 零二次提醒
+    nowRef.now = 120_000;
+    svc.reliabilityTick();
+    expect(notifies.filter((n) => n.title === "待确认操作").length).toBe(1);
+  });
+
+  test("单卡维持现单条文案（body 含目标 + TTL 提示）", async () => {
+    const nowRef = { now: 0 };
+    const llm = fakeLlm([toolCall("propose_send", { agentId: "agent-1", message: "递话" }), answer("答")]);
+    const { svc, notifies } = makeReliabilityService({ llm, nowRef });
+    const r = await svc.ask("递话");
+    if (r.status !== "confirm_required") throw new Error("unreachable");
+    nowRef.now = 30_000;
+    svc.reliabilityTick();
+    const reminders = notifies.filter((n) => n.title === "待确认操作");
+    expect(reminders.length).toBe(1);
+    expect(reminders[0]!.body).toContain("agent-1");
+    expect(reminders[0]!.body).toContain("有一个操作等你确认");
+  });
+
+  test("TTL 同批多卡作废合并一条「N 个确认已超时作废」；action.completed 逐卡照发", async () => {
+    const nowRef = { now: 0 };
+    const llm = fakeLlm([
+      toolCall("propose_send", { agentId: "agent-1", message: "递话1" }),
+      toolCall("propose_send", { agentId: "agent-2", message: "递话2" }),
+      toolCall("propose_send", { agentId: "agent-3", message: "递话3" }),
+    ]);
+    const { svc, notifies, actionCompleted } = makeReliabilityService({ llm, nowRef, runningAgents: ["agent-1", "agent-2", "agent-3"] });
+    for (let i = 0; i < 3; i += 1) {
+      const r = await svc.ask(`递话 ${i + 1}`);
+      if (r.status !== "confirm_required") throw new Error("unreachable");
+      await settle(3);
+    }
+
+    nowRef.now = 300_000;
+    svc.reliabilityTick();
+    const timeouts = notifies.filter((n) => n.title === "确认已超时");
+    expect(timeouts.length).toBe(1);
+    expect(timeouts[0]!.body).toContain("3 个");
+    expect(actionCompleted.length).toBe(3); // 逐卡终局回执照发（卡栈同步面不聚合）
+    expect(actionCompleted.every((p) => p.outcome === "timeout" || p.detail.includes("确认超时"))).toBe(true);
   });
 });
