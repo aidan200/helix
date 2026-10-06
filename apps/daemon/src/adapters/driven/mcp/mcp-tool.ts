@@ -19,7 +19,8 @@ import type { McpToolDefinition } from "./types";
  *
  * 执行面：纯薄转投 registry.callNamespacedTool——content 块拼接为文本
  * （image 块占位），isError 转异常（CoreToolExecutor 归一为结构化错误，
- * 同既有工具语义）。
+ * 同既有工具语义）；structuredContent 透传 AgentToolResult.structuredContent
+ * （程序化消费者直达，不进模型上下文——codemode 类编排场景的结构化源）。
  */
 
 /**
@@ -78,6 +79,9 @@ export function createMcpTool(
       return {
         content: [{ type: "text", text: textOfContent(result.content) }],
         details: { server, tool: definition.name },
+        ...(result.structuredContent === undefined
+          ? {}
+          : { structuredContent: result.structuredContent as never }),
       };
     },
   };
