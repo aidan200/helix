@@ -87,39 +87,37 @@ export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandbox
   type: "config.set_sandbox.result";
 }
 
-// ── config.topic 族（动态主题批；会话阶段演进主题配置，全局命令）──
+// ── config.summary 族（会话总结器独立化批①；总结配置组，全局命令）──
 
 /**
- * config.get_topic / config.set_topic 回执同形载荷（get = 现态读面；
- * set = 校验通过写入后的新现态回读）。分类判断恒开：classifyEndpointId
- * 选中分类模型 = 两段式（先判漂移再生成）；null = 由主题生成模型兼任判断。
- * judgeEndpoints 恒携带——设置页分类模型下拉数据源（可选项恒为已配置的
- * 分类端点，Jev 等按端点 variant 区分实现，UI 不感知具体实现）。
+ * config.get_summary / config.set_summary 回执同形载荷（get = 现态读面；
+ * set = 校验通过写入后的新现态回读）。总结配置组独立收口于 summary.* 通用域
+ * （memory.* 同构形态）；steward.config.result 同形回显本组（只读观测面）。
  */
-export interface ConfigTopicStatePayload {
-  /** 动态主题开关（默认关）。 */
+export interface SummaryConfigStatePayload {
+  /** 三产物总开关（标题/进展/记忆点）。 */
   enabled: boolean;
-  /** 主题生成模型（"provider/model-id"；null = 未配置，回退全局兜底模型）。 */
+  /** 锚点轮次间隔生效值（1-20；非法 KV 回显读面兜底值——所见即所得）。 */
+  everyTurns: number;
+  /** 总结模型槽位（"provider/model-id"；未配置 = null——无默认纪律）。 */
   model: string | null;
-  /** 分类模型端点 id（embedding 配置域 kind=classifier 条目；null = 不选，
-   *  生成模型兼任判断）。 */
-  classifyEndpointId: string | null;
-  /** 可选分类端点清单（id + 显示名；空数组 = 暂无可选分类模型）。 */
-  judgeEndpoints: readonly ConfigTopicJudgeEndpoint[];
+  /** 任务总结子功能现态（语音播报摘要 + 感知分诊 gate）。 */
+  task: {
+    /** 任务总结开关现态（默认 false）。 */
+    enabled: boolean;
+    /** 任务总结模型槽位现值（未配置 = null——无默认模型）。 */
+    model: string | null;
+  };
 }
-export interface ConfigTopicJudgeEndpoint {
-  id: string;
-  name: string;
-}
-export interface ConfigGetTopicResultEvent extends EventFrame<ConfigTopicStatePayload> {
+export interface ConfigGetSummaryResultEvent extends EventFrame<SummaryConfigStatePayload> {
   channel?: "model";
-  type: "config.get_topic.result";
+  type: "config.get_summary.result";
 }
-export interface ConfigSetTopicResultPayload {
+export interface ConfigSetSummaryResultPayload {
   /** 写入后的新现态（与 get 同形）。 */
-  state: ConfigTopicStatePayload;
+  state: SummaryConfigStatePayload;
 }
-export interface ConfigSetTopicResultEvent extends EventFrame<ConfigSetTopicResultPayload> {
+export interface ConfigSetSummaryResultEvent extends EventFrame<ConfigSetSummaryResultPayload> {
   channel?: "model";
-  type: "config.set_topic.result";
+  type: "config.set_summary.result";
 }

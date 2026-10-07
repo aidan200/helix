@@ -124,6 +124,13 @@ export const STEWARD_MEMORY_PROGRESS_MAX_CHARS = 120;
 /** progress 来源标注（轮末联合摘要器写入——溯源展示用）。 */
 export const STEWARD_MEMORY_PROGRESS_SOURCE = "session-progress";
 
+/** 记忆点来源标注（会话总结器记忆点产物——溯源展示用）。 */
+export const STEWARD_MEMORY_MEMORY_POINT_SOURCE = "session-summary";
+
+/** 自动生产源集合（非用户显式写入——不置显式 remember 水位；其余源
+ * （"steward-turn" 轮内工具直写 / "manual" 人工新增）= 显式写入）。 */
+const AUTO_SOURCES: ReadonlySet<string> = new Set(["auto-sediment", STEWARD_MEMORY_MEMORY_POINT_SOURCE]);
+
 /** 召回行文 kind 标签单源（progress 批：封闭三值）。 */
 const KIND_LABELS: Readonly<Record<"fact" | "preference" | "progress", string>> = {
   fact: "事实",
@@ -206,6 +213,10 @@ export interface StewardMemoryServiceDeps {
 export class StewardMemoryService {
   private readonly deps: StewardMemoryServiceDeps;
   private readonly now: () => number;
+  /** 显式 remember 水位（防双写闸：会话总结器记忆点产物的同轮跳过判据）。
+   *  显式 = 用户主动写入（steward-turn 工具直写 / manual 人工新增），
+   *  自动生产源（auto-sediment/session-summary）不置位。 */
+  private lastExplicitRememberAt = -1;
 
   constructor(deps: StewardMemoryServiceDeps) {
     this.deps = deps;
@@ -392,11 +403,27 @@ export class StewardMemoryService {
     const top = store.search(vectors[0]!, 1)[0];
     if (top !== undefined && top.score >= STEWARD_MEMORY_DEDUP_RECALL_THRESHOLD && await this.isSameMemory(top, trimmed)) {
       store.updateEntry(top.id, trimmed, vectors[0]!, this.now());
+      if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
       return { id: top.id, updated: true };
     }
     store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]! }]);
+    if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
     const entries = store.list();
     return { id: entries[entries.length - 1]!.id, updated: false };
+  }
+
+  /** 显式 remember 水位读面（防双写闸）：since 起点以来发生过用户显式写入。
+   *  会话总结器记忆点产物的「本轮显式 remember 过的不再入库」判据——
+   *  用户刚教过的不再由总结器代写（查重闸之外的低成本短路）。 */
+  explicitRememberedSince(since: number): boolean {
+    return this.lastExplicitRememberAt >= since;
+  }
+
+  /** 记忆点入库（会话总结器记忆点产物）：kind=preference、source=
+   *  "session-summary"（可辨识溯源）；两段查重闸语义复用（E-214）——
+   *  同条覆盖更新不重复堆积。 */
+  async rememberSessionMemoryPoint(text: string): Promise<{ id: number; updated: boolean }> {
+    return this.remember(text, "preference", STEWARD_MEMORY_MEMORY_POINT_SOURCE);
   }
 
   /**

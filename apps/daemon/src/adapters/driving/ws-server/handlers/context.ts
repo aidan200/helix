@@ -32,7 +32,7 @@ import type { CompactionConfigPort } from "../../../../application/ports/outboun
 import type { SchedulingConfigPort } from "../../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../../application/ports/outbound/PortConfigPort";
 import type { SandboxConfigPort } from "../../../../application/ports/outbound/SandboxConfigPort";
-import type { TopicConfigPort } from "../../../../application/ports/outbound/TopicConfigPort";
+import type { SummaryConfigPort } from "../../../../application/ports/outbound/SummaryConfigPort";
 import type { AskService } from "../../../../application/services/AskService";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
@@ -113,11 +113,9 @@ export interface WsCommandContext {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
-  /** 动态主题配置读写面（config.get/set_topic 命令族；未装配 → unimplemented）。 */
-  readonly topicConfig?: TopicConfigPort;
-  /** 分类端点清单读面（config.get/set_topic 回执携带——设置页子开关可用性
-   * 与下拉数据源；未装配 → 空清单）。 */
-  readonly topicJudgeEndpoints?: () => readonly { id: string; name: string }[];
+  /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域；
+   * 未装配 → unimplemented）。 */
+  readonly summaryConfig?: SummaryConfigPort;
   /** 提权申请仲裁面（ask.answer 命令回口；未装配 → unimplemented）。 */
   readonly askService?: AskService;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */

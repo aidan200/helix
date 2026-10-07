@@ -346,7 +346,7 @@ export class Session {
   }
 
   /**
-   * 更新演进主题（SessionTitleService 轮次锚点矫正的唯一写路径）。
+   * 更新演进主题（SessionSummaryService 轮次锚点矫正的唯一写路径）。
    * 域守卫（结构性保证，不依赖 service 层自律）：
    * - 显式标题保护：title 已定格（用户/管家 createTitledSession）→ 拒绝
    *   （演进永不覆盖用户显式命名）；

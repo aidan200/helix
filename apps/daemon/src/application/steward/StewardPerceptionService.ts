@@ -9,7 +9,7 @@
  * browser adapter：组合根经 SurfaceRegistry 观察者订阅 → onSurfaceEvent
  * 入 ring，零分诊零 LLM）。全部只读订阅，零新事件源零新表——「生产者不直
  * 喂管家」禁令由 fanout 桥/Registry 订阅形态保持（组合根接线，
- * SessionTitleService 直写教训的反面）。
+ * SessionSummaryService 直写教训的反面）。
  *
  * 存储分层（D11）：ring buffer（daemon 内存滚动上限，不落盘）——原始事件
  * 流沉淀 + 分诊摄入轨工作记录；ask 时投影当轮（消费面后续批次接）。

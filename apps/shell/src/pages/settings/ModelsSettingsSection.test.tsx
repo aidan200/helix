@@ -69,7 +69,7 @@ const mc: ModelConfigState = {
     scheduling: null,
     port: null,
     sandbox: null,
-    topic: null,
+    summary: null,
 };
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {

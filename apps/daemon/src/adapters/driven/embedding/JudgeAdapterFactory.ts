@@ -21,7 +21,7 @@
  *
  * 失败语义：resolve 回 null = 未配置（下游适配器自带未配置抛错）；未知
  * variant 直接抛错（含已支持清单——定位信息）。调用方（EmbeddingConfigService.
- * verify / SessionTitleService / 管家记忆）已有捕获降级面，不挡主链路。
+ * verify / 管家记忆查重）已有捕获降级面，不挡主链路。
  */
 import type { Models } from "@earendil-works/pi-ai";
 import type { JudgeEndpointConfig, JudgePort } from "../../../application/ports/outbound/JudgePort";

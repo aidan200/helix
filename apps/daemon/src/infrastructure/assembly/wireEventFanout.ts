@@ -118,7 +118,7 @@ export interface WireEventFanoutDeps {
   readonly perception?: { onDomainEvent(event: DomainEvent): void };
   /** 动态主题批（可选——纯调度测试形态不注入）：主实例完成轮 → 锚点演进
    *（LLM 调用全部异步 fire-and-forget，不阻塞 fan-out 全序）的 fanout 入口。 */
-  readonly sessionTitle?: { onDomainEvent(event: DomainEvent): void };
+  readonly sessionSummary?: { onDomainEvent(event: DomainEvent): void };
 }
 
 /**
@@ -243,16 +243,16 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       },
     });
   }
-  // 动态主题桥：主实例完成轮 → SessionTitleService 锚点演进（粗筛在
-  // service 内单点；快进快出——LLM 调用异步 fire-and-forget，不阻塞全序；
-  // 产出 session.topic.updated 领域事件 + list_changed 广播，不回听本桥——
-  // 零自激环）。
-  if (deps.sessionTitle !== undefined) {
-    const sessionTitle = deps.sessionTitle;
+  // 会话总结器桥（批①）：主实例完成轮 → SessionSummaryService 锚点三产物
+  // （粗筛在 service 内单点；快进快出——LLM 调用异步 fire-and-forget，不阻塞
+  // 全序；产出 session.topic.updated 领域事件 + list_changed 广播，不回听本桥
+  // ——零自激环）。
+  if (deps.sessionSummary !== undefined) {
+    const sessionSummary = deps.sessionSummary;
     publisher.add({
-      name: "session-topic-bridge",
+      name: "session-summary-bridge",
       target: {
-        publish: (event) => sessionTitle.onDomainEvent(event),
+        publish: (event) => sessionSummary.onDomainEvent(event),
         publishDelta: () => undefined,
       },
     });

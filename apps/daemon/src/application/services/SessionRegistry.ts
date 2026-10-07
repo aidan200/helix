@@ -449,7 +449,7 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   /**
-   * 热会话运行时直读（动态主题批：SessionTitleService 取聚合/ChatService
+   * 热会话运行时直读（会话总结器批①：SessionSummaryService 取聚合/ChatService
    * 演进面；观测性读面——无副作用，冷会话/已删除/未加载 → undefined，
    * 不触懒加载）。锚点事件必热（turn 完成只发生在热会话），冷返回安全。
    */

@@ -61,6 +61,7 @@ import { evaluateSurfaceRisk, surfaceRiskRank } from "../surface/SurfaceRiskGate
 import { isSurfaceVerb, surfaceVerbRisk, type SurfaceRisk } from "@helix/protocol";
 import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/agent/InterruptionMarkers";
 import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
+import { readSummaryConfig } from "../summary/summaryConfig";
 
 /** 挂闸校验上下文（中立——原 GateToolContext 的 application 形态）。 */
 interface GateToolContext {
@@ -159,31 +160,10 @@ export const STEWARD_ENABLED_KEY = "steward.enabled";
 /** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认）。 */
 export const STEWARD_MODEL_KEY = "steward.model";
 
-/** 任务总结开关 KV 键（语音播报摘要子功能；"1" = 开，其余 = 关——默认关）。
- *  开启管家后可选：三条件（管家开 ∧ 本开关开 ∧ 总结模型已配）全满足才走
- *  LLM 摘要，任一断点语音播报回退极简终态通知。 */
-export const STEWARD_SUMMARY_ENABLED_KEY = "steward.summary.enabled";
-
-/** 任务总结模型槽位 KV 键（"provider/model-id"；**无默认模型**——未配置 =
- *  摘要面不可用；语音播报不念原文走极简通知，不另配默认防大模型拖慢）。 */
-export const STEWARD_SUMMARY_MODEL_KEY = "steward.summary.model";
-
-/** 会话进展记忆开关 KV 键（progress 批：轮末联合摘要器 progress 产物总闸）。 */
-export const STEWARD_SESSION_MEMORY_ENABLED_KEY = "steward.sessionmemory.enabled";
-
-/** 会话进展记忆节流阈值 KV 键（每 N 完成轮产一次；默认 3 对齐 topic 锚点）。 */
-export const STEWARD_SESSION_MEMORY_EVERY_TURNS_KEY = "steward.sessionmemory.everyturns";
-
-/** 会话进展记忆总结模型槽位 KV 键（"provider/model-id"；**无默认模型**——
- *  未配置 = progress 不产；联合调用槽位解析序：本键 → topic_config.model
- *  旧键回落链，已配 topic 模型的用户零迁移升级）。 */
-export const STEWARD_SESSION_MEMORY_MODEL_KEY = "steward.sessionmemory.model";
-
-/** 会话进展记忆节流默认值（对齐 topic 锚点节奏 1/3/6/9…）。 */
-export const STEWARD_SESSION_MEMORY_EVERY_TURNS_DEFAULT = 3;
-
-/** 会话进展记忆节流合法范围（下限 1 = 每轮都产；上限 20 防配置事故久旱）。 */
-export const STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX = 20;
+/** 总结配置域（summary.*——三产物开关/锚点节奏/总结模型 + 任务总结两键）
+ *  已收编通用域：键位/解析/迁移单源 ../summary/summaryConfig.ts（管家配置
+ *  零总结项——steward.set_config 摘除 summary/sessionMemory 组，写面在
+ *  config.set_summary）。 */
 
 /** L1 件一：压缩触发阈值（token 估算口径与 estimateLoopTokens 同族；
  *  任务书默认 12k——低于工作记忆 16k 预算闸，压缩先于粗裁剪接管）。 */
@@ -780,6 +760,10 @@ export interface StewardServiceDeps {
   /** 自动沉淀提案帧出口（B4a；组合根接 EventStream.broadcastStewardSedimentProposal
    *  ——与 feed 同订阅闸；缺席 = 提案挂 pending 但零广播，确认仍可经 actionId 直达）。 */
   readonly emitMemoryWritten?: (payload: StewardMemoryWrittenPayload) => void;
+  /** B5 轮末沉淀触发开关（会话总结器独立化批①：记忆自动沉淀换轨总结器
+   *  「记忆点」产物——B5 触发**缺省停用**；管线代码/常量/测试保留待批②清理，
+   *  仅测试面显式置 true 驱动休眠管线）。 */
+  readonly sedimentTriggers?: boolean;
   /** 页面导航出口（M0 表面协议地基批收编：组合根接 SurfaceRegistry
    *  .act("navigate")——deliver_to_session 受理 / create_session 建成后
    *  路由 surface.action {verb:"navigate"}；旧 steward.navigate 帧由 Registry
@@ -1646,8 +1630,9 @@ export class StewardService {
     this.askStreamEvents = {};
     this.settleAsk(outcome);
     if (outcome.status === "answer") {
-      // B4a 主钩子：answer 轮收口 → 异步判定（半成品轮不判定）
-      this.maybeAutoSediment(this.currentAskAt);
+      // B4a 主钩子：answer 轮收口 → 异步判定（半成品轮不判定）。
+      // 批①：B5 沉淀触发停用（换轨总结器记忆点）——管线代码留批②清理
+      if (this.deps.sedimentTriggers === true) this.maybeAutoSediment(this.currentAskAt);
     }
     item?.deliver?.(outcome);
     const next = this.askQueue.shift();
@@ -2009,9 +1994,12 @@ export class StewardService {
    *  B4a：清空前尾部补判 + 在途判定落定（await——防水位竞态：判定的
    *  markJudged 与 clear 归零序不定会把旧水位拉回新对话致重复判定）。 */
   async clearHistory(): Promise<void> {
-    await this.sedimentUnjudgedTail().catch((err) =>
-      this.deps.logger?.warn(`自动沉淀清空兜底降级：${(err as Error).message}`),
-    );
+    // 批①：清空兜底补判随 B5 触发一并停用（换轨总结器记忆点——管线留批②清理）
+    if (this.deps.sedimentTriggers === true) {
+      await this.sedimentUnjudgedTail().catch((err) =>
+        this.deps.logger?.warn(`自动沉淀清空兜底降级：${(err as Error).message}`),
+      );
+    }
     await this.flushSediment();
     this.pending.clear();
     await this.dialog.clear();
@@ -2313,26 +2301,20 @@ export class StewardService {
     return this.deps.config.get(STEWARD_ENABLED_KEY) === "1";
   }
 
-  /** 设置现态（steward.get_config / set_config 共用读面）。 */
+  /** 设置现态（steward.get_config / set_config 共用读面）。summary 组 =
+   *  总结配置域只读回显（config.result 回显 summary 组——写面在
+   *  config.set_summary，管家配置零总结项）。 */
   getConfig(): {
     enabled: boolean;
     model: string;
-    summary: { enabled: boolean; model: string | null };
+    summary: import("../summary/summaryConfig").SummaryConfigState;
     memory: import("./StewardMemoryService").StewardMemoryState;
-    sessionMemory: { enabled: boolean; everyTurns: number; model: string | null };
   } {
     return {
       enabled: this.isEnabled(),
       model: this.deps.config.get(STEWARD_MODEL_KEY) ?? this.deps.llm.modelId,
-      // 任务总结子功能现态（语音播报摘要）：model null = 未配置（无默认模型；
-      // 空串归一 null——setConfig 空串清空后 KV 存 ""，回执面不暴露伪已配态）
-      summary: (() => {
-        const model = this.deps.config.get(STEWARD_SUMMARY_MODEL_KEY);
-        return {
-          enabled: this.deps.config.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
-          model: model !== undefined && model.trim() !== "" ? model : null,
-        };
-      })(),
+      // 总结配置组回显（summary.* 通用域生效值——所见即所得）
+      summary: readSummaryConfig(this.deps.config),
       // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/端点空/零条目）
       memory: this.deps.memory?.getMemoryState() ?? {
         enabled: false,
@@ -2342,20 +2324,6 @@ export class StewardService {
         entryCount: 0,
         dim: null,
       },
-      // progress 批：会话进展记忆现态（everyTurns 非法/缺席回落默认）
-      sessionMemory: (() => {
-        const model = this.deps.config.get(STEWARD_SESSION_MEMORY_MODEL_KEY);
-        const rawTurns = Number.parseInt(this.deps.config.get(STEWARD_SESSION_MEMORY_EVERY_TURNS_KEY) ?? "", 10);
-        const everyTurns =
-          Number.isInteger(rawTurns) && rawTurns >= 1 && rawTurns <= STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX
-            ? rawTurns
-            : STEWARD_SESSION_MEMORY_EVERY_TURNS_DEFAULT;
-        return {
-          enabled: this.deps.config.get(STEWARD_SESSION_MEMORY_ENABLED_KEY) === "1",
-          everyTurns,
-          model: model !== undefined && model.trim() !== "" ? model : null,
-        };
-      })(),
     };
   }
 
@@ -2417,53 +2385,16 @@ export class StewardService {
   }
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
-   *  summary 组 = 任务总结子功能（enabled 开关 + 专用模型槽位，空串 = 清空）；
    *  memory 组 {enabled?,endpointId?,judgeEndpointId?} + 批B 召回量
-   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*）。 */
+   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*）。
+   *  **summary/sessionMemory 组已摘除**（会话总结器独立化批①——总结配置
+   *  收编 summary.* 通用域，写面在 config.set_summary；携带旧组的载荷在
+   *  handler 层拒答 invalid_payload）。 */
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
-    summary?: { enabled?: boolean; model?: string };
     memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number };
-    sessionMemory?: { enabled?: boolean; everyTurns?: number; model?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (patch.sessionMemory !== undefined) {
-      const sm = patch.sessionMemory;
-      if (sm.everyTurns !== undefined) {
-        if (!Number.isInteger(sm.everyTurns) || sm.everyTurns < 1 || sm.everyTurns > STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX) {
-          return {
-            ok: false,
-            error: `节流阈值非法：${String(sm.everyTurns)}（应为 1-${STEWARD_SESSION_MEMORY_EVERY_TURNS_MAX} 的整数）`,
-          };
-        }
-        await this.deps.config.set(STEWARD_SESSION_MEMORY_EVERY_TURNS_KEY, String(sm.everyTurns));
-      }
-      if (sm.model !== undefined) {
-        // 空串 = 清空槽位回未配置态（无默认纪律——与 summary.model 同构）
-        const model = sm.model.trim();
-        if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
-          return { ok: false, error: `总结模型格式非法：${model}（应为 "provider/model-id" 形态）` };
-        }
-        await this.deps.config.set(STEWARD_SESSION_MEMORY_MODEL_KEY, model);
-      }
-      if (sm.enabled !== undefined) {
-        await this.deps.config.set(STEWARD_SESSION_MEMORY_ENABLED_KEY, sm.enabled ? "1" : "0");
-      }
-    }
-    if (patch.summary !== undefined) {
-      if (patch.summary.model !== undefined) {
-        // 空串 = 清空槽位回未配置态（与管家对话 model 槽位「忽略空串」不同——
-        // 摘要面无默认模型，清空是真实业务态而非无效写）
-        const model = patch.summary.model.trim();
-        if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
-          return { ok: false, error: `总结模型格式非法：${model}（应为 "provider/model-id" 形态）` };
-        }
-        await this.deps.config.set(STEWARD_SUMMARY_MODEL_KEY, model);
-      }
-      if (patch.summary.enabled !== undefined) {
-        await this.deps.config.set(STEWARD_SUMMARY_ENABLED_KEY, patch.summary.enabled ? "1" : "0");
-      }
-    }
     if (patch.memory !== undefined) {
       // 管家记忆 B1：记忆配置委托记忆域服务（校验在其中——开启前端点必填）
       if (this.deps.memory === undefined) {

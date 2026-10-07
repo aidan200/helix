@@ -39,8 +39,8 @@ import type {
   ConfigGetPortCommand,
   ConfigSetPortCommand,
   ConfigGetSandboxCommand,
-  ConfigGetTopicCommand,
-  ConfigSetTopicCommand,
+  ConfigGetSummaryCommand,
+  ConfigSetSummaryCommand,
   ConfigSetSandboxCommand,
   KgAutoAuditCommand,
   KgAutoAuditPayload,
@@ -374,17 +374,20 @@ export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?:
   return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: patch };
 }
 
-/** config.get_topic：动态主题配置读面（全局命令；动态主题批）。 */
-export function configGetTopicCommand(): ConfigGetTopicCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_topic", payload: {} };
+/** config.get_summary：总结配置读面（全局命令；总结器独立化批①）。 */
+export function configGetSummaryCommand(): ConfigGetSummaryCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_summary", payload: {} };
 }
 
-/** config.set_topic：动态主题配置写面（全局命令；运行期即热）。
+/** config.set_summary：总结配置写面（全局命令；运行期即热）。
  * 部分更新语义：携带项写入，未携带项保留现值。 */
-export function configSetTopicCommand(
-  patch: { enabled?: boolean; model?: string | null; classifyEndpointId?: string | null },
-): ConfigSetTopicCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_topic", payload: patch };
+export function configSetSummaryCommand(patch: {
+  enabled?: boolean;
+  everyTurns?: number;
+  model?: string | null;
+  task?: { enabled?: boolean; model?: string | null };
+}): ConfigSetSummaryCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_summary", payload: patch };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

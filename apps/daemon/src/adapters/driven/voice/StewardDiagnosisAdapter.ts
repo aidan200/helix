@@ -4,7 +4,7 @@
  *
  * 任务总结子功能（管家子功能）专用 LLM 面的延续（E-232 ③层摘要槽位沿用）：
  * 组合根注入独立 PiStewardLlmAdapter 实例（模型槽位 = RuntimeConfig
- * steward.summary.model，**无默认模型**——未配置即槽位空；key = auth.json
+ * summary.task.model，**无默认模型**——未配置即槽位空；key = auth.json
  * 同键位，换模型换 key 自动跟随）。可用性判别（isAvailable）三条件收口：
  * 管家开关开（分诊是管家子功能，管家关 = 随关）∧ 任务总结开关开 ∧ 模型
  * 槽位非空——任一断点 → false → StewardPerceptionService 零 LLM 降级
@@ -13,7 +13,7 @@
  *
  * 防腐面：{systemPrompt, userPrompt} → StewardLlmRequest（messages 恰一条
  * user、tools 空——分诊无工具面无会话史，单发无状态）；text 响应经
- * parseDiagnosis JSON 容错解析（TR-234 parseJointSummary 同族三重容错：
+ * parseDiagnosis JSON 容错解析（TR-234 parseSessionSummary 同族三重容错：
  * ```json 围栏剥壳 + 首尾大括号定位 + 字段缺席容忍），烂输出 throw（感知
  * 服务静默降级不播半产物）；toolCall 响应（tools 空下不应发生）→ throw。
  *
@@ -31,7 +31,7 @@ import type {
 
 export interface StewardDiagnosisAdapterDeps {
   /** 管家 LLM 面（组合根注入 PiStewardLlmAdapter 真体——模型槽位/key 同源
-   *  steward.summary.model 专用槽位）。 */
+   *  summary.task.model 专用槽位）。 */
   readonly llm: StewardLlmPort;
   /** 管家开关 ∧ 任务总结开关读面（分诊 gate 前两条件——模型槽位第三条件
    *  经 llm.modelId 判空收口）。 */
@@ -39,7 +39,7 @@ export interface StewardDiagnosisAdapterDeps {
 }
 
 /**
- * 分诊产物 JSON 解析（三重容错——TR-234 parseJointSummary 同族）：
+ * 分诊产物 JSON 解析（三重容错——TR-234 parseSessionSummary 同族）：
  * ① ```json 围栏剥壳；② 首尾大括号定位（前后噪声容忍）；③ 字段缺席/
  * 类型错位容忍（notify 缺省 true、urgency 非 high 判 normal、present/ingest
  * 非空 string 守卫、suggestions 数组项 label 守卫）。解析不出 JSON 对象 →

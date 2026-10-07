@@ -14,6 +14,7 @@
  * - steward.config.result = 设置读写回执（enabled + model 现态）。
  */
 import type { EventFrame } from "../envelope";
+import type { SummaryConfigStatePayload } from "./config";
 
 /** steward.ask.result payload：四判别——answer = 直答文本；confirm_required =
  *  确认闸请求（写注入唯一原语 propose_send 的回执形态，未确认零执行）；
@@ -179,14 +180,10 @@ export interface StewardConfigResultPayload {
   enabled: boolean;
   /** 模型槽位现值（"provider/model-id"；未设置 = daemon 默认 flash 级模型）。 */
   model: string;
-  /** 任务总结面现态（语音播报摘要子功能）：enabled 开关 + 专用模型槽位
-   *  （未配置 = null——**无默认模型**，不配不摘要，播报走极简终态通知）。 */
-  summary: {
-    /** 任务总结开关现态（默认 false）。 */
-    enabled: boolean;
-    /** 总结模型槽位现值（"provider/model-id"；未配置 = null）。 */
-    model: string | null;
-  };
+  /** 总结配置组回显（会话总结器独立化批①：summary.* 通用域只读观测面——
+   *  写面在 config.set_summary，管家配置零总结项；形状与
+   *  SummaryConfigStatePayload 同源）。 */
+  summary: SummaryConfigStatePayload;
   /** 长期记忆面现态（管家记忆 B2 瘦身：endpoint 为引用态——只回 id/name/
    *  model/hasApiKey，baseUrl 不再回传；端点全集经 embedding.list 读）。 */
   memory: {
@@ -208,16 +205,6 @@ export interface StewardConfigResultPayload {
     recallTopK?: number;
     /** 召回候选池生效值（批B；缺省 24。additive 可选）。 */
     recallPool?: number;
-  };
-  /** 会话进展记忆面现态（progress 批，additive——旧 shell 忽略无损）。 */
-  sessionMemory?: {
-    /** 会话进展记忆开关现态（默认 false）。 */
-    enabled: boolean;
-    /** 节流阈值现态（每 N 完成轮产一次；默认 3）。 */
-    everyTurns: number;
-    /** 总结模型槽位现值（"provider/model-id"；未配置 = null——无默认，
-     *  不配不产 progress；联合调用槽位回落链 → topic_config.model）。 */
-    model: string | null;
   };
 }
 

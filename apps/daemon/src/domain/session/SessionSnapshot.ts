@@ -45,7 +45,7 @@ export interface SessionSnapshot {
    */
   readonly title?: string;
   /**
-   * 阶段演进主题（动态主题批）：SessionTitleService 轮次锚点矫正产生
+   * 阶段演进主题（会话总结器批①）：SessionSummaryService 轮次锚点矫正产生
    * （第 1/10/20… 轮末，LLM 一句话重述会话主题）；与 title 语义分野——
    * title 是用户显式定格（存在即锁定，演进永不覆盖），topic 是自动演进
    * （后续锚点可覆盖）。可空——旧快照/未开启动态主题的会话不携带；
