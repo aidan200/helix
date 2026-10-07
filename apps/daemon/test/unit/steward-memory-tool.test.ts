@@ -1,17 +1,21 @@
 /**
- * StewardService × 长期记忆 B1 单测（remember 工具确认闸 + 召回注入）。
+ * StewardService × 长期记忆单测（remember 工具直写 + 防双写水位闸 +
+ * 召回注入）。B5 轮末提取管线已随换轨删除（批②）——自动沉淀归会话总结器
+ * 记忆点产物（TR-247），本文件只测保留面。
  *
  * 断言面：
- * 1. remember 提案 → confirm_required 回执（displayTarget = 长期记忆 +
- *    全文展示）+ 零写入（未确认 memory.remember 零调用——确认闸防火墙）；
- * 2. confirm → memory.remember 恰一次（text/kind 透传）+ ok 回执含条目
- *    文本；actionId 单次消费（二次 confirm → error）；
- * 3. 记忆不可用（未装配/未开启）→ remember 调用引导式降级：不挂闸、
- *    循环继续、最终 answer 转述（零提案零写入）；
+ * 1. remember 直写：工具调用即入库（source=steward-turn）+ memory_written
+ *    通知（added）+ answer 收口（无确认卡）；toolResult 回灌续轮；
+ * 2. 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）；
+ * 3. 记忆不可用（未装配/未开启）→ 引导式降级：不挂闸、循环继续、answer
+ *    转述（零写入）；
  * 4. 召回注入：记忆可用且有命中 → ask 的 system prompt 含记忆段；
  *    召回失败 → system prompt 无记忆段但对话照常（降级不挡主链路）；
  * 5. 配置面：getConfig 携带 memory 现态（未装配 = 全降级缺省）；
- *    setConfig memory 组委托校验（开启前端点必填错误透传）。
+ *    setConfig memory 组委托校验（开启前端点必填错误透传）；
+ * 6. 防双写水位闸（explicitRememberedSince 面）：直写成功 → 水位置位
+ *    （总结器记忆点本轮让位）；失败 → 不置位（下锚点可补写）；
+ * 7. 换轨回归：ask 收口零轮末沉淀（零提取 LLM 调用零自动入库）。
  */
 import { describe, expect, test } from "bun:test";
 import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
@@ -57,9 +61,12 @@ function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort & {
 
 /** fake 记忆面（StewardMemoryService 形态——只实现本测试消费的方法子集）。 */
 function fakeMemory(
-  opts: { available?: boolean; recallSection?: string | undefined; recallThrows?: boolean; rememberFails?: boolean; rememberFailsFirst?: boolean } = {},
+  opts: { available?: boolean; recallSection?: string | undefined; recallThrows?: boolean; rememberFails?: boolean } = {},
 ) {
   let rememberCalls = 0;
+  /** 防双写水位（镜像 StewardMemoryService 语义：显式源——非 auto-sediment/
+   *  session-summary——写入成功置位；explicitRememberedSince 契约测试面）。 */
+  let lastExplicitRememberAt = -1;
   const state = {
     remembers: [] as { text: string; kind: string; source: string }[],
     recalls: [] as string[],
@@ -83,12 +90,14 @@ function fakeMemory(
     },
     remember: async (text: string, kind: "fact" | "preference", source: string) => {
       rememberCalls += 1;
-      if (opts.rememberFails === true || (opts.rememberFailsFirst === true && rememberCalls === 1)) {
+      if (opts.rememberFails === true) {
         throw new Error("嵌入端点 503");
       }
       state.remembers.push({ text, kind, source });
+      if (source !== "auto-sediment" && source !== "session-summary") lastExplicitRememberAt = Date.now();
       return { id: state.remembers.length, updated: false };
     },
+    explicitRememberedSince: (since: number) => lastExplicitRememberAt >= since,
     setMemoryConfig: async (patch: Record<string, unknown>) => {
       state.configPatches.push(patch);
       // 模拟存储层故障（写面无前置校验——错误透传路径用中性故障形态验证）
@@ -108,8 +117,6 @@ function makeService(opts: {
   llm: StewardLlmPort;
   memory?: ReturnType<typeof fakeMemory>;
   config?: RuntimeConfigPort;
-  /** 轮末沉淀 money 闸（hasStewardSubscribers）——防双写用例需开。 */
-  subscribers?: boolean;
 }) {
   const notes: import("@helix/protocol").StewardMemoryWrittenPayload[] = [];
   const svc = new StewardService({
@@ -118,18 +125,15 @@ function makeService(opts: {
     orchestration: { status: () => [], send: () => ({ delivered: false, detail: "无实例" }) },
     tasks: { listTasks: () => [] },
     config: opts.config ?? fakeConfig({ "steward.enabled": "1" }),
-    feedGate: { hasStewardSubscribers: () => opts.subscribers ?? false },
+    feedGate: { hasStewardSubscribers: () => false },
     emitFeed: () => {},
     emitMemoryWritten: (payload) => notes.push(payload),
-    // 批①：B5 沉淀触发缺省停用（换轨总结器记忆点）——本文件测休眠管线
-    // （轮末沉淀防双写用例），显式置 true 驱动；生产装配零触发
-    sedimentTriggers: true,
     ...(opts.memory !== undefined ? { memory: opts.memory } : {}),
   });
   return { svc, notes };
 }
 
-describe("管家记忆 B5：remember 工具摘闸直写", () => {
+describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
   test("① remember 直写：工具调用即入库 + 落盘通知 added + answer 收口（无确认卡）", async () => {
     const llm = fakeLlm([
       { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } }], stopReason: "toolUse" },
@@ -214,39 +218,52 @@ describe("管家记忆 B5：remember 工具摘闸直写", () => {
     expect(memory.configPatches.length).toBe(2);
   });
 
-  // B5 防双写（e2e 复发实录：同一轮 remember 直写 added 后轮末沉淀又重写同容
-  // updated——两段查重判同条覆盖，数据无损但多一次重写调用 + 一张多余 updated 卡）
-  test("⑤ 防双写：轮内 remember 直写成功 → 同轮轮末沉淀跳过（零重写零二次入库单卡）", async () => {
+  // 防双写水位闸（explicitRememberedSince 面——原轮标识比对的防双写标记
+  // 语义由 StewardMemoryService.explicitRememberedSince 水位闸承接）：
+  // 轮内显式 remember 与总结器记忆点是两条写路径，同轮双写产生重复噪音
+  // （e2e 复发实录：同一偏好 added+updated 双卡）——显式优先、记忆点让位
+  test("⑥ 防双写水位闸：轮内 remember 直写成功 → explicitRememberedSince 置位（总结器记忆点本轮让位）", async () => {
     const llm = fakeLlm([
       { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } }], stopReason: "toolUse" },
       { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
-      // 防御性脚本位：若防双写失效，轮末提取会消费此段（重写句）并二次入库
-      { kind: "blocks", blocks: [{ type: "text", text: "用户偏好回复要简洁。" }], stopReason: "stop" },
     ]);
     const memory = fakeMemory();
-    const { svc, notes } = makeService({ llm, memory, subscribers: true });
+    expect(memory.explicitRememberedSince(0)).toBe(false); // 写前：水位未置
+    const { svc, notes } = makeService({ llm, memory });
     const result = await svc.ask("记住：以后回复都简洁点");
     expect(result.status).toBe("answer");
-    await svc.flushSediment();
-    expect(memory.remembers).toHaveLength(1); // 仅轮内直写一次（轮末零重写入库）
-    expect(llm.calls).toHaveLength(2); // 轮内两段调用；轮末零重写 LLM 调用
-    expect(notes).toHaveLength(1); // 单张 added 卡（无 updated 双卡）
+    expect(memory.remembers).toHaveLength(1); // 仅轮内直写一次
+    expect(notes).toHaveLength(1); // 单张 added 卡
+    // 防双写闸置位：总结器记忆点产物经 explicitRememberedSince 判本轮
+    // 显式写过 → 跳过（用户刚教过的不再由总结器代写）
+    expect(memory.explicitRememberedSince(0)).toBe(true);
   });
 
-  test("⑥ 防双写不误伤：轮内 remember 存储失败 → 轮末照常沉淀（失败不置标记）", async () => {
+  test("⑦ 防双写不误伤：轮内 remember 存储失败 → 水位不置位（总结器记忆点下锚点可补写）", async () => {
     const llm = fakeLlm([
       { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } }], stopReason: "toolUse" },
       { kind: "blocks", blocks: [{ type: "text", text: "刚才没存进去，我再确认下。" }], stopReason: "stop" },
-      { kind: "blocks", blocks: [{ type: "text", text: "用户的项目在 helix 仓。" }], stopReason: "stop" }, // 轮末重写提取段
     ]);
-    const memory = fakeMemory({ rememberFailsFirst: true }); // 仅轮内首次失败，轮末补位成功
-    const { svc, notes } = makeService({ llm, memory, subscribers: true });
+    const memory = fakeMemory({ rememberFails: true });
+    const { svc, notes } = makeService({ llm, memory });
     const result = await svc.ask("记住项目在 helix 仓");
     expect(result.status).toBe("answer");
-    await svc.flushSediment();
-    expect(memory.remembers).toHaveLength(1); // 轮末 auto-sediment 补位入库
-    expect(memory.remembers[0]!.source).toBe("auto-sediment");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]!.mode).toBe("added");
+    expect(memory.remembers).toHaveLength(0); // 失败不入库
+    expect(notes).toHaveLength(0); // 零通知
+    // 失败不置位（防双写不误伤）：总结器记忆点下锚点仍可补写该内容
+    expect(memory.explicitRememberedSince(0)).toBe(false);
+  });
+
+  test("⑧ 换轨回归：ask 收口零轮末沉淀（B5 管线已删——零提取 LLM 调用零自动入库）", async () => {
+    const llm = fakeLlm([
+      { kind: "blocks", blocks: [{ type: "text", text: "好的。" }], stopReason: "stop" },
+    ]);
+    const memory = fakeMemory();
+    const { svc, notes } = makeService({ llm, memory });
+    const result = await svc.ask("以后回复要简洁");
+    expect(result.status).toBe("answer");
+    expect(llm.calls).toHaveLength(1); // 仅主答——零轮末提取 LLM 调用
+    expect(memory.remembers).toHaveLength(0); // 零自动入库（自动沉淀归总结器记忆点）
+    expect(notes).toHaveLength(0);
   });
 });

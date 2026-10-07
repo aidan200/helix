@@ -10,8 +10,8 @@
  * - steward_messages(id/kind/payload/at)：一条对话记录一行。payload = 协议
  *   StewardHistoryRecord JSON 原文（唯一真源——记录形态演进零 schema 迁移，
  *   UI 显示的 = LLM 记得的 = 落盘的）；kind/at 提取列供裁剪与排查查询；
- * - meta(key/value)：活跃时间（steward_dialog_last_active_at）与判定水位
- *   （steward_dialog_judged_at）——与长期记忆 dim 键同表不同键。
+ * - meta(key/value)：活跃时间（steward_dialog_last_active_at）——与长期记忆
+ *   dim 键同表不同键。
  *
  * 构造即开库 + 建表（幂等）；构造抛错由装配层捕获降级为「对话不持久化」
  * （StewardDialogMemory 无 store 纯内存模式，管家对话不中断）。
@@ -26,7 +26,6 @@ import type {
 import { STEWARD_DIALOG_KEY, parseStewardDialogKv } from "../../../application/steward/StewardDialogMemory";
 
 const META_LAST_ACTIVE_AT = "steward_dialog_last_active_at";
-const META_JUDGED_AT = "steward_dialog_judged_at";
 
 interface MessageRow {
   readonly payload: string;
@@ -106,24 +105,16 @@ export class SqliteStewardDialogStore implements StewardDialogStorePort {
       if (parsed !== undefined) records.push(parsed);
     }
     const lastActiveAt = Number(this.getMeta(META_LAST_ACTIVE_AT) ?? "0");
-    const judgedRaw = this.getMeta(META_JUDGED_AT);
     return {
       records,
       lastActiveAt: Number.isFinite(lastActiveAt) ? lastActiveAt : 0,
-      lastJudgedAt: judgedRaw === undefined ? undefined : Number(judgedRaw),
     };
-  }
-
-  setWatermark(at: number): void {
-    // 只动水位键——判定不是对话活动，不刷 TTL 活跃时间（迁移导入水位早于
-    // 活跃时间属常态，回卷即丢 TTL 语义）
-    this.setMeta(META_JUDGED_AT, String(at));
   }
 
   clear(): void {
     const tx = this.db.transaction(() => {
       this.db.exec("DELETE FROM steward_messages");
-      this.db.prepare("DELETE FROM meta WHERE key IN (?, ?)").run(META_LAST_ACTIVE_AT, META_JUDGED_AT);
+      this.db.prepare("DELETE FROM meta WHERE key = ?").run(META_LAST_ACTIVE_AT);
     });
     tx();
   }
@@ -153,7 +144,6 @@ export function migrateStewardDialogKv(store: StewardDialogStorePort, kv: Runtim
   const parsed = parseStewardDialogKv(raw);
   if (parsed !== undefined && parsed.records.length > 0) {
     store.replaceAll(parsed.records, parsed.lastActiveAt);
-    if (parsed.lastJudgedAt !== undefined) store.setWatermark(parsed.lastJudgedAt);
   }
   // 墓碑（best-effort——写失败下次重试导入，幂等无害）
   void kv.set(STEWARD_DIALOG_KEY, "").catch(() => {});
