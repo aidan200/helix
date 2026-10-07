@@ -85,9 +85,10 @@ export const STEWARD_ACTIVE_WINDOW_MS = 5 * 60_000;
  *  产物防御，与语音播报 80 字符兜底同族）。 */
 export const NOTIFY_PRESENT_MAX_CHARS = 60;
 
-/** notify 正文轨字数上限（双预算分轨：语音短句 ≤60，视觉正文可到 200——
- *  用户反馈批「摘要不细致」；detail 缺席回退 present 单轨）。 */
-export const NOTIFY_BODY_MAX_CHARS = 200;
+/** notify 正文轨字数上限（双预算分轨：语音短句 ≤60，视觉正文可到 600——
+ *  用户反馈批「总结要详：白话逐项讲清每轮完成的任务，无严格长度限制但忌长篇」；
+ *  detail 缺席回退 present 单轨）。 */
+export const NOTIFY_BODY_MAX_CHARS = 600;
 
 /** 投递关注持久化单键（runtime_config kv——无枚举面，单键整图快照形态；
  *  空 Map 写 "{}"，无 delete 面不生残留）。 */
@@ -164,7 +165,7 @@ export const DIAGNOSIS_SYSTEM_PROMPT = [
   '- notify: 布尔——是否值得打扰用户（不值得 = false，静默）',
   '- urgency: "normal" 或 "high"（仅高危：失败阻塞、数据风险、预算耗尽）',
   "- present: 给用户听的一句话，口语化中文，不超过 60 字",
-  "- detail: 通知正文，中文要点摘要，可到 200 字，带具体结果与结论（缺席时通知用 present）",
+  "- detail: 通知正文，中文大白话，逐项讲清本轮完成的事（先做了什么、结果如何、有什么要注意的），可到 600 字，忌堆术语忌长篇大论（缺席时通知用 present）",
   "- ingest: 给管家分析用的全面记录，结构化分节：做了什么/改动面/发现统计/阻塞/下一步，总长不超过 2000 字",
   "- suggestions: 建议按钮数组，每项 {label: 短句}，最多 3 条（完成只是事实，接续才是价值：开修复/投递下一会话/跳报告）",
   "硬约束：present 的内容必须出自 ingest 已写明的事实（呈现轨是摄入轨的投影，不得编造 ingest 没有的信息）。",
@@ -189,7 +190,7 @@ export const TRIAGE_GENERATION_SYSTEM_PROMPT = [
   "你是 helix 管家的通知文案撰写器：一个后台事件刚刚结束，已裁定值得通知用户。",
   "直接输出两个自然段，禁止 JSON、代码围栏、标题或编号前缀及任何格式包装：",
   "第一段：给用户听的一句话，口语化中文，不超过 60 字。",
-  "第二段：通知正文要点摘要，中文，不超过 200 字，写清具体结果与结论。",
+  "第二段：通知正文，中文大白话，逐项讲清本轮完成的事（先做了什么、结果如何、有什么要注意的），不超过 600 字，忌堆术语忌长篇大论。",
 ].join("\n");
 
 /** 对话内主动汇报载荷（激活态主动环投递面——D12-⑪「对话内主动汇报/
@@ -806,7 +807,7 @@ export class StewardPerceptionService {
     return `${chars.slice(0, NOTIFY_PRESENT_MAX_CHARS).join("")}…`;
   }
 
-  /** 正文轨防御截断（≤200 字 + 省略号——双预算分轨的视觉面兑底）。 */
+  /** 正文轨防御截断（≤600 字 + 省略号——双预算分轨的视觉面兑底）。 */
   private clampBody(detail: string): string {
     const trimmed = detail.trim();
     const chars = [...trimmed];

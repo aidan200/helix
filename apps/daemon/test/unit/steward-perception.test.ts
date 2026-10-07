@@ -796,7 +796,7 @@ describe("分诊降级保底：LLM/解析失败 → 机械通知（事件不静�
   });
 });
 
-describe("通知正文双轨预算：present（语音 ≤60）与 detail（notify 可到 200）分轨", () => {
+describe("通知正文双轨预算：present（语音 ≤60）与 detail（notify 可到 600，白话逐项）分轨", () => {
   function turnEvent(sessionId: string): DomainEvent {
     return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
   }
@@ -836,22 +836,22 @@ describe("通知正文双轨预算：present（语音 ≤60）与 detail（notif
     expect(notifies[0]!.body).toBe("M0.5 感知链路已交付，测试全部通过。");
   });
 
-  test("detail 防御截断：超 200 字截断加省略号（prompt 约束外兑底）", async () => {
-    const long = "长".repeat(250);
+  test("detail 防御截断：超 600 字截断加省略号（prompt 约束外兑底）", async () => {
+    const long = "长".repeat(650);
     const { perception, notifies } = makeStack({
       diagnose: fakeDiagnose({ result: { detail: long } }),
     });
     perception.noteDelivered("sess-target", "问题 A");
     perception.onDomainEvent(turnEvent("sess-target"));
     await broadcast_drain(perception);
-    expect([...notifies[0]!.body].length).toBe(201); // 200 字 + 省略号
+    expect([...notifies[0]!.body].length).toBe(601); // 600 字 + 省略号
   });
 });
 
 describe("分诊判官判定面（管家分诊判官接入批：noul 双判 + 生成纯文本两段制 + 降级链）", () => {
-  test("判官开启且值得：noul 双判 + generateText 纯文本两段（present ≤60/detail ≤200 截断）零 JSON 调用", async () => {
+  test("判官开启且值得：noul 双判 + generateText 纯文本两段（present ≤60/detail ≤600 截断）零 JSON 调用", async () => {
     const diagnose = fakeDiagnose({
-      text: `${"句".repeat(80)}\n\n${"正".repeat(250)}`,
+      text: `${"句".repeat(80)}\n\n${"正".repeat(650)}`,
     });
     const judge = fakeTriageJudge({ worth: 0.9, risk: 0.1 });
     const { perception, notifies, memory } = makeStack({ diagnose, triageJudge: judge });
@@ -866,13 +866,13 @@ describe("分诊判官判定面（管家分诊判官接入批：noul 双判 + �
     expect(diagnose.textCalls.length).toBe(1);
     expect(diagnose.calls.length).toBe(0);
     expect(diagnose.textCalls[0]!.systemPrompt).toBe(TRIAGE_GENERATION_SYSTEM_PROMPT); // 纯文本两段制提示词单源
-    // 产物：present ≤60 截断 + 省略号；body=detail ≤200 截断 + 省略号
+    // 产物：present ≤60 截断 + 省略号；body=detail ≤600 截断 + 省略号
     expect(notifies.length).toBe(1);
-    expect([...notifies[0]!.body].length).toBe(201);
+    expect([...notifies[0]!.body].length).toBe(601);
     expect(notifies[0]!.title).toBe("判官接入批（helix）");
     const ringEntry = perception.ringSnapshot().find((r) => r.kind === "task.diagnosed")!;
     expect([...ringEntry.text].length).toBe(61); // ring text = present 截断后
-    expect(ringEntry.ingest).toBe(`${"句".repeat(80)}\n\n${"正".repeat(250)}`); // 摄入轨 = 完整生成文本原样
+    expect(ringEntry.ingest).toBe(`${"句".repeat(80)}\n\n${"正".repeat(650)}`); // 摄入轨 = 完整生成文本原样
     expect(memory.progress.length).toBe(1); // progress 薄条目照写
   });
 
