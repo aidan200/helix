@@ -124,6 +124,8 @@ function makeStack(opts?: {
   recentAsk?: boolean;           // 近期 ask（激活信号②，缺省 true）
   memory?: ReturnType<typeof fakeMemory>;
   now?: number;
+  readReply?: (sessionId: string) => Promise<string | undefined>;
+  kv?: ReturnType<typeof makeFakeKv>;
 }) {
   const tts = fakeTts();
   const frames: VoiceBroadcastPayload[] = [];
@@ -153,6 +155,8 @@ function makeStack(opts?: {
     voice: broadcast, // 直供面（enqueueDiagnosed 窄接口）
     clock: () => clockNow,
     logger: { warn: (m) => warns.push(m) },
+    ...(opts?.readReply !== undefined ? { readReply: opts.readReply } : {}),
+    ...(opts?.kv !== undefined ? { kv: opts.kv } : {}),
   });
   perceptionRef = perception; // 晚绑闭合
   if (opts?.recentAsk !== false) perception.noteUserActivity();
@@ -168,6 +172,9 @@ function makeStack(opts?: {
     tts,
     advance: (ms: number) => {
       clockNow += ms;
+    },
+    kvFlush: async () => {
+      await opts?.kv?.flush();
     },
   };
 }
@@ -636,8 +643,8 @@ describe("回合终态感知：turn.completed 入 ring + 投递关注命中分�
     expect(diagnose.calls).toHaveLength(0);
   });
 
-  test("未启用（money gate 关）：关注命中零 LLM 零 notify（极简保底语义不侵入回合面）", async () => {
-    const { perception, diagnose, notifies } = makeStack({
+  test("未启用（money gate 关）：关注命中零 LLM 零 notify，但极简语音保底「投递的会话已回复」（对齐 task.done 保底语义）", async () => {
+    const { perception, diagnose, notifies, frames } = makeStack({
       diagnose: fakeDiagnose({ available: false }),
     });
     perception.noteDelivered("sess-target", "问题 A");
@@ -645,6 +652,67 @@ describe("回合终态感知：turn.completed 入 ring + 投递关注命中分�
     await broadcast_drain(perception);
     expect(diagnose.calls).toHaveLength(0);
     expect(notifies).toHaveLength(0);
+    expect(frames[frames.length - 1]!.text).toBe("投递的会话已回复");
+  });
+
+  test("修复①：分诊 userPrompt 含回复正文（readReply 读面命中——LLM 能看到那边回了什么）", async () => {
+    const { perception, diagnose } = makeStack({
+      readReply: async () => "测试覆盖 87%，两处缺口在语音链重试面",
+    });
+    perception.noteDelivered("sess-target", "帮我看看语音批的测试覆盖情况");
+    perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(1);
+    expect(diagnose.calls[0]!.userPrompt).toContain("测试覆盖 87%");
+  });
+
+  test("修复①降级：读面缺席/报错 → prompt 标注无正文可读，分诊照常（读面失败不阻塞诊断）", async () => {
+    const { perception, diagnose } = makeStack({
+      readReply: async () => {
+        throw new Error("db busy");
+      },
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(1);
+    expect(diagnose.calls[0]!.userPrompt).toContain("无回复正文可读");
+  });
+
+  test("修复②：投递关注跨重启存活（kv 单键快照——新实例构造即恢复关注，回合终态照命中分诊）", async () => {
+    const kv = makeFakeKv();
+    const first = makeStack({ kv });
+    first.perception.noteDelivered("sess-target", "问题 A");
+    await first.kvFlush(); // 落盘（fire-and-forget 收口）
+    const second = makeStack({ kv }); // 「重启」——新服务实例同一 kv
+    second.perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(second.perception);
+    expect(second.diagnose.calls).toHaveLength(1);
+  });
+
+  test("修复②：消费后快照更新——重启后不重复通知（一次性消费跨重启成立）", async () => {
+    const kv = makeFakeKv();
+    const first = makeStack({ kv });
+    first.perception.noteDelivered("sess-target", "问题 A");
+    await first.kvFlush();
+    first.perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(first.perception);
+    await first.kvFlush(); // 消费后的快照重写落盘
+    const second = makeStack({ kv });
+    second.perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(second.perception);
+    expect(second.diagnose.calls).toHaveLength(0); // 关注已消费，不再命中
+  });
+
+  test("修复② TTL：陈旧关注（>24h）重启后不恢复（防僵尸关注永久滞留）", async () => {
+    const kv = makeFakeKv();
+    const first = makeStack({ kv, now: 1_000_000 });
+    first.perception.noteDelivered("sess-target", "问题 A");
+    await first.kvFlush();
+    const second = makeStack({ kv, now: 1_000_000 + 25 * 60 * 60_000 }); // 25h 后「重启」
+    second.perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(second.perception);
+    expect(second.diagnose.calls).toHaveLength(0);
   });
 });
 
@@ -657,4 +725,23 @@ async function broadcast_drain(perception: StewardPerceptionService): Promise<vo
   await perception.drain();
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
+}
+
+/** kv 假实现（RuntimeConfigPort 窄面：同步 get + 异步 set）+ 写收口面。 */
+function makeFakeKv() {
+  const store = new Map<string, string>();
+  const pending: Promise<void>[] = [];
+  return {
+    get: (key: string) => store.get(key),
+    set: (key: string, value: string) => {
+      const p = Promise.resolve().then(() => {
+        store.set(key, value);
+      });
+      pending.push(p);
+      return p;
+    },
+    flush: async () => {
+      await Promise.all(pending);
+    },
+  };
 }

@@ -80,6 +80,14 @@ export const STEWARD_ACTIVE_WINDOW_MS = 5 * 60_000;
  *  产物防御，与语音播报 80 字符兜底同族）。 */
 export const NOTIFY_PRESENT_MAX_CHARS = 60;
 
+/** 投递关注持久化单键（runtime_config kv——无枚举面，单键整图快照形态；
+ *  空 Map 写 "{}"，无 delete 面不生残留）。 */
+export const STEWARD_WATCH_KV_KEY = "steward_watch_reply";
+
+/** 投递关注 TTL（24h——重启恢复时过滤陈旧关注，防僵尸关注永久滞留；
+ *  运行期消费不检 TTL：跨天回复仍值得告知）。 */
+export const STEWARD_WATCH_TTL_MS = 24 * 60 * 60_000;
+
 /** 通知预算：normal 档滑动窗口时长（D12-⑦「如 ≤4 条/小时」）。 */
 export const NOTIFY_BUDGET_WINDOW_MS = 60 * 60_000;
 
@@ -130,7 +138,13 @@ interface DiagnosisInput {
   readonly progressSessionId?: string;
   /** 任务锚建议动作（去任务页看报告——点按才动）。 */
   readonly openTasksSuggestion?: boolean;
-  /** 分诊 userPrompt 素材（终态事实 + ring 现场投影）。 */
+  /** 回复正文读面锚（修复①：回合终态分诊取「那边回了什么」——runDiagnosis
+   *  异步读后拼入 userPrompt；缺席 = 不补正文段）。 */
+  readonly replyContextSessionId?: string;
+  /** 未启用（money gate 关）极简保底语音（修复③：turn-reply 锚「投递的
+   *  会话已回复」——对齐 task.done「后台任务已完成」降级语义）。 */
+  readonly fallbackText?: string;
+  /** 分诊 userPrompt 素材（终态事实 + ring 现场投影 + 可选回复正文）。 */
   readonly userPrompt: string;
 }
 
@@ -177,6 +191,13 @@ export interface StewardPerceptionDeps {
    *  同源直供；组合根晚绑回填（构造环：BroadcastService content 源又指向本
    *  服务 supplyBroadcastText）；缺席 = 零语音。 */
   readonly voice?: { enqueueDiagnosed(item: { kind: VoiceBroadcastKind; agentId: string; text: string }): void };
+  /** 回复正文读面（修复①：回合终态分诊输入补「那边回了什么」——组合根接
+   *  SessionRepository.readSessionTail 尾投影取末条 assistant；缺席 = prompt
+   *  标注无正文，读面失败不阻塞诊断）。 */
+  readonly readReply?: (sessionId: string) => Promise<string | undefined>;
+  /** 投递关注持久化 kv（修复②：RuntimeConfigPort 窄面——单键整图快照，跨
+   *  重启恢复 + TTL 过滤；缺席 = 纯内存形态（回归兼容）。 */
+  readonly kv?: { get(key: string): string | undefined; set(key: string, value: string): Promise<void> };
   /** 时钟（缺省 Date.now——测试注入衰减窗/限流窗步进）。 */
   readonly clock?: () => number;
   readonly logger?: { warn(message: string): void };
@@ -212,6 +233,34 @@ export class StewardPerceptionService {
   constructor(deps: StewardPerceptionDeps) {
     this.deps = deps;
     this.now = deps.clock ?? (() => Date.now());
+    this.hydrateWatchFromKv();
+  }
+
+  /** 投递关注恢复（修复②：构造时从 kv 单键快照回填——TTL 过滤陈旧关注；
+ *  解析失败/缺键 = 零恢复静默（坏数据不阻断启动）。 */
+  private hydrateWatchFromKv(): void {
+    const raw = this.deps.kv?.get(STEWARD_WATCH_KV_KEY);
+    if (raw === undefined || raw === "") return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, { at: number; text: string }>;
+      const cutoff = this.now() - STEWARD_WATCH_TTL_MS;
+      for (const [sessionId, w] of Object.entries(parsed)) {
+        if (typeof w?.at === "number" && w.at >= cutoff) {
+          this.awaitingReply.set(sessionId, { at: w.at, text: String(w.text ?? "").slice(0, 400) });
+        }
+      }
+    } catch {
+      this.deps.logger?.warn("投递关注快照恢复失败（解析异常，忽略）");
+    }
+  }
+
+  /** 投递关注快照持久化（fire-and-forget；空图写 "{}"——无 delete 面不生残留）。 */
+  private persistWatchSnapshot(): void {
+    const kv = this.deps.kv;
+    if (kv === undefined) return;
+    const snapshot: Record<string, { at: number; text: string }> = {};
+    for (const [sessionId, w] of this.awaitingReply) snapshot[sessionId] = w;
+    void kv.set(STEWARD_WATCH_KV_KEY, JSON.stringify(snapshot)).catch(() => {});
   }
 
   // ── 激活判定（D12-⑪：feed 订阅在场 ∧ 近期 ask 衰减窗） ──────────
@@ -237,6 +286,7 @@ export class StewardPerceptionService {
    *  边界不变（防自激纪律同源）。 */
   noteDelivered(sessionId: string, deliveredText?: string): void {
     this.awaitingReply.set(sessionId, { at: this.now(), text: (deliveredText ?? "").slice(0, 400) });
+    this.persistWatchSnapshot();
   }
 
   // ── 感知入口（D10：订阅总线，生产者不直喂） ──────────────────
@@ -439,6 +489,7 @@ export class StewardPerceptionService {
         const awaiting = this.awaitingReply.get(event.sessionId);
         if (awaiting === undefined) return undefined;
         this.awaitingReply.delete(event.sessionId);
+        this.persistWatchSnapshot(); // 修复②：消费即重写快照（跨重启不重复通知）
         const lines = [
           "事件：用户投递过消息的会话回合结束（回复就绪）",
           `会话：${event.sessionId}`,
@@ -451,6 +502,8 @@ export class StewardPerceptionService {
           voiceAgentId: event.sessionId,
           directVoice: true,
           taskTitle: "会话回复了",
+          replyContextSessionId: event.sessionId, // 修复①：runDiagnosis 异步取回复正文
+          fallbackText: "投递的会话已回复", // 修复③：未启用极简保底
           userPrompt: lines.join("\n"),
         };
       }
@@ -491,8 +544,12 @@ export class StewardPerceptionService {
    *  断言 calls=1 的落点）；未启用零入链零 LLM。v2.9：激活不是门槛（分诊
    *  恒做，激活只决定投递面）。 */
   private ensureDiagnosis(input: DiagnosisInput): Promise<StewardDiagnosisResult | undefined> {
-    // 启用门（D12-⑨/⑫：管家开∧总结开∧模型配——port 三条件收口）
+    // 启用门（D12-⑨/⑫：管家开∧总结开∧模型配——port 三条件收口）；未启用
+    // 且锚带极简保底（turn-reply）→ 零 LLM 机械语音（对齐 task.done 降级语义）
     if (this.deps.diagnose === undefined || !this.deps.diagnose.isAvailable()) {
+      if (input.fallbackText !== undefined) {
+        this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: input.fallbackText });
+      }
       return Promise.resolve(undefined);
     }
     const existing = this.inflight.get(input.key);
@@ -512,7 +569,20 @@ export class StewardPerceptionService {
     const port = this.deps.diagnose;
     if (port === undefined || !port.isAvailable()) return undefined;
     try {
-      const result = await port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt: input.userPrompt });
+      // 修复①：回合终态锚补回复正文（异步读面——LLM 能看到那边回了什么；
+      // 读面缺席/报错不阻塞诊断，prompt 标注无正文）
+      let userPrompt = input.userPrompt;
+      if (input.replyContextSessionId !== undefined) {
+        let replyBlock = "（无回复正文可读）";
+        try {
+          const reply = await this.deps.readReply?.(input.replyContextSessionId);
+          if (reply !== undefined && reply.trim() !== "") replyBlock = reply.trim();
+        } catch {
+          // 读面失败保底标注（诊断照常）
+        }
+        userPrompt = `${userPrompt}\n回复内容（尾部截取）：${replyBlock}`;
+      }
+      const result = await port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt });
       const present = this.clampPresent(result.present);
       const ingest = result.ingest.trim();
       if (ingest !== "") {

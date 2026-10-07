@@ -780,6 +780,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       voice: {
         enqueueDiagnosed: (item) => voiceBroadcastRef?.enqueueDiagnosed(item),
       },
+      // 修复①：回合终态分诊读回复正文（尾投影取末条 assistant——与管家
+      // read_session 工具同数据源，单条 300 码点护栏在出口处）
+      readReply: async (sessionId) => {
+        const tail = await persistence.repository.readSessionTail(sessionId, 4);
+        if (tail === undefined) return undefined;
+        for (let i = tail.length - 1; i >= 0; i -= 1) {
+          if (tail[i]!.role === "assistant" && tail[i]!.text.trim() !== "") return tail[i]!.text;
+        }
+        return undefined;
+      },
+      // 修复②：投递关注持久化（runtime_config kv 单键快照——跨重启恢复）
+      kv: persistence.runtimeConfig,
       logger,
     });
   const voiceBroadcast = new BroadcastService({
