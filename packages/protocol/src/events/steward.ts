@@ -227,6 +227,16 @@ export interface StewardConfigResultPayload {
     /** 召回候选池生效值（批B；缺省 24。additive 可选）。 */
     recallPool?: number;
   };
+  /** 分诊判官配置现态（分诊判官接入批，additive 可选：旧壳/未装配缺席
+   *  忽略；judgeEndpoint 引用态——端点被删回 null（读面视为未配，UI 显示
+   *  「未选择」））。 */
+  triage?: {
+    /** 判官判定开关现态（默认 false = 现行 LLM JSON 判定路径）。 */
+    judgeEnabled: boolean;
+    /** 当前判官端点引用（引用态：id/name/model/hasApiKey；未引用/悬空/非
+     *  classifier = null）。 */
+    judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
+  };
 }
 
 /** steward.config.result：设置读写回执（channel = "steward"；点对点）。 */

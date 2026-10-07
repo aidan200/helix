@@ -63,4 +63,10 @@ export interface StewardDiagnosisPort {
    * StewardPerceptionService——静默跳过不播半产物）。
    */
   diagnose(prompt: StewardDiagnosisPrompt): Promise<StewardDiagnosisResult>;
+  /**
+   * 纯文本生成面（分诊判官批：判定路径的生成段）：直接返回模型文本，
+   * 零 JSON 协议零解析失败类别——两段制拆分与烂文本截断兑底在
+   * StewardPerceptionService 机械收口。失败/超时 throw（降级决策归服务层）。
+   */
+  generateText(prompt: StewardDiagnosisPrompt): Promise<string>;
 }

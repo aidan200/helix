@@ -53,6 +53,7 @@ const sendStewardSetConfig = vi.fn(
       enabled?: boolean;
       model?: string;
       memory?: Record<string, unknown>;
+      triage?: Record<string, unknown>;
     },
   ) => true,
 );
@@ -184,7 +185,7 @@ function feedEmbeddingList(endpoints: { id: string; name: string; model: string;
 
 /** 管家 config.result 回执注入（steward 频道点对点帧；管家记忆 B1：
  *  memory 现态可选携带——缺省 = 未装配降级缺省；批B additive
- *  recallTopK/recallPool 生效值回显）。 */
+ *  recallTopK/recallPool 生效值回显；分诊判官批 triage 组可选携带）。 */
 function feedStewardConfig(
   enabled: boolean,
   memory?: {
@@ -197,6 +198,7 @@ function feedStewardConfig(
     recallTopK?: number;
     recallPool?: number;
   },
+  triage?: { judgeEnabled: boolean; judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null },
 ) {
   const frame = {
     v: PROTOCOL_VERSION,
@@ -208,6 +210,7 @@ function feedStewardConfig(
       enabled,
       model: "deepseek/deepseek-v4-flash",
       memory: memory ?? { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
+      ...(triage !== undefined ? { triage } : {}),
     },
   } as unknown as EventEnvelope;
   act(() => {
@@ -923,5 +926,92 @@ describe("B4 唤醒链设置（管家组：快捷键（组合键）本地偏好�
     expect(screen.getByTestId("hotkey-record")).toBeTruthy();
     feedStewardConfig(false);
     expect(screen.queryByTestId("hotkey-record")).toBeNull();
+  });
+});
+
+describe("管家组分诊判官（管家分诊判官接入批：开关 + 分类端点下拉）", () => {
+  const TRIAGE_ON = {
+    judgeEnabled: true,
+    judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
+  };
+  const CLASSIFIER_LIST = [
+    { id: "ep-1", name: "Ollama 本地", model: "bge-m3" }, // embedding：不进下拉
+    { id: "ep-9", name: "Jev", model: "jev-latest", kind: "classifier" as const, hasApiKey: true },
+    { id: "ep-10", name: "判官二", model: "typesafe/jev-latest", kind: "classifier" as const, hasApiKey: true },
+  ];
+
+  it("管家启用后渲染判官行（从属项）：开关在场；judgeEnabled=false 下拉不渲染；未启用管家全行不渲染", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, { judgeEnabled: false, judgeEndpoint: null });
+    const row = container.querySelector("[data-steward-triage]")!;
+    expect(row).not.toBeNull();
+    expect(row.className).toContain("fld-sub"); // 从属项缩进同 speak/wake
+    const check = container.querySelector<HTMLInputElement>("[data-steward-triage-enabled] > input")!;
+    expect(check.checked).toBe(false);
+    expect(container.querySelector("[data-steward-triage-endpoint]")).toBeNull(); // 开关关：下拉不渲染
+    feedStewardConfig(false, undefined, { judgeEnabled: false, judgeEndpoint: null });
+    expect(container.querySelector("[data-steward-triage]")).toBeNull(); // 管家未启用：全行不渲染
+  });
+
+  it("开关写面：勾选 → sendStewardSetConfig({triage:{judgeEnabled}}) 不乐观翻转；回执回填", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, { judgeEnabled: false, judgeEndpoint: null });
+    const check = container.querySelector<HTMLInputElement>("[data-steward-triage-enabled] > input")!;
+    fireEvent.click(check);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ triage: { judgeEnabled: true } });
+    expect(check.checked).toBe(false); // 回执前不乐观（daemon 权威）
+    feedStewardConfig(true, undefined, TRIAGE_ON);
+    expect(container.querySelector<HTMLInputElement>("[data-steward-triage-enabled] > input")!.checked).toBe(true);
+  });
+
+  it("下拉渲染：仅 kind=classifier 端点可选，现引用选中；切换写 {triage:{judgeEndpointId}}；空选项 = 清除引用", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, TRIAGE_ON);
+    feedEmbeddingList(CLASSIFIER_LIST);
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-triage-endpoint-select]")!;
+    expect(select).not.toBeNull();
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe("ep-9"); // 现引用选中
+    expect([...select.options].map((o) => o.value)).not.toContain("ep-1"); // embedding 过滤
+    expect(select.options).toHaveLength(3); // 占位 + 两 classifier
+    fireEvent.change(select, { target: { value: "ep-10" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ triage: { judgeEndpointId: "ep-10" } });
+    fireEvent.change(select, { target: { value: "" } });
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ triage: { judgeEndpointId: "" } }); // 空选项 = 清除
+  });
+
+  it("无分类端点：下拉禁用 + 引导提示（先在模型页-分类模型配置）；列表到达前同样禁用", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, TRIAGE_ON);
+    feedEmbeddingList([{ id: "ep-1", name: "Ollama", model: "bge-m3" }]); // 只有 embedding 端点
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-triage-endpoint-select]")!;
+    expect(select.disabled).toBe(true);
+    expect(select.value).toBe("");
+    expect(container.querySelector("[data-steward-triage-empty]")!.textContent).toContain("分类模型");
+  });
+
+  it("端点删除（回执 judgeEndpoint=null）→ 下拉显示未选择（占位选中）", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, { judgeEnabled: true, judgeEndpoint: null });
+    feedEmbeddingList(CLASSIFIER_LIST);
+    const select = container.querySelector<HTMLSelectElement>("[data-steward-triage-endpoint-select]")!;
+    expect(select.value).toBe(""); // 未选择占位（读面视为未配）
+  });
+
+  it("双语键：切 en-US 后标签/提示切英文", () => {
+    const { container } = ui();
+    feedStewardConfig(true, undefined, { judgeEnabled: false, judgeEndpoint: null });
+    const label = container.querySelector("[data-steward-triage] > .hud-label")!;
+    expect(label.textContent).toContain("判官");
+    fireEvent.click(document.querySelector('[data-lang-option="en-US"]')!);
+    expect(label.textContent).toContain("Judge");
+  });
+
+  it("send 失败（未连接）→ 管家组行内错误交代（与启用开关同卡共享错误位）", () => {
+    sendStewardSetConfig.mockReturnValueOnce(false);
+    const { container } = ui();
+    feedStewardConfig(true, undefined, { judgeEnabled: false, judgeEndpoint: null });
+    fireEvent.click(container.querySelector<HTMLInputElement>("[data-steward-triage-enabled] > input")!);
+    expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("未连接");
   });
 });

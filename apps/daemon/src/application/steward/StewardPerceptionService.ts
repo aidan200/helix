@@ -31,7 +31,11 @@
  * agent 级即报 / 非 task 会话 agent.completed）→ 启用 → **一次 LLM 调用
  * 双轨产物**（StewardDiagnosisPort——与原 E-232 ③层摘要归一：
  * BroadcastService 内容源回调 supplyBroadcastText 与本服务共用同一
- * in-flight 调用，事件键去重，一次事件恒一次调用）：
+ * in-flight 调用，事件键去重，一次事件恒一次调用）。判官判定面（分诊
+ * 判官接入批）：判官开启且就绪 → noul 校准概率双判（值得 ≥0.5 / 高危
+ * ≥0.5）接管 notify/urgency 判别，不值得 = 静默零 LLM；生成面转纯文本
+ * 两段制（禁 JSON 包装，烂文本截断兑底无解析失败类别）；关闭/未配/抛错
+ * → 回退现行单次 LLM JSON 路径（d7449d79 基线零变化）：
  * - 摄入轨 → ring buffer 工作记录 + recordSessionProgress 薄条目（E-247
  *   机制零改动只调用——120 码点覆盖更新，全文不进长期记忆）；非激活完成
  *   的任务**同样产摄入轨**（回来能看到干了什么——D12-⑪ v2.9 注记）；
@@ -60,6 +64,7 @@ import type {
   StewardDiagnosisPort,
   StewardDiagnosisResult,
 } from "../ports/outbound/StewardDiagnosisPort";
+import type { TriageJudgeFace } from "./StewardTriageJudge";
 import type { BroadcastContentResult } from "../voice/BroadcastService";
 import type { StewardNotifyPayload, StewardNotifySuggestion, SurfaceEvent, VoiceBroadcastKind } from "@helix/protocol";
 
@@ -165,6 +170,28 @@ export const DIAGNOSIS_SYSTEM_PROMPT = [
   "硬约束：present 的内容必须出自 ingest 已写明的事实（呈现轨是摄入轨的投影，不得编造 ingest 没有的信息）。",
 ].join("\n");
 
+// ── 分诊判官判定面常量（管家分诊判官接入批）────────────────────
+
+/** 判官阈值（noul 校准概率 ≥ 此值 = 是——E-214 记忆查重 0.5 同款）。 */
+export const TRIAGE_JUDGE_THRESHOLD = 0.5;
+
+/** 判官问句①：值不值得主动通知（问题文本单源常量——测试直引，防措辞漂移
+ *  导致判定语义漂移）。 */
+export const TRIAGE_JUDGE_WORTH_QUESTION =
+  "这个事件值得主动通知用户吗？（用户投递过消息在等回复 / 任务失败阻塞 / 数据风险 = 值得；例行完成且用户无等待 = 不值得）";
+
+/** 判官问句②：高危与否（与 DIAGNOSIS_SYSTEM_PROMPT urgency 字段同口径）。 */
+export const TRIAGE_JUDGE_HIGH_RISK_QUESTION = "高危吗？（失败阻塞 / 数据风险 / 预算耗尽）";
+
+/** 判官路径生成段系统提示词：纯文本两段制——禁 JSON/围栏/前缀（聊天模型
+ *  填表形态错配是现行解析失败的根因；本路径零格式风险）。 */
+export const TRIAGE_GENERATION_SYSTEM_PROMPT = [
+  "你是 helix 管家的通知文案撰写器：一个后台事件刚刚结束，已裁定值得通知用户。",
+  "直接输出两个自然段，禁止 JSON、代码围栏、标题或编号前缀及任何格式包装：",
+  "第一段：给用户听的一句话，口语化中文，不超过 60 字。",
+  "第二段：通知正文要点摘要，中文，不超过 200 字，写清具体结果与结论。",
+].join("\n");
+
 /** 对话内主动汇报载荷（激活态主动环投递面——D12-⑪「对话内主动汇报/
  *  接续提案」；呈现轨与 notify 同源，接续提案点按才动）。 */
 export interface ProactiveDialogReport {
@@ -179,6 +206,10 @@ export interface ProactiveDialogReport {
 export interface StewardPerceptionDeps {
   /** 分诊 LLM 面（缺席 = 分诊整体不可用——零 LLM 降级形态）。 */
   readonly diagnose?: StewardDiagnosisPort;
+  /** 分诊判官判定面（管家分诊判官接入批，可选——缺席/开关关/端点未配/
+   *  抛错均回退现行 LLM JSON 路径，d7449d79 基线零变化。窄面：只消费判定
+   *  三法，配置读写归组合根同源真体的完整 face）。 */
+  readonly triageJudge?: Pick<TriageJudgeFace, "enabled" | "ready" | "noul">;
   /** 激活信号①：steward.feed 订阅在场读面（EventStream 连接级窄接口；
    *  M0 surface 协议后升级为光球/面板精确挂载信号——接点注释见类头）。 */
   readonly feedGate: { hasStewardSubscribers(): boolean };
@@ -587,7 +618,7 @@ export class StewardPerceptionService {
         }
         userPrompt = `${userPrompt}\n回复内容（尾部截取）：${replyBlock}`;
       }
-      const result = await port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt });
+      const result = await this.diagnoseOrJudge(port, input, userPrompt);
       const present = this.clampPresent(result.present);
       const body = result.detail !== undefined ? this.clampBody(result.detail) : present;
       const ingest = result.ingest.trim();
@@ -625,6 +656,72 @@ export class StewardPerceptionService {
       }
       return undefined;
     }
+  }
+
+  /** 判定/生成拆面（管家分诊判官接入批）：判官开启且就绪 → noul 双判
+   *  （值得/高危——零格式风险）+ 生成纯文本两段制；不可用/抛错 → 回退
+   *  现行 LLM JSON 路径（d7449d79 基线——三重容错与机械保底均在位）。 */
+  private async diagnoseOrJudge(
+    port: StewardDiagnosisPort,
+    input: DiagnosisInput,
+    userPrompt: string,
+  ): Promise<StewardDiagnosisResult> {
+    const judge = this.deps.triageJudge;
+    if (judge !== undefined && judge.enabled()) {
+      if (judge.ready()) {
+        try {
+          const worth = await judge.noul(userPrompt, TRIAGE_JUDGE_WORTH_QUESTION);
+          if (worth < TRIAGE_JUDGE_THRESHOLD) {
+            // 判官裁决不值得：静默——零 LLM 零通知（ring 原始事件照记）；合成
+            // notify=false 产物供供给面归一（supplyBroadcastText → silent，
+            // 不回退极简终态通知；零摄入轨零 progress）。
+            return { notify: false, urgency: "normal", present: "", ingest: "", suggestions: [] };
+          }
+          const highRisk =
+            (await judge.noul(userPrompt, TRIAGE_JUDGE_HIGH_RISK_QUESTION)) >= TRIAGE_JUDGE_THRESHOLD;
+          const text = await port.generateText({ systemPrompt: TRIAGE_GENERATION_SYSTEM_PROMPT, userPrompt });
+          return this.resultOfGeneratedText(text, highRisk);
+        } catch (err) {
+          // 判官抛错即降级不重试（E-214 同款保守语义；生成段 LLM 失败同路回退）
+          this.deps.logger?.warn(
+            `分诊判官判定路径失败（${input.key}）：${(err as Error).message}——回退 LLM JSON 判定路径`,
+          );
+        }
+      } else {
+        // 开关开但端点未配/已删/非 classifier——值得提醒（用户预期判官生效）
+        this.deps.logger?.warn(
+          `分诊判官开启但端点未配或已失效（${input.key}）——回退 LLM JSON 判定路径`,
+        );
+      }
+    }
+    return port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt });
+  }
+
+  /** 纯文本两段制 → 分诊产物（烂文本也是文本——无「解析失败」类别）：
+   *  空行分段——第一段 = present、余段合并 = detail（单块但含单换行时按首行
+   *  /余行兑底拆分）；截断兑底归消费面 clampPresent/clampBody（≤60/≤200）；
+   *  ingest = 完整生成文本原样（摄入轨不再要求结构化分节）；suggestions 空
+   *  （LLM 不产建议——机械接续沿 emitDeliveryCapped open_tasks 提案）。 */
+  private resultOfGeneratedText(text: string, highRisk: boolean): StewardDiagnosisResult {
+    let paragraphs = text
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter((p) => p !== "");
+    if (paragraphs.length === 1 && paragraphs[0]!.includes("\n")) {
+      // 单块多行兑底：首行 = 口语句，余行 = 正文
+      const [first, ...rest] = paragraphs[0]!.split("\n");
+      paragraphs = [first!.trim(), rest.join("\n").trim()].filter((p) => p !== "");
+    }
+    const present = paragraphs[0] ?? "";
+    const detail = paragraphs.length > 1 ? paragraphs.slice(1).join("\n") : undefined;
+    return {
+      notify: true,
+      urgency: highRisk ? "high" : "normal",
+      present,
+      ...(detail !== undefined ? { detail } : {}),
+      ingest: text.trim(),
+      suggestions: [],
+    };
   }
 
   /** 机械保底投递（分诊失败降级/未启用两路共用形态）：通知预算照过 +

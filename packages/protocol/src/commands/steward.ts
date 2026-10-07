@@ -92,6 +92,16 @@ export interface StewardSetConfigPayload {
     /** 召回候选池（批B；缺省 24，上界 200）。同上两段校验分层。 */
     recallPool?: number;
   };
+  /** 分诊判官组（分诊判官接入批，additive；全部位可选）：判定面接
+   *  JudgePort（noul 校准概率判定 + 高危判别），生成面纯文本两段制；
+   *  开关关/端点未配/判官抛错 → daemon 回退现行 LLM JSON 路径。 */
+  triage?: {
+    /** 判官判定开关（默认 false = 现行 LLM JSON 判定路径）。 */
+    judgeEnabled?: boolean;
+    /** 判官端点引用（embedding.* 域 kind=classifier 端点 id；空串 = 清除
+     *  引用；悬空/非 classifier 由读面视为未配）。 */
+    judgeEndpointId?: string;
+  };
 }
 
 /** steward.set_config：写管家设置（点对点回执 steward.config.result 新态）。 */

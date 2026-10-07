@@ -237,7 +237,7 @@ export function handleStewardGetConfig(ctx: StewardCommandContext): void {
  *  写面迁 config.set_summary；协议版本严格握手下无版本偏斜窗口，拒答即明示）。 */
 export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model, summary, memory, sessionMemory } = ctx.payload;
+  const { enabled, model, summary, memory, sessionMemory, triage } = ctx.payload;
   if (summary !== undefined) {
     return ctx.commandError(
       ctx.type,
@@ -289,6 +289,20 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.recallPool 应为 number");
     }
   }
+  // 分诊判官接入批：triage 组校验（{judgeEnabled?,judgeEndpointId?}——类型
+  // 闸在此；空串 judgeEndpointId = 清除引用，悬空引用由读面自然视为未配）
+  if (triage !== undefined) {
+    if (typeof triage !== "object" || triage === null) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.triage 应为 object");
+    }
+    const tri = triage as { judgeEnabled?: unknown; judgeEndpointId?: unknown };
+    if (tri.judgeEnabled !== undefined && typeof tri.judgeEnabled !== "boolean") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.triage.judgeEnabled 应为 boolean");
+    }
+    if (tri.judgeEndpointId !== undefined && typeof tri.judgeEndpointId !== "string") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.triage.judgeEndpointId 应为 string（空串 = 清除引用）");
+    }
+  }
   void ctx.steward.service
     .setConfig({
       ...(enabled !== undefined ? { enabled } : {}),
@@ -303,6 +317,9 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
               recallPool?: number;
             },
           }
+        : {}),
+      ...(triage !== undefined
+        ? { triage: triage as { judgeEnabled?: boolean; judgeEndpointId?: string } }
         : {}),
     })
     .then((outcome) => {

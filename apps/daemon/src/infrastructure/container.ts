@@ -86,6 +86,7 @@ import {
 import { CustomProviderService } from "../application/services/CustomProviderService";
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
 import { makeJudgeAdapter } from "../adapters/driven/embedding/JudgeAdapterFactory";
+import { makeTriageJudgeFace, resolveTriageJudgeRecord } from "../application/steward/StewardTriageJudge";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { SqliteStewardDialogStore, migrateStewardDialogKv } from "../adapters/driven/steward-memory/SqliteStewardDialogStore";
 import { StewardDialogMemory } from "../application/steward/StewardDialogMemory";
@@ -732,6 +733,25 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
   });
 
+  // ── 管家记忆 B2：embedding 配置域服务体（端点 CRUD + verify + 解析）。
+  //    KV embedding_endpoints；apiKey 明文存储对齐 auth.json 同款（不另造
+  //    加密）。（分诊判官接入批上提：判官 face 装配在感知服务之前——
+  //    原落位于管家记忆 B6 块，依赖面仅 runtimeConfig/modelStack，上提零
+  //    行为变化；后续迁移链原位保留。）
+  // 判官目录依赖面（pi-ai variant 消费：目录合并视图 + provider key——与
+  // PiStewardLlmAdapter 同源；每判调用惰性重读，换 key/换目录零重启跟随）。
+  const judgeServices = {
+    getModels: () => modelStack.catalog.modelsView(),
+    getApiKey: (provider: string) => modelStack.authStore.apiKeyOf(provider),
+  };
+  const embeddingConfig = new EmbeddingConfigService({
+    config: persistence.runtimeConfig,
+    createProbe: (cfg) => new OpenAiCompatEmbeddingAdapter({ getConfig: () => cfg }),
+    // B4a：classifier 端点 verify 探测面（分类模型注册表分派——variant
+    // 区分实现）——与 createProbe 同构（按目标端点现配一次性构造，探测完即弃）
+    createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg, judgeServices),
+  });
+
   // 分诊器 LLM 面（管家感知批 M0.5 归一）：任务总结子功能专用槽位沿用
   //（summary.task.model，**无默认模型**——未配置 = 分诊面不可用，语音
   // 播报/notify 走极简终态通知）；可用性三条件在 adapter 处收口：管家开
@@ -755,12 +775,25 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 晚绑闭包（voice sink 在下方 voiceBroadcast 构造后回填——构造环：
   // BroadcastService content 源又指向本服务 supplyBroadcastText；
   // reportDialog 汇报面在下方 stewardService 构造后回填——同款晚绑）。
+  // 分诊判官判定面（分诊判官接入批，E-199 第四消费面）：steward.triage.*
+  // 配置 + noul 判定收口；judge 真体经 makeJudgeAdapter 注册表分派（换
+  // 端点/换变体零重启跟随——与管家记忆判官同款接线形态）；感知服务判定
+  // 依赖与 steward.set_config {triage} 组读写同源真体。
+  const triageJudge = makeTriageJudgeFace({
+    config: persistence.runtimeConfig,
+    embeddingConfig,
+    judge: makeJudgeAdapter(
+      () => resolveTriageJudgeRecord(persistence.runtimeConfig, embeddingConfig),
+      judgeServices,
+    ),
+  });
   let voiceBroadcastRef: BroadcastService | undefined;
   let stewardServiceRef: StewardService | undefined;
   const stewardPerception =
     deps.stewardPerceptionOverride ??
     new StewardPerceptionService({
       diagnose: stewardDiagnose,
+      triageJudge,
       feedGate: eventStream, // hasStewardSubscribers 窄接口（激活信号①；M0 surface 后升级）
       // progress 薄条目写面（stewardMemory 在下方构造——晚绑闭包；缺席/未装配 = 静默 false）
       memory: {
@@ -805,26 +838,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
   });
   voiceBroadcastRef = voiceBroadcast; // 晚绑闭合（感知服务 voice sink 回填）
-  // ── 管家记忆 B2：embedding 配置域服务体（端点 CRUD + verify + 解析）。
-  //    KV embedding_endpoints；apiKey 明文存储对齐 auth.json 同款（不另造
-  //    加密）。一次性迁移（批B 两级链式，幂等可重跑）：① 旧 steward.memory.*
-  //    三键 → memory.* 通用记忆配置域（清旧键，新域已有值不覆盖）；② 旧
-  //    steward.memory.embedding（B1 三字段）→ 首条端点 + memory.endpointId
-  //    指向 + 清旧键（新域非空零动作）。先键位后端点：B1 老用户的旧 endpointId
-  //    指向悬空时，② 产出的新条目 id 优先，防迁移产物互相覆盖。
-  // 判官目录依赖面（pi-ai variant 消费：目录合并视图 + provider key——与
-  // PiStewardLlmAdapter 同源；每判调用惰性重读，换 key/换目录零重启跟随）。
-  const judgeServices = {
-    getModels: () => modelStack.catalog.modelsView(),
-    getApiKey: (provider: string) => modelStack.authStore.apiKeyOf(provider),
-  };
-  const embeddingConfig = new EmbeddingConfigService({
-    config: persistence.runtimeConfig,
-    createProbe: (cfg) => new OpenAiCompatEmbeddingAdapter({ getConfig: () => cfg }),
-    // B4a：classifier 端点 verify 探测面（分类模型注册表分派——variant
-    // 区分实现）——与 createProbe 同构（按目标端点现配一次性构造，探测完即弃）
-    createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg, judgeServices),
-  });
+  // ── 管家记忆 B2：embedding 配置域服务体已在上方构造（分诊判官接入批
+  //    上提）；两条一次性迁移链（批B 两级链式，幂等可重跑）：① 旧
+  //    steward.memory.* 三键 → memory.* 通用记忆配置域（清旧键，新域已有
+  //    值不覆盖）；② 旧 steward.memory.embedding（B1 三字段）→ 首条端点 +
+  //    memory.endpointId 指向 + 清旧键（新域非空零动作）。先键位后端点：
+  //    B1 老用户的旧 endpointId 指向悬空时，② 产出的新条目 id 优先，防迁移
+  //    产物互相覆盖。
   void migrateLegacyStewardMemoryKeys(persistence.runtimeConfig)
     .then((migratedKeys) => {
       if (migratedKeys) logger.info("管家记忆迁移：steward.memory.* 三键已迁入 memory.* 通用记忆配置域（旧键已清）");
@@ -972,6 +992,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     llm: stewardLlm,
     ...(dialog !== undefined ? { dialog } : {}),
     memory: stewardMemory,
+    triageJudge,
     // 项目隔离批：当前项目口径解析（workspace 绑定根 + 一级目录扫描，
     // 与 codegraph/kg 的 projectPath 同源口径；kg 缺省范围批起双消费：记忆
     // 召回 + kg_search/kg_get 缺省范围——resolveKgScope 直接取本口径，不另

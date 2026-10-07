@@ -39,8 +39,13 @@ import type {
 import {
   StewardPerceptionService,
   STEWARD_ACTIVE_WINDOW_MS,
+  TRIAGE_JUDGE_WORTH_QUESTION,
+  TRIAGE_JUDGE_HIGH_RISK_QUESTION,
+  TRIAGE_JUDGE_THRESHOLD,
+  TRIAGE_GENERATION_SYSTEM_PROMPT,
   type ProactiveDialogReport,
 } from "../../src/application/steward/StewardPerceptionService";
+import type { TriageJudgeFace } from "../../src/application/steward/StewardTriageJudge";
 import { BroadcastService, isBroadcastEligible, buildBroadcastText } from "../../src/application/voice/BroadcastService";
 import type { StewardNotifyPayload, VoiceBroadcastPayload } from "@helix/protocol";
 
@@ -68,17 +73,21 @@ function fakeTts(): TtsPort & { calls: TtsRequest[] } {
   } as TtsPort & { calls: TtsRequest[] };
 }
 
-/** fake 分诊 port：记录调用；行为可构造后重编程（setBehavior）。 */
+/** fake 分诊 port：记录调用；行为可构造后重编程（setBehavior）。判官批新增
+ *  generateText 纯文本面（text/textError 可编程——判定路径生成段）。 */
 function fakeDiagnose(
-  behavior?: { result?: Partial<StewardDiagnosisResult>; error?: Error; available?: boolean },
+  behavior?: { result?: Partial<StewardDiagnosisResult>; error?: Error; available?: boolean; text?: string; textError?: Error },
 ): StewardDiagnosisPort & {
   calls: StewardDiagnosisPrompt[];
-  setBehavior(b: { result?: Partial<StewardDiagnosisResult>; error?: Error; available?: boolean }): void;
+  textCalls: StewardDiagnosisPrompt[];
+  setBehavior(b: { result?: Partial<StewardDiagnosisResult>; error?: Error; available?: boolean; text?: string; textError?: Error }): void;
 } {
   const calls: StewardDiagnosisPrompt[] = [];
+  const textCalls: StewardDiagnosisPrompt[] = [];
   let current = behavior ?? {};
   return {
     calls,
+    textCalls,
     setBehavior: (b) => {
       current = b;
     },
@@ -98,6 +107,41 @@ function fakeDiagnose(
         suggestions: [],
         ...(current.result ?? {}),
       };
+    },
+    async generateText(prompt) {
+      textCalls.push({ ...prompt });
+      if (current.textError !== undefined) throw current.textError;
+      return current.text ?? "默认口语句。\n\n默认正文要点。";
+    },
+  };
+}
+
+/** fake 分诊判官判定面（管家分诊判官接入批）：noul 双判可编程
+ *  （worth/risk/error）；enabled/ready 缺省双 true（开启且就绪）。窄面
+ *  Pick<enabled/ready/noul>——与感知服务判定依赖同形。 */
+function fakeTriageJudge(behavior?: {
+  enabled?: boolean;
+  ready?: boolean;
+  worth?: number;
+  risk?: number;
+  error?: Error;
+}): Pick<TriageJudgeFace, "enabled" | "ready" | "noul"> & {
+  calls: { state: string; question: string }[];
+  setBehavior(b: { enabled?: boolean; ready?: boolean; worth?: number; risk?: number; error?: Error }): void;
+} {
+  const calls: { state: string; question: string }[] = [];
+  let current = behavior ?? {};
+  return {
+    calls,
+    setBehavior: (b) => {
+      current = b;
+    },
+    enabled: () => current.enabled !== false,
+    ready: () => current.ready !== false,
+    noul: async (state, question) => {
+      calls.push({ state, question });
+      if (current.error !== undefined) throw current.error;
+      return question === TRIAGE_JUDGE_WORTH_QUESTION ? (current.worth ?? 0.9) : (current.risk ?? 0.1);
     },
   };
 }
@@ -126,6 +170,7 @@ function makeStack(opts?: {
   now?: number;
   readReply?: (sessionId: string) => Promise<string | undefined>;
   kv?: ReturnType<typeof makeFakeKv>;
+  triageJudge?: ReturnType<typeof fakeTriageJudge>;
 }) {
   const tts = fakeTts();
   const frames: VoiceBroadcastPayload[] = [];
@@ -157,6 +202,7 @@ function makeStack(opts?: {
     logger: { warn: (m) => warns.push(m) },
     ...(opts?.readReply !== undefined ? { readReply: opts.readReply } : {}),
     ...(opts?.kv !== undefined ? { kv: opts.kv } : {}),
+    ...(opts?.triageJudge !== undefined ? { triageJudge: opts.triageJudge } : {}),
   });
   perceptionRef = perception; // 晚绑闭合
   if (opts?.recentAsk !== false) perception.noteUserActivity();
@@ -799,6 +845,157 @@ describe("通知正文双轨预算：present（语音 ≤60）与 detail（notif
     perception.onDomainEvent(turnEvent("sess-target"));
     await broadcast_drain(perception);
     expect([...notifies[0]!.body].length).toBe(201); // 200 字 + 省略号
+  });
+});
+
+describe("分诊判官判定面（管家分诊判官接入批：noul 双判 + 生成纯文本两段制 + 降级链）", () => {
+  test("判官开启且值得：noul 双判 + generateText 纯文本两段（present ≤60/detail ≤200 截断）零 JSON 调用", async () => {
+    const diagnose = fakeDiagnose({
+      text: `${"句".repeat(80)}\n\n${"正".repeat(250)}`,
+    });
+    const judge = fakeTriageJudge({ worth: 0.9, risk: 0.1 });
+    const { perception, notifies, memory } = makeStack({ diagnose, triageJudge: judge });
+    perception.onJobTerminal("job-j1", "done", "判官接入批（helix）");
+    await broadcast_drain(perception);
+    // 判定面：noul 双判（值得/高危），问题文本单源常量直引
+    expect(judge.calls.length).toBe(2);
+    expect(judge.calls[0]!.question).toBe(TRIAGE_JUDGE_WORTH_QUESTION);
+    expect(judge.calls[1]!.question).toBe(TRIAGE_JUDGE_HIGH_RISK_QUESTION);
+    expect(judge.calls[0]!.state).toContain("job-j1"); // 现场摘要 = 分诊 userPrompt 同源
+    // 生成面：纯文本两段制——零 JSON diagnose 调用
+    expect(diagnose.textCalls.length).toBe(1);
+    expect(diagnose.calls.length).toBe(0);
+    expect(diagnose.textCalls[0]!.systemPrompt).toBe(TRIAGE_GENERATION_SYSTEM_PROMPT); // 纯文本两段制提示词单源
+    // 产物：present ≤60 截断 + 省略号；body=detail ≤200 截断 + 省略号
+    expect(notifies.length).toBe(1);
+    expect([...notifies[0]!.body].length).toBe(201);
+    expect(notifies[0]!.title).toBe("判官接入批（helix）");
+    const ringEntry = perception.ringSnapshot().find((r) => r.kind === "task.diagnosed")!;
+    expect([...ringEntry.text].length).toBe(61); // ring text = present 截断后
+    expect(ringEntry.ingest).toBe(`${"句".repeat(80)}\n\n${"正".repeat(250)}`); // 摄入轨 = 完整生成文本原样
+    expect(memory.progress.length).toBe(1); // progress 薄条目照写
+  });
+
+  test("建议按钮机械化：LLM 不产建议——仅 open_tasks 机械提案（任务级锚）", async () => {
+    const diagnose = fakeDiagnose({ text: "一句口语。\n\n正文要点。" });
+    const { perception, notifies } = makeStack({ diagnose, triageJudge: fakeTriageJudge() });
+    perception.onJobTerminal("job-j2", "done", "判官接入批");
+    await broadcast_drain(perception);
+    expect(notifies[0]!.suggestions).toEqual([{ label: "看看报告", verb: "open_tasks" }]); // 机械接续单源
+  });
+
+  test("不值得（noul worth < 0.5）：零 LLM 零 notify 零语音——ring 照记（事件流在，无摄入轨）", async () => {
+    const diagnose = fakeDiagnose();
+    const judge = fakeTriageJudge({ worth: TRIAGE_JUDGE_THRESHOLD - 0.01 });
+    const { perception, diagnose: d, tts, notifies, dialogReports, memory } = makeStack({ diagnose, triageJudge: judge });
+    perception.onJobTerminal("job-j3", "done", "例行任务");
+    await broadcast_drain(perception);
+    expect(judge.calls.length).toBe(1); // 高危判别不做（不值得短路）
+    expect(d.calls.length).toBe(0); // 零 JSON 分诊
+    expect(d.textCalls.length).toBe(0); // 零生成
+    expect(notifies.length).toBe(0);
+    expect(tts.calls.length).toBe(0);
+    expect(dialogReports.length).toBe(0);
+    expect(memory.progress.length).toBe(0);
+    const ring = perception.ringSnapshot();
+    expect(ring.some((r) => r.kind === "task.terminal")).toBe(true); // ring 照记
+    expect(ring.some((r) => r.kind === "task.diagnosed")).toBe(false); // 零摄入轨
+  });
+
+  test("不值得供给面归一：BroadcastService content 源得 silent（不回退极简终态通知）", async () => {
+    const diagnose = fakeDiagnose();
+    const { broadcast, perception, tts, frames } = makeStack({
+      diagnose,
+      triageJudge: fakeTriageJudge({ worth: 0.2 }),
+      subscribers: 1,
+    });
+    const event = agentEvent("agent.failed", { agentId: "agent-x", error: "boom", closure: closure("xx") });
+    broadcast.onDomainEvent(event);
+    await broadcast.drain();
+    expect(tts.calls.length).toBe(0); // silent：不播极简「后台任务失败」
+    expect(frames.length).toBe(0);
+    expect(diagnose.calls.length).toBe(0);
+    expect(diagnose.textCalls.length).toBe(0);
+  });
+
+  test("高危判别：noul risk ≥ 0.5 → urgency=high 豁免限流（第 5 条不丢）", async () => {
+    const diagnose = fakeDiagnose({ text: "高危口语句。\n\n高危正文要点。" });
+    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge({ worth: 0.9, risk: 0.9 }) });
+    for (let i = 1; i <= 5; i += 1) perception.onJobTerminal(`job-h${i}`, "done", `高危任务 ${i}`);
+    await broadcast_drain(perception);
+    expect(notifies.length).toBe(5); // high 档豁免 normal 窗口限流
+    for (const n of notifies) expect(n.urgency).toBe("high");
+    expect(warns.length).toBe(0);
+  });
+
+  test("高危低于阈值（risk < 0.5）→ urgency=normal 照限流（第 5 条丢 + warn）", async () => {
+    const diagnose = fakeDiagnose({ text: "口语句。\n\n正文要点。" });
+    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge({ worth: 0.9, risk: 0.1 }) });
+    for (let i = 1; i <= 5; i += 1) perception.onJobTerminal(`job-n${i}`, "done", `常规任务 ${i}`);
+    await broadcast_drain(perception);
+    expect(notifies.length).toBe(4); // normal 档 ≤4 条/h 照限
+    expect(warns.some((w) => w.includes("预算超限"))).toBe(true);
+    expect(notifies.every((n) => n.urgency === "normal")).toBe(true);
+  });
+
+  test("判官抛错 → WARN + 回退现行 LLM JSON 路径（判定用 JSON 产物——不重试判官）", async () => {
+    const diagnose = fakeDiagnose();
+    const judge = fakeTriageJudge({ error: new Error("判官端点不可达") });
+    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: judge });
+    perception.onJobTerminal("job-f1", "done", "降级任务");
+    await broadcast_drain(perception);
+    expect(judge.calls.length).toBe(1); // 抛错即降级：不重试
+    expect(warns.some((w) => w.includes("判官") && w.includes("回退"))).toBe(true);
+    expect(diagnose.calls.length).toBe(1); // 回退现行 JSON 路径
+    expect(diagnose.textCalls.length).toBe(0);
+    expect(notifies.length).toBe(1);
+    expect(notifies[0]!.body).toBe("M0.5 感知链路已交付，测试全部通过。"); // JSON 产物同现行
+  });
+
+  test("开关开但端点未配/失效（ready false）→ WARN + 回退 LLM JSON 路径", async () => {
+    const diagnose = fakeDiagnose();
+    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge({ ready: false }) });
+    perception.onJobTerminal("job-f2", "done", "未配任务");
+    await broadcast_drain(perception);
+    expect(warns.some((w) => w.includes("未配") || w.includes("失效"))).toBe(true);
+    expect(diagnose.calls.length).toBe(1);
+    expect(notifies.length).toBe(1);
+  });
+
+  test("判官关闭（enabled false）→ 零判官调用零 warn，行为与 d7449d79 基线完全一致", async () => {
+    const diagnose = fakeDiagnose();
+    const judge = fakeTriageJudge({ enabled: false });
+    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: judge });
+    perception.onJobTerminal("job-b1", "done", "基线任务");
+    await broadcast_drain(perception);
+    expect(judge.calls.length).toBe(0);
+    expect(warns.length).toBe(0);
+    expect(diagnose.calls.length).toBe(1); // 现行 JSON 路径
+    expect(notifies.length).toBe(1);
+  });
+
+  test("烂文本兑底：空文本 → 静默（无解析失败类别，零 crash）", async () => {
+    const diagnose = fakeDiagnose({ text: "   " });
+    const { perception, tts, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge() });
+    perception.onJobTerminal("job-e1", "done", "空文本任务");
+    await broadcast_drain(perception);
+    expect(notifies.length).toBe(0); // present 空 → 静默裁决
+    expect(tts.calls.length).toBe(0);
+    expect(warns.length).toBe(0); // 不是错误——文本面无失败类别
+  });
+
+  test("单段文本（无空行）→ detail 回退 present 单轨；单换行多行 → 首行 present 其余 detail", async () => {
+    const diagnose = fakeDiagnose({ text: "只有一段的口语句。" });
+    const { perception, notifies } = makeStack({ diagnose, triageJudge: fakeTriageJudge() });
+    perception.onJobTerminal("job-s1", "done", "单段任务");
+    await broadcast_drain(perception);
+    expect(notifies[0]!.body).toBe("只有一段的口语句。"); // detail 缺席回退 present
+
+    const diagnose2 = fakeDiagnose({ text: "首行口语句。\n第二行要点。\n第三行要点。" });
+    const { perception: p2, notifies: n2 } = makeStack({ diagnose: diagnose2, triageJudge: fakeTriageJudge() });
+    p2.onJobTerminal("job-s2", "done", "单换行任务");
+    await broadcast_drain(p2);
+    expect(n2[0]!.body).toBe("第二行要点。\n第三行要点。"); // 首行=present，余行=detail
   });
 });
 

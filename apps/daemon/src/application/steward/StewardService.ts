@@ -55,6 +55,7 @@ import type {
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
+import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
 import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
 import type { StewardToolSpec } from "../ports/outbound/StewardToolSpec";
 import type { StewardSurfacePort, StewardSurfaceActRequest } from "../ports/outbound/StewardSurfacePort";
@@ -799,6 +800,10 @@ export interface StewardServiceDeps {
  *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
  *  available=false）——对话主链路零影响。 */
   readonly memory?: StewardMemoryService;
+  /** 分诊判官配置与判定面（分诊判官接入批：steward.set_config {triage}
+ *  组读写 + 感知服务判定依赖同源真体；缺席 = triage 组读写降级不可用
+ *  + 判定面不启用——回退现行 LLM JSON 路径）。 */
+  readonly triageJudge?: TriageJudgeFace;
   /** 当前项目口径解析（项目隔离批引入；kg 缺省范围批起双消费面）：返回
  *  workspace 一级项目目录名（workspace 绑定根 + 一级目录扫描的单项目口径
  *  ——记忆召回与 kg_search/kg_get 缺省范围共用同源，不另造口径判定）；多
@@ -2249,12 +2254,15 @@ export class StewardService {
 
   /** 设置现态（steward.get_config / set_config 共用读面）。summary 组 =
    *  总结配置域只读回显（config.result 回显 summary 组——写面在
-   *  config.set_summary，管家配置零总结项）。 */
+   *  config.set_summary，管家配置零总结项）。triage 组 = 分诊判官配置
+   *  现态（分诊判官接入批：judgeEnabled + judgeEndpoint 引用态——端点
+   *  删除读面视为未配 null）。 */
   getConfig(): {
     enabled: boolean;
     model: string;
     summary: import("../summary/summaryConfig").SummaryConfigState;
     memory: import("./StewardMemoryService").StewardMemoryState;
+    triage: TriageJudgeState;
   } {
     return {
       enabled: this.isEnabled(),
@@ -2270,6 +2278,8 @@ export class StewardService {
         entryCount: 0,
         dim: null,
       },
+      // 分诊判官配置现态（未装配 = 全降级缺省——开关关/端点未配）
+      triage: this.deps.triageJudge?.state() ?? { judgeEnabled: false, judgeEndpoint: null },
     };
   }
 
@@ -2333,7 +2343,9 @@ export class StewardService {
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
    *  memory 组 {enabled?,endpointId?,judgeEndpointId?} + 批B 召回量
-   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*）。
+   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*；
+   *  triage 组 {judgeEnabled?,judgeEndpointId?} 转发分诊判官配置域
+   *  （分诊判官接入批）。
    *  **summary/sessionMemory 组已摘除**（会话总结器独立化批①——总结配置
    *  收编 summary.* 通用域，写面在 config.set_summary；携带旧组的载荷在
    *  handler 层拒答 invalid_payload）。 */
@@ -2341,6 +2353,7 @@ export class StewardService {
     enabled?: boolean;
     model?: string;
     memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number };
+    triage?: { judgeEnabled?: boolean; judgeEndpointId?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.memory !== undefined) {
       // 管家记忆 B1：记忆配置委托记忆域服务（校验在其中——开启前端点必填）
@@ -2348,6 +2361,14 @@ export class StewardService {
         return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
       }
       const outcome = await this.deps.memory.setMemoryConfig(patch.memory);
+      if (!outcome.ok) return outcome;
+    }
+    if (patch.triage !== undefined) {
+      // 分诊判官接入批：判官配置委托判定域面（空串 judgeEndpointId = 清除引用）
+      if (this.deps.triageJudge === undefined) {
+        return { ok: false, error: "分诊判官面未装配（daemon 装配缺 triage 源）" };
+      }
+      const outcome = await this.deps.triageJudge.setConfig(patch.triage);
       if (!outcome.ok) return outcome;
     }
     if (patch.model !== undefined) {

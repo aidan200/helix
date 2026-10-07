@@ -99,6 +99,24 @@ export class StewardDiagnosisAdapter implements StewardDiagnosisPort {
   }
 
   async diagnose(prompt: StewardDiagnosisPrompt): Promise<StewardDiagnosisResult> {
+    const response = await this.llmComplete(prompt);
+    const parsed = parseDiagnosis(stewardBlocksText(response.blocks));
+    if (parsed === undefined) {
+      throw new Error("分诊产物 JSON 解析失败（烂输出整体丢弃——不播半产物）");
+    }
+    return parsed;
+  }
+
+  async generateText(prompt: StewardDiagnosisPrompt): Promise<string> {
+    // 判官判定路径生成段：纯文本直出（零解析——两段拆分与截断兑底归感知
+    // 服务机械收口，本面无「解析失败」类别）
+    const response = await this.llmComplete(prompt);
+    return stewardBlocksText(response.blocks).trim();
+  }
+
+  /** LLM 调用 + 防腐防御共用面（diagnose/generateText 同构：aborted 与
+   *  toolCall 两防御分支不随生成面复制漂移）。 */
+  private async llmComplete(prompt: StewardDiagnosisPrompt) {
     const response = await this.deps.llm.complete({
       systemPrompt: prompt.systemPrompt,
       messages: [{ role: "user", text: prompt.userPrompt }],
@@ -113,10 +131,6 @@ export class StewardDiagnosisAdapter implements StewardDiagnosisPort {
     if (toolCallBlock !== undefined) {
       throw new Error(`分诊面收到意外的工具调用（${toolCallBlock.name}——tools 为空不应发生）`);
     }
-    const parsed = parseDiagnosis(stewardBlocksText(response.blocks));
-    if (parsed === undefined) {
-      throw new Error("分诊产物 JSON 解析失败（烂输出整体丢弃——不播半产物）");
-    }
-    return parsed;
+    return response;
   }
 }

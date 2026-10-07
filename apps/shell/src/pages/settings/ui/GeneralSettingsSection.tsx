@@ -135,6 +135,13 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [poolDraft, setPoolDraft] = useState<string>("");
   const poolCommitted = useRef<number | null>(null);
   const [embeddingEndpoints, setEmbeddingEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
+  // 分诊判官（分诊判官接入批）：daemon 权威现态（steward.config.result triage
+  // 组回执回填，不乐观）；开关 + 分类端点下拉（数据源 = 模型页分类 tab 已
+  // 配端点 embedding.list kind=classifier）
+  const [triageCfg, setTriageCfg] = useState<{
+    judgeEnabled: boolean;
+    judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
+  } | null>(null);
   useEffect(() => {
     sendStewardGetConfig();
   }, [sendStewardGetConfig]);
@@ -154,9 +161,14 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             recallTopK?: number;
             recallPool?: number;
           };
+          triage?: {
+            judgeEnabled: boolean;
+            judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
+          };
         };
         setStewardEnabled(payload.enabled === true);
         if (payload.memory !== undefined) setMemoryCfg(payload.memory);
+        if (payload.triage !== undefined) setTriageCfg(payload.triage);
       }),
     [subscribeStewardFrames],
   );
@@ -194,6 +206,21 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const toggleMemory = (enabled: boolean): void => sendMemory({ enabled });
   const selectMemoryEndpoint = (endpointId: string): void => sendMemory({ endpointId });
   const selectJudgeEndpoint = (judgeEndpointId: string): void => sendMemory({ judgeEndpointId });
+  // 分诊判官写面（分诊判官接入批）：steward.set_config {triage} 部分更新
+  //（管家卡内同帧命令——send 失败归管家组行内错误位）；空串 = 清除端点引用；
+  // 回执驱动回填不乐观
+  const sendTriage = (patch: { judgeEnabled?: boolean; judgeEndpointId?: string }): void => {
+    if (sendStewardSetConfig({ triage: patch }) === false) {
+      setStewardError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setStewardError(null);
+  };
+  // 分类端点清单（下拉数据源：仅 kind=classifier——模型页分类 tab 同域）
+  const classifierEndpoints = useMemo(
+    () => (embeddingEndpoints ?? []).filter((ep) => ep.kind === "classifier"),
+    [embeddingEndpoints],
+  );
   // 总结组写面（总结器独立化批①）：config.set_summary 部分更新；空串/null
   // = 清空槽位回未配置态；轮次失焦/回车提交（非法值回落最近已提交值零命令）；
   // 回执驱动回填不乐观
@@ -498,6 +525,52 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             <span className="hud-label">{t("chat.settings.general.stewardHotkey")}</span>
             <HotkeyRecorder />
             <span className="ag-note">{t("chat.settings.general.stewardHotkeyNote")}</span>
+          </div>
+        )}
+        {/* 分诊判官（分诊判官接入批）：判定面接 JudgePort——开关 + 分类端点
+            下拉（数据源 = 模型页分类 tab）；开关开且端点有效时分诊判定走判官
+            noul 校准概率、生成转纯文本两段制；关闭/未配/判官报错 daemon 回退
+            现行 LLM 路径（写面 steward.set_config {triage}，回执回填不乐观） */}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-triage>
+            <span className="hud-label">{t("chat.settings.general.stewardTriageJudge")}</span>
+            <label className="set-check" data-steward-triage-enabled>
+              <input
+                type="checkbox"
+                checked={triageCfg?.judgeEnabled === true}
+                onChange={(e) => sendTriage({ judgeEnabled: e.target.checked })}
+              />
+              {t("chat.settings.general.stewardSwitchOn")}
+            </label>
+            {triageCfg?.judgeEnabled === true && (
+              <div className="sel-wrap" data-steward-triage-endpoint>
+                <select
+                  className="hud-input"
+                  data-steward-triage-endpoint-select
+                  disabled={classifierEndpoints.length === 0}
+                  value={
+                    triageCfg.judgeEndpoint !== null && classifierEndpoints.some((ep) => ep.id === triageCfg.judgeEndpoint?.id)
+                      ? triageCfg.judgeEndpoint.id
+                      : ""
+                  }
+                  onChange={(e) => sendTriage({ judgeEndpointId: e.target.value })}
+                >
+                  <option value="">{t("chat.settings.general.stewardTriageEndpointPlaceholder")}</option>
+                  {classifierEndpoints.map((ep) => (
+                    <option key={ep.id} value={ep.id}>
+                      {`${ep.name} (${ep.model})`}
+                    </option>
+                  ))}
+                </select>
+                {classifierEndpoints.length === 0 ? (
+                  <span className="ag-note" data-steward-triage-empty>
+                    {t("chat.settings.general.stewardTriageEndpointEmpty")}
+                  </span>
+                ) : (
+                  <span className="ag-note">{t("chat.settings.general.stewardTriageEndpointNote")}</span>
+                )}
+              </div>
+            )}
           </div>
         )}
         {/* 记忆区已迁出（设置页长期记忆组批）：memory.* 通用域五键归通用分区

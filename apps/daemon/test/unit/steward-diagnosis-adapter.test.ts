@@ -91,6 +91,23 @@ describe("防腐面与调用", () => {
   });
 });
 
+describe("generateText 纯文本面（分诊判官批：判定路径生成段——零 JSON 协议零解析失败类别）", () => {
+  test("纯文本透传：blocks 文本原样返回（无解析无包装）", async () => {
+    const { adapter, llm } = makeAdapter({ llm: fakeLlm({ text: "一句口语。\n\n正文要点。" }) });
+    const text = await adapter.generateText({ systemPrompt: "GEN_SYS", userPrompt: "事实" });
+    expect(text).toBe("一句口语。\n\n正文要点。");
+    expect(llm.calls.length).toBe(1);
+    expect(llm.calls[0]!.systemPrompt).toBe("GEN_SYS");
+    expect(llm.calls[0]!.messages).toEqual([{ role: "user", text: "事实" }]);
+    expect(llm.calls[0]!.tools).toEqual([]);
+  });
+
+  test("toolCall 响应（tools 空不应发生）→ throw 防御（与 diagnose 同款）", async () => {
+    const { adapter } = makeAdapter({ llm: fakeLlm({ toolCall: true }) });
+    await expect(adapter.generateText({ systemPrompt: "s", userPrompt: "u" })).rejects.toThrow("工具调用");
+  });
+});
+
 describe("parseDiagnosis（纯函数）：JSON 三重容错", () => {
   test("```json 围栏剥壳", () => {
     const r = parseDiagnosis("```json\n{\"present\":\"一句话\",\"ingest\":\"详录一句话\"}\n```");
