@@ -57,6 +57,7 @@ vi.mock("@/shared/lib/voice-pref", () => ({
 }));
 
 import { useVoiceBroadcast } from "./useVoiceBroadcast";
+import { resetSpeechMutexForTest, speechLeaseActive } from "@/shared/lib/speech-mutex";
 
 const broadcastFrame = (seq: number, audio = `data:audio/wav;base64,S${seq}`): EventEnvelope =>
   ({ v: "0.14", sessionId: "__system__", channel: "voice", type: "voice.broadcast", payload: { kind: "agent.completed", agentId: "agent-1", text: "t", audio, provider: "dashscope", seq } }) as unknown as EventEnvelope;
@@ -66,6 +67,7 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
     FakeAudio.instances = [];
     rejectPlay = false;
     (globalThis as { Audio?: unknown }).Audio = FakeAudio;
+    resetSpeechMutexForTest();
   });
 
   afterEach(() => {
@@ -73,6 +75,7 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
     vi.clearAllMocks();
     frameListener = null;
     connState = "connected";
+    resetSpeechMutexForTest();
   });
 
   it("闸门：connected + 偏好开 → sendVoiceSubscribe(Cherry)", async () => {
@@ -154,5 +157,40 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(FakeAudio.instances.length).toBe(2);
+  });
+
+  it("⑥ 播报租约：播放期租约在场（收音互斥面），队列排空才释放（顺序播放不闪断）", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    expect(speechLeaseActive()).toBe(false);
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+      frameListener!(broadcastFrame(2));
+    });
+    expect(speechLeaseActive()).toBe(true); // 首条播放期持租约
+    await act(async () => {
+      FakeAudio.instances[0]!.onended?.();
+    });
+    expect(speechLeaseActive()).toBe(true); // 第二条接续——队列非空不释放（零闪断）
+    await act(async () => {
+      FakeAudio.instances[1]!.onended?.();
+    });
+    expect(speechLeaseActive()).toBe(false); // 队列排空 → 释放（收音恢复）
+  });
+
+  it("⑥ 播报租约：播放拒绝/异常路径零泄漏（跳完即释放）", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    rejectPlay = true;
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+      frameListener!(broadcastFrame(2));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(speechLeaseActive()).toBe(false); // 全部跳过 → 租约释放（不永久暂停收音）
   });
 });

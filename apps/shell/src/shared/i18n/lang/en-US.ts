@@ -1330,6 +1330,8 @@ export const enUS = {
       cmdNotFound: "No card #{n}",
       cmdSettled: "Card #{n} was already handled",
       cmdCancelAllOk: "Cancelled {n} pending cards",
+      // ── ③ Voice outreach (voice-loop batch): short announce on card pop (active voice session only) ──
+      cardPending: "A delivery is waiting for your confirmation",
     },
   },
 } satisfies Translations;

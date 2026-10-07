@@ -435,6 +435,61 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     expect(toggleWake).toHaveBeenCalledTimes(1);
   });
 
+  // ── ③ 语音触达（语音闭环批）：弹卡即播——仅双工会话活跃期（TR-243 零点击原则）──
+
+  it("③ 语音触达：双工会话活跃期新确认卡弹出 → 播报「有个投递等你确认」（+字幕）", async () => {
+    svState.duplexActive = true;
+    renderLayer();
+    act(() => {
+      emitSteward({
+        type: "steward.ask.result",
+        payload: { status: "confirm_required", actionId: "d1", agentId: "投递", message: "递话全文" },
+      } as unknown as EventEnvelope);
+    });
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(say).toHaveBeenCalledWith("有个投递等你确认");
+    await waitFor(() => {
+      const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
+      expect(Array.from(lines).some((l) => l.textContent === "有个投递等你确认")).toBe(true);
+    });
+  });
+
+  it("③ 语音触达：会话外弹卡零播报（仅语音会话活跃时触发）；会话开启也不回溯补播", () => {
+    svState.duplexActive = false;
+    const { rerenderLayer } = renderLayer();
+    act(() => {
+      emitSteward({
+        type: "steward.ask.result",
+        payload: { status: "confirm_required", actionId: "d2", agentId: "投递", message: "m" },
+      } as unknown as EventEnvelope);
+    });
+    expect(say).not.toHaveBeenCalled();
+    // 会话后开（卡仍在栈）：不回溯补播（弹卡时点判据）
+    svState.duplexActive = true;
+    rerenderLayer({});
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("③ 语音触达：memory 通知卡零播报（无操作面）；同卡重放零重播（幂等）", () => {
+    svState.duplexActive = true;
+    renderLayer();
+    act(() => {
+      emitSteward({ type: "steward.memory_written", payload: { text: "记了点东西", mode: "added" } } as unknown as EventEnvelope);
+    });
+    expect(say).not.toHaveBeenCalled(); // memory 卡无「等你确认」语义
+    act(() => {
+      emitSteward({
+        type: "steward.ask.result",
+        payload: { status: "confirm_required", actionId: "d3", agentId: "投递", message: "m" },
+      } as unknown as EventEnvelope);
+      emitSteward({
+        type: "steward.ask.result",
+        payload: { status: "confirm_required", actionId: "d3", agentId: "投递", message: "m" },
+      } as unknown as EventEnvelope); // 重放（daemon 登记簿复用回执）
+    });
+    expect(say).toHaveBeenCalledTimes(1); // 同卡不重播
+  });
+
   // 组合键 → toggleWake 接线归 useStewardVoice（wake/duplex 测试面钉——hook
   // 注册 wake-hotkey fire handler；本文件 hook 整面 mock 不重复钉）。
 });

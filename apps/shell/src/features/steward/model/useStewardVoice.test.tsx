@@ -22,6 +22,12 @@ import { StrictMode } from "react";
 import { I18nProvider } from "@/shared/i18n";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 import { readBargeInTrace } from "@/shared/lib/barge-in-trace";
+import {
+  beginSpeechLease,
+  endSpeechLease,
+  resetSpeechMutexForTest,
+  speechLeaseActive,
+} from "@/shared/lib/speech-mutex";
 import { VOICE_VOICE_CHECK_PREF_KEY, VOICE_VAD_SENSITIVITY_PREF_KEY, VOICE_ZCR_TOLERANCE_PREF_KEY } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
@@ -643,6 +649,162 @@ describe("useStewardVoice（V3b-1 流式转写面）", () => {
   });
 });
 
+// ── ⑥ 播报-收音互斥（speech-mutex 接线：发言期租约 → 收音暂停上行但不关流）──
+
+describe("useStewardVoice（⑥ speech-mutex 播报-收音互斥）", () => {
+  let restoreEnv: (() => void) | null = null;
+  /** fake PCM 泵（帧注入面）。 */
+  let pumpCb: ((frame: ArrayBuffer) => void) | null = null;
+  const pump = {
+    onFrame: (cb: (frame: ArrayBuffer) => void) => {
+      pumpCb = cb;
+    },
+    close: vi.fn(),
+  };
+  const createPump = () => Promise.resolve(pump);
+
+  beforeEach(() => {
+    localStorage.clear();
+    for (const s of Object.values(listeners)) s.clear();
+    pumpCb = null;
+    streamStartEnabled = true;
+    resetSpeechMutexForTest();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    FakeAudio.instances = [];
+    resetSpeechMutexForTest();
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  /** 走到「开流就绪 + 录音中」（V3b-1 startStream 同构精简）。 */
+  async function startRecording(result: { current: ReturnType<typeof useStewardVoice> }): Promise<void> {
+    await act(async () => {
+      await result.current.startListening();
+    });
+    await tick();
+    act(() => {
+      emit("stt", frame("stt.stream.started", { status: "ok", streamId: "str-1", provider: "dashscope", model: "qwen3-asr-flash-realtime" }, "stt"));
+    });
+  }
+
+  it("播报租约冲突：暂停/恢复序列——租约期 chunk 上行暂停（流不重开不关），释放后自动恢复", async () => {
+    restoreEnv = installEnv();
+    const r = renderHook(() => useStewardVoice({ createPump }), { wrapper: I18nProvider }).result;
+    await startRecording(r);
+    // 基线：无租约 → PCM 帧照常上行
+    act(() => {
+      pumpCb?.(new Uint8Array([1, 2, 3, 4]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(1);
+    // 播报租约进入（发言期）→ 上行暂停：流保持开（不重开不关流）
+    beginSpeechLease("voice-broadcast:1");
+    act(() => {
+      pumpCb?.(new Uint8Array([5, 6, 7, 8]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(1); // 暂停上行
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1); // 流不重开
+    expect(sendSttStreamStop).not.toHaveBeenCalled(); // 流不关
+    // 租约释放 → 自动恢复上行（零显式 resume 命令）
+    endSpeechLease("voice-broadcast:1");
+    act(() => {
+      pumpCb?.(new Uint8Array([9, 9, 9, 9]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(2);
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("多源嵌套正确配对：任一租约在场即暂停，全释放才恢复（同源幂等不叠租约）", async () => {
+    restoreEnv = installEnv();
+    const r = renderHook(() => useStewardVoice({ createPump }), { wrapper: I18nProvider }).result;
+    await startRecording(r);
+    beginSpeechLease("steward-speech");
+    beginSpeechLease("steward-speech"); // 同源幂等（不叠租约）
+    beginSpeechLease("voice-broadcast:2"); // 第二源嵌套
+    act(() => {
+      pumpCb?.(new Uint8Array([1]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(0); // 双源在场 → 暂停
+    endSpeechLease("steward-speech"); // 幂等计数：一次 end 即释放该源
+    act(() => {
+      pumpCb?.(new Uint8Array([2]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(0); // 仍有 voice-broadcast:2 → 仍暂停
+    endSpeechLease("voice-broadcast:2");
+    act(() => {
+      pumpCb?.(new Uint8Array([3]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(1); // 全释放 → 恢复
+  });
+
+  it("播报侧登记租约：speechOut 播放边沿/一次性回执播放期自动持租约（发言期收音暂停）", async () => {
+    restoreEnv = installEnv();
+    let playerActiveCb: ((a: boolean) => void) | null = null;
+    const createPlayer = () => ({
+      enqueue: () => true,
+      setVolume: () => {},
+      drop: () => {},
+      stop: () => {},
+      close: () => {},
+      reopen: () => {},
+      onActiveChange: (cb: (a: boolean) => void) => {
+        playerActiveCb = cb;
+        return () => {
+          playerActiveCb = null;
+        };
+      },
+    });
+    const r = renderHook(() => useStewardVoice({ createPump, createPlayer }), { wrapper: I18nProvider }).result;
+    await startRecording(r);
+    // speechOut 播放边沿 = 租约边沿（首块入队播放 → speaking）
+    expect(speechLeaseActive()).toBe(false);
+    act(() => {
+      playerActiveCb?.(true);
+    });
+    expect(speechLeaseActive()).toBe(true);
+    act(() => {
+      pumpCb?.(new Uint8Array([1]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(0); // 发言期暂停上行
+    act(() => {
+      playerActiveCb?.(false);
+    });
+    expect(speechLeaseActive()).toBe(false);
+    act(() => {
+      pumpCb?.(new Uint8Array([2]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(1); // 播毕恢复
+    // 一次性回执（legacy Audio）播放期同持租约（ask 开轮 → 终态 fallback → 播放 → 播毕释放）
+    act(() => {
+      r.current.ask("好");
+    });
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "好" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/wav;base64,QUJD", provider: "dashscope" }, "voice"));
+    });
+    expect(FakeAudio.instances.length).toBe(1);
+    expect(speechLeaseActive()).toBe(true); // 播放期租约在场
+    act(() => {
+      pumpCb?.(new Uint8Array([3]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(1); // 回执发言期仍暂停（上一断言已发 1 帧）
+    act(() => {
+      FakeAudio.instances[0]!.onended?.();
+    });
+    expect(speechLeaseActive()).toBe(false); // 播毕释放
+    act(() => {
+      pumpCb?.(new Uint8Array([4]).buffer);
+    });
+    expect(sendSttStreamChunk).toHaveBeenCalledTimes(2); // 恢复上行
+  });
+});
+
 // ── V3b-2 流式朗读面：delta 切句 → voice.synthesize.stream 逐句 → chunk 播放
 //    队列 → 回退链（流式失败→一次性整段）→ 静音钮/闸门 ──
 
@@ -1181,5 +1343,28 @@ describe("useStewardVoice（B3 回声防线）", () => {
     expect(trace[0]!.zcr).toBe(0.08);
     expect(trace[0]!.phase).toBe("speaking");
     expect(trace[0]!.at).toBeGreaterThan(0);
+    expect(trace[0]!.fired).toBe(true); // ⑦ 触发态双态标记
+  });
+
+  it("⑦ 双态打点：档位压制未触发段收口 fired:false 与触发段 fired:true 入同一环形缓冲", async () => {
+    restoreEnv = installEnv();
+    const r = await renderBargeIn();
+    await tick();
+    await reachSpeaking(r);
+    frames(4, 0.001, 0.08); // 过残响窗（安静帧——不入段）
+    // 档位压制段：0.02 ≥ 基准 0.012、< speaking 档 0.012×2——「说话但打不断」样本
+    frames(3, 0.02, 0.08);
+    frames(1, 0.001, 0.08); // 段死收口 → fired:false（段内峰值 0.02）
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    // 真触发段 → fired:true
+    frames(8, 0.05, 0.08);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    const trace = readBargeInTrace();
+    const miss = trace.find((e) => e.fired === false);
+    expect(miss?.rms).toBe(0.02);
+    expect(miss?.phase).toBe("speaking");
+    const hit = trace.find((e) => e.fired === true);
+    expect(hit?.rms).toBe(0.05);
+    expect(trace.length).toBe(2); // 段级打点（压制段一条 + 触发段一条）
   });
 });

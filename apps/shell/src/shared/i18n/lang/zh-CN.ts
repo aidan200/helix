@@ -1337,6 +1337,8 @@ export const zhCN = {
       cmdNotFound: "没有 {n} 号卡片",
       cmdSettled: "{n} 号卡片已处理过",
       cmdCancelAllOk: "已取消 {n} 张待确认卡片",
+      // ── ③ 语音触达（语音闭环批）：弹卡即播短句（仅双工会话活跃期）──
+      cardPending: "有个投递等你确认",
     },
   },
 };

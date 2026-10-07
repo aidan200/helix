@@ -15,7 +15,12 @@ import { useEffect, useRef } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { readTtsVoicePref, readVoiceBroadcastPref, readVoiceVolumePref } from "@/shared/lib/voice-pref";
+import { beginSpeechLease, endSpeechLease } from "@/shared/lib/speech-mutex";
 import type { EventEnvelope } from "@helix/protocol";
+
+/** ⑥ 租约源（播报-收音互斥：全局播报发言期暂停 duplex 收音上行——TTS 自声
+ *  回灌不再污染转写；队列排空才释放，顺序播放边界零闪断）。 */
+const SPEECH_LEASE_BROADCAST = "voice-broadcast";
 
 export interface VoiceBroadcast {
   /** 最近一次播放失败原因（诊断面；null = 无）。 */
@@ -75,8 +80,12 @@ export function useVoiceBroadcast(): VoiceBroadcast {
   const playNext = (): void => {
     if (playingRef.current) return;
     const next = pendingRef.current.shift();
-    if (next === undefined) return;
+    if (next === undefined) {
+      endSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 队列排空 → 发言期收口（收音恢复）
+      return;
+    }
     playingRef.current = true;
+    beginSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 发言期登记（排空/卸载释放）
     try {
       const audio = new Audio(next.audio);
       audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
@@ -102,6 +111,9 @@ export function useVoiceBroadcast(): VoiceBroadcast {
     }
   };
   playNextRef.current = playNext;
+
+  // ⑥ 卸载收位：不留幽灵租约（否则后续收音永久暂停）
+  useEffect(() => () => endSpeechLease(SPEECH_LEASE_BROADCAST), []);
 
   return { error: errorRef.current };
 }

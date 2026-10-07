@@ -146,12 +146,31 @@ export const BARGE_IN_SILENCE_WINDOW_MS = 300;
 
 /** 门限分档系数（B3 ②线）：speaking/asking 相位（TTS 自声经空气/机身回灌
  *  窗口）基准阈值抬档防自触发；listening 相位维持基准灵敏度。固定档位
- *  （不暴露强度参数——灵敏度基准已可调，档位系数属内部回声防护逻辑）。 */
-export const BARGE_IN_ECHO_THRESHOLD_SCALE = 3;
+ *  （不暴露强度参数——灵敏度基准已可调，档位系数属内部回声防护逻辑）。
+ *  ⑦ 复核（语音闭环批）：×3 → ×2——×3 下正常说话音量难达抬档阈值，真插话
+ *  压漏（须吼才能打断）；自声防线已有 ZCR 人声带 + 持续 300ms + 残响静默窗
+ *  三层，RMS 单维不需 3 倍保守量。契约本体（门三判据/打断序）零改动仅调
+ *  默认值；触发/未触发双态打点（cand/missed）持续采集，后续按数据再校。 */
+export const BARGE_IN_ECHO_THRESHOLD_SCALE = 2;
 
 /** 门限分档（B3）：speaking/asking 相位阈值 × 档位系数；他相位/缺省 = 基准。 */
 export function bargeInThreshold(phase: StewardVoicePhase | undefined, base: number): number {
   return phase === "speaking" || phase === "asking" ? base * BARGE_IN_ECHO_THRESHOLD_SCALE : base;
+}
+
+/** ⑦ 双态打点簿记：基准口径候选人声段（武装期人声爆发段——不管最终被档位
+ *  压制/未达持续/真触发，每段终局恰好一条打点数据）。 */
+export interface BargeInCandEpisode {
+  /** 段起点（ms）。 */
+  readonly sinceMs: number;
+  /** 段内峰值帧时戳（ms）。 */
+  readonly peakAtMs: number;
+  /** 段内峰值 RMS（未触发样本的强度面——档位压制复核依据）。 */
+  readonly peakRms: number;
+  /** 峰值帧 ZCR。 */
+  readonly peakZcr: number;
+  /** 峰值帧相位（段归属相位——打点条目 phase 字段直接取用）。 */
+  readonly peakPhase: string;
 }
 
 /** barge-in 门状态（纯数据；帧间递推）。 */
@@ -163,10 +182,12 @@ export interface BargeInGateState {
   /** fired 闩锁：本轮已触发（武装续帧零二次触发——重复触发幂等）；
    *  解除武装帧复位（下一轮可再触发）。 */
   readonly fired: boolean;
+  /** ⑦ 双态打点簿记：在途候选段（null = 无——段终局随 trigger/missed 收口）。 */
+  readonly cand: BargeInCandEpisode | null;
 }
 
 /** 门初态。 */
-export const INITIAL_BARGE_IN_GATE: BargeInGateState = { loudSinceMs: null, muteUntilMs: 0, fired: false };
+export const INITIAL_BARGE_IN_GATE: BargeInGateState = { loudSinceMs: null, muteUntilMs: 0, fired: false, cand: null };
 
 /** 门输入（单帧；阈值/时长缺省 = useVoiceInput 现成常量同源）。 */
 export interface BargeInGateInput {
@@ -193,10 +214,28 @@ export interface BargeInGateInput {
   readonly zcrTolerance?: number;
 }
 
-/** 门输出（新状态 + 本帧是否触发）。 */
+/** 门输出（新状态 + 本帧是否触发 + ⑦ 未触发候选段收口随出）。 */
 export interface BargeInGateOutcome {
   readonly state: BargeInGateState;
   readonly trigger: boolean;
+  /** ⑦ 本帧收口了一个未触发候选段（段内峰值帧特征随出——消费面打 fired:false；
+   *  null = 无收口）。 */
+  readonly missed: BargeInCandEpisode | null;
+}
+
+/** 候选段峰值递推（纯簿记——不参与触发判据）。 */
+function candFrame(cand: BargeInCandEpisode | null, input: BargeInGateInput): BargeInCandEpisode {
+  const zcr = input.zcr ?? 0;
+  if (cand === null || input.rms > cand.peakRms) {
+    return {
+      sinceMs: cand?.sinceMs ?? input.atMs,
+      peakAtMs: input.atMs,
+      peakRms: input.rms,
+      peakZcr: zcr,
+      peakPhase: input.phase ?? cand?.peakPhase ?? "",
+    };
+  }
+  return cand;
 }
 
 /**
@@ -210,16 +249,23 @@ export interface BargeInGateOutcome {
  *   非人声判据帧（高 ZCR 宽带脉冲/RMS 不足）不计持续；触发帧自带静默窗。
  */
 export function stepBargeInGate(state: BargeInGateState, input: BargeInGateInput): BargeInGateOutcome {
-  const threshold = bargeInThreshold(input.phase, input.threshold ?? VOICE_RMS_THRESHOLD);
+  const base = input.threshold ?? VOICE_RMS_THRESHOLD;
+  const threshold = bargeInThreshold(input.phase, base);
   const minDurationMs = input.minDurationMs ?? VOICE_MIN_DURATION_MS;
   const silenceWindowMs = input.silenceWindowMs ?? BARGE_IN_SILENCE_WINDOW_MS;
-  const carry = { muteUntilMs: state.muteUntilMs, fired: state.fired };
+  const carry = { muteUntilMs: state.muteUntilMs, fired: state.fired, cand: state.cand };
   if (!input.armed) {
-    return { state: { loudSinceMs: null, muteUntilMs: state.muteUntilMs, fired: false }, trigger: false };
+    // 解武装置终：闩锁复位 + 在途候选段收口（相位离场即段终局——未触发打点随出）
+    return {
+      state: { loudSinceMs: null, muteUntilMs: state.muteUntilMs, fired: false, cand: null },
+      trigger: false,
+      missed: state.cand,
+    };
   }
-  if (state.fired) return { state, trigger: false };
+  if (state.fired) return { state, trigger: false, missed: null };
   if (input.atMs < state.muteUntilMs) {
-    return { state: { loudSinceMs: null, ...carry, fired: false }, trigger: false };
+    // 残响窗：窗内声不计人声——在途候选段一并收口（残响不入打点段）
+    return { state: { loudSinceMs: null, ...carry, fired: false, cand: null }, trigger: false, missed: state.cand };
   }
   const voiceLike = isVoiceLikeFrame(input, {
     threshold,
@@ -227,25 +273,43 @@ export function stepBargeInGate(state: BargeInGateState, input: BargeInGateInput
     zcrTolerance: input.zcrTolerance,
   });
   if (!voiceLike) {
-    return { state: { loudSinceMs: null, ...carry }, trigger: false };
+    const baseVoiceLike = isVoiceLikeFrame(input, {
+      threshold: base,
+      voiceCheck: input.voiceCheck,
+      zcrTolerance: input.zcrTolerance,
+    });
+    if (!baseVoiceLike) {
+      // 基准口径非人声：候选段死 → 未触发终局（⑦ 双态打点面）
+      return { state: { loudSinceMs: null, ...carry, cand: null }, trigger: false, missed: state.cand };
+    }
+    // 档位压制帧（基准口径人声、抬档口径不过）：候选段续/开（打点簿记），
+    // 持续累积清零（抬档口径判据不动——门三判据契约）
+    return {
+      state: { loudSinceMs: null, ...carry, cand: candFrame(state.cand, input) },
+      trigger: false,
+      missed: null,
+    };
   }
+  const cand = candFrame(state.cand, input);
   if (state.loudSinceMs === null) {
-    return { state: { loudSinceMs: input.atMs, ...carry }, trigger: false };
+    return { state: { loudSinceMs: input.atMs, ...carry, cand }, trigger: false, missed: null };
   }
-  if (input.atMs - state.loudSinceMs < minDurationMs) return { state, trigger: false };
+  if (input.atMs - state.loudSinceMs < minDurationMs) return { state: { ...state, cand }, trigger: false, missed: null };
   return {
-    state: { loudSinceMs: null, muteUntilMs: input.atMs + silenceWindowMs, fired: true },
+    state: { loudSinceMs: null, muteUntilMs: input.atMs + silenceWindowMs, fired: true, cand: null },
     trigger: true,
+    missed: null,
   };
 }
 
-/** 停播即开静默窗（静音钮/打断停播共用——残响防线）；闩锁同帧复位。 */
+/** 停播即开静默窗（静音钮/打断停播共用——残响防线）；闩锁同帧复位；
+ *  在途候选段静默丢弃（停播边沿噪声大——不入打点）。 */
 export function openBargeInSilenceWindow(
   state: BargeInGateState,
   atMs: number,
   windowMs = BARGE_IN_SILENCE_WINDOW_MS,
 ): BargeInGateState {
-  return { loudSinceMs: null, muteUntilMs: atMs + windowMs, fired: false };
+  return { loudSinceMs: null, muteUntilMs: atMs + windowMs, fired: false, cand: null };
 }
 
 /** 门武装判定（相位派生扩展）：仅「语音模式 ×（speaking | asking）」可打断

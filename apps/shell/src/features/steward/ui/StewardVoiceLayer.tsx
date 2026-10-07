@@ -147,6 +147,23 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
     }
   }, [sv.items]);
 
+  // ── ③ 语音触达（语音闭环批）：弹卡即播——新确认卡弹出 × 双工会话活跃 →
+  //    短句播报（TR-243 零点击原则：语音期双手不在键鼠，触达顺语音通道回来）；
+  //    会话外弹卡零播报且不回溯补播（弹卡时点判据）；memory 通知卡（无操作
+  //    面）零播报；同卡幂等（daemon 登记簿重放/快照对账零重播）。──
+  const announcedCardsRef = useRef<Set<string>>(new Set());
+  const announceText = t("steward.voice.cardPending");
+  useEffect(() => {
+    for (const card of actions.cards) {
+      if (card.kind !== "action") continue;
+      if (announcedCardsRef.current.has(card.actionId)) continue;
+      announcedCardsRef.current.add(card.actionId);
+      if (!sv.duplexActive) continue; // 会话外弹卡：不播不补（时点判据）
+      pushLine("steward", announceText); // say + 字幕同径（口令回读同构）
+      sayRef.current(announceText);
+    }
+  }, [actions.cards, sv.duplexActive, announceText, pushLine]);
+
   // ── wakeSignal 接线（app 层 steward-open-signal 计数消费）：递增 →
   //    唤起光球（duplex 开——不弹面板）；已在会话幂等零重开。──
   const lastSignalRef = useRef(wakeSignal);

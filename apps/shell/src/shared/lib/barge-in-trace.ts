@@ -22,6 +22,10 @@ export interface BargeInTraceEntry {
   readonly zcr: number;
   /** 触发相位（speaking | asking——字符串面：shared 层不引 features 类型）。 */
   readonly phase: string;
+  /** ⑦ 双态打点：true = 触发帧；false = 未触发候选段收口（段内峰值帧特征——
+   *  「说话但打不断」的校准样本，档位系数复核依据）；缺省 = 旧版条目
+   *  （历史均为触发帧，向前兼容）。 */
+  readonly fired?: boolean;
 }
 
 /** 环形缓冲追加（纯函数：超容量丢最旧、最新在尾）。 */
@@ -33,7 +37,7 @@ export function appendBargeInTrace(
   return [...buf, entry].slice(-cap);
 }
 
-/** 条目形状校验（损坏/异物条目剔除）。 */
+/** 条目形状校验（损坏/异物条目剔除；fired 缺省容忍——旧版条目）。 */
 function isEntry(v: unknown): v is BargeInTraceEntry {
   if (typeof v !== "object" || v === null) return false;
   const e = v as Record<string, unknown>;
@@ -41,7 +45,8 @@ function isEntry(v: unknown): v is BargeInTraceEntry {
     typeof e.at === "number" &&
     typeof e.rms === "number" &&
     typeof e.zcr === "number" &&
-    typeof e.phase === "string"
+    typeof e.phase === "string" &&
+    (e.fired === undefined || typeof e.fired === "boolean")
   );
 }
 

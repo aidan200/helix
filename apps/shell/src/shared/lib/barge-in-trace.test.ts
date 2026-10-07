@@ -75,3 +75,33 @@ describe("barge-in 埋点存取（localStorage 环形缓冲）", () => {
     spySet.mockRestore();
   });
 });
+
+describe("⑦ 双态打点（fired 字段——触发/未触发双态入同一环形缓冲）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("fired 双态随条目落盘回读（true = 触发帧 / false = 未触发候选段收口）", () => {
+    recordBargeInTrace(entry(1, { fired: true, rms: 0.05 }));
+    recordBargeInTrace(entry(2, { fired: false, rms: 0.022 }));
+    const got = readBargeInTrace();
+    expect(got.map((e) => e.fired)).toEqual([true, false]);
+    expect(got[1]!.rms).toBe(0.022);
+  });
+
+  it("旧版条目（无 fired 字段）照常读取（向前兼容——历史均为触发帧）", () => {
+    localStorage.setItem(
+      VOICE_BARGE_IN_TRACE_KEY,
+      JSON.stringify([{ at: 1, rms: 0.05, zcr: 0.08, phase: "speaking" }]),
+    );
+    expect(readBargeInTrace()).toEqual([entry(1)]);
+  });
+
+  it("fired 形状非法（非布尔）条目剔除（损坏防御同族）", () => {
+    localStorage.setItem(
+      VOICE_BARGE_IN_TRACE_KEY,
+      JSON.stringify([{ at: 1, rms: 0.05, zcr: 0.08, phase: "speaking", fired: "yes" }]),
+    );
+    expect(readBargeInTrace()).toEqual([]);
+  });
+});

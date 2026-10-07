@@ -31,6 +31,7 @@ import {
   VOICE_ZCR_TOLERANCE_DEFAULT,
   STEWARD_SPEECH_TEXT_MAX,
   type BargeInGateState,
+  type BargeInCandEpisode,
   type StewardVoicePhase,
   type StewardVoiceSnapshot,
   deriveOrbPhase,
@@ -374,12 +375,96 @@ describe("stepBargeInGate 双参判定（RMS × ZCR 人声带）", () => {
   });
 
   it("门限分档入档：介于基准与抬档阈值之间的 RMS 在 speaking 相位不触发、listening 相位触发", () => {
-    const mid = 0.02; // ≥ 0.012 基准、< 0.012 × 3 抬档
+    const mid = 0.02; // ≥ 0.012 基准、< 0.012 × 2 抬档
     const band = (phase: StewardVoicePhase) =>
       Array.from({ length: 4 }, (_, i) => ({ rms: mid, zcr: ZCR_VOICE, atMs: i * 100, phase }));
     expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("speaking")).firedAt).toEqual([]);
     expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("asking")).firedAt).toEqual([]);
     expect(driveFrames3(INITIAL_BARGE_IN_GATE, band("listening")).firedAt).toEqual([300]);
+  });
+});
+
+// ── ⑦ 双态打点簿记（候选段触发/未触发各一条）+ speaking 档默认值复核 ──
+
+/** ⑦ 驱动辅助：收全程 outcomes（trigger/missed 轨迹）。 */
+function driveOutcomes(
+  start: BargeInGateState,
+  frames: readonly { rms: number; zcr?: number; atMs: number; armed?: boolean; phase?: StewardVoicePhase }[],
+): { triggers: number[]; missed: BargeInCandEpisode[]; state: BargeInGateState } {
+  let state = start;
+  const triggers: number[] = [];
+  const missed: BargeInCandEpisode[] = [];
+  for (const f of frames) {
+    const out = stepBargeInGate(state, {
+      rms: f.rms,
+      atMs: f.atMs,
+      armed: f.armed ?? true,
+      ...(f.zcr !== undefined ? { zcr: f.zcr } : {}),
+      ...(f.phase !== undefined ? { phase: f.phase } : {}),
+    });
+    state = out.state;
+    if (out.trigger) triggers.push(f.atMs);
+    if (out.missed !== null) missed.push(out.missed);
+  }
+  return { triggers, missed, state };
+}
+
+describe("⑦ barge-in 双态打点簿记 + speaking 档默认值复核", () => {
+  it("默认档位系数 = 2（⑦ 复核结论：×3 过高压漏真插话——自声防线已有 ZCR 人声带/持续 300ms/残响静默窗三层，契约本体不动仅调默认值）", () => {
+    expect(BARGE_IN_ECHO_THRESHOLD_SCALE).toBe(2);
+  });
+
+  it("触发段终局只出 trigger（fired:true 数据源）——不重复出 missed", () => {
+    const frames = every100ms(0, 4, LOUD).map((f) => ({ ...f, phase: "speaking" as const }));
+    const { triggers, missed } = driveOutcomes(INITIAL_BARGE_IN_GATE, frames);
+    expect(triggers).toEqual([300]);
+    expect(missed).toEqual([]);
+  });
+
+  it("档位压制段（基准口径人声、speaking 抬档口径不过）段死收口出一条 missed（段内峰值帧）——「说话但打不断」校准样本", () => {
+    const frames = [
+      { rms: 0.02, zcr: ZCR_VOICE, atMs: 0, phase: "speaking" as const },
+      { rms: 0.022, zcr: ZCR_VOICE, atMs: 100, phase: "speaking" as const }, // 段内峰值
+      { rms: 0.02, zcr: ZCR_VOICE, atMs: 200, phase: "speaking" as const },
+      { rms: QUIET, zcr: ZCR_VOICE, atMs: 400 }, // 段死收口
+    ];
+    const { triggers, missed } = driveOutcomes(INITIAL_BARGE_IN_GATE, frames);
+    expect(triggers).toEqual([]); // speaking 档压制（0.022 < 0.012 × 2）
+    expect(missed.length).toBe(1); // 段级一条（不逐帧刷屏）
+    expect(missed[0]!.peakRms).toBeCloseTo(0.022, 6);
+    expect(missed[0]!.peakAtMs).toBe(100);
+    expect(missed[0]!.peakZcr).toBeCloseTo(ZCR_VOICE, 6);
+  });
+
+  it("短促段未达持续即死（抬档口径人声但 <300ms）也出 missed——未触发双态全覆盖", () => {
+    const frames = [
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 0, phase: "speaking" as const },
+      { rms: LOUD, zcr: ZCR_VOICE, atMs: 100, phase: "speaking" as const },
+      { rms: QUIET, zcr: ZCR_VOICE, atMs: 200 },
+    ];
+    const { triggers, missed } = driveOutcomes(INITIAL_BARGE_IN_GATE, frames);
+    expect(triggers).toEqual([]);
+    expect(missed.length).toBe(1);
+    expect(missed[0]!.peakRms).toBe(LOUD);
+  });
+
+  it("解武装置终收口在途候选段（相位离场）→ missed 随出；同段不重复记", () => {
+    const frames = [
+      { rms: 0.02, zcr: ZCR_VOICE, atMs: 0, phase: "speaking" as const },
+      { rms: 0.02, zcr: ZCR_VOICE, atMs: 100, phase: "speaking" as const },
+      { rms: 0, atMs: 200, armed: false }, // speaking → listening 相位离场
+    ];
+    const { missed } = driveOutcomes(INITIAL_BARGE_IN_GATE, frames);
+    expect(missed.length).toBe(1);
+  });
+
+  it("未武装期零候选段（listening/text 模式不入打点簿记）；残响窗内声不入段", () => {
+    const unarmed = driveOutcomes(INITIAL_BARGE_IN_GATE, every100ms(0, 10, LOUD, false));
+    expect(unarmed.missed).toEqual([]);
+    const opened = openBargeInSilenceWindow(INITIAL_BARGE_IN_GATE, 0);
+    const inWindow = driveOutcomes(opened, every100ms(0, 3, LOUD)); // 窗内全 loud
+    expect(inWindow.triggers).toEqual([]);
+    expect(inWindow.missed).toEqual([]);
   });
 });
 

@@ -522,10 +522,10 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     calibrate(25);
     await stewardAnswers(true); // 流式朗读在途 → speaking
     expect(r.current.phase).toBe("speaking");
-    // 0.04 帧：纯偏好下（speaking ×3 = 0.036）会触发；抬升后（×3 = 0.15）不触发
+    // 0.04 帧：纯偏好下（speaking ×2 = 0.024）会触发；抬升后（×2 = 0.10）不触发
     frames(10, 0.04);
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
-    // 对照：够响帧（0.2 > 0.15）持续 → 照常触发（门未被校准钉死）
+    // 对照：够响帧（0.2 > 0.10）持续 → 照常触发（门未被校准钉死）
     frames(10, 0.2);
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
   });
@@ -548,7 +548,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     });
     await stewardAnswers(true);
     expect(r.current.phase).toBe("speaking");
-    frames(8, 0.04); // speaking ×3 = 0.036 < 0.04 → 触发（纯偏好行为不变）
+    frames(8, 0.04); // speaking ×2 = 0.024 < 0.04 → 触发（纯偏好行为不变）
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
   });
 
@@ -557,10 +557,10 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     restoreEnv = env.restore;
     const r = renderVoice({ createMeter, createPlayer });
     await enterDuplexMuted(r);
-    calibrate(25); // 轮 1：底噪 0.02 → 阈值 0.05（speaking ×3 = 0.15）
+    calibrate(25); // 轮 1：底噪 0.02 → 阈值 0.05（speaking ×2 = 0.10）
     await stewardAnswers(true);
     frames(8, 0.05);
-    expect(sendStewardInterrupt).not.toHaveBeenCalled(); // 0.05 < 0.15：不触发
+    expect(sendStewardInterrupt).not.toHaveBeenCalled(); // 0.05 < 0.10：不触发
     // 关麦收口 → 再开双工：重采（底噪 0.004 → 阈值回落纯偏好 0.012）
     act(() => {
       r.current.cancelWake();
@@ -578,7 +578,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
       ear().emit(0.004);
     });
     await stewardAnswers(true);
-    frames(8, 0.05); // 0.012×3 = 0.036 < 0.05 → 触发（同幅帧翻转）
+    frames(8, 0.05); // 0.012×2 = 0.024 < 0.05 → 触发（同幅帧翻转）
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
   });
 
