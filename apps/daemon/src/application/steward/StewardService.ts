@@ -2176,6 +2176,9 @@ export class StewardService {
                 detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，但初始话题投递失败：${outcome.detail}`,
               };
             }
+            // 回合终态感知：初始话题投递成功 = 用户在新会话里开始了工作——同
+            // deliverSession 语义注册关注（那边回合结束命中「回完了」分诊锚）。
+            this.deps.onDelivered?.(created.sessionId, initialMessage);
             return {
               ok: true,
               detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，初始话题已投递：${initialMessage}`,

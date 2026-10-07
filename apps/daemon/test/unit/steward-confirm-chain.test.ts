@@ -130,6 +130,8 @@ interface ServiceFixture {
   readonly notifies: StewardNotifyPayload[];
   readonly actionCompleted: StewardActionCompletedPayload[];
   readonly logger: ReturnType<typeof fakeLogger>;
+  /** 回合终态关注注册探针（onDelivered 接线验证）。 */
+  readonly onDeliveredCalls: { sessionId: string; text?: string }[];
 }
 
 /** 本批服务装配：deliver/surface 执行面探针 + notify/actionCompleted 广播探针。 */
@@ -143,6 +145,7 @@ function makeService(opts: { llm: StewardLlmPort; nowRef?: { now: number }; sess
   ]);
   const sessions = fakeSessions();
   const surfaces = fakeSurfaces();
+  const onDeliveredCalls: { sessionId: string; text?: string }[] = [];
   const innerCreate = createEngineFromPort(opts.llm);
   const svc = new StewardService({
     llm: opts.llm,
@@ -158,9 +161,10 @@ function makeService(opts: { llm: StewardLlmPort; nowRef?: { now: number }; sess
     logger,
     ...(opts.sessions === true ? { sessions } : {}),
     ...(opts.surfaces === true ? { surfaces } : {}),
+    ...(opts.sessions === true ? { onDelivered: (sessionId: string, text?: string) => onDeliveredCalls.push({ sessionId, text }) } : {}),
     createEngine: (engineOpts) => innerCreate(engineOpts),
   });
-  return { svc, orchestration, sessions, surfaces, notifies, actionCompleted, logger };
+  return { svc, orchestration, sessions, surfaces, notifies, actionCompleted, logger, onDeliveredCalls };
 }
 
 /** 微任务/投影链排空（多轮 setTimeout(1)——abort→finishRun→队列驱动全链 settle）。 */
@@ -537,5 +541,38 @@ describe("handler：steward.subscribe 受理即回发 pending 快照（跨重启
     const snapshot = frames.find((f) => f.type === "steward.pending.snapshot");
     expect(snapshot).toBeDefined(); // 订阅即对账（shell 撤旧卡的清场路径）
     expect((snapshot!.payload as { actionIds?: string[] }).actionIds).toEqual([]);
+  });
+});
+
+// ── T8 start_session 关注注册（回合终态感知覆盖面——治「新会话跑完无通知」） ─────────
+
+describe("T8 start_session 初始话题投递注册回合终态关注", () => {
+  test("start_session 确认执行 → 初始话题投递成功 → onDelivered(sessionId, initial_message)", async () => {
+    const llm = fakeLlm([
+      toolCall("start_session", { title: "找图片工具", initial_message: "帮我找找 AI 生成图片的工具项目" }),
+      answer("已开启会话并带入话题。"),
+    ]);
+    const { svc, onDeliveredCalls } = makeService({ llm, sessions: true });
+    const card = await askForCard(svc, "开个新会话帮我找 AI 生成图片的工具项目");
+    const confirmed = await svc.confirm(card.actionId);
+    expect(confirmed.status).toBe("accepted");
+    await settle();
+    // 回合终态关注注册：新会话回合结束即命中「那边回完了」分诊锚
+    expect(onDeliveredCalls.length).toBe(1);
+    expect(onDeliveredCalls[0]?.sessionId).toBe("s-找图片工具");
+    expect(onDeliveredCalls[0]?.text).toBe("帮我找找 AI 生成图片的工具项目");
+  });
+
+  test("create_session 空会话（无 initial_message）→ 零关注注册（无投递无等待）", async () => {
+    const llm = fakeLlm([
+      toolCall("create_session", { title: "空会话" }),
+      answer("已创建空会话。"),
+    ]);
+    const { svc, onDeliveredCalls } = makeService({ llm, sessions: true });
+    const card = await askForCard(svc, "开个空会话");
+    const confirmed = await svc.confirm(card.actionId);
+    expect(confirmed.status).toBe("accepted");
+    await settle();
+    expect(onDeliveredCalls.length).toBe(0); // 空会话无初始投递 → 零关注
   });
 });
