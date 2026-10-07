@@ -1025,6 +1025,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 管家感知批（M0.5）：ask 即激活信号②——感知服务衰减窗点亮（一问即
     // 入激活，响应环点亮主动环，D12-⑪）
     onUserActivity: () => stewardPerception.noteUserActivity(),
+    // 回合终态感知批：投递成功注册关注——目标会话回合结束命中分诊锚
+    onDelivered: (sessionId, text) => stewardPerception.noteDelivered(sessionId, text),
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
     // 管家可靠性根修批：确认卡 TTL 作废的 action.completed 广播（与 feed 同
     // 订阅闸——多窗卡栈同步收口）+ 用户提醒帧出口（挂起恢复/确认可达性/TTL

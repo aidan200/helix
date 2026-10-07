@@ -90,7 +90,7 @@ export const NOTIFY_NORMAL_HOURLY_LIMIT = 4;
 export interface PerceptionRingEntry {
   /** 记录时刻（epoch ms）。 */
   readonly at: number;
-  /** 记录类别：agent 终态三值 / 周期进展 ping / 任务终态事实 / 分诊摄入轨 / 表面事件。 */
+  /** 记录类别：agent 终态三值 / 周期进展 ping / 任务终态事实 / 分诊摄入轨 / 表面事件 / 会话回合终态。 */
   readonly kind:
     | "agent.completed"
     | "agent.failed"
@@ -98,7 +98,8 @@ export interface PerceptionRingEntry {
     | "progress.ping"
     | "task.terminal"
     | "task.diagnosed"
-    | "surface.event";
+    | "surface.event"
+    | "turn.completed";
   /** 归属会话（agent 事件携带 sessionId；任务锚 = task:<jobId>；表面事件 = surfaceId）。 */
   readonly sessionId: string;
   /** 触发实例 id（agent 事件；缺席 = 任务级记录）。 */
@@ -202,6 +203,11 @@ export class StewardPerceptionService {
   private notifySeq = 0;
   /** normal 档限流窗：已发时刻数组（滑动窗淘汰）。 */
   private normalSentAt: number[] = [];
+  /** 投递关注表（sessionId → 投递现场）：deliver_to_session 投递成功后注册
+   * ——该会话回合结束（turn.completed）即命中分诊锚（用户在等回复的会话
+   * 才主动通知；无关注会话回合终态只入 ring 零 LLM——回合高频事件不全量
+   * 分诊的成本闸）。一次性消费：一次投递等一次回复。 */
+  private readonly awaitingReply = new Map<string, { at: number; text: string }>();
 
   constructor(deps: StewardPerceptionDeps) {
     this.deps = deps;
@@ -222,6 +228,15 @@ export class StewardPerceptionService {
    *  一问即入激活，响应环点亮主动环）。 */
   noteUserActivity(): void {
     this.lastAskAt = this.now();
+  }
+
+  /** 投递关注注册（StewardService deliverSession 投递成功后经组合根接线
+   *  调用）：注册后该会话下一次 turn.completed 触发分诊（「那边回完了」
+   *  ——用户在等回复的场景）。传的是关注意图（哪个会话值得等回复 + 投递
+   *  文本素材），不是汇报内容——内容仍从事件流/ring 取，生产者不直喂禁令
+   *  边界不变（防自激纪律同源）。 */
+  noteDelivered(sessionId: string, deliveredText?: string): void {
+    this.awaitingReply.set(sessionId, { at: this.now(), text: (deliveredText ?? "").slice(0, 400) });
   }
 
   // ── 感知入口（D10：订阅总线，生产者不直喂） ──────────────────
@@ -348,6 +363,18 @@ export class StewardPerceptionService {
           text: (p.text ?? "").slice(0, 200),
         };
       }
+      case "turn.completed": {
+        // 会话回合终态（设计 D10 系统族最后一块订阅面——主会话回合结束）：
+        // 恒入 ring（感知记录，零 LLM）；分诊锚在 agentLevelDiagnosisInputOf
+        // ——仅投递关注命中的会话（用户在等回复），无关注零分诊（成本闸）。
+        const p = event.payload as { reason?: string; replyEntryId?: string };
+        return {
+          at: this.now(),
+          kind: "turn.completed",
+          sessionId: event.sessionId,
+          text: `回合结束（${p.reason ?? "done"}${p.replyEntryId !== undefined ? ` #${p.replyEntryId.slice(0, 8)}` : ""}）`,
+        };
+      }
       default:
         return undefined;
     }
@@ -401,6 +428,30 @@ export class StewardPerceptionService {
             `实例：${p.agentId}`,
             `closure 摘要：${p.closure?.summary ?? ""}`,
           ].join("\n"),
+        };
+      }
+      case "turn.completed": {
+        // 投递关注命中（deliver_to_session 投递后的「那边回完了」）：一次性
+        // 消费关注表（一次投递等一次回复）；reason=daemon_restarted 是重启
+        // 恢复不是回复——保留关注不消费不通知。
+        const p = event.payload as { reason?: string };
+        if (p.reason === "daemon_restarted") return undefined;
+        const awaiting = this.awaitingReply.get(event.sessionId);
+        if (awaiting === undefined) return undefined;
+        this.awaitingReply.delete(event.sessionId);
+        const lines = [
+          "事件：用户投递过消息的会话回合结束（回复就绪）",
+          `会话：${event.sessionId}`,
+          `回合终态：${p.reason ?? "done"}`,
+          `用户投递的内容：${awaiting.text || "（无文本）"}`,
+        ];
+        return {
+          key: `turn.reply:${event.sessionId}:${awaiting.at}`,
+          voiceKind: "agent.completed",
+          voiceAgentId: event.sessionId,
+          directVoice: true,
+          taskTitle: "会话回复了",
+          userPrompt: lines.join("\n"),
         };
       }
       default:

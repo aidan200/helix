@@ -808,6 +808,10 @@ export interface StewardServiceDeps {
    *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
    *  .noteUserActivity；缺席 = 零信号）。 */
   readonly onUserActivity?: () => void;
+  /** 回合终态感知批：投递成功回调（感知服务投递关注注册——该会话回合
+   *  结束即命中分诊锚「那边回完了」；组合根接 noteDelivered；缺席 =
+   *  零关注注册，回合终态只入 ring 零 LLM）。 */
+  readonly onDelivered?: (sessionId: string, text?: string) => void;
   /** 可靠性批：生命周期日志（run 开始/收口/挂闸暂停 info + 看门狗/TTL warn；
    *  info 可选——旧装配只带 warn 时降级只出 warn）。 */
   readonly logger?: { info?(message: string): void; warn(message: string): void };
@@ -2192,6 +2196,9 @@ export class StewardService {
         if (!outcome.delivered) {
           return { ok: false, detail: `投递未送达：${outcome.detail}` };
         }
+        // 回合终态感知：投递成功注册关注——该会话回合结束命中分诊锚
+        // （「那边回完了」主动通知；缺席 = 零关注纯 opt-in）。
+        this.deps.onDelivered?.(action.deliverSession!.sessionId, action.deliverSession!.text);
         return { ok: true, detail: outcome.detail };
       } catch (err) {
         return { ok: false, detail: `投递执行失败：${(err as Error).message}` };

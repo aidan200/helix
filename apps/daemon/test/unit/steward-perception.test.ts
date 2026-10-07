@@ -590,6 +590,64 @@ describe("onSurfaceEvent（感知源扩「表面族」第三源——不改分�
   });
 });
 
+// ── 回合终态感知（用户反馈批：主会话 turn.completed——设计 D10 系统族最后
+// 一块订阅面；成本闸 = 投递关注命中才分诊，无关注只入 ring 零 LLM） ──────
+
+describe("回合终态感知：turn.completed 入 ring + 投递关注命中分诊", () => {
+  function turnEvent(sessionId: string, reason: "done" | "aborted" | "steerDrained" | "daemon_restarted"): DomainEvent {
+    return agentEvent("turn.completed", { reason, replyEntryId: "entry-1" }, sessionId);
+  }
+
+  test("无关注会话的 turn.completed：入 ring 零 LLM（回合终态不全量分诊——成本闸）", () => {
+    const { perception, diagnose } = makeStack();
+    perception.onDomainEvent(turnEvent("sess-a", "done"));
+    expect(diagnose.calls).toHaveLength(0);
+    const ring = perception.ringSnapshot();
+    expect(ring[ring.length - 1]!.kind).toBe("turn.completed");
+    expect(ring[ring.length - 1]!.sessionId).toBe("sess-a");
+  });
+
+  test("投递关注命中：noteDelivered → 该会话 turn.completed → 分诊一次 + notify（userPrompt 含投递文本与回复读面）", async () => {
+    const { perception, diagnose, notifies } = makeStack();
+    perception.noteDelivered("sess-target", "帮我看看语音批的测试覆盖情况");
+    perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(1);
+    expect(diagnose.calls[0]!.userPrompt).toContain("帮我看看语音批的测试覆盖情况");
+    expect(notifies).toHaveLength(1);
+    expect(notifies[0]!.title).toBe("会话回复了");
+  });
+
+  test("关注一次性消费：同会话第二次 turn.completed 不再分诊（一次投递等一次回复）", async () => {
+    const { perception, diagnose } = makeStack();
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(perception);
+    perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(1);
+  });
+
+  test("reason=daemon_restarted 不触发分诊（重启恢复不是回复）", async () => {
+    const { perception, diagnose } = makeStack();
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target", "daemon_restarted"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(0);
+  });
+
+  test("未启用（money gate 关）：关注命中零 LLM 零 notify（极简保底语义不侵入回合面）", async () => {
+    const { perception, diagnose, notifies } = makeStack({
+      diagnose: fakeDiagnose({ available: false }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target", "done"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(0);
+    expect(notifies).toHaveLength(0);
+  });
+});
+
 // ── 测试辅助 ──────────────────────────────────────────────
 
 
