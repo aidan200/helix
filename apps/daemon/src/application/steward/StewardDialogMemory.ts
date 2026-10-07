@@ -8,8 +8,7 @@
  * B6 弃用面（A1 旧形态，问题较大故换轨）：runtime_config 整包 KV——每次
  * append 全窗 JSON 重写（写放大 + 与 helix.db 引擎库共 WriteQueue）、不可
  * 查询（事故排查取证盲区）、单 JSON 损坏整窗报废。新形态：append 单行写、
- * 裁剪 deleteHead、压缩/迁移 replaceAll、水位独立 meta 键（markJudged 零
- * 重写）。旧 KV 数据一次性迁移（migrateStewardDialogKv，幂等墓碑）。
+ * 裁剪 deleteHead、压缩/迁移 replaceAll。旧 KV 数据一次性迁移（migrateStewardDialogKv，幂等墓碑）。
  *
  * 记录形态 = 协议 StewardHistoryRecord（回放链路同源 DTO——UI 显示的 =
  * LLM 记得的 = 落盘的）；不存：feed 事件流（订阅态）、通知卡（无操作面）。
@@ -45,9 +44,6 @@ export const STEWARD_DIALOG_TTL_MS = 72 * 60 * 60 * 1000;
 interface StewardDialogKv {
   readonly records: readonly StewardHistoryRecord[];
   readonly lastActiveAt: number;
-  /** 判定水位（B4a 自动沉淀，additive：最后判定到的记录 at；缺席 = 存量
-   *  对话 → 回落 lastActiveAt（全已判定，零打扰）；clear 后归零）。 */
-  readonly lastJudgedAt?: number;
 }
 
 /** 单条记录 token 估算（chars/2 保守近似——中文 ~1.5-2 char/token、英文
@@ -133,7 +129,7 @@ export function keepTailPairAware(
 export function parseStewardDialogKv(raw: string | undefined): StewardDialogKv | undefined {
   if (raw === undefined || raw === "") return undefined;
   try {
-    const parsed = JSON.parse(raw) as { records?: unknown; lastActiveAt?: unknown; lastJudgedAt?: unknown };
+    const parsed = JSON.parse(raw) as { records?: unknown; lastActiveAt?: unknown };
     if (!Array.isArray(parsed.records)) return undefined;
     if (typeof parsed.lastActiveAt !== "number" || !Number.isFinite(parsed.lastActiveAt)) return undefined;
     const records: StewardHistoryRecord[] = [];
@@ -141,13 +137,7 @@ export function parseStewardDialogKv(raw: string | undefined): StewardDialogKv |
       if (typeof r !== "object" || r === null || typeof (r as { kind?: unknown }).kind !== "string") continue;
       records.push(r as StewardHistoryRecord);
     }
-    const lastJudgedAt =
-      typeof parsed.lastJudgedAt === "number" && Number.isFinite(parsed.lastJudgedAt)
-        ? parsed.lastJudgedAt
-        : undefined;
-    return lastJudgedAt === undefined
-      ? { records, lastActiveAt: parsed.lastActiveAt }
-      : { records, lastActiveAt: parsed.lastActiveAt, lastJudgedAt };
+    return { records, lastActiveAt: parsed.lastActiveAt };
   } catch {
     return undefined;
   }
@@ -169,10 +159,6 @@ export class StewardDialogMemory {
   private readonly now: () => number;
   private records: StewardHistoryRecord[] = [];
   private loaded = false;
-  /** 判定水位（B4a：undefined = 未设——读面回落载入的 lastActiveAt）。 */
-  private lastJudgedAt: number | undefined;
-  /** 载入的 lastActiveAt（水位缺省回落面——存量对话零打扰）。 */
-  private loadedLastActiveAt = 0;
 
   constructor(store?: StewardDialogStorePort, options: StewardDialogMemoryOptions = {}) {
     this.store = store;
@@ -195,8 +181,6 @@ export class StewardDialogMemory {
       return;
     }
     this.records = [...snap.records];
-    this.loadedLastActiveAt = snap.lastActiveAt;
-    if (snap.lastJudgedAt !== undefined) this.lastJudgedAt = snap.lastJudgedAt;
   }
 
   /** 现值（ensureLoaded 后镜像；未加载时先加载）。 */
@@ -217,29 +201,11 @@ export class StewardDialogMemory {
     this.store.append(record, this.now());
   }
 
-  /** 新对话闸：整库清空（回执面由 service 收口）；B4a 水位归零
-   *  （空对话无可判——新对话记录从零点起算判定）。 */
+  /** 新对话闸：整库清空（回执面由 service 收口）。 */
   async clear(): Promise<void> {
     this.loaded = true;
     this.records = [];
-    this.lastJudgedAt = 0;
     this.store?.clear();
-  }
-
-  /** 判定水位读面（B4a）：已设 = 现值；未设 = 载入的 lastActiveAt（存量对话
-   *  零打扰）；全新对话 = 0（新记录全该判）。 */
-  judgedWatermark(): number {
-    this.ensureLoaded();
-    return this.lastJudgedAt ?? this.loadedLastActiveAt;
-  }
-
-  /** 水位推进（B4a 判定落定后；单调增大防御——迟到判定不回拉水位；meta
-   *  键独立写，零整窗重写）。 */
-  async markJudged(at: number): Promise<void> {
-    this.ensureLoaded();
-    if (at <= (this.lastJudgedAt ?? 0)) return;
-    this.lastJudgedAt = at;
-    this.store?.setWatermark(at);
   }
 
   /** 压缩替换（helix-loop L1 件一）：[summary, ...尾部 keepRecentCount 条原文]

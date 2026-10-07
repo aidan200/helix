@@ -59,7 +59,6 @@ import type { StewardToolResult, StewardToolSpec } from "../ports/outbound/Stewa
 import type { StewardSurfacePort, StewardSurfaceActRequest } from "../ports/outbound/StewardSurfacePort";
 import { evaluateSurfaceRisk, surfaceRiskRank } from "../surface/SurfaceRiskGate";
 import { isSurfaceVerb, surfaceVerbRisk, type SurfaceRisk } from "@helix/protocol";
-import { LOOP_INTERRUPTED_MARKER_TEXT } from "../../domain/agent/InterruptionMarkers";
 import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 import { readSummaryConfig } from "../summary/summaryConfig";
 
@@ -119,18 +118,6 @@ export const STEWARD_MAX_TOOL_ROUNDS = 6;
 
 /** feed 文本行摘要截断上限（~80 字符——BroadcastService 先例同构）。 */
 export const FEED_SUMMARY_MAX_CHARS = 80;
-
-/** 记忆提取指令（B5：增量判定并入提取——近三轮滑动窗，单轮多是过程
- *  对话无意义；提不出认知增量返回「无」，取代 B4a 的判官判增量 + 用户
- *  原话截断方案）。 */
-const SEDIMENT_REWRITE_SYSTEM_PROMPT = `你负责从管家对话中提炼长期记忆。输入是最近的几轮对话（旧→新）：结合上下文判断，把其中值得跨会话记住的用户偏好、习惯、纠正或事实，重写成一条简单易懂、主题明确的记忆句。
-要求：
-- 主语明确（用户……），一句话，不超过 40 字
-- 简单易懂，去掉口语废话（嗯、呃、这个）与临时上下文
-- 结合多轮上下文理解意图（很多偏好隐含在过程对话里，单轮看不出）
-- 一次性上下文、本轮临时信息、寒暄、纯任务执行不算认知增量
-- 若这几轮对话没有任何值得记住的认知增量，只输出：无
-只输出记忆句本身或「无」，不要任何解释。`;
 
 /** 会话内对话滚动窗口（旧制；A1 批被工作记忆 KV token 预算闸取代——
  *  常量保留供历史注释面参照，不再参与裁剪）。 */
@@ -757,13 +744,10 @@ export interface StewardServiceDeps {
   readonly feedGate: { hasStewardSubscribers(): boolean };
   /** feed 帧出口（组合根接 EventStream.broadcastStewardFeed）。 */
   readonly emitFeed: (payload: StewardFeedPayload) => void;
-  /** 自动沉淀提案帧出口（B4a；组合根接 EventStream.broadcastStewardSedimentProposal
-   *  ——与 feed 同订阅闸；缺席 = 提案挂 pending 但零广播，确认仍可经 actionId 直达）。 */
+  /** 记忆落盘通知帧出口（memory_written 通知卡链；组合根接 EventStream
+   *  .broadcastStewardMemoryWritten——与 feed 同订阅闸；缺席 = 落盘零通知
+   *  （语义面零降级，仅通知缺席）。 */
   readonly emitMemoryWritten?: (payload: StewardMemoryWrittenPayload) => void;
-  /** B5 轮末沉淀触发开关（会话总结器独立化批①：记忆自动沉淀换轨总结器
-   *  「记忆点」产物——B5 触发**缺省停用**；管线代码/常量/测试保留待批②清理，
-   *  仅测试面显式置 true 驱动休眠管线）。 */
-  readonly sedimentTriggers?: boolean;
   /** 页面导航出口（M0 表面协议地基批收编：组合根接 SurfaceRegistry
    *  .act("navigate")——deliver_to_session 受理 / create_session 建成后
    *  路由 surface.action {verb:"navigate"}；旧 steward.navigate 帧由 Registry
@@ -1197,10 +1181,6 @@ export class StewardService {
   /** 段B翻转：pi 引擎（懒构造——首问时经 createEngine 唯一配方装配，
    *  dialog 懒加载回填 initialMessages）。 */
   private engine: AgentEnginePort | undefined;
-  /** 当前在途轮的 userAt（directRemember 归属轮识别——防双写标记用）。 */
-  private currentAskAt = -1;
-  /** 最近一次轮内显式 remember 成功所属轮（同轮轮末沉淀跳过——B5 防双写）。 */
-  private turnRememberedAt = -1;
   /** 当前 run 的挂闸提案候选（confirm_required 回执映射锚——每 run 重置）。 */
   private currentPause: { actionId: string; action: PendingAction }[] = [];
   /** ask 自持队列（方案甲——E-197 行为等价：上限 3/收口后自动下一轮）。 */
@@ -1352,12 +1332,6 @@ export class StewardService {
       this.engine = engineRef; // 代际守卫锚（listener 闭包比对同一引用）
     } else {
       this.engine.setSystemPrompt?.(systemPrompt);
-      // B4a 重启补偿（队列接管轮——补判水位后未判定尾部；fire-and-forget）
-      this.trackSediment(
-        this.sedimentUnjudgedTail().catch((err) =>
-          this.deps.logger?.warn(`自动沉淀重启补偿降级：${(err as Error).message}`),
-        ),
-      );
     }
     this.runActive = true;
     this.runLastProgressAt = this.now();
@@ -1467,10 +1441,9 @@ export class StewardService {
     event: Extract<AgentEngineEvent, { type: "message_end" }>,
   ): Promise<void> {
     if (event.role === "user") {
-      // E-198 截断标记（AbortShaping 注入——固定常量文本非用户输入；sediment
-      // 判定面按常量过滤）。真实 user 入账同步捕获轮归属锚（防时钟双源漂移）。
+      // E-198 截断标记（AbortShaping 注入——固定常量文本非用户输入）照常
+      // 入账（回放完整性）；user 形态记录统一带 at。
       const at = this.now();
-      if (event.text !== LOOP_INTERRUPTED_MARKER_TEXT) this.currentAskAt = at;
       await this.pushRecord({ kind: "user", text: event.text, at });
       return;
     }
@@ -1603,7 +1576,7 @@ export class StewardService {
     });
   }
 
-  /** run 收口（agent_end）：结果推导 + B4a 主钩子 + deliver + 队列驱动。
+  /** run 收口（agent_end）：结果推导 + deliver + 队列驱动。
    *  确认链路修复批：error 收口日志附引擎错误摘要（事故 run#3/#5/#7 无原因）
    *  + 本 run 挂闸卡生命周期处置（deliver 类续活 / destructive 撤除+明示）。 */
   private async finishRun(startError?: string): Promise<void> {
@@ -1629,11 +1602,6 @@ export class StewardService {
     this.pausedGateToken = undefined;
     this.askStreamEvents = {};
     this.settleAsk(outcome);
-    if (outcome.status === "answer") {
-      // B4a 主钩子：answer 轮收口 → 异步判定（半成品轮不判定）。
-      // 批①：B5 沉淀触发停用（换轨总结器记忆点）——管线代码留批②清理
-      if (this.deps.sedimentTriggers === true) this.maybeAutoSediment(this.currentAskAt);
-    }
     item?.deliver?.(outcome);
     const next = this.askQueue.shift();
     if (next !== undefined) {
@@ -1856,133 +1824,6 @@ export class StewardService {
     this.deps.logger?.info?.(message);
   }
 
-  // ── B4a 自动沉淀判定管线（轮次主钩子 + 重启补偿 + 清空兜底三面复用同一内核）──
-
-  /** 在途判定任务集（fire-and-forget 任务的排空面——flushSediment 消费）。 */
-  private readonly sedimentTasks = new Set<Promise<void>>();
-
-  private trackSediment(task: Promise<void>): void {
-    this.sedimentTasks.add(task);
-    const cleanup = () => {
-      this.sedimentTasks.delete(task);
-    };
-    void task.then(cleanup, cleanup);
-  }
-
-  /** 判定管线排空（测试面/daemon 关停前防丢在途判定；错误已内核降级，
-   *  allSettled 双保险）。 */
-  async flushSediment(): Promise<void> {
-    await Promise.allSettled([...this.sedimentTasks]);
-  }
-
-  /** 沉淀内核（B5 静默化重构）：money 闸（零订阅零重写零入库但推水位——
-   *  通知无人看，LLM 成本省）→ 记忆可用闸（不可用推水位静默跳过）→ 水位
-   *  防御 → LLM 提取判定（近三轮滑动窗——单轮多是过程对话无意义；增量
-   *  判定并入提取：无增量返「无」）→ 静默入库（两段查重在 remember 内）→
-   *  memory_written 通知（新增/更新）。提取抛错不推水位（下轮重试面）；
-   *  入库失败水位已推（best-effort，warn 留痕）。 */
-  private async sedimentAndStore(at: number): Promise<void> {
-    if (!this.deps.feedGate.hasStewardSubscribers()) {
-      await this.dialog.markJudged(at);
-      return;
-    }
-    const memory = this.deps.memory;
-    if (memory === undefined || !memory.isAvailable()) {
-      await this.dialog.markJudged(at);
-      return;
-    }
-    if (at <= this.dialog.judgedWatermark()) return; // 已判定（重复触发防御）
-    if (at === this.turnRememberedAt) {
-      // B5 防双写：本轮已显式 remember（直写入库 + 通知已发）——轮末重写
-      // 同容量极高（e2e 实录：同一偏好 added+updated 双卡）。推水位跳过；
-      // 对话另有增量时近三轮滑动窗下轮仍可提取（零丢失，至多延一轮）。
-      await this.dialog.markJudged(at);
-      return;
-    }
-    const turns = this.recentTurnsText();
-    if (turns === "") {
-      await this.dialog.markJudged(at);
-      return;
-    }
-    let rewritten: string;
-    try {
-      rewritten = await this.rewriteMemoryCandidate(turns);
-    } catch (err) {
-      this.deps.logger?.warn(`自动沉淀提取降级（本轮跳过）：${(err as Error).message}`);
-      return; // 不推水位——下轮重试
-    }
-    await this.dialog.markJudged(at);
-    const candidate = rewritten.trim();
-    if (candidate === "" || candidate === "无") return; // 无认知增量
-    try {
-      const saved = await memory.remember(candidate, "preference", "auto-sediment");
-      this.deps.emitMemoryWritten?.({ text: candidate, mode: saved.updated ? "updated" : "added" });
-    } catch (err) {
-      // 入库 best-effort（水位已推——嵌入端点挂等不重试本轮，warn 留痕）
-      this.deps.logger?.warn(`自动沉淀入库降级：${(err as Error).message}`);
-    }
-  }
-
-  /** 近三轮对话文本提取（B5：滑动窗——旧→新拼装 user/assistant 文本对；
-   *  跳过 toolResult/thinking/截断标记；取每轮末段 assistant 终答文本）。 */
-  private recentTurnsText(): string {
-    const records = this.dialog.snapshot();
-    const userIdx: number[] = [];
-    for (let i = records.length - 1; i >= 0 && userIdx.length < 3; i--) {
-      const r = records[i]!;
-      if (r.kind === "user" && r.text !== LOOP_INTERRUPTED_MARKER_TEXT) userIdx.unshift(i);
-    }
-    if (userIdx.length === 0) return "";
-    const turns: string[] = [];
-    for (const i of userIdx) {
-      const u = records[i]!;
-      if (u.kind !== "user") continue;
-      let assistantText = "";
-      for (let j = i + 1; j < records.length; j++) {
-        const r = records[j]!;
-        if (r.kind === "user") break;
-        if (r.kind === "assistant" && (r.text ?? "") !== "") assistantText = r.text ?? "";
-      }
-      turns.push(`用户：${u.text}\n管家：${assistantText}`);
-    }
-    return turns.join("\n\n");
-  }
-
-  /** 记忆提取重写（一次性 LLM 调用——voiceSummarizer 同模式：单发无状态、
-   *  tools 空；输入近三轮对话文本；toolCall/aborted 形态 fail-fast 抛错）。 */
-  private async rewriteMemoryCandidate(turns: string): Promise<string> {
-    const resp = await this.deps.llm.complete({
-      systemPrompt: SEDIMENT_REWRITE_SYSTEM_PROMPT,
-      messages: [{ role: "user", text: turns }],
-      tools: [],
-    });
-    if (resp.kind !== "blocks") {
-      throw new Error(`记忆提取面收到意外的 ${resp.kind} 响应（tools 为空不应发生）`);
-    }
-    return portBlocksText(resp.blocks);
-  }
-
-  /** 轮末沉淀钩子（runAskPipeline finally；fire-and-forget 不阻塞 drain）。 */
-  private maybeAutoSediment(at: number): void {
-    this.trackSediment(
-      this.sedimentAndStore(at).catch((err) =>
-        this.deps.logger?.warn(`自动沉淀管线异常：${(err as Error).message}`),
-      ),
-    );
-  }
-
-  /** 未判定尾部补判（重启补偿 + 清空兜底复用；snapshot 同步取定）。输入取
-   *  全局近三轮（含已判轮上下文——提取增量自然去重 + 两段查重兑底）。 */
-  private sedimentUnjudgedTail(): Promise<void> {
-    const watermark = this.dialog.judgedWatermark();
-    const tail = this.dialog
-      .snapshot()
-      .filter((r) => r.kind === "user" && r.at > watermark && r.text !== LOOP_INTERRUPTED_MARKER_TEXT); // E-198：截断标记非用户输入不参与判定
-    if (tail.length === 0) return Promise.resolve();
-    const latest = tail[tail.length - 1]!;
-    return this.sedimentAndStore(latest.at);
-  }
-
   /** 工作记忆读面（steward.history 回放：完整记录数组——UI 渲染与 LLM 窗口
    *  同源重建；A1 批）。 */
   async getHistory(): Promise<readonly StewardHistoryRecord[]> {
@@ -1990,17 +1831,8 @@ export class StewardService {
   }
 
   /** 新对话闸（steward.history {clear:true}：KV + daemon LLM 窗口同清——
-   *  前端显示由回执空数组同步；A1 批）。pending 确认卡随之作废（自然过期）。
-   *  B4a：清空前尾部补判 + 在途判定落定（await——防水位竞态：判定的
-   *  markJudged 与 clear 归零序不定会把旧水位拉回新对话致重复判定）。 */
+   *  前端显示由回执空数组同步；A1 批）。pending 确认卡随之作废（自然过期）。 */
   async clearHistory(): Promise<void> {
-    // 批①：清空兜底补判随 B5 触发一并停用（换轨总结器记忆点——管线留批②清理）
-    if (this.deps.sedimentTriggers === true) {
-      await this.sedimentUnjudgedTail().catch((err) =>
-        this.deps.logger?.warn(`自动沉淀清空兜底降级：${(err as Error).message}`),
-      );
-    }
-    await this.flushSediment();
     this.pending.clear();
     await this.dialog.clear();
     // 段B：引擎销毁重建（下一问从空窗口——与清空后 KV 同源；dialog 已清，
@@ -2923,7 +2755,6 @@ export class StewardService {
     }
     try {
       const saved = await memory.remember(text, kind, "steward-turn");
-      this.turnRememberedAt = this.currentAskAt; // 同轮轮末沉淀跳过（B5 防双写）
       this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
       const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
       return { kind: "result", text: capToolResultText(detail) };

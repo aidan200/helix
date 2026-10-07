@@ -7,9 +7,10 @@
  *    活跃时间随写刷新；
  * 2. deleteHead：删最老 n 行（保序）；
  * 3. replaceAll：整窗替换单事务（压缩/迁移路径）；
- * 4. setWatermark：水位独立键 + 刷活跃时间；clear：记录与水位全清；
+ * 4. clear：记录与活跃时间全清；
  * 5. 损坏行防御：脏 payload 跳过不抛（可用性优先——毒行不毒窗口）；
- * 6. migrateStewardDialogKv：A1 KV 整包拆行导入 + 水位携带 + 旧键墓碑幂等。
+ * 6. migrateStewardDialogKv：A1 KV 整包拆行导入（遗留 lastJudgedAt 字段
+ *    随沉淀管线退役忽略不炸）+ 旧键墓碑幂等。
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -51,7 +52,6 @@ describe("SqliteStewardDialogStore（真库）", () => {
     const empty = store.loadRecent();
     expect(empty.records).toEqual([]);
     expect(empty.lastActiveAt).toBe(0);
-    expect(empty.lastJudgedAt).toBeUndefined();
     store.append(R_USER, 1000);
     store.append({ kind: "assistant", text: "答", thinking: { text: "想", signature: "sig" }, toolCall: { id: "c1", name: "t", args: { a: 1 } }, at: 1002 }, 1002);
     store.append({ kind: "toolResult", toolCallId: "c1", name: "t", text: "r", at: 1003 }, 1003);
@@ -88,18 +88,13 @@ describe("SqliteStewardDialogStore（真库）", () => {
     store.close();
   });
 
-  test("④ setWatermark 水位独立 + 刷活跃；clear 全清（记录与水位）", () => {
+  test("④ clear 全清（记录与活跃时间）", () => {
     const store = makeStore();
     store.append(R_USER, 1000);
-    store.setWatermark(1500);
-    let snap = store.loadRecent();
-    expect(snap.lastJudgedAt).toBe(1500);
-    expect(snap.lastActiveAt).toBe(1000); // 判定不是活动——不刷活跃时间
     store.clear();
-    snap = store.loadRecent();
+    const snap = store.loadRecent();
     expect(snap.records).toEqual([]);
     expect(snap.lastActiveAt).toBe(0);
-    expect(snap.lastJudgedAt).toBeUndefined();
     store.close();
   });
 
@@ -123,19 +118,18 @@ describe("SqliteStewardDialogStore（真库）", () => {
     reopened.close();
   });
 
-  test("⑥ migrateStewardDialogKv：整包拆行导入 + 水位携带 + 墓碑幂等", () => {
+  test("⑥ migrateStewardDialogKv：整包拆行导入（遗留水位字段忽略）+ 墓碑幂等", () => {
     const store = makeStore();
     const existing = JSON.stringify({
       records: [R_USER, R_ASST],
       lastActiveAt: 2001,
-      lastJudgedAt: 1500,
+      lastJudgedAt: 1500, // 遗留字段（沉淀管线退役）——忽略不炸
     });
     const kv = fakeKv({ steward_dialog: existing });
     expect(migrateStewardDialogKv(store, kv)).toBe(true);
     const snap = store.loadRecent();
     expect(snap.records).toHaveLength(2);
     expect(snap.lastActiveAt).toBe(2001);
-    expect(snap.lastJudgedAt).toBe(1500);
     expect(kv.kv.get("steward_dialog")).toBe(""); // 墓碑
     expect(migrateStewardDialogKv(store, kv)).toBe(false); // 幂等：空键零动作
     // 墓碑后不再重复导入（记录未翻倍）
