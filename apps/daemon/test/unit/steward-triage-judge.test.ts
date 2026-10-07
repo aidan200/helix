@@ -20,7 +20,7 @@ import {
   STEWARD_TRIAGE_JUDGE_ENDPOINT_ID_KEY,
   type TriageJudgeFace,
 } from "../../src/application/steward/StewardTriageJudge";
-import { TRIAGE_JUDGE_WORTH_QUESTION } from "../../src/application/steward/StewardPerceptionService";
+import { TRIAGE_JUDGE_VERBOSE_QUESTION } from "../../src/application/steward/StewardPerceptionService";
 
 function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort & { kv: Map<string, string> } {
   const kv = new Map(Object.entries(initial));
@@ -133,9 +133,9 @@ describe("分诊判官配置读面（缺省 + 往返 + 端点悬空）", () => {
 describe("noul 透传（判定面 = 注入的判官面——E-199 注册表唯一姿势）", () => {
   test("state/question 原样透传 + 返回值直出", async () => {
     const { face, judge } = makeFace({ config: fakeConfig({ [STEWARD_TRIAGE_JUDGE_ENABLED_KEY]: "1", [STEWARD_TRIAGE_JUDGE_ENDPOINT_ID_KEY]: "ep-cls" }) });
-    const p = await face.noul("现场：任务完成", TRIAGE_JUDGE_WORTH_QUESTION);
+    const p = await face.noul("现场：任务完成", TRIAGE_JUDGE_VERBOSE_QUESTION);
     expect(p).toBe(0.9);
-    expect(judge.calls).toEqual([{ state: "现场：任务完成", question: TRIAGE_JUDGE_WORTH_QUESTION }]);
+    expect(judge.calls).toEqual([{ state: "现场：任务完成", question: TRIAGE_JUDGE_VERBOSE_QUESTION }]);
   });
 
   test("类型形态：face 满足感知服务判定依赖窄面", () => {

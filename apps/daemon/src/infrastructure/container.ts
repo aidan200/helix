@@ -832,9 +832,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     tts: voiceTts,
     gate: eventStream, // hasVoiceSubscribers/voicePreference 窄接口（EventStream 实现 BroadcastGate）
     emit: (payload) => eventStream.broadcastVoice(payload),
-    // 归一面：内容源 = 分诊呈现轨（一次事件一次 LLM——in-flight 去重在
-    // 感知服务内单点；未激活/gate 断点回退②层极简终态通知）
-    content: (event) => stewardPerception.supplyBroadcastText(event),
     logger,
   });
   voiceBroadcastRef = voiceBroadcast; // 晚绑闭合（感知服务 voice sink 回填）
@@ -1343,7 +1340,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // U4：占用协调桥（turn 轮末对账 + 实例终态摘除）
     coordination: sessionStack.coordination,
     // 语音播报批（V2 TTS）：终态三事件 → 粗筛/模板/合成/广播桥
-    voice: voiceBroadcast,
     // 文本管家批（V2.5）：生命周期事件 → 粗筛/模板文本行/feed 帧桥
     steward: stewardService,
     // 管家感知批（M0.5）：agent 终态 + 周期进展 → ring 沉淀 + 分诊锚桥

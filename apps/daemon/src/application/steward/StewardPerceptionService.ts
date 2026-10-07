@@ -27,24 +27,23 @@
  * 一问即激活。光球在屏/管家面板精确挂载信号留 M0 surface 协议后升级
  * （接点：feedGate.hasStewardSubscribers 读面替换为 SurfaceRegistry 激活态）。
  *
- * 分诊（D12-⑨/⑩）：门控事件（job done 任务级锚 / agent.failed/killed
- * agent 级即报 / 非 task 会话 agent.completed）→ 启用 → **一次 LLM 调用
- * 双轨产物**（StewardDiagnosisPort——与原 E-232 ③层摘要归一：
- * BroadcastService 内容源回调 supplyBroadcastText 与本服务共用同一
- * in-flight 调用，事件键去重，一次事件恒一次调用）。判官判定面（分诊
- * 判官接入批）：判官开启且就绪 → noul 校准概率双判（值得 ≥0.5 / 高危
- * ≥0.5）接管 notify/urgency 判别，不值得 = 静默零 LLM；生成面转纯文本
- * 两段制（禁 JSON 包装，烂文本截断兑底无解析失败类别）；关闭/未配/抛错
- * → 回退现行单次 LLM JSON 路径（d7449d79 基线零变化）：
- * - 摄入轨 → ring buffer 工作记录 + recordSessionProgress 薄条目（E-247
- *   机制零改动只调用——120 码点覆盖更新，全文不进长期记忆）；非激活完成
- *   的任务**同样产摄入轨**（回来能看到干了什么——D12-⑪ v2.9 注记）；
- * - 呈现轨 → 语音（agent 级经 content 源占位替换 / 任务级锚
- *   enqueueDiagnosed 直供——各自单路，防双路重播）+ steward.notify 帧
- *   （限流后；title=任务标题机械字段、suggestions=LLM 接续提案 +
- *   机械 [看看报告]）+ 对话内主动汇报（激活态 reportDialog 面）。
- * 未启用/降级态：零 LLM；任务级完成锚恒报终态事实（极简语音直供——
- * 「后台任务已完成」，D12-⑨ 机械降级路径零新造）。
+ * 播报重构（2026-10-08 用户裁决，白话硬约束）：
+ * - 任务终态锚**机械化**——任务状态是机械事实，零 LLM 零判官零分诊：
+ *   notify（title=任务名 + 白话短讯「任务完成了/失败了/被停掉了」）+
+ *   语音同句；failed=high 豁免限流（失败早知道）；启用态与否不影响
+ *   （机械事实不依赖 LLM 配置）。
+ * - 任务内 agent 终态（completed/failed/killed）**零播报零通知零分诊**
+ *   ——用户只关心任务整体（原 agent 级即报与 BroadcastService agent 播报
+ *   集/内容源回调链整体退役，fanout voice-broadcast-bridge 已拆除）；
+ *   事件仍入 ring（感知记录在）。
+ * - 会话回复锚（投递关注命中 turn.completed）：**notify 机械短讯**
+ *   （「对话回复了 / 回完了，具体我语音里说」——通知生命周期短，写多也
+ *   看不完）；**详文归宿是管家语音**——正文全给管家，判官 noul 单判
+ *   详略（verbose ≥0.5 = detail 逐项上嘴，否则 present 一句话）；判官
+ *   关闭/未配/抛错 → detail 在场决定（回退语义）。分诊一次 LLM 调用产
+ *   两段白话文案（生成面禁 JSON——烂文本截断兑底无解析失败类别）。
+ * - **白话硬约束**：凡是播报出来的（notify 正文/语音/保底句/机械短讯）
+ *   全部大白话——禁技术术语、英文报错、变量名、UUID。
  *
  * 通知预算（D12-⑦）：normal 档滑动窗 ≤4 条/小时（daemon 侧机械计数）；
  * high 档豁免（仅门控高危——分诊产物 urgency 裁定）。超限丢弃 notify 帧
@@ -65,7 +64,6 @@ import type {
   StewardDiagnosisResult,
 } from "../ports/outbound/StewardDiagnosisPort";
 import type { TriageJudgeFace } from "./StewardTriageJudge";
-import type { BroadcastContentResult } from "../voice/BroadcastService";
 import type { StewardNotifyPayload, StewardNotifySuggestion, SurfaceEvent, VoiceBroadcastKind } from "@helix/protocol";
 
 /** 任务会话 id 前缀（完成类聚合判别——task:* 会话的 agent.completed 不在
@@ -138,59 +136,50 @@ interface DiagnosisInput {
   readonly voiceKind: VoiceBroadcastKind;
   /** 语音帧 agentId 位（任务锚 = task:<jobId> 会话 id）。 */
   readonly voiceAgentId: string;
-  /** 任务标题（机械字段——notify title 用，非 UUID；仅任务级锚携带）。
-   *  来源：TaskOrchestratorService.titleOf（skill 任务说明首段 + 项目语境）。 */
+  /** 通知标题（机械字段——「对话回复了」；任务终态锚不经此结构）。 */
   readonly taskTitle?: string;
-  /** 语音直供判别：true = 任务级锚（无 BroadcastService 占位——enqueueDiagnosed
-   *  直供）；false = agent 级（呈现轨经 content 源占位替换——直供会双路重播）。 */
-  readonly directVoice: boolean;
-  /** progress 薄条目锚（缺席 = 不写 progress——agent 级即报无会话锚语义）。 */
-  readonly progressSessionId?: string;
-  /** 任务锚建议动作（去任务页看报告——点按才动）。 */
-  readonly openTasksSuggestion?: boolean;
+  /** notify 机械短讯（白话——「回完了，具体我语音里说」；缺席 = 用
+   *  fallbackText 保底句）。 */
+  readonly notifyBody?: string;
   /** 回复正文读面锚（修复①：回合终态分诊取「那边回了什么」——runDiagnosis
    *  异步读后拼入 userPrompt；缺席 = 不补正文段）。 */
   readonly replyContextSessionId?: string;
-  /** 未启用（money gate 关）极简保底语音（修复③：turn-reply 锚「投递的
-   *  会话已回复」——对齐 task.done「后台任务已完成」降级语义）。 */
+  /** 保底白话句（未启用/分诊失败/空文本三路共用——语音+notify 同句）。 */
   readonly fallbackText?: string;
   /** 分诊 userPrompt 素材（终态事实 + ring 现场投影 + 可选回复正文）。 */
   readonly userPrompt: string;
 }
 
-/** 分诊器系统提示词（双轨协议单点——JSON 判别 + 派生关系约束）。 */
+/** 分诊器系统提示词（JSON 回退路径——仅会话回复锚使用）。 */
 export const DIAGNOSIS_SYSTEM_PROMPT = [
-  "你是 helix 管家的分诊器：判断一个刚结束的后台任务值不值得主动告诉用户，并产出两份摘要。",
+  "你是 helix 管家的播报撰稿人：用户之前给一个对话发了消息，那边刚干完一轮活回过来了。请产出播报稿。",
   "输出必须是单个 JSON 对象（无围栏无解释），字段：",
-  '- notify: 布尔——是否值得打扰用户（不值得 = false，静默）',
-  '- urgency: "normal" 或 "high"（仅高危：失败阻塞、数据风险、预算耗尽）',
-  "- present: 给用户听的一句话，口语化中文，不超过 60 字",
-  "- detail: 通知正文，中文大白话，逐项讲清本轮完成的事（先做了什么、结果如何、有什么要注意的），可到 600 字，忌堆术语忌长篇大论（缺席时通知用 present）",
-  "- ingest: 给管家分析用的全面记录，结构化分节：做了什么/改动面/发现统计/阻塞/下一步，总长不超过 2000 字",
-  "- suggestions: 建议按钮数组，每项 {label: 短句}，最多 3 条（完成只是事实，接续才是价值：开修复/投递下一会话/跳报告）",
-  "硬约束：present 的内容必须出自 ingest 已写明的事实（呈现轨是摄入轨的投影，不得编造 ingest 没有的信息）。",
+  '- notify: 布尔（保留字段，恒 true）',
+  '- urgency: "normal"',
+  "- present: 一句话总结，大白话，不超过 60 字",
+  "- detail: 逐项讲清这轮干了什么、结果如何、有什么要注意的，大白话，不超过 600 字",
+  "- ingest: 给管家自己记的全面记录（可含技术细节），不超过 2000 字",
+  "- suggestions: 空数组",
+  "硬约束：present/detail 全部大白话——像当面口头汇报，禁止技术术语、英文报错原文、变量名、UUID；present 的内容必须出自 ingest 已写明的事实。",
 ].join("\n");
 
 // ── 分诊判官判定面常量（管家分诊判官接入批）────────────────────
 
-/** 判官阈值（noul 校准概率 ≥ 此值 = 是——E-214 记忆查重 0.5 同款）。 */
-export const TRIAGE_JUDGE_THRESHOLD = 0.5;
+/** 判官详略阈值（noul 校准概率 ≥ 此值 = 详细播报——E-214 记忆查重 0.5 同款）。 */
+export const TRIAGE_JUDGE_VERBOSE_THRESHOLD = 0.5;
 
-/** 判官问句①：值不值得主动通知（问题文本单源常量——测试直引，防措辞漂移
- *  导致判定语义漂移）。 */
-export const TRIAGE_JUDGE_WORTH_QUESTION =
-  "这个事件值得主动通知用户吗？（用户投递过消息在等回复 / 任务失败阻塞 / 数据风险 = 值得；例行完成且用户无等待 = 不值得）";
+/** 判官问句（2026-10-08 裁决后单判）：详略——这个回复要不要详细播报
+ *  （问题文本单源常量——测试直引，防措辞漂移导致判定语义漂移）。 */
+export const TRIAGE_JUDGE_VERBOSE_QUESTION =
+  "这个回复需要详细播报吗？（工作量大、有具体结果或结论、用户在等详细汇报 = 详细；简单确认、例行处理、没什么可说 = 简短）";
 
-/** 判官问句②：高危与否（与 DIAGNOSIS_SYSTEM_PROMPT urgency 字段同口径）。 */
-export const TRIAGE_JUDGE_HIGH_RISK_QUESTION = "高危吗？（失败阻塞 / 数据风险 / 预算耗尽）";
-
-/** 判官路径生成段系统提示词：纯文本两段制——禁 JSON/围栏/前缀（聊天模型
- *  填表形态错配是现行解析失败的根因；本路径零格式风险）。 */
+/** 判官路径生成段系统提示词：纯文本两段制白话——禁 JSON/围栏/前缀
+ *  （聊天模型填表形态错配是解析失败的根因；本路径零格式风险）。 */
 export const TRIAGE_GENERATION_SYSTEM_PROMPT = [
-  "你是 helix 管家的通知文案撰写器：一个后台事件刚刚结束，已裁定值得通知用户。",
-  "直接输出两个自然段，禁止 JSON、代码围栏、标题或编号前缀及任何格式包装：",
-  "第一段：给用户听的一句话，口语化中文，不超过 60 字。",
-  "第二段：通知正文，中文大白话，逐项讲清本轮完成的事（先做了什么、结果如何、有什么要注意的），不超过 600 字，忌堆术语忌长篇大论。",
+  "你是 helix 管家的播报撰稿人：用户之前给一个对话发了消息，那边刚干完一轮活回过来了。",
+  "直接输出两个自然段，禁止 JSON、代码围栏、标题或编号前缀及任何格式包装，两段都必须是大白话，像当面口头汇报，禁止技术术语、英文、代码、变量名、UUID：",
+  "第一段：一句话总结，口语化中文，不超过 60 字。",
+  "第二段：逐项讲清这轮干了什么、结果如何、有什么要注意的，大白话，不超过 600 字，忌长篇大论。",
 ].join("\n");
 
 /** 对话内主动汇报载荷（激活态主动环投递面——D12-⑪「对话内主动汇报/
@@ -226,7 +215,7 @@ export interface StewardPerceptionDeps {
   readonly reportDialog?: (report: ProactiveDialogReport) => void;
   /** 语音播报直供面（BroadcastService.enqueueDiagnosed 窄接口——分诊呈现轨
    *  同源直供；组合根晚绑回填（构造环：BroadcastService content 源又指向本
-   *  服务 supplyBroadcastText）；缺席 = 零语音。 */
+   *  队列面）；缺席 = 零语音。 */
   readonly voice?: { enqueueDiagnosed(item: { kind: VoiceBroadcastKind; agentId: string; text: string }): void };
   /** 回复正文读面（修复①：回合终态分诊输入补「那边回了什么」——组合根接
    *  SessionRepository.readSessionTail 尾投影取末条 assistant；缺席 = prompt
@@ -337,7 +326,7 @@ export class StewardPerceptionService {
   onDomainEvent(event: DomainEvent): void {
     const entry = this.ringEntryOf(event);
     if (entry !== undefined) this.pushRing(entry);
-    const input = this.agentLevelDiagnosisInputOf(event);
+    const input = this.replyDiagnosisInputOf(event);
     if (input !== undefined) this.ensureDiagnosis(input);
   }
 
@@ -358,14 +347,31 @@ export class StewardPerceptionService {
       jobId,
       text: `任务 ${jobId} 终态：${status}`,
     });
-    if (status !== "done") return;
-    // 未启用（money gate/模型配断点）：恒报终态事实（极简语音直供——
-    // D12-⑨ 机械降级，零 LLM）；启用态分诊恒做（不看激活——v2.9）
-    if (this.deps.diagnose === undefined || !this.deps.diagnose.isAvailable()) {
-      this.deps.voice?.enqueueDiagnosed({ kind: "task.done", agentId: sessionId, text: "后台任务已完成" });
-      return;
+    // 机械短讯（白话硬约束）：任务状态是机械事实——零 LLM 零判官零分诊，
+    // 启用态与否不影响（机械事实不依赖 LLM 配置）；failed = high 豁免
+    // 通知限流（失败早知道）；语音同句直供（notify 预算内）。
+    const body = status === "failed" ? "任务失败了" : status === "cancelled" ? "任务被停掉了" : "任务完成了";
+    const urgency = status === "failed" ? "high" : "normal";
+    // 语音先入队（播报队列独立限流——上限 5 溢出合并，不受通知预算约束）
+    this.deps.voice?.enqueueDiagnosed({ kind: "task.done", agentId: sessionId, text: body });
+    const now = this.now();
+    if (urgency !== "high") {
+      this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
+      if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
+        this.deps.logger?.warn(`管家通知预算超限（任务终态机械短讯丢弃）：${title ?? jobId}`);
+        return;
+      }
+      this.normalSentAt.push(now);
     }
-    this.ensureDiagnosis(this.taskDoneInput(jobId, sessionId, title));
+    const taskTitle = title !== undefined && title.trim() !== "" ? title.trim() : "后台任务";
+    this.notifySeq += 1;
+    this.deps.emitNotify?.({
+      urgency,
+      title: taskTitle,
+      body,
+      suggestions: status === "done" ? [{ label: "看看报告", verb: "open_tasks" }] : [],
+      seq: this.notifySeq,
+    });
   }
 
   /**
@@ -385,24 +391,6 @@ export class StewardPerceptionService {
 
   // ── BroadcastService 归一面（③层摘要调用退役 → content 源） ──────
 
-  /**
-   * BroadcastService 内容源（deps.content 回调目标）：事件 → 分诊呈现轨
-   * 文本。与事件入口共用 in-flight（归一：一次事件一次 LLM 调用）；
-   * unavailable = 无分诊（未启用/gate 断点）→ BroadcastService 回退②层
-   * 极简终态通知（回归保护面）。
-   */
-  async supplyBroadcastText(event: DomainEvent): Promise<BroadcastContentResult> {
-    const input = this.agentLevelDiagnosisInputOf(event);
-    if (input === undefined) return { kind: "unavailable" };
-    const result = await this.ensureDiagnosis(input);
-    if (result === undefined) return { kind: "unavailable" };
-    if (!result.notify || result.present.trim() === "") return { kind: "silent" };
-    return { kind: "text", text: this.clampPresent(result.present) };
-  }
-
-  // ── 读面 ─────────────────────────────────────────────
-
-  /** ring buffer 快照（测试/诊断读面——ask 时投影消费面后续批次接）。 */
   ringSnapshot(): readonly PerceptionRingEntry[] {
     return this.ring;
   }
@@ -452,7 +440,7 @@ export class StewardPerceptionService {
       }
       case "turn.completed": {
         // 会话回合终态（设计 D10 系统族最后一块订阅面——主会话回合结束）：
-        // 恒入 ring（感知记录，零 LLM）；分诊锚在 agentLevelDiagnosisInputOf
+        // 恒入 ring（感知记录，零 LLM）；回复锚在 replyDiagnosisInputOf
         // ——仅投递关注命中的会话（用户在等回复），无关注零分诊（成本闸）。
         const p = event.payload as { reason?: string; replyEntryId?: string };
         return {
@@ -469,107 +457,34 @@ export class StewardPerceptionService {
 
   // ── 内部：分诊锚与输入构造 ─────────────────────────────
 
-  /** agent 级分诊锚判定：failed/killed 即报 + 非 task 会话 completed（task
-   *  会话完成类聚合任务级锚——onJobTerminal 唯一触发面）。 */
-  private agentLevelDiagnosisInputOf(event: DomainEvent): DiagnosisInput | undefined {
-    switch (event.type) {
-      case "agent.failed": {
-        const p = event.payload as AgentFailedPayload;
-        return {
-          key: `agent.failed:${p.agentId}`,
-          voiceKind: "agent.failed",
-          voiceAgentId: p.agentId,
-          directVoice: false, // 呈现轨经 content 源占位替换（BroadcastService 单路）
-          userPrompt: [
-            "事件：后台实例失败",
-            `实例：${p.agentId}`,
-            `错误：${p.error?.slice(0, 500) ?? ""}`,
-            `closure 摘要：${p.closure?.summary ?? ""}`,
-          ].join("\n"),
-        };
-      }
-      case "agent.killed": {
-        const p = event.payload as AgentKilledPayload;
-        return {
-          key: `agent.killed:${p.agentId}`,
-          voiceKind: "agent.killed",
-          voiceAgentId: p.agentId,
-          directVoice: false,
-          userPrompt: [
-            "事件：后台实例被终止",
-            `实例：${p.agentId}`,
-            `closure 摘要：${p.closure?.summary ?? ""}`,
-          ].join("\n"),
-        };
-      }
-      case "agent.completed": {
-        const p = event.payload as AgentCompletedPayload;
-        if (event.sessionId.startsWith(TASK_SESSION_PREFIX)) return undefined; // 聚任务级
-        return {
-          key: `agent.completed:${p.agentId}`,
-          voiceKind: "agent.completed",
-          voiceAgentId: p.agentId,
-          directVoice: false,
-          userPrompt: [
-            "事件：后台实例完成",
-            `实例：${p.agentId}`,
-            `closure 摘要：${p.closure?.summary ?? ""}`,
-          ].join("\n"),
-        };
-      }
-      case "turn.completed": {
-        // 投递关注命中（deliver_to_session 投递后的「那边回完了」）：一次性
-        // 消费关注表（一次投递等一次回复）；reason=daemon_restarted 是重启
-        // 恢复不是回复——保留关注不消费不通知。
-        const p = event.payload as { reason?: string };
-        if (p.reason === "daemon_restarted") return undefined;
-        const awaiting = this.awaitingReply.get(event.sessionId);
-        if (awaiting === undefined) return undefined;
-        this.awaitingReply.delete(event.sessionId);
-        this.persistWatchSnapshot(); // 修复②：消费即重写快照（跨重启不重复通知）
-        const lines = [
-          "事件：用户投递过消息的会话回合结束（回复就绪）",
-          `会话：${event.sessionId}`,
-          `回合终态：${p.reason ?? "done"}`,
-          `用户投递的内容：${awaiting.text || "（无文本）"}`,
-        ];
-        return {
-          key: `turn.reply:${event.sessionId}:${awaiting.at}`,
-          voiceKind: "agent.completed",
-          voiceAgentId: event.sessionId,
-          directVoice: true,
-          taskTitle: "会话回复了",
-          replyContextSessionId: event.sessionId, // 修复①：runDiagnosis 异步取回复正文
-          fallbackText: "投递的会话已回复", // 修复③：未启用极简保底
-          userPrompt: lines.join("\n"),
-        };
-      }
-      default:
-        return undefined;
-    }
-  }
-
-  /** 任务级完成锚输入：终态事实 + ring 现场投影（批次 closure 素材——
-   *  分诊 LLM 看 ring 全貌才能写双轨，D11 ask 时投影同构）。 */
-  private taskDoneInput(jobId: string, sessionId: string, title?: string): DiagnosisInput {
-    const lines: string[] = [`事件：任务整体完成（jobId=${jobId}）`];
-    const batchRecords = this.ring.filter((r) => r.sessionId === sessionId && r.kind !== "task.diagnosed").slice(-20);
-    if (batchRecords.length > 0) {
-      lines.push("批次现场（ring 投影）：");
-      for (const r of batchRecords) {
-        lines.push(`- [${r.kind}]${r.agentId !== undefined ? ` ${r.agentId}` : ""}：${r.text}`);
-      }
-    } else {
-      lines.push("批次现场：无批次实例记录（单批任务/锚点竞态）");
-    }
+  /** 回复锚判定（2026-10-08 裁决后唯一 LLM 分诊锚）：投递关注命中的
+   *  turn.completed——notify 机械短讯 + 管家语音详略轨。agent.* 终态
+   *  零分诊零播报（用户只关心任务整体；事件照入 ring）。 */
+  private replyDiagnosisInputOf(event: DomainEvent): DiagnosisInput | undefined {
+    if (event.type !== "turn.completed") return undefined;
+    // 投递关注命中（deliver_to_session 投递后的「那边回完了」）：一次性
+    // 消费关注表（一次投递等一次回复）；reason=daemon_restarted 是重启
+    // 恢复不是回复——保留关注不消费不通知。
+    const p = event.payload as { reason?: string };
+    if (p.reason === "daemon_restarted") return undefined;
+    const awaiting = this.awaitingReply.get(event.sessionId);
+    if (awaiting === undefined) return undefined;
+    this.awaitingReply.delete(event.sessionId);
+    this.persistWatchSnapshot(); // 消费即重写快照（跨重启不重复通知）
+    const lines = [
+      "事件：用户投递过消息的对话回合结束（回复就绪）",
+      `会话：${event.sessionId}`,
+      `回合终态：${p.reason ?? "done"}`,
+      `用户投递的内容：${awaiting.text || "（无文本）"}`,
+    ];
     return {
-      key: `task.done:${jobId}`,
-      voiceKind: "task.done",
-      voiceAgentId: sessionId,
-      directVoice: true, // 任务级锚无 BroadcastService 占位——enqueueDiagnosed 直供
-      ...(title !== undefined && title.trim() !== "" ? { taskTitle: title.trim() } : {}),
-      progressSessionId: sessionId,
-      openTasksSuggestion: true,
+      key: `turn.reply:${event.sessionId}:${awaiting.at}`,
+      voiceKind: "agent.completed",
+      voiceAgentId: event.sessionId,
+      taskTitle: "对话回复了",
+      notifyBody: "回完了，具体我语音里说",
+      replyContextSessionId: event.sessionId, // runDiagnosis 异步取回复正文
+      fallbackText: "那个对话回你了", // 未启用/分诊失败/空文本三路保底（白话）
       userPrompt: lines.join("\n"),
     };
   }
@@ -581,11 +496,11 @@ export class StewardPerceptionService {
    *  断言 calls=1 的落点）；未启用零入链零 LLM。v2.9：激活不是门槛（分诊
    *  恒做，激活只决定投递面）。 */
   private ensureDiagnosis(input: DiagnosisInput): Promise<StewardDiagnosisResult | undefined> {
-    // 启用门（D12-⑨/⑫：管家开∧总结开∧模型配——port 三条件收口）；未启用
-    // 且锚带极简保底（turn-reply）→ 零 LLM 机械语音（对齐 task.done 降级语义）
+    // 启用门（管家开∧总结开∧模型配——port 三条件收口）；未启用（money
+    // gate 关）→ 回复锚机械保底 notify + 语音同句（白话句，事件不静默）
     if (this.deps.diagnose === undefined || !this.deps.diagnose.isAvailable()) {
       if (input.fallbackText !== undefined) {
-        this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: input.fallbackText });
+        this.emitFallbackDelivery(input);
       }
       return Promise.resolve(undefined);
     }
@@ -601,13 +516,13 @@ export class StewardPerceptionService {
     return step;
   }
 
-  /** 一次分诊调用 + 双轨产物消费（异常吞掉保链不断——静默降级不播半产物）。 */
+  /** 一次分诊调用 + 消费（回复锚专用：notify 机械短讯恒发——分诊失败/空
+   *  文本走 fallbackText 保底句，事件不静默；语音详略轨——verbose=detail
+   *  逐项上嘴（≤600 截断），否则 present 一句（≤60）；ring 摄入轨照记）。 */
   private async runDiagnosis(input: DiagnosisInput): Promise<StewardDiagnosisResult | undefined> {
     const port = this.deps.diagnose;
     if (port === undefined || !port.isAvailable()) return undefined;
     try {
-      // 修复①：回合终态锚补回复正文（异步读面——LLM 能看到那边回了什么；
-      // 读面缺席/报错不阻塞诊断，prompt 标注无正文）
       let userPrompt = input.userPrompt;
       if (input.replyContextSessionId !== undefined) {
         let replyBlock = "（无回复正文可读）";
@@ -619,39 +534,49 @@ export class StewardPerceptionService {
         }
         userPrompt = `${userPrompt}\n回复内容（尾部截取）：${replyBlock}`;
       }
-      const result = await this.diagnoseOrJudge(port, input, userPrompt);
+      const { result, verbose } = await this.diagnoseOrJudge(port, input, userPrompt);
       const present = this.clampPresent(result.present);
-      const body = result.detail !== undefined ? this.clampBody(result.detail) : present;
-      const ingest = result.ingest.trim();
-      if (ingest !== "") {
-        // 摄入轨 → ring 工作记录（只活 ring，不进长期记忆——防膨胀与召回挤占）
+      const detail = result.detail !== undefined ? this.clampBody(result.detail) : undefined;
+      if (result.ingest.trim() !== "") {
         this.pushRing({
           at: this.now(),
           kind: "task.diagnosed",
           sessionId: input.voiceAgentId,
-          jobId: input.key.startsWith("task.done:") ? input.key.slice("task.done:".length) : undefined,
-          text: present,
-          ingest,
+          text: present !== "" ? present : (detail ?? ""),
+          ingest: result.ingest,
         });
       }
-      // progress 薄条目：任务级锚写进展状态（E-247 覆盖更新入口——120 码点
-      // 截断在服务内部；呈现轨一句话即进展状态，全文靠 ring/深读闭环）
-      if (input.progressSessionId !== undefined && present !== "") {
-        await this.deps.memory?.recordSessionProgress(input.progressSessionId, present);
+      // 语音详略轨（白话硬约束——详文归宿是管家语音）
+      let voiceText = verbose && detail !== undefined && detail !== "" ? detail : present;
+      let notifyBody = input.notifyBody ?? input.fallbackText ?? "那个对话回你了";
+      if (voiceText === "") {
+        // 空文本兑底：保底白话句（事件不静默——notify 机械短讯照发）
+        voiceText = input.fallbackText ?? "那个对话回你了";
+        notifyBody = voiceText;
       }
-      if (!result.notify || present === "") return result; // 静默裁决：零 notify 零语音零对话插话（两态一致）
-      // 呈现轨 → 语音（任务级锚直供；agent 级经 content 源占位替换——单路）
-      if (input.directVoice) {
-        this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: present });
+      this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: voiceText });
+      // notify 机械短讯（白话——通知生命周期短，写多也看不完）
+      const now = this.now();
+      this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
+      if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
+        this.deps.logger?.warn(`管家通知预算超限（回复机械短讯丢弃）：${notifyBody.slice(0, 40)}`);
+        return result;
       }
-      // 呈现轨 → notify 帧 + 对话内主动汇报（限流后；投递面按激活分支）
-      this.emitDeliveryCapped(result, present, body, input);
+      this.normalSentAt.push(now);
+      const title = input.taskTitle ?? "对话回复了";
+      this.notifySeq += 1;
+      this.deps.emitNotify?.({
+        urgency: "normal",
+        title,
+        body: notifyBody,
+        seq: this.notifySeq,
+      });
+      if (this.isActive()) {
+        this.deps.reportDialog?.({ title, text: notifyBody, suggestions: [] });
+      }
       return result;
     } catch (err) {
       this.deps.logger?.warn(`管家分诊降级（${input.key}）：${(err as Error).message}`);
-      // 降级保底（用户反馈批「第二条通知静默丢失」实锤：解析失败 → 整体丢弃
-      // → 用户在等回复的事件被静默吞掉）：锚带 fallbackText 时发机械保底
-      // notify + 语音（与未启用态同形——事件真实发生，分诊失败只损失丰富度）。
       if (input.fallbackText !== undefined) {
         this.emitFallbackDelivery(input);
       }
@@ -659,51 +584,42 @@ export class StewardPerceptionService {
     }
   }
 
-  /** 判定/生成拆面（管家分诊判官接入批）：判官开启且就绪 → noul 双判
-   *  （值得/高危——零格式风险）+ 生成纯文本两段制；不可用/抛错 → 回退
-   *  现行 LLM JSON 路径（d7449d79 基线——三重容错与机械保底均在位）。 */
+  /** 判定/生成拆面（2026-10-08 裁决）：判官开启且就绪 → noul 单判详略
+   *  （verbose——零格式风险）+ 生成纯文本两段制白话；不可用/抛错 → 回退
+   *  现行 LLM JSON 路径（detail 在场决定详略——回退语义）。 */
   private async diagnoseOrJudge(
     port: StewardDiagnosisPort,
     input: DiagnosisInput,
     userPrompt: string,
-  ): Promise<StewardDiagnosisResult> {
+  ): Promise<{ result: StewardDiagnosisResult; verbose: boolean }> {
     const judge = this.deps.triageJudge;
-    if (judge !== undefined && judge.enabled()) {
-      if (judge.ready()) {
-        try {
-          const worth = await judge.noul(userPrompt, TRIAGE_JUDGE_WORTH_QUESTION);
-          if (worth < TRIAGE_JUDGE_THRESHOLD) {
-            // 判官裁决不值得：静默——零 LLM 零通知（ring 原始事件照记）；合成
-            // notify=false 产物供供给面归一（supplyBroadcastText → silent，
-            // 不回退极简终态通知；零摄入轨零 progress）。
-            return { notify: false, urgency: "normal", present: "", ingest: "", suggestions: [] };
-          }
-          const highRisk =
-            (await judge.noul(userPrompt, TRIAGE_JUDGE_HIGH_RISK_QUESTION)) >= TRIAGE_JUDGE_THRESHOLD;
-          const text = await port.generateText({ systemPrompt: TRIAGE_GENERATION_SYSTEM_PROMPT, userPrompt });
-          return this.resultOfGeneratedText(text, highRisk);
-        } catch (err) {
-          // 判官抛错即降级不重试（E-214 同款保守语义；生成段 LLM 失败同路回退）
-          this.deps.logger?.warn(
-            `分诊判官判定路径失败（${input.key}）：${(err as Error).message}——回退 LLM JSON 判定路径`,
-          );
-        }
-      } else {
-        // 开关开但端点未配/已删/非 classifier——值得提醒（用户预期判官生效）
+    if (judge !== undefined && judge.enabled() && judge.ready()) {
+      try {
+        const verbose = (await judge.noul(userPrompt, TRIAGE_JUDGE_VERBOSE_QUESTION)) >= TRIAGE_JUDGE_VERBOSE_THRESHOLD;
+        const text = await port.generateText({ systemPrompt: TRIAGE_GENERATION_SYSTEM_PROMPT, userPrompt });
+        return this.resultOfGeneratedText(text, verbose);
+      } catch (err) {
+        // 判官抛错即降级不重试（E-214 同款保守语义；生成段 LLM 失败同路回退）
         this.deps.logger?.warn(
-          `分诊判官开启但端点未配或已失效（${input.key}）——回退 LLM JSON 判定路径`,
+          `分诊判官判定路径失败（${input.key}）：${(err as Error).message}——回退 LLM JSON 判定路径`,
         );
       }
+    } else if (judge !== undefined && judge.enabled()) {
+      // 开关开但端点未配/已删/非 classifier——值得提醒（用户预期判官生效）
+      this.deps.logger?.warn(
+        `分诊判官开启但端点未配或已失效（${input.key}）——回退 LLM JSON 判定路径`,
+      );
     }
-    return port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt });
+    // 回退（判官关/未配/抛错）：detail 在场决定详略
+    const result = await port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt });
+    return { result, verbose: result.detail !== undefined };
   }
 
   /** 纯文本两段制 → 分诊产物（烂文本也是文本——无「解析失败」类别）：
    *  空行分段——第一段 = present、余段合并 = detail（单块但含单换行时按首行
-   *  /余行兑底拆分）；截断兑底归消费面 clampPresent/clampBody（≤60/≤200）；
-   *  ingest = 完整生成文本原样（摄入轨不再要求结构化分节）；suggestions 空
-   *  （LLM 不产建议——机械接续沿 emitDeliveryCapped open_tasks 提案）。 */
-  private resultOfGeneratedText(text: string, highRisk: boolean): StewardDiagnosisResult {
+   *  /余行兑底拆分）；截断兑底归消费面 clampPresent/clampBody（≤60/≤600）；
+   *  ingest = 完整生成文本原样；verbose 附着（详略裁决传消费面）。 */
+  private resultOfGeneratedText(text: string, verbose?: boolean): { result: StewardDiagnosisResult; verbose: boolean } {
     let paragraphs = text
       .split(/\n{2,}/)
       .map((p) => p.trim())
@@ -716,86 +632,40 @@ export class StewardPerceptionService {
     const present = paragraphs[0] ?? "";
     const detail = paragraphs.length > 1 ? paragraphs.slice(1).join("\n") : undefined;
     return {
-      notify: true,
-      urgency: highRisk ? "high" : "normal",
-      present,
-      ...(detail !== undefined ? { detail } : {}),
-      ingest: text.trim(),
-      suggestions: [],
+      result: {
+        notify: true,
+        urgency: "normal",
+        present,
+        ...(detail !== undefined ? { detail } : {}),
+        ingest: text.trim(),
+        suggestions: [],
+      },
+      verbose: verbose ?? true,
     };
   }
 
-  /** 机械保底投递（分诊失败降级/未启用两路共用形态）：通知预算照过 +
-   *  notify（标题机械字段 + fallbackText 正文）+ directVoice 语音同句。 */
+  /** 机械保底投递（未启用/分诊失败两路共用）：保底白话句 notify + 语音
+   *  同句（预算照过——防降级风暴轰炸）；激活态补对话内汇报。 */
   private emitFallbackDelivery(input: DiagnosisInput): void {
-    const present = input.fallbackText!;
+    const text = input.fallbackText ?? "那个对话回你了";
     const now = this.now();
-    // 通知预算（normal 档滑动窗 ≤4/h——保底也计入，防降级风暴轰炸）
     this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
     if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
-      this.deps.logger?.warn(`管家保底通知预算超限，丢弃：${present.slice(0, 40)}`);
+      this.deps.logger?.warn(`管家保底通知预算超限，丢弃：${text.slice(0, 40)}`);
       return;
     }
     this.normalSentAt.push(now);
-    if (input.directVoice) {
-      this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: present });
-    }
-    const title = input.taskTitle ?? "后台实例终态";
+    this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text });
+    const title = input.taskTitle ?? "对话回复了";
     this.notifySeq += 1;
     this.deps.emitNotify?.({
       urgency: "normal",
       title,
-      body: present,
+      body: text,
       seq: this.notifySeq,
     });
     if (this.isActive()) {
-      this.deps.reportDialog?.({ title, text: present, suggestions: [] });
-    }
-  }
-
-  /** 主动投递面收口（通知预算 + 投递面分支）：normal 滑动窗 ≤4 条/小时
-   *  （high 豁免）——超限丢弃 notify 帧与对话内汇报（同属主动投递，共用
-    *  预算防轰炸；语音照播——播报队列独立限流）；激活 = 对话内主动汇报
-   *  + notify；未激活 = notify/语音异步零对话插话（v2.9）。 */
-  private emitDeliveryCapped(
-    result: StewardDiagnosisResult,
-    present: string,
-    body: string,
-    input: DiagnosisInput,
-  ): void {
-    const now = this.now();
-    if (result.urgency !== "high") {
-      this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
-      if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
-        this.deps.logger?.warn(
-          `管家通知预算超限（normal 窗口内已达 ${NOTIFY_NORMAL_HOURLY_LIMIT} 条，丢弃本条 notify）：${present.slice(0, 40)}`,
-        );
-        return; // 丢弃 notify 帧与对话内汇报（语音照播——播报队列独立限流）
-      }
-      this.normalSentAt.push(now);
-    }
-    const suggestions: StewardNotifySuggestion[] = [
-      ...result.suggestions.slice(0, 3).map((s) => ({ label: s.label })),
-    ];
-    if (input.openTasksSuggestion && !suggestions.some((s) => s.verb === "open_tasks")) {
-      suggestions.push({ label: "看看报告", verb: "open_tasks" }); // 机械接续提案（点按才动）
-    }
-    const title =
-      input.taskTitle ??
-      (input.voiceKind === "task.done" ? "任务完成" : input.voiceKind === "agent.failed" ? "后台任务失败" : "后台实例终态");
-    this.notifySeq += 1;
-    if (this.deps.emitNotify !== undefined) {
-      this.deps.emitNotify({
-        urgency: result.urgency === "high" ? "high" : "normal",
-        title,
-        body,
-        ...(suggestions.length > 0 ? { suggestions } : {}),
-        seq: this.notifySeq,
-      });
-    }
-    // 投递面分支（D12-⑪/⑫）：激活 = 对话内主动汇报（接续提案对话内提出）
-    if (this.isActive()) {
-      this.deps.reportDialog?.({ title, text: body, suggestions });
+      this.deps.reportDialog?.({ title, text, suggestions: [] });
     }
   }
 

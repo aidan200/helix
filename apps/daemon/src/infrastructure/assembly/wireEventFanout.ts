@@ -109,7 +109,6 @@ export interface WireEventFanoutDeps {
   /** U4 占用协调（可选——纯调度测试形态不注入）：轮末对账 + 实例终态摘除的 fanout 入口。 */
   readonly coordination?: { onDomainEvent(event: DomainEvent): void };
   /** 语音播报批（V2 TTS，可选——纯调度测试形态不注入）：终态三事件 → 粗筛/模板/合成/广播的 fanout 入口。 */
-  readonly voice?: { onDomainEvent(event: DomainEvent): void };
   /** 文本管家批（V2.5，可选——纯调度测试形态不注入）：agent 生命周期事件 → 粗筛/模板文本行/feed 帧的 fanout 入口。 */
   readonly steward?: { onDomainEvent(event: DomainEvent): void };
   /** 管家感知批（M0.5，可选——纯测试形态不注入）：agent 终态 + 周期进展
@@ -202,18 +201,6 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       name: "coord-bridge",
       target: {
         publish: (event) => coordination.onDomainEvent(event),
-        publishDelta: () => undefined,
-      },
-    });
-  }
-  // 语音播报桥（V2 TTS）：agent.* 终态三事件流入 BroadcastService（粗筛在
-  // service 内单点）。序位末尾：播报是旁路增强面，不阻断既有目标语义。
-  if (deps.voice !== undefined) {
-    const voice = deps.voice;
-    publisher.add({
-      name: "voice-broadcast-bridge",
-      target: {
-        publish: (event) => voice.onDomainEvent(event),
         publishDelta: () => undefined,
       },
     });

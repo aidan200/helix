@@ -1,13 +1,10 @@
 /**
- * 语音播报批（V2 TTS）WS 全链集成：
- * - fake TTS provider 注入（voiceTtsOverride 接缝）→ 真实 WS 连接
- *   voice.subscribe → orchestration.spawn（FakeAgentEngine + KillableRunner
- *   挂起形态，测试 forceClosure 驱动收口）→ agent.completed 经 fanout
- *   voice-broadcast-bridge → BroadcastService 粗筛/极简通知/合成 →
- *   voice.broadcast 广播帧到达已订阅连接（payload 含 fake 音频 data URL
- *   + kind/agentId/text/seq）；
- * - 闸门负例：无订阅连接时收口 → 零合成（money gate——开关默认 off 落地面）；
- *   未订阅连接收不到 voice.broadcast（连接级过滤投递）；
+ * 语音播报 WS 集成（2026-10-08 白话播报重构后形态）：
+ * - agent 级播报面整体退役（用户裁决：任务内 agent 状态零播报）——
+ *   voice.subscribe 后 agent.completed → 零 voice.broadcast 零合成
+ *   （fanout voice-broadcast-bridge 已拆除；任务终态机械短讯/回复详略轨
+ *   经 enqueueDiagnosed 直供，感知服务单测覆盖）；
+ * - 闸门负例：无订阅连接时收口 → 零合成（money gate 保留）；
  * - voice.synthesize 无 key 形态：error 判别回执（含设置页录入引导）——
  *   真实 DashScopeTtsAdapter fail-fast 链（临时 home 无 auth.json key）；
  * - payload 非法（text 空串）：commandError 通道（协议面错误语义）。
@@ -164,73 +161,28 @@ async function spawnAndComplete(rig: Rig, summary: string): Promise<string> {
   return agentId;
 }
 
-describe("voice 族：播报全链（fanout voice-broadcast-bridge → 广播帧）", () => {
-  test("voice.subscribe → agent.completed → voice.broadcast 帧到达已订阅连接（fake 音频）", async () => {
+describe("voice 族：agent 级播报退役（2026-10-08 用户裁决——voice.broadcast 仅直供面）", () => {
+  test("voice.subscribe → agent.completed → 零 voice.broadcast 帧 + 零合成（agent 事件零播报；任务终态机械短讯不经此桥）", async () => {
     const rig = (current = await makeRig());
-    // 订阅播报（音色偏好随命令携带）
     rig.client.send({ v: PROTOCOL_VERSION, type: "voice.subscribe", payload: { voice: "Cherry" } });
     await new Promise((r) => setTimeout(r, 50)); // 订阅登记落位
 
-    const agentId = await spawnAndComplete(rig, "V2 播报全链验证");
-    const broadcast = await rig.client.expect("voice.broadcast", 5000);
-
-    // 广播帧形态：系统级信封 + voice 通道 + fake 音频
-    expect(broadcast.channel).toBe("voice");
-    expect(broadcast.sessionId).toBe("__system__");
-    const payload = broadcast.payload as unknown as VoiceBroadcastPayload;
-    expect(payload.kind).toBe("agent.completed");
-    expect(payload.agentId).toBe(agentId);
-    expect(payload.text).toBe("后台任务已完成");
-    expect(payload.audio).toBe(FAKE_AUDIO);
-    expect(payload.provider).toBe("dashscope");
-    expect(payload.seq).toBeGreaterThanOrEqual(1);
-
-    // 合成请求形态：极简通知文本 + 订阅携带音色
-    expect(rig.tts.calls.length).toBe(1);
-    expect(rig.tts.calls[0]!.voice).toBe("Cherry");
-    expect(rig.tts.calls[0]!.text).toBe("后台任务已完成");
-
-    // 投递负例：未订阅连接（client2）收不到 voice.broadcast
-    expect(rig.client2.frames.some((f) => f.type === "voice.broadcast")).toBe(false);
+    const agentId = await spawnAndComplete(rig, "退役验证任务");
+    await rig.client.expect("agent.completed", 5000);
+    await new Promise((r) => setTimeout(r, 150));
+    // agent 级播报面整体退役：无广播帧、零合成（订阅闸门仅对直供面生效）
+    expect(rig.client.frames.some((f) => f.type === "voice.broadcast")).toBe(false);
+    expect(rig.tts.calls.length).toBe(0);
+    expect(agentId).not.toBe("");
   });
 
-  test("闸门负例：无订阅连接时收口 → 零合成（money gate——默认 off 落地面）", async () => {
+  test("无订阅连接时收口 → 零合成（money gate 负例保留——默认 off 落地面）", async () => {
     const rig = (current = await makeRig());
-    // 不订阅 voice，直接 spawn 收口
     const agentId = await spawnAndComplete(rig, "闸门负例任务");
     await rig.client.expect("agent.completed", 5000);
     await new Promise((r) => setTimeout(r, 100));
     expect(rig.tts.calls.length).toBe(0); // 零合成零花费
     expect(agentId).not.toBe("");
-  });
-
-  test("voice.unsubscribe 后收口不再合成", async () => {
-    const rig = (current = await makeRig());
-    rig.client.send({ v: PROTOCOL_VERSION, type: "voice.subscribe", payload: {} });
-    await new Promise((r) => setTimeout(r, 50));
-    await spawnAndComplete(rig, "退订前任务");
-    await rig.client.expect("voice.broadcast", 5000);
-    expect(rig.tts.calls.length).toBe(1);
-
-    rig.client.send({ v: PROTOCOL_VERSION, type: "voice.unsubscribe", payload: {} });
-    await new Promise((r) => setTimeout(r, 50));
-    await spawnAndComplete(rig, "退订后任务");
-    await rig.client.expect("agent.completed", 5000);
-    await new Promise((r) => setTimeout(r, 150));
-    expect(rig.tts.calls.length).toBe(1); // 退订后零合成
-  });
-
-  test("spawned/started 事件不播（粗筛负例）：合成文本恒为极简终态通知", async () => {
-    const rig = (current = await makeRig());
-    rig.client.send({ v: PROTOCOL_VERSION, type: "voice.subscribe", payload: {} });
-    await new Promise((r) => setTimeout(r, 50));
-    await spawnAndComplete(rig, "粗筛负例任务");
-    await rig.client.expect("voice.broadcast", 5000);
-    for (const call of rig.tts.calls) {
-      expect(call.text).toContain("已完成");
-      expect(call.text).not.toContain("已入队");
-      expect(call.text).not.toContain("已开始");
-    }
   });
 });
 

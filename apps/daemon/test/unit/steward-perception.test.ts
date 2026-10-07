@@ -3,11 +3,11 @@
  * （感知地基 + 激活判定 + 分诊编排 + notify 限流）与 BroadcastService 归一
  * 链路。
  *
- * M0.5-R（v2.9 D12-⑫，用户裁决）：LLM 门槛从「激活」放宽回「启用」（money
- * gate+模型配）——**启用态分诊恒做**（不看激活）；激活降为投递面判据
- * （激活=对话内主动汇报+notify；未激活=notify+语音异步零对话插话）。
- * M0.5 的「未激活零 LLM」钉子属被推翻行为，本套已翻转为新行为断言；
- * 「未启用零 LLM + 极简保底」（money gate）钉子保留。
+ * 2026-10-08 用户裁决（白话播报重构）：①任务终态锚机械化——任务状态是机械
+ * 事实，零 LLM 零判官，notify/语音同句白话短讯；②任务内 agent 终态零播报
+ * （用户只关心任务整体）；③会话回复锚：notify 机械短讯（生命周期短），
+ * 详文归宿是管家语音，判官 noul 单判详略（verbose）；④凡是播报出来的都
+ * 必须是大白话（机械短讯/保底句/生成文案全部白话，禁术语英文 UUID）。
  *
  * 红绿证据链（brief 测试要求逐条）：
  * 1. 启用+未激活态：任务完成 → 分诊 LLM 调用发生 + notify 携呈现轨摘要与
@@ -39,14 +39,12 @@ import type {
 import {
   StewardPerceptionService,
   STEWARD_ACTIVE_WINDOW_MS,
-  TRIAGE_JUDGE_WORTH_QUESTION,
-  TRIAGE_JUDGE_HIGH_RISK_QUESTION,
-  TRIAGE_JUDGE_THRESHOLD,
+  TRIAGE_JUDGE_VERBOSE_QUESTION,
   TRIAGE_GENERATION_SYSTEM_PROMPT,
   type ProactiveDialogReport,
 } from "../../src/application/steward/StewardPerceptionService";
 import type { TriageJudgeFace } from "../../src/application/steward/StewardTriageJudge";
-import { BroadcastService, isBroadcastEligible, buildBroadcastText } from "../../src/application/voice/BroadcastService";
+import { BroadcastService } from "../../src/application/voice/BroadcastService";
 import type { StewardNotifyPayload, VoiceBroadcastPayload } from "@helix/protocol";
 
 const closure = (summary: string) => ({ status: "done" as const, summary, reportPath: null, findings: null, taskId: null });
@@ -122,12 +120,11 @@ function fakeDiagnose(
 function fakeTriageJudge(behavior?: {
   enabled?: boolean;
   ready?: boolean;
-  worth?: number;
-  risk?: number;
+  verbose?: number;
   error?: Error;
 }): Pick<TriageJudgeFace, "enabled" | "ready" | "noul"> & {
   calls: { state: string; question: string }[];
-  setBehavior(b: { enabled?: boolean; ready?: boolean; worth?: number; risk?: number; error?: Error }): void;
+  setBehavior(b: { enabled?: boolean; ready?: boolean; verbose?: number; error?: Error }): void;
 } {
   const calls: { state: string; question: string }[] = [];
   let current = behavior ?? {};
@@ -141,7 +138,7 @@ function fakeTriageJudge(behavior?: {
     noul: async (state, question) => {
       calls.push({ state, question });
       if (current.error !== undefined) throw current.error;
-      return question === TRIAGE_JUDGE_WORTH_QUESTION ? (current.worth ?? 0.9) : (current.risk ?? 0.1);
+      return current.verbose ?? 0.9;
     },
   };
 }
@@ -188,7 +185,6 @@ function makeStack(opts?: {
       voicePreference: () => undefined,
     },
     emit: (payload) => frames.push(payload),
-    content: (event) => perceptionRef!.supplyBroadcastText(event),
     logger: { warn: (m) => warns.push(m) },
   });
   const perception = new StewardPerceptionService({
@@ -252,267 +248,159 @@ describe("激活判定（feed 订阅在场 ∧ 近期 ask 衰减窗）——v2.9
   });
 });
 
-describe("启用 + 未激活态：分诊恒做（v2.9——LLM 门槛=启用，激活降为投递面判据）", () => {
-  test("任务完成锚（启用+未激活）→ 分诊调用 + notify 携呈现轨与接续提案 + 语音同源 + 零对话插话", async () => {
+describe("任务终态锚机械化（用户裁决 2026-10-08：任务状态是机械事实——零 LLM 零判官零分诊；notify/语音同句机械短讯）", () => {
+  test("job done → 零分诊调用 + 机械 notify「xx 任务完成了」+ 语音同句（含未启用态语义统一）", async () => {
     const { perception, diagnose, tts, notifies, dialogReports, memory } = makeStack({
-      stewardSubscribed: false, // 未激活（零 feed 订阅）
-      subscribers: 1,
-    });
-    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
-    await broadcast_drain(perception);
-    expect(diagnose.calls.length).toBe(1); // LLM 门槛=启用（money gate+模型配），不再看激活
-    expect(notifies.length).toBe(1);
-    const n = notifies[0]!;
-    expect(n.body).toBe("M0.5 感知链路已交付，测试全部通过。"); // 呈现轨摘要（非「后台任务已完成」纯模板）
-    expect(n.title).toBe("管家感知修正（helix）"); // title=任务标题（机械字段，非 UUID）
-    expect(n.title).not.toContain("job-1");
-    expect(n.suggestions?.some((s) => s.verb === "open_tasks" && s.label === "看看报告")).toBe(true); // 机械接续提案（点按才动）
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe(n.body); // 语音同源（呈现轨）
-    expect(dialogReports.length).toBe(0); // 未激活零对话插话（投递面分支）
-    const ring = perception.ringSnapshot();
-    expect(ring.some((r) => r.kind === "task.diagnosed")).toBe(true); // 摄入轨照产（回来能看到干了什么）
-    expect(memory.progress).toEqual([{ sessionId: "task:job-1", text: n.body }]); // progress 薄条目照写
-  });
-
-  test("agent.failed（启用+未激活，双入口）→ 分诊恰一次 + notify/语音同源 + 零对话插话", async () => {
-    const { broadcast, perception, diagnose, tts, notifies, dialogReports } = makeStack({
-      stewardSubscribed: false,
-      subscribers: 1,
-    });
-    const event = agentEvent("agent.failed", { agentId: "agent-2", error: "boom", closure: closure("xx") });
-    broadcast.onDomainEvent(event);
-    perception.onDomainEvent(event);
-    await broadcast.drain();
-    await perception.drain();
-    expect(diagnose.calls.length).toBe(1); // in-flight 归一（一次事件一次调用）
-    expect(notifies.length).toBe(1);
-    expect(tts.calls.length).toBe(1); // 呈现轨经 content 源单条供给（不经双路重播）
-    expect(tts.calls[0]!.text).toBe(notifies[0]!.body);
-    expect(dialogReports.length).toBe(0); // 未激活零对话插话
-  });
-
-  test("未启用（money gate 关）→ 零 LLM + 极简保底不变（回归钉子保留）", async () => {
-    const { perception, diagnose, tts, notifies, dialogReports } = makeStack({
-      diagnose: fakeDiagnose({ available: false }),
       stewardSubscribed: false,
       subscribers: 1,
     });
     perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
     await broadcast_drain(perception);
-    expect(diagnose.calls.length).toBe(0); // 零 LLM port 调用（money gate 机械保底）
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe("后台任务已完成"); // 极简路径仍在
-    expect(notifies.length).toBe(0);
-    expect(dialogReports.length).toBe(0);
-  });
-
-  test("未启用 + agent.failed → 零分诊调用 + 极简终态语音（②层）", async () => {
-    const { broadcast, perception, diagnose, tts, frames, notifies } = makeStack({
-      diagnose: fakeDiagnose({ available: false }),
-      stewardSubscribed: false, // 未激活（此测真正门槛 = money gate）
-      subscribers: 1,
-    });
-    const event = agentEvent("agent.failed", { agentId: "agent-2", error: "boom", closure: closure("xx") });
-    broadcast.onDomainEvent(event);
-    perception.onDomainEvent(event);
-    await broadcast.drain();
-    await perception.drain();
-    expect(diagnose.calls.length).toBe(0); // 零 LLM port 调用
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe("后台任务失败"); // 极简路径仍在
-    expect(frames[0]!.text).toBe("后台任务失败");
-    expect(notifies.length).toBe(0); // 未启用零 notify
-  });
-
-  test("启用但 gate 断点（模型面不可用）→ 零分诊调用 + 极简播报", async () => {
-    const { broadcast, perception, diagnose, tts } = makeStack({
-      diagnose: fakeDiagnose({ available: false }),
-    });
-    const event = agentEvent("agent.killed", { agentId: "agent-2", closure: closure("用户手动停止") });
-    broadcast.onDomainEvent(event);
-    perception.onDomainEvent(event);
-    await broadcast.drain();
-    await perception.drain();
-    expect(diagnose.calls.length).toBe(0);
-    expect(tts.calls[0]!.text).toBe("后台任务已终止");
-  });
-});
-
-describe("投递面分支（激活=对话内主动汇报+notify；未激活=notify+语音无对话插话）", () => {
-  test("激活态任务完成 → 对话内主动汇报（title/呈现轨/接续提案）+ notify + 语音同达", async () => {
-    const { perception, diagnose, notifies, tts, dialogReports } = makeStack({ subscribers: 1 }); // 默认激活
-    diagnose.setBehavior({ result: { suggestions: [{ label: "跳报告" }, { label: "开修复" }] } });
-    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
-    await broadcast_drain(perception);
-    expect(dialogReports.length).toBe(1);
-    const r = dialogReports[0]!;
-    expect(r.title).toBe("管家感知修正（helix）");
-    expect(r.text).toBe(notifies[0]!.body); // 对话内汇报与 notify 同源（呈现轨）
-    expect(r.suggestions.map((s) => s.label)).toEqual(["跳报告", "开修复", "看看报告"]); // LLM 接续提案 + 机械 [看看报告]
+    expect(diagnose.calls.length).toBe(0); // 机械事实不进 LLM
     expect(notifies.length).toBe(1);
+    expect(notifies[0]!.title).toBe("管家感知修正（helix）");
+    expect(notifies[0]!.body).toBe("任务完成了"); // 机械短句（非 600 字详文）
     expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe(notifies[0]!.body);
+    expect(tts.calls[0]!.text).toBe("任务完成了"); // 语音同句机械短讯
+    expect(dialogReports.length).toBe(0); // 主动对话汇报随分诊退役
+    expect(memory.progress.length).toBe(0); // progress 薄条目随分诊退役（ring task.terminal 照记）
+    expect(perception.ringSnapshot().some((r) => r.kind === "task.terminal")).toBe(true); // ring 照记
   });
 
-  test("未激活态任务完成 → 零对话插话（notify+语音照达）", async () => {
-    const { perception, notifies, tts, dialogReports } = makeStack({
-      stewardSubscribed: false,
-      subscribers: 1,
-    });
-    perception.onJobTerminal("job-1", "done", "管家感知修正（helix）");
-    await broadcast_drain(perception);
-    expect(dialogReports.length).toBe(0); // 无对话插话
-    expect(notifies.length).toBe(1); // toast 照达
-    expect(tts.calls.length).toBe(1); // 语音照达
-  });
-
-  test("分诊静默裁决（notify=false）在两态一致：零 notify 零语音零对话插话（分诊照调）", async () => {
-    const active = makeStack({ subscribers: 1 });
-    active.diagnose.setBehavior({ result: { notify: false } });
-    active.perception.onJobTerminal("job-1", "done");
-    await broadcast_drain(active.perception);
-    expect(active.diagnose.calls.length).toBe(1); // 静默是裁决不是门槛
-    expect(active.notifies.length).toBe(0);
-    expect(active.tts.calls.length).toBe(0);
-    expect(active.dialogReports.length).toBe(0);
-
-    const idle = makeStack({ subscribers: 1, stewardSubscribed: false });
-    idle.diagnose.setBehavior({ result: { notify: false } });
-    idle.perception.onJobTerminal("job-2", "done");
-    await broadcast_drain(idle.perception);
-    expect(idle.diagnose.calls.length).toBe(1); // 两态一致
-    expect(idle.notifies.length).toBe(0);
-    expect(idle.tts.calls.length).toBe(0);
-    expect(idle.dialogReports.length).toBe(0);
-  });
-
-  test("title 缺省（无任务标题传入）→ 回退终态词（非 UUID）", async () => {
-    const { perception, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
+  test("title 缺省 → 回退「后台任务」标题（非 UUID）", async () => {
+    const { perception, notifies } = makeStack({ stewardSubscribed: false, subscribers: 1 });
     perception.onJobTerminal("job-1", "done");
     await broadcast_drain(perception);
     expect(notifies.length).toBe(1);
-    expect(notifies[0]!.title).toBe("任务完成");
+    expect(notifies[0]!.title).toBe("后台任务");
     expect(notifies[0]!.title).not.toContain("job-1");
   });
+
+  test("job failed/cancelled → 机械通知照发（失败早知道——仍零 LLM）", async () => {
+    const { perception, diagnose, notifies } = makeStack({ stewardSubscribed: false, subscribers: 1 });
+    perception.onJobTerminal("job-2", "failed", "判官接入批");
+    await broadcast_drain(perception);
+    expect(diagnose.calls.length).toBe(0);
+    expect(notifies.length).toBe(1);
+    expect(notifies[0]!.body).toContain("失败");
+  });
+
+  test("机械通知受 normal 预算限流（第 5 条丢弃——防轰炸）", async () => {
+    const { perception, notifies } = makeStack({ stewardSubscribed: false, subscribers: 1 });
+    for (let i = 1; i <= 5; i++) {
+      perception.onJobTerminal(`job-${i}`, "done", `任务${i}`);
+      await broadcast_drain(perception);
+    }
+    expect(notifies.length).toBe(4);
+  });
 });
 
-describe("启用态：任务完成 → 分诊双轨产物 + notify 帧", () => {
-  test("job done → 一次 LLM 双轨：notify 帧到达 + 摄入轨入 ring + progress 薄条目 + 语音直供", async () => {
-    const { perception, diagnose, notifies, memory, tts } = makeStack({ subscribers: 1 });
-    // 任务会话批次实例先完成（聚合——不触发分诊）
-    perception.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b1", closure: closure("批次一：感知服务落地") }, "task:job-1"));
-    expect(diagnose.calls.length).toBe(0); // 完成类聚合任务级：agent 级零分诊
-    perception.onJobTerminal("job-1", "done");
+describe("任务内 agent 终态零播报（用户裁决：用户只关心任务整体——内部 agent 状态不进任何播报/通知面）", () => {
+  test("agent.failed/killed（任何会话）→ 零分诊零 notify 零语音（仅 ring 记录）", async () => {
+    const { perception, diagnose, tts, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
+    for (const type of ["agent.failed", "agent.killed", "agent.completed"] as const) {
+      perception.onDomainEvent(agentEvent(type, { agentId: "agent-x", error: "boom", closure: closure("xx") }));
+    }
     await broadcast_drain(perception);
-    expect(diagnose.calls.length).toBe(1); // 任务级锚触发恰一次
-    // 呈现轨派生关系：notify body ≤60 字且字面可在摄入轨中找到
-    expect(notifies.length).toBe(1);
-    const n = notifies[0]!;
-    expect([...n.body].length).toBeLessThanOrEqual(60);
-    const ring = perception.ringSnapshot();
-    const ingestEntry = ring.find((r) => r.kind === "task.diagnosed");
-    expect(ingestEntry?.ingest).toBeDefined();
-    expect(ingestEntry!.ingest!).toContain(n.body); // 派生关系断言（呈现 ⊂ 摄入）
-    // progress 薄条目：既有覆盖更新路径入口（sessionId = 任务会话）
-    expect(memory.progress).toEqual([{ sessionId: "task:job-1", text: n.body }]);
-    // 语音与 notify 同源（present）
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe(n.body);
-    // 任务锚 notify 建议携带动词指针（去任务页——点按才动）
-    expect(n.suggestions?.some((s) => s.verb === "open_tasks")).toBe(true);
+    expect(diagnose.calls.length).toBe(0); // agent 级不再触发分诊
+    expect(notifies.length).toBe(0); // 零 notify
+    expect(tts.calls.length).toBe(0); // 零语音
+    expect(perception.ringSnapshot().some((r) => r.kind === "agent.failed")).toBe(true); // ring 照记
+  });
+});
+
+describe("会话回复锚：notify 机械简化 + 正文全给管家（用户裁决 2026-10-08：通知生命周期短——机械短讯；详文归宿是管家语音，jev 判定详略）", () => {
+  function turnEvent(sessionId: string): DomainEvent {
+    return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
+  }
+
+  test("回复命中 → notify 机械短讯「对话回复了」+ 语音为详文主体（detail 优先，600 字料归嘴）", async () => {
+    const { perception, notifies, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose: fakeDiagnose({
+        result: {
+          present: "对话回复了",
+          detail: "出声面协调器批已交付：双声重叠根治，说停全轨静默，对话优先于通知播报。这是详细的逐项汇报正文。",
+        },
+      }),
+    });
+    perception.noteDelivered("sess-target", "语音问题修了吗");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1);
+    expect(notifies[0]!.title).toBe("对话回复了");
+    expect(notifies[0]!.body).toBe("回完了，具体我语音里说"); // 机械短讯（非 600 字详文）
+    expect(frames[frames.length - 1]!.text).toBe(
+      "出声面协调器批已交付：双声重叠根治，说停全轨静默，对话优先于通知播报。这是详细的逐项汇报正文。", // 详文归宿 = 管家语音
+    );
   });
 
-  test("分诊输入含 ring 现场素材（批次 closure 摘要进 userPrompt）", async () => {
-    const { perception, diagnose } = makeStack();
-    perception.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b1", closure: closure("批次一：感知服务落地") }, "task:job-1"));
-    perception.onJobTerminal("job-1", "done");
-    await broadcast_drain(perception);
-    expect(diagnose.calls.length).toBe(1);
-    expect(diagnose.calls[0]!.userPrompt).toContain("感知服务落地"); // ring 投影素材
-    expect(diagnose.calls[0]!.userPrompt).toContain("job-1");
+  test("判官详略判定：jev 裁「简短」→ 语音也一句（present 单轨）；裁「详细」→ 语音用 detail", async () => {
+    const judge = fakeTriageJudge({ verbose: 0.1 }); // 简短裁决
+    const diagnose = fakeDiagnose({ text: "口语句简短。\n\n详细逐项正文。" });
+    const { perception: p1, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: judge,
+      readReply: async () => "回复正文",
+    });
+    p1.noteDelivered("sess-a", "问题 A");
+    p1.onDomainEvent(turnEvent("sess-a"));
+    await broadcast_drain(p1);
+    expect(frames[frames.length - 1]!.text).toBe("口语句简短。"); // 简短裁决 → present 单轨
+
+    const judge2 = fakeTriageJudge({ verbose: 0.9 }); // 详细裁决
+    const { perception: p2, frames: frames2 } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: judge2,
+      readReply: async () => "回复正文",
+    });
+    p2.noteDelivered("sess-b", "问题 B");
+    p2.onDomainEvent(turnEvent("sess-b"));
+    await broadcast_drain(p2);
+    expect(frames2[frames2.length - 1]!.text).toBe("详细逐项正文。"); // 详细裁决 → detail 上嘴
   });
 
-  test("分诊裁决静默（notify=false）→ 零 notify 帧 + 语音静默丢弃（可判「不打扰」）", async () => {
-    const { perception, diagnose, notifies, tts } = makeStack({ subscribers: 1 });
-    diagnose.setBehavior({ result: { notify: false } });
-    perception.onJobTerminal("job-1", "done");
+  test("无判官（回退路径）→ 详略由 detail 在场决定：有 detail 用 detail，缺席用 present", async () => {
+    const { perception: p1, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose: fakeDiagnose({ result: { present: "短句", detail: "详文内容" } }),
+      readReply: async () => "回复正文",
+    });
+    p1.noteDelivered("sess-a", "问题 A");
+    p1.onDomainEvent(turnEvent("sess-a"));
+    await broadcast_drain(p1);
+    expect(frames[frames.length - 1]!.text).toBe("详文内容");
+
+    const { perception: p2, frames: frames2 } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose: fakeDiagnose({ result: { present: "短句", detail: undefined } }),
+      readReply: async () => "回复正文",
+    });
+    p2.noteDelivered("sess-b", "问题 B");
+    p2.onDomainEvent(turnEvent("sess-b"));
+    await broadcast_drain(p2);
+    expect(frames2[frames2.length - 1]!.text).toBe("短句");
+  });
+});
+
+describe("agent 级播报退役（用户裁决：agent 事件零播报——用户只关心任务整体）", () => {
+  test("agent.completed/failed/killed（task 与非 task 会话）→ 零分诊零 notify 零语音（仅 ring 记录）", async () => {
+    const { perception, diagnose, tts, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
+    perception.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b1", closure: closure("批次完成") }, "task:job-1"));
+    perception.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-9", error: "x", closure: closure("") }, "sess-x"));
+    perception.onDomainEvent(agentEvent("agent.killed", { agentId: "agent-c", closure: closure("手动停") }));
     await broadcast_drain(perception);
+    expect(diagnose.calls.length).toBe(0);
     expect(notifies.length).toBe(0);
     expect(tts.calls.length).toBe(0);
-  });
-
-  test("分诊抛错/烂输出 → 静默降级（零 notify 零语音，warn 观测——不播半产物）", async () => {
-    const { perception, diagnose, notifies, tts, warns } = makeStack({ subscribers: 1 });
-    diagnose.setBehavior({ error: new Error("模型超时模拟") });
-    perception.onJobTerminal("job-1", "done");
-    await broadcast_drain(perception);
-    expect(notifies.length).toBe(0);
-    expect(tts.calls.length).toBe(0);
-    expect(warns.length).toBeGreaterThan(0);
-  });
-
-  test("呈现轨超长防御：>60 字截断加省略号", async () => {
-    const long = "长".repeat(120);
-    const { perception, diagnose, notifies } = makeStack();
-    diagnose.setBehavior({ result: { present: long, ingest: `${long}全文` } });
-    perception.onJobTerminal("job-1", "done");
-    await broadcast_drain(perception);
-    expect(notifies.length).toBe(1);
-    expect([...notifies[0]!.body].length).toBeLessThanOrEqual(61); // 60 + 省略号
-    expect(notifies[0]!.body.endsWith("…")).toBe(true);
-  });
-});
-
-describe("归一：一次事件只触发一次 LLM 调用，语音与 notify 同源", () => {
-  test("agent.failed 双入口（fanout perception 桥 + BroadcastService content 源）→ diagnose 恰一次", async () => {
-    const { broadcast, perception, diagnose, tts, notifies } = makeStack({ subscribers: 1 });
-    const event = agentEvent("agent.failed", { agentId: "agent-3", error: "ECONNRESET", closure: closure("连接断开") });
-    // 同一事件两消费面（生产装配中 fanout 会把事件同时送两桥）
-    broadcast.onDomainEvent(event);
-    perception.onDomainEvent(event);
-    await broadcast.drain();
-    await perception.drain();
-    expect(diagnose.calls.length).toBe(1); // 归一：in-flight 去重
-    expect(notifies.length).toBe(1);
-    expect(tts.calls.length).toBe(1); // 呈现轨单条供给（语音同源不重播）
-    expect(tts.calls[0]!.text).toBe(notifies[0]!.body); // 语音文本与 notify 载荷同源
-  });
-
-  test("BroadcastService 单入口（voice 订阅在、零 steward 订阅——未激活）→ 分诊照做（v2.9），语音用呈现轨", async () => {
-    const { broadcast, perception, diagnose, tts, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
-    broadcast.onDomainEvent(agentEvent("agent.failed", { agentId: "agent-3", error: "x", closure: closure("") }));
-    await broadcast.drain();
-    await perception.drain();
-    expect(diagnose.calls.length).toBe(1); // 启用即分诊（激活非门槛）
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe(notifies[0]!.body); // 呈现轨经 content 源供给（非②层极简）
-    expect(tts.calls[0]!.text).not.toBe("后台任务失败");
-  });
-});
-
-describe("聚合粗筛：完成类聚任务级（E-232 归一面）", () => {
-  test("task:* 会话的 agent.completed 不在 agent 级播报（等任务级锚）", async () => {
-    const { broadcast, tts, frames } = makeStack({ subscribers: 1 });
-    broadcast.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-b1", closure: closure("批次完成") }, "task:job-1"));
-    await broadcast.drain();
-    expect(tts.calls.length).toBe(0); // agent 级零播报（聚合）
-    expect(frames.length).toBe(0);
-  });
-
-  test("非 task 会话的 agent.completed 照旧 agent 级（散实例无任务锚可聚）", async () => {
-    const { broadcast, perception, diagnose, tts, notifies } = makeStack({ subscribers: 1, stewardSubscribed: false });
-    broadcast.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-9", closure: closure("散实例完成") }));
-    await broadcast.drain();
-    await perception.drain();
-    expect(diagnose.calls.length).toBe(1); // 级分诊照做（v2.9 门槛=启用）
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe(notifies[0]!.body); // 呈现轨（非极简模板）
-  });
-
-  test("粗筛纯函数：task 会话完成类判非播报集合（isBroadcastEligible 事件级 + 会话级聚合判定分离）", () => {
-    expect(isBroadcastEligible("agent.completed")).toBe(true); // 事件类型级仍在集合（散实例路径）
-    expect(buildBroadcastText(agentEvent("agent.completed", { agentId: "a", closure: closure("x") }))).toBe("后台任务已完成");
+    expect(perception.ringSnapshot().length).toBeGreaterThanOrEqual(3); // ring 照记
   });
 });
 
@@ -551,52 +439,39 @@ describe("ring buffer：汇报分级沉淀", () => {
   });
 });
 
-describe("通知预算：normal ≤4 条/小时，high 豁免（未激活同样生效）", () => {
-  test("窗口内第 5 条 normal 通知被丢弃（语音照播——语音有自己的队列限流）", async () => {
-    const { perception, notifies, tts, dialogReports } = makeStack({ subscribers: 1 });
+describe("通知预算：normal ≤4 条/小时，high 豁免（机械通知同样生效）", () => {
+  test("窗口内第 5 条 normal 机械通知被丢弃（语音照播——语音有自己的队列限流）", async () => {
+    const { perception, notifies, tts } = makeStack({ subscribers: 1 });
     for (let i = 1; i <= 5; i++) {
       perception.onJobTerminal(`job-${i}`, "done");
       await broadcast_drain(perception);
     }
     expect(notifies.length).toBe(4); // 第 5 条被丢弃
     expect(tts.calls.length).toBe(5); // 语音照播（播报队列独立限流）
-    expect(dialogReports.length).toBe(4); // 对话内汇报同受通知预算（防轰炸）
-  });
-
-  test("限流对未激活 notify 同样生效（激活非门槛——第 5 条丢弃，语音照播）", async () => {
-    const { perception, notifies, tts, dialogReports } = makeStack({ subscribers: 1, stewardSubscribed: false });
-    for (let i = 1; i <= 5; i++) {
-      perception.onJobTerminal(`job-${i}`, "done", `任务${i}`);
-      await broadcast_drain(perception);
-    }
-    expect(notifies.length).toBe(4); // 未激活态同样限流
-    expect(tts.calls.length).toBe(5);
-    expect(dialogReports.length).toBe(0); // 未激活零对话插话
   });
 
   test("窗口滑出后恢复配额", async () => {
-    const { perception, notifies, advance } = makeStack();
+    const { perception, notifies, advance } = makeStack({ subscribers: 1 });
     for (let i = 1; i <= 4; i++) {
       perception.onJobTerminal(`job-${i}`, "done");
       await broadcast_drain(perception);
     }
     expect(notifies.length).toBe(4);
-    advance(60 * 60_000 + 1); // 1h 窗口滑出（顺带衰减激活窗——重新点亮）
-    perception.noteUserActivity();
+    advance(60 * 60_000 + 1); // 1h 窗口滑出
     perception.onJobTerminal("job-5", "done");
     await broadcast_drain(perception);
     expect(notifies.length).toBe(5);
   });
 
-  test("high 档豁免限流（门控高危）", async () => {
-    const { perception, diagnose, notifies } = makeStack();
-    diagnose.setBehavior({ result: { urgency: "high" } });
+  test("failed 任务 → high 档豁免限流（失败早知道——零 LLM 纯机械档位）", async () => {
+    const { perception, notifies } = makeStack({ subscribers: 1 });
     for (let i = 1; i <= 6; i++) {
-      perception.onJobTerminal(`job-${i}`, "done");
+      perception.onJobTerminal(`job-${i}`, "failed", `任务${i}`);
       await broadcast_drain(perception);
     }
-    expect(notifies.length).toBe(6);
+    expect(notifies.length).toBe(6); // high 全达
     expect(notifies.every((n) => n.urgency === "high")).toBe(true);
+    expect(notifies.every((n) => n.body === "任务失败了")).toBe(true); // 白话机械短讯
   });
 });
 
@@ -668,7 +543,7 @@ describe("回合终态感知：turn.completed 入 ring + 投递关注命中分�
     expect(diagnose.calls).toHaveLength(1);
     expect(diagnose.calls[0]!.userPrompt).toContain("帮我看看语音批的测试覆盖情况");
     expect(notifies).toHaveLength(1);
-    expect(notifies[0]!.title).toBe("会话回复了");
+    expect(notifies[0]!.title).toBe("对话回复了");
   });
 
   test("关注一次性消费：同会话第二次 turn.completed 不再分诊（一次投递等一次回复）", async () => {
@@ -689,7 +564,7 @@ describe("回合终态感知：turn.completed 入 ring + 投递关注命中分�
     expect(diagnose.calls).toHaveLength(0);
   });
 
-  test("未启用（money gate 关）：关注命中零 LLM 零 notify，但极简语音保底「投递的会话已回复」（对齐 task.done 保底语义）", async () => {
+  test("未启用（money gate 关）：零 LLM，机械保底 notify + 语音同句「那个对话回你了」（对齐任务终态机械语义）", async () => {
     const { perception, diagnose, notifies, frames } = makeStack({
       diagnose: fakeDiagnose({ available: false }),
     });
@@ -697,8 +572,10 @@ describe("回合终态感知：turn.completed 入 ring + 投递关注命中分�
     perception.onDomainEvent(turnEvent("sess-target", "done"));
     await broadcast_drain(perception);
     expect(diagnose.calls).toHaveLength(0);
-    expect(notifies).toHaveLength(0);
-    expect(frames[frames.length - 1]!.text).toBe("投递的会话已回复");
+    expect(notifies).toHaveLength(1); // 机械事实不依赖 LLM 配置
+    expect(notifies[0]!.title).toBe("对话回复了");
+    expect(notifies[0]!.body).toBe("那个对话回你了");
+    expect(frames[frames.length - 1]!.text).toBe("那个对话回你了");
   });
 
   test("修复①：分诊 userPrompt 含回复正文（readReply 读面命中——LLM 能看到那边回了什么）", async () => {
@@ -772,7 +649,7 @@ describe("分诊降级保底：LLM/解析失败 → 机械通知（事件不静�
     return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
   }
 
-  test("分诊抛错（解析失败同形）：fallbackText 锚发机械保底 notify + 语音（不再整体静默）", async () => {
+  test("分诊抛错（解析失败同形）：机械保底 notify + 语音同句（不再整体静默）", async () => {
     const { perception, diagnose, notifies, frames } = makeStack({
       diagnose: fakeDiagnose({ error: new Error("分诊产物 JSON 解析失败") }),
     });
@@ -781,12 +658,12 @@ describe("分诊降级保底：LLM/解析失败 → 机械通知（事件不静�
     await broadcast_drain(perception);
     expect(diagnose.calls).toHaveLength(1); // LLM 调了（启用态）
     expect(notifies).toHaveLength(1); // 失败不再静默——机械保底通知
-    expect(notifies[0]!.title).toBe("会话回复了");
-    expect(notifies[0]!.body).toBe("投递的会话已回复");
-    expect(frames[frames.length - 1]!.text).toBe("投递的会话已回复"); // 语音保底同句
+    expect(notifies[0]!.title).toBe("对话回复了");
+    expect(notifies[0]!.body).toBe("那个对话回你了");
+    expect(frames[frames.length - 1]!.text).toBe("那个对话回你了"); // 语音保底同句（白话）
   });
 
-  test("无 fallbackText 锚（agent 级）：分诊失败仍静默（无机械文案可降——语义只属 turn-reply）", async () => {
+  test("agent 级锚已退役：分诊失败也零 notify（agent 事件零播报面）", async () => {
     const { perception, notifies } = makeStack({
       diagnose: fakeDiagnose({ error: new Error("boom") }),
     });
@@ -796,206 +673,183 @@ describe("分诊降级保底：LLM/解析失败 → 机械通知（事件不静�
   });
 });
 
-describe("通知正文双轨预算：present（语音 ≤60）与 detail（notify 可到 600，白话逐项）分轨", () => {
+describe("语音详文轨预算：detail（语音可到 600，白话逐项）防御截断", () => {
   function turnEvent(sessionId: string): DomainEvent {
     return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
   }
 
-  test("detail 在场：notify body/dialog 用 detail，语音用 present（一句话短 / 正文详）", async () => {
-    const { perception, notifies, dialogReports, frames } = makeStack({
-      stewardSubscribed: true,
-      recentAsk: true, // 激活 → 对话内主动汇报也发
-      diagnose: fakeDiagnose({
-        result: {
-          present: "语音批修复完成",
-          detail: "出声面协调器批已交付：双声重叠根治（新轮清在途+回执轮次校验），说停全轨静默，对话优先于通知播报。",
-        },
-      }),
-    });
-    perception.noteDelivered("sess-target", "语音问题修了吗");
-    perception.onDomainEvent(turnEvent("sess-target"));
-    await broadcast_drain(perception);
-    expect(notifies).toHaveLength(1);
-    expect(notifies[0]!.body).toBe(
-      "出声面协调器批已交付：双声重叠根治（新轮清在途+回执轮次校验），说停全轨静默，对话优先于通知播报。",
-    );
-    expect(dialogReports[dialogReports.length - 1]!.text).toBe(
-      "出声面协调器批已交付：双声重叠根治（新轮清在途+回执轮次校验），说停全轨静默，对话优先于通知播报。",
-    );
-    expect(frames[frames.length - 1]!.text).toBe("语音批修复完成"); // 语音轨仍短句
-  });
-
-  test("detail 缺席：notify body 回退 present（旧产物兼容——单轨不降级）", async () => {
-    const { perception, notifies } = makeStack({
-      diagnose: fakeDiagnose({ result: { detail: undefined } }),
-    });
-    perception.noteDelivered("sess-target", "问题 A");
-    perception.onDomainEvent(turnEvent("sess-target"));
-    await broadcast_drain(perception);
-    expect(notifies).toHaveLength(1);
-    expect(notifies[0]!.body).toBe("M0.5 感知链路已交付，测试全部通过。");
-  });
-
-  test("detail 防御截断：超 600 字截断加省略号（prompt 约束外兑底）", async () => {
+  test("detail 超长防御：语音轨 >600 字截断加省略号（prompt 约束外兑底）", async () => {
     const long = "长".repeat(650);
-    const { perception, notifies } = makeStack({
+    const { perception, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
       diagnose: fakeDiagnose({ result: { detail: long } }),
     });
     perception.noteDelivered("sess-target", "问题 A");
     perception.onDomainEvent(turnEvent("sess-target"));
     await broadcast_drain(perception);
-    expect([...notifies[0]!.body].length).toBe(601); // 600 字 + 省略号
+    expect([...frames[frames.length - 1]!.text].length).toBe(601); // 600 字 + 省略号（语音轨兑底）
+  });
+
+  test("白话硬约束：生成提示词明禁术语/英文/变量名/UUID（两段均白话）", async () => {
+    const diagnose = fakeDiagnose();
+    const { perception } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: fakeTriageJudge({ verbose: 0.9 }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(diagnose.textCalls[0]!.systemPrompt).toContain("大白话");
+    expect(diagnose.textCalls[0]!.systemPrompt).toContain("禁止技术术语");
   });
 });
 
-describe("分诊判官判定面（管家分诊判官接入批：noul 双判 + 生成纯文本两段制 + 降级链）", () => {
-  test("判官开启且值得：noul 双判 + generateText 纯文本两段（present ≤60/detail ≤600 截断）零 JSON 调用", async () => {
-    const diagnose = fakeDiagnose({
-      text: `${"句".repeat(80)}\n\n${"正".repeat(650)}`,
-    });
-    const judge = fakeTriageJudge({ worth: 0.9, risk: 0.1 });
-    const { perception, notifies, memory } = makeStack({ diagnose, triageJudge: judge });
-    perception.onJobTerminal("job-j1", "done", "判官接入批（helix）");
-    await broadcast_drain(perception);
-    // 判定面：noul 双判（值得/高危），问题文本单源常量直引
-    expect(judge.calls.length).toBe(2);
-    expect(judge.calls[0]!.question).toBe(TRIAGE_JUDGE_WORTH_QUESTION);
-    expect(judge.calls[1]!.question).toBe(TRIAGE_JUDGE_HIGH_RISK_QUESTION);
-    expect(judge.calls[0]!.state).toContain("job-j1"); // 现场摘要 = 分诊 userPrompt 同源
-    // 生成面：纯文本两段制——零 JSON diagnose 调用
-    expect(diagnose.textCalls.length).toBe(1);
-    expect(diagnose.calls.length).toBe(0);
-    expect(diagnose.textCalls[0]!.systemPrompt).toBe(TRIAGE_GENERATION_SYSTEM_PROMPT); // 纯文本两段制提示词单源
-    // 产物：present ≤60 截断 + 省略号；body=detail ≤600 截断 + 省略号
-    expect(notifies.length).toBe(1);
-    expect([...notifies[0]!.body].length).toBe(601);
-    expect(notifies[0]!.title).toBe("判官接入批（helix）");
-    const ringEntry = perception.ringSnapshot().find((r) => r.kind === "task.diagnosed")!;
-    expect([...ringEntry.text].length).toBe(61); // ring text = present 截断后
-    expect(ringEntry.ingest).toBe(`${"句".repeat(80)}\n\n${"正".repeat(650)}`); // 摄入轨 = 完整生成文本原样
-    expect(memory.progress.length).toBe(1); // progress 薄条目照写
-  });
+describe("判官详略判定面（用户裁决：管家用 jev 判断回复要不要详细播报——noul 单判 + 生成纯文本两段制白话）", () => {
+  function turnEvent(sessionId: string): DomainEvent {
+    return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
+  }
 
-  test("建议按钮机械化：LLM 不产建议——仅 open_tasks 机械提案（任务级锚）", async () => {
-    const diagnose = fakeDiagnose({ text: "一句口语。\n\n正文要点。" });
-    const { perception, notifies } = makeStack({ diagnose, triageJudge: fakeTriageJudge() });
-    perception.onJobTerminal("job-j2", "done", "判官接入批");
-    await broadcast_drain(perception);
-    expect(notifies[0]!.suggestions).toEqual([{ label: "看看报告", verb: "open_tasks" }]); // 机械接续单源
-  });
-
-  test("不值得（noul worth < 0.5）：零 LLM 零 notify 零语音——ring 照记（事件流在，无摄入轨）", async () => {
-    const diagnose = fakeDiagnose();
-    const judge = fakeTriageJudge({ worth: TRIAGE_JUDGE_THRESHOLD - 0.01 });
-    const { perception, diagnose: d, tts, notifies, dialogReports, memory } = makeStack({ diagnose, triageJudge: judge });
-    perception.onJobTerminal("job-j3", "done", "例行任务");
-    await broadcast_drain(perception);
-    expect(judge.calls.length).toBe(1); // 高危判别不做（不值得短路）
-    expect(d.calls.length).toBe(0); // 零 JSON 分诊
-    expect(d.textCalls.length).toBe(0); // 零生成
-    expect(notifies.length).toBe(0);
-    expect(tts.calls.length).toBe(0);
-    expect(dialogReports.length).toBe(0);
-    expect(memory.progress.length).toBe(0);
-    const ring = perception.ringSnapshot();
-    expect(ring.some((r) => r.kind === "task.terminal")).toBe(true); // ring 照记
-    expect(ring.some((r) => r.kind === "task.diagnosed")).toBe(false); // 零摄入轨
-  });
-
-  test("不值得供给面归一：BroadcastService content 源得 silent（不回退极简终态通知）", async () => {
-    const diagnose = fakeDiagnose();
-    const { broadcast, perception, tts, frames } = makeStack({
+  test("判官开启：noul 详略单判 + generateText 纯文本两段（零 JSON 调用），详略裁决取 detail/present", async () => {
+    const diagnose = fakeDiagnose({ text: "一句话总结。\n\n逐项详述正文。" });
+    const judge = fakeTriageJudge({ verbose: 0.9 });
+    const { perception, frames, notifies } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
       diagnose,
-      triageJudge: fakeTriageJudge({ worth: 0.2 }),
-      subscribers: 1,
+      triageJudge: judge,
+      readReply: async () => "回复正文",
     });
-    const event = agentEvent("agent.failed", { agentId: "agent-x", error: "boom", closure: closure("xx") });
-    broadcast.onDomainEvent(event);
-    await broadcast.drain();
-    expect(tts.calls.length).toBe(0); // silent：不播极简「后台任务失败」
-    expect(frames.length).toBe(0);
-    expect(diagnose.calls.length).toBe(0);
-    expect(diagnose.textCalls.length).toBe(0);
-  });
-
-  test("高危判别：noul risk ≥ 0.5 → urgency=high 豁免限流（第 5 条不丢）", async () => {
-    const diagnose = fakeDiagnose({ text: "高危口语句。\n\n高危正文要点。" });
-    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge({ worth: 0.9, risk: 0.9 }) });
-    for (let i = 1; i <= 5; i += 1) perception.onJobTerminal(`job-h${i}`, "done", `高危任务 ${i}`);
+    perception.noteDelivered("sess-a", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-a"));
     await broadcast_drain(perception);
-    expect(notifies.length).toBe(5); // high 档豁免 normal 窗口限流
-    for (const n of notifies) expect(n.urgency).toBe("high");
-    expect(warns.length).toBe(0);
+    expect(judge.calls.length).toBe(1); // 单判：详略
+    expect(judge.calls[0]!.question).toBe(TRIAGE_JUDGE_VERBOSE_QUESTION);
+    expect(judge.calls[0]!.state).toContain("问题 A"); // 现场摘要 = 分诊 userPrompt 同源
+    expect(diagnose.textCalls.length).toBe(1); // 纯文本两段制
+    expect(diagnose.calls.length).toBe(0); // 零 JSON
+    expect(diagnose.textCalls[0]!.systemPrompt).toBe(TRIAGE_GENERATION_SYSTEM_PROMPT);
+    expect(frames[frames.length - 1]!.text).toBe("逐项详述正文。"); // 详略=详细 → detail 上嘴
+    expect(notifies[0]!.body).toBe("回完了，具体我语音里说"); // notify 机械短讯不变
   });
 
-  test("高危低于阈值（risk < 0.5）→ urgency=normal 照限流（第 5 条丢 + warn）", async () => {
-    const diagnose = fakeDiagnose({ text: "口语句。\n\n正文要点。" });
-    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge({ worth: 0.9, risk: 0.1 }) });
-    for (let i = 1; i <= 5; i += 1) perception.onJobTerminal(`job-n${i}`, "done", `常规任务 ${i}`);
+  test("判官详略=简短（verbose < 0.5）→ 语音用 present 单轨（notify 照机械短讯）", async () => {
+    const diagnose = fakeDiagnose({ text: "一句话总结。\n\n逐项详述正文。" });
+    const judge = fakeTriageJudge({ verbose: 0.1 });
+    const { perception, frames, notifies } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: judge,
+      readReply: async () => "回复正文",
+    });
+    perception.noteDelivered("sess-b", "问题 B");
+    perception.onDomainEvent(turnEvent("sess-b"));
     await broadcast_drain(perception);
-    expect(notifies.length).toBe(4); // normal 档 ≤4 条/h 照限
-    expect(warns.some((w) => w.includes("预算超限"))).toBe(true);
-    expect(notifies.every((n) => n.urgency === "normal")).toBe(true);
+    expect(frames[frames.length - 1]!.text).toBe("一句话总结。"); // 简短裁决
+    expect(notifies[0]!.body).toBe("回完了，具体我语音里说");
   });
 
-  test("判官抛错 → WARN + 回退现行 LLM JSON 路径（判定用 JSON 产物——不重试判官）", async () => {
-    const diagnose = fakeDiagnose();
+  test("判官抛错 → WARN + 回退：detail 在场决定详略（不重试判官）", async () => {
+    const diagnose = fakeDiagnose({ result: { present: "短句", detail: "详文内容" } });
     const judge = fakeTriageJudge({ error: new Error("判官端点不可达") });
-    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: judge });
-    perception.onJobTerminal("job-f1", "done", "降级任务");
+    const { perception, frames, warns } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: judge,
+      readReply: async () => "回复正文",
+    });
+    perception.noteDelivered("sess-c", "问题 C");
+    perception.onDomainEvent(turnEvent("sess-c"));
     await broadcast_drain(perception);
     expect(judge.calls.length).toBe(1); // 抛错即降级：不重试
-    expect(warns.some((w) => w.includes("判官") && w.includes("回退"))).toBe(true);
-    expect(diagnose.calls.length).toBe(1); // 回退现行 JSON 路径
+    expect(warns.some((w) => w.includes("判官"))).toBe(true);
+    expect(diagnose.calls.length).toBe(1); // 回退 JSON 路径
     expect(diagnose.textCalls.length).toBe(0);
-    expect(notifies.length).toBe(1);
-    expect(notifies[0]!.body).toBe("M0.5 感知链路已交付，测试全部通过。"); // JSON 产物同现行
+    expect(frames[frames.length - 1]!.text).toBe("详文内容"); // 回退详略：detail 在场 → 详
   });
 
-  test("开关开但端点未配/失效（ready false）→ WARN + 回退 LLM JSON 路径", async () => {
-    const diagnose = fakeDiagnose();
-    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge({ ready: false }) });
-    perception.onJobTerminal("job-f2", "done", "未配任务");
+  test("开关开但端点未配/失效（ready false）→ WARN + 回退 detail 在场决定", async () => {
+    const diagnose = fakeDiagnose({ result: { present: "短句", detail: undefined } });
+    const { perception, frames, warns } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: fakeTriageJudge({ ready: false }),
+      readReply: async () => "回复正文",
+    });
+    perception.noteDelivered("sess-d", "问题 D");
+    perception.onDomainEvent(turnEvent("sess-d"));
     await broadcast_drain(perception);
     expect(warns.some((w) => w.includes("未配") || w.includes("失效"))).toBe(true);
-    expect(diagnose.calls.length).toBe(1);
-    expect(notifies.length).toBe(1);
+    expect(frames[frames.length - 1]!.text).toBe("短句"); // detail 缺席 → present
   });
 
-  test("判官关闭（enabled false）→ 零判官调用零 warn，行为与 d7449d79 基线完全一致", async () => {
-    const diagnose = fakeDiagnose();
+  test("判官关闭（enabled false）→ 零判官调用零 warn，回退 detail 在场决定", async () => {
+    const diagnose = fakeDiagnose({ result: { present: "短句", detail: "详文" } });
     const judge = fakeTriageJudge({ enabled: false });
-    const { perception, notifies, warns } = makeStack({ diagnose, triageJudge: judge });
-    perception.onJobTerminal("job-b1", "done", "基线任务");
+    const { perception, frames, warns } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: judge,
+      readReply: async () => "回复正文",
+    });
+    perception.noteDelivered("sess-e", "问题 E");
+    perception.onDomainEvent(turnEvent("sess-e"));
     await broadcast_drain(perception);
     expect(judge.calls.length).toBe(0);
     expect(warns.length).toBe(0);
-    expect(diagnose.calls.length).toBe(1); // 现行 JSON 路径
-    expect(notifies.length).toBe(1);
+    expect(frames[frames.length - 1]!.text).toBe("详文");
   });
 
-  test("烂文本兑底：空文本 → 静默（无解析失败类别，零 crash）", async () => {
+  test("烂文本兑底：空文本 → notify 机械短讯照发 + 语音保底白话句（无解析失败类别）", async () => {
     const diagnose = fakeDiagnose({ text: "   " });
-    const { perception, tts, notifies, warns } = makeStack({ diagnose, triageJudge: fakeTriageJudge() });
-    perception.onJobTerminal("job-e1", "done", "空文本任务");
+    const { perception, tts, notifies, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: fakeTriageJudge({ verbose: 0.9 }),
+      readReply: async () => "回复正文",
+    });
+    perception.noteDelivered("sess-f", "问题 F");
+    perception.onDomainEvent(turnEvent("sess-f"));
     await broadcast_drain(perception);
-    expect(notifies.length).toBe(0); // present 空 → 静默裁决
-    expect(tts.calls.length).toBe(0);
-    expect(warns.length).toBe(0); // 不是错误——文本面无失败类别
+    expect(notifies).toHaveLength(1); // 事件不静默：机械短讯照发
+    expect(notifies[0]!.body).toBe("那个对话回你了"); // 保底白话
+    expect(frames[frames.length - 1]!.text).toBe("那个对话回你了"); // 语音保底同句
+    expect(tts.calls[0]!.text).toBe("那个对话回你了"); // 广播合成面同句
   });
 
-  test("单段文本（无空行）→ detail 回退 present 单轨；单换行多行 → 首行 present 其余 detail", async () => {
+  test("单段文本（无空行）→ detail 缺席回退 present；单换行多行 → 首行 present 其余 detail", async () => {
     const diagnose = fakeDiagnose({ text: "只有一段的口语句。" });
-    const { perception, notifies } = makeStack({ diagnose, triageJudge: fakeTriageJudge() });
-    perception.onJobTerminal("job-s1", "done", "单段任务");
+    const { perception, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose,
+      triageJudge: fakeTriageJudge({ verbose: 0.9 }),
+      readReply: async () => "回复正文",
+    });
+    perception.noteDelivered("sess-g", "问题 G");
+    perception.onDomainEvent(turnEvent("sess-g"));
     await broadcast_drain(perception);
-    expect(notifies[0]!.body).toBe("只有一段的口语句。"); // detail 缺席回退 present
+    expect(frames[frames.length - 1]!.text).toBe("只有一段的口语句。"); // 单段 = present
 
     const diagnose2 = fakeDiagnose({ text: "首行口语句。\n第二行要点。\n第三行要点。" });
-    const { perception: p2, notifies: n2 } = makeStack({ diagnose: diagnose2, triageJudge: fakeTriageJudge() });
-    p2.onJobTerminal("job-s2", "done", "单换行任务");
+    const { perception: p2, frames: f2 } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose: diagnose2,
+      triageJudge: fakeTriageJudge({ verbose: 0.9 }),
+      readReply: async () => "回复正文",
+    });
+    p2.noteDelivered("sess-h", "问题 H");
+    p2.onDomainEvent(turnEvent("sess-h"));
     await broadcast_drain(p2);
-    expect(n2[0]!.body).toBe("第二行要点。\n第三行要点。"); // 首行=present，余行=detail
+    expect(f2[f2.length - 1]!.text).toBe("第二行要点。\n第三行要点。"); // 首行=present，余行=detail
   });
 });
 

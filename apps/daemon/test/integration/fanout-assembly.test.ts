@@ -23,7 +23,7 @@ import { isStoppedStateChange, taskParkBridgeTarget } from "../../src/infrastruc
  *   domain_events、不进 fan-out 注册表（架构 §4.2.3）。
  */
 
-/** 十一名语义序（架构 §4.2.4；fan-out 派发序 = 注册表数组序；⑤ 链 A 新增 task-park-bridge；U4 新增 coord-bridge；V2 TTS 批新增 voice-broadcast-bridge；V2.5 文本管家批新增 steward-feed-bridge；会话总结器批①改名 session-summary-bridge 末位（原 session-topic-bridge））。 */
+/** 十一名语义序（架构 §4.2.4；fan-out 派发序 = 注册表数组序；⑤ 链 A 新增 task-park-bridge；U4 新增 coord-bridge；V2.5 文本管家批新增 steward-feed-bridge；会话总结器批①改名 session-summary-bridge 末位（原 session-topic-bridge）；2026-10-08 白话播报重构退役 voice-broadcast-bridge——agent 级播报面拆除，任务终态机械短讯/回复详略轨经 enqueueDiagnosed 直供）。 */
 const FANOUT_NAMES = [
   "cli-stdout",
   "cli-current-session-feedback",
@@ -33,7 +33,6 @@ const FANOUT_NAMES = [
   "session-projection",
   "directory-runstate-bridge",
   "coord-bridge",
-  "voice-broadcast-bridge",
   "steward-feed-bridge",
   "steward-perception-bridge",
   "session-summary-bridge",
