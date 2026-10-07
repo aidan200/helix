@@ -12,10 +12,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   beginDialogueSpeech,
+  beginNotificationPlayback,
   dialogueSpeechActive,
   endDialogueSpeech,
+  endNotificationPlayback,
+  micOccupied,
+  notificationSpeechActive,
   registerNotificationSpeech,
   resetSpeechFloorForTest,
+  setMicOccupied,
   stopNotificationSpeech,
   type NotificationSpeechControl,
 } from "./speech-floor";
@@ -84,5 +89,44 @@ describe("speech-floor（发言协调器：对话 > 通知，播×播互斥）",
     endDialogueSpeech("stream");
     expect(control.stopAndClear).not.toHaveBeenCalled();
     expect(control.resume).not.toHaveBeenCalled();
+  });
+});
+
+describe("speech-floor（通知占用 + 麦克占用——打断不灵敏/重叠双修批）", () => {
+  afterEach(() => {
+    resetSpeechFloorForTest();
+  });
+
+  it("通知占用：begin/end 边沿镜像，notificationSpeechActive 供 barge-in 门武装", () => {
+    expect(notificationSpeechActive()).toBe(false);
+    beginNotificationPlayback();
+    expect(notificationSpeechActive()).toBe(true);
+    endNotificationPlayback();
+    expect(notificationSpeechActive()).toBe(false);
+    endNotificationPlayback(); // 幂等
+    expect(notificationSpeechActive()).toBe(false);
+  });
+
+  it("麦克占用：置位/复位 + true→false 边沿触发通知 resume（收音期延后通知的放行面）", () => {
+    const control = fakeControl();
+    registerNotificationSpeech(control);
+    setMicOccupied(true);
+    expect(micOccupied()).toBe(true);
+    expect(control.resume).not.toHaveBeenCalled(); // 占用不触发任何回调
+    setMicOccupied(true); // 幂等
+    expect(control.resume).not.toHaveBeenCalled();
+    setMicOccupied(false); // 释放 → resume（延后队列串行放行）
+    expect(micOccupied()).toBe(false);
+    expect(control.resume).toHaveBeenCalledTimes(1);
+    setMicOccupied(false); // 幂等：不再触发
+    expect(control.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("reset 清位：占用态与麦克占用全复位（测试隔离零泄漏）", () => {
+    beginNotificationPlayback();
+    setMicOccupied(true);
+    resetSpeechFloorForTest();
+    expect(notificationSpeechActive()).toBe(false);
+    expect(micOccupied()).toBe(false);
   });
 });

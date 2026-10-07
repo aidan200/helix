@@ -64,8 +64,13 @@ import { useVoiceBroadcast } from "./useVoiceBroadcast";
 import { resetSpeechMutexForTest, speechLeaseActive } from "@/shared/lib/speech-mutex";
 import {
   beginDialogueSpeech,
+  beginNotificationPlayback,
   endDialogueSpeech,
+  endNotificationPlayback,
+  micOccupied,
+  notificationSpeechActive,
   resetSpeechFloorForTest,
+  setMicOccupied,
   stopNotificationSpeech,
 } from "@/shared/lib/speech-floor";
 
@@ -306,5 +311,54 @@ describe("useVoiceBroadcast（① 发言协调：对话优先，c 面服从/被�
       FakeAudio.instances[0]!.onended?.();
     });
     expect(speechLeaseActive()).toBe(false); // 排空释放
+  });
+
+  it("占用镜像：起播 → 通知占用在场（barge-in 门武装面）；播毕/清队列 → 释放", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    expect(notificationSpeechActive()).toBe(false);
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+    });
+    expect(notificationSpeechActive()).toBe(true); // 在播 → 门武装面在场
+    await act(async () => {
+      FakeAudio.instances[0]!.onended?.();
+    });
+    expect(notificationSpeechActive()).toBe(false); // 排空 → 释放
+  });
+
+  it("占用镜像（停播路径）：stopAndClear 清队列 → 占用释放（门武装面同步收位）", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+    });
+    expect(notificationSpeechActive()).toBe(true);
+    act(() => {
+      stopNotificationSpeech();
+    });
+    expect(notificationSpeechActive()).toBe(false); // 弃播即释放
+  });
+
+  it("麦克占用延后：收音/转写期到达的通知不立即播；释放后串行放行（重叠修复）", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    act(() => {
+      setMicOccupied(true); // 用户在说话（recording/transcribing）
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+    });
+    expect(FakeAudio.instances.length).toBe(0); // 延后：不叠用户说话
+    expect(speechLeaseActive()).toBe(false); // 延后期不占租约
+    act(() => {
+      setMicOccupied(false); // 说完 → 释放边沿 resume
+    });
+    await act(async () => {});
+    expect(FakeAudio.instances.length).toBe(1); // 放行串行起播
+    expect(FakeAudio.instances[0]!.src).toBe("data:audio/wav;base64,S1");
   });
 });

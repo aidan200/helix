@@ -471,4 +471,38 @@ describe("useStewardVoice 出声面协调（双声重叠修复批 ①②③④�
     expect(speechLeaseActive()).toBe(false);
     expect(r.current.duplexActive).toBe(true); // 双工会话不受 stopSpeaking 影响
   });
+
+  it("T7 欢迎语压通知（重叠修复）：通知在播时呼出管家 → 欢迎语起播收编通知（在播停+队列清）；欢迎语播完不回放（弃播不续）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    localStorage.setItem("helix.steward.welcomeAudio", "data:audio/mp4;base64,FIXEDWELCOME");
+    await mountBroadcast();
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    // 先让通知在播 + 队列有货（任务完成播报形态）
+    broadcast(1, "N1");
+    broadcast(2, "N2");
+    await waitFor(() => {
+      const n1 = FakeAudio.instances.find((a) => a.src === "data:audio/wav;base64,N1");
+      expect(n1).toBeDefined();
+    });
+    // 呼出管家：欢迎语起播 → 协调器收编通知（在播停 + 队列清）
+    await act(async () => {
+      fireWakeHotkey?.();
+    });
+    await tick();
+    await waitFor(() => {
+      const welcome = FakeAudio.instances.find((a) => a.src === "data:audio/mp4;base64,FIXEDWELCOME");
+      expect(welcome).toBeDefined();
+    });
+    const n1 = FakeAudio.instances.find((a) => a.src === "data:audio/wav;base64,N1")!;
+    expect(n1.paused).toBe(true); // 在播被收编
+    // 欢迎语播完 → 不回放被清队列的通知（弃播不续）
+    const welcome = FakeAudio.instances.find((a) => a.src === "data:audio/mp4;base64,FIXEDWELCOME")!;
+    act(() => {
+      welcome.onended?.();
+    });
+    await tick();
+    expect(FakeAudio.instances.filter((a) => a.src === "data:audio/wav;base64,N2").length).toBe(0); // 队列已清——零回放
+    expect(r.current.duplexActive).toBe(true);
+  });
 });

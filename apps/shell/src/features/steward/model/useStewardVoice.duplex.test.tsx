@@ -93,6 +93,12 @@ vi.mock("@/shared/lib/wake-hotkey", () => ({
 
 import { useStewardVoice } from "./useStewardVoice";
 import { requestOpenSteward } from "@/shared/lib/steward-open-signal";
+import { beginSpeechLease, endSpeechLease, resetSpeechMutexForTest } from "@/shared/lib/speech-mutex";
+import {
+  beginNotificationPlayback,
+  endNotificationPlayback,
+  resetSpeechFloorForTest,
+} from "@/shared/lib/speech-floor";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 
 class FakeMediaRecorder {
@@ -499,6 +505,8 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     playerEnqueued.length = 0;
     streamSeq = 0;
     CalibMeter.instances = [];
+    resetSpeechMutexForTest();
+    resetSpeechFloorForTest();
     nowMs = Date.now();
     nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
   });
@@ -507,6 +515,8 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     vi.clearAllMocks();
     FakeMediaRecorder.instances = [];
     CalibMeter.instances = [];
+    resetSpeechMutexForTest();
+    resetSpeechFloorForTest();
     nowSpy?.mockRestore();
     nowSpy = null;
     restoreEnv?.();
@@ -630,5 +640,52 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     await stewardAnswers(true);
     frames(10, 0.04);
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
+  });
+
+  it("校准排除发言租约期帧（欢迎语污染修复）：租约期帧不入样本 → 样本不足回落纯偏好 → 阈值不被毒化", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r);
+    // 欢迎语播放形态：租约在场，采样窗内的帧全被跳过（不入样本）
+    beginSpeechLease("test-welcome");
+    for (let i = 0; i < 30; i += 1) {
+      act(() => {
+        ear().emit(0.3); // 若入样本，P20 会被 TTS 回灌毒化到焊死位
+      });
+      nowMs += 100;
+    }
+    act(() => {
+      ear().emit(0.001); // 越窗定稿：样本学 0（租约期全跳）→ noiseFloor = null
+    });
+    endSpeechLease("test-welcome");
+    await stewardAnswers(true);
+    expect(r.current.phase).toBe("speaking");
+    // 纯偏好阈值（0.012×2 = 0.024）：0.3 帧照常触发（若被毒化则 P20=0.3 → 阈 0.75 焊死永不触发）
+    frames(10, 0.3);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("通知播报期 barge-in 门开（打断不灵敏修复）：相位 idle + 通知占用在场 → 响帧照常打断；无占用同帧零触发（对照）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r); // 静音休眠态：相位 idle，门本天
+    await waitFor(() => expect(r.current.phase).toBe("idle")); // 欢迎语 TTS 收口后归位（控制段纯净）
+    // 越窗定稿校准（零样本回落纯偏好——排除校准变量）
+    nowMs += 3000;
+    act(() => {
+      ear().emit(0.001);
+    });
+    // 对照：无通知占用时响帧零触发（idle 相位门关——现状语义钉子）
+    frames(6, 0.3);
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    // 通知占用在场（useVoiceBroadcast 播放边沿镜像）→ 门开，同幅帧触发打断
+    //（帧数取 5：t=300ms 首触发后落在 300ms 静默窗内——单次触发零二次，
+    // 确定性断言不依赖占用自清——真机上 useVoiceBroadcast 挂载会随停播自清）
+    beginNotificationPlayback();
+    frames(5, 0.3);
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    endNotificationPlayback();
   });
 });

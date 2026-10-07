@@ -106,7 +106,13 @@ import {
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
 import { warmAudioOutputOnce } from "./audio-output-warmup";
 import { beginSpeechLease, endSpeechLease, speechLeaseActive } from "@/shared/lib/speech-mutex";
-import { beginDialogueSpeech, endDialogueSpeech, stopNotificationSpeech } from "@/shared/lib/speech-floor";
+import {
+  beginDialogueSpeech,
+  endDialogueSpeech,
+  notificationSpeechActive,
+  setMicOccupied,
+  stopNotificationSpeech,
+} from "@/shared/lib/speech-floor";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import {
   effectiveRmsThreshold,
@@ -435,6 +441,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     audio.onended = null;
     audio.pause();
     endSpeechLease(SPEECH_LEASE_WELCOME); // ⑥ 欢迎语发言期同占租约（提前停即释放）
+    endDialogueSpeech(SPEECH_LEASE_WELCOME); // ① 协调面同点收位（欢迎语 = 管家在跟你说话 → 压通知）
   }, []);
   const speakWelcome = useCallback(() => {
     const cached = readWelcomeAudioPref();
@@ -444,13 +451,16 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
         welcomeAudioRef.current = audio;
         beginSpeechLease(SPEECH_LEASE_WELCOME); // ⑥ 发言期登记（播毕/失败释放）
+        beginDialogueSpeech(SPEECH_LEASE_WELCOME); // ① 欢迎语对话源：起播压/停通知（欢迎语×通知重叠修复）
         audio.onended = () => {
           if (welcomeAudioRef.current === audio) welcomeAudioRef.current = null;
           endSpeechLease(SPEECH_LEASE_WELCOME);
+          endDialogueSpeech(SPEECH_LEASE_WELCOME);
         };
         void audio.play().catch(() => {
           if (welcomeAudioRef.current === audio) welcomeAudioRef.current = null;
           endSpeechLease(SPEECH_LEASE_WELCOME);
+          endDialogueSpeech(SPEECH_LEASE_WELCOME);
         });
         return;
       } catch {
@@ -506,14 +516,22 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   );
   const onBargeInLevel = useCallback(
     (frame: MeterFrame) => {
-      const armed = isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current });
+      // 门武装面扩展（打断不灵敏修复）：通知播报（c 面）不驱动 speaking 相位
+      //（相位只由对话轨 a/b 派生）——无此扩展时通知播报期相位 idle → 门天。
+      // 通知占用在场时等价 speaking 语义：门开 + 阈值 ×2 抬档（自声回灌防
+      // 线同对话轨——通知语音同样从扬声器出）。
+      const notifSpeaking = notificationSpeechActive();
+      const gatePhase = notifSpeaking && phaseRef.current === "idle" ? "speaking" : phaseRef.current;
+      const armed =
+        isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current }) ||
+        (modeRef.current === "voice" && notifSpeaking);
       const atMs = Date.now();
       const out = stepBargeInGate(bargeInGateRef.current, {
         rms: frame.rms,
         zcr: frame.zcr,
         atMs,
         armed,
-        phase: phaseRef.current,
+        phase: gatePhase,
         threshold: effectiveThreshold(),
         minDurationMs: readVoiceMinDurationPref(),
         silenceWindowMs: readVoiceSilenceWindowPref(),
@@ -522,7 +540,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       });
       bargeInGateRef.current = out.state;
       if (out.trigger) {
-        recordBargeInTrace({ at: atMs, rms: frame.rms, zcr: frame.zcr, phase: phaseRef.current, fired: true });
+        recordBargeInTrace({ at: atMs, rms: frame.rms, zcr: frame.zcr, phase: gatePhase, fired: true });
         bargeInRef.current();
       } else if (out.missed !== null) {
         // ⑦ 双态打点：未触发候选段收口（段内峰值帧特征——档位压制/未达持续
@@ -553,7 +571,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
             calibSamplesRef.current.length >= VOICE_NOISE_CALIB_MIN_FRAMES
               ? noiseFloorEstimate(calibSamplesRef.current)
               : null; // 采样不足 → 回落纯偏好
-        } else {
+        } else if (!speechLeaseActive()) {
+          // 发言租约期帧不入样本（校准污染修复）：欢迎语错峰后恰盖采样窗
+          // 大半，TTS 回灌帧混入会把 P20 底噪抬到焊死位（打不断的候选 B 根
+          // 因）。租约期跳过采样，样本不足 → 回落纯偏好（宁可不校准，不校
+          // 出毒阈值）。
           calibSamplesRef.current.push(frame.rms);
         }
       }
@@ -834,6 +856,14 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   });
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+
+  // 麦克占用镜像（重叠修复）：收音/转写期 → speech-floor 麦克占用——通知
+  // 播报延后不叠用户说话；占用释放（说完）边沿触发延后队列串行放行。卸载
+  // 同步复位（不留占用残位阻断后续通知）。
+  useEffect(() => {
+    setMicOccupied(voice.state === "recording" || voice.state === "transcribing");
+  }, [voice.state]);
+  useEffect(() => () => setMicOccupied(false), []);
 
   // 流式帧消费（与 useVoiceInput 回执面双订阅扇出——LISTEN_SURFACE 官方
   // 形态；streamId 单飞门控：他流/旧流帧丢弃，非 pending 终帧丢弃）

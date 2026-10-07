@@ -21,7 +21,13 @@ import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { readTtsVoicePref, readVoiceBroadcastPref, readVoiceVolumePref } from "@/shared/lib/voice-pref";
 import { beginSpeechLease, endSpeechLease } from "@/shared/lib/speech-mutex";
-import { dialogueSpeechActive, registerNotificationSpeech } from "@/shared/lib/speech-floor";
+import {
+  beginNotificationPlayback,
+  dialogueSpeechActive,
+  endNotificationPlayback,
+  micOccupied,
+  registerNotificationSpeech,
+} from "@/shared/lib/speech-floor";
 import type { EventEnvelope } from "@helix/protocol";
 
 /** ⑥ 租约源（播报-收音互斥：全局播报发言期暂停 duplex 收音上行——TTS 自声
@@ -87,16 +93,19 @@ export function useVoiceBroadcast(): VoiceBroadcast {
 
   const playNext = (): void => {
     if (playingRef.current) return;
-    // ① 对话发言期（对话 > 通知）：延后入队——不立即播不打断对话，对话收口后
-    // 经 speech-floor resume 串行放行（队列保序；延前期不占播报租约）
-    if (dialogueSpeechActive()) return;
+    // ① 对话发言期（对话 > 通知）+ 麦克占用（收音/转写期——用户说话不叠播报）
+    // 延后入队——不立即播不打断对话，对话收口/麦克释放后串行放行
+    //（队列保序；延前期不占播报租约）
+    if (dialogueSpeechActive() || micOccupied()) return;
     const next = pendingRef.current.shift();
     if (next === undefined) {
       endSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 队列排空 → 发言期收口（收音恢复）
+      endNotificationPlayback(); // 占用释放（排空 = 播报不在场）
       return;
     }
     playingRef.current = true;
     beginSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 发言期登记（排空/卸载释放）
+    beginNotificationPlayback(); // 占用镜像：在播 → barge-in 门武装面在场
     try {
       const audio = new Audio(next.audio);
       audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
@@ -144,6 +153,7 @@ export function useVoiceBroadcast(): VoiceBroadcast {
           audio.pause();
         }
         endSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 停播收位（幂等——未占时 no-op）
+        endNotificationPlayback(); // 占用释放（门武装面同步收位）
       },
       resume: () => {
         playNextRef.current();
