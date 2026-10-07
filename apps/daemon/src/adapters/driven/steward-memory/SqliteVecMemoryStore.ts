@@ -43,6 +43,8 @@ interface EntryRow {
   pinned: number;
   /** progress 批：关联会话锄（存量行 ALTER 补列后为 ''——非 progress 形态）。 */
   session_id?: string;
+  /** 项目隔离批：项目作用域（存量行 ALTER 补列后为 'global'）。 */
+  project_scope: string;
 }
 
 function toEntry(row: EntryRow): StewardMemoryEntry {
@@ -59,6 +61,8 @@ function toEntry(row: EntryRow): StewardMemoryEntry {
     pinned: row.pinned === 1,
     // progress 批：空串 = 非 progress 条目（无会话锄）——投影不携带
     ...(row.session_id !== undefined && row.session_id !== "" ? { sessionId: row.session_id } : {}),
+    // 项目隔离批：存储投影恒携带（列 NOT NULL——真库总有值）
+    projectScope: row.project_scope,
   };
 }
 
@@ -113,6 +117,12 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (!columns.some((c) => c.name === "session_id")) {
       this.db.exec("ALTER TABLE entries ADD COLUMN session_id TEXT NOT NULL DEFAULT ''");
     }
+    // 项目隔离批幂等补列：项目作用域（'global' = 跨项目可见；存量行迁移
+    // 默认 global——零行为变化起步；ALTER ADD COLUMN NOT NULL DEFAULT 对
+    // 存量行填充默认值）。二次构造列已存在 → 零动作（幂等重跑）。
+    if (!columns.some((c) => c.name === "project_scope")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN project_scope TEXT NOT NULL DEFAULT 'global'");
+    }
   }
 
   storedDim(): number | null {
@@ -145,14 +155,15 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (items.length === 0) return;
     this.ensureVecTable(items[0]!.vector.length);
     const insertEntry = this.db.prepare(
-      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?)",
+      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)",
     );
     const insertVec = this.db.prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)");
     const tx = this.db.transaction((rows: readonly StewardMemoryAppendItem[]) => {
       for (const item of rows) {
         // 遗忘机制批：新条目满强度起步（last_recalled_at = createdAt——锄点
-        // 即创建时刻，新条目不吃存量衰减亏）。
-        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt, item.sessionId ?? "");
+        // 即创建时刻，新条目不吃存量衰减亏）。项目隔离批：scope 写入时落
+        // （缺省 global）。
+        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt, item.sessionId ?? "", item.projectScope ?? "global");
         // Bun NAPI better-sqlite3 把 JS number 绑定为 REAL——vec0 rowid 只
         // 收 INTEGER 字面类型（"Only integers are allowed" 实证），BigInt
         // 才绑定为 INTEGER（条目数 << 2^53 无精度问题）。
@@ -169,23 +180,35 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
       .run(BigInt(id), Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength));
   }
 
-  search(query: Float32Array, topK: number): readonly StewardMemoryHit[] {
+  search(query: Float32Array, topK: number, scopeFilter?: readonly string[]): readonly StewardMemoryHit[] {
     if (this.storedDim() === null || topK <= 0) return [];
+    // 项目隔离批：rowid IN 预过滤（spike 实证 sqlite-vec KNN 查询对
+    // rowid IN 子查询是 pre-filter——KNN 名额只给合格行，他项目最近邻
+    // 不占位；与 JOIN 外表 WHERE 的 post-filter 形态（名额被占）语义
+    // 相反，此处必须用 IN 形态。值全部经 ? 参数绑定（零拼接注入面）。
+    const scopeClause =
+      scopeFilter !== undefined && scopeFilter.length > 0
+        ? ` AND v.rowid IN (SELECT id FROM entries WHERE project_scope IN (${scopeFilter.map(() => "?").join(",")}))`
+        : "";
     const rows = this.db
       .prepare(
-        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, e.session_id, v.distance
+        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, e.session_id, e.project_scope, v.distance
          FROM vec_items v JOIN entries e ON e.id = v.rowid
-         WHERE v.embedding MATCH ? AND k = ?
+         WHERE v.embedding MATCH ? AND k = ?${scopeClause}
          ORDER BY v.distance ASC`,
       )
-      .all(Buffer.from(query.buffer, query.byteOffset, query.byteLength), topK) as (EntryRow & { distance: number })[];
+      .all(
+        Buffer.from(query.buffer, query.byteOffset, query.byteLength),
+        topK,
+        ...(scopeFilter ?? []),
+      ) as (EntryRow & { distance: number })[];
     return rows.map((row) => ({ ...toEntry(row), score: 1 - row.distance }));
   }
 
   list(): readonly StewardMemoryEntry[] {
     const rows = this.db
       .prepare(
-        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id FROM entries ORDER BY created_at ASC",
+        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope FROM entries ORDER BY created_at ASC",
       )
       .all() as EntryRow[];
     return rows.map(toEntry);
@@ -206,15 +229,19 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     return tx(id) > 0;
   }
 
-  updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number): boolean {
+  updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number, projectScope?: string): boolean {
     // 维度对齐：新向量维度 ≠ 锁表维度时重建向量面（调用方 ensureDim 已保证，
     // 此处防御性兑底——重建清全表后旧行已亡，直接 INSERT）
     this.ensureVecTable(vector.length);
-    const tx = this.db.transaction((target: number, newText: string, vec: Float32Array, updated: number) => {
-      // 遗忘机制批：编辑即救活（faded_at 归零——用户动手 = 明确价值信号）
-      const changed = this.db
-        .prepare("UPDATE entries SET text = ?, updated_at = ?, faded_at = 0 WHERE id = ?")
-        .run(newText, updated, target).changes;
+    const tx = this.db.transaction(
+      (target: number, newText: string, vec: Float32Array, updated: number, scope: string | undefined) => {
+        // 遗忘机制批：编辑即救活（faded_at 归零——用户动手 = 明确价值信号）。
+        // 项目隔离批：scope 传入 = 随写时项目重落（progress 覆盖更新）；
+        // 缺省 = 保持原值（人工编辑/查重覆盖不改归属）。
+        const changed = (scope !== undefined
+          ? this.db.prepare("UPDATE entries SET text = ?, updated_at = ?, faded_at = 0, project_scope = ? WHERE id = ?").run(newText, updated, scope, target)
+          : this.db.prepare("UPDATE entries SET text = ?, updated_at = ?, faded_at = 0 WHERE id = ?").run(newText, updated, target)
+        ).changes;
       if (changed === 0) return false;
       // 向量重写：先删旧行再插入（vec0 rowid 无 REPLACE 语义）
       this.db.prepare("DELETE FROM vec_items WHERE rowid = ?").run(BigInt(target));
@@ -223,7 +250,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
         .run(BigInt(target), Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength));
       return true;
     });
-    return tx(id, text, vector, updatedAt);
+    return tx(id, text, vector, updatedAt, projectScope);
   }
 
   markRecalled(ids: readonly number[], at: number): void {

@@ -34,7 +34,7 @@ import { TaskOrchestratorService } from "../application/services/task/TaskOrches
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
 
 /** W2-D R13 job 终态同步提示文案随编排服务切片迁 assembly/buildTaskOrchestrator（M29）。 */
-import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/workspace-scan";
+import { scanWorkspaceProjects, scanProjectEntries, existingKgProjects } from "../adapters/driven/workspace-scan";
 import { createStewardKgSource } from "../adapters/driven/tools/kg/StewardKgTool";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { rm, readFile } from "node:fs/promises";
@@ -881,6 +881,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         embedding,
         embeddingConfig,
         store,
+        // 项目隔离批：progress 写时项目解析——会话写足迹（writeFacts）单项目
+        // 归约 → workspace 一级目录名；多项目/无足迹 → undefined（回落
+        // global）。总结器/感知两 progress 入口共用（入库点收口，调用面零
+        // 签名变化）。
+        resolveSessionProject: (sessionId) => {
+          const foot = sessionStack.writeFacts.projectFootprint(sessionId);
+          return foot.length === 1 ? (foot[0]!.split("/").pop() ?? undefined) : undefined;
+        },
         // B4a 判官真体（分类模型注册表分派，variant 区分实现）：
         // judgeEndpointId 惰性解析 + kind 校验（误指 embedding 端点 →
         // null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
@@ -942,6 +950,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     llm: stewardLlm,
     ...(dialog !== undefined ? { dialog } : {}),
     memory: stewardMemory,
+    // 项目隔离批：记忆召回当前项目解析——workspace 绑定根 + 一级目录扫描
+    // （与 codegraph/kg 的 projectPath 同源口径）；单项目 → 该项目（global +
+    // 本项目可召回），多项目/未绑定 → undefined（只 global——与 resolveKgScope
+    // 「当前活跃项目」同款单项目口径）。每次 ask 现扫（毫秒级，重绑跟随）。
+    memoryProject: () => {
+      const root = workspace.boundRoot();
+      if (root === null) return undefined;
+      const entries = scanProjectEntries(root);
+      return entries.length === 1 ? entries[0]!.name : undefined;
+    },
     // 段B翻转：pi 引擎唯一配方装配（driven/steward buildStewardEngine——
     // 生产与测试共用；模型槽位与管家 LLM 同一解析链：steward.model KV →
     // 目录解析 → 缺省 STEWARD_DEFAULT_MODEL）
