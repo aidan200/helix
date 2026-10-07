@@ -716,6 +716,92 @@ describe("回合终态感知：turn.completed 入 ring + 投递关注命中分�
   });
 });
 
+// ── 通知双轨预算与分诊降级（用户反馈批：第二条通知静默丢失 + 摘要不细致）──
+// 实锤样本 daemon-2026-10-07.log 15:03:08Z：「分诊产物 JSON 解析失败（烂输出
+// 整体丢弃——不播半产物）」→ 零通知零语音——事件真实发生（用户在等回复），
+// 分诊失败不该静默吞掉事件本身。 ──────────────────────
+
+describe("分诊降级保底：LLM/解析失败 → 机械通知（事件不静默丢失）", () => {
+  function turnEvent(sessionId: string): DomainEvent {
+    return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
+  }
+
+  test("分诊抛错（解析失败同形）：fallbackText 锚发机械保底 notify + 语音（不再整体静默）", async () => {
+    const { perception, diagnose, notifies, frames } = makeStack({
+      diagnose: fakeDiagnose({ error: new Error("分诊产物 JSON 解析失败") }),
+    });
+    perception.noteDelivered("sess-target", "问题 B");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(diagnose.calls).toHaveLength(1); // LLM 调了（启用态）
+    expect(notifies).toHaveLength(1); // 失败不再静默——机械保底通知
+    expect(notifies[0]!.title).toBe("会话回复了");
+    expect(notifies[0]!.body).toBe("投递的会话已回复");
+    expect(frames[frames.length - 1]!.text).toBe("投递的会话已回复"); // 语音保底同句
+  });
+
+  test("无 fallbackText 锚（agent 级）：分诊失败仍静默（无机械文案可降——语义只属 turn-reply）", async () => {
+    const { perception, notifies } = makeStack({
+      diagnose: fakeDiagnose({ error: new Error("boom") }),
+    });
+    perception.onDomainEvent(agentEvent("agent.completed", { agentId: "agent-x" }, "sess-agent"));
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(0);
+  });
+});
+
+describe("通知正文双轨预算：present（语音 ≤60）与 detail（notify 可到 200）分轨", () => {
+  function turnEvent(sessionId: string): DomainEvent {
+    return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
+  }
+
+  test("detail 在场：notify body/dialog 用 detail，语音用 present（一句话短 / 正文详）", async () => {
+    const { perception, notifies, dialogReports, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true, // 激活 → 对话内主动汇报也发
+      diagnose: fakeDiagnose({
+        result: {
+          present: "语音批修复完成",
+          detail: "出声面协调器批已交付：双声重叠根治（新轮清在途+回执轮次校验），说停全轨静默，对话优先于通知播报。",
+        },
+      }),
+    });
+    perception.noteDelivered("sess-target", "语音问题修了吗");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1);
+    expect(notifies[0]!.body).toBe(
+      "出声面协调器批已交付：双声重叠根治（新轮清在途+回执轮次校验），说停全轨静默，对话优先于通知播报。",
+    );
+    expect(dialogReports[dialogReports.length - 1]!.text).toBe(
+      "出声面协调器批已交付：双声重叠根治（新轮清在途+回执轮次校验），说停全轨静默，对话优先于通知播报。",
+    );
+    expect(frames[frames.length - 1]!.text).toBe("语音批修复完成"); // 语音轨仍短句
+  });
+
+  test("detail 缺席：notify body 回退 present（旧产物兼容——单轨不降级）", async () => {
+    const { perception, notifies } = makeStack({
+      diagnose: fakeDiagnose({ result: { detail: undefined } }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1);
+    expect(notifies[0]!.body).toBe("M0.5 感知链路已交付，测试全部通过。");
+  });
+
+  test("detail 防御截断：超 200 字截断加省略号（prompt 约束外兑底）", async () => {
+    const long = "长".repeat(250);
+    const { perception, notifies } = makeStack({
+      diagnose: fakeDiagnose({ result: { detail: long } }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect([...notifies[0]!.body].length).toBe(201); // 200 字 + 省略号
+  });
+});
+
 // ── 测试辅助 ──────────────────────────────────────────────
 
 

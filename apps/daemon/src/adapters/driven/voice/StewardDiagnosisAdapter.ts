@@ -66,6 +66,7 @@ export function parseDiagnosis(text: string): StewardDiagnosisResult | undefined
   // ③ 字段守卫（缺席容忍 + 类型错位回缺省）
   const present = typeof obj.present === "string" ? obj.present.trim() : "";
   const ingest = typeof obj.ingest === "string" ? obj.ingest.trim() : "";
+  const detail = typeof obj.detail === "string" && obj.detail.trim() !== "" ? obj.detail.trim() : undefined;
   if (present === "" && ingest === "") return undefined; // 双轨全空 = 无效产物
   const rawSuggestions = Array.isArray(obj.suggestions) ? obj.suggestions : [];
   const suggestions: StewardDiagnosisSuggestion[] = [];
@@ -80,6 +81,7 @@ export function parseDiagnosis(text: string): StewardDiagnosisResult | undefined
     notify: obj.notify !== false, // 缺省值得打扰（false 显式静默）
     urgency: obj.urgency === "high" ? "high" : "normal",
     present,
+    ...(detail !== undefined ? { detail } : {}),
     ingest,
     suggestions,
   };

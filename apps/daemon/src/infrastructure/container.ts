@@ -783,7 +783,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // 修复①：回合终态分诊读回复正文（尾投影取末条 assistant——与管家
       // read_session 工具同数据源，单条 300 码点护栏在出口处）
       readReply: async (sessionId) => {
-        const tail = await persistence.repository.readSessionTail(sessionId, 4);
+        // 尾深 6（≈1800 字级——用户反馈「摘要不细致」：4×300 硬截丢结论主体）
+        const tail = await persistence.repository.readSessionTail(sessionId, 6);
         if (tail === undefined) return undefined;
         for (let i = tail.length - 1; i >= 0; i -= 1) {
           if (tail[i]!.role === "assistant" && tail[i]!.text.trim() !== "") return tail[i]!.text;

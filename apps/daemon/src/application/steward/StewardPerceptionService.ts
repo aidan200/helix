@@ -80,6 +80,10 @@ export const STEWARD_ACTIVE_WINDOW_MS = 5 * 60_000;
  *  产物防御，与语音播报 80 字符兜底同族）。 */
 export const NOTIFY_PRESENT_MAX_CHARS = 60;
 
+/** notify 正文轨字数上限（双预算分轨：语音短句 ≤60，视觉正文可到 200——
+ *  用户反馈批「摘要不细致」；detail 缺席回退 present 单轨）。 */
+export const NOTIFY_BODY_MAX_CHARS = 200;
+
 /** 投递关注持久化单键（runtime_config kv——无枚举面，单键整图快照形态；
  *  空 Map 写 "{}"，无 delete 面不生残留）。 */
 export const STEWARD_WATCH_KV_KEY = "steward_watch_reply";
@@ -155,6 +159,7 @@ export const DIAGNOSIS_SYSTEM_PROMPT = [
   '- notify: 布尔——是否值得打扰用户（不值得 = false，静默）',
   '- urgency: "normal" 或 "high"（仅高危：失败阻塞、数据风险、预算耗尽）',
   "- present: 给用户听的一句话，口语化中文，不超过 60 字",
+  "- detail: 通知正文，中文要点摘要，可到 200 字，带具体结果与结论（缺席时通知用 present）",
   "- ingest: 给管家分析用的全面记录，结构化分节：做了什么/改动面/发现统计/阻塞/下一步，总长不超过 2000 字",
   "- suggestions: 建议按钮数组，每项 {label: 短句}，最多 3 条（完成只是事实，接续才是价值：开修复/投递下一会话/跳报告）",
   "硬约束：present 的内容必须出自 ingest 已写明的事实（呈现轨是摄入轨的投影，不得编造 ingest 没有的信息）。",
@@ -584,6 +589,7 @@ export class StewardPerceptionService {
       }
       const result = await port.diagnose({ systemPrompt: DIAGNOSIS_SYSTEM_PROMPT, userPrompt });
       const present = this.clampPresent(result.present);
+      const body = result.detail !== undefined ? this.clampBody(result.detail) : present;
       const ingest = result.ingest.trim();
       if (ingest !== "") {
         // 摄入轨 → ring 工作记录（只活 ring，不进长期记忆——防膨胀与召回挤占）
@@ -607,11 +613,45 @@ export class StewardPerceptionService {
         this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: present });
       }
       // 呈现轨 → notify 帧 + 对话内主动汇报（限流后；投递面按激活分支）
-      this.emitDeliveryCapped(result, present, input);
+      this.emitDeliveryCapped(result, present, body, input);
       return result;
     } catch (err) {
       this.deps.logger?.warn(`管家分诊降级（${input.key}）：${(err as Error).message}`);
+      // 降级保底（用户反馈批「第二条通知静默丢失」实锤：解析失败 → 整体丢弃
+      // → 用户在等回复的事件被静默吞掉）：锚带 fallbackText 时发机械保底
+      // notify + 语音（与未启用态同形——事件真实发生，分诊失败只损失丰富度）。
+      if (input.fallbackText !== undefined) {
+        this.emitFallbackDelivery(input);
+      }
       return undefined;
+    }
+  }
+
+  /** 机械保底投递（分诊失败降级/未启用两路共用形态）：通知预算照过 +
+   *  notify（标题机械字段 + fallbackText 正文）+ directVoice 语音同句。 */
+  private emitFallbackDelivery(input: DiagnosisInput): void {
+    const present = input.fallbackText!;
+    const now = this.now();
+    // 通知预算（normal 档滑动窗 ≤4/h——保底也计入，防降级风暴轰炸）
+    this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
+    if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
+      this.deps.logger?.warn(`管家保底通知预算超限，丢弃：${present.slice(0, 40)}`);
+      return;
+    }
+    this.normalSentAt.push(now);
+    if (input.directVoice) {
+      this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: present });
+    }
+    const title = input.taskTitle ?? "后台实例终态";
+    this.notifySeq += 1;
+    this.deps.emitNotify?.({
+      urgency: "normal",
+      title,
+      body: present,
+      seq: this.notifySeq,
+    });
+    if (this.isActive()) {
+      this.deps.reportDialog?.({ title, text: present, suggestions: [] });
     }
   }
 
@@ -619,7 +659,12 @@ export class StewardPerceptionService {
    *  （high 豁免）——超限丢弃 notify 帧与对话内汇报（同属主动投递，共用
     *  预算防轰炸；语音照播——播报队列独立限流）；激活 = 对话内主动汇报
    *  + notify；未激活 = notify/语音异步零对话插话（v2.9）。 */
-  private emitDeliveryCapped(result: StewardDiagnosisResult, present: string, input: DiagnosisInput): void {
+  private emitDeliveryCapped(
+    result: StewardDiagnosisResult,
+    present: string,
+    body: string,
+    input: DiagnosisInput,
+  ): void {
     const now = this.now();
     if (result.urgency !== "high") {
       this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
@@ -645,14 +690,14 @@ export class StewardPerceptionService {
       this.deps.emitNotify({
         urgency: result.urgency === "high" ? "high" : "normal",
         title,
-        body: present,
+        body,
         ...(suggestions.length > 0 ? { suggestions } : {}),
         seq: this.notifySeq,
       });
     }
     // 投递面分支（D12-⑪/⑫）：激活 = 对话内主动汇报（接续提案对话内提出）
     if (this.isActive()) {
-      this.deps.reportDialog?.({ title, text: present, suggestions });
+      this.deps.reportDialog?.({ title, text: body, suggestions });
     }
   }
 
@@ -662,5 +707,13 @@ export class StewardPerceptionService {
     const chars = [...trimmed];
     if (chars.length <= NOTIFY_PRESENT_MAX_CHARS) return trimmed;
     return `${chars.slice(0, NOTIFY_PRESENT_MAX_CHARS).join("")}…`;
+  }
+
+  /** 正文轨防御截断（≤200 字 + 省略号——双预算分轨的视觉面兑底）。 */
+  private clampBody(detail: string): string {
+    const trimmed = detail.trim();
+    const chars = [...trimmed];
+    if (chars.length <= NOTIFY_BODY_MAX_CHARS) return trimmed;
+    return `${chars.slice(0, NOTIFY_BODY_MAX_CHARS).join("")}…`;
   }
 }

@@ -38,8 +38,11 @@ export interface StewardDiagnosisResult {
   readonly notify: boolean;
   /** 紧急度：normal = 常规（限流 ≤4 条/小时）；high = 门控高危（豁免限流）。 */
   readonly urgency: "normal" | "high";
-  /** 呈现轨：≤60 字口语（语音播报与 steward.notify body 同源）。 */
+  /** 呈现轨：≤60 字口语（语音播报短句）。 */
   readonly present: string;
+  /** 通知正文轨：≤200 字要点摘要（steward.notify body 与对话内汇报用；
+ * 缺席 = 回退 present 单轨——语音短句 / 视觉正文详，双预算分轨）。 */
+  readonly detail?: string;
   /** 摄入轨：结构化全面详录（做了什么/改动面/发现统计/阻塞/下一步，
    *  ~2000 字级——只进 ring buffer 工作记录，不进长期记忆）。 */
   readonly ingest: string;
