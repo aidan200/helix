@@ -35,6 +35,7 @@ import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/
 
 /** W2-D R13 job 终态同步提示文案随编排服务切片迁 assembly/buildTaskOrchestrator（M29）。 */
 import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/workspace-scan";
+import { createStewardKgSource } from "../adapters/driven/tools/kg/StewardKgTool";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
@@ -1052,6 +1053,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       resolve: (project) => workspace.stack()?.projectService.resolve(project),
       hasIndex: (projectRoot) => workspace.stack()?.projectService.hasIndex(projectRoot) ?? false,
     },
+    // 批A：kg 只读检索面（管家开放 kg_search/kg_get——只挂 query 面零写，
+    // 与 CoreToolExecutor 同先例；渲染语义复用 createKgTool；workspace 重绑
+    // 跟随——读口惰性取现值，未绑定 = 引导式降级）。
+    kg: createStewardKgSource({
+      queryOf: () => workspace.stack()?.queryService,
+      kgProjects: () =>
+        workspace
+          .stack()
+          ?.projectService.listProjects()
+          .filter((row) => row.status !== "absent")
+          .map((row) => row.path) ?? [],
+    }),
     // A2：任务创建面（task_create 同款引擎通道——paramsSchema 校验在引擎，
     //  TaskError message 原样透传；createdBy 词表封闭 "page"|"chat"，管家
     //  归 chat 宿主语义）。code-review 前置 git 仓判定（fs 注入——application

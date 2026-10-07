@@ -307,7 +307,10 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
     expect(prompt).toContain("不伪装用户身份");
   });
 
-  test("工具面恰为十四个（四只读 + 六提案原语 + M2 四泛型表面工具 surface_list/snapshot/read/act——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember；start_session 批扩带话题开局；progress 批 M3 扩 read_session）——无 spawn/kill 等旁路", async () => {
+  // 【显式契约变更·批A】工具面十四个 → 十六个：新增 kg_search/kg_get 项目知识
+  // 只读检索二件（管家开放 kg 只读工具批）。变更点仅此计数/清单断言，理由 =
+  // 管家获得项目知识问答能力（此前「这个项目的规则是什么」无工具可查）。
+  test("工具面恰为十六个（六只读——四状态问答 + kg_search/kg_get 项目知识检索 + 六提案原语 + M2 四泛型表面工具 surface_list/snapshot/read/act——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember；start_session 批扩带话题开局；progress 批 M3 扩 read_session；批A 扩 kg_search/kg_get）——无 spawn/kill 等旁路", async () => {
     const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }]);
     const { svc } = makeService({ llm });
     await svc.ask("hi");
@@ -316,6 +319,8 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
       "act",
       "create_session",
       "deliver_to_session",
+      "kg_get",
+      "kg_search",
       "list_instances",
       "list_tasks",
       "propose_send",
