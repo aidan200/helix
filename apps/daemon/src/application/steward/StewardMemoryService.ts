@@ -25,11 +25,15 @@
  *    半衰期 ×2 封顶一年）→ 低强度 fade（退出召回池 + 观察窗）→ 零复活
  *    物理删除；manual/pinned 恒满强度永不 GC；软上限 append 后主动触发。
  *
- * 配置面（B2 瘦身形态——RuntimeConfigPort KV 两键）：
- * - steward.memory.enabled = "1"/"0"（开关——记忆是可选项：无 Ollama
+ * 配置面（批B 配置独立化——通用记忆配置域 memory.* KV；键位单源
+ * application/memory/memoryConfig.ts：未来不止管家使用记忆，配置不挂
+ * 管家名下。旧 steward.memory.* 三键已一次性迁移进该域）：
+ * - memory.enabled = "1"/"0"（开关——记忆是可选项：无 Ollama
  *   无云 API 用户不开，零依赖开箱）；
- * - steward.memory.endpointId（引用 embedding_endpoints 配置域条目——
- *   B1 期的 steward.memory.embedding 三字段私钥已一次性迁移进该域）。
+ * - memory.endpointId（引用 embedding_endpoints 配置域条目——
+ *   B1 期的 steward.memory.embedding 三字段私钥已一次性迁移进该域）；
+ * - memory.recallTopK / memory.recallPool（召回量配置驱动——缺省
+ *   5/24 = B1 定格常量现值，零行为变化；值语义读面单点裁决）。
  * available 闸 = 开关 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配。
  * 凭据卫生：getMemoryState 导出面只回引用态（id/name/model/hasApiKey），
  * apiKey 与 baseUrl 永不出库。
@@ -39,25 +43,27 @@ import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../ports/outbound/EmbeddingPort";
 import type { JudgePort } from "../ports/outbound/JudgePort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
+import {
+  MEMORY_ENABLED_KEY,
+  MEMORY_ENDPOINT_ID_KEY,
+  MEMORY_JUDGE_ENDPOINT_ID_KEY,
+  MEMORY_RECALL_POOL_KEY,
+  MEMORY_RECALL_TOP_K_KEY,
+  resolveMemoryRecallParams,
+} from "../memory/memoryConfig";
 import type {
   StewardMemoryEntry,
   StewardMemoryPort,
 } from "../ports/outbound/StewardMemoryPort";
 
-/** 记忆开关 KV 键。 */
-export const STEWARD_MEMORY_ENABLED_KEY = "steward.memory.enabled";
 /**
  * 旧嵌入端点配置 KV 键（B1 三字段 JSON——B2 起退役，仅供一次性迁移读取；
  * 迁移后清空）。
  */
 export const STEWARD_MEMORY_EMBEDDING_KEY = "steward.memory.embedding";
-/** 嵌入端点引用 KV 键（B2：指向 embedding_endpoints 配置域条目 id）。 */
-export const STEWARD_MEMORY_ENDPOINT_ID_KEY = "steward.memory.endpointId";
-/** 判官端点引用 KV 键（B4a 自动沉淀：指向 embedding_endpoints 域 kind=
- *  classifier 条目；未配置 = 自动沉淀静默不挂——对话主链路零影响）。 */
-export const STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY = "steward.memory.judgeEndpointId";
-/** 召回 topK（B1 定格 5——system prompt 预算纪律，与对话 16k 窗口同族）。 */
-export const STEWARD_MEMORY_RECALL_TOP_K = 5;
+// 批B：记忆配置键位（enabled/endpointId/judgeEndpointId + 召回量 topK/
+// pool）迁通用记忆配置域 memory.*，单源 ../memory/memoryConfig.ts——
+// 键不挂管家名下（旧 steward.memory.* 三键一次性迁移在同模块收口）。
 /**
  * 召回相似度下限（B3：score < 此值的命中不注入——语义无关条目污染
  * system prompt 的噪音闸；bge-m3 cosine 经验值 0.30，近似主题即可达标，
@@ -96,8 +102,6 @@ export const STEWARD_MEMORY_STRENGTHEN = 2;
 export const STEWARD_MEMORY_STRENGTHEN_CAP = 8;
 /** 半衰期封顶（ms——强化不会让记忆永生，最多一年不被想起仍会衰）。 */
 export const STEWARD_MEMORY_HALF_LIFE_CAP_MS = 365 * 24 * 3_600_000;
-/** 召回候选池（vec0 取大池后融合重排——资格闸 0.30 不变，时间权重只在竞争位起作用）。 */
-export const STEWARD_MEMORY_RECALL_POOL = 24;
 /** 淡忘强度线（低于此进 fade 候选——约三个半衰期没人理）。 */
 export const STEWARD_MEMORY_FADE_BELOW = 0.08;
 /** 新/新写条目公平期（ms——公平期内不进 fade 候选，防新条目饿死）。 */
@@ -173,6 +177,11 @@ export interface StewardMemoryState {
   readonly available: boolean;
   /** 当前引用端点（引用态；未引用或条目已删 = null）。 */
   readonly endpoint: { readonly id: string; readonly name: string; readonly model: string; readonly hasApiKey: boolean } | null;
+  /** 召回注入条数上限生效值（批B 配置驱动——非法 KV 回退缺省 5；可选 =
+   *  旧壳缺席忽略，additive）。 */
+  readonly recallTopK?: number;
+  /** 召回候选池生效值（批B——非法 KV 回退缺省 24；additive）。 */
+  readonly recallPool?: number;
   /** 记忆条目总数。 */
   readonly entryCount: number;
   /** 当前向量维度（未初始化 = null）。 */
@@ -205,7 +214,7 @@ export class StewardMemoryService {
 
   /** 当前引用的端点配置（endpointId 未设/条目已删 → null）。 */
   endpointConfig(): EmbeddingEndpointConfig | null {
-    const endpointId = this.deps.config.get(STEWARD_MEMORY_ENDPOINT_ID_KEY);
+    const endpointId = this.deps.config.get(MEMORY_ENDPOINT_ID_KEY);
     if (endpointId === undefined || endpointId === "") return null;
     return this.deps.embeddingConfig.resolveRecord(endpointId) === null
       ? null
@@ -214,13 +223,13 @@ export class StewardMemoryService {
 
   /** 当前引用的端点记录（含 name——回执引用态数据源；null = 未引用/悬空）。 */
   private endpointRecord(): EmbeddingEndpointRecord | null {
-    const endpointId = this.deps.config.get(STEWARD_MEMORY_ENDPOINT_ID_KEY);
+    const endpointId = this.deps.config.get(MEMORY_ENDPOINT_ID_KEY);
     if (endpointId === undefined || endpointId === "") return null;
     return this.deps.embeddingConfig.resolveRecord(endpointId);
   }
 
   isEnabled(): boolean {
-    return this.deps.config.get(STEWARD_MEMORY_ENABLED_KEY) === "1";
+    return this.deps.config.get(MEMORY_ENABLED_KEY) === "1";
   }
 
   /** 综合可用性（召回/写入统一门槛）。 */
@@ -231,7 +240,7 @@ export class StewardMemoryService {
   /** 当前判官端点记录（B4a：未引用/悬空/非 classifier → null——kind 校验
    *  保证判官端点与召回端点不串用；kind 缺席 = embedding 同判不适用）。 */
   private judgeEndpointRecord(): EmbeddingEndpointRecord | null {
-    const judgeEndpointId = this.deps.config.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY);
+    const judgeEndpointId = this.deps.config.get(MEMORY_JUDGE_ENDPOINT_ID_KEY);
     if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
     const record = this.deps.embeddingConfig.resolveRecord(judgeEndpointId);
     if (record === null || record.kind !== "classifier") return null;
@@ -249,13 +258,17 @@ export class StewardMemoryService {
     return this.deps.judge!.noul(`既有：${existingText}\n新写入：${incomingText}`, STEWARD_MEMORY_SAME_QUESTION);
   }
 
-  /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库）。 */
+  /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库；recallTopK/recallPool
+   *  为读面 resolver 回退后生效值——非法 KV 回显缺省，调用方所见即所得）。 */
   getMemoryState(): StewardMemoryState {
     const record = this.endpointRecord();
     const judgeRecord = this.judgeEndpointRecord();
+    const recall = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
     return {
       enabled: this.isEnabled(),
       available: this.isAvailable(),
+      recallTopK: recall.topK,
+      recallPool: recall.pool,
       endpoint:
         record === null
           ? null
@@ -270,32 +283,44 @@ export class StewardMemoryService {
   }
 
   /**
-   * 配置写面（开关 + 端点引用可选更新；无前置校验——引用悬空自然降级：
-   * endpointId 指向不存在的条目 → endpointRecord() null → isAvailable()
-   * 假即整体降级待命。先开后配是合法路径（endpointId 是记忆开启后才展开
-   * 的从属项——写面拦截会造成死锁）。
+   * 配置写面（开关 + 端点引用 + 召回量可选更新；无前置校验——引用悬空
+   * 自然降级：endpointId 指向不存在的条目 → endpointRecord() null →
+   * isAvailable() 假即整体降级待命。先开后配是合法路径（endpointId 是记忆
+   * 开启后才展开的从属项——写面拦截会造成死锁）。召回量同款：写面只落值，
+   * 值语义（正整数/topK≤pool/pool≤200）由 resolveMemoryRecallParams 在
+   * 读面单点裁决——非法值静默回退缺省 + warn，不挡配置写入）。
    */
   async setMemoryConfig(patch: {
     enabled?: boolean;
     endpointId?: string;
     judgeEndpointId?: string;
+    recallTopK?: number;
+    recallPool?: number;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.endpointId !== undefined) {
       // 空串 = 清除引用（显式解绑）
-      await this.deps.config.set(STEWARD_MEMORY_ENDPOINT_ID_KEY, patch.endpointId);
+      await this.deps.config.set(MEMORY_ENDPOINT_ID_KEY, patch.endpointId);
     }
     if (patch.judgeEndpointId !== undefined) {
-      await this.deps.config.set(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY, patch.judgeEndpointId);
+      await this.deps.config.set(MEMORY_JUDGE_ENDPOINT_ID_KEY, patch.judgeEndpointId);
+    }
+    if (patch.recallTopK !== undefined) {
+      await this.deps.config.set(MEMORY_RECALL_TOP_K_KEY, String(patch.recallTopK));
+    }
+    if (patch.recallPool !== undefined) {
+      await this.deps.config.set(MEMORY_RECALL_POOL_KEY, String(patch.recallPool));
     }
     if (patch.enabled !== undefined) {
-      await this.deps.config.set(STEWARD_MEMORY_ENABLED_KEY, patch.enabled ? "1" : "0");
+      await this.deps.config.set(MEMORY_ENABLED_KEY, patch.enabled ? "1" : "0");
     }
     return { ok: true };
   }
 
   /**
    * 召回（ask 前轮内）：候选池语义检索 → 过淡忘 → 资格闸（cosine ≥ 0.30
-   *  语义不变）→ 融合排序（cosine × 强度）→ top5 注入 + 幸存者回写。
+   *  语义不变）→ 融合排序（cosine × 强度）→ topK 注入 + 幸存者回写。
+   * 召回量（topK/候选池）批B 起配置驱动（memory.recallTopK/recallPool，
+   * 缺省 5/24 = 定格常量现值零行为变化；非法 KV 读面回退缺省）。
    * 任何失败静默降级 undefined + warn（召回绝不能挡对话主链路）；
    *  记忆不可用 → undefined（零调用零日志——常态降级）。
    */
@@ -305,11 +330,12 @@ export class StewardMemoryService {
       const { vectors, dim } = await this.deps.embedding.embed([queryText]);
       await this.ensureDim(dim);
       const now = this.now();
+      const { topK, pool: poolSize } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
       // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ 0.30 语义不变）→
       // 融合排序（cosine × 强度——时间权重只在竞争位起作用，唯一强相关
-      // 的老记忆仍能出线）→ top5 注入。
+      // 的老记忆仍能出线）→ topK 注入。
       const pool = this.deps
-        .store!.search(vectors[0]!, STEWARD_MEMORY_RECALL_POOL)
+        .store!.search(vectors[0]!, poolSize)
         .filter((h) => h.fadedAt === 0)
         .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE);
       pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
@@ -318,7 +344,7 @@ export class StewardMemoryService {
       const hits: typeof pool = [];
       let progressTaken = 0;
       for (const h of pool) {
-        if (hits.length >= STEWARD_MEMORY_RECALL_TOP_K) break;
+        if (hits.length >= topK) break;
         if (h.kind === "progress") {
           if (progressTaken >= STEWARD_MEMORY_PROGRESS_RECALL_QUOTA) continue;
           progressTaken += 1;
@@ -336,7 +362,7 @@ export class StewardMemoryService {
           ? `- [进展] ${h.text}（sid: ${h.sessionId}）`
           : `- [${KIND_LABELS[h.kind]}] ${h.text}`,
       );
-      return `## 长期记忆（按本轮输入语义召回，仅供作答参考——与本轮指令冲突时以本轮指令为准）\n${lines.join("\n")}`;
+      return `## 长期记忆（按本轮输入语义召回，仅供作答参考——与本轮指令冲突时以本轮指令为准；涉及代码/项目现实以知识图谱约束为准，本段只提供用户偏好与工作状态参考）\n${lines.join("\n")}`;
     } catch (err) {
       this.deps.logger?.warn(`steward 记忆召回降级：${(err as Error).message}`);
       return undefined;

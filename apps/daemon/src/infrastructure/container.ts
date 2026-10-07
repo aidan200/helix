@@ -75,9 +75,12 @@ import { TopicConfigStore } from "../adapters/driven/sqlite-session/TopicConfigS
 import type { DomainEvent } from "../domain/events/DomainEvent";import {
   StewardMemoryService,
   STEWARD_MEMORY_EMBEDDING_KEY,
-  STEWARD_MEMORY_ENDPOINT_ID_KEY,
-  STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY,
 } from "../application/steward/StewardMemoryService";
+import {
+  MEMORY_ENDPOINT_ID_KEY,
+  MEMORY_JUDGE_ENDPOINT_ID_KEY,
+  migrateLegacyStewardMemoryKeys,
+} from "../application/memory/memoryConfig";
 import {
   EmbeddingConfigService,
 } from "../application/embedding/EmbeddingConfigService";
@@ -782,8 +785,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   voiceBroadcastRef = voiceBroadcast; // 晚绑闭合（感知服务 voice sink 回填）
   // ── 管家记忆 B2：embedding 配置域服务体（端点 CRUD + verify + 解析）。
   //    KV embedding_endpoints；apiKey 明文存储对齐 auth.json 同款（不另造
-  //    加密）。一次性迁移：旧 steward.memory.embedding（B1 三字段）→ 首条
-  //    端点 + steward.memory.endpointId 指向 + 清旧键（幂等——新域非空零动作）。
+  //    加密）。一次性迁移（批B 两级链式，幂等可重跑）：① 旧 steward.memory.*
+  //    三键 → memory.* 通用记忆配置域（清旧键，新域已有值不覆盖）；② 旧
+  //    steward.memory.embedding（B1 三字段）→ 首条端点 + memory.endpointId
+  //    指向 + 清旧键（新域非空零动作）。先键位后端点：B1 老用户的旧 endpointId
+  //    指向悬空时，② 产出的新条目 id 优先，防迁移产物互相覆盖。
   // 判官目录依赖面（pi-ai variant 消费：目录合并视图 + provider key——与
   // PiStewardLlmAdapter 同源；每判调用惰性重读，换 key/换目录零重启跟随）。
   const judgeServices = {
@@ -797,8 +803,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 区分实现）——与 createProbe 同构（按目标端点现配一次性构造，探测完即弃）
     createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg, judgeServices),
   });
-  void embeddingConfig
-    .migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)
+  void migrateLegacyStewardMemoryKeys(persistence.runtimeConfig)
+    .then((migratedKeys) => {
+      if (migratedKeys) logger.info("管家记忆迁移：steward.memory.* 三键已迁入 memory.* 通用记忆配置域（旧键已清）");
+      return embeddingConfig.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, MEMORY_ENDPOINT_ID_KEY);
+    })
     .then((migrated) => {
       if (migrated !== null) logger.info(`管家记忆迁移：旧端点配置已收编为 embedding 配置域首条端点（${migrated}）`);
     })
@@ -855,7 +864,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         // B2：端点配置经 EmbeddingConfigService 解析（endpointId → 条目——
         // 换端点零重建，下一次调用自动跟随）
         getConfig: () => {
-          const endpointId = persistence.runtimeConfig.get(STEWARD_MEMORY_ENDPOINT_ID_KEY);
+          const endpointId = persistence.runtimeConfig.get(MEMORY_ENDPOINT_ID_KEY);
           if (endpointId === undefined || endpointId === "") return null;
           return embeddingConfig.resolve(endpointId);
         },
@@ -870,7 +879,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         // null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
         // 同一 service 上语义正确：vec0 缺席时判了也存不了，不如不判。
         judge: makeJudgeAdapter(() => {
-          const judgeEndpointId = persistence.runtimeConfig.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY);
+          const judgeEndpointId = persistence.runtimeConfig.get(MEMORY_JUDGE_ENDPOINT_ID_KEY);
           if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
           const record = embeddingConfig.resolveRecord(judgeEndpointId);
           if (record === null || record.kind !== "classifier") return null;

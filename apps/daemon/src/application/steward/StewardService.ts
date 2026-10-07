@@ -2418,12 +2418,13 @@ export class StewardService {
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
    *  summary 组 = 任务总结子功能（enabled 开关 + 专用模型槽位，空串 = 清空）；
-   *  memory 组 B2 瘦身形态 {enabled?,endpointId?} + B4a judgeEndpointId）。 */
+   *  memory 组 {enabled?,endpointId?,judgeEndpointId?} + 批B 召回量
+   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*）。 */
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
     summary?: { enabled?: boolean; model?: string };
-    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
+    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number };
     sessionMemory?: { enabled?: boolean; everyTurns?: number; model?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.sessionMemory !== undefined) {

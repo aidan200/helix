@@ -256,17 +256,24 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     }
   }
   // 管家记忆 B2：memory 组瘦身校验（{enabled?,endpointId?}——透传前最后一道
-  // TR-159 逐字段透传纪律）
+  // TR-159 逐字段透传纪律）；批B +召回量 {recallTopK?,recallPool?}（类型闸
+  // 在此、值语义由 daemon 读面 resolver 静默回退缺省——非法值不拒写不抛错）
   if (memory !== undefined) {
     if (typeof memory !== "object" || memory === null) {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory 应为 object");
     }
-    const mem = memory as { enabled?: unknown; endpointId?: unknown };
+    const mem = memory as { enabled?: unknown; endpointId?: unknown; recallTopK?: unknown; recallPool?: unknown };
     if (mem.enabled !== undefined && typeof mem.enabled !== "boolean") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.enabled 应为 boolean");
     }
     if (mem.endpointId !== undefined && typeof mem.endpointId !== "string") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.endpointId 应为 string（空串 = 清除引用）");
+    }
+    if (mem.recallTopK !== undefined && typeof mem.recallTopK !== "number") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.recallTopK 应为 number");
+    }
+    if (mem.recallPool !== undefined && typeof mem.recallPool !== "number") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.recallPool 应为 number");
     }
   }
   // progress 批：sessionMemory 组校验（{enabled?,everyTurns?,model?}——
@@ -294,7 +301,15 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
         ? { summary: summary as { enabled?: boolean; model?: string } }
         : {}),
       ...(memory !== undefined
-        ? { memory: memory as { enabled?: boolean; endpointId?: string } }
+        ? {
+            memory: memory as {
+              enabled?: boolean;
+              endpointId?: string;
+              judgeEndpointId?: string;
+              recallTopK?: number;
+              recallPool?: number;
+            },
+          }
         : {}),
       ...(sessionMemory !== undefined
         ? { sessionMemory: sessionMemory as { enabled?: boolean; everyTurns?: number; model?: string } }

@@ -81,7 +81,8 @@ export interface StewardSetConfigPayload {
      *  不可用；空串 = 清空槽位回未配置态）。 */
     model?: string;
   };
-  /** 长期记忆组（管家记忆 B2 瘦身形态；全部位可选）。 */
+  /** 长期记忆组（管家记忆 B2 瘦身形态；全部位可选。批B 起整体转发通用
+   *  记忆配置域 memory.* KV——配置不挂管家名下，本组是写面路由）。 */
   memory?: {
     /** 记忆开关（默认关——记忆是可选项，零依赖开箱）。 */
     enabled?: boolean;
@@ -90,6 +91,12 @@ export interface StewardSetConfigPayload {
     /** 判官端点引用（B4a 自动沉淀：embedding.* 域 kind=classifier 端点 id；
      *  未配置 = 自动沉淀静默不挂——对话主链路零影响）。 */
     judgeEndpointId?: string;
+    /** 召回注入条数上限（批B 配置驱动；缺省 5）。类型闸在 daemon（非
+     *  number → invalid_payload）；值语义（正整数/topK≤pool）非法由读面
+     *  静默回退缺省 + warn——回执现值所见即所得）。 */
+    recallTopK?: number;
+    /** 召回候选池（批B；缺省 24，上界 200）。同上两段校验分层。 */
+    recallPool?: number;
   };
   /** 会话进展记忆组（progress 批；全部位可选）：轮末联合摘要器节制面。
    *  三条件 gate（开 ∧ 模型已配 ∧ 记忆域可用）全满足才产 progress 条目；
