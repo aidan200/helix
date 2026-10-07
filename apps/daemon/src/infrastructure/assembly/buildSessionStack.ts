@@ -263,6 +263,15 @@ export interface BuildSessionStackDeps {
    */
   readonly residentRulesOf?: (projectRoots: readonly string[]) => string | null;
   /**
+   * 编码 agent 记忆召回段数据源（批D 只读消费面，组合根接
+   * StewardMemoryService.agentRecallSection）：与 residentRulesOf 同族——
+   * 纯查询面（足迹项目集 → 段或 null），足迹求值在栈内（writeFacts 同源）。
+   * 语义分叉：空足迹时仍回 global 段（用户画像跨项目成立，与常驻规则
+   * 「空足迹不注入」不同）；调用方内部做单项目归约（多项目/零足迹 →
+   * 仅 global）。缺省不注入（测试形态/记忆未装配）。
+   */
+  readonly agentMemoryRecallOf?: (projectRoots: readonly string[]) => string | null;
+  /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
    * 值；deps.toolCwd 显式注入时恒优先（测试面）。
@@ -561,6 +570,17 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     const section = residentSectionFor(sessionId);
     return section === null ? prompt : `${prompt}\n\n${section}`;
   };
+  // 批D：编码 agent 记忆召回段（主会话 main-session 与 SubAgent 双形态消费
+  // 面——只读注入，无任何记忆写原语）；空足迹仍取 global 段（与常驻规则
+  // 语义分叉：用户画像跨项目）。与 withResidentRules 并列的会话级尾拼段。
+  const agentMemoryRecallFor = (sessionId: string): string | null =>
+    deps.agentMemoryRecallOf === undefined
+      ? null
+      : deps.agentMemoryRecallOf(writeFacts.projectFootprint(sessionId));
+  const withAgentMemory = (prompt: string, sessionId: string): string => {
+    const section = agentMemoryRecallFor(sessionId);
+    return section === null ? prompt : `${prompt}\n\n${section}`;
+  };
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
   // D8 W-R6：kg-writer 组装快照 = 自身 kind 独立装配（声明面单源
@@ -602,10 +622,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     const applied = applyWriteModeToAssembly(base, writeMode);
     // U7：spawn 快照尾拼会话足迹常驻段（sessionId = 派发会话——与
     // HELIX_SESSION_ID 同口径；兜底快照无实例上下文不拼）。子进程经 env
-    // 定格自动继承。
-    return sessionId === undefined
-      ? applied
-      : { ...applied, systemPrompt: withResidentRules(applied.systemPrompt, sessionId) };
+    // 定格自动继承。批D：同点尾拼记忆召回段（编码 SubAgent 形态——
+    // kg-writer/reviewer 分发支同享；orchestrator 栈级无会话上下文不注入，
+    // 与 U7 后台型 kind 同口径）。
+    if (sessionId === undefined) return applied;
+    return {
+      ...applied,
+      systemPrompt: withAgentMemory(withResidentRules(applied.systemPrompt, sessionId), sessionId),
+    };
   };
   let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算；技能段照常注入自身生效集）
   // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
@@ -645,8 +669,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         }
       }
       for (const runtime of registry.hotRuntimes()) {
-        // U7：toggle 重算推送也过会话级拼接（足迹段不被栈级重算冲掉）
-        runtime.chatService.setSystemPrompt(withResidentRules(next.systemPrompt, runtime.sessionId));
+        // U7：toggle 重算推送也过会话级拼接（足迹段不被栈级重算冲掉）；
+        // 批D：记忆召回段同点尾拼（同因——不被栈级重算冲掉）。
+        runtime.chatService.setSystemPrompt(
+          withAgentMemory(withResidentRules(next.systemPrompt, runtime.sessionId), runtime.sessionId),
+        );
         runtime.chatService.setTools(next.tools);
       }
     } else if (kind === "subagent-worker") {
@@ -1005,6 +1032,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     mainAssemblyOf: () => mainAssembly,
     // U7 委派（engineFor/buildRuntime 两接触点尾拼会话足迹常驻段）
     residentRulesFor: residentSectionFor,
+    // 批D 委派（同接触点尾拼记忆召回段）
+    agentMemoryRecallFor,
     compactionSettings,
     globalThinking,
     toolCwdOf,
@@ -1068,6 +1097,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       coordination,
       // U7 委派（instantiatedSnapshot 接触点）
       residentRulesFor: residentSectionFor,
+      // 批D 委派（同接触点尾拼记忆召回段）
+      agentMemoryRecallFor,
       compactionSettings,
       hasMainPlan: mainPlanStack !== undefined,
       promoteDraft: (sessionId) => registry.promoteDraft(sessionId),

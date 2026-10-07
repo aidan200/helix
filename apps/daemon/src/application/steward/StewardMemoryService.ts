@@ -118,6 +118,16 @@ export const STEWARD_MEMORY_GC_INTERVAL_MS = 24 * 3_600_000;
 /** 召回 progress 配额（progress 批）：topK 内 progress 类最多占位数——防会话进展挤占偏好/事实召回（进展条目产生速度远超 fact/preference）。 */
 export const STEWARD_MEMORY_PROGRESS_RECALL_QUOTA = 2;
 
+/**
+ * 编码 agent 召回 topK（批D 只读消费面）：系统提示组装链同步定格——无
+ * 轮内 query 语义检索，走「scope + kind 过滤 → strength 排序」轻管线；
+ * prompt 预算紧于管家面（管家 memory.recallTopK 缺省 5）。命名对齐
+ * memoryConfig 缺省值族（MEMORY_RECALL_TOP_K_DEFAULT）；不新增 memory.*
+ * 配置键（E-261：编码面 topK 走代码常量，运营参数升级等真需求出现再
+ * additive）。
+ */
+export const AGENT_MEMORY_RECALL_TOP_K = 3;
+
 /** progress 文本上限（Unicode 码点——超限截断加省略号）。 */
 export const STEWARD_MEMORY_PROGRESS_MAX_CHARS = 120;
 
@@ -412,6 +422,56 @@ export class StewardMemoryService {
       return `## 长期记忆（按本轮输入语义召回，仅供作答参考——与本轮指令冲突时以本轮指令为准；涉及代码/项目现实以知识图谱约束为准，本段只提供用户偏好与工作状态参考）\n${lines.join("\n")}`;
     } catch (err) {
       this.deps.logger?.warn(`steward 记忆召回降级：${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * 编码 agent 召回段（批D 只读消费面——主会话 main-session 与 SubAgent
+   * 双形态系统提示组装链消费）：同步轻管线，无 query 语义检索（组装时刻
+   * 无用户输入，且 embedding HTTP 不进同步组装链/spawn 秒回链）：
+   * - scope 过滤（E-264 原语同源）：global + 本项目（project 缺席/空白 →
+   *   仅 global）；
+   * - kind 过滤：preference + fact 注入、progress 排除（progress 是管家域
+   *   ——编码 agent 的「最近工作」来自其会话上下文与任务面；是 kind 过滤
+   *   而非管家那样的竞争位配额）；
+   * - 过淡忘（faded 退出召回池）→ strength 降序（manual/pinned 恒满浮顶
+   *   ——用户显式保护位最高）→ 同分 updatedAt 新优先 → 常量 topK 截断
+   *  （「preference 优先 + fact」按内容域解读：两类注入、progress 排除；
+   *   kind 不设排序特权——否则同分时把 pinned fact 压到 preference 后，
+   *   破坏 strength 模型自洽（E-259：manual/pinned 恒满）；fact 半衰长
+   *   天然 strength 占优是模型自然结果）；
+   * - 不记 markRecalled（E-259 幸存者回写只归管家消费面——防编码 agent
+   *   高频轮次把条目强度刷爆）；
+   * 任何失败静默降级 undefined + warn（召回异常零注入不炸组装主链路）；
+   * 记忆不可用 → undefined（零调用零日志——常态降级）。
+   */
+  agentRecallSection(project?: string): string | undefined {
+    if (!this.isAvailable()) return undefined;
+    try {
+      const scopes =
+        project !== undefined && project.trim() !== ""
+          ? [MEMORY_SCOPE_GLOBAL, project.trim()]
+          : [MEMORY_SCOPE_GLOBAL];
+      const now = this.now();
+      const candidates = this.deps
+        .store!.list()
+        .filter((e) => e.fadedAt === 0 && e.kind !== "progress")
+        .filter((e) => scopes.includes(e.projectScope ?? MEMORY_SCOPE_GLOBAL));
+      candidates.sort((a, b) => {
+        const d = memoryStrength(b, now) - memoryStrength(a, now);
+        if (d !== 0) return d;
+        return b.updatedAt - a.updatedAt;
+      });
+      const hits = candidates.slice(0, AGENT_MEMORY_RECALL_TOP_K);
+      if (hits.length === 0) return undefined;
+      const lines = hits.map((h) => `- [${KIND_LABELS[h.kind]}] ${h.text}`);
+      return [
+        "## 用户偏好与工作状态（长期记忆只读召回——用户偏好与工作状态类认知；与当前任务指令冲突时以任务为准；代码与项目现实以知识图谱约束为准）",
+        ...lines,
+      ].join("\n");
+    } catch (err) {
+      this.deps.logger?.warn(`编码 agent 记忆召回降级：${(err as Error).message}`);
       return undefined;
     }
   }

@@ -127,6 +127,12 @@ export interface MainEngineFactoryCtx {
    * 尾拼；缺省不拼（测试形态，栈级快照原样）。
    */
   readonly residentRulesFor?: (sessionId: string) => string | null;
+  /**
+   * 批D 编码 agent 记忆召回段数据源（可选注入——buildSessionStack 委派
+   * deps.agentMemoryRecallOf）：与 residentRulesFor 并列的会话级尾拼段
+   *（engineFor 装配与 instantiatedSnapshot 两接触点）；缺省不拼。
+   */
+  readonly agentMemoryRecallFor?: (sessionId: string) => string | null;
   readonly compactionSettings: () => CompactionSettings;
   readonly globalThinking: () => string | undefined;
   readonly toolCwdOf: () => string;
@@ -325,12 +331,19 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     // 小对象引用无句柄调用（可接受——避免 SessionRegistry 加卸载回调面）。
     ctx.sessionExecutors.set(sessionId, toolExecutor);
     // U7：会话级常驻规则段拼接（应用时刻足迹现值——栈级快照 + 段尾拼；
-    // instantiatedSnapshot 同函数复用，两接触点同源）
+    // instantiatedSnapshot 同函数复用，两接触点同源）+ 批D：同点尾拼记忆
+    // 召回段（编码 agent 只读消费面——主会话形态）。
     const mainSystemPrompt = (): string => {
-      const base = ctx.mainAssemblyOf().systemPrompt;
-      if (ctx.residentRulesFor === undefined) return base;
-      const section = ctx.residentRulesFor(sessionId);
-      return section === null ? base : `${base}\n\n${section}`;
+      let prompt = ctx.mainAssemblyOf().systemPrompt;
+      if (ctx.residentRulesFor !== undefined) {
+        const section = ctx.residentRulesFor(sessionId);
+        if (section !== null) prompt = `${prompt}\n\n${section}`;
+      }
+      if (ctx.agentMemoryRecallFor !== undefined) {
+        const memory = ctx.agentMemoryRecallFor(sessionId);
+        if (memory !== null) prompt = `${prompt}\n\n${memory}`;
+      }
+      return prompt;
     };
     // 新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
     // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——
@@ -419,6 +432,8 @@ export interface SessionRuntimeFactoryCtx {
   readonly mainAssemblyOf: () => AssemblySnapshot;
   /** U7 会话足迹常驻段（engineFor 同款字段——instantiatedSnapshot 接触点尾拼；缺省不拼）。 */
   readonly residentRulesFor?: (sessionId: string) => string | null;
+  /** 批D 编码 agent 记忆召回段（engineFor 同款字段——与 residentRulesFor 并列的会话级尾拼段；缺省不拼）。 */
+  readonly agentMemoryRecallFor?: (sessionId: string) => string | null;
   /** U4 占用协调服务（instantiatedSnapshot 声明面=注册面铁律的 coord 旗标源；缺省 = false 剔除）。 */
   readonly coordination?: CoordinationService;
   readonly compactionSettings: () => CompactionSettings;
@@ -466,12 +481,19 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       diff: diffState,
     });
     // U7：会话级常驻段拼接（buildRuntime 侧接触点——engineFor 同款局部
-    // helper，两函数各自作用域定义；sessionId = material.session.id）
+    // helper，两函数各自作用域定义；sessionId = material.session.id）+
+    // 批D：同点尾拼记忆召回段（主会话 instantiatedSnapshot 接触点）。
     const mainSystemPrompt = (): string => {
-      const base = ctx.mainAssemblyOf().systemPrompt;
-      if (ctx.residentRulesFor === undefined) return base;
-      const section = ctx.residentRulesFor(material.session.id);
-      return section === null ? base : `${base}\n\n${section}`;
+      let prompt = ctx.mainAssemblyOf().systemPrompt;
+      if (ctx.residentRulesFor !== undefined) {
+        const section = ctx.residentRulesFor(material.session.id);
+        if (section !== null) prompt = `${prompt}\n\n${section}`;
+      }
+      if (ctx.agentMemoryRecallFor !== undefined) {
+        const memory = ctx.agentMemoryRecallFor(material.session.id);
+        if (memory !== null) prompt = `${prompt}\n\n${memory}`;
+      }
+      return prompt;
     };
     // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
     // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
