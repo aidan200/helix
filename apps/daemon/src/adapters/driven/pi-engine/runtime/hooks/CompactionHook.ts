@@ -119,6 +119,10 @@ export class CompactionHook implements HookSet {
       const messages = agent.state.messages;
       const est = estimateContextTokens(messages);
       if (!shouldCompact(est.tokens, model.contextWindow, settings)) return undefined;
+      // 事故热修批⑤：空输入守卫——待压缩对话无实质内容（仅 system prompt）
+      // 时跳过压缩（零 LLM 零写入），不再让摘要模型对着空对话产出格式化
+      // 「（无…）」垃圾摘要。
+      if (!hasCompactableContent(messages)) return undefined;
 
       // 转换桥：AgentMessage[] → Entry[]（compaction 函数族吃 Entry[]）
       const entries = messagesToEntries(messages);
@@ -192,6 +196,8 @@ export class CompactionHook implements HookSet {
     const messages = request.context.messages;
     const est = estimateContextTokens(messages);
     if (!shouldCompact(est.tokens, model.contextWindow, settings)) return undefined;
+    // 事故热修批⑤：空输入守卫（与 turn 档同口径——零 LLM 零写入）
+    if (!hasCompactableContent(messages)) return undefined;
     try {
       const apiKey = this.deps.getApiKey?.(model.provider);
       const summaryModels = apiKey !== undefined ? withApiKey(models, apiKey) : models;
@@ -248,6 +254,45 @@ function messagesToEntries(messages: AgentMessage[]): Entry[] {
     timestamp: (message as { timestamp?: number }).timestamp ?? Date.now(),
     message,
   }));
+}
+
+/**
+ * 待压缩对话实质内容判定（事故热修批⑤）：滤除 system 后是否存在可压缩
+ * 实质（非空 user 文本 / assistant 文本·thinking·工具调用 / 任何 toolResult）。
+ * 2026-10-07 事故：管家首轮（system prompt + 工具声明很大）在阈值紧时触发
+ * 压缩，空对话被喂给摘要模型 → 输出「## Goal（无。待压缩的对话为空…）」
+ * 格式文本落库——零 LLM 零写入守卫根修（两档位共用）。
+ */
+function hasCompactableContent(messages: readonly AgentMessage[]): boolean {
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    if (m.role === "user") {
+      if (typeof m.content === "string") {
+        if (m.content.trim() !== "") return true;
+        continue;
+      }
+      const blocks = m.content as readonly { type?: string; text?: string }[];
+      if (Array.isArray(blocks) && blocks.some((b) => b.type === "text" && (b.text ?? "").trim() !== "")) return true;
+      continue;
+    }
+    if (m.role === "assistant") {
+      const blocks = m.content as readonly { type?: string; text?: string; thinking?: string }[];
+      if (
+        Array.isArray(blocks) &&
+        blocks.some(
+          (b) =>
+            (b.type === "text" && (b.text ?? "").trim() !== "") ||
+            (b.type === "thinking" && (b.thinking ?? "").trim() !== "") ||
+            b.type === "toolCall",
+        )
+      ) {
+        return true;
+      }
+      continue;
+    }
+    return true; // toolResult：工具结果恒为可压缩实质
+  }
+  return false;
 }
 
 /** pi sessionEntryToContextMessages 的上下文消息过滤口径（0.85 同构内联——该函数包未导出）。 */

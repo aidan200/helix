@@ -260,6 +260,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "EVENT_TYPES",
       "MODES", // P1 会话模式批 T2（模式注册表常量；§18 微批）
       "PROTOCOL_VERSION",
+      "STEWARD_ASK_ERROR_KINDS", // 事故热修批⑦：steward ask 错误分类封闭词汇表（aborted 与模型失败分记）
       "SURFACE_EVENT_KINDS", // 表面协议地基批（M0）：SurfaceEvent kind 封闭词汇表（D2）
       "SURFACE_EVENT_ORIGINS", // 表面协议地基批（M0）：origin 三值（D7-2 回声过滤基础）
       "SURFACE_INSTRUCTION_FRAME_TYPES", // 表面协议地基批（M0）：指令帧注册面恒一种（D8）
@@ -304,6 +305,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       // 表面协议地基批（M0）续
       "surfaceIdOf",
       "surfaceVerbRisk", // M2 动词注册校验面：动词 risk 注册档读取
+      "validateSurfaceActArgs", // 事故热修批①：动词×命名空间参数形状校验（即时工具错误单源）
     ]);
   });
 

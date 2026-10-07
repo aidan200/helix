@@ -235,6 +235,35 @@ describe("StewardPanel（A1 过程行渲染——真实 DOM 断言）", () => {
     });
   }
 
+  it("【事故热修⑤】回放含 kind=compaction 记录 → 零渲染（压缩器输出不出现在对话流——不再伪装用户发言）", async () => {
+    renderEnabledPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    act(() => {
+      emitSteward(
+        frame("steward.history.result", {
+          records: [
+            { kind: "user", text: "在吗", at: 1 },
+            { kind: "assistant", text: "在的", at: 2 },
+            // 事故污染样本形态：压缩器格式文本——修复后以 kind=compaction 落库，
+            // 回放零渲染（旧形态 kind=user + compaction:true 会渲染成用户气泡）
+            {
+              kind: "compaction",
+              text: "## Goal\n（无。待压缩的对话为空，尚无用户任务或关注点。）\n\n## Constraints & Preferences\n- 压缩器工作规则：逐条保留",
+              at: 3,
+            } as never,
+            { kind: "user", text: "继续", at: 4 },
+          ],
+        }),
+      );
+    });
+    // 压缩器输出不在 DOM 任何位置（对话流零污染）
+    expect(document.body.textContent ?? "").not.toContain("## Goal");
+    expect(document.body.textContent ?? "").not.toContain("压缩器工作规则");
+    // 真实对话轮照常渲染
+    const userBubbles = screen.getAllByTestId("steward-msg-user");
+    expect(userBubbles).toHaveLength(2); // 「在吗」「继续」（compaction 行不占位）
+  });
+
   it("回放记录 → thinking 折叠条目默认收起，点击展开正文；工具行两态可展开结果摘要", async () => {
     renderEnabledPanel();
     await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());

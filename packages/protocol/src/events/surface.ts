@@ -132,6 +132,80 @@ export function surfaceVerbRisk(verb: SurfaceVerb): SurfaceRisk {
   return SURFACE_VERB_RISKS[verb];
 }
 
+// ── 动词参数形状校验（事故热修批①，act 参数契约收紧） ─────────────
+
+/**
+ * 动词参数形状（按命名空间×动词——与各表面执行面消费字段同源）：
+ * - shell / navigate：{ sessionId }（会话切换——shell 唯一动词）；
+ * - browser / navigate：{ url }；browser / click：{ selector }；
+ *   browser / type：{ selector, text }；browser / scroll：{ y? | direction? }
+ *   （至少其一；direction ∈ up/down/top/bottom）；browser / focus：{ selector }。
+ *
+ * 2026-10-07 事故：act 工具描述只写了 browser 形状（navigate {url}），模型在
+ * shell 表面发明 url 参数 → shell 载荷防御静默弃帧 → 60s 挂死。本校验面在
+ * 挂闸/派发前即时拒绝（模型可自纠），错误文本携正确形状与示例。
+ */
+export function validateSurfaceActArgs(
+  namespace: SurfaceNamespaceKind,
+  verb: SurfaceVerb,
+  args: Record<string, unknown>,
+): string | undefined {
+  const nonEmptyString = (key: string): string | undefined => {
+    const v = args[key];
+    return typeof v === "string" && v.trim() !== "" ? v : undefined;
+  };
+  if (namespace === "shell" && verb === "navigate") {
+    const sessionId = nonEmptyString("sessionId");
+    if (sessionId === undefined) {
+      return `act 参数形状不合法：navigate 在 shell 表面需要 args.sessionId（目标会话 id 字符串，非空）——收到 ${JSON.stringify(args)}。示例：{"verb":"navigate","surfaceId":"shell:<connId>","args":{"sessionId":"<会话id>"}}（切换会话用 sessionId，不是 url）`;
+    }
+    return undefined;
+  }
+  if (namespace === "browser") {
+    if (verb === "navigate") {
+      const url = nonEmptyString("url");
+      if (url === undefined) {
+        return `act 参数形状不合法：navigate 在 browser 表面需要 args.url（目标网址字符串，非空）——收到 ${JSON.stringify(args)}。示例：{"verb":"navigate","surfaceId":"browser:<targetId>","args":{"url":"https://…"}}`;
+      }
+      return undefined;
+    }
+    if (verb === "click" || verb === "focus") {
+      const selector = nonEmptyString("selector");
+      if (selector === undefined) {
+        return `act 参数形状不合法：${verb} 需要 args.selector（CSS 选择器字符串，非空）——收到 ${JSON.stringify(args)}。示例：{"verb":"${verb}","args":{"selector":"#submit"}}`;
+      }
+      return undefined;
+    }
+    if (verb === "type") {
+      const selector = nonEmptyString("selector");
+      if (selector === undefined) {
+        return `act 参数形状不合法：type 需要 args.selector（CSS 选择器字符串，非空）——收到 ${JSON.stringify(args)}。示例：{"verb":"type","args":{"selector":"#q","text":"搜索词"}}`;
+      }
+      if (typeof args.text !== "string") {
+        return `act 参数形状不合法：type 需要 args.text（要输入的文本字符串）——收到 ${JSON.stringify(args)}。示例：{"verb":"type","args":{"selector":"#q","text":"搜索词"}}`;
+      }
+      return undefined;
+    }
+    if (verb === "scroll") {
+      const hasY = typeof args.y === "number" && Number.isFinite(args.y);
+      const direction = args.direction;
+      const hasDirection =
+        direction === "up" || direction === "down" || direction === "top" || direction === "bottom";
+      if (args.y !== undefined && !hasY) {
+        return `act 参数形状不合法：scroll 的 args.y 应为有限数字——收到 ${JSON.stringify(args)}。示例：{"verb":"scroll","args":{"y":500}} 或 {"direction":"down"}`;
+      }
+      if (direction !== undefined && !hasDirection) {
+        return `act 参数形状不合法：scroll 的 args.direction 应为 up/down/top/bottom——收到 ${JSON.stringify(args)}。示例：{"verb":"scroll","args":{"direction":"down"}}`;
+      }
+      if (!hasY && !hasDirection) {
+        return `act 参数形状不合法：scroll 需要 args.y（数字）或 args.direction（up/down/top/bottom）至少其一——收到 ${JSON.stringify(args)}。示例：{"verb":"scroll","args":{"y":500}}`;
+      }
+      return undefined;
+    }
+  }
+  return undefined; // cli 无注册动词（Registry 注册面拒绝前置）——零形状面
+}
+
 /** SurfaceDescriptor 结构判定（kind ∈ 命名空间 + capabilities 非空动词清单）。 */
 export function isSurfaceDescriptor(v: unknown): v is SurfaceDescriptor {
   if (typeof v !== "object" || v === null) return false;

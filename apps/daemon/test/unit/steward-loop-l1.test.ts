@@ -75,7 +75,7 @@ function gatedTextLlm(opts: {
 }
 
 describe("件一：StewardService 压缩接线（loop 域能力，管家首个消费者）", () => {
-  test("用例1（service 面）：dialog 超阈 → 首轮前压缩 → 摘要记录入 KV（compaction:true）+ 尾部保留原文 + 事件可见", async () => {
+  test("用例1（service 面）：dialog 超阈 → 首轮前压缩 → 摘要记录入 KV（kind=compaction，事故热修批⑤）+ 尾部保留原文 + 事件可见", async () => {
     const events: import("../../src/application/ports/outbound/AgentEnginePort").AgentEngineEvent[] = [];
     const config = fakeConfig({ "steward.enabled": "1" });
     // 主对话 LLM：压缩调用（tools 空 + 压缩 prompt）返回摘要；主调用直答
@@ -100,11 +100,12 @@ describe("件一：StewardService 压缩接线（loop 域能力，管家首个�
     const r3 = await svc.ask("第三问");
     expect(r3.status).toBe("answer");
     const history = await svc.getHistory();
-    // 摘要记录入 KV（compaction: true）
-    const summaryRecords = history.filter((r) => r.kind === "user" && (r as { compaction?: boolean }).compaction === true);
+    // 摘要记录入 KV（kind=compaction——事故热修批⑤：压缩器输出是内部上下文
+    // 状态非用户话轮，不再以 kind=user+compaction:true 伪装）
+    const summaryRecords = history.filter((r) => (r as { kind: string }).kind === "compaction");
     expect(summaryRecords.length).toBeGreaterThanOrEqual(1);
     // 摘要之后的记录 = 尾部保留窗（原文不压——TR-47：压的是历史不是工作集）
-    const summaryIndex = history.findIndex((r) => (r as { compaction?: boolean }).compaction === true);
+    const summaryIndex = history.findIndex((r) => (r as { kind: string }).kind === "compaction");
     expect(summaryIndex).toBeGreaterThanOrEqual(0);
     const tail = history.slice(summaryIndex + 1);
     expect(tail.length).toBeGreaterThan(0);

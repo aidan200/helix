@@ -126,32 +126,43 @@ describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零�
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it("非 navigate 动词 / 非 surface.action 帧 → 零 toast 零回调零回执", () => {
+  it("非 navigate 动词（携合法 seq）→ 零 toast 零回调 + 失败回执（拒签必应答——事故热修批②）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
-      emitSurface(actionFrame({ verb: "click", args: { selector: "#x" } }));
-      emitSurface(actionFrame({ verb: "scroll" }));
+      emitSurface(actionFrame({ verb: "click", args: { selector: "#x" }, seq: 7 }));
+      emitSurface(actionFrame({ verb: "scroll", seq: 8 }));
       emitSurface(frame("steward.feed", { kind: "agent.completed", agentId: "a-1", text: "x", seq: 1 }));
     });
     expect(document.querySelector(".toast-zone")?.textContent ?? "").toBe("");
     expect(onNavigate).not.toHaveBeenCalled();
-    expect(receipts).toEqual([]);
+    expect(receipts).toEqual([
+      { seq: 7, ok: false, detail: "unsupported-verb:click" },
+      { seq: 8, ok: false, detail: "unsupported-verb:scroll" },
+    ]);
   });
 
-  it("载荷防御：verb 非法/args.sessionId 缺失/非字符串/空串 → 零 toast 零回调零回执", () => {
+  it("载荷防御（事故热修批②）：args.sessionId 非法携合法 seq → 零 toast 零回调 + invalid-args 失败回执（daemon 不再 60s 挂死）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
-      emitSurface(actionFrame({ args: {} }));
-      emitSurface(actionFrame({ args: { sessionId: 42 } }));
-      emitSurface(actionFrame({ args: { sessionId: "" } }));
-      emitSurface(actionFrame({ args: null }));
+      emitSurface(actionFrame({ args: {}, seq: 11 }));
+      emitSurface(actionFrame({ args: { sessionId: 42 }, seq: 12 }));
+      emitSurface(actionFrame({ args: { sessionId: "" }, seq: 13 }));
+      emitSurface(actionFrame({ args: null, seq: 14 }));
+      // 事故实录形态：模型发明 url 参数（缺 sessionId）
+      emitSurface(actionFrame({ args: { url: "helix://session/5b736b22" }, seq: 15 }));
       emitSurface({ ...actionFrame(), payload: { verb: "navigate" } } as unknown as EventEnvelope);
     });
     expect(document.querySelector(".toast-zone")?.textContent ?? "").toBe("");
     expect(onNavigate).not.toHaveBeenCalled();
-    expect(receipts).toEqual([]);
+    expect(receipts).toEqual([
+      { seq: 11, ok: false, detail: "invalid-args" },
+      { seq: 12, ok: false, detail: "invalid-args" },
+      { seq: 13, ok: false, detail: "invalid-args" },
+      { seq: 14, ok: false, detail: "invalid-args" },
+      { seq: 15, ok: false, detail: "invalid-args" },
+    ]);
   });
 
   it("seq 非法：导航意图仍 toast（sessionId 有效即用户价值面）；零回执（D7-1 对账锚缺失）", () => {

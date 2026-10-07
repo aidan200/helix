@@ -44,6 +44,7 @@ import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { AgentOrchestrationPort } from "../ports/inbound/AgentOrchestrationPort";
 import type {
   StewardActionCompletedPayload,
+  StewardAskErrorKind,
   StewardAskResultPayload,
   StewardConfirmResultPayload,
   StewardFeedPayload,
@@ -58,7 +59,13 @@ import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../
 import type { StewardToolSpec } from "../ports/outbound/StewardToolSpec";
 import type { StewardSurfacePort, StewardSurfaceActRequest } from "../ports/outbound/StewardSurfacePort";
 import { evaluateSurfaceRisk, surfaceRiskRank } from "../surface/SurfaceRiskGate";
-import { isSurfaceVerb, surfaceVerbRisk, type SurfaceRisk } from "@helix/protocol";
+import {
+  isSurfaceNamespaceKind,
+  isSurfaceVerb,
+  surfaceVerbRisk,
+  validateSurfaceActArgs,
+  type SurfaceRisk,
+} from "@helix/protocol";
 import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 import { readSummaryConfig } from "../summary/summaryConfig";
 
@@ -362,6 +369,10 @@ export function buildFeedText(event: DomainEvent): string | undefined {
  *  content 块数组——翻译层单点，投影面形状稳定不随块模型变）。 */
 function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
   if (record.kind === "user") return { role: "user", text: record.text };
+  // 压缩摘要记录（事故热修批⑤）：LLM 窗口重建仍转换为 user 形态摘要消息注入
+  // 上下文（压缩机制语义不变——摘要是最早上下文）；仅落库形态与 UI 回放退出
+  // user 轮域。旧存量（kind=user + compaction:true）同构兼容。
+  if (record.kind === "compaction") return { role: "user", text: record.text };
   if (record.kind === "toolResult") {
     return { role: "toolResult", toolCallId: record.toolCallId, name: record.name, text: record.text };
   }
@@ -1061,13 +1072,13 @@ const TOOL_READ: StewardLlmTool = {
 const TOOL_ACT: StewardLlmTool = {
   name: "act",
   description:
-    "在指定表面上执行动作（verb 封闭词汇表：click/type/navigate/scroll/focus）。risk 挂动作：scroll/focus 免确认直行；click/type/navigate 属 write——仅提案，系统会请求用户确认后才执行；destructive 强制确认不可豁免。args 按动词：click {selector}、type {selector,text}、navigate {url}、scroll {y,direction}、focus {selector}。",
+    "在指定表面上执行动作（verb 封闭词汇表：click/type/navigate/scroll/focus）。risk 挂动作：scroll/focus 免确认直行；click/type/navigate 属 write——仅提案，系统会请求用户确认后才执行；destructive 强制确认不可豁免。args 按表面与动词：navigate 在 shell 表面 {sessionId}（会话 id 字符串——切换会话，不是 url）、navigate 在 browser 表面 {url}、click {selector}、type {selector,text}、scroll {y} 或 {direction}（up/down/top/bottom）、focus {selector}。形状不合法会收到即时错误指引。",
   parameters: {
     type: "object",
     properties: {
-      surfaceId: { type: "string", description: "目标表面 id（如 browser:<targetId>，先用 surface_list 查）" },
+      surfaceId: { type: "string", description: "目标表面 id（如 browser:<targetId> 或 shell:<connId>，先用 surface_list 查）" },
       verb: { type: "string", enum: ["click", "type", "navigate", "scroll", "focus"], description: "动作动词（封闭词汇表，不得私造）" },
-      args: { type: "object", description: "动词参数（按动词形状，见工具描述）" },
+      args: { type: "object", description: "动词参数（按表面×动词形状，见工具描述；navigate 在 shell 表面是 {sessionId}，在 browser 表面是 {url}）" },
       risk: {
         type: "string",
         enum: ["read", "write", "destructive"],
@@ -1171,15 +1182,27 @@ export class StewardService {
   private projectionChain: Promise<void> = Promise.resolve();
   /** 当前 ask 的流式回调（事件转发面）。 */
   private askStreamEvents: StewardAskEvents = {};
-  /** 当前 run 结果推导态（agent_end 时收口映射）。 */
+  /** 当前 run 结果推导态（agent_end 时收口映射）。事故热修批⑦：hardErrorKind
+   *  区分 hardError 来源（模型调用失败 vs 闸面 terminate 翻译）——工具面
+   *  aborted 不再被误归为模型失败（2026-10-07 事故 act 挂闸 60s 后收口被记
+   *  「模型调用失败」）。 */
   private runState: {
     lastAnswerText: string;
     hardError: string | undefined; // 消息级（stopReason=error）：error 回执优先于 answer
+    hardErrorKind: StewardAskErrorKind | undefined; // hardError 分类（模型失败/闸面终止）
     softError: string | undefined; // 事件级 engine_error（压缩失败等 fail-open）：answer 在则让位
     sawAborted: boolean;
     roundLimit: boolean;
     toolCalls: number;
-  } = { lastAnswerText: "", hardError: undefined, softError: undefined, sawAborted: false, roundLimit: false, toolCalls: 0 };
+  } = {
+    lastAnswerText: "",
+    hardError: undefined,
+    hardErrorKind: undefined,
+    softError: undefined,
+    sawAborted: false,
+    roundLimit: false,
+    toolCalls: 0,
+  };
   /** 当前挂闸中的 pauseToken（暂停态新 ask 的 abort-再驱动判别锚）。 */
   private pausedGateToken: string | undefined;
   /** run 收口通知（driveAsk 的 abort-再驱动路径等 settle）。 */
@@ -1264,8 +1287,53 @@ export class StewardService {
 
   /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt
    *  组装（感知快照 + 记忆召回——setSystemPrompt 运行期变异面）+ B4a 补偿
-   *  （队列接管轮）+ 事件收口挂载。 */
-  private async driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
+   *  （队列接管轮）+ 事件收口挂载。
+   *
+   *  事故热修批④（队列并发锁）：runActive 提前到本同步段置位——原实现置位
+   *  在 await 装配段之后，ask 检查面在「run 收口（runActive=false）→ driveAsk
+   *  装配 await → runActive=true」的间隙里看到假空闲态，相邻 ask 并发直驱双
+   *  run（2026-10-07 事故 26ms 双 run「Agent is already processing a prompt」）。
+   *  同步占位 + finishRun 幂等守卫共同封死 drain 与新 ask 竞态（任一时刻至
+   *  多一个 run 在途；E-240 队列行为断言面不变）。装配异常兑底：占位后若
+   *  装配失败，释放占位并收口 error 回执（防 runActive 永真死锁队列）。 */
+  private driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
+    this.runActive = true; // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
+    const run = this.assembleAndRun(item);
+    run.catch(() => undefined); // 兕底异常不经本链传播（收口在内部处理）
+    return run;
+  }
+
+  private async assembleAndRun(item: StewardAskItem): Promise<StewardAskResultPayload> {
+    try {
+      return await this.assembleAndRunInner(item);
+    } catch (err) {
+      // 装配段异常（快照/记忆召回/引擎构造失败）：占位必须释放（占位提前后
+      // 的必需兑底——否则 runActive 永真死锁队列）；收口 error 回执后返。若
+      // runActive 已被 finishRun/看门狗复位（收口后竞态），原样上抛。
+      if (!this.runActive) throw err;
+      this.runActive = false;
+      this.runLastProgressAt = 0;
+      this.watchdogFiredAt = undefined;
+      this.runSettledMark?.();
+      this.runSettledMark = undefined;
+      const payload: StewardAskResultPayload = {
+        status: "error",
+        reason: `引擎装配异常：${(err as Error).message}`,
+        errorKind: "engine-exception",
+      };
+      this.settleAsk(payload);
+      this.deps.logger?.warn(
+        `管家 run 收口：error（分类：engine-exception；原因：引擎装配异常：${capChars((err as Error).message, 200)}；排队 ${this.askQueue.length} 条）`,
+      );
+      const next = this.askQueue.shift();
+      if (next !== undefined) {
+        void this.driveAsk(next).catch(() => undefined);
+      }
+      return payload;
+    }
+  }
+
+  private async assembleAndRunInner(item: StewardAskItem): Promise<StewardAskResultPayload> {
     this.dialog.ensureLoaded();
     const systemPrompt = assembleStewardSystemPrompt(
       await this.buildSnapshotSafely(),
@@ -1313,13 +1381,21 @@ export class StewardService {
     } else {
       this.engine.setSystemPrompt?.(systemPrompt);
     }
-    this.runActive = true;
+    this.runActive = true; // 幂等（driveAsk 已同步占位——防御直接调用面）
     this.runLastProgressAt = this.now();
     this.watchdogFiredAt = undefined;
     this.logInfo(`管家 run 开始：${item.text.slice(0, 40)}`);
     this.pendingRunAsk = item;
     this.askStreamEvents = item.events;
-    this.runState = { lastAnswerText: "", hardError: undefined, softError: undefined, sawAborted: false, roundLimit: false, toolCalls: 0 };
+    this.runState = {
+      lastAnswerText: "",
+      hardError: undefined,
+      hardErrorKind: undefined,
+      softError: undefined,
+      sawAborted: false,
+      roundLimit: false,
+      toolCalls: 0,
+    };
     this.currentPause = [];
     this.pausedGateToken = undefined;
     const settled = new Promise<StewardAskResultPayload>((resolve) => {
@@ -1374,14 +1450,23 @@ export class StewardService {
     });
   }
 
-  /** ask 流式回调转发（message_update/thinking_delta/tool_execution → events 面
-   *  ——签名对齐 StewardAskEvents：argsSummary/resultSummary 以事件面可得字段派生）。 */
+  /** ask 流式回调转发（message_update/thinking/tool_execution → events 面
+   *  ——签名对齐 StewardAskEvents：argsSummary/resultSummary 以事件面可得字段派生）。
+   *  事故热修批⑥：thinking 帧不再由 thinking_delta 直通——pi 的 thinking_delta
+   *  是 token 级增量事件，而 onThinking 契约是段级（一个完成态块一帧全量，
+   *  StewardLlmPort 头注释同源）；直通 = 每 delta 一帧 → shell 每帧一条目 =
+   *  「按字一行」事故形态。改为 message_end 完成块聚合发帧（与 KV 投影
+   *  thinkingBlocks 同源同文本）。 */
   private forwardStreamCallbacks(event: AgentEngineEvent): void {
     const ev = this.askStreamEvents;
     if (ev.onDelta !== undefined && event.type === "message_update") {
       ev.onDelta(event.delta);
-    } else if (ev.onThinking !== undefined && event.type === "thinking_delta") {
-      ev.onThinking(event.delta);
+    } else if (ev.onThinking !== undefined && event.type === "message_end" && event.role !== "user" && event.role !== "toolResult") {
+      const thinkingBlocks = (event.blocks ?? []).filter(
+        (b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking",
+      );
+      const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
+      if (thinkingText !== "") ev.onThinking(thinkingText);
     } else if (ev.onToolStart !== undefined && event.type === "tool_execution_start") {
       ev.onToolStart(event.toolName, summarizeArgsLite(event.args));
     } else if (ev.onToolEnd !== undefined && event.type === "tool_execution_end") {
@@ -1404,8 +1489,13 @@ export class StewardService {
         await this.handleEnginePaused(event);
         return;
       case "compaction_completed":
+        // 事故热修批⑤：压缩器输出是内部上下文状态不是用户话轮——落
+        // kind=compaction（不再伪装 kind=user；LLM 窗口重建经 recordToMessage
+        // 转换为摘要消息注入上下文，压缩机制语义不变，仅落库与 UI 回放退出
+        // user 轮域——2026-10-07 事故「## Goal（无…）压缩器工作规则」被渲染
+        // 成用户发言的污染形态根修）。
         await this.dialog.compact(
-          { kind: "user", text: event.summary, at: this.now(), compaction: true },
+          { kind: "compaction", text: event.summary, at: this.now() },
           this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
         );
         return;
@@ -1439,9 +1529,12 @@ export class StewardService {
     }
     if (event.stopReason === "aborted") this.runState.sawAborted = true;
     if (event.stopReason === "error") {
-      // 回执文案前缀（与迁移前 streamFn 包装等价——provider 原文随附）
+      // 回执文案前缀（与迁移前 streamFn 包装等价——provider 原文随附）；
+      // 事故热修批⑦：分类锚定 model-failure（provider 流错误——与工具面
+      // aborted / 闸面 terminate 分记，收口日志不再一律记成模型失败）
       this.runState.hardError =
         event.text.trim() !== "" ? `模型调用失败：${event.text}` : this.runState.hardError ?? "模型调用失败";
+      this.runState.hardErrorKind = "model-failure";
       return; // error 消息不入 KV（半成品）——错误经回执交代
     }
     const blocks = event.blocks ?? [];
@@ -1486,6 +1579,7 @@ export class StewardService {
       const outcome = gated.outcome;
       if (outcome !== undefined && outcome.kind === "terminate") {
         this.runState.hardError = outcome.reason;
+        this.runState.hardErrorKind = "engine-error"; // 闸面终止（非模型失败——分记）
         await this.engine?.resume?.(event.pauseToken, { kind: "resolve", text: outcome.reason });
       } else {
         const text = outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验";
@@ -1558,18 +1652,27 @@ export class StewardService {
 
   /** run 收口（agent_end）：结果推导 + deliver + 队列驱动。
    *  确认链路修复批：error 收口日志附引擎错误摘要（事故 run#3/#5/#7 无原因）
-   *  + 本 run 挂闸卡生命周期处置（deliver 类续活 / destructive 撤除+明示）。 */
+   *  + 本 run 挂闸卡生命周期处置（deliver 类续活 / destructive 撤除+明示）。
+   *  事故热修批④：幂等守卫（runActive=false 时直接回——防看门狗强制收口与
+   *  自然收口双发驱动队列）；⑦：error 收口日志与回执携 errorKind 分类
+   *  （aborted 与模型失败分记——act 挂闸 60s 后收口不再被误归模型失败）。 */
   private async finishRun(startError?: string): Promise<void> {
+    if (!this.runActive) return; // 幂等守卫（事故热修批④）
     this.runActive = false;
     this.runLastProgressAt = 0;
     this.watchdogFiredAt = undefined;
     this.runSettledMark?.();
     this.runSettledMark = undefined;
-    const outcome = startError !== undefined ? { status: "error" as const, reason: startError } : this.outcomeOfRun();
-    // ⑤ error 收口附原因摘要（warn 级保证可见——旧装配 info 缺席时事故零日志）
+    const outcome: StewardAskResultPayload =
+      startError !== undefined
+        ? { status: "error", reason: startError, errorKind: "engine-exception" }
+        : this.outcomeOfRun();
+    // ⑤ error 收口附原因摘要 + 分类分记（warn 级保证可见——旧装配 info 缺席
+    //    时事故零日志；分类面让 aborted/模型失败/引擎异常可区分归因）
     if (outcome.status === "error") {
+      const kind = outcome.errorKind ?? "-";
       this.deps.logger?.warn(
-        `管家 run 收口：error（原因：${capChars(outcome.reason, 200)}；排队 ${this.askQueue.length} 条）`,
+        `管家 run 收口：error（分类：${kind}；原因：${capChars(outcome.reason, 200)}；排队 ${this.askQueue.length} 条）`,
       );
     } else {
       this.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.askQueue.length} 条）`);
@@ -1621,7 +1724,8 @@ export class StewardService {
     this.currentPause = [];
   }
 
-  /** run 结果推导（事件态 → 回执判别——原 mapRunResult）。 */
+  /** run 结果推导（事件态 → 回执判别——原 mapRunResult）。事故热修批⑦：各
+   *  error 分支携 errorKind（aborted 与模型失败分记——日志/回执可区分归因）。 */
   private outcomeOfRun(): StewardAskResultPayload {
     // aborted 优先于一切（半截文本不作终答回执——协议面回执恒 aborted error）；
     // 次之 answer（压缩失败 engine_error 不吞终答——fail-open）；最后 error
@@ -1629,19 +1733,28 @@ export class StewardService {
       return {
         status: "error",
         reason: `工具循环超限（>${STEWARD_MAX_TOOL_ROUNDS} 轮熔断）——请缩小问题范围或重试`,
+        errorKind: "round-limit",
       };
     }
     if (this.runState.sawAborted) {
-      return { status: "error", reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）" };
+      return {
+        status: "error",
+        reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）",
+        errorKind: "aborted",
+      };
     }
     if (this.runState.hardError !== undefined) {
-      return { status: "error", reason: this.runState.hardError };
+      return {
+        status: "error",
+        reason: this.runState.hardError,
+        ...(this.runState.hardErrorKind !== undefined ? { errorKind: this.runState.hardErrorKind } : {}),
+      };
     }
     if (this.runState.lastAnswerText.trim() !== "") {
       return { status: "answer", text: this.runState.lastAnswerText };
     }
     if (this.runState.softError !== undefined) {
-      return { status: "error", reason: this.runState.softError };
+      return { status: "error", reason: this.runState.softError, errorKind: "engine-error" };
     }
     return { status: "answer", text: "（无回答）" };
   }
@@ -2497,6 +2610,16 @@ export class StewardService {
       typeof args.args === "object" && args.args !== null && !Array.isArray(args.args)
         ? (args.args as Record<string, unknown>)
         : {};
+    // ── act 参数契约收紧（事故热修批①）：动词 args 形状校验（按命名空间×
+    //    动词——protocol 单源 validateSurfaceActArgs）。形状不合法 → 即时拒
+    //    （模型收到正确形状指引可自纠），不挂闸不派发不等回执超时——治
+    //    2026-10-07 事故「模型发明 url 参数 → shell 静默弃帧 → 60s 挂死」。
+    //    动词注册校验/risk 三级闸不动（E-253 约束面）。──
+    const nsRaw = surfaceId.split(":")[0] ?? "";
+    if (isSurfaceNamespaceKind(nsRaw)) {
+      const argsError = validateSurfaceActArgs(nsRaw, verb, actionArgs);
+      if (argsError !== undefined) return { kind: "refuse", reason: argsError };
+    }
     const floor = surfaceVerbRisk(verb);
     let risk: SurfaceRisk = floor;
     const riskRaw = args.risk;

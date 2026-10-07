@@ -47,7 +47,28 @@ export type StewardAskResultPayload =
       status: "error";
       /** 失败原因（含引导，如开关关时指向设置页开启路径）。 */
       reason: string;
+      /**
+       * 错误分类（事故热修批⑦，additive 可选——旧壳忽略零破坏）：
+       * aborted = run 被中止（挂闸 abort 唤醒/工具面 abort 链）；model-failure
+       * = 模型调用失败（provider 流错误）；engine-exception = 引擎驱动异常
+       * （如并发 start 撞门）；round-limit = 工具循环熔断；engine-error =
+       * 引擎软错误（压缩失败等可观测事件）。分记目的：工具面 aborted 不再
+       * 被误归为模型失败（2026-10-07 事故：act 挂闸 60s 后收口被记「模型调用失败」）。
+       */
+      errorKind?: StewardAskErrorKind;
     };
+
+/** steward ask 错误分类词汇表（封闭集——收口日志与回执分记锚）。 */
+export const STEWARD_ASK_ERROR_KINDS = [
+  "aborted",
+  "model-failure",
+  "engine-exception",
+  "round-limit",
+  "engine-error",
+] as const;
+
+/** steward ask 错误分类（封闭词汇表成员）。 */
+export type StewardAskErrorKind = (typeof STEWARD_ASK_ERROR_KINDS)[number];
 
 /** steward.ask.result：管家对话回执（channel = "steward"）。 */
 export interface StewardAskResultEvent extends EventFrame<StewardAskResultPayload> {
@@ -232,9 +253,27 @@ export type StewardHistoryRecord =
       text: string;
       /** 落笔时间戳（ms；TTL/排序面）。 */
       at: number;
-      /** L1 件一：压缩摘要合成记录标记（synthesized——非用户真实输入；
-       *  UI 可据此渲染压缩行，LLM 窗口重建与普通 user 同构）。 */
+      /**
+       * @deprecated 旧形态标记（事故热修批⑤起废弃——压缩摘要已改落
+       * kind="compaction" 分支，不再作为 user 轮写入。历史存量行可能仍携
+       * 此标记，消费面兼容读；新写入恒 kind="compaction"）。
+       */
       compaction?: true;
+    }
+  | {
+      /**
+       * 压缩摘要记录（事故热修批⑤，additive）：压缩器输出是内部上下文
+       * 状态而非用户话轮——2026-10-07 事故中空对话压缩器输出（「## Goal
+       * （无。待压缩的对话为空…）」）落成 kind=user 轮，UI 把压缩器格式
+       * 文本渲染成用户发言。LLM 窗口重建（buildLlmWindow）仍转换为摘要
+       * 消息注入上下文（压缩机制语义不变）——只有落库形态与 UI 回放
+       * 退出 user 轮域。
+       */
+      kind: "compaction";
+      /** 压缩摘要全文。 */
+      text: string;
+      /** 落笔时间戳（ms）。 */
+      at: number;
     }
   | {
       kind: "assistant";

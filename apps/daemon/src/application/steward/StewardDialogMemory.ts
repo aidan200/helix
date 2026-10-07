@@ -50,7 +50,7 @@ interface StewardDialogKv {
  *  ~4 char/token 的折中下界；宁可早裁不可爆上下文）。 */
 export function estimateTokens(record: StewardHistoryRecord): number {
   let chars = 0;
-  if (record.kind === "user") chars = record.text.length;
+  if (record.kind === "user" || record.kind === "compaction") chars = record.text.length;
   else if (record.kind === "toolResult") chars = record.text.length + record.name.length;
   else {
     chars = (record.text ?? "").length + (record.thinking?.text.length ?? 0) + (record.thinking?.signature?.length ?? 0);

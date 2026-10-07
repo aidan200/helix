@@ -126,6 +126,9 @@ function summarizeArgs(args: Record<string, unknown>): string {
 export function recordsToItems(records: readonly StewardHistoryRecord[]): StewardPanelItem[] {
   const items: StewardPanelItem[] = [];
   for (const r of records) {
+    if (r.kind === "compaction") {
+      continue; // 压缩摘要记录（事故热修批⑤）：内部上下文状态非用户话轮——零渲染
+    }
     if (r.kind === "user") {
       items.push({ kind: "user", text: r.text });
       continue;

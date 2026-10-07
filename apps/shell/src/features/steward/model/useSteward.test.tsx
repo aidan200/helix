@@ -378,6 +378,25 @@ describe("useSteward（过程反馈 UI 批——进行中态投影）", () => {
     await waitFor(() => expect(result.current.askActivity?.thinkingLines).toEqual(["第二块：对比实例。", "第三块：组织结论。"]));
   });
 
+  it("【事故热修⑥】长 thinking 块一帧（段级契约）→ 状态区摘要单行截断（超 60 字加省略号）而非 N 行", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("帮我切过去");
+    });
+    const longBlock =
+      "用户要求切换会话，我需要先确认目标会话的 id 再调用 navigate 工具，注意 shell 表面的 navigate 参数是 sessionId 不是 url，先用 surface_list 查表面。";
+    act(() => {
+      frameListener?.(frame("steward.thinking", { text: longBlock, seq: 1 }));
+    });
+    await waitFor(() => {
+      const lines = result.current.askActivity?.thinkingLines ?? [];
+      expect(lines).toHaveLength(1); // 单行（不是按字 N 行）
+      expect(lines[0]!.length).toBeLessThanOrEqual(61); // 60 字 + 省略号
+      expect(lines[0]!.endsWith("…")).toBe(true);
+      expect(lines[0]!.startsWith("用户要求切换会话")).toBe(true);
+    });
+  });
+
   it("steward.tool start → phase=tool + toolName；end → phase 回 thinking + 条目补 endedAt 定格锦", async () => {
     const { result } = renderSteward();
     act(() => {

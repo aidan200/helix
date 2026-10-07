@@ -137,4 +137,51 @@ describe("CompactionHook request 档（prepareRequest 挂点）", () => {
     expect(outcomes).toHaveLength(0);
     expect(messages.length).toBe(17); // 原上下文不动（state 未被双写破坏）
   });
+
+  // ── 事故热修批⑤：空输入守卫（零 LLM 零写入） ───────────────────
+
+  test("【事故热修⑤】空对话（仅 system）超阈值 → 跳过压缩：零摘要调用零 onCompleted，原窗口不动", async () => {
+    let summarizeCalls = 0;
+    const { hook, outcomes, failures } = buildHook({
+      summarizeRequest: (async () => {
+        summarizeCalls += 1;
+        return (await stubSummarize()()) as never;
+      }) as never,
+    });
+    // 空对话形态：仅 leading system（管家首轮事故形态——system prompt +
+    // 工具声明很大，在阈值紧时 est 超阈触发检查）
+    const empty: AgentMessage[] = [
+      { role: "system", content: "SYS_PROMPT_" + "x".repeat(900), timestamp: 1 } as never,
+    ];
+    const agent = fakeAgent(empty);
+    hook.bind(agent);
+    const update = await hook.prepareRequest(fakeRequest(empty));
+    expect(update).toBeUndefined(); // 不触发压缩
+    expect(summarizeCalls).toBe(0); // 零 LLM
+    expect(outcomes).toHaveLength(0); // 零写入（onCompleted 零上抛）
+    expect(failures).toHaveLength(0); // 也不是失败（正常跳过）
+    expect(agent.state.messages).toEqual(empty); // 原窗口不动
+  });
+
+  test("【事故热修⑤】空文本 user 轮不构成实质内容（trim 判定）；有实质内容的长窗口压缩照常（既有超阈值用例覆盖）", async () => {
+    const { hook: hookEmpty, outcomes: outcomesEmpty } = buildHook();
+    const blankUser: AgentMessage[] = [
+      { role: "system", content: "SYS_" + "x".repeat(900), timestamp: 1 } as never,
+      { role: "user", content: [{ type: "text", text: "   " }], timestamp: 2 } as never,
+    ];
+    hookEmpty.bind(fakeAgent(blankUser));
+    expect(await hookEmpty.prepareRequest(fakeRequest(blankUser))).toBeUndefined();
+    expect(outcomesEmpty).toHaveLength(0);
+    // 对照：同阈值下有实质内容（既有 overThreshold 形态裁短版）不触发守卫
+    const { hook: hookReal, outcomes: outcomesReal } = buildHook();
+    const real: AgentMessage[] = [
+      { role: "system", content: "SYS_" + "x".repeat(900), timestamp: 1 } as never,
+      { role: "user", content: [{ type: "text", text: "x".repeat(600) }], timestamp: 2 } as never,
+      { role: "assistant", content: [{ type: "text", text: "x".repeat(600) }], stopReason: "stop", timestamp: 3 } as never,
+      ...Array.from({ length: 7 }, (_, i) => ({ role: "user", content: [{ type: "text", text: `${"x".repeat(600)}#${i}` }], timestamp: 4 + i * 2 } as never)),
+    ];
+    hookReal.bind(fakeAgent(real));
+    await hookReal.prepareRequest(fakeRequest(real));
+    expect(outcomesReal).toHaveLength(1); // 有实质内容照常压缩（守卫零误杀）
+  });
 });
