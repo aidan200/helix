@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardCancelCommand, stewardSetConfigCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
+import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardCancelCommand, stewardSetConfigCommand,
+  configSetSummaryCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -179,30 +180,35 @@ describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）
     expect(both.payload.memory).toEqual({ endpointId: "ep-1", judgeEndpointId: "ep-9" });
   });
 
-  // ── 语音播报摘要批回归：修复前构造器白名单漏 summary，{summary:{enabled}}
-  //    出门被剥成 {}，daemon 收空补丁回执原样，UI 受控勾选框点了弹回
-  //    （memory B2 同坑第二复发；治本 = SoT 类型直收 + 泛化 undefined 剥离）──
-  it("summary 组透传（修复前被白名单静默剥离为空补丁）", () => {
-    const cmd = stewardSetConfigCommand({ summary: { enabled: true } });
-    expect(cmd.payload).toEqual({ summary: { enabled: true } });
-    expect(stewardSetConfigCommand({ summary: { model: "deepseek/deepseek-v4-flash" } }).payload).toEqual({
-      summary: { model: "deepseek/deepseek-v4-flash" },
+  // ── 总结器独立化批①：summary/sessionMemory 组已摘除（协议契约变更）——
+  //    总结配置迁 config.set_summary（summary.* 通用域）；steward.set_config
+  //    构造器类型面即拒收旧组（携带旧组 = 编译不过）──
+  it("configSetSummaryCommand：总结配置组透传（部分更新——携带项写入）", () => {
+    expect(configSetSummaryCommand({ enabled: true })).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "config.set_summary",
+      payload: { enabled: true },
     });
+    expect(
+      configSetSummaryCommand({ everyTurns: 5, model: "deepseek/summary-flash", task: { enabled: true, model: null } }).payload,
+    ).toEqual({ everyTurns: 5, model: "deepseek/summary-flash", task: { enabled: true, model: null } });
   });
 
-  it("summary.model 空串 = 清空槽位（显式解绑，不同于缺省不携带）", () => {
-    expect(stewardSetConfigCommand({ summary: { model: "" } }).payload).toEqual({ summary: { model: "" } });
+  it("configSetSummaryCommand：model 空串/null = 清空槽位（显式解绑，不同于缺省不携带）", () => {
+    expect(configSetSummaryCommand({ model: null }).payload).toEqual({ model: null });
+    expect(configSetSummaryCommand({ task: { model: "" } }).payload).toEqual({ task: { model: "" } });
+    expect(configSetSummaryCommand({}).payload).toEqual({});
   });
 
-  it("四槽位共存：enabled + model + summary + memory 同时携带互不覆盖", () => {
+  it("三槽位共存（摘组后）：enabled + model + memory 同时携带互不覆盖", () => {
     const cmd = stewardSetConfigCommand({
       enabled: true,
-      summary: { enabled: true, model: "deepseek/deepseek-v4-flash" },
+      model: "openai/gpt-5-mini",
       memory: { enabled: false },
     });
     expect(cmd.payload).toEqual({
       enabled: true,
-      summary: { enabled: true, model: "deepseek/deepseek-v4-flash" },
+      model: "openai/gpt-5-mini",
       memory: { enabled: false },
     });
   });

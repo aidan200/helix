@@ -8,7 +8,7 @@
  * 播报只管播，职责分离裁决延续）。
  *
  * 实现体 = adapters/driven/voice/StewardDiagnosisAdapter（复用管家
- * StewardLlmPort 真体：模型槽位 steward.summary.model 无默认 + key 同源
+ * StewardLlmPort 真体：模型槽位 summary.task.model 无默认 + key 同源
  * auth.json——③层摘要专用槽位沿用，独立 PiStewardLlmAdapter 实例先例）。
  *
  * 端口形状与 StewardLlmPort 分立（AG-01 同构纪律：域间不共享 port 类型，

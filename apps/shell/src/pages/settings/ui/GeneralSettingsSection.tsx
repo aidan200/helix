@@ -7,10 +7,10 @@
  * + set_config 写、config.result 回执回填，不乐观）；语音播报 = 本地偏好
  * （helix.steward.speakReply，面板语音模式朗读闸逐次读）——仅启用后显示
  * （从属项，缩进一层），非平级。管家模型槽位在智能体页管家卡。
- * 任务总结（管家子功能，独立槽位批）：开关 + 总结模型下拉 = daemon 权威
- * （steward.set_config {summary:{enabled,model}}）——供语音播报 LLM 摘要，
- * 无默认模型：未配模型 = 播报只走极简终态通知；下拉 = 主题模型同款口径
- * （filterAvailableModels + provider optgroup，现值兑底）。
+ * 总结（会话总结器独立化批①）：「总结」组 = 三产物开关 + 轮次输入 + 总结
+ * 模型下拉 + 任务总结两项——写面 config.set_summary（summary.* 通用域），
+ * config.get/set_summary.result 回填不乐观；管家配置零总结项。总结模型显式
+ * 配才产进展+记忆点（无默认纪律），标题回落默认模型。
  * 管家记忆区（B2 瘦身）：开关 + 「向量模型」下拉（embedding.list 驱动，
  * 选中写 steward.set_config {memory:{endpointId}}）+ 待命提示 + 「管理记忆」
  * 链接（跳记忆独立页 /steward/memory）；端点 CRUD 收编模型页向量 tab
@@ -62,7 +62,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenModelsEmbeddingTab: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestTopicConfig, setTopicConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestSummaryConfig, setSummaryConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -93,15 +93,13 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [stewardEnabled, setStewardEnabled] = useState<boolean | null>(null);
   const [stewardError, setStewardError] = useState<string | null>(null);
   const [speakReply, setSpeakReply] = useState<boolean>(() => readStewardSpeakReplyPref());
-  // 任务总结子功能（独立槽位批）：daemon 权威现态（config.result 回填不乐观）；
-  // model null = 未配置（无默认模型——不配不摘要，播报走极简终态通知）
-  const [summaryCfg, setSummaryCfg] = useState<{ enabled: boolean; model: string | null } | null>(null);
-  // 会话进展记忆（progress 批）：daemon 权威现态；model null = 未配置（无默认
-  // 模型——不配 = 轮末只演进标题不产进展记忆）；everyTurns 草稿本地态，
-  // 失焦/回车提交（回执前不乐观），非法值回落最近已提交值零命令
-  const [smCfg, setSmCfg] = useState<{ enabled: boolean; everyTurns: number; model: string | null } | null>(null);
+  // 总结组（总结器独立化批①）：daemon 权威现态——modelConfig.summary
+  // （config.get/set_summary.result 帧驱动，回填不乐观）；everyTurns 草稿
+  // 本地态，失焦/回车提交（回执前不乐观），非法值回落最近已提交值零命令
+  const summaryCfg = topology.modelConfig.summary;
   const [turnsDraft, setTurnsDraft] = useState<string>("");
   const turnsCommitted = useRef<number>(3);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   // 记忆（管家记忆 B2 瘦身）：daemon 权威现态（config.result 回执回填，不乐观）；
   // 端点选择 = embedding 配置域引用（下拉写 endpointId，回执引用态回填）
   const [memoryCfg, setMemoryCfg] = useState<{
@@ -122,15 +120,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         if (e.type !== "steward.config.result") return;
         const payload = e.payload as {
           enabled?: boolean;
-          summary?: {
-            enabled: boolean;
-            model: string | null;
-          };
-          sessionMemory?: {
-            enabled: boolean;
-            everyTurns: number;
-            model: string | null;
-          };
           memory?: {
             enabled: boolean;
             available: boolean;
@@ -141,12 +130,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
           };
         };
         setStewardEnabled(payload.enabled === true);
-        if (payload.summary !== undefined) setSummaryCfg(payload.summary);
-        if (payload.sessionMemory !== undefined) {
-          setSmCfg(payload.sessionMemory);
-          turnsCommitted.current = payload.sessionMemory.everyTurns;
-          setTurnsDraft(String(payload.sessionMemory.everyTurns));
-        }
         if (payload.memory !== undefined) setMemoryCfg(payload.memory);
       }),
     [subscribeStewardFrames],
@@ -179,39 +162,32 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     }
     setStewardError(null);
   };
-  // 任务总结子功能写面（独立槽位批）：开关 + 模型（空串 = 清空槽位回未配置
-  // 态——daemon 侧归一 null）；回执驱动回填不乐观
-  const toggleSummary = (enabled: boolean): void => {
-    if (sendStewardSetConfig({ summary: { enabled } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
+  // 总结组写面（总结器独立化批①）：config.set_summary 部分更新；空串/null
+  // = 清空槽位回未配置态；轮次失焦/回车提交（非法值回落最近已提交值零命令）；
+  // 回执驱动回填不乐观
+  const sendSummary = (patch: {
+    enabled?: boolean;
+    everyTurns?: number;
+    model?: string | null;
+    task?: { enabled?: boolean; model?: string | null };
+  }): void => {
+    if (setSummaryConfig(patch) === false) {
+      setSummaryError(t("chat.settings.general.sendFail"));
       return;
     }
-    setStewardError(null);
+    setSummaryError(null);
   };
-  const selectSummaryModel = (model: string): void => {
-    if (sendStewardSetConfig({ summary: { model } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setStewardError(null);
-  };
-  // 会话进展记忆写面（progress 批）：开关 + 模型（空串 = 清空槽位）+ 间隔
-  // （失焦/回车提交，非法值回落最近已提交值零命令）；回执驱动回填不乐观
-  const toggleSessionMemory = (enabled: boolean): void => {
-    if (sendStewardSetConfig({ sessionMemory: { enabled } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setStewardError(null);
-  };
-  const selectSessionMemoryModel = (model: string): void => {
-    if (sendStewardSetConfig({ sessionMemory: { model } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setStewardError(null);
-  };
-  const commitSessionMemoryTurns = (): void => {
+  const toggleSummary = (enabled: boolean): void => sendSummary({ enabled });
+  const selectSummaryModel = (model: string): void => sendSummary({ model: model === "" ? null : model });
+  const toggleSummaryTask = (enabled: boolean): void => sendSummary({ task: { enabled } });
+  const selectSummaryTaskModel = (model: string): void => sendSummary({ task: { model: model === "" ? null : model } });
+  // 轮次草稿随回执同步（everyTurns 生效值变化才覆写——不误伤在途草稿）
+  useEffect(() => {
+    if (summaryCfg === null) return;
+    turnsCommitted.current = summaryCfg.everyTurns;
+    setTurnsDraft(String(summaryCfg.everyTurns));
+  }, [summaryCfg === null ? null : summaryCfg.everyTurns]);
+  const commitSummaryTurns = (): void => {
     const parsed = Number.parseInt(turnsDraft, 10);
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
       setTurnsDraft(String(turnsCommitted.current)); // 非法回落零命令
@@ -221,12 +197,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       setTurnsDraft(String(parsed));
       return;
     }
-    if (sendStewardSetConfig({ sessionMemory: { everyTurns: parsed } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
-      return;
-    }
+    sendSummary({ everyTurns: parsed });
     turnsCommitted.current = parsed;
-    setStewardError(null);
   };
   // 向量模型选择（写 endpointId 引用；空串 = 清除引用）；回执驱动回填不乐观
   const selectMemoryEndpoint = (endpointId: string): void => {
@@ -253,44 +225,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     setSandboxError(null);
   };
 
-  // 动态主题（动态主题批）：result 帧驱动回填（与沙箱同构——无乐观更新）。
-  // 主题模型下拉 = 管家模型选择同款口径（filterAvailableModels 只列已配置
-  // provider 的模型 + provider optgroup，现值兑底 select 不说谎）；分类模型
-  // 下拉恒显可选（判定恒开：选中 = 两段式判官，空 = 生成模型兼任），清单
-  // 随 config.get/set_topic 回执携带（daemon 侧 kind=classifier 过滤）。
-  const topicCfg = topology.modelConfig.topic;
-  const [topicError, setTopicError] = useState<string | null>(null);
-  const topicJudgeList = topicCfg?.judgeEndpoints ?? [];
   const { auth, authLoaded } = topology.modelConfig;
-  const topicModelsByProvider = useMemo(() => {
-    const visible = filterAvailableModels({
-      models: topology.modelConfig.catalog?.models ?? [],
-      auth,
-      authLoaded,
-      currentModel: topicCfg?.model ?? undefined,
-      query: "",
-    });
-    const current = topicCfg?.model ?? null;
-    const withCurrent =
-      current !== null && !visible.some((m) => m.id === current)
-        ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
-        : visible;
-    const map = new Map<string, CatalogModel[]>();
-    for (const m of withCurrent) {
-      const list = map.get(m.providerId);
-      if (list) list.push(m);
-      else map.set(m.providerId, [m]);
-    }
-    return map;
-  }, [topology.modelConfig.catalog, auth, authLoaded, topicCfg?.model]);
-  const toggleTopic = (enabled: boolean): void => {
-    if (setTopicConfig({ enabled }) === false) {
-      setTopicError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setTopicError(null);
-  };
-  // 任务总结模型下拉（独立槽位批：主题模型同款口径——filterAvailableModels
+  // 总结模型下拉（总结器独立化批①：管家模型选择同款口径——filterAvailableModels
   // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
   const summaryModelsByProvider = useMemo(() => {
     const visible = filterAvailableModels({
@@ -313,17 +249,17 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     }
     return map;
   }, [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.model]);
-  // 会话进展总结模型下拉（progress 批：summary 同款口径——filterAvailableModels
+  // 任务总结模型下拉（总结器独立化批①：同款口径——filterAvailableModels
   // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
-  const sessionMemoryModelsByProvider = useMemo(() => {
+  const summaryTaskModelsByProvider = useMemo(() => {
     const visible = filterAvailableModels({
       models: topology.modelConfig.catalog?.models ?? [],
       auth,
       authLoaded,
-      currentModel: smCfg?.model ?? undefined,
+      currentModel: summaryCfg?.task.model ?? undefined,
       query: "",
     });
-    const current = smCfg?.model ?? null;
+    const current = summaryCfg?.task.model ?? null;
     const withCurrent =
       current !== null && !visible.some((m) => m.id === current)
         ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
@@ -335,21 +271,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       else map.set(m.providerId, [m]);
     }
     return map;
-  }, [topology.modelConfig.catalog, auth, authLoaded, smCfg?.model]);
-  const selectTopicModel = (value: string): void => {
-    if (setTopicConfig({ model: value === "" ? null : value }) === false) {
-      setTopicError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setTopicError(null);
-  };
-  const selectTopicEndpoint = (value: string): void => {
-    if (setTopicConfig({ classifyEndpointId: value === "" ? null : value }) === false) {
-      setTopicError(t("chat.settings.general.sendFail"));
-      return;
-    }
-    setTopicError(null);
-  };
+  }, [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.task.model]);
 
   // 额外可写目录（B 全局清单）：本地编辑态 null = 未编辑（展示现值）；
   // 保存走部分更新（仅 extraRoots），结果帧回填后清编辑态。
@@ -399,10 +321,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     requestSchedulingConfig();
     requestPortConfig();
     requestSandboxConfig();
-    requestTopicConfig();
+    requestSummaryConfig();
     requestModelConfig();
     requestAuthList();
-  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestTopicConfig, requestModelConfig, requestAuthList]);
+  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestSummaryConfig, requestModelConfig, requestAuthList]);
 
   // 本地校验失败行内提示（code-review 低危：空串/非整数/越界不再静默
   // return）；三卡各自独立位——提示随本卡输入变更/保存成功清，与
@@ -527,114 +449,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             <HotkeyRecorder />
             <span className="ag-note">{t("chat.settings.general.stewardHotkeyNote")}</span>
           </div>
-        )}
-        {/* 任务总结（管家子功能，独立槽位批）：后台任务收口的 LLM 白话摘要供语音
-            播报——开关 + 总结模型下拉（无默认模型：未配 = 播报只走极简终态通知）*/}
-        {stewardEnabled === true && (
-          <div className="fld fld-sub" data-steward-summary>
-            <span className="hud-label">{t("chat.settings.general.stewardSummary")}</span>
-            <label className="set-check" data-steward-summary-enabled>
-              <input
-                type="checkbox"
-                checked={summaryCfg?.enabled === true}
-                onChange={(e) => toggleSummary(e.target.checked)}
-              />
-              {t("chat.settings.general.stewardSwitchOn")}
-            </label>
-          </div>
-        )}
-        {stewardEnabled === true && summaryCfg?.enabled === true && (
-          <div className="fld fld-sub" data-steward-summary-model>
-            <label className="hud-label" htmlFor="steward-summary-model-select">
-              {t("chat.settings.general.stewardSummaryModelLabel")}
-            </label>
-            <div className="sel-wrap">
-              <select
-                id="steward-summary-model-select"
-                className="hud-input"
-                data-steward-summary-model-select
-                value={summaryCfg.model ?? ""}
-                onChange={(e) => selectSummaryModel(e.target.value)}
-              >
-                <option value="">{t("chat.settings.general.stewardSummaryModelPlaceholder")}</option>
-                {[...summaryModelsByProvider.entries()].map(([providerId, models]) => (
-                  <optgroup label={providerId} key={providerId}>
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.id}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-            <span className="ag-note">{t("chat.settings.general.stewardSummaryModelNote")}</span>
-          </div>
-        )}
-        {/* 会话进展记忆（progress 批）：轮末联合摘要的进展产物总闸——开关 +
-            总结模型（无默认：未配 = 只演进标题不产进展记忆）+ 间隔（每 N 完成轮） */}
-        {stewardEnabled === true && (
-          <div className="fld fld-sub" data-steward-session-memory>
-            <span className="hud-label">{t("chat.settings.general.stewardSessionMemory")}</span>
-            <label className="set-check" data-steward-session-memory-enabled>
-              <input
-                type="checkbox"
-                checked={smCfg?.enabled === true}
-                onChange={(e) => toggleSessionMemory(e.target.checked)}
-              />
-              {t("chat.settings.general.stewardSwitchOn")}
-            </label>
-          </div>
-        )}
-        {stewardEnabled === true && smCfg?.enabled === true && (
-          <>
-            <div className="fld fld-sub" data-steward-session-memory-model>
-              <label className="hud-label" htmlFor="steward-session-memory-model-select">
-                {t("chat.settings.general.stewardSessionMemoryModelLabel")}
-              </label>
-              <div className="sel-wrap">
-                <select
-                  id="steward-session-memory-model-select"
-                  className="hud-input"
-                  data-steward-session-memory-model-select
-                  value={smCfg.model ?? ""}
-                  onChange={(e) => selectSessionMemoryModel(e.target.value)}
-                >
-                  <option value="">{t("chat.settings.general.stewardSessionMemoryModelPlaceholder")}</option>
-                  {[...sessionMemoryModelsByProvider.entries()].map(([providerId, models]) => (
-                    <optgroup label={providerId} key={providerId}>
-                      {models.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-              <span className="ag-note">{t("chat.settings.general.stewardSessionMemoryModelNote")}</span>
-            </div>
-            <div className="fld fld-sub" data-steward-session-memory-turns>
-              <label className="hud-label" htmlFor="steward-session-memory-turns-input">
-                {t("chat.settings.general.stewardSessionMemoryTurnsLabel")}
-              </label>
-              <input
-                id="steward-session-memory-turns-input"
-                className="hud-input"
-                type="number"
-                min={1}
-                max={20}
-                data-steward-session-memory-turns-input
-                value={turnsDraft}
-                onChange={(e) => setTurnsDraft(e.target.value)}
-                onBlur={commitSessionMemoryTurns}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitSessionMemoryTurns();
-                }}
-              />
-              <span className="ag-note">{t("chat.settings.general.stewardSessionMemoryTurnsNote")}</span>
-            </div>
-          </>
         )}
         {/* 记忆（管家记忆 B2 瘦身）：启用管家的从属项（缩进一层）——开关 +
             「向量模型」下拉（embedding.list 驱动，选中写 endpointId 引用）；
@@ -976,54 +790,75 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
       </div>
 
-      {/* 会话（动态主题批）：阶段演进主题——开关 + 主题生成模型 + 分类模型
-          （判定恒开：选中 = 两段式判官，空 = 生成模型兼任）；运行期即热 */}
-      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupSession")}</h3>
-      <div className="hud-card" data-topic-card>
+      {/* 总结（会话总结器独立化批①）：三产物开关 + 轮次输入 + 总结模型
+          （显式配才产进展+记忆点）+ 任务总结子功能两项；写面 config.set_summary
+          ——config.get/set_summary.result 回填不乐观（不翻本地态）；运行期即热 */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupSummary")}</h3>
+      <div className="hud-card" data-summary-card>
         <div className="fld">
-          <span className="hud-label">{t("chat.settings.general.topicEnable")}</span>
-          <div className="lang-switch" data-topic-switch role="group" aria-label={t("chat.settings.general.topicEnable")}>
+          <span className="hud-label">{t("chat.settings.general.summaryEnable")}</span>
+          <div className="lang-switch" data-summary-switch role="group" aria-label={t("chat.settings.general.summaryEnable")}>
             <button
               type="button"
-              className={cn("hud-btn sm", topicCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
-              data-topic-option="on"
-              aria-pressed={topicCfg?.enabled === true}
-              onClick={() => toggleTopic(true)}
+              className={cn("hud-btn sm", summaryCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-summary-option="on"
+              aria-pressed={summaryCfg?.enabled === true}
+              onClick={() => toggleSummary(true)}
             >
               {t("chat.settings.general.sandboxOn")}
             </button>
             <button
               type="button"
-              className={cn("hud-btn sm", topicCfg?.enabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
-              data-topic-option="off"
-              aria-pressed={topicCfg?.enabled === false}
-              onClick={() => toggleTopic(false)}
+              className={cn("hud-btn sm", summaryCfg?.enabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-summary-option="off"
+              aria-pressed={summaryCfg?.enabled === false}
+              onClick={() => toggleSummary(false)}
             >
               {t("chat.settings.general.sandboxOff")}
             </button>
           </div>
-          {topicError !== null && (
-            <span className="mcp-err" data-topic-save-error role="alert">
-              {topicError}
+          {summaryError !== null && (
+            <span className="mcp-err" data-summary-save-error role="alert">
+              {summaryError}
             </span>
           )}
         </div>
-        {topicCfg?.enabled === true && (
+        {summaryCfg?.enabled === true && (
           <>
-            <div className="fld fld-sub" data-topic-model>
-              <label className="hud-label" htmlFor="topic-model-select">
-                {t("chat.settings.general.topicModelLabel")}
+            <div className="fld fld-sub" data-summary-turns>
+              <label className="hud-label" htmlFor="summary-turns-input">
+                {t("chat.settings.general.summaryTurnsLabel")}
+              </label>
+              <input
+                id="summary-turns-input"
+                className="hud-input"
+                type="number"
+                min={1}
+                max={20}
+                data-summary-turns-input
+                value={turnsDraft}
+                onChange={(e) => setTurnsDraft(e.target.value)}
+                onBlur={commitSummaryTurns}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitSummaryTurns();
+                }}
+              />
+              <span className="ag-note">{t("chat.settings.general.summaryTurnsNote")}</span>
+            </div>
+            <div className="fld fld-sub" data-summary-model>
+              <label className="hud-label" htmlFor="summary-model-select">
+                {t("chat.settings.general.summaryModelLabel")}
               </label>
               <div className="sel-wrap">
                 <select
-                  id="topic-model-select"
+                  id="summary-model-select"
                   className="hud-input"
-                  data-topic-model-select
-                  value={topicCfg.model ?? ""}
-                  onChange={(e) => selectTopicModel(e.target.value)}
+                  data-summary-model-select
+                  value={summaryCfg.model ?? ""}
+                  onChange={(e) => selectSummaryModel(e.target.value)}
                 >
-                  <option value="">{t("chat.settings.general.topicModelDefault")}</option>
-                  {[...topicModelsByProvider.entries()].map(([providerId, models]) => (
+                  <option value="">{t("chat.settings.general.summaryModelPlaceholder")}</option>
+                  {[...summaryModelsByProvider.entries()].map(([providerId, models]) => (
                     <optgroup label={providerId} key={providerId}>
                       {models.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -1034,38 +869,51 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                   ))}
                 </select>
               </div>
-              <span className="ag-note">{t("chat.settings.general.topicModelNote")}</span>
-            </div>
-            <div className="fld fld-sub" data-topic-classify>
-              <label className="hud-label" htmlFor="topic-classify-select">
-                {t("chat.settings.general.topicClassify")}
-              </label>
-              <div className="sel-wrap">
-                <select
-                  id="topic-classify-select"
-                  className="hud-input"
-                  data-topic-endpoint-select
-                  value={topicCfg.classifyEndpointId ?? ""}
-                  onChange={(e) => selectTopicEndpoint(e.target.value)}
-                >
-                  <option value="">{t("chat.settings.general.topicClassifyDefault")}</option>
-                  {topicJudgeList.map((ep) => (
-                    <option key={ep.id} value={ep.id}>
-                      {ep.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <span className="ag-note">{t("chat.settings.general.topicClassifyNote")}</span>
-              {topicJudgeList.length === 0 && (
-                <span className="ag-note" data-topic-classify-empty>
-                  {t("chat.settings.general.topicClassifyEmpty")}
-                </span>
-              )}
+              <span className="ag-note">{t("chat.settings.general.summaryModelNote")}</span>
             </div>
           </>
         )}
-        <span className="ag-note">{t("chat.settings.general.topicNote")}</span>
+        {/* 任务总结（语音播报摘要 + 感知分诊 gate 共用；独立开关——无默认模型：
+            未配 = 播报/分诊均回退极简终态通知） */}
+        <div className="fld" data-summary-task>
+          <span className="hud-label">{t("chat.settings.general.summaryTaskEnable")}</span>
+          <label className="set-check" data-summary-task-enabled>
+            <input
+              type="checkbox"
+              checked={summaryCfg?.task.enabled === true}
+              onChange={(e) => toggleSummaryTask(e.target.checked)}
+            />
+            {t("chat.settings.general.sandboxOn")}
+          </label>
+        </div>
+        {summaryCfg?.task.enabled === true && (
+          <div className="fld fld-sub" data-summary-task-model>
+            <label className="hud-label" htmlFor="summary-task-model-select">
+              {t("chat.settings.general.summaryTaskModelLabel")}
+            </label>
+            <div className="sel-wrap">
+              <select
+                id="summary-task-model-select"
+                className="hud-input"
+                data-summary-task-model-select
+                value={summaryCfg.task.model ?? ""}
+                onChange={(e) => selectSummaryTaskModel(e.target.value)}
+              >
+                <option value="">{t("chat.settings.general.summaryTaskModelPlaceholder")}</option>
+                {[...summaryTaskModelsByProvider.entries()].map(([providerId, models]) => (
+                  <optgroup label={providerId} key={providerId}>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <span className="ag-note">{t("chat.settings.general.summaryTaskModelNote")}</span>
+          </div>
+        )}
       </div>
 
       {/* 关于 daemon（stale-indicator 批，§17.15）：连接信息区——welcome

@@ -324,8 +324,8 @@ export interface ModelConfigState {
   port: PortConfigState | null;
   /** 沙箱开关（null = 未请求；config.get/set_sandbox 帧驱动，沙箱开关批） */
   sandbox: SandboxConfigState | null;
-  /** 动态主题配置（null = 未请求；config.get/set_topic 帧驱动，动态主题批） */
-  topic: TopicConfigState | null;
+  /** 总结配置（null = 未请求；config.get/set_summary 帧驱动，总结器独立化批①） */
+  summary: SummaryConfigState | null;
 }
 
 /** 压缩参数配置（token 绝对值；与协议 config.*.result payload 同构）。 */
@@ -354,14 +354,13 @@ export interface SandboxConfigState {
   extraRoots: string[];
 }
 
-/** 动态主题配置（与协议 ConfigTopicStatePayload 同构，动态主题批）。
- *  分类判断恒开（分类模型可选，null = 生成模型兼任）；judgeEndpoints 缺省
- *  []（旧 daemon 回执缺键兑底——分类模型下拉数据源）。 */
-export interface TopicConfigState {
+/** 总结配置（与协议 SummaryConfigStatePayload 同构——summary.* 通用域：
+ *  三产物开关/锚点节奏/总结模型 + 任务总结子功能；总结器独立化批①）。 */
+export interface SummaryConfigState {
   enabled: boolean;
+  everyTurns: number;
   model: string | null;
-  classifyEndpointId: string | null;
-  judgeEndpoints: readonly { id: string; name: string }[];
+  task: { enabled: boolean; model: string | null };
 }
 
 /** 初始配置面（未请求态；数据由命令结果帧驱动填充）。 */
@@ -382,7 +381,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     scheduling: null,
     port: null,
     sandbox: null,
-    topic: null,
+    summary: null,
   };
 }
 

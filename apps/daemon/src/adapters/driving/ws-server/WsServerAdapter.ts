@@ -180,7 +180,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
-import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetTopic, handleConfigSetTopic } from "./handlers/config";
+import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetSummary, handleConfigSetSummary } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleAskAnswer } from "./handlers/ask";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
@@ -938,10 +938,10 @@ export class WsServerAdapter {
       case "config.set_sandbox":
         return handleConfigSetSandbox(this.contexts.commandContext(ws, type, payload, envelope));
       // ── 动态主题批（config.topic 族）──
-      case "config.get_topic":
-        return handleConfigGetTopic(this.contexts.commandContext(ws, type, payload, envelope));
-      case "config.set_topic":
-        return handleConfigSetTopic(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.get_summary":
+        return handleConfigGetSummary(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.set_summary":
+        return handleConfigSetSummary(this.contexts.commandContext(ws, type, payload, envelope));
       // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
       case "thinking.set":
         return handleThinkingSet(this.contexts.commandContext(ws, type, payload, envelope));

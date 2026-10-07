@@ -107,6 +107,9 @@ function makeService(opts: {
     feedGate: { hasStewardSubscribers: () => opts.feedSubscribers ?? true },
     emitFeed: () => {},
     emitMemoryWritten: (payload) => notes.push(payload),
+    // 批①：B5 沉淀触发缺省停用（换轨总结器记忆点）——本文件测休眠管线，
+    // 显式置 true 驱动；生产装配零触发（见「批① 断触发」用例）
+    sedimentTriggers: true,
     ...(opts.memory !== undefined ? { memory: opts.memory } : {}),
     ...(opts.now !== undefined ? { clock: opts.now } : {}),
   });
@@ -350,5 +353,32 @@ describe("管家记忆 B5：自动沉淀静默化管线（近三轮 LLM 提取�
     expect(extractFirst.text).toContain("第三轮");
     expect(extractFirst.text).toContain("第四轮");
     expect(extractFirst.text).not.toContain("第一轮");
+  });
+});
+
+// ── 批①：B5 轮末沉淀断触发（会话总结器独立化——记忆自动沉淀换轨记忆点）──
+
+describe("批① 断触发：B5 轮末沉淀缺省停用（sedimentTriggers 缺省 false）", () => {
+  test("answer 轮收口 → 零提取零入库（生产缺省形态）；显式开闸才走休眠管线", async () => {
+    const { memory, remembers } = fakeMemory();
+    const llm = fakeLlm([answer("好的，记下了")]);
+    const svc = new StewardService({
+      llm,
+      createEngine: createEngineFromPort(llm),
+      orchestration: { status: () => [], send: () => ({ delivered: true, detail: "ok" }) },
+      tasks: { listTasks: () => [] },
+      config: fakeConfig({ "steward.enabled": "1" }),
+      dialog: new StewardDialogMemory(fakeDialogStore(), {}),
+      feedGate: { hasStewardSubscribers: () => true },
+      emitFeed: () => {},
+      emitMemoryWritten: () => {},
+      memory,
+      // sedimentTriggers 缺省（不注入）= 停用
+    });
+    const result = await svc.ask("以后别用 bun test 跑 shell 测试", {});
+    expect(result.status).toBe("answer");
+    await svc.flushSediment();
+    expect(remembers).toHaveLength(0); // 零沉淀（换轨总结器记忆点）
+    expect(llm.calls).toHaveLength(1); // 零提取调用（B5 prompt 链不再触发）
   });
 });

@@ -66,21 +66,15 @@ export interface StewardUnsubscribeCommand extends CommandFrame<Record<string, n
 
 /** steward.set_config 载荷（槽位均可选——只更新携带位；管家记忆 B2
  *  memory 组瘦身：端点 CRUD 收编 embedding 配置域（模型页向量 tab），
- *  此处只留开关 + 端点引用（endpointId——指向 embedding.* 域条目）。 */
+ *  此处只留开关 + 端点引用（endpointId——指向 embedding.* 域条目）。
+ *  **总结配置组已摘除**（会话总结器独立化批①）：summary/sessionMemory 两组
+ *  迁 config.set_summary（summary.* 通用域）——携带这两组的载荷回
+ *  invalid_payload（协议契约变更，版本严格握手下无版本偏斜窗口）。 */
 export interface StewardSetConfigPayload {
   /** 管家开关（默认关；true = 开）。 */
   enabled?: boolean;
   /** 模型槽位（"provider/model-id" 形态，flash 级建议；格式非法回执 error 判别）。 */
   model?: string;
-  /** 任务总结组（语音播报摘要子功能；全部位可选）：管家开 ∧ 总结开 ∧ 模型
-   *  已配三条件全满足才走 LLM 摘要，任一断点 → 语音播报走极简终态通知。 */
-  summary?: {
-    /** 任务总结开关（默认关）。 */
-    enabled?: boolean;
-    /** 总结模型槽位（"provider/model-id"；**无默认模型**——未配置 = 摘要面
-     *  不可用；空串 = 清空槽位回未配置态）。 */
-    model?: string;
-  };
   /** 长期记忆组（管家记忆 B2 瘦身形态；全部位可选。批B 起整体转发通用
    *  记忆配置域 memory.* KV——配置不挂管家名下，本组是写面路由）。 */
   memory?: {
@@ -97,19 +91,6 @@ export interface StewardSetConfigPayload {
     recallTopK?: number;
     /** 召回候选池（批B；缺省 24，上界 200）。同上两段校验分层。 */
     recallPool?: number;
-  };
-  /** 会话进展记忆组（progress 批；全部位可选）：轮末联合摘要器节制面。
-   *  三条件 gate（开 ∧ 模型已配 ∧ 记忆域可用）全满足才产 progress 条目；
-   *  模型无默认——不配不产（E-232 同构纪律）。 */
-  sessionMemory?: {
-    /** 会话进展记忆开关（默认关）。 */
-    enabled?: boolean;
-    /** 节流阈值（每 N 个完成轮产一次；默认 3 对齐 topic 锚点；合法 1-20）。 */
-    everyTurns?: number;
-    /** 总结模型槽位（"provider/model-id"；**无默认模型**——未配置 = progress
-     *  不产；空串 = 清空槽位回未配置态）。联合调用槽位解析序：本槽位 →
-     *  topic_config.model（旧键回落链——已配 topic 模型的用户零迁移升级）。 */
-    model?: string;
   };
 }
 

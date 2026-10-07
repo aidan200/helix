@@ -62,7 +62,7 @@ describe("gate 三条件（isAvailable）", () => {
     expect(makeAdapter({ enabled: false }).adapter.isAvailable()).toBe(false);
   });
 
-  test("模型槽位空（未配 steward.summary.model）→ 不可用", () => {
+  test("模型槽位空（未配 summary.task.model）→ 不可用", () => {
     expect(makeAdapter({ llm: fakeLlm({ model: "" }) }).adapter.isAvailable()).toBe(false);
   });
 });

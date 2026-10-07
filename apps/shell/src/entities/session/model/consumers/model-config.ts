@@ -37,8 +37,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "config.set_port.result",
   "config.get_sandbox.result",
   "config.set_sandbox.result",
-  "config.get_topic.result",
-  "config.set_topic.result",
+  "config.get_summary.result",
+  "config.set_summary.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -155,13 +155,13 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）
       next = { ...mc, sandbox: { enabled: frame.payload.enabled, extraRoots: frame.payload.extraRoots ?? [] } };
       break;
-    case "config.get_topic.result":
-      // 动态主题读回执（动态主题批；get = 现态 + judge 端点清单）
-      next = { ...mc, topic: { enabled: frame.payload.enabled, model: frame.payload.model, classifyEndpointId: frame.payload.classifyEndpointId, judgeEndpoints: [...(frame.payload.judgeEndpoints ?? [])] } };
+    case "config.get_summary.result":
+      // 总结配置读回执（总结器独立化批①；get = summary.* 现态）
+      next = { ...mc, summary: { enabled: frame.payload.enabled, everyTurns: frame.payload.everyTurns, model: frame.payload.model, task: { enabled: frame.payload.task.enabled, model: frame.payload.task.model } } };
       break;
-    case "config.set_topic.result":
-      // 动态主题写回执（state = 写入后新现态回读）
-      next = { ...mc, topic: { enabled: frame.payload.state.enabled, model: frame.payload.state.model, classifyEndpointId: frame.payload.state.classifyEndpointId, judgeEndpoints: [...(frame.payload.state.judgeEndpoints ?? [])] } };
+    case "config.set_summary.result":
+      // 总结配置写回执（state = 写入后新现态回读——回填不乐观）
+      next = { ...mc, summary: { enabled: frame.payload.state.enabled, everyTurns: frame.payload.state.everyTurns, model: frame.payload.state.model, task: { enabled: frame.payload.state.task.enabled, model: frame.payload.state.task.model } } };
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);

@@ -62,16 +62,15 @@ import {
   StewardService,
   STEWARD_ENABLED_KEY,
   STEWARD_MODEL_KEY,
-  STEWARD_SUMMARY_ENABLED_KEY,
-  STEWARD_SUMMARY_MODEL_KEY,
   formatDeliverReceipt,
 } from "../application/steward/StewardService";
 import {
-  SessionTitleService,
+  SessionSummaryService,
   recentUserTextsOf,
   recentTurnPairsOf,
-} from "../application/services/session-title/SessionTitleService";
-import { TopicConfigStore } from "../adapters/driven/sqlite-session/TopicConfigStore";
+} from "../application/services/session-summary/SessionSummaryService";
+import { SummaryConfigStore } from "../adapters/driven/sqlite-session/SummaryConfigStore";
+import { migrateLegacySummaryKeys, readSummaryConfig } from "../application/summary/summaryConfig";
 import type { DomainEvent } from "../domain/events/DomainEvent";import {
   StewardMemoryService,
   STEWARD_MEMORY_EMBEDDING_KEY,
@@ -250,7 +249,7 @@ export interface AssembleDaemonDeps {
   /**
    * 分诊器 LLM 面覆盖（管家感知批 M0.5：测试注入 fake StewardDiagnosisPort
    * 驱动双轨产物/降级路径；缺省 = StewardDiagnosisAdapter 真体——
-   * steward.summary.model 专用槽位沿用）。③层摘要面覆盖
+   * summary.task.model 专用槽位沿用）。③层摘要面覆盖
    * （voiceSummarizerOverride）已随归一退役。
    */
   readonly stewardDiagnoseOverride?: StewardDiagnosisPort;
@@ -265,10 +264,10 @@ export interface AssembleDaemonDeps {
    */
   readonly stewardLlmOverride?: StewardLlmPort;
   /**
-   * 动态主题服务覆盖（动态主题批：测试注入 fake 驱动锚点演进全链；
-   * 缺省 = SessionTitleService 真体）。
+   * 会话总结器覆盖（总结器独立化批①：测试注入 fake 驱动三产物全链；
+   * 缺省 = SessionSummaryService 真体）。
    */
-  readonly sessionTitleOverride?: { onDomainEvent(event: DomainEvent): void };
+  readonly sessionSummaryOverride?: { onDomainEvent(event: DomainEvent): void };
   /**
    * findings 落账管道覆盖（F3.0，T4.1 测试注入替身；缺省 = kg 栈真体：
    * KgWriteService 唯一写入口 + workspace 项目扫描）。
@@ -724,7 +723,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
 
   // 分诊器 LLM 面（管家感知批 M0.5 归一）：任务总结子功能专用槽位沿用
-  //（steward.summary.model，**无默认模型**——未配置 = 分诊面不可用，语音
+  //（summary.task.model，**无默认模型**——未配置 = 分诊面不可用，语音
   // 播报/notify 走极简终态通知）；可用性三条件在 adapter 处收口：管家开
   // ∧ 总结开 ∧ 模型槽位非空 = **启用**（v2.9 D12-⑫：LLM 分诊启用态恒做，
   // 不看激活）；激活判定不在此处（归感知服务单点，投递面判据）。
@@ -734,13 +733,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     new StewardDiagnosisAdapter({
       llm: new PiStewardLlmAdapter({
         models: modelStack.catalog.modelsView(),
-        modelSlot: () => persistence.runtimeConfig.get(STEWARD_SUMMARY_MODEL_KEY),
+        modelSlot: () => readSummaryConfig(persistence.runtimeConfig).task.model ?? undefined,
         defaultModel: "",
         getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
       }),
       enabled: () =>
         persistence.runtimeConfig.get(STEWARD_ENABLED_KEY) === "1" &&
-        persistence.runtimeConfig.get(STEWARD_SUMMARY_ENABLED_KEY) === "1",
+        readSummaryConfig(persistence.runtimeConfig).task.enabled,
     });
   // 感知服务（M0.5 + M0.5-R）：ring 沉淀 + 激活判定 + 分诊编排 + notify 限流。
   // 晚绑闭包（voice sink 在下方 voiceBroadcast 构造后回填——构造环：
@@ -812,6 +811,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       if (migrated !== null) logger.info(`管家记忆迁移：旧端点配置已收编为 embedding 配置域首条端点（${migrated}）`);
     })
     .catch((err) => logger.warn(`管家记忆迁移失败（旧配置保留，可重试）：${(err as Error).message}`));
+  // 总结配置域迁移（一次性幂等；topic_config JSON + steward.sessionmemory.* +
+  // steward.summary.* → summary.*，旧键清理——判官 classifyEndpointId 随
+  // 判官退役丢弃）。与记忆迁移链并列同款 fire-and-forget（失败旧键保留可重试）。
+  void migrateLegacySummaryKeys(persistence.runtimeConfig)
+    .then((migrated) => {
+      if (migrated) logger.info("总结配置迁移：topic_config/steward.sessionmemory.* /steward.summary.* 已迁入 summary.* 通用域（旧键已清）");
+    })
+    .catch((err) => logger.warn(`总结配置迁移失败（旧配置保留，可重试）：${(err as Error).message}`));
 
   // ── 管家记忆 B6：短期记忆消息落盘（steward_memory.db 行式 steward_messages
   //    替代 helix.db runtime_config 整包 KV——append 单行写/可查询/水位独立，
@@ -1201,50 +1208,27 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     cliOutput: deps.cliOutput,
   });
 
-  // ── 动态主题批：SessionTitleService（fanout 目标 session-topic-bridge
-  //    的服务体）。配置面 = TopicConfigStore 单键 JSON（读写单点）；生成面
-  //    复用管家 LLM 适配器形态（独立实例——模型槽位 = topic_config.model，
-  //    未设置 = flash 级默认，换模型换 key 热生效）；分类判断恒开：
-  //    classifyEndpointId 选中 = 分类模型注册表分派判官（variant 区分实现，
-  //    端点删除/改型 → 抛错降级），未选 = 生成模型兼任判断；money gate：
-  //    开关关 = 锚点短路零 LLM 调用。──
-  const topicConfig = new TopicConfigStore(persistence.runtimeConfig);
-  // progress 批：sessionMemory 配置读面（轮末联合摘要器节制面；KV 三键——
-  // 与管家配置族同存储，读面实时读零热重启）。
-  const readSessionMemoryConfig = () => {
-    const get = persistence.runtimeConfig.get.bind(persistence.runtimeConfig);
-    const enabled = get("steward.sessionmemory.enabled") === "1";
-    const model = get("steward.sessionmemory.model");
-    const rawTurns = Number.parseInt(get("steward.sessionmemory.everyturns") ?? "", 10);
-    const everyTurns = Number.isInteger(rawTurns) && rawTurns >= 1 && rawTurns <= 20 ? rawTurns : 3;
-    return { enabled, model: model !== undefined && model.trim() !== "" ? model : null, everyTurns };
-  };
-  const sessionTitleService =
-    deps.sessionTitleOverride ??
-    new SessionTitleService({
-      readConfig: () => topicConfig.current(),
+  // ── 会话总结器批①：SessionSummaryService（fanout 目标 session-summary-bridge
+  //    的服务体）。配置面 = summary.* 通用域（SummaryConfigStore 五键——键位/
+  //    解析/迁移单源 application/summary/summaryConfig.ts，运行期即热）；
+  //    生成面复用管家 LLM 适配器形态（独立实例——模型槽位 = summary.model →
+  //    adapter 默认 flash，显式配才产进展+记忆点）；同一锚点一次调用三产物
+  //    （topic/progress/记忆点），记忆点入库走 remember 两段查重闸（E-214，
+  //    source=session-summary）+ 显式 remember 防双写闸；烂输出整体丢弃下
+  //    锚点幂等重试。判官（漂移判定）随「只出标题」降级形态评估退役——
+  //    「保持」哨兵在 topic 字段内自带判别（findings：TR-234 supersede）。──
+  const summaryConfig = new SummaryConfigStore(persistence.runtimeConfig);
+  const sessionSummaryService =
+    deps.sessionSummaryOverride ??
+    new SessionSummaryService({
+      readConfig: () => summaryConfig.current(),
       llm: new PiStewardLlmAdapter({
         models: modelStack.catalog.modelsView(),
-        // progress 批槽位回落链：sessionMemory 开且模型已配 → 用它（联合调用
-        // 单一模型）；否则 topic_config.model（旧键——已配用户零迁移）→
-        // adapter 默认 flash。服务层无感知（单一 adapter 单次调用）。
-        modelSlot: () => {
-          const sm = readSessionMemoryConfig();
-          if (sm.enabled && sm.model !== null) return sm.model;
-          return topicConfig.current().model ?? undefined;
-        },
+        // 槽位回落链（批①收编后单源）：summary.model → adapter 默认 flash
+        modelSlot: () => readSummaryConfig(persistence.runtimeConfig).model ?? undefined,
         defaultModel: STEWARD_DEFAULT_MODEL,
         getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
       }),
-      // 两段式判官（懒解析：每次判定实时取端点——换端点/删端点零重启跟随；
-      // 分类模型注册表分派，variant 区分实现；与管家记忆 B4a 判官同构，端点 id 独立）
-      judge: makeJudgeAdapter(() => {
-        const endpointId = topicConfig.current().classifyEndpointId;
-        if (endpointId === undefined || endpointId === null || endpointId === "") return null;
-        const record = embeddingConfig.resolveRecord(endpointId);
-        if (record === null || record.kind !== "classifier") throw new Error(`分类端点无效：${endpointId}`);
-        return record;
-      }, judgeServices),
       resolveTarget: (sessionId) => {
         const runtime = registry.peekHotRuntime(sessionId);
         if (runtime === undefined) return undefined;
@@ -1257,7 +1241,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           topic: view.currentTopic(),
           turnCount: view.turnCount,
           recentUserTexts: recentUserTextsOf(entries, 10),
-          // progress 批：轮次对投影（user + 同轮末条 assistant = 最终结论）
+          // 总结素材：轮次对投影（user + 同轮末条 assistant = 最终结论）
           recentTurnPairs: recentTurnPairsOf(entries, 6),
           ...(firstAssistant !== undefined && typeof firstAssistant.text === "string"
             ? { firstAssistantText: [...firstAssistant.text].slice(0, 500).join("") }
@@ -1266,17 +1250,21 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           updateTopic: (topic, previous, anchorTurn) => runtime.chatService.updateTopic(topic, previous, anchorTurn),
         };
       },
-      // progress 批：sessionMemory 读面 + progress 写面（stewardMemory 缺席
-      // = 降级不产——联合摘要器 deps 可选语义）
-      sessionMemory: { read: readSessionMemoryConfig },
+      // progress/记忆点写面（stewardMemory 缺席 = 降级不产——总结器 deps 可选语义）
       ...(stewardMemory !== undefined
         ? {
             progressStore: {
               recordSessionProgress: (sessionId: string, text: string) =>
                 stewardMemory.recordSessionProgress(sessionId, text),
             },
+            memoryPointsStore: {
+              rememberMemoryPoint: (text: string) => stewardMemory.rememberSessionMemoryPoint(text),
+              explicitRememberedSince: (since: number) => stewardMemory.explicitRememberedSince(since),
+            },
           }
         : {}),
+      // 记忆落盘通知（memory_written 通知卡链——自动沉淀换轨后沿用 B5 契约）
+      emitMemoryWritten: (payload) => eventStream.broadcastStewardMemoryWritten(payload),
       announceTopicChanged: (sessionId) => registry.announceTopicChanged(sessionId),
       logger: { warn: (message) => logger.warn(message) },
     });
@@ -1296,8 +1284,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     steward: stewardService,
     // 管家感知批（M0.5）：agent 终态 + 周期进展 → ring 沉淀 + 分诊锚桥
     perception: stewardPerception,
-    // 动态主题批：主实例完成轮 → 锚点演进桥（末位旁路面）
-    sessionTitle: sessionTitleService,
+    // 会话总结器批①：主实例完成轮 → 三产物总结桥（末位旁路面）
+    sessionSummary: sessionSummaryService,
   });
 
   // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环
@@ -1382,12 +1370,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
-    topicConfig, // config.get/set_topic 回口（动态主题批；同容器单例，与 SessionTitleService 同源）
-    topicJudgeEndpoints: () =>
-      embeddingConfig
-        .list()
-        .filter((e) => e.kind === "classifier")
-        .map((e) => ({ id: e.id, name: e.name })),
+    summaryConfig, // config.get/set_summary 回口（总结配置组；同容器单例，与 SessionSummaryService 同源）
     askService, // ask.answer 命令回口（提权申请批；同容器单例，与工具装配同源）
     registry,
     scheduler,

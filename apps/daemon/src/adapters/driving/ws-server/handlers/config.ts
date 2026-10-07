@@ -7,9 +7,8 @@ import type {
   ConfigSetPortResultEvent,
   ConfigGetSandboxResultEvent,
   ConfigSetSandboxResultEvent,
-  ConfigGetTopicResultEvent,
-  ConfigSetTopicResultEvent,
-  ConfigTopicStatePayload,
+  ConfigGetSummaryResultEvent,
+  ConfigSetSummaryResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
@@ -232,84 +231,91 @@ export function handleConfigSetSandbox(ctx: WsCommandContext): void {
     .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
 }
 
-// ── config.topic 族（动态主题批；部分更新语义：携带项写入，未携带项保留现值）──
+// ── config.summary 族（会话总结器独立化批①；部分更新语义：携带项写入，
+//    未携带项保留现值）────────────────────────────────────────
 
-/** judge 端点清单组装（get/set 回执共用：id + 显示名）。 */
-function topicJudgeEndpoints(ctx: WsCommandContext): readonly ConfigTopicStatePayload["judgeEndpoints"][number][] {
-  if (ctx.topicJudgeEndpoints === undefined) return [];
-  return ctx.topicJudgeEndpoints();
+/** 槽位校验（model/task.model：null/空串 = 清空回未配置态；非空须
+ *  "provider/model-id" 形态——与管家对话模型槽位同口径）。 */
+function validSlot(model: unknown): model is string | null {
+  if (model === null) return true;
+  if (typeof model !== "string") return false;
+  const trimmed = model.trim();
+  return trimmed === "" || /^[^/\s]+\/[^/\s]+$/.test(trimmed);
 }
 
-/** config.get_topic：动态主题配置读面（点对点回执；恒带分类端点清单）。 */
-export function handleConfigGetTopic(ctx: WsCommandContext): void {
-  if (ctx.topicConfig === undefined) {
-    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（topicConfig）");
+/** config.get_summary：总结配置读面（点对点回执——总结配置组现态）。 */
+export function handleConfigGetSummary(ctx: WsCommandContext): void {
+  if (ctx.summaryConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（summaryConfig）");
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const c = ctx.topicConfig.current();
-  const frame: ConfigGetTopicResultEvent = {
+  const frame: ConfigGetSummaryResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
     channel: "model",
-    type: "config.get_topic.result",
-    payload: {
-      enabled: c.enabled,
-      model: c.model,
-      classifyEndpointId: c.classifyEndpointId,
-      judgeEndpoints: topicJudgeEndpoints(ctx),
-    },
+    type: "config.get_summary.result",
+    payload: ctx.summaryConfig.current(),
   };
   ctx.sendNow(sender, frame);
 }
 
-/** config.set_topic：动态主题配置写面（点对点回执；部分更新合并写）。
- * 校验单点：classifyEndpointId 非空时必须指向清单内 classifier 端点
- *（分类判断恒开：null = 生成模型兼任判断，无端点也可用）。 */
-export function handleConfigSetTopic(ctx: WsCommandContext): void {
-  if (ctx.topicConfig === undefined) {
-    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（topicConfig）");
+/** config.set_summary：总结配置写面（点对点回执；部分更新合并写 + 类型闸。
+ *  everyTurns 范围闸在写面前置（1-20 整数；值语义读面另有兜底）。 */
+export function handleConfigSetSummary(ctx: WsCommandContext): void {
+  if (ctx.summaryConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（summaryConfig）");
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model, classifyEndpointId } = ctx.payload;
-  if (enabled === undefined && model === undefined && classifyEndpointId === undefined) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload 至少携带一项（enabled/model/classifyEndpointId）");
+  const { enabled, everyTurns, model, task } = ctx.payload as {
+    enabled?: unknown;
+    everyTurns?: unknown;
+    model?: unknown;
+    task?: unknown;
+  };
+  if (enabled === undefined && everyTurns === undefined && model === undefined && task === undefined) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload 至少携带一项（enabled/everyTurns/model/task）");
   }
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
   }
-  if (model !== undefined && model !== null && typeof model !== "string") {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string 或 null");
+  if (everyTurns !== undefined && (!Number.isInteger(everyTurns) || (everyTurns as number) < 1 || (everyTurns as number) > 20)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.everyTurns 应为 1-20 的整数");
   }
-  if (classifyEndpointId !== undefined && classifyEndpointId !== null && typeof classifyEndpointId !== "string") {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.classifyEndpointId 应为 string 或 null");
+  if (model !== undefined && !validSlot(model)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", 'payload.model 应为 "provider/model-id" 字符串或 null（空串 = 清空槽位）');
   }
-  const cur = ctx.topicConfig.current();
-  const next = {
-    enabled: enabled ?? cur.enabled,
-    model: model === undefined ? cur.model : model === null || model === "" ? null : model,
-    classifyEndpointId:
-      classifyEndpointId === undefined ? cur.classifyEndpointId : classifyEndpointId === null || classifyEndpointId === "" ? null : classifyEndpointId,
-  };
-  const endpoints = topicJudgeEndpoints(ctx);
-  if (next.classifyEndpointId !== null && !endpoints.some((e) => e.id === next.classifyEndpointId)) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "classifyEndpointId 必须指向清单内分类端点（kind=classifier）");
+  let taskPatch: { enabled?: boolean; model?: string | null } | undefined;
+  if (task !== undefined) {
+    if (typeof task !== "object" || task === null) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.task 应为 object");
+    }
+    const t = task as { enabled?: unknown; model?: unknown };
+    if (t.enabled !== undefined && typeof t.enabled !== "boolean") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.task.enabled 应为 boolean");
+    }
+    if (t.model !== undefined && !validSlot(t.model)) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", 'payload.task.model 应为 "provider/model-id" 字符串或 null（空串 = 清空槽位）');
+    }
+    taskPatch = {
+      ...(t.enabled !== undefined ? { enabled: t.enabled as boolean } : {}),
+      ...(t.model !== undefined ? { model: t.model as string | null } : {}),
+    };
+    if (Object.keys(taskPatch).length === 0) taskPatch = undefined;
   }
-  void ctx.topicConfig
-    .set(next)
-    .then(() => {
-      const frame: ConfigSetTopicResultEvent = {
+  void ctx.summaryConfig
+    .set({
+      ...(enabled !== undefined ? { enabled: enabled as boolean } : {}),
+      ...(everyTurns !== undefined ? { everyTurns: everyTurns as number } : {}),
+      ...(model !== undefined ? { model: model as string | null } : {}),
+      ...(taskPatch !== undefined ? { task: taskPatch } : {}),
+    })
+    .then((state) => {
+      const frame: ConfigSetSummaryResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
         channel: "model",
-        type: "config.set_topic.result",
-        payload: {
-          state: {
-            enabled: next.enabled,
-            model: next.model,
-            classifyEndpointId: next.classifyEndpointId,
-            judgeEndpoints: endpoints,
-          },
-        },
+        type: "config.set_summary.result",
+        payload: { state },
       };
       ctx.sendNow(sender, frame);
     })

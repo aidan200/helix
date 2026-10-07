@@ -23,11 +23,12 @@ const setSchedulingConfig = vi.fn();
 const requestPortConfig = vi.fn();
 const requestSandboxConfig = vi.fn();
 const setSandboxConfig = vi.fn();
-/** 动态主题批：config.topic 族命令面 mock（结果帧驱动，与沙箱同构）。 */
-const requestTopicConfig = vi.fn();
-const setTopicConfig = vi.fn(() => true);
-let mockTopic: { enabled: boolean; model: string | null; classifyEndpointId: string | null; judgeEndpoints: { id: string; name: string }[] } | null = null;
-/** 动态主题批：模型目录拉取 mock（主题模型下拉数据源）。 */
+/** 总结器独立化批①：config.summary 族命令面 mock（结果帧驱动，与沙箱同构）。 */
+const requestSummaryConfig = vi.fn();
+const setSummaryConfig = vi.fn(() => true);
+type SummaryStateMock = { enabled: boolean; everyTurns: number; model: string | null; task: { enabled: boolean; model: string | null } };
+let mockSummary: SummaryStateMock | null = null;
+/** 总结器批①：模型目录拉取 mock（总结模型下拉数据源）。 */
 const requestModelConfig = vi.fn();
 /** auth.list 拉取 mock（主题模型下拉可用性过滤——管家模型选择同款）。 */
 const requestAuthList = vi.fn();
@@ -51,9 +52,7 @@ const sendStewardSetConfig = vi.fn(
     _patch: {
       enabled?: boolean;
       model?: string;
-      summary?: { enabled?: boolean; model?: string };
       memory?: Record<string, unknown>;
-      sessionMemory?: { enabled?: boolean; everyTurns?: number; model?: string };
     },
   ) => true,
 );
@@ -71,7 +70,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [], daemonFreshness: mockDaemonFreshness },
-      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, topic: mockTopic, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
+      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, summary: mockSummary, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
       requestSchedulingConfig,
@@ -79,8 +78,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       requestPortConfig,
       requestSandboxConfig,
       setSandboxConfig,
-      requestTopicConfig,
-      setTopicConfig,
+      requestSummaryConfig,
+      setSummaryConfig,
       requestModelConfig,
       requestAuthList,
       setPortConfig,
@@ -194,8 +193,6 @@ function feedStewardConfig(
     entryCount: number;
     dim: number | null;
   },
-  summary?: { enabled: boolean; model: string | null },
-  sessionMemory?: { enabled: boolean; everyTurns: number; model: string | null },
 ) {
   const frame = {
     v: PROTOCOL_VERSION,
@@ -206,9 +203,7 @@ function feedStewardConfig(
     payload: {
       enabled,
       model: "deepseek/deepseek-v4-flash",
-      summary: summary ?? { enabled: false, model: null },
       memory: memory ?? { enabled: false, available: false, endpoint: null, entryCount: 0, dim: null },
-      sessionMemory: sessionMemory ?? { enabled: false, everyTurns: 3, model: null },
     },
   } as unknown as EventEnvelope;
   act(() => {
@@ -563,135 +558,129 @@ describe("管家配置并轨批：管家组（启用 + 语音播报从属项）"
   });
 });
 
-describe("任务总结子功能（独立槽位批：开关 + 总结模型下拉）", () => {
-  it("管家未启用 → 任务总结项不渲染；启用 → 开关项出现（fld-sub 缩进，缺省关）", () => {
-    const { container } = ui();
-    feedStewardConfig(false, undefined, { enabled: true, model: "deepseek/deepseek-v4-flash" });
-    expect(container.querySelector("[data-steward-summary]")).toBeNull();
-    feedStewardConfig(true, undefined, { enabled: false, model: null });
-    const sum = container.querySelector("[data-steward-summary]")!;
-    expect(sum).not.toBeNull();
-    expect(sum.className).toContain("fld-sub");
-    expect(sum.querySelector<HTMLInputElement>("[data-steward-summary-enabled] input")!.checked).toBe(false);
-    expect(container.querySelector("[data-steward-summary-model]")).toBeNull(); // 未开不展开下拉
+describe("总结组（会话总结器独立化批①：三产物开关 + 轮次 + 总结模型 + 任务总结）", () => {
+  it("进入分区拉取现值：requestSummaryConfig 在场调用（模型目录 + auth 顺带拉取）", () => {
+    ui();
+    expect(requestSummaryConfig).toHaveBeenCalled();
+    expect(requestModelConfig).toHaveBeenCalled();
+    expect(requestAuthList).toHaveBeenCalled();
   });
 
-  it("开关切换 → sendStewardSetConfig({summary:{enabled}}) 不乐观翻转；回执回填", () => {
+  it("总结开关双按钮在场（未请求态均不激活）；点击开启 → setSummaryConfig({enabled:true}) 不乐观翻转", () => {
     const { container } = ui();
-    feedStewardConfig(true, undefined, { enabled: false, model: null });
-    const toggle = container.querySelector<HTMLInputElement>("[data-steward-summary-enabled] input")!;
-    fireEvent.click(toggle);
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({ summary: { enabled: true } });
-    expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
-    feedStewardConfig(true, undefined, { enabled: true, model: null });
-    expect(toggle.checked).toBe(true);
+    expect(container.querySelector("[data-summary-switch]")).not.toBeNull();
+    expect(container.querySelector('[data-summary-option="on"]')!.getAttribute("aria-pressed")).toBe("false");
+    container.querySelector<HTMLElement>('[data-summary-option="on"]')!.click();
+    expect(setSummaryConfig).toHaveBeenCalledWith({ enabled: true });
+    expect(container.querySelector('[data-summary-option="on"]')!.getAttribute("aria-pressed")).toBe("false"); // 回执前不翻转
   });
 
-  it("总结模型下拉：仅开启后渲染（现值兑底选中 + 未配置 provider 模型不列）；选择写 {summary:{model}}；空选项 = 清空槽位", () => {
-    const { container } = ui();
+  it("enabled=true → 轮次输入 + 总结模型下拉渲染；false → 不渲染从属两行", () => {
+    mockSummary = { enabled: false, everyTurns: 3, model: null, task: { enabled: false, model: null } };
     try {
-      mockCatalog = {
-        models: [
-          { id: "openai/gpt-x", providerId: "openai" },
-          { id: "local/llm-y", providerId: "local" },
-        ],
-      };
-      mockAuth = { openai: { configured: true } };
-      feedStewardConfig(true, undefined, { enabled: true, model: "deepseek/deepseek-v4-flash" });
-      const select = container.querySelector<HTMLSelectElement>("[data-steward-summary-model-select]")!;
-      expect(select).not.toBeNull();
+      const { container } = ui();
+      expect(container.querySelector("[data-summary-turns]")).toBeNull();
+      expect(container.querySelector("[data-summary-model]")).toBeNull();
+    } finally {
+      mockSummary = null;
+    }
+    mockSummary = { enabled: true, everyTurns: 3, model: null, task: { enabled: false, model: null } };
+    try {
+      const { container } = ui();
+      expect(container.querySelector("[data-summary-turns]")).not.toBeNull();
+      expect(container.querySelector("[data-summary-model]")).not.toBeNull();
+    } finally {
+      mockSummary = null;
+    }
+  });
+
+  it("总结模型下拉：现值兑底选中 + 未配置 provider 过滤；选择写 {model}；空选项 = 清空（null）", () => {
+    mockSummary = { enabled: true, everyTurns: 3, model: "deepseek/deepseek-v4-flash", task: { enabled: false, model: null } };
+    mockCatalog = {
+      models: [
+        { id: "openai/gpt-x", providerId: "openai" },
+        { id: "local/llm-y", providerId: "local" },
+      ],
+    };
+    mockAuth = { openai: { configured: true } };
+    try {
+      const { container } = ui();
+      const select = container.querySelector<HTMLSelectElement>("[data-summary-model-select]")!;
       expect(select.value).toBe("deepseek/deepseek-v4-flash"); // 现值兑底（不在目录仍保留）
       const optionIds = [...select.options].map((o) => o.value);
       expect(optionIds).toContain("openai/gpt-x");
       expect(optionIds).not.toContain("local/llm-y"); // 未配置 provider 过滤
       fireEvent.change(select, { target: { value: "openai/gpt-x" } });
-      expect(sendStewardSetConfig).toHaveBeenCalledWith({ summary: { model: "openai/gpt-x" } });
+      expect(setSummaryConfig).toHaveBeenCalledWith({ model: "openai/gpt-x" });
       fireEvent.change(select, { target: { value: "" } });
-      expect(sendStewardSetConfig).toHaveBeenCalledWith({ summary: { model: "" } }); // 空串 = 清空槽位
+      expect(setSummaryConfig).toHaveBeenCalledWith({ model: null }); // 空选项 = 清空槽位
     } finally {
+      mockSummary = null;
       mockCatalog = null;
       mockAuth = {};
     }
   });
-});
 
-describe("会话进展记忆（progress 批：开关 + 总结模型下拉 + 间隔输入）", () => {
-  it("管家未启用 → 进展项不渲染；启用 → 开关项出现（fld-sub 缩进，缺省关）；未开不展开从属两行", () => {
-    const { container } = ui();
-    feedStewardConfig(false, undefined, undefined, { enabled: true, everyTurns: 3, model: "openai/gpt-x" });
-    expect(container.querySelector("[data-steward-session-memory]")).toBeNull();
-    feedStewardConfig(true, undefined, undefined, { enabled: false, everyTurns: 3, model: null });
-    const sm = container.querySelector("[data-steward-session-memory]")!;
-    expect(sm).not.toBeNull();
-    expect(sm.className).toContain("fld-sub");
-    expect(sm.querySelector<HTMLInputElement>("[data-steward-session-memory-enabled] input")!.checked).toBe(false);
-    expect(container.querySelector("[data-steward-session-memory-model]")).toBeNull(); // 未开不展开
-    expect(container.querySelector("[data-steward-session-memory-turns]")).toBeNull();
-  });
-
-  it("开关切换 → sendStewardSetConfig({sessionMemory:{enabled}}) 不乐观翻转；回执回填", () => {
-    const { container } = ui();
-    feedStewardConfig(true, undefined, undefined, { enabled: false, everyTurns: 3, model: null });
-    const toggle = container.querySelector<HTMLInputElement>("[data-steward-session-memory-enabled] input")!;
-    fireEvent.click(toggle);
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { enabled: true } });
-    expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
-    feedStewardConfig(true, undefined, undefined, { enabled: true, everyTurns: 3, model: null });
-    expect(toggle.checked).toBe(true);
-  });
-
-  it("进展总结模型下拉：开启后渲染（现值兑底选中 + 未配置 provider 模型不列）；选择写 {sessionMemory:{model}}；空选项 = 清空槽位", () => {
-    const { container } = ui();
+  it("轮次输入：现值回填；改值失焦/回车提交 {everyTurns}；非法值（0/99）回落最近已提交值零命令", () => {
+    mockSummary = { enabled: true, everyTurns: 3, model: null, task: { enabled: false, model: null } };
     try {
-      mockCatalog = {
-        models: [
-          { id: "openai/gpt-x", providerId: "openai" },
-          { id: "local/llm-y", providerId: "local" },
-        ],
-      };
-      mockAuth = { openai: { configured: true } };
-      feedStewardConfig(true, undefined, undefined, { enabled: true, everyTurns: 3, model: "deepseek/deepseek-v4-flash" });
-      const select = container.querySelector<HTMLSelectElement>("[data-steward-session-memory-model-select]")!;
-      expect(select).not.toBeNull();
-      expect(select.value).toBe("deepseek/deepseek-v4-flash"); // 现值兑底（不在目录仍保留）
-      const optionIds = [...select.options].map((o) => o.value);
-      expect(optionIds).toContain("openai/gpt-x");
-      expect(optionIds).not.toContain("local/llm-y"); // 未配置 provider 过滤
-      fireEvent.change(select, { target: { value: "openai/gpt-x" } });
-      expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { model: "openai/gpt-x" } });
-      fireEvent.change(select, { target: { value: "" } });
-      expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { model: "" } }); // 空串 = 清空槽位
+      const { container } = ui();
+      const input = container.querySelector<HTMLInputElement>("[data-summary-turns-input]")!;
+      expect(input.value).toBe("3");
+      fireEvent.change(input, { target: { value: "5" } });
+      fireEvent.blur(input);
+      expect(setSummaryConfig).toHaveBeenCalledWith({ everyTurns: 5 });
+      setSummaryConfig.mockClear();
+      fireEvent.change(input, { target: { value: "0" } });
+      fireEvent.blur(input);
+      expect(setSummaryConfig).not.toHaveBeenCalled();
+      expect(input.value).toBe("5"); // 非法回落最近已提交值
+      fireEvent.change(input, { target: { value: "99" } });
+      fireEvent.blur(input);
+      expect(setSummaryConfig).not.toHaveBeenCalled();
+      expect(input.value).toBe("5");
+      fireEvent.change(input, { target: { value: "7" } });
+      fireEvent.keyDown(input, { key: "Enter" }); // 回车也提交
+      expect(setSummaryConfig).toHaveBeenCalledWith({ everyTurns: 7 });
     } finally {
+      mockSummary = null;
+    }
+  });
+
+  it("任务总结两项：开关写 {task:{enabled}} 不乐观；开启后模型下拉渲染，选择写 {task:{model}}", () => {
+    mockSummary = { enabled: false, everyTurns: 3, model: null, task: { enabled: false, model: null } };
+    mockCatalog = { models: [{ id: "openai/gpt-x", providerId: "openai" }] };
+    mockAuth = { openai: { configured: true } };
+    try {
+      const { container } = ui();
+      const toggle = container.querySelector<HTMLInputElement>("[data-summary-task-enabled] input")!;
+      expect(toggle.checked).toBe(false);
+      fireEvent.click(toggle);
+      expect(setSummaryConfig).toHaveBeenCalledWith({ task: { enabled: true } });
+      expect(toggle.checked).toBe(false); // 回执前不翻转（daemon 权威）
+      expect(container.querySelector("[data-summary-task-model]")).toBeNull(); // 未开不展开下拉
+    } finally {
+      mockSummary = null;
+    }
+    mockSummary = { enabled: false, everyTurns: 3, model: null, task: { enabled: true, model: "openai/gpt-x" } };
+    try {
+      const { container } = ui();
+      const select = container.querySelector<HTMLSelectElement>("[data-summary-task-model-select]")!;
+      expect(select.value).toBe("openai/gpt-x");
+      fireEvent.change(select, { target: { value: "" } });
+      expect(setSummaryConfig).toHaveBeenCalledWith({ task: { model: null } });
+    } finally {
+      mockSummary = null;
       mockCatalog = null;
       mockAuth = {};
     }
   });
 
-  it("间隔输入：回执现值回填；改值失焦提交 {sessionMemory:{everyTurns}}；非法值（0/99）回落现值不发命令", () => {
+  it("send 失败（setSummaryConfig false）→ 行内错误交代（data-summary-save-error）", () => {
+    setSummaryConfig.mockReturnValueOnce(false);
     const { container } = ui();
-    feedStewardConfig(true, undefined, undefined, { enabled: true, everyTurns: 3, model: null });
-    const input = container.querySelector<HTMLInputElement>("[data-steward-session-memory-turns-input]")!;
-    expect(input).not.toBeNull();
-    expect(input.value).toBe("3");
-    // 合法改值：失焦提交
-    fireEvent.change(input, { target: { value: "5" } });
-    fireEvent.blur(input);
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { everyTurns: 5 } });
-    // 非法下界：回落现值零命令（回执前本地值 5）
-    sendStewardSetConfig.mockClear();
-    fireEvent.change(input, { target: { value: "0" } });
-    fireEvent.blur(input);
-    expect(sendStewardSetConfig).not.toHaveBeenCalled();
-    expect(input.value).toBe("5");
-    // 非法上界：同上
-    fireEvent.change(input, { target: { value: "99" } });
-    fireEvent.blur(input);
-    expect(sendStewardSetConfig).not.toHaveBeenCalled();
-    expect(input.value).toBe("5");
-    // 回车也提交
-    fireEvent.change(input, { target: { value: "7" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({ sessionMemory: { everyTurns: 7 } });
+    fireEvent.click(container.querySelector<HTMLElement>('[data-summary-option="on"]')!);
+    expect(container.querySelector("[data-summary-save-error]")).not.toBeNull();
   });
 });
 
@@ -842,84 +831,6 @@ describe("stale-indicator 批：关于 daemon 卡（daemon 启动时间人话显
   });
 });
 
-
-describe("动态主题卡（动态主题批）", () => {
-  it("进入分区拉取现值：requestTopicConfig 在场调用（模型目录 + auth 顺带拉取）", () => {
-    ui();
-    expect(requestTopicConfig).toHaveBeenCalled();
-    expect(requestModelConfig).toHaveBeenCalled();
-    expect(requestAuthList).toHaveBeenCalled();
-  });
-
-  it("开关双按钮组在场（未请求态均不激活）", () => {
-    const { container } = ui();
-    expect(container.querySelector("[data-topic-switch]")).not.toBeNull();
-    expect(container.querySelector('[data-topic-option="on"]')).not.toBeNull();
-    expect(container.querySelector('[data-topic-option="off"]')).not.toBeNull();
-  });
-
-  it("enabled=true 结果帧驱动：主题模型下拉 + 分类模型下拉恒显（judgeEndpoints 空 → 仅默认项 + 提示）", () => {
-    mockTopic = { enabled: true, model: null, classifyEndpointId: null, judgeEndpoints: [] };
-    try {
-      const { container } = ui();
-      expect(container.querySelector("[data-topic-model-select]")).not.toBeNull();
-      const select = container.querySelector<HTMLSelectElement>("[data-topic-endpoint-select]");
-      expect(select).not.toBeNull();
-      expect(select!.value).toBe(""); // 默认项：主题生成模型兼任判断
-      expect(select!.options.length).toBe(1);
-      expect(container.querySelector("[data-topic-classify-empty]")).not.toBeNull();
-    } finally {
-      mockTopic = null;
-    }
-  });
-
-  it("judgeEndpoints 非空：分类模型选项在场（判定恒开，选中态回显）", () => {
-    mockTopic = {
-      enabled: true,
-      model: "deepseek/deepseek-v4-flash",
-      classifyEndpointId: "jev-1",
-      judgeEndpoints: [{ id: "jev-1", name: "Jev 分类模型" }],
-    };
-    try {
-      const { container } = ui();
-      const select = container.querySelector<HTMLSelectElement>("[data-topic-endpoint-select]");
-      expect(select).not.toBeNull();
-      expect(select!.value).toBe("jev-1");
-      expect(select!.options.length).toBe(2); // 默认项 + 分类模型
-      expect(container.querySelector("[data-topic-classify-empty]")).toBeNull();
-    } finally {
-      mockTopic = null;
-    }
-  });
-
-  it("主题模型下拉只列已配置 provider 的模型（管家选择逻辑同款可用性过滤）", () => {
-    mockTopic = { enabled: true, model: null, classifyEndpointId: null, judgeEndpoints: [] };
-    mockCatalog = {
-      models: [
-        { id: "openai/gpt-x", providerId: "openai" },
-        { id: "local/llm-y", providerId: "local" },
-      ],
-    };
-    mockAuth = { openai: { configured: true } };
-    try {
-      const { container } = ui();
-      const select = container.querySelector<HTMLSelectElement>("[data-topic-model-select]")!;
-      const optionIds = [...select.options].map((o) => o.value);
-      expect(optionIds).toContain("openai/gpt-x");
-      expect(optionIds).not.toContain("local/llm-y");
-    } finally {
-      mockTopic = null;
-      mockCatalog = null;
-      mockAuth = {};
-    }
-  });
-
-  it("点击开启 → setTopicConfig({enabled:true}) 部分更新（无乐观更新，结果帧驱动回填）", () => {
-    const { container } = ui();
-    container.querySelector<HTMLElement>('[data-topic-option="on"]')!.click();
-    expect(setTopicConfig).toHaveBeenCalledWith({ enabled: true });
-  });
-});
 
 describe("B4 唤醒链设置（管家组：快捷键（组合键）本地偏好——唤醒词已随「热键直通双工」退役）", () => {
   it("管家启用后渲染从属项；管家未启用：从属项不渲染（从属项形态同 speakReply）", () => {

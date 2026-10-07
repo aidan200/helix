@@ -142,28 +142,39 @@ export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_sandbox";
 }
 
-// ── config.topic 族（动态主题批；会话阶段演进主题配置）──
+// ── config.summary 族（会话总结器独立化批①；总结配置组独立收口）──
 
 /**
- * config.set_topic 载荷：动态主题配置（部分更新语义：携带项写入，未携带项
- * 保留现值；classifyEndpointId 非空时须指向 kind=classifier 端点——分类
- * 判断恒开，选中 = 两段式判官，null = 主题生成模型兼任判断）。
+ * config.set_summary 载荷：总结配置（部分更新语义：携带项写入，未携带项
+ * 保留现值）。总结是平台能力（标题 + 进展 + 记忆点三产物 + 任务总结子功能），
+ * 配置收编 summary.* 通用域——管家配置零总结项（steward.set_config 已摘
+ * summary/sessionMemory 组）。
  */
-export interface ConfigSetTopicPayload {
-  /** 动态主题开关。 */
+export interface ConfigSetSummaryPayload {
+  /** 三产物总开关（标题/进展/记忆点——任务总结开关独立归 task.enabled）。 */
   enabled?: boolean;
-  /** 主题生成模型（"provider/model-id"；空串 = 清除回落全局兑底）。 */
+  /** 锚点轮次间隔（合法 1-20 整数；非法回执 invalid_payload——写面类型闸，
+   *  值语义读面单点兜底）。 */
+  everyTurns?: number;
+  /** 总结模型槽位（"provider/model-id"；空串/null = 清空回未配置态——显式配
+   *  才产进展+记忆点（无默认纪律），标题回落链 summary.model → flash 默认）。 */
   model?: string | null;
-  /** 分类模型端点 id（embedding 配置域 kind=classifier 条目；null/空串 = 清除）。 */
-  classifyEndpointId?: string | null;
+  /** 任务总结子功能组（语音播报摘要 + 感知分诊 gate 共用；全部位可选）。 */
+  task?: {
+    /** 任务总结开关（默认关）。 */
+    enabled?: boolean;
+    /** 任务总结模型槽位（空串/null = 清空；**无默认模型**——未配 = 任务总结
+     *  面不可用，回退极简终态通知）。 */
+    model?: string | null;
+  };
 }
-export interface ConfigSetTopicCommand extends CommandFrame<ConfigSetTopicPayload> {
-  type: "config.set_topic";
+export interface ConfigSetSummaryCommand extends CommandFrame<ConfigSetSummaryPayload> {
+  type: "config.set_summary";
 }
 
-/** config.get_topic 载荷：全局命令。 */
-export interface ConfigGetTopicCommand extends CommandFrame<EmptyPayload> {
-  type: "config.get_topic";
+/** config.get_summary 载荷：全局命令。 */
+export interface ConfigGetSummaryCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_summary";
 }
 
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──

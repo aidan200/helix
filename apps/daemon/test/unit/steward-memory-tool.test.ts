@@ -121,6 +121,9 @@ function makeService(opts: {
     feedGate: { hasStewardSubscribers: () => opts.subscribers ?? false },
     emitFeed: () => {},
     emitMemoryWritten: (payload) => notes.push(payload),
+    // 批①：B5 沉淀触发缺省停用（换轨总结器记忆点）——本文件测休眠管线
+    // （轮末沉淀防双写用例），显式置 true 驱动；生产装配零触发
+    sedimentTriggers: true,
     ...(opts.memory !== undefined ? { memory: opts.memory } : {}),
   });
   return { svc, notes };

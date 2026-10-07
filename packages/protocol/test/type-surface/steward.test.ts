@@ -230,7 +230,7 @@ const configResult: StewardConfigResultEvent = {
   payload: {
     enabled: false,
     model: "deepseek/deepseek-v4-flash",
-    summary: { enabled: false, model: null },
+    summary: { enabled: false, everyTurns: 3, model: null, task: { enabled: false, model: null } },
     memory: { enabled: false, available: false, endpoint: null, judgeEndpoint: null, entryCount: 0, dim: null },
   },
 };
@@ -432,7 +432,7 @@ const memoryConfigResult: StewardConfigResultEvent = {
   payload: {
     enabled: true,
     model: "deepseek/deepseek-v4-flash",
-    summary: { enabled: true, model: "deepseek/deepseek-v4-flash" },
+    summary: { enabled: true, everyTurns: 3, model: "deepseek/deepseek-v4-flash", task: { enabled: true, model: "deepseek/deepseek-v4-flash" } },
     memory: {
       enabled: true,
       available: true,
