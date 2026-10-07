@@ -643,6 +643,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // toggle 推送/subagentAssemblyFor）应用时刻取现值。
     residentRulesOf: (projectRoots: readonly string[]) =>
       workspace.stack()?.queryService.residentRulesSection(projectRoots) ?? null,
+    // 批D：编码 agent 记忆召回段数据源（只读消费面——主会话/SubAgent 双形
+    // 态系统提示组装链）。stewardMemory 在下方构造（晚绑闭包——运行期触
+    // 发时已就位；vec0 缺席/记忆未配置 → 段省略零注入痕迹）。单项目归约
+    // 与 progress 写入口径同源（singleProjectDirOf 单点）：唯一足迹项目 →
+    // 该项目（global + 项目）；零/多足迹 → undefined（仅 global）。
+    agentMemoryRecallOf: (projectRoots: readonly string[]) => {
+      const memory = stewardMemory;
+      if (memory === undefined) return null;
+      return memory.agentRecallSection(singleProjectDirOf(projectRoots)) ?? null;
+    },
     // task_report 工具装配面（D3）：主会话 executor 注册 chat 回流通用报告
     // 查询面——任务读面（TaskQueryService list/detail）+ closure_records 读面
     //（SessionRepositoryPort.queryClosureRecords）+ 报告目录约定（与
@@ -884,11 +894,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         // 项目隔离批：progress 写时项目解析——会话写足迹（writeFacts）单项目
         // 归约 → workspace 一级目录名；多项目/无足迹 → undefined（回落
         // global）。总结器/感知两 progress 入口共用（入库点收口，调用面零
-        // 签名变化）。
-        resolveSessionProject: (sessionId) => {
-          const foot = sessionStack.writeFacts.projectFootprint(sessionId);
-          return foot.length === 1 ? (foot[0]!.split("/").pop() ?? undefined) : undefined;
-        },
+        // 签名变化）。批D：编码 agent 召回 scope 同口径（singleProjectDirOf
+        // 单点——复用不复制）。
+        resolveSessionProject: (sessionId) =>
+          singleProjectDirOf(sessionStack.writeFacts.projectFootprint(sessionId)),
         // B4a 判官真体（分类模型注册表分派，variant 区分实现）：
         // judgeEndpointId 惰性解析 + kind 校验（误指 embedding 端点 →
         // null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
@@ -1526,4 +1535,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     runCli: () => cli.run(),
     shutdown: system.shutdown,
   };
+}
+
+/**
+ * 会话写足迹单项目归约（E-264 单项目口径单点——progress 写入 scope 与
+ * 编码 agent 记忆召回 scope 共用）：唯一足迹项目根 → workspace 一级目录
+ * 名；零/多足迹 → undefined（调用方回落 global-only）。批D 前为
+ * resolveSessionProject 内联表达式（等价重构收单点，行为零变化）。
+ */
+function singleProjectDirOf(projectRoots: readonly string[]): string | undefined {
+  return projectRoots.length === 1 ? (projectRoots[0]!.split("/").pop() ?? undefined) : undefined;
 }
