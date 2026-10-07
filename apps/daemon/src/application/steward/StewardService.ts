@@ -334,6 +334,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
 - 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数；追问某会话具体聊了什么/进展细节时用 read_session 深读尾部消息——记忆召回行的「[进展]…（sid: xxx）」可直接作 read_session 的 sessionId）。
+- 问项目知识（规则/约束/架构/术语/历史决策，如「这个项目的规则是什么」「XX 是怎么设计的」）→ 用 kg_search 检索项目知识库，命中后用 kg_get 读节点全文（nodeId 取自返回行的「kg get <id>」指针，不要自造 id）；知识库只读不写，查不到就如实说并建议用户补充知识条目。project 参数可指定项目（缺省=当前活跃项目）。
 - 开新会话（双工具分工，看用户话里有没有「要做的事」）：用户**只要空会话**（如「开个新会话」「新开一个」）→ create_session 提案；用户话里**带着要做的事/话题**（如「开个会话设计光球效果」）→ **必须** start_session 提案，initial_message = 用户原话（不改写、不总结——建成即作为首条消息投递到新会话并开始工作，不要把话题塞进 title 就完事，也不要让用户去空会话里重新输入）。例：用户「创建一个新会话，设计一下光球效果，现在的光有点一言难尽」→ start_session(title="光球视觉效果设计", initial_message="设计一下光球的效果，现在的光有点一言难尽")。两个工具建成后界面都会自动切到新会话。
 - 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → 调用 remember（立即静默入库并弹通知卡，无需确认——text 要提炼成一句简单易懂、主题明确的记忆句，不要照搬用户原话口语）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。系统也会在轮末自动提炼记忆，你主动记得准就轮不到自动提炼。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
@@ -743,6 +744,23 @@ export interface StewardProjectsSource {
   hasIndex(projectRoot: string): boolean;
 }
 
+/** 批A（管家开放 kg 只读工具）：项目知识只读检索面——实现体 = adapters/
+ *  driven/tools/kg/StewardKgTool.ts createStewardKgSource（复用 createKgTool
+ *  语义：search = digest+指针形态摘要行 / get = 节点全量；全链路零写——
+ *  本域不提供任何 kg 写原语，写面不进管家工具面）。渲染文本直接过
+ *  capToolResultText 体量护栏。 */
+export interface StewardKgSource {
+  /** 当前 kg 项目域（已建 .helix-kg 的项目根列表，workspace-scan/scanProjects
+   *  口径；空集 = absent 判定源——引导式降级，读面绝不新建库文件）。 */
+  kgProjects(): readonly string[];
+  /** 关键词检索（渲染文本）：projectRoot 缺省 = 当前活跃项目域（单项目
+   *  即活跃项目；多项目聚合）；指定 = 单项目范围。 */
+  search(q: string, projectRoot?: string): Promise<string>;
+  /** 节点全量读取（渲染文本）：nodeId 形态校验/查无节点在实现体抛中文引导
+   *  错，执行体兜底转文本不抛错不炸轮。 */
+  get(nodeId: string, projectRoot?: string): Promise<string>;
+}
+
 export interface StewardServiceDeps {
   readonly llm: StewardLlmPort;
   /** 编排面（status 只读 + send 写注入——agent_send 等价 steer 通道）。 */
@@ -779,6 +797,9 @@ export interface StewardServiceDeps {
   /** A2：kg 项目解析面（spawn_review_task 前置校验；缺席 = 项目校验降级
    *  为存在性未知，直接进确认闸）。 */
   readonly projects?: StewardProjectsSource;
+  /** 批A：kg 只读检索面（kg_search/kg_get 执行体——StewardKgSource；
+   *  缺席 = 引导式降级（零抛错），对话主链路零影响。 */
+  readonly kg?: StewardKgSource;
   /** A2：任务创建面（task_create 同款引擎通道——paramsSchema 校验在引擎，
    *  TaskError message 原样透传；method 语法容忍 CreateTaskInput 逆变）。 */
   readonly taskEngine?: {
@@ -914,6 +935,38 @@ const TOOL_READ_SESSION: StewardLlmTool = {
       tail: { type: "number", description: "尾部条数（可选，缺省 6，上限 20）" },
     },
     required: ["sessionId"],
+    additionalProperties: false,
+  },
+};
+
+// ── 批A（管家开放 kg 只读工具）：项目知识只读检索二件 ────────
+
+const TOOL_KG_SEARCH: StewardLlmTool = {
+  name: "kg_search",
+  description:
+    "检索项目知识图谱（只读）。按关键词（节点名/摘要子串匹配，非语义）返回摘要列表，每行含适用场景、摘要与 `kg get <id>` 指针。回答「这个项目的规则/架构/术语/历史决策是什么」类问题时先用本工具取数，命中后用 kg_get 读全文。id 永远取自返回行指针，不要自造。",
+  parameters: {
+    type: "object",
+    properties: {
+      q: { type: "string", description: "关键词（取用户问题里的核心名词/术语——子串匹配，短而准命中率高）" },
+      project: { type: "string", description: "项目名（可选，缺省=当前活跃项目；多项目 workspace 用一级目录名）" },
+    },
+    required: ["q"],
+    additionalProperties: false,
+  },
+};
+
+const TOOL_KG_GET: StewardLlmTool = {
+  name: "kg_get",
+  description:
+    "读取项目知识节点全量（只读）：digest/适用场景/正文/锚/关系/supersede 链/变更日志。nodeId 必须取自 kg_search 返回行的「kg get <id>」指针（TR-n / E-n 形态）；结果体量大时先看 digest 与适用场景再引用。",
+  parameters: {
+    type: "object",
+    properties: {
+      nodeId: { type: "string", description: "节点 id（TR-n / E-n 形态——必须取自 kg_search 返回行指针）" },
+      project: { type: "string", description: "项目名（可选，缺省=当前活跃项目）" },
+    },
+    required: ["nodeId"],
     additionalProperties: false,
   },
 };
@@ -1066,6 +1119,8 @@ const STEWARD_TOOLS: readonly StewardLlmTool[] = [
   TOOL_LIST_TASKS,
   TOOL_QUERY_RECENT_WORK,
   TOOL_READ_SESSION,
+  TOOL_KG_SEARCH,
+  TOOL_KG_GET,
   TOOL_PROPOSE_SEND,
   TOOL_DELIVER_TO_SESSION,
   TOOL_CREATE_SESSION,
@@ -2363,12 +2418,13 @@ export class StewardService {
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
    *  summary 组 = 任务总结子功能（enabled 开关 + 专用模型槽位，空串 = 清空）；
-   *  memory 组 B2 瘦身形态 {enabled?,endpointId?} + B4a judgeEndpointId）。 */
+   *  memory 组 {enabled?,endpointId?,judgeEndpointId?} + 批B 召回量
+   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*）。 */
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
     summary?: { enabled?: boolean; model?: string };
-    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string };
+    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number };
     sessionMemory?: { enabled?: boolean; everyTurns?: number; model?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.sessionMemory !== undefined) {
@@ -2506,6 +2562,16 @@ export class StewardService {
     this.toolSpecs.push({
       ...TOOL_READ_SESSION,
       execute: async (args) => ({ text: capToolResultText(await this.readSession(args as Record<string, unknown>)) }),
+    });
+    // 批A：kg 只读二件（kg_search/kg_get——项目知识问答，与只读族同族不挂
+    // 闸）；全链路零写：注册面不含任何 kg 写原语（写面不进管家工具面）。
+    this.toolSpecs.push({
+      ...TOOL_KG_SEARCH,
+      execute: async (args) => ({ text: capToolResultText(await this.kgSearchOf(args as Record<string, unknown>)) }),
+    });
+    this.toolSpecs.push({
+      ...TOOL_KG_GET,
+      execute: async (args) => ({ text: capToolResultText(await this.kgGetOf(args as Record<string, unknown>)) }),
     });
     // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute 为
     // approve 决策执行体（重新过闸校验 + 执行——与 confirm 的 executePending
@@ -3057,6 +3123,71 @@ export class StewardService {
       return `项目 ${project} 不在当前 workspace——请与用户确认项目名`;
     }
     return undefined;
+  }
+
+  // ── 批A：kg_search / kg_get（项目知识只读检索） ─────────
+
+  /** kg scope 解析（E-212 纪律：必填显式 + 服务端兜底打回；缺省 = 当前活跃
+   *  项目）：返回 projectRoot（undefined = 多项目聚合域）或引导文案（打回/
+   *  降级均不抛错，与 query_recent_work 降级姿态同族）。 */
+  private resolveKgScope(projectArg: unknown): { root?: string } | { guide: string } {
+    const kg = this.deps.kg;
+    if (kg === undefined) {
+      return { guide: "知识图谱读面不可用（daemon 装配缺 kg 源）——项目知识暂无法检索，可建议用户直接查看项目文档" };
+    }
+    const project = typeof projectArg === "string" && projectArg.trim() !== "" ? projectArg.trim() : undefined;
+    if (project === undefined) {
+      // 缺省 = 当前活跃项目（workspace-scan/scanProjects 口径）：单项目即
+      // 活跃项目；多项目在场 → 活跃域聚合（undefined）。
+      const roots = kg.kgProjects();
+      if (roots.length === 0) {
+        return {
+          guide:
+            "当前 workspace 尚无项目知识索引（.helix-kg/kg.db 缺席）——项目知识检索需先建索引；可引导用户到知识图谱页建立索引，或如实告知查不到",
+        };
+      }
+      return roots.length === 1 ? { root: roots[0]! } : {};
+    }
+    // 显式 project：workspace-scan/scanProjects 口径解析（deps.projects 同源）
+    if (this.deps.projects === undefined) {
+      const hit = kg.kgProjects().find((root) => root.split("/").pop() === project);
+      return hit !== undefined ? { root: hit } : { guide: `项目 ${project} 不在当前知识域——请与用户确认项目名` };
+    }
+    const root = this.deps.projects.resolve(project);
+    if (root === undefined) return { guide: `项目 ${project} 不在当前 workspace——请与用户确认项目名` };
+    if (!this.deps.projects.hasIndex(root)) {
+      return { guide: `项目 ${project} 尚未建知识索引（.helix-kg 缺席）——可建议用户先建索引后再问，或如实告知查不到` };
+    }
+    return { root };
+  }
+
+  /** kg_search 工具体（只读）：关键词 → digest+指针摘要行；体量过
+   *  capToolResultText 护栏由注册面兜底。 */
+  private async kgSearchOf(args: Record<string, unknown>): Promise<string> {
+    const q = typeof args["q"] === "string" ? args["q"].trim() : "";
+    if (q === "") return "参数缺失：q 必填（关键词——知识节点名/摘要子串匹配）";
+    const scope = this.resolveKgScope(args["project"]);
+    if ("guide" in scope) return scope.guide;
+    try {
+      return await this.deps.kg!.search(q, scope.root);
+    } catch (err) {
+      this.deps.logger?.warn(`kg_search 读面失败：${(err as Error).message}`);
+      return `知识检索失败：${(err as Error).message}`;
+    }
+  }
+
+  /** kg_get 工具体（只读）：节点全量；id 非法/查无节点 = 引导类（实现体
+   *  中文引导原文兜底转文本——不抛错不炸轮）。 */
+  private async kgGetOf(args: Record<string, unknown>): Promise<string> {
+    const nodeId = typeof args["nodeId"] === "string" ? args["nodeId"].trim() : "";
+    if (nodeId === "") return "参数缺失：nodeId 必填（取自 kg_search 返回行的「kg get <id>」指针）";
+    const scope = this.resolveKgScope(args["project"]);
+    if ("guide" in scope) return scope.guide;
+    try {
+      return await this.deps.kg!.get(nodeId, scope.root);
+    } catch (err) {
+      return (err as Error).message;
+    }
   }
 
   // ── progress 批 M3：read_session（会话尾部内容深读）────────

@@ -148,7 +148,7 @@ describe("progress 批·StewardMemoryService.recordSessionProgress", () => {
   } = {}) {
     const store = fakeStore({ progressId: opts.progressId });
     const service = new StewardMemoryService({
-      config: fakeConfig({ "steward.memory.enabled": "1", "steward.memory.endpointId": "ep-1", ...(opts.kv ?? {}) }),
+      config: fakeConfig({ "memory.enabled": "1", "memory.endpointId": "ep-1", ...(opts.kv ?? {}) }),
       embeddingConfig: fakeLookup(),
       embedding: fakeEmbedding(),
       store,
@@ -179,7 +179,7 @@ describe("progress 批·StewardMemoryService.recordSessionProgress", () => {
   test("③ 不可用静默 false（记忆开关关——旁路生产不抛错）", async () => {
     const store = fakeStore();
     const service = new StewardMemoryService({
-      config: fakeConfig({ "steward.memory.endpointId": "ep-1" }),
+      config: fakeConfig({ "memory.endpointId": "ep-1" }),
       embeddingConfig: fakeLookup(),
       embedding: fakeEmbedding(),
       store,
@@ -225,7 +225,7 @@ describe("progress 批·召回（progressQuota + 行文）", () => {
       search: () => pool.map((e) => ({ ...e, score: 0.9 })),
     } as unknown as StewardMemoryPort;
     const service = new StewardMemoryService({
-      config: fakeConfig({ "steward.memory.enabled": "1", "steward.memory.endpointId": "ep-1" }),
+      config: fakeConfig({ "memory.enabled": "1", "memory.endpointId": "ep-1" }),
       embeddingConfig: fakeLookup(),
       embedding: fakeEmbedding(),
       store,
@@ -253,7 +253,7 @@ describe("progress 批·召回（progressQuota + 行文）", () => {
       search: () => pool.map((e) => ({ ...e, score: 0.9 })),
     } as unknown as StewardMemoryPort;
     const service = new StewardMemoryService({
-      config: fakeConfig({ "steward.memory.enabled": "1", "steward.memory.endpointId": "ep-1" }),
+      config: fakeConfig({ "memory.enabled": "1", "memory.endpointId": "ep-1" }),
       embeddingConfig: fakeLookup(),
       embedding: fakeEmbedding(),
       store,
