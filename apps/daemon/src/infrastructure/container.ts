@@ -950,10 +950,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     llm: stewardLlm,
     ...(dialog !== undefined ? { dialog } : {}),
     memory: stewardMemory,
-    // 项目隔离批：记忆召回当前项目解析——workspace 绑定根 + 一级目录扫描
-    // （与 codegraph/kg 的 projectPath 同源口径）；单项目 → 该项目（global +
-    // 本项目可召回），多项目/未绑定 → undefined（只 global——与 resolveKgScope
-    // 「当前活跃项目」同款单项目口径）。每次 ask 现扫（毫秒级，重绑跟随）。
+    // 项目隔离批：当前项目口径解析（workspace 绑定根 + 一级目录扫描，
+    // 与 codegraph/kg 的 projectPath 同源口径；kg 缺省范围批起双消费：记忆
+    // 召回 + kg_search/kg_get 缺省范围——resolveKgScope 直接取本口径，不另
+    // 造判定）；单项目 → 该项目，多项目/未绑定 → undefined（召回只 global /
+    // kg 缺省聚合兑底）。每次 ask/kg 工具调用现扫（毫秒级，重绑跟随）。
     memoryProject: () => {
       const root = workspace.boundRoot();
       if (root === null) return undefined;
