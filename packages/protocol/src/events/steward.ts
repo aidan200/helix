@@ -203,6 +203,11 @@ export interface StewardConfigResultPayload {
     entryCount: number;
     /** 当前向量维度（未初始化 = null）。 */
     dim: number | null;
+    /** 召回注入条数上限生效值（批B 配置驱动；缺省 5；非法 KV 回显缺省
+     *  ——所见即所得。additive 可选：旧壳/未装配缺席忽略）。 */
+    recallTopK?: number;
+    /** 召回候选池生效值（批B；缺省 24。additive 可选）。 */
+    recallPool?: number;
   };
   /** 会话进展记忆面现态（progress 批，additive——旧 shell 忽略无损）。 */
   sessionMemory?: {

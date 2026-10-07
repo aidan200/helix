@@ -22,7 +22,8 @@ import {
   EmbeddingConfigService,
   EMBEDDING_ENDPOINTS_KEY,
 } from "../../src/application/embedding/EmbeddingConfigService";
-import { STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY } from "../../src/application/steward/StewardMemoryService";
+import { STEWARD_MEMORY_EMBEDDING_KEY } from "../../src/application/steward/StewardMemoryService";
+import { MEMORY_ENDPOINT_ID_KEY } from "../../src/application/memory/memoryConfig";
 
 /** 内存 KV fake（RuntimeConfigPort 最小实现）。 */
 function memoryConfig(initial: Record<string, string> = {}): RuntimeConfigPort & { dump(): Record<string, string | undefined> } {
@@ -166,14 +167,14 @@ describe("EmbeddingConfigService：resolve + 一次性迁移", () => {
       [STEWARD_MEMORY_EMBEDDING_KEY]: JSON.stringify({ baseUrl: "http://localhost:11434/v1", apiKey: "legacy-key", model: "bge-m3" }),
     });
     const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
-    const migrated = await svc.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY);
+    const migrated = await svc.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, MEMORY_ENDPOINT_ID_KEY);
     expect(migrated).not.toBeNull();
     if (migrated === null) throw new Error("unreachable");
     const list = svc.list();
     expect(list).toHaveLength(1);
     expect(list[0]!.name).toBe("默认端点");
     expect(list[0]!.baseUrl).toBe("http://localhost:11434/v1");
-    expect(config.get(STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBe(migrated);
+    expect(config.get(MEMORY_ENDPOINT_ID_KEY)).toBe(migrated);
     expect(config.get(STEWARD_MEMORY_EMBEDDING_KEY)).toBe(""); // 旧键清空（B1 读面空串视同未配置）
   });
 
@@ -183,7 +184,7 @@ describe("EmbeddingConfigService：resolve + 一次性迁移", () => {
     });
     const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
     await svc.set({ name: "新端点", baseUrl: "http://new/v1", model: "new-m" });
-    expect(await svc.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBeNull();
+    expect(await svc.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, MEMORY_ENDPOINT_ID_KEY)).toBeNull();
     expect(svc.list()).toHaveLength(1);
     expect(config.get(STEWARD_MEMORY_EMBEDDING_KEY)).toBeDefined();
   });
@@ -191,11 +192,11 @@ describe("EmbeddingConfigService：resolve + 一次性迁移", () => {
   test("migrate：旧键不存在 / 形态非法 → 零动作", async () => {
     const empty = memoryConfig();
     const svcEmpty = new EmbeddingConfigService({ config: empty, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
-    expect(await svcEmpty.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBeNull();
+    expect(await svcEmpty.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, MEMORY_ENDPOINT_ID_KEY)).toBeNull();
 
     const broken = memoryConfig({ [STEWARD_MEMORY_EMBEDDING_KEY]: "not-json{{" });
     const svcBroken = new EmbeddingConfigService({ config: broken, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
-    expect(await svcBroken.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBeNull();
+    expect(await svcBroken.migrateLegacyStewardEndpoint(STEWARD_MEMORY_EMBEDDING_KEY, MEMORY_ENDPOINT_ID_KEY)).toBeNull();
     expect(svcBroken.list()).toHaveLength(0);
   });
 });

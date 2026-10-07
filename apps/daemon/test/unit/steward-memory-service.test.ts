@@ -31,10 +31,6 @@ import type {
 import type { EmbeddingEndpointRecord } from "../../src/application/embedding/EmbeddingConfigService";
 import {
   StewardMemoryService,
-  STEWARD_MEMORY_ENABLED_KEY,
-  STEWARD_MEMORY_ENDPOINT_ID_KEY,
-  STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY,
-  STEWARD_MEMORY_RECALL_TOP_K,
   STEWARD_MEMORY_DEDUP_RECALL_THRESHOLD,
   STEWARD_MEMORY_DEDUP_FALLBACK_THRESHOLD,
   STEWARD_MEMORY_SAME_THRESHOLD,
@@ -45,6 +41,11 @@ import {
   pickPurgeCandidates,
   type EmbeddingConfigLookup,
 } from "../../src/application/steward/StewardMemoryService";
+import {
+  MEMORY_ENABLED_KEY,
+  MEMORY_ENDPOINT_ID_KEY,
+  MEMORY_JUDGE_ENDPOINT_ID_KEY,
+} from "../../src/application/memory/memoryConfig";
 
 const EP_ID = "ep-bge";
 const ENDPOINT_RECORD: EmbeddingEndpointRecord = {
@@ -191,8 +192,8 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
 }
 
 const ENABLED_KV = {
-  [STEWARD_MEMORY_ENABLED_KEY]: "1",
-  [STEWARD_MEMORY_ENDPOINT_ID_KEY]: EP_ID,
+  [MEMORY_ENABLED_KEY]: "1",
+  [MEMORY_ENDPOINT_ID_KEY]: EP_ID,
 };
 
 // ── 文件级判官 helper（B5 两段闸段与 B4a 判官面段共用）────────────────────
@@ -259,7 +260,7 @@ describe("StewardMemoryService", () => {
     const embedding = fakeEmbedding();
     // 开关关
     const off = new StewardMemoryService({
-      config: fakeConfig({ [STEWARD_MEMORY_ENDPOINT_ID_KEY]: EP_ID }),
+      config: fakeConfig({ [MEMORY_ENDPOINT_ID_KEY]: EP_ID }),
       embedding,
       embeddingConfig: fakeLookup(),
       store: fakeStore(),
@@ -267,7 +268,7 @@ describe("StewardMemoryService", () => {
     expect(await off.recallSection("x")).toBeUndefined();
     // endpointId 未设
     const noRef = new StewardMemoryService({
-      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1" }),
+      config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1" }),
       embedding,
       embeddingConfig: fakeLookup(),
       store: fakeStore(),
@@ -343,16 +344,16 @@ describe("StewardMemoryService", () => {
     // 先开开关（endpointId 未配）——写面放行，可用性待命
     const turnedOn = await svc.setMemoryConfig({ enabled: true });
     expect(turnedOn.ok).toBe(true);
-    expect(config.kv.get(STEWARD_MEMORY_ENABLED_KEY)).toBe("1");
+    expect(config.kv.get(MEMORY_ENABLED_KEY)).toBe("1");
     expect(svc.getMemoryState().available).toBe(false); // 待命：引用未配
     // endpointId 补齐 → 自动生效（available 翻真）
     const ok = await svc.setMemoryConfig({ endpointId: EP_ID });
     expect(ok.ok).toBe(true);
-    expect(config.kv.get(STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBe(EP_ID);
+    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBe(EP_ID);
     expect(svc.getMemoryState().available).toBe(true);
     // 空串 = 清除引用（显式解绑）
     await svc.setMemoryConfig({ endpointId: "" });
-    expect(config.kv.get(STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBe("");
+    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBe("");
     expect(svc.getMemoryState().available).toBe(false);
   });
 
@@ -456,7 +457,7 @@ describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () =>
     return new StewardMemoryService({
       config: judge === undefined
         ? fakeConfig(ENABLED_KV)
-        : fakeConfig({ ...ENABLED_KV, [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: "ep-jev" }),
+        : fakeConfig({ ...ENABLED_KV, [MEMORY_JUDGE_ENDPOINT_ID_KEY]: "ep-jev" }),
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
       store: scoreStore(topScore),
@@ -558,7 +559,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
 
   test("① 判官可用性：enabled ∧ judgeEndpointId 有效(classifier) ∧ judge port 注入 → true", () => {
     const svc = new StewardMemoryService({
-      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1", [MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
       judge: fakeJudge(),
@@ -568,7 +569,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
 
   test("② kind 校验：judgeEndpointId 指向 kind=embedding（kind 缺席同判）端点 → 不可用", () => {
     const svc = new StewardMemoryService({
-      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: ENDPOINT_RECORD.id }),
+      config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1", [MEMORY_JUDGE_ENDPOINT_ID_KEY]: ENDPOINT_RECORD.id }),
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
       judge: fakeJudge(),
@@ -578,12 +579,12 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
 
   test("③ 降级三面：开关关 / judgeEndpointId 未设 / judge port 缺席 → 静默不可用", () => {
     const base = { embedding: fakeEmbedding(3), embeddingConfig: judgeLookup(), judge: fakeJudge() };
-    expect(new StewardMemoryService({ ...base, config: fakeConfig({ [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }) }).judgeSedimentAvailable()).toBe(false);
-    expect(new StewardMemoryService({ ...base, config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1" }) }).judgeSedimentAvailable()).toBe(false);
+    expect(new StewardMemoryService({ ...base, config: fakeConfig({ [MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }) }).judgeSedimentAvailable()).toBe(false);
+    expect(new StewardMemoryService({ ...base, config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1" }) }).judgeSedimentAvailable()).toBe(false);
     const noJudge = new StewardMemoryService({
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
-      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1", [MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
     });
     expect(noJudge.judgeSedimentAvailable()).toBe(false);
   });
@@ -591,7 +592,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
   test("④ judgeSame（B5 同一性精判）：state 含既有+新句，question 为同一性问句；判官抛错原样上抛", async () => {
     const judge = fakeJudge(0.7);
     const svc = new StewardMemoryService({
-      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1", [MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
       judge,
@@ -603,7 +604,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
     expect(judge.calls[0]!.question).toContain("同一条用户偏好或事实");
     expect(judge.calls).toHaveLength(1);
     const failing = new StewardMemoryService({
-      config: fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1", [STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
+      config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1", [MEMORY_JUDGE_ENDPOINT_ID_KEY]: JUDGE_RECORD.id }),
       embedding: fakeEmbedding(3),
       embeddingConfig: judgeLookup(),
       judge: fakeJudge(0.5, true),
@@ -612,7 +613,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
   });
 
   test("⑤ 配置写面：judgeEndpointId 可选更新（空串 = 清除引用）；getMemoryState 判官引用态凭据卫生", async () => {
-    const config = fakeConfig({ [STEWARD_MEMORY_ENABLED_KEY]: "1" });
+    const config = fakeConfig({ [MEMORY_ENABLED_KEY]: "1" });
     const svc = new StewardMemoryService({
       config,
       embedding: fakeEmbedding(3),
@@ -620,7 +621,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
       judge: fakeJudge(),
     });
     await svc.setMemoryConfig({ judgeEndpointId: JUDGE_RECORD.id });
-    expect(config.kv.get(STEWARD_MEMORY_JUDGE_ENDPOINT_ID_KEY)).toBe(JUDGE_RECORD.id);
+    expect(config.kv.get(MEMORY_JUDGE_ENDPOINT_ID_KEY)).toBe(JUDGE_RECORD.id);
     const state = svc.getMemoryState();
     expect(state.judgeEndpoint).toEqual({ id: JUDGE_RECORD.id, name: "Jev", model: "jev-latest", hasApiKey: true });
     expect(state.judgeEndpoint !== null && "baseUrl" in state.judgeEndpoint).toBe(false);
