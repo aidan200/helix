@@ -41,6 +41,10 @@ export interface StewardMemoryEntry {
   /** 关联会话 id（progress 批——kind=progress 专属锚：同 session 覆盖更新
    *  的精确匹配键 + 召回行文的 read_session 跳转凭据；其他 kind 不携带）。 */
   readonly sessionId?: string;
+  /** 项目作用域（项目隔离批："global" = 跨项目可见 / 项目目录名 = 仅该项目
+   *  + global 消费面可召回。存储投影恒携带（真库列 NOT NULL DEFAULT
+   *  'global'）；可选形态 = additive 兼容旧 fake/断言）。 */
+  readonly projectScope?: string;
 }
 
 /** 召回命中（条目 + 相似度分数——cosine distance 转 similarity，越大越像）。 */
@@ -57,20 +61,29 @@ export interface StewardMemoryAppendItem {
   readonly vector: Float32Array;
   /** 关联会话 id（kind=progress 专属；其他 kind 不携带）。 */
   readonly sessionId?: string;
+  /** 项目作用域（写入时落：缺省 "global"；赋值规则单点
+   *  StewardMemoryService.resolveMemoryWriteScope）。 */
+  readonly projectScope?: string;
 }
 
 export interface StewardMemoryPort {
   /** 追加条目（条目 + 向量同事务写入）。 */
   append(items: readonly StewardMemoryAppendItem[]): void;
-  /** 语义检索：cosine topK（score 降序；空库/维度未初始化 → 空数组）。 */
-  search(query: Float32Array, topK: number): readonly StewardMemoryHit[];
+  /** 语义检索：cosine topK（score 降序；空库/维度未初始化 → 空数组）。
+   *  scopeFilter（项目隔离批，可选）：允许召回的 project_scope 集合
+   *  （如 ["global"] 或 ["global", "helix"]）——rowid IN 预过滤（KNN 名额
+   *  只给合格行，他项目最近邻不占位）；undefined = 不过滤（全库——兼容
+   *  既有调用语义）。 */
+  search(query: Float32Array, topK: number, scopeFilter?: readonly string[]): readonly StewardMemoryHit[];
   /** 全量条目（创建时间升序——配置面只读列表数据源）。 */
   list(): readonly StewardMemoryEntry[];
   /** 按 id 删除（条目 + 向量同事务；id 不存在 → false）。 */
   forget(id: number): boolean;
   /** 条目编辑重写（text + 向量 + updatedAt 单事务；编辑即救活——faded
-   *  同事务归零；id 不存在 → false）。 */
-  updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number): boolean;
+   *  同事务归零；id 不存在 → false）。projectScope（项目隔离批，可选）：
+   *  传入 = 随写时项目重落（progress 覆盖更新语义）；缺省 = 保持原值
+   *  （人工编辑/查重覆盖不改归属）。 */
+  updateEntry(id: number, text: string, vector: Float32Array, updatedAt: number, projectScope?: string): boolean;
   /** 会话进展条目定位（progress 批）：session_id + kind=progress 精确
    *  匹配——命中返回条目 id（覆盖更新目标），无 → null。非 progress 条目
    *  即使携带同 session_id 也不命中（进展覆盖不误伤其他类别）。 */

@@ -359,6 +359,10 @@ export interface StewardMemoryEntryView {
   /** 关联会话 id（progress 批：kind=progress 专属锚——记忆页筛选/详情/跳转
    *  read_session 用；其他 kind 不携带；additive）。 */
   sessionId?: string;
+  /** 项目作用域（项目隔离批，additive——旧 shell 忽略无损）："global" =
+   *  跨项目可见 / 项目目录名 = 仅该项目 + global 消费面可召回；旧 daemon
+   *  不携带（存量行迁移默认 global）。 */
+  projectScope?: string;
 }
 
 /** steward.memory_list.result payload：条目清单（memory_list/append/

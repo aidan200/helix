@@ -127,6 +127,30 @@ export const STEWARD_MEMORY_PROGRESS_SOURCE = "session-progress";
 /** 记忆点来源标注（会话总结器记忆点产物——溯源展示用）。 */
 export const STEWARD_MEMORY_MEMORY_POINT_SOURCE = "session-summary";
 
+// ── 项目隔离批（projectScope：跨项目隔离）────────────────
+
+/** 项目作用域：global 哨兵值（跨项目可见；其余值 = workspace 一级项目目录名
+ *  ——与 codegraph/kg 的 projectPath 同源口径）。 */
+export const MEMORY_SCOPE_GLOBAL = "global";
+
+/**
+ * 写入 scope 赋值单点（项目隔离批，纯函数导出供单测）：
+ * - explicit 显式指定优先（人工 steward.memory_append 的 projectScope 入参
+ *  ——唯一显式通道）；
+ * - preference 缺省 global（用户画像跨项目成立——即使写时有项目上下文）；
+ * - fact/progress 缺省绑写时项目（project = 调用方解析的写时项目上下文）；
+ * - 无项目上下文（project 缺席/空白——如管家全局对话）回落 global。
+ */
+export function resolveMemoryWriteScope(
+  kind: "fact" | "preference" | "progress",
+  project?: string,
+  explicit?: string,
+): string {
+  if (explicit !== undefined && explicit.trim() !== "") return explicit.trim();
+  if (kind === "preference") return MEMORY_SCOPE_GLOBAL;
+  return project !== undefined && project.trim() !== "" ? project.trim() : MEMORY_SCOPE_GLOBAL;
+}
+
 /** 自动生产源集合（非用户显式写入——不置显式 remember 水位；其余源
  * （"steward-turn" 轮内工具直写 / "manual" 人工新增）= 显式写入）。 */
 const AUTO_SOURCES: ReadonlySet<string> = new Set(["auto-sediment", STEWARD_MEMORY_MEMORY_POINT_SOURCE]);
@@ -206,6 +230,11 @@ export interface StewardMemoryServiceDeps {
   readonly store?: StewardMemoryPort;
   /** 判官面（B4a 自动沉淀；缺席 = 自动沉淀静默不挂——对话主链路零影响）。 */
   readonly judge?: JudgePort;
+  /** 会话项目解析（项目隔离批，可选）：sessionId → 写时项目（会话写足迹
+   *  单项目归约；多项目/无足迹/未注入 → undefined = 回落 global）。仅
+   *  recordSessionProgress 消费（progress 缺省绑写时项目——其余写入面无
+   *  会话语境）。 */
+  readonly resolveSessionProject?: (sessionId: string) => string | undefined;
   readonly clock?: () => number;
   readonly logger?: { warn(message: string): void };
 }
@@ -332,21 +361,28 @@ export class StewardMemoryService {
    *  语义不变）→ 融合排序（cosine × 强度）→ topK 注入 + 幸存者回写。
    * 召回量（topK/候选池）批B 起配置驱动（memory.recallTopK/recallPool，
    * 缺省 5/24 = 定格常量现值零行为变化；非法 KV 读面回退缺省）。
+   * 项目隔离批（additive 过滤维度）：project = 当前项目目录名（候选池
+   * 取数时 rowid IN 预过滤 global + 本项目；undefined = 无项目上下文只见
+   * global）——融合排序/progress 配额/资格闸零改动（E-259 管辖面不触碰）。
    * 任何失败静默降级 undefined + warn（召回绝不能挡对话主链路）；
    *  记忆不可用 → undefined（零调用零日志——常态降级）。
    */
-  async recallSection(queryText: string): Promise<string | undefined> {
+  async recallSection(queryText: string, project?: string): Promise<string | undefined> {
     if (!this.isAvailable()) return undefined;
     try {
       const { vectors, dim } = await this.deps.embedding.embed([queryText]);
       await this.ensureDim(dim);
       const now = this.now();
       const { topK, pool: poolSize } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
+      // 项目隔离批：召回视野 = global + 当前项目（无项目上下文 → 只 global）。
+      // 预过滤在 store 层（KNN 名额只给合格行——他项目最近邻不占位）。
+      const recallScopes =
+        project !== undefined && project.trim() !== "" ? [MEMORY_SCOPE_GLOBAL, project.trim()] : [MEMORY_SCOPE_GLOBAL];
       // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ 0.30 语义不变）→
       // 融合排序（cosine × 强度——时间权重只在竞争位起作用，唯一强相关
       // 的老记忆仍能出线）→ topK 注入。
       const pool = this.deps
-        .store!.search(vectors[0]!, poolSize)
+        .store!.search(vectors[0]!, poolSize, recallScopes)
         .filter((h) => h.fadedAt === 0)
         .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE);
       pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
@@ -383,30 +419,38 @@ export class StewardMemoryService {
   /**
    * 写入（confirm 闸执行体调用）：条目 embed → 维度对齐 → append。
    * 失败原样上抛（确认卡回执展示失败详情——写路径不静默）。
+   * 项目隔离批：scope 入参双通道——project = 写时项目上下文（kind 规则
+   * 通道：仅 fact 生效，preference 缺省 global 不受影响）；explicit =
+   * 人工 append 的显式指定（优先于 kind 规则）。缺省无上下文 → global。
+   * 查重视野 = 写入 scope（同 scope 内覆盖更新；跨 scope 同句各持一份
+   * ——隔离语义的自然形态）。
    */
   async remember(
     text: string,
     kind: "fact" | "preference",
     source: string,
+    scope?: { project?: string; explicit?: string },
   ): Promise<{ id: number; updated: boolean }> {
     if (!this.isAvailable()) {
       throw new Error("记忆功能未启用或未配置（设置 → 通用 → 管家 → 记忆）");
     }
     const trimmed = text.trim();
     if (trimmed === "") throw new Error("记忆文本不得为空");
+    const writeScope = resolveMemoryWriteScope(kind, scope?.project, scope?.explicit);
     const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
     await this.ensureDim(dim);
     const store = this.deps.store!;
     // B5 两段查重：0.85 向量粗筛 → Jev 精判同一性（缺席/抛错回退 0.92
     // 纯向量——保守不合并）；同一 → 覆盖更新原条目（id/createdAt/kind 保留
-    // 首记形态，updatedAt 刷新——同一条记忆被更准确的重写刷新）。
-    const top = store.search(vectors[0]!, 1)[0];
+    // 首记形态，updatedAt 刷新——同一条记忆被更准确的重写刷新；scope
+    // 不随查重覆盖漂移——归属是首记属性）。
+    const top = store.search(vectors[0]!, 1, [writeScope])[0];
     if (top !== undefined && top.score >= STEWARD_MEMORY_DEDUP_RECALL_THRESHOLD && await this.isSameMemory(top, trimmed)) {
       store.updateEntry(top.id, trimmed, vectors[0]!, this.now());
       if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
       return { id: top.id, updated: true };
     }
-    store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]! }]);
+    store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]!, projectScope: writeScope }]);
     if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
     const entries = store.list();
     return { id: entries[entries.length - 1]!.id, updated: false };
@@ -432,7 +476,11 @@ export class StewardMemoryService {
    * 精确匹配覆盖更新取代相似度判定——语义上「同一条」是定义出来的，不是
    * 判出来的。任何失败静默 false + warn（与 remember 的抛错语义不同：写路径
    * 不静默的纪律针对用户主动写——有回执面要交代；progress 是后台生产，
-   * 失败只丢一次阶段性快照，下个锚点自然重试）。
+   * 失败只丢一次阶段性快照，下个锚点自然重试）。项目隔离批：progress 缺省
+   * 绑写时项目——项目上下文由 deps.resolveSessionProject(sessionId) 解析
+   *（会话写足迹单项目归约；多项目/无足迹/未注入 → global）。覆盖更新时
+   * scope 随写时项目重落（「一条会话一条进展」不因 scope 分叉——
+   * findProgressId 仍按 sessionId 精确匹配，同一条目重写而非新建）。
    */
   async recordSessionProgress(sessionId: string, text: string): Promise<boolean> {
     if (!this.isAvailable()) return false;
@@ -445,12 +493,13 @@ export class StewardMemoryService {
       const { vectors, dim } = await this.deps.embedding.embed([capped]);
       await this.ensureDim(dim);
       const store = this.deps.store!;
+      const writeScope = resolveMemoryWriteScope("progress", this.deps.resolveSessionProject?.(sid));
       const existing = store.findProgressId(sid);
       if (existing !== null) {
-        store.updateEntry(existing, capped, vectors[0]!, this.now());
+        store.updateEntry(existing, capped, vectors[0]!, this.now(), writeScope);
       } else {
         store.append([
-          { kind: "progress", text: capped, source: STEWARD_MEMORY_PROGRESS_SOURCE, sessionId: sid, createdAt: this.now(), vector: vectors[0]! },
+          { kind: "progress", text: capped, source: STEWARD_MEMORY_PROGRESS_SOURCE, sessionId: sid, createdAt: this.now(), vector: vectors[0]!, projectScope: writeScope },
         ]);
       }
       return true;
@@ -561,12 +610,13 @@ export class StewardMemoryService {
 
   /**
    * 人工新增（steward.memory_append 命令路径）：同 remember 双入口但
-   * source 固定 "manual"、kind 缺省 "fact"。失败收口为 outcome（命令回执
-   * error 判别——人工写路径不经确认卡）。
+   * source 固定 "manual"、kind 缺省 "fact"。projectScope（项目隔离批）=
+   * 显式指定通道（"global" 或项目目录名；缺省按 kind 规则）。失败收口为
+   * outcome（命令回执 error 判别——人工写路径不经确认卡）。
    */
-  async appendMemoryEntry(text: string, kind?: "fact" | "preference"): Promise<{ ok: true } | { ok: false; error: string }> {
+  async appendMemoryEntry(text: string, kind?: "fact" | "preference", projectScope?: string): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
-      await this.remember(text, kind ?? "fact", "manual");
+      await this.remember(text, kind ?? "fact", "manual", projectScope !== undefined ? { explicit: projectScope } : undefined);
       // 软上限触发主动 GC（容量从没人管变自动收敛——GC 节流窗口对超限
       // 场景强制放行，同步毫秒级不阻塞命令回执）
       if (this.deps.store !== undefined && this.deps.store.count() > STEWARD_MEMORY_SOFT_CAP) this.gcNow();

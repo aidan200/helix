@@ -68,7 +68,7 @@ function fakeMemory(
    *  session-summary——写入成功置位；explicitRememberedSince 契约测试面）。 */
   let lastExplicitRememberAt = -1;
   const state = {
-    remembers: [] as { text: string; kind: string; source: string }[],
+    remembers: [] as { text: string; kind: string; source: string; scope?: { project?: string; explicit?: string } }[],
     recalls: [] as string[],
     configPatches: [] as Record<string, unknown>[],
   };
@@ -88,12 +88,17 @@ function fakeMemory(
       if (opts.recallThrows === true) throw new Error("端点挂了");
       return opts.recallSection;
     },
-    remember: async (text: string, kind: "fact" | "preference", source: string) => {
+    remember: async (
+      text: string,
+      kind: "fact" | "preference",
+      source: string,
+      scope?: { project?: string; explicit?: string },
+    ) => {
       rememberCalls += 1;
       if (opts.rememberFails === true) {
         throw new Error("嵌入端点 503");
       }
-      state.remembers.push({ text, kind, source });
+      state.remembers.push({ text, kind, source, scope });
       if (source !== "auto-sediment" && source !== "session-summary") lastExplicitRememberAt = Date.now();
       return { id: state.remembers.length, updated: false };
     },
@@ -117,6 +122,7 @@ function makeService(opts: {
   llm: StewardLlmPort;
   memory?: ReturnType<typeof fakeMemory>;
   config?: RuntimeConfigPort;
+  memoryProject?: () => string | undefined;
 }) {
   const notes: import("@helix/protocol").StewardMemoryWrittenPayload[] = [];
   const svc = new StewardService({
@@ -129,6 +135,7 @@ function makeService(opts: {
     emitFeed: () => {},
     emitMemoryWritten: (payload) => notes.push(payload),
     ...(opts.memory !== undefined ? { memory: opts.memory } : {}),
+    ...(opts.memoryProject !== undefined ? { memoryProject: opts.memoryProject } : {}),
   });
   return { svc, notes };
 }
@@ -153,8 +160,27 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
     expect(notes[0]).toMatchObject({ text: "用户偏好简洁回复", mode: "added" });
   });
 
-  test("② 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）", async () => {
+  test("①b remember 直写 scope 透传（项目隔离批）：memoryProject 在场 → fact 绑写时项目；缺席 → 不传回落 global", async () => {
     const llm = fakeLlm([
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "helix 仓用 bun test", kind: "fact" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
+    ]);
+    const memory = fakeMemory();
+    const { svc } = makeService({ llm, memory, memoryProject: () => "helix" });
+    await svc.ask("记住：helix 仓用 bun test");
+    expect(memory.remembers[0]!.scope).toEqual({ project: "helix" });
+    // 缺席（多项目/未绑定 workspace）：不传 scope 参数 → 服务层回落 global
+    const llm2 = fakeLlm([
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "全局事实一句", kind: "fact" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
+    ]);
+    const memory2 = fakeMemory();
+    const { svc: svc2 } = makeService({ llm: llm2, memory: memory2 });
+    await svc2.ask("记住：全局事实一句");
+    expect(memory2.remembers[0]!.scope).toBeUndefined();
+  });
+
+  test("② 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）", async () => {    const llm = fakeLlm([
       { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "项目在 helix 仓" } }], stopReason: "toolUse" },
       { kind: "blocks", blocks: [{ type: "text", text: "记忆服务这会儿存不进去，稍后再试。" }], stopReason: "stop" },
     ]);

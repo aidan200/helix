@@ -130,6 +130,9 @@ export interface StewardMemoryAppendPayload {
   text: string;
   /** 条目类别（缺省 "fact"；枚举对齐存储面既有 kind 值）。 */
   kind?: "fact" | "preference";
+  /** 项目作用域（项目隔离批，additive："global" 或项目目录名；缺省按
+   *  kind 规则——preference → global，fact → global（协议面无项目上下文）。 */
+  projectScope?: string;
 }
 
 /** steward.memory_append：人工新增记忆（回执 steward.memory_list.result）。 */

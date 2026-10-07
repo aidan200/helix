@@ -787,6 +787,10 @@ export interface StewardServiceDeps {
  *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
  *  available=false）——对话主链路零影响。 */
   readonly memory?: StewardMemoryService;
+  /** 记忆召回当前项目解析（项目隔离批，可选）：返回 workspace 一级项目
+ *  目录名（单项目 workspace 口径——与 resolveKgScope 的「当前活跃项目」
+ *  同源；多项目/未绑定/未注入 → undefined = 召回只 global）。 */
+  readonly memoryProject?: () => string | undefined;
   /** 管家感知批（M0.5）：用户 ask 活动信号（感知服务激活衰减窗点亮——
    *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
    *  .noteUserActivity；缺席 = 零信号）。 */
@@ -1263,7 +1267,9 @@ export class StewardService {
     this.dialog.ensureLoaded();
     const systemPrompt = assembleStewardSystemPrompt(
       await this.buildSnapshotSafely(),
-      await this.deps.memory?.recallSection(item.text),
+      // 项目隔离批：召回视野 = global + 当前项目（memoryProject 解析当前
+      // 活跃项目；缺席/未绑定/多项目 → undefined = 只 global）
+      await this.deps.memory?.recallSection(item.text, this.deps.memoryProject?.()),
       // 语音闭环批 ①：在途提案段（LLM 路径上下文增强——pending 非空时引导
       // 把用户补充话语对齐确认/取消/目标修正，对齐失败才按新指令；词表快路径
       //（TR-240）在 ask 入口先行，两者叠加不冲突）
@@ -2156,12 +2162,13 @@ export class StewardService {
     return this.deps.memory?.listEntries() ?? [];
   }
 
-  /** 人工新增（embed 入库；缺席/失败 → error outcome）。 */
-  async appendMemoryEntry(text: string, kind?: "fact" | "preference"): Promise<{ ok: true } | { ok: false; error: string }> {
+  /** 人工新增（embed 入库；缺席/失败 → error outcome）。projectScope =
+   *  显式指定通道（项目隔离批——"global" 或项目目录名，缺省按 kind 规则）。 */
+  async appendMemoryEntry(text: string, kind?: "fact" | "preference", projectScope?: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.deps.memory === undefined) {
       return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
     }
-    return this.deps.memory.appendMemoryEntry(text, kind);
+    return this.deps.memory.appendMemoryEntry(text, kind, projectScope);
   }
 
   /** 重嵌更新（缺席/失败 → error outcome）。 */
@@ -2726,7 +2733,12 @@ export class StewardService {
       ).outcome;
     }
     try {
-      const saved = await memory.remember(text, kind, "steward-turn");
+      // 项目隔离批：fact 缺省绑写时项目——项目上下文与召回同源
+      //（memoryProject 单项目 workspace 口径；多项目/未绑定 → 不传 →
+      // 回落 global）。preference 不受 project 通道影响（kind 规则缺省
+      // global）。
+      const project = this.deps.memoryProject?.();
+      const saved = await memory.remember(text, kind, "steward-turn", project !== undefined ? { project } : undefined);
       this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
       const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
       return { kind: "result", text: capToolResultText(detail) };
