@@ -1311,8 +1311,6 @@ export const enUS = {
     cardMore: "{n} more",
     actionDone: "Action completed",
     actionFailed: "Action failed",
-    navigateToast: "Delivered to session \"{title}\"",
-    navigateGo: "View",
     // ── Voice mode (V3a: dual-mode switch + talk loop panel face; text mode never speaks) ──
     voice: {
       // ── B2 global voice batch: orb layer (StewardVoiceLayer) ──

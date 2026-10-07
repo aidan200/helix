@@ -1318,8 +1318,6 @@ export const zhCN = {
     cardMore: "还有 {n} 张",
     actionDone: "动作已完成",
     actionFailed: "动作执行失败",
-    navigateToast: "已投递到会话「{title}」",
-    navigateGo: "去看看",
     // ── 语音模式（V3a：双模切换 + 说话闭环面板面；文本模式零发声）──
     voice: {
       // ── B2 全局语音批：光球层（StewardVoiceLayer）──

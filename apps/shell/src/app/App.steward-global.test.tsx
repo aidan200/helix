@@ -166,7 +166,7 @@ describe("管家全局常驻（app 壳级能力）", () => {
     expect(document.querySelector('[data-testid="steward-dock"]')!.className).toContain("stp-dock-hidden");
   });
 
-  it("M0 建议导航（surface.action navigate）：帧到达不强切——toast 通知 + [去看看] 点按才切（navigate + switchSession 侧栏同路径）", () => {
+  it("navigate 动作（surface.action）：帧到达即授权即执行——直接切页（navigate + switchSession 侧栏同路径，零 toast 二次授权）", () => {
     ui();
     expect(surfaceListeners.size).toBeGreaterThan(0);
     act(() => {
@@ -177,19 +177,14 @@ describe("管家全局常驻（app 壳级能力）", () => {
         });
       }
     });
-    // 不点按钮：零切页（G5——不打断当前操作）
-    expect(navigate).not.toHaveBeenCalled();
-    expect(switchSession).not.toHaveBeenCalled();
-    // toast 通知在场（含会话短 id 回退——topology.list 空）
-    const action = document.querySelector('[data-testid="toast-action"]') as HTMLButtonElement | null;
-    expect(action).not.toBeNull();
-    fireEvent.click(action!);
-    // 点按才切：工作台路由 + switchSession（侧栏同路径）
+    // 授权即执行：帧到达 = 确认闸已过，直接切页（语义修正批——二次授权退役）
     expect(navigate).toHaveBeenCalledWith("/"); // ROUTE_WORKBENCH
     expect(switchSession).toHaveBeenCalledWith("sess-target");
+    // 零 toast（「去看看」按钮形态退役）
+    expect(document.querySelector('[data-testid="toast-action"]')).toBeNull();
   });
 
-  it("M0 建议导航：已在工作台路由 → 点按仅 switchSession，零路由导航", () => {
+  it("navigate 动作：已在工作台路由 → 仅 switchSession，零路由导航", () => {
     route = "/";
     ui();
     act(() => {
@@ -200,9 +195,6 @@ describe("管家全局常驻（app 壳级能力）", () => {
         });
       }
     });
-    const action = document.querySelector('[data-testid="toast-action"]') as HTMLButtonElement | null;
-    expect(action).not.toBeNull();
-    fireEvent.click(action!);
     expect(navigate).not.toHaveBeenCalled();
     expect(switchSession).toHaveBeenCalledWith("sess-2");
   });

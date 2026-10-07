@@ -1,16 +1,21 @@
 // @vitest-environment jsdom
 /**
- * useStewardNavigate 测试（M0 表面协议地基批翻新：消费面切 surface.action
- * 新帧——D8 navigate 收编）：surface.action {verb:"navigate"} 帧 → toast
- * 「已投递到会话 X · [去看看]」——**点按钮才切页**（不强切，G5——行为
- * 断言与 B1 版全等）；toast 呈现即回执行回执（D7-1 seq 对账）；旧
- * steward.navigate 帧（兼容期双发）**零消费零 toast**（新 shell 只认新帧
- * ——双发不双弹）；载荷防御（verb 不符/args.sessionId 非法）零动作。
+ * useStewardNavigate 测试（navigate 动作语义修正批：动作通道 = 已授权动作
+ * 直接执行）。surface.action {verb:"navigate"} 帧 → **直接 onNavigate 切页**
+ * （与侧栏点击同一路径）→ 真执行后回执行回执 ok:true("navigated")——
+ * 不再走 toast+[去看看] 二次授权（2026-10-07 用户实测反馈：确认卡点了、
+ * 管家说已切换、页面纹丝不动——「呈现即回执」在 M2 语义下是谎报）。
+ *
+ * 语义分界（本批落账面）：动作通道（surface.action，已过确认闸）= 授权即
+ * 执行；播报通道（feed/notify/toast）= 永不附带执行（D12-⑤ 不变——
+ * 播报类 toast 的 [去看看] 形态归播报族，不归本面）。
+ *
+ * 旧 steward.navigate 帧（兼容期双发）零消费；载荷防御拒签必回执
+ * （事故热修批②）；seq 非法帧仍执行导航（用户价值面）零回执（无对账锚）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, act, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, act } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
-import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 
 const surfaceListeners = new Set<(e: EventEnvelope) => void>();
@@ -25,8 +30,7 @@ const sendSurfaceActionResult = vi.fn((seq: number, ok: boolean, detail?: string
   receipts.push({ seq, ok, ...(detail !== undefined ? { detail } : {}) });
   return true;
 });
-const listRows = [{ sessionId: "sess-1", title: "重构调度器", lastActivityAt: 1, runState: "idle", loaded: true }];
-const topologyMock = vi.fn(() => ({ list: listRows }));
+
 function emitSurface(e: EventEnvelope): void {
   for (const l of surfaceListeners) l(e);
 }
@@ -35,9 +39,6 @@ vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
     subscribeSurfaceFrames,
     sendSurfaceActionResult,
-    get topology() {
-      return topologyMock();
-    },
   }),
 }));
 
@@ -51,9 +52,7 @@ function Harness({ onNavigate }: { onNavigate: (sessionId: string) => void }) {
 function renderNavigate(onNavigate: (sessionId: string) => void) {
   return render(
     <I18nProvider>
-      <ToastProvider>
-        <Harness onNavigate={onNavigate} />
-      </ToastProvider>
+      <Harness onNavigate={onNavigate} />
     </I18nProvider>,
   );
 }
@@ -69,10 +68,10 @@ function actionFrame(overrides: Record<string, unknown> = {}): EventEnvelope {
 }
 
 function frame(type: string, payload: unknown): EventEnvelope {
-  return { v: "0.14", sessionId: "__system__", channel: "steward", type, payload } as EventEnvelope;
+  return { v: "0.14", sessionId: "__system__", channel: "steward", type, payload } as unknown as EventEnvelope;
 }
 
-describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零消费）", () => {
+describe("useStewardNavigate（navigate 动作语义修正：授权即执行 + 真执行回执）", () => {
   afterEach(() => {
     cleanup();
     surfaceListeners.clear();
@@ -80,53 +79,44 @@ describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零�
     vi.clearAllMocks();
   });
 
-  it("surface.action navigate 帧 → toast 携会话标题 + [去看看]；不自动回调（不强切）+ 呈现即回执", () => {
+  it("surface.action navigate 帧 → 直接 onNavigate 切页（零 toast 二次授权）+ 真执行后回执 navigated", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
       emitSurface(actionFrame());
     });
-    // toast 出现且带会话标题（session.list 元数据查表）
-    const zone = document.querySelector(".toast-zone");
-    expect(zone?.textContent ?? "").toContain("重构调度器");
-    const action = screen.getByTestId("toast-action");
-    expect(action.textContent ?? "").toMatch(/去看看|View/);
-    // 未点按钮：零切页回调（G5）
-    expect(onNavigate).not.toHaveBeenCalled();
-    // D7-1：toast 呈现即回执行回执（seq 对账；点按是用户后续决策，不在回执内）
-    expect(receipts).toEqual([{ seq: 3, ok: true, detail: "presented" }]);
-    // 点按钮 → onNavigate(sessionId)（与侧栏点击同路径）
-    fireEvent.click(action);
+    // 授权即执行：帧到达 = 确认闸已过，直接切页（与侧栏点击同路径）
     expect(onNavigate).toHaveBeenCalledWith("sess-1");
+    // D7-1 回执在真执行后发——detail 如实记 navigated（不再谎报 presented）
+    expect(receipts).toEqual([{ seq: 3, ok: true, detail: "navigated" }]);
+    // 零 toast（二次授权形态退役——右上角不再弹「去看看」）
+    expect(document.querySelector(".toast-zone")?.textContent ?? "").toBe("");
   });
 
-  it("未知会话（list 未命中）→ toast 回退短 id，不猜义", () => {
+  it("未在 session.list 的会话 → 仍直接执行（查表标题逻辑随 toast 退役；不猜义不做存在性拦截）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
-      emitSurface(actionFrame({ args: { sessionId: "unheard-session-id-long" } }));
+      emitSurface(actionFrame({ args: { sessionId: "unheard-session-id-long" }, seq: 9 }));
     });
-    const zone = document.querySelector(".toast-zone");
-    expect(zone?.textContent ?? "").toContain("unheard-sess"); // 短 id 回退（slice(0,12)）
-    fireEvent.click(screen.getByTestId("toast-action"));
     expect(onNavigate).toHaveBeenCalledWith("unheard-session-id-long");
+    expect(receipts).toEqual([{ seq: 9, ok: true, detail: "navigated" }]);
   });
 
-  it("旧帧兼容零消费：steward.navigate 双发到达不产生第二 toast（新 shell 只认 surface.action）", () => {
+  it("旧帧兼容零消费：steward.navigate 双发到达不产生第二次切页（新 shell 只认 surface.action）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
       emitSurface(actionFrame());
       emitSurface(frame("steward.navigate", { sessionId: "sess-1" }));
     });
-    const zone = document.querySelector(".toast-zone");
-    expect(zone?.textContent ?? "").toContain("重构调度器");
-    // 单 toast（双发不双弹）
-    expect(document.querySelectorAll(".toast-zone [data-testid='toast-action']").length).toBe(1);
-    expect(onNavigate).not.toHaveBeenCalled();
+    // 单次执行（双发不双切）
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith("sess-1");
+    expect(receipts).toEqual([{ seq: 3, ok: true, detail: "navigated" }]);
   });
 
-  it("非 navigate 动词（携合法 seq）→ 零 toast 零回调 + 失败回执（拒签必应答——事故热修批②）", () => {
+  it("非 navigate 动词（携合法 seq）→ 零执行 + 失败回执（拒签必应答——事故热修批②）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
@@ -134,7 +124,6 @@ describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零�
       emitSurface(actionFrame({ verb: "scroll", seq: 8 }));
       emitSurface(frame("steward.feed", { kind: "agent.completed", agentId: "a-1", text: "x", seq: 1 }));
     });
-    expect(document.querySelector(".toast-zone")?.textContent ?? "").toBe("");
     expect(onNavigate).not.toHaveBeenCalled();
     expect(receipts).toEqual([
       { seq: 7, ok: false, detail: "unsupported-verb:click" },
@@ -142,7 +131,7 @@ describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零�
     ]);
   });
 
-  it("载荷防御（事故热修批②）：args.sessionId 非法携合法 seq → 零 toast 零回调 + invalid-args 失败回执（daemon 不再 60s 挂死）", () => {
+  it("载荷防御（事故热修批②）：args.sessionId 非法携合法 seq → 零执行 + invalid-args 失败回执（daemon 不再 60s 挂死）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
@@ -154,7 +143,6 @@ describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零�
       emitSurface(actionFrame({ args: { url: "helix://session/5b736b22" }, seq: 15 }));
       emitSurface({ ...actionFrame(), payload: { verb: "navigate" } } as unknown as EventEnvelope);
     });
-    expect(document.querySelector(".toast-zone")?.textContent ?? "").toBe("");
     expect(onNavigate).not.toHaveBeenCalled();
     expect(receipts).toEqual([
       { seq: 11, ok: false, detail: "invalid-args" },
@@ -165,35 +153,29 @@ describe("useStewardNavigate（M0：surface.action 消费 + 回执 + 旧帧零�
     ]);
   });
 
-  it("seq 非法：导航意图仍 toast（sessionId 有效即用户价值面）；零回执（D7-1 对账锚缺失）", () => {
+  it("seq 非法：导航意图仍执行（sessionId 有效即用户价值面）；零回执（D7-1 对账锚缺失）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);
     act(() => {
       emitSurface(actionFrame({ seq: "x" }));
     });
-    const zone = document.querySelector(".toast-zone");
-    expect(zone?.textContent ?? "").toContain("重构调度器");
-    expect(receipts).toEqual([]);
-    fireEvent.click(screen.getByTestId("toast-action"));
     expect(onNavigate).toHaveBeenCalledWith("sess-1");
+    expect(receipts).toEqual([]);
   });
 
-  it("回调引用漂移不重订阅（ref 定格——按钮触发最新回调）", () => {
+  it("回调引用漂移不重订阅（ref 定格——帧到达时执行最新回调）", () => {
     const first = vi.fn();
     const second = vi.fn();
     const { rerender } = renderNavigate(first);
     rerender(
       <I18nProvider>
-        <ToastProvider>
-          <Harness onNavigate={second} />
-        </ToastProvider>
+        <Harness onNavigate={second} />
       </I18nProvider>,
     );
     expect(subscribeSurfaceFrames).toHaveBeenCalledTimes(1); // 订阅面不随回调重挂
     act(() => {
       emitSurface(actionFrame());
     });
-    fireEvent.click(screen.getByTestId("toast-action"));
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith("sess-1");
   });

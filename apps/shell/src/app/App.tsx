@@ -142,8 +142,9 @@ export function AppRoutes() {
   // 语音播报批 V2：全局播放钩子（连接就绪 + 偏好开 → voice.subscribe；
   // voice.broadcast → seq 去重保序 Audio 播放）——App 根单份，与会话无关
   useVoiceBroadcast();
-  // B1 建议导航（§3.7）：steward.navigate → toast「已投递到会话 X · [去看
-  // 看]」——点按钮才切页（不强切不打断）；切页动作与侧栏点击同一路径。
+  // navigate 动作消费（surface.action 收编 + 语义修正）：帧到达 = 确认闸
+  // 已过的授权动作，直接切页（与侧栏点击同一路径）；回执真执行后发
+  // （navigated）。toast+点按二次授权形态已退役（2026-10-07 实测事故）。
   // 帧经订阅闸（enabled∧connected，B1 起不随面板开合），无自激面。
   const { switchSession } = useSession();
   useStewardNavigate(
