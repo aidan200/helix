@@ -797,7 +797,7 @@ export class ChatService implements ChatPort {
 
   /** tool_execution_start：建记录（pending→running）、轮次切 toolRunning、广播。 */
   private recordToolExecutionStart(e: EngineEventOf<"tool_execution_start">): void {
-    const record = ToolCallRecord.create(e.toolCallId, e.toolName, e.args, this.session.mainInstanceId);
+    const record = ToolCallRecord.create(e.toolCallId, e.toolName, e.args, this.session.mainInstanceId, "main");
     record.markRunning(this.now());
     this.toolCalls.set(e.toolCallId, record);
     if (this.session.openTurn?.status === "generating") {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AgentLifecycle, type AgentLifecycleState } from "../../src/domain/agent/AgentLifecycle";
 import { SteerQueue } from "../../src/domain/agent/SteerQueue";
 import { AgentInstance, LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
-import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
+import { deriveToolCallKind, ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 
 /**
  * TP-CL4-1 / TP-CL4-5（U 半）：agent 领域聚合行为——
@@ -163,7 +163,7 @@ describe("CAND-399 终态保留窗口（注册表销户序源与裁剪）", () =
 
 describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   test("pending→running→completed，结果附加", () => {
-    const rec = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
+    const rec = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID, "main");
     expect(rec.status).toBe("pending");
 
     rec.markRunning();
@@ -176,7 +176,7 @@ describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   });
 
   test("pending→running→failed，错误附加", () => {
-    const rec = ToolCallRecord.create("tc-2", "bash", {}, LEGACY_MAIN_INSTANCE_ID);
+    const rec = ToolCallRecord.create("tc-2", "bash", {}, LEGACY_MAIN_INSTANCE_ID, "main");
     rec.markRunning();
     rec.fail("exit 1");
     expect(rec.status).toBe("failed");
@@ -184,14 +184,40 @@ describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   });
 
   test("非法迁移：pending→completed / completed→running 抛错", () => {
-    const rec = ToolCallRecord.create("tc-3", "read", {}, LEGACY_MAIN_INSTANCE_ID);
+    const rec = ToolCallRecord.create("tc-3", "read", {}, LEGACY_MAIN_INSTANCE_ID, "main");
     expect(() => rec.complete("x")).toThrow(); // 未 running 不可完成
     expect(() => rec.fail("x")).toThrow();
 
-    const rec2 = ToolCallRecord.create("tc-4", "read", {}, LEGACY_MAIN_INSTANCE_ID);
+    const rec2 = ToolCallRecord.create("tc-4", "read", {}, LEGACY_MAIN_INSTANCE_ID, "main");
     rec2.markRunning();
     rec2.complete("done");
     expect(() => rec2.markRunning()).toThrow(); // 终态不可再迁移
     expect(() => rec2.complete("again")).toThrow();
+  });
+
+  test("kind 形态判别：create→toData→restore 往返保持，旧载荷缺省推导", () => {
+    // 往返保持（subagent 形态）
+    const sub = ToolCallRecord.create("tc-k1", "bash", {}, "agent-x1", "subagent");
+    const data = sub.toData();
+    expect(data.kind).toBe("subagent");
+    expect(ToolCallRecord.restore(data).kind).toBe("subagent");
+    // steward 形态往返
+    const steward = ToolCallRecord.create("tc-k2", "propose_send", {}, "steward", "steward");
+    expect(ToolCallRecord.restore(steward.toData()).kind).toBe("steward");
+    // 旧载荷无 kind：legacy "main" → main；agent 形态无主 id 对照 → subagent
+    expect(ToolCallRecord.restore({ id: "tc-k3", toolName: "read", args: {}, status: "completed" }).kind).toBe("main");
+    expect(ToolCallRecord.restore({ id: "tc-k4", toolName: "read", args: {}, instanceId: "agent-x2", status: "completed" }).kind).toBe("subagent");
+    // T10a 后旧载荷：主实例 agent 形态 id 需主 id 对照判 main
+    expect(
+      ToolCallRecord.restore({ id: "tc-k5", toolName: "read", args: {}, instanceId: "agent-main9", status: "completed" }, "agent-main9").kind,
+    ).toBe("main");
+  });
+
+  test("deriveToolCallKind 推导口径：缺省/legacy→main；主 id 对照→main；其余→subagent", () => {
+    expect(deriveToolCallKind(undefined)).toBe("main");
+    expect(deriveToolCallKind("main")).toBe("main");
+    expect(deriveToolCallKind("agent-m", "agent-m")).toBe("main");
+    expect(deriveToolCallKind("agent-m", "agent-other")).toBe("subagent");
+    expect(deriveToolCallKind("agent-m", null)).toBe("subagent");
   });
 });

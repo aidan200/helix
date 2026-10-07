@@ -17,6 +17,7 @@ import { MAIN_AGENT_KIND, type WriteJob, type WriteQueueOptions } from "./write-
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
+import type { ToolCallKind, ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type {
   BatchData,
   JobData,
@@ -82,6 +83,7 @@ export class WriteQueue {
   private readonly insertSteer!: Statement;
   private readonly clearToolCalls!: Statement;
   private readonly insertToolCall!: Statement;
+  private readonly upsertToolCallRow!: Statement;
   private readonly insertClosureRecord!: Statement;
   private readonly deleteSessionState!: Statement;
   private readonly deleteSessionEvents!: Statement;
@@ -148,8 +150,15 @@ export class WriteQueue {
     );
     this.clearToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.insertToolCall = this.db.prepare(
-      "INSERT INTO tool_calls (id, session_id, instance_id, tool_name, args, status, result, error, images, started_at, ended_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tool_calls (id, session_id, instance_id, kind, tool_name, args, status, result, error, images, started_at, ended_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    // 监控直书 upsert（steward 形态入账）：start 建行 / end 收口两段写，
+    // 撞主键只更新收口字段（start 行携带的 args/name 不被 end 覆写）
+    this.upsertToolCallRow = this.db.prepare(
+      "INSERT INTO tool_calls (id, session_id, instance_id, kind, tool_name, args, status, result, error, images, started_at, ended_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET status = excluded.status, result = excluded.result, error = excluded.error, ended_at = excluded.ended_at",
     );
     this.insertClosureRecord = this.db.prepare(
       "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, findings_file, task_id, created_at) " +
@@ -233,6 +242,11 @@ export class WriteQueue {
   /** 领域状态整体入队（投影行整体替换：内存是权威，磁盘是投影缓存）。 */
   saveState(state: PersistedDomainState): Promise<void> {
     return this.enqueue({ kind: "state", state });
+  }
+
+  /** 工具调用监控直书行入队（steward 形态入账口；非状态投影语义，见 write-jobs）。 */
+  upsertToolCall(sessionId: string, record: ToolCallRecordData & { readonly kind: ToolCallKind }): Promise<void> {
+    return this.enqueue({ kind: "toolCallUpsert", sessionId, record });
   }
 
   /**
@@ -409,6 +423,7 @@ export class WriteQueue {
       case "agentLifecycle":
       case "closureRecord":
       case "deleteSession":
+      case "toolCallUpsert":
         return job.sessionId;
       case "pendingSync":
         return job.sessionId;
@@ -462,6 +477,24 @@ export class WriteQueue {
   private apply(job: WriteJob): unknown {
     if (job.kind === "agentLifecycle") {
       this.upsertLifecycle.run(job.sessionId, job.instanceId, job.state, new Date().toISOString());
+      return;
+    }
+    if (job.kind === "toolCallUpsert") {
+      const r = job.record;
+      this.upsertToolCallRow.run(
+        r.id,
+        job.sessionId,
+        r.instanceId ?? "main",
+        r.kind,
+        r.toolName,
+        JSON.stringify(r.args ?? null),
+        r.status,
+        r.result ?? null,
+        r.error ?? null,
+        r.images !== undefined && r.images.length > 0 ? JSON.stringify([...r.images]) : null,
+        r.startedAt ?? null,
+        r.endedAt ?? null,
+      );
       return;
     }
     if (job.kind === "deleteSession") {
@@ -700,6 +733,7 @@ export class WriteQueue {
           t.id,
           t.session_id,
           t.instance_id,
+          t.kind,
           t.tool_name,
           t.args,
           t.status,

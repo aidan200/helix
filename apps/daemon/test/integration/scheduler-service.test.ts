@@ -338,7 +338,7 @@ describe("W2-D 闭环 pending_sync 记录点（R13/R22：tool_calls 机械判定
     const repo = new SqliteSessionRepository(h.writeQueue);
     const session = Session.create(sessionId, FIXED_NOW);
     const toolCalls = tools.map((t) => {
-      const record = ToolCallRecord.create(t.id, t.name, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
+      const record = ToolCallRecord.create(t.id, t.name, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID, "main");
       record.markRunning(FIXED_NOW);
       if (t.ok) record.complete("ok", FIXED_NOW);
       else record.fail("boom", FIXED_NOW);

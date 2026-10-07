@@ -13,6 +13,28 @@ export type ToolCallStatus = "pending" | "running" | "completed" | "failed";
 
 const TOOL_CALL_STATUSES: readonly ToolCallStatus[] = ["pending", "running", "completed", "failed"];
 
+/**
+ * 工具调用形态判别（tool_calls 监控 kind 列）：main=主会话 / subagent=SubAgent
+ * / steward=管家。
+ *
+ * 为什么存在：T10a 后会话主实例 id 改为 agent-<唯一串>（与 SubAgent 同形态），
+ * 按 instance_id 形态无法区分主会话与 SubAgent 工具行；steward 工具行此前
+ * 全不入账（只有 domain_events loop.tool.* 轨迹）。监控/复盘/画像查询需要
+ * 形态判别一列定音，不再靠 id 前缀启发式。
+ */
+export type ToolCallKind = "main" | "subagent" | "steward";
+
+/**
+ * 形态推导（legacy 载荷/旧行兜底）：instanceId 缺省或 legacy "main" → main；
+ * 等于会话主实例 id（T10a 后主实例亦为 agent-<唯一串>）→ main；其余 → subagent。
+ * （历史无 steward 行——该形态在 kind 列引入后才有直书入账，不参与推导。）
+ */
+export function deriveToolCallKind(instanceId?: string, mainInstanceId?: string | null): ToolCallKind {
+  if (instanceId === undefined || instanceId === LEGACY_MAIN_INSTANCE_ID) return "main";
+  if (mainInstanceId !== undefined && mainInstanceId !== null && instanceId === mainInstanceId) return "main";
+  return "subagent";
+}
+
 /** 工具调用记录的可序列化只读视图（快照/持久化载荷，贫血形状）。 */
 export interface ToolCallRecordData {
   readonly id: string;
@@ -20,6 +42,8 @@ export interface ToolCallRecordData {
   readonly args: unknown;
   /** 实例归属（AD-3）：缺省 = 主实例（旧载荷/旧行前向兼容，legacy "main"）；SubAgent = agent-<唯一串>。 */
   readonly instanceId?: string;
+  /** 形态判别（监控 kind）：缺省 = 旧载荷/旧行（读面经 deriveToolCallKind 推导）。 */
+  readonly kind?: ToolCallKind;
   readonly status: ToolCallStatus;
   readonly result?: string;
   readonly error?: string;
@@ -35,6 +59,7 @@ export class ToolCallRecord {
     readonly toolName: string,
     readonly args: unknown,
     private readonly instanceId: string,
+    readonly kind: ToolCallKind,
     private _status: ToolCallStatus,
     private _result?: string,
     private _error?: string,
@@ -43,12 +68,14 @@ export class ToolCallRecord {
     private _endedAt?: string,
   ) {}
 
-  static create(id: string, toolName: string, args: unknown, instanceId: string): ToolCallRecord {
-    return new ToolCallRecord(id, toolName, args, instanceId, "pending");
+  static create(id: string, toolName: string, args: unknown, instanceId: string, kind: ToolCallKind): ToolCallRecord {
+    return new ToolCallRecord(id, toolName, args, instanceId, kind, "pending");
   }
 
-  /** 从持久化数据重建（恢复路径：不算状态迁移，直接置位；行为与终态一致）。 */
-  static restore(data: ToolCallRecordData): ToolCallRecord {
+  /** 从持久化数据重建（恢复路径：不算状态迁移，直接置位；行为与终态一致）。
+   *  mainInstanceId 可选：旧载荷无 kind 时的形态推导判据（主实例 agent 形态 id
+   *  与 SubAgent 同形态，需会话主 id 对照才能判 main）。 */
+  static restore(data: ToolCallRecordData, mainInstanceId?: string | null): ToolCallRecord {
     // 态集校验对齐 AgentInstance.restore：脏行（status 词表外）在重建点拒绝，
     // 不让后续一切状态迁移恒抛（早暴露早定位）
     if (!(TOOL_CALL_STATUSES as readonly string[]).includes(data.status)) {
@@ -59,6 +86,7 @@ export class ToolCallRecord {
       data.toolName,
       data.args,
       data.instanceId ?? LEGACY_MAIN_INSTANCE_ID,
+      data.kind ?? deriveToolCallKind(data.instanceId, mainInstanceId),
       data.status,
       data.result,
       data.error,
@@ -125,6 +153,7 @@ export class ToolCallRecord {
       // 行级归属透传：legacy "main" 缺省省略（旧形状保持）；新会话主实例
       // id（agent-<唯一串>）与 SubAgent id 恒显式携带（T10a 方案 A）
       ...(this.instanceId !== LEGACY_MAIN_INSTANCE_ID ? { instanceId: this.instanceId } : {}),
+      kind: this.kind,
       status: this._status,
       result: this._result,
       error: this._error,

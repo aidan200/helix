@@ -43,6 +43,16 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     this.store.set(state.session.sessionId, structuredClone(state));
   }
 
+  /** 直书工具行（监控入账口 mock：upsert 语义同 WriteQueue.toolCallUpsert）。 */
+  readonly recordedToolCalls = new Map<string, { sessionId: string; record: PersistedDomainState["toolCalls"][number] }>();
+
+  async recordToolCall(
+    sessionId: string,
+    record: PersistedDomainState["toolCalls"][number] & { readonly kind: "main" | "subagent" | "steward" },
+  ): Promise<void> {
+    this.recordedToolCalls.set(record.id, { sessionId, record: structuredClone(record) });
+  }
+
   async saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void> {
     this.lifecycles.set(`${sessionId}/${instanceId}`, state);
   }

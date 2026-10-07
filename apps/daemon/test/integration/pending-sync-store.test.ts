@@ -24,14 +24,14 @@ function tmpHome(): string {
 }
 
 function completedTool(id: string, toolName: string) {
-  const record = ToolCallRecord.create(id, toolName, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
+  const record = ToolCallRecord.create(id, toolName, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID, "main");
   record.markRunning("2024-01-01T00:00:01.000Z");
   record.complete("ok", "2024-01-01T00:00:02.000Z");
   return record.toData();
 }
 
 function failedTool(id: string, toolName: string) {
-  const record = ToolCallRecord.create(id, toolName, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
+  const record = ToolCallRecord.create(id, toolName, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID, "main");
   record.markRunning("2024-01-01T00:00:01.000Z");
   record.fail("boom", "2024-01-01T00:00:02.000Z");
   return record.toData();

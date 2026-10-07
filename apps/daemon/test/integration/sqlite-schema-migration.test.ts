@@ -120,6 +120,11 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
       expect(columnsOf(probe, "tool_calls")).toContain("instance_id");
       // T9 图片下行：tool_calls.images 补列（旧行 NULL = 无图前向兼容）
       expect(columnsOf(probe, "tool_calls")).toContain("images");
+      // 监控 kind 列补列 + 旧行回填（legacy 'main' 行 → main）
+      expect(columnsOf(probe, "tool_calls")).toContain("kind");
+      expect(
+        (probe.prepare("SELECT kind FROM tool_calls").get() as { kind: string }).kind,
+      ).toBe("main");
       expect(columnsOf(probe, "agent_lifecycle")).toContain("instance_id");
       expect(pkOf(probe, "agent_lifecycle")).toEqual(["session_id", "instance_id"]);
       const indexes = (
@@ -165,6 +170,40 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
         .all() as { agent_instance_id: string }[];
       after.close();
       expect(rows.map((r) => r.agent_instance_id)).toEqual(["main", "agent-1"]); // 旧行 main + 新行 agent-1
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("kind 形态判别回填：legacy 'main'/主 id 对照 → main，其余 → subagent；重跑幂等不覆盖", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      buildLegacyDb(dbPath);
+      const q1 = new WriteQueue(dbPath); // 首次打开：补列（含 kind）
+      await q1.close();
+      // 模拟列后旧数据（kind NULL）：主实例 agent 形态 id（T10a）/ SubAgent / legacy 'main' 三形态
+      const raw = new Database(dbPath);
+      raw.exec("UPDATE session_state SET main_instance_id = 'agent-m9' WHERE session_id = 's-old'");
+      raw.exec(
+        "INSERT INTO tool_calls (id, session_id, instance_id, kind, tool_name, args, status) VALUES " +
+          "('tc-amain', 's-old', 'agent-m9', NULL, 'bash', '{}', 'completed')," +
+          "('tc-sub', 's-old', 'agent-sub1', NULL, 'bash', '{}', 'completed')," +
+          "('tc-done', 's-old', 'agent-x', 'subagent', 'bash', '{}', 'completed')", // 已有 kind 不被重跑覆盖
+      );
+      raw.close();
+      const q2 = new WriteQueue(dbPath); // 重开：回填迁移再跑（幂等面）
+      await q2.close();
+      const probe = new Database(dbPath, { readonly: true });
+      const kinds = probe
+        .prepare("SELECT id, kind FROM tool_calls ORDER BY rowid")
+        .all() as { id: string; kind: string }[];
+      probe.close();
+      expect(kinds).toEqual([
+        { id: "tc-old", kind: "main" },
+        { id: "tc-amain", kind: "main" }, // = 该会话 main_instance_id → main
+        { id: "tc-sub", kind: "subagent" }, // 其余 → subagent
+        { id: "tc-done", kind: "subagent" }, // 已有 kind 原样（WHERE kind IS NULL）
+      ]);
     } finally {
       rmSync(path.dirname(dbPath), { recursive: true, force: true });
     }

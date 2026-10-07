@@ -4,6 +4,7 @@
  * 一一对应）。AG-06 语义不变：job 只是数据声明，零 SQL。
  */
 import type { DomainEvent, InstanceClosurePayload } from "../../../domain/events/DomainEvent";
+import type { ToolCallKind, ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type {
   BatchData,
@@ -58,6 +59,17 @@ export type WriteJob =
       readonly kind: "runtimeConfig";
       readonly key: string;
       readonly value: string;
+    }
+  | {
+      /**
+       * 工具调用监控直书行 upsert（tool_calls 表；steward 形态入账口——
+       * __system__ 会话无状态投影，state 投影整替语义覆盖不到）。start 建行
+       * / end 收口两段写（ON CONFLICT(id) 只更新收口字段）；id 由调用方加
+       * 实例前缀防跨实例 call id 撞 PK（F3 同因）。
+       */
+      readonly kind: "toolCallUpsert";
+      readonly sessionId: string;
+      readonly record: ToolCallRecordData & { readonly kind: ToolCallKind };
     }
   | {
       /** MCP server 声明面整段替换（mcp_server 表，无会话维——全局链；

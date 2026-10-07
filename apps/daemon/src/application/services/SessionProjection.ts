@@ -178,7 +178,7 @@ export class SessionProjection implements EventPublisherPort {
         const p = event.payload as ToolCallPayload;
         const key = `${event.instanceId}:${p.toolCallId}`; // 实例维复合键（并发实例 toolCallId 可重号）
         if (this.subToolCalls.has(key)) return; // 幂等
-        const record = ToolCallRecord.create(p.toolCallId, p.toolName, p.args, event.instanceId!);
+        const record = ToolCallRecord.create(p.toolCallId, p.toolName, p.args, event.instanceId!, "subagent");
         record.markRunning(event.occurredAt);
         this.subToolCalls.set(key, record);
         return;

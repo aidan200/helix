@@ -1,5 +1,6 @@
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
+import type { ToolCallKind, ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type {
   AgentLifecycleRowData,
   ClosureRecordData,
@@ -60,6 +61,13 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     await this.queue.saveState(state);
   }
 
+  async recordToolCall(
+    sessionId: string,
+    record: ToolCallRecordData & { readonly kind: ToolCallKind },
+  ): Promise<void> {
+    await this.queue.upsertToolCall(sessionId, record);
+  }
+
   async restore(sessionId: string): Promise<PersistedDomainState | undefined> {
     const db = this.queue.database;
     const session = db
@@ -78,7 +86,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .all(sessionId) as SteerQueueRow[];
     const toolCalls = db
       .prepare(
-        "SELECT id, session_id, instance_id, tool_name, args, status, result, error, images, started_at, ended_at " +
+        "SELECT id, session_id, instance_id, kind, tool_name, args, status, result, error, images, started_at, ended_at " +
           "FROM tool_calls WHERE session_id = ? ORDER BY rowid",
       )
       .all(sessionId) as ToolCallRow[];

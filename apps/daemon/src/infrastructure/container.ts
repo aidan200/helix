@@ -965,10 +965,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           : {}),
       }),
     // 引擎事件 → domain_events 投影（追踪可见性——instanceId=steward，里程碑
-    // 子集；广播面 default→null 不接，防自激语义保持）
+    // 子集；广播面 default→null 不接，防自激语义保持）+ 工具调用监控入账
+    //（kind='steward'：__system__ 会话无状态投影，直书口经 SessionRepository
+    // → WriteQueue 单写链 __system__ 仓）
     emitEngineEvent: stewardEngineTraceBridge({
       publish: (event) => fanoutPublisher.publish(event),
       nowIso: () => clock.now(),
+      recordToolCall: (sessionId, record) => void persistence.repository.recordToolCall(sessionId, record),
     }),
     orchestration: scheduler, // status 只读 + send 写注入（agent_send 等价 steer 通道）
     tasks: taskStack.query, // 任务清单只读面（TaskQueryService.listTasks）

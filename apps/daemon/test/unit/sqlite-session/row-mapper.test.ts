@@ -27,13 +27,13 @@ function richState(): PersistedDomainState {
   session.applySteer("运行中注入", "2024-01-01T00:00:06.000Z"); // pendingSteer 非空
   void steerTurn;
 
-  const completed = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
+  const completed = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID, "main");
   completed.markRunning("2024-01-01T00:00:07.000Z");
   completed.complete("hi", "2024-01-01T00:00:08.000Z");
-  const failed = ToolCallRecord.create("tc-2", "read", { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
+  const failed = ToolCallRecord.create("tc-2", "read", { path: "/x" }, LEGACY_MAIN_INSTANCE_ID, "main");
   failed.markRunning("2024-01-01T00:00:09.000Z");
   failed.fail("no such file", "2024-01-01T00:00:10.000Z");
-  const running = ToolCallRecord.create("tc-3", "grep", { pattern: "a" }, LEGACY_MAIN_INSTANCE_ID);
+  const running = ToolCallRecord.create("tc-3", "grep", { pattern: "a" }, LEGACY_MAIN_INSTANCE_ID, "main");
   running.markRunning("2024-01-01T00:00:11.000Z");
 
   return {
@@ -73,6 +73,29 @@ describe("TP-CL8-5：RowMapper 往返等价", () => {
     expect(back.toolCalls).toEqual(state.toolCalls); // 工具调用记录（含 running/failed/completed 三态）
     // steer 队列类在快照 pendingSteer 内往返
     expect(back.session.pendingSteer).toEqual([{ entryId: "e3", text: "运行中注入" }]);
+  });
+
+  test("kind 形态判别：行携带 kind 显式往返；旧行/旧载荷 NULL 缺省推导（含主 id 对照）", () => {
+    // 显式往返（行面恒携带）
+    const rows = RowMapper.persistedStateToRows(richState());
+    expect(rows.toolCalls.map((t) => t.kind)).toEqual(["main", "main", "main"]);
+    // 旧行回填前（kind NULL）：legacy 'main' → main；主 id 对照 → main；其余 → subagent
+    const legacyRows = [
+      { id: "tc-l1", session_id: "s-k", instance_id: "main", kind: null, tool_name: "bash", args: "{}", status: "completed", result: null, error: null, images: null, started_at: null, ended_at: null },
+      { id: "tc-l2", session_id: "s-k", instance_id: "agent-m9", kind: null, tool_name: "bash", args: "{}", status: "completed", result: null, error: null, images: null, started_at: null, ended_at: null },
+      { id: "tc-l3", session_id: "s-k", instance_id: "agent-sub", kind: null, tool_name: "bash", args: "{}", status: "completed", result: null, error: null, images: null, started_at: null, ended_at: null },
+    ] as const;
+    const sessionRow = {
+      session_id: "s-k", created_at: "2024-01-01T00:00:00.000Z", entries: "[]", turns: "[]",
+      updated_at: "2024-01-01T00:00:00.000Z", main_instance_id: "agent-m9", mode: null, title: null, topic: null,
+    } as Parameters<typeof RowMapper.rowsToPersistedState>[0];
+    const back = RowMapper.rowsToPersistedState(
+      sessionRow,
+      { session_id: "s-k", instance_id: "main", state: "idle", updated_at: "2024-01-01T00:00:00.000Z" },
+      [],
+      [...legacyRows],
+    );
+    expect(back.toolCalls.map((t) => t.kind)).toEqual(["main", "main", "subagent"]);
   });
 
   test("② DomainEvent → 行 → DomainEvent 等价（payload JSON 往返）", () => {
@@ -153,10 +176,10 @@ describe("TP-CL8-5：RowMapper 往返等价", () => {
 
   test("T9 图片：ToolCallRecord images 经 tool_calls.images JSON 列往返不丢（持久化一致性专项）", () => {
     const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-    const withImages = ToolCallRecord.create("tc-img", "browser", { action: "screenshot" }, LEGACY_MAIN_INSTANCE_ID);
+    const withImages = ToolCallRecord.create("tc-img", "browser", { action: "screenshot" }, LEGACY_MAIN_INSTANCE_ID, "main");
     withImages.markRunning("2024-01-01T00:00:07.000Z");
     withImages.complete('{"saved":"/tmp/s.png"}', "2024-01-01T00:00:08.000Z", [dataUrl]);
-    const withoutImages = ToolCallRecord.create("tc-plain", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
+    const withoutImages = ToolCallRecord.create("tc-plain", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID, "main");
     withoutImages.markRunning("2024-01-01T00:00:09.000Z");
     withoutImages.complete("hi", "2024-01-01T00:00:10.000Z");
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
+import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
 import { SqliteTraceQueryAdapter } from "../../src/adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
 import { stewardEngineTraceBridge, STEWARD_INSTANCE_ID } from "../../src/infrastructure/assembly/stewardEngineTraceBridge";
 import { SYSTEM_SESSION_ID } from "@helix/protocol";
@@ -120,6 +121,50 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       // 收口——追踪面由 loop.run.paused + 后续 run 活动承载）
       await queue.flush();
       queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("工具调用监控入账（kind='steward'）：start 建行/end 收口两段写，id 带实例前缀，end 无 start 补齐兜底", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const repo = new SqliteSessionRepository(queue);
+      const bridge = stewardEngineTraceBridge({
+        publish: (event) => {
+          void queue.appendEvent(event, "subagent");
+        },
+        nowIso: () => "2026-09-21T12:00:00.000Z",
+        // 监控直书口（组合根同链：SessionRepository → WriteQueue __system__ 仓）
+        recordToolCall: (sessionId, record) => void repo.recordToolCall(sessionId, record),
+      });
+      for (const event of [
+        { type: "tool_execution_start", toolCallId: "c1", toolName: "list_tasks", args: { path: "/x" } },
+        { type: "tool_execution_end", toolCallId: "c1", toolName: "list_tasks", result: "2 条", isError: false },
+        { type: "tool_execution_start", toolCallId: "c2", toolName: "propose_send", args: {} },
+        { type: "tool_execution_end", toolCallId: "c2", toolName: "propose_send", result: "boom", isError: true },
+        { type: "tool_execution_end", toolCallId: "c3", toolName: "act", result: "ok", isError: false }, // 无 start（建行兜底）
+      ] as AgentEngineEvent[]) {
+        bridge(event);
+      }
+      await queue.flush();
+      const rows = queue.database
+        .prepare("SELECT id, session_id, instance_id, kind, tool_name, args, status, result, error FROM tool_calls ORDER BY rowid")
+        .all() as { id: string; session_id: string; instance_id: string; kind: string; tool_name: string; args: string; status: string; result: string | null; error: string | null }[];
+      queue.close();
+
+      expect(rows.map((r) => [r.id, r.kind, r.status])).toEqual([
+        ["steward:c1", "steward", "completed"],
+        ["steward:c2", "steward", "failed"],
+        ["steward:c3", "steward", "completed"],
+      ]);
+      expect(rows[0]!.session_id).toBe(SYSTEM_SESSION_ID);
+      expect(rows[0]!.instance_id).toBe("steward");
+      expect(rows[0]!.args).toBe('{"path":"/x"}'); // start 载荷保全（end 不覆写）
+      expect(rows[0]!.result).toBe("2 条");
+      expect(rows[1]!.error).toBe("boom"); // isError → failed + error 落行
+      expect(rows[2]!.args).toBe("null"); // 无 start 兜底（args JSON null）
     } finally {
       rmSync(path.dirname(dbPath), { recursive: true, force: true });
     }

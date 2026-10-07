@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
   instance_id TEXT NOT NULL DEFAULT 'main',
+  kind TEXT,
   tool_name TEXT NOT NULL,
   args TEXT NOT NULL,
   status TEXT NOT NULL,

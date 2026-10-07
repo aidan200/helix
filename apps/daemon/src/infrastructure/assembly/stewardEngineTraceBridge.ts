@@ -14,6 +14,7 @@
  */
 import type { AgentEngineEvent } from "../../application/ports/outbound/AgentEnginePort";
 import type { DomainEvent } from "../../domain/events/DomainEvent";
+import type { ToolCallKind, ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { SYSTEM_SESSION_ID } from "@helix/protocol";
 
 /** 管家实例 id（domain_events 四维落位——与主会话/SubAgent 同一标识空间）。 */
@@ -24,6 +25,14 @@ export interface StewardEngineTraceBridgeDeps {
   readonly publish: (event: DomainEvent) => void;
   /** 时钟（occurredAt；组合根 ClockPort）。 */
   readonly nowIso: () => string;
+  /**
+   * 工具调用监控直书口（kind='steward' 全形态入账）：start 建行 / end 收口
+   * 两段写；缺席 = 不入账（监控是增量面，降级不阻断追踪）。
+   */
+  readonly recordToolCall?: (
+    sessionId: string,
+    record: ToolCallRecordData & { readonly kind: ToolCallKind },
+  ) => void;
 }
 
 /** AgentEngineEvent 载荷 → domain_events 载荷（LoopEvent 桥输出面同构直转）。 */
@@ -62,10 +71,40 @@ function payloadOf(event: AgentEngineEvent, promptSummaryOf: () => string): unkn
 export function stewardEngineTraceBridge(deps: StewardEngineTraceBridgeDeps): (event: AgentEngineEvent) => void {
   let instantiated = false; // 进程内幂等位（重启后历史行已在——重复合成无害）
   let lastPromptSummary = "";
+  // start→end 两段写的行补齐源（end 事件无 args/name 全貌——暂存 start 载荷）
+  const startedTools = new Map<string, { toolName: string; args: unknown }>();
   return (event) => {
     if (event.type === "message_start" && event.role === "user" && event.source === "prompt") {
       // prompt 摘要锚（agent_start 时点 message_start(user) 可能未到——桥内暂存）
       lastPromptSummary = "";
+    }
+    if (event.type === "tool_execution_start" && deps.recordToolCall !== undefined) {
+      // 监控入账（kind='steward'）：id 加实例前缀防跨实例 call id 撞 PK（F3 同因）
+      startedTools.set(event.toolCallId, { toolName: event.toolName, args: event.args });
+      deps.recordToolCall(SYSTEM_SESSION_ID, {
+        id: `${STEWARD_INSTANCE_ID}:${event.toolCallId}`,
+        instanceId: STEWARD_INSTANCE_ID,
+        toolName: event.toolName,
+        args: event.args,
+        kind: "steward",
+        status: "running",
+        startedAt: deps.nowIso(),
+      });
+    }
+    if (event.type === "tool_execution_end" && deps.recordToolCall !== undefined) {
+      const started = startedTools.get(event.toolCallId);
+      startedTools.delete(event.toolCallId);
+      deps.recordToolCall(SYSTEM_SESSION_ID, {
+        id: `${STEWARD_INSTANCE_ID}:${event.toolCallId}`,
+        instanceId: STEWARD_INSTANCE_ID,
+        toolName: started?.toolName ?? event.toolName,
+        args: started?.args ?? null,
+        kind: "steward",
+        status: event.isError ? "failed" : "completed",
+        ...(event.isError ? { error: event.result } : { result: event.result }),
+        startedAt: deps.nowIso(),
+        endedAt: deps.nowIso(),
+      });
     }
     const payload = payloadOf(event, () => lastPromptSummary);
     if (payload === undefined) return;

@@ -1,7 +1,7 @@
 import type { DomainEvent } from "../../../../domain/events/DomainEvent";
 import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycle";
 import { LEGACY_MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
-import type { ToolCallRecordData, ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
+import { deriveToolCallKind, type ToolCallKind, type ToolCallRecordData, type ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { PersistedDomainState } from "../../../../application/ports/outbound/SessionRepositoryPort";
 import type {
@@ -107,6 +107,8 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       // 行级归属透传（AD-3：SubAgent 工具行挂 agent-N；旧载荷
       // 无字段时回填主实例，TR-AD-14 前向兼容）
       instance_id: t.instanceId ?? LEGACY_MAIN_INSTANCE_ID,
+      // 形态判别透传（监控 kind；旧载荷无字段时按实例归属推导）
+      kind: t.kind ?? deriveToolCallKind(t.instanceId, state.session.mainInstanceId),
       tool_name: t.toolName,
       args: JSON.stringify(t.args ?? null),
       status: t.status,
@@ -165,6 +167,10 @@ export function rowsToPersistedState(
       // 行级归属透传往返（AD-3：写入侧对称；主实例省略字段保持
       // v0/v0.1 载荷形状）
       ...(t.instance_id !== LEGACY_MAIN_INSTANCE_ID ? { instanceId: t.instance_id } : {}),
+      // 形态判别往返（旧行 NULL（回填前）→ 按实例归属推导兑底）
+      kind:
+        (t.kind as ToolCallKind | null) ??
+        deriveToolCallKind(t.instance_id !== LEGACY_MAIN_INSTANCE_ID ? t.instance_id : undefined, session.main_instance_id),
       toolName: t.tool_name,
       args: JSON.parse(t.args),
       status: t.status as ToolCallStatus,

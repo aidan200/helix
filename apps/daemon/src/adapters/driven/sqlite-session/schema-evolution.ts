@@ -31,6 +31,13 @@ export function ensureSchemaEvolved(db: Database): void {
   if (!hasColumn(db, "tool_calls", "images")) {
     db.exec("ALTER TABLE tool_calls ADD COLUMN images TEXT");
   }
+  // 工具调用监控 kind 列（形态区分 main/subagent/steward——T10a 后主实例 id
+  // 为 agent-<唯一串>，与 SubAgent 不可按 id 形态区分；可空无默认——旧行
+  // NULL = 回填迁移判定面）。回填见下方（需 session_state.main_instance_id
+  // 列就位后执行）。
+  if (!hasColumn(db, "tool_calls", "kind")) {
+    db.exec("ALTER TABLE tool_calls ADD COLUMN kind TEXT");
+  }
   // T11a：steer_queue.source（注入来源 user/closure/progress；可空无默认——
   // 旧行 NULL = 缺省 user 语义，读取侧键不携带前向兼容）
   if (!hasColumn(db, "steer_queue", "source")) {
@@ -61,6 +68,18 @@ export function ensureSchemaEvolved(db: Database): void {
   // 默认；旧行 NULL = 无演进主题，读面回落 title/首条消息推导，同构口径）
   if (!hasColumn(db, "session_state", "topic")) {
     db.exec("ALTER TABLE session_state ADD COLUMN topic TEXT");
+  }
+  // 工具调用监控 kind 回填（幂等，WHERE kind IS NULL）：instance_id =
+  // legacy 'main' 或 = 该会话 main_instance_id → 'main'；其余 → 'subagent'
+  //（steward 形态在 kind 列引入后才有直书行，历史无）。前置：
+  // session_state.main_instance_id 列已在上方就位（子查询引用）。
+  if (tableColumns(db, "tool_calls").length > 0) {
+    db.exec(
+      "UPDATE tool_calls SET kind = CASE " +
+        `WHEN instance_id = '${LEGACY_MAIN_INSTANCE_ID}' OR instance_id = (SELECT main_instance_id FROM session_state WHERE session_state.session_id = tool_calls.session_id) ` +
+        "THEN 'main' ELSE 'subagent' END " +
+        "WHERE kind IS NULL",
+    );
   }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
   if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {

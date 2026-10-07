@@ -62,11 +62,11 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
       session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
       session.applySteer("改用 grep", "2024-01-01T00:00:03.000Z", "closure"); // pendingSteer 挂起（T11a：来源随队列入账）
 
-      const ok = ToolCallRecord.create("tc-ok", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
+      const ok = ToolCallRecord.create("tc-ok", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID, "main");
       ok.markRunning("2024-01-01T00:00:04.000Z");
       // H6：下行图片随 completed 入账，restore 往返必须保真（读点漏 SELECT images 会抹除）
       ok.complete("hi", "2024-01-01T00:00:05.000Z", ["data:image/png;base64,AAAA"]);
-      const bad = ToolCallRecord.create("tc-bad", "read", { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
+      const bad = ToolCallRecord.create("tc-bad", "read", { path: "/x" }, LEGACY_MAIN_INSTANCE_ID, "main");
       bad.markRunning("2024-01-01T00:00:06.000Z");
       bad.fail("no such file", "2024-01-01T00:00:07.000Z");
 

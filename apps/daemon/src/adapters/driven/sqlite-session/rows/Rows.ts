@@ -55,6 +55,8 @@ export interface ToolCallRow {
   readonly session_id: string;
   /** 工具调用归属实例（domain 侧 ToolCallRecord 挂 id）。 */
   readonly instance_id: string;
+  /** 形态判别（监控 kind：main/subagent/steward）；旧行回填前可空。 */
+  readonly kind: string | null;
   readonly tool_name: string;
   readonly args: string;
   readonly status: string;

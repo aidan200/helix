@@ -2,7 +2,7 @@ import type { SessionSnapshot } from "../../../domain/session/SessionSnapshot";
 import type { AgentLifecycleState } from "../../../domain/agent/AgentLifecycle";
 import type { InstanceState } from "../../../domain/agent/AgentInstance";
 import type { DomainEvent, InstanceClosurePayload } from "../../../domain/events/DomainEvent";
-import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
+import type { ToolCallKind, ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 
 export type { InstanceState };
 
@@ -40,6 +40,12 @@ export interface PersistedDomainState {
 export interface SessionRepository {
   /** 保存领域状态整体（幂等覆盖，同 sessionId）。 */
   save(state: PersistedDomainState): Promise<void>;
+  /**
+   * 工具调用监控直书行 upsert（tool_calls；形态判别 kind 全入账口——steward
+   * 形态无状态投影，state 整替语义覆盖不到，走此直书面；非投影语义：不随
+   * save 整体替换。start 建行 / end 收口两段写，撞 id 按收口字段更新）。
+   */
+  recordToolCall(sessionId: string, record: ToolCallRecordData & { readonly kind: ToolCallKind }): Promise<void>;
   /** 按 id 读取；不存在返回 undefined。 */
   restore(sessionId: string): Promise<PersistedDomainState | undefined>;
   /** 已持久化的会话 id 列表（恢复入口用，按创建序）。 */
