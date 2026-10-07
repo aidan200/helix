@@ -7,9 +7,12 @@
  *    decide 类名字全拒，kg 前缀家族白名单 = {kg_search, kg_get}）；
  * 3. 执行体：命中 → 结果文本过 capToolResultText 体量护栏；kg 库缺席
  *    （absent）/ kg 源未装配 → 引导式降级文案、isError 不置、不抛错不炸轮；
- * 4. project 参数缺省/显式两条路径（缺省落到活跃项目；显式走
- *    workspace-scan/scanProjects 口径解析，未建索引引导式降级）；
- * 5. system prompt 路由段含 kg 工具引导行；
+ * 4. project 参数缺省/显式两条路径（缺省口径与 memoryProject 同源：单项目
+ *    workspace → 该项目（未建索引引导式降级）；多项目/未绑定/未注入 → 聚合
+ *    兜底保留（结果分块带【项目】头——适配器层 steward-kg-source.test 已测）。
+ *    显式走 workspace-scan/scanProjects 口径解析，未建索引引导式降级）；
+ * 5. system prompt 路由段含 kg 工具引导行 + 「已知项目显式传 project」强化
+ *    引导；
  * 6. 工具面计数断言显式更新（steward-service/steward-profile 两处既有断言
  *    按显式契约变更更新，见交付报告）。
  */
@@ -119,6 +122,9 @@ function makeRig(opts: {
   /** 显式传 null = 不装配 kg 源（降级路径）。 */
   kgOff?: boolean;
   projects?: StewardProjectsSource;
+  /** 当前项目口径注入（生产 = container memoryProject：workspace 绑定根 +
+   *  一级目录扫描的单项目判定；单项目 → 项目名，多项目/未绑定 → undefined）。 */
+  memoryProject?: () => string | undefined;
 }): Rig {
   const script = opts.script ?? [say("ok")];
   const llm = fakeLlm(script);
@@ -148,6 +154,7 @@ function makeRig(opts: {
     },
     ...(kg !== undefined ? { kg: kg.source } : {}),
     ...(opts.projects !== undefined ? { projects: opts.projects } : {}),
+    ...(opts.memoryProject !== undefined ? { memoryProject: opts.memoryProject } : {}),
   });
   return {
     svc,
@@ -260,8 +267,11 @@ describe("执行体：体量护栏与引导式降级", () => {
     expect(absent.text).toContain("不存在");
   });
 
-  test("端到端：LLM 工具轮 kg_search → 结果回灌 → answer 收口（不炸轮）", async () => {
-    const rig = makeRig({ script: [toolCall("c1", "kg_search", { q: "规则" }), say("项目的规则是……")] });
+  test("端到端：LLM 工具轮 kg_search → 结果回灌 → answer 收口（不炸轮；单项目 workspace 缺省只查该项目）", async () => {
+    const rig = makeRig({
+      script: [toolCall("c1", "kg_search", { q: "规则" }), say("项目的规则是……")],
+      memoryProject: () => "helix",
+    });
     const result = await rig.svc.ask("这个项目的规则是什么？");
     expect(result.status).toBe("answer");
     expect(rig.kg!.searchCalls).toEqual([{ q: "规则", projectRoot: "/w/helix" }]);
@@ -273,18 +283,75 @@ describe("执行体：体量护栏与引导式降级", () => {
   });
 });
 
-// ── 4. project 参数缺省/显式双路径 ───────────────────────────
+// ── 4. project 参数缺省/显式双路径（缺省口径与 memoryProject 同源）──
 
-describe("project 参数：缺省落到活跃项目 / 显式解析", () => {
-  test("缺省（单活跃项目）→ 落到活跃项目根", async () => {
-    const rig = makeRig({ script: [say("warm")] });
+describe("project 缺省：单项目 workspace → 只查该项目（memoryProject 同源）", () => {
+  test("单项目 workspace 缺省 → 只查该项目（kg 域含他项目也不混入）", async () => {
+    const rig = makeRig({
+      script: [say("warm")],
+      memoryProject: () => "helix",
+      kg: fakeKg({ projects: ["/w/helix", "/w/other"] }),
+      projects: fakeProjects({ helix: "/w/helix", other: "/w/other" }, ["/w/helix", "/w/other"]),
+    });
     await warm(rig);
     await rig.tool("kg_search").execute({ q: "架构" }, { toolCallId: "t1" });
+    // projectRoot 钉到当前项目——适配器按它过滤行（steward-kg-source.test 已测），
+    // 他项目（/w/other）结果不进入本轮。
     expect(rig.kg!.searchCalls).toEqual([{ q: "架构", projectRoot: "/w/helix" }]);
     await rig.tool("kg_get").execute({ nodeId: "TR-1" }, { toolCallId: "t2" });
     expect(rig.kg!.getCalls).toEqual([{ nodeId: "TR-1", projectRoot: "/w/helix" }]);
   });
 
+  test("单项目 workspace 当前项目未建索引 → 引导式降级点名项目，零查询", async () => {
+    const rig = makeRig({
+      script: [say("warm")],
+      memoryProject: () => "bare",
+      kg: fakeKg({ projects: [] }),
+      projects: fakeProjects({ bare: "/w/bare" }, []),
+    });
+    await warm(rig);
+    const result = await rig.tool("kg_search").execute({ q: "架构" }, { toolCallId: "t1" });
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toContain("bare");
+    expect(result.text).toContain("索引");
+    expect(rig.kg!.searchCalls).toHaveLength(0);
+  });
+});
+
+describe("project 缺省：多项目/未绑定/未注入 → 聚合兜底保留", () => {
+  test("多项目 workspace 缺省 → 聚合兜底（projectRoot 缺省，行为不劣化）", async () => {
+    const rig = makeRig({
+      script: [say("warm")],
+      memoryProject: () => undefined,
+      kg: fakeKg({ projects: ["/w/helix", "/w/other"] }),
+      projects: fakeProjects({ helix: "/w/helix", other: "/w/other" }, ["/w/helix", "/w/other"]),
+    });
+    await warm(rig);
+    await rig.tool("kg_search").execute({ q: "架构" }, { toolCallId: "t1" });
+    expect(rig.kg!.searchCalls).toEqual([{ q: "架构" }]);
+  });
+
+  test("多项目 workspace 仅一个 kg 项目 → 缺省聚合（不再按 kg 域计数窄化伪装「当前项目」）", async () => {
+    const rig = makeRig({
+      script: [say("warm")],
+      memoryProject: () => undefined,
+      kg: fakeKg({ projects: ["/w/helix"] }),
+      projects: fakeProjects({ helix: "/w/helix", other: "/w/other" }, ["/w/helix"]),
+    });
+    await warm(rig);
+    await rig.tool("kg_search").execute({ q: "架构" }, { toolCallId: "t1" });
+    expect(rig.kg!.searchCalls).toEqual([{ q: "架构" }]);
+  });
+
+  test("memoryProject 未注入（旧装配面）→ 缺省聚合兜底", async () => {
+    const rig = makeRig({ script: [say("warm")] });
+    await warm(rig);
+    await rig.tool("kg_search").execute({ q: "架构" }, { toolCallId: "t1" });
+    expect(rig.kg!.searchCalls).toEqual([{ q: "架构" }]);
+  });
+});
+
+describe("显式 project 参数（行为不变）", () => {
   test("显式 project → workspace-scan 口径解析到项目根", async () => {
     const rig = makeRig({
       script: [say("warm")],
@@ -294,17 +361,6 @@ describe("project 参数：缺省落到活跃项目 / 显式解析", () => {
     await warm(rig);
     await rig.tool("kg_search").execute({ q: "架构", project: "other" }, { toolCallId: "t1" });
     expect(rig.kg!.searchCalls).toEqual([{ q: "架构", projectRoot: "/w/other" }]);
-  });
-
-  test("多项目缺省 → 聚合活跃域（projectRoot 缺省聚合）", async () => {
-    const rig = makeRig({
-      script: [say("warm")],
-      kg: fakeKg({ projects: ["/w/helix", "/w/other"] }),
-      projects: fakeProjects({ helix: "/w/helix", other: "/w/other" }, ["/w/helix", "/w/other"]),
-    });
-    await warm(rig);
-    await rig.tool("kg_search").execute({ q: "架构" }, { toolCallId: "t1" });
-    expect(rig.kg!.searchCalls).toEqual([{ q: "架构" }]);
   });
 
   test("显式 project 不在 workspace → 打回引导，零查询", async () => {
@@ -342,5 +398,14 @@ describe("system prompt 路由段增量", () => {
     // 既有路由语义不动（人格段/路由反判例行仍在）
     expect(prompt).toContain("路由反判例行");
     expect(prompt).toContain("不代答工作上下文");
+  });
+
+  test("路由段强化引导：已知项目时显式传 project + 多项目缺省聚合分块标注说明", async () => {
+    const rig = makeRig({ script: [say("ok")] });
+    await rig.svc.ask("hi");
+    const prompt = rig.llm.calls[0]!.request.systemPrompt;
+    expect(prompt).toContain("显式传 project");
+    expect(prompt).toContain("多项目");
+    expect(prompt).toContain("【项目");
   });
 });

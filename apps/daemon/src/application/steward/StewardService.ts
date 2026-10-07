@@ -298,7 +298,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 意图路由（每次用户输入先分类再行动；判据 = 目标语义，不是目标是否在运行）：
 - 问管家：关于全局状态/近期工作的问题 → 直接回答（可用 list_instances / list_tasks / query_recent_work 取数；追问某会话具体聊了什么/进展细节时用 read_session 深读尾部消息——记忆召回行的「[进展]…（sid: xxx）」可直接作 read_session 的 sessionId）。
-- 问项目知识（规则/约束/架构/术语/历史决策，如「这个项目的规则是什么」「XX 是怎么设计的」）→ 用 kg_search 检索项目知识库，命中后用 kg_get 读节点全文（nodeId 取自返回行的「kg get <id>」指针，不要自造 id）；知识库只读不写，查不到就如实说并建议用户补充知识条目。project 参数可指定项目（缺省=当前活跃项目）。
+- 问项目知识（规则/约束/架构/术语/历史决策，如「这个项目的规则是什么」「XX 是怎么设计的」）→ 用 kg_search 检索项目知识库，命中后用 kg_get 读节点全文（nodeId 取自返回行的「kg get <id>」指针，不要自造 id）；知识库只读不写，查不到就如实说并建议用户补充知识条目。project 参数：用户已点名项目或上下文已明确项目时务必显式传 project（workspace 一级目录名）；缺省=当前项目（单项目 workspace），多项目 workspace 缺省聚合检索各项目知识、结果按【项目 名】分块标注——问「这个项目的规则」时若 workspace 多项目，先从上下文确认指哪个项目再显式传 project，避免混入其他项目结果。
 - 开新会话（双工具分工，看用户话里有没有「要做的事」）：用户**只要空会话**（如「开个新会话」「新开一个」）→ create_session 提案；用户话里**带着要做的事/话题**（如「开个会话设计光球效果」）→ **必须** start_session 提案，initial_message = 用户原话（不改写、不总结——建成即作为首条消息投递到新会话并开始工作，不要把话题塞进 title 就完事，也不要让用户去空会话里重新输入）。例：用户「创建一个新会话，设计一下光球效果，现在的光有点一言难尽」→ start_session(title="光球视觉效果设计", initial_message="设计一下光球的效果，现在的光有点一言难尽")。两个工具建成后界面都会自动切到新会话。
 - 记忆沉淀：用户明确表达偏好/习惯（「以后都…」「我喜欢…」「记住…」）或对话中确认了跨会话有价值的事实 → 调用 remember（立即静默入库并弹通知卡，无需确认——text 要提炼成一句简单易懂、主题明确的记忆句，不要照搬用户原话口语）。只沉淀认知增量：一次性上下文/本轮临时信息/寒暄不记。系统也会在轮末自动提炼记忆，你主动记得准就轮不到自动提炼。
 - 对会话说（用户意图主通道）：用户说「发到那个会话/对 XX 会话说/继续那个话题」等指向某个会话 → deliver_to_session 提案——**无论目标会话是否空闲**（空闲会话投递会自动开新轮次，运行中会话自动注入队列，两者都是正常路径）。不确定 sessionId 时先用 query_recent_work 查（结果含 sessionId）；投递成功后界面会自动切到该会话。
@@ -711,8 +711,9 @@ export interface StewardKgSource {
   /** 当前 kg 项目域（已建 .helix-kg 的项目根列表，workspace-scan/scanProjects
    *  口径；空集 = absent 判定源——引导式降级，读面绝不新建库文件）。 */
   kgProjects(): readonly string[];
-  /** 关键词检索（渲染文本）：projectRoot 缺省 = 当前活跃项目域（单项目
-   *  即活跃项目；多项目聚合）；指定 = 单项目范围。 */
+  /** 关键词检索（渲染文本）：projectRoot 缺省 = kg 项目域聚合（多项目分块
+   *  带【项目】头——调用方 resolveKgScope 已按当前项目口径先行解析，缺省
+   *  仅多项目/未绑定时到达）；指定 = 单项目范围。 */
   search(q: string, projectRoot?: string): Promise<string>;
   /** 节点全量读取（渲染文本）：nodeId 形态校验/查无节点在实现体抛中文引导
    *  错，执行体兜底转文本不抛错不炸轮。 */
@@ -787,9 +788,10 @@ export interface StewardServiceDeps {
  *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
  *  available=false）——对话主链路零影响。 */
   readonly memory?: StewardMemoryService;
-  /** 记忆召回当前项目解析（项目隔离批，可选）：返回 workspace 一级项目
- *  目录名（单项目 workspace 口径——与 resolveKgScope 的「当前活跃项目」
- *  同源；多项目/未绑定/未注入 → undefined = 召回只 global）。 */
+  /** 当前项目口径解析（项目隔离批引入；kg 缺省范围批起双消费面）：返回
+ *  workspace 一级项目目录名（workspace 绑定根 + 一级目录扫描的单项目口径
+ *  ——记忆召回与 kg_search/kg_get 缺省范围共用同源，不另造口径判定）；多
+ *  项目/未绑定/未注入 → undefined = 召回只 global / kg 缺省聚合兑底。 */
   readonly memoryProject?: () => string | undefined;
   /** 管家感知批（M0.5）：用户 ask 活动信号（感知服务激活衰减窗点亮——
    *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
@@ -912,7 +914,7 @@ const TOOL_KG_SEARCH: StewardLlmTool = {
     type: "object",
     properties: {
       q: { type: "string", description: "关键词（取用户问题里的核心名词/术语——子串匹配，短而准命中率高）" },
-      project: { type: "string", description: "项目名（可选，缺省=当前活跃项目；多项目 workspace 用一级目录名）" },
+      project: { type: "string", description: "项目名（可选；已知目标项目时显式传入避免跨项目混排——多项目 workspace 缺省聚合各项目结果并带【项目 名】标注；取 workspace 一级目录名）" },
     },
     required: ["q"],
     additionalProperties: false,
@@ -927,7 +929,7 @@ const TOOL_KG_GET: StewardLlmTool = {
     type: "object",
     properties: {
       nodeId: { type: "string", description: "节点 id（TR-n / E-n 形态——必须取自 kg_search 返回行指针）" },
-      project: { type: "string", description: "项目名（可选，缺省=当前活跃项目）" },
+      project: { type: "string", description: "项目名（可选；多项目 workspace 建议显式传入以定位同号节点——缺省聚合域取首个命中）" },
     },
     required: ["nodeId"],
     additionalProperties: false,
@@ -2873,18 +2875,23 @@ export class StewardService {
 
   // ── 批A：kg_search / kg_get（项目知识只读检索） ─────────
 
-  /** kg scope 解析（E-212 纪律：必填显式 + 服务端兜底打回；缺省 = 当前活跃
-   *  项目）：返回 projectRoot（undefined = 多项目聚合域）或引导文案（打回/
-   *  降级均不抛错，与 query_recent_work 降级姿态同族）。 */
+  /** kg scope 解析（E-212 纪律：必填显式 + 服务端兜底打回；缺省 = 当前项目
+   *  口径（memoryProject 同源：workspace 绑定根 + 一级目录扫描的单项目判定
+   *  ——不另造口径）：单项目 workspace → 该项目（与显式 project 同一解析路
+   *  径）；多项目/未绑定/未注入 → 聚合兑底（root 缺省 = kg 项目域聚合，适配
+   *  器逐项目分块带【项目】头））：返回 projectRoot 或引导文案（打回/降级
+   *  均不抛错，与 query_recent_work 降级姿态同族）。 */
   private resolveKgScope(projectArg: unknown): { root?: string } | { guide: string } {
     const kg = this.deps.kg;
     if (kg === undefined) {
       return { guide: "知识图谱读面不可用（daemon 装配缺 kg 源）——项目知识暂无法检索，可建议用户直接查看项目文档" };
     }
-    const project = typeof projectArg === "string" && projectArg.trim() !== "" ? projectArg.trim() : undefined;
+    const explicit = typeof projectArg === "string" && projectArg.trim() !== "" ? projectArg.trim() : undefined;
+    // 缺省 = 当前项目口径（memoryProject 同源）：单项目 workspace 解析出项目
+    // 名后与显式 project 走同一解析路径（同一次序/同一引导文案）；多项目/
+    // 未绑定/未注入 → undefined 聚合兑底。
+    const project = explicit ?? this.deps.memoryProject?.();
     if (project === undefined) {
-      // 缺省 = 当前活跃项目（workspace-scan/scanProjects 口径）：单项目即
-      // 活跃项目；多项目在场 → 活跃域聚合（undefined）。
       const roots = kg.kgProjects();
       if (roots.length === 0) {
         return {
@@ -2892,9 +2899,12 @@ export class StewardService {
             "当前 workspace 尚无项目知识索引（.helix-kg/kg.db 缺席）——项目知识检索需先建索引；可引导用户到知识图谱页建立索引，或如实告知查不到",
         };
       }
-      return roots.length === 1 ? { root: roots[0]! } : {};
+      // 聚合域（root 缺省）：适配器逐项目分块带【项目】头（空命中项目省略，
+      // 单 kg 项目域原样渲染）——不在此按 kg 域计数窄化伪装「当前项目」。
+      return {};
     }
-    // 显式 project：workspace-scan/scanProjects 口径解析（deps.projects 同源）
+    // 显式 project（或缺省解析出的当前项目）：workspace-scan/scanProjects
+    // 口径解析（deps.projects 同源）
     if (this.deps.projects === undefined) {
       const hit = kg.kgProjects().find((root) => root.split("/").pop() === project);
       return hit !== undefined ? { root: hit } : { guide: `项目 ${project} 不在当前知识域——请与用户确认项目名` };
