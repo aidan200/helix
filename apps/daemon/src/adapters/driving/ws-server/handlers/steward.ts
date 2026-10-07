@@ -259,18 +259,28 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string");
   }
   // 管家记忆 B2：memory 组瘦身校验（{enabled?,endpointId?}——透传前最后一道
-  // TR-159 逐字段透传纪律）；批B +召回量 {recallTopK?,recallPool?}（类型闸
-  // 在此、值语义由 daemon 读面 resolver 静默回退缺省——非法值不拒写不抛错）
+  // TR-159 逐字段透传纪律）；批B +召回量 {recallTopK?,recallPool?} + B4a
+  // judgeEndpointId（类型闸在此、值语义由 daemon 读面 resolver 静默回退
+  // 缺省——非法值不拒写不抛错）
   if (memory !== undefined) {
     if (typeof memory !== "object" || memory === null) {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory 应为 object");
     }
-    const mem = memory as { enabled?: unknown; endpointId?: unknown; recallTopK?: unknown; recallPool?: unknown };
+    const mem = memory as {
+      enabled?: unknown;
+      endpointId?: unknown;
+      judgeEndpointId?: unknown;
+      recallTopK?: unknown;
+      recallPool?: unknown;
+    };
     if (mem.enabled !== undefined && typeof mem.enabled !== "boolean") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.enabled 应为 boolean");
     }
     if (mem.endpointId !== undefined && typeof mem.endpointId !== "string") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.endpointId 应为 string（空串 = 清除引用）");
+    }
+    if (mem.judgeEndpointId !== undefined && typeof mem.judgeEndpointId !== "string") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.judgeEndpointId 应为 string（空串 = 清除引用）");
     }
     if (mem.recallTopK !== undefined && typeof mem.recallTopK !== "number") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.recallTopK 应为 number");

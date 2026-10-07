@@ -1,5 +1,5 @@
 /**
- * 设置页「通用」分区（语言切换 + 管家开关 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关）。
+ * 设置页「通用」分区（语言切换 + 管家开关 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关 + 长期记忆 + 总结）。
  *
  * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
  * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
@@ -7,14 +7,18 @@
  * + set_config 写、config.result 回执回填，不乐观）；语音播报 = 本地偏好
  * （helix.steward.speakReply，面板语音模式朗读闸逐次读）——仅启用后显示
  * （从属项，缩进一层），非平级。管家模型槽位在智能体页管家卡。
+ * 长期记忆（设置页长期记忆组批）：memory.* 通用配置域五键独立组
+ * （enabled/endpointId/judgeEndpointId/recallTopK/recallPool）——写面
+ * steward.set_config {memory} 转发（批B 裁决：该组非 deprecated，本组仍
+ * shell UI 现役写面），回显 steward.config.result memory 组（回执回填不
+ * 乐观）；记忆配置不再从属管家启用（通用域——未来不止管家使用记忆）。
+ * 召回量两输入框同 everyTurns 模式：失焦/回车提交、非法值（非 1-200 整数）
+ * 回落最近已提交值零命令；旧 daemon 回执缺席 recallTopK/recallPool（additive）
+ * → 缺省 5/24 兑底展示。管家卡记忆区（B2 起）随本批迁出——管家配置零记忆项。
  * 总结（会话总结器独立化批①）：「总结」组 = 三产物开关 + 轮次输入 + 总结
  * 模型下拉 + 任务总结两项——写面 config.set_summary（summary.* 通用域），
  * config.get/set_summary.result 回填不乐观；管家配置零总结项。总结模型显式
  * 配才产进展+记忆点（无默认纪律），标题回落默认模型。
- * 管家记忆区（B2 瘦身）：开关 + 「向量模型」下拉（embedding.list 驱动，
- * 选中写 steward.set_config {memory:{endpointId}}）+ 待命提示 + 「管理记忆」
- * 链接（跳记忆独立页 /steward/memory）；端点 CRUD 收编模型页向量 tab
- * （B1 的三字段 + 预置选择器形态退役）；空列表 → 引导链接跳向量 tab。
  * 工作空间：原独立分区撤项并入（单配置独占一页浪费），卡片本体在
  * WorkspaceSettingsSection（当前绑定 + 切换入口，F2 活跃禁用语义不变）。
  * 压缩参数数据面：topology.modelConfig.compaction（config.get/set_compaction
@@ -51,6 +55,15 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
   { id: "zh-CN", labelKey: "chat.settings.general.langZh" },
   { id: "en-US", labelKey: "chat.settings.general.langEn" },
 ];
+
+// ── 长期记忆组 UI 兑底常量（设置页长期记忆组批）────────────────────
+// 与 daemon memoryConfig 缺省/上界对齐（shell 不跨包 import daemon——硬拷
+// 落地注释对齐；生效值以回执为准，此处仅旧 daemon（additive 字段缺席）
+// 兑底展示）。 */
+const MEMORY_TOPK_FALLBACK = 5;
+const MEMORY_POOL_FALLBACK = 24;
+/** 召回量上界（topK ≤ pool ≤ 200 传递上界；非法值 UI 侧回落零命令）。 */
+const MEMORY_RECALL_INPUT_MAX = 200;
 
 const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenMemory,
@@ -100,8 +113,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [turnsDraft, setTurnsDraft] = useState<string>("");
   const turnsCommitted = useRef<number>(3);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  // 记忆（管家记忆 B2 瘦身）：daemon 权威现态（config.result 回执回填，不乐观）；
-  // 端点选择 = embedding 配置域引用（下拉写 endpointId，回执引用态回填）
+  // 记忆（设置页长期记忆组批）：daemon 权威现态（steward.config.result 回执
+  // 回填，不乐观）；端点选择 = embedding 配置域引用（下拉写 endpointId/。
+  // judgeEndpointId，回执引用态回填）；recallTopK/recallPool 为批B additive
+  // 生效值（旧 daemon 缺席 → 缺省兑底）——独立组不级联管家启用（通用域）
   const [memoryCfg, setMemoryCfg] = useState<{
     enabled: boolean;
     available: boolean;
@@ -109,7 +124,16 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
+    recallTopK?: number;
+    recallPool?: number;
   } | null>(null);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  // 召回量两键草稿（同 everyTurns 模式：本地草稿，失焦/回车提交；非法值回落
+  // 最近已提交值零命令；回执生效值变化才覆写——不误伤在途草稿）
+  const [topKDraft, setTopKDraft] = useState<string>("");
+  const topKCommitted = useRef<number | null>(null);
+  const [poolDraft, setPoolDraft] = useState<string>("");
+  const poolCommitted = useRef<number | null>(null);
   const [embeddingEndpoints, setEmbeddingEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
   useEffect(() => {
     sendStewardGetConfig();
@@ -127,6 +151,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
             entryCount: number;
             dim: number | null;
+            recallTopK?: number;
+            recallPool?: number;
           };
         };
         setStewardEnabled(payload.enabled === true);
@@ -155,13 +181,19 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     }
     setStewardError(null);
   };
-  const toggleMemory = (enabled: boolean): void => {
-    if (sendStewardSetConfig({ memory: { enabled } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
+  // ── 长期记忆组写面（设置页长期记忆组批）：steward.set_config {memory}
+  // 部分更新（批B 转发写面裁决）；开关/下拉点击即发；召回量失焦/回车提交；
+  // 空串 = 清除端点引用回未配置态；回执驱动回填不乐观
+  const sendMemory = (patch: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number }): void => {
+    if (sendStewardSetConfig({ memory: patch }) === false) {
+      setMemoryError(t("chat.settings.general.sendFail"));
       return;
     }
-    setStewardError(null);
+    setMemoryError(null);
   };
+  const toggleMemory = (enabled: boolean): void => sendMemory({ enabled });
+  const selectMemoryEndpoint = (endpointId: string): void => sendMemory({ endpointId });
+  const selectJudgeEndpoint = (judgeEndpointId: string): void => sendMemory({ judgeEndpointId });
   // 总结组写面（总结器独立化批①）：config.set_summary 部分更新；空串/null
   // = 清空槽位回未配置态；轮次失焦/回车提交（非法值回落最近已提交值零命令）；
   // 回执驱动回填不乐观
@@ -200,21 +232,37 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     sendSummary({ everyTurns: parsed });
     turnsCommitted.current = parsed;
   };
-  // 向量模型选择（写 endpointId 引用；空串 = 清除引用）；回执驱动回填不乐观
-  const selectMemoryEndpoint = (endpointId: string): void => {
-    if (sendStewardSetConfig({ memory: { endpointId } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
+  // 召回量草稿随回执同步（生效值变化才覆写——不误伤在途草稿；旧 daemon 缺席
+  // additive 字段 → 缺省兑底展示）
+  const memoryTopKEffective = memoryCfg?.recallTopK ?? MEMORY_TOPK_FALLBACK;
+  const memoryPoolEffective = memoryCfg?.recallPool ?? MEMORY_POOL_FALLBACK;
+  useEffect(() => {
+    if (memoryCfg === null) return;
+    topKCommitted.current = memoryTopKEffective;
+    setTopKDraft(String(memoryTopKEffective));
+  }, [memoryCfg === null ? null : memoryTopKEffective]);
+  useEffect(() => {
+    if (memoryCfg === null) return;
+    poolCommitted.current = memoryPoolEffective;
+    setPoolDraft(String(memoryPoolEffective));
+  }, [memoryCfg === null ? null : memoryPoolEffective]);
+  const commitRecallDraft = (which: "topK" | "pool"): void => {
+    const draft = which === "topK" ? topKDraft : poolDraft;
+    const committed = which === "topK" ? topKCommitted.current : poolCommitted.current;
+    const setDraft = which === "topK" ? setTopKDraft : setPoolDraft;
+    // Number 严校验（parseInt("2.5") 会截成 2 误当合法——小数/空串必须回落）
+    const parsed = Number(draft);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > MEMORY_RECALL_INPUT_MAX) {
+      setDraft(committed === null ? "" : String(committed)); // 非法回落零命令
       return;
     }
-    setStewardError(null);
-  };
-  // 判官端点选择（B4a：写 judgeEndpointId 引用——kind=classifier 端点才可选）
-  const selectJudgeEndpoint = (judgeEndpointId: string): void => {
-    if (sendStewardSetConfig({ memory: { judgeEndpointId } }) === false) {
-      setStewardError(t("chat.settings.general.sendFail"));
+    if (parsed === committed) {
+      setDraft(String(parsed));
       return;
     }
-    setStewardError(null);
+    sendMemory(which === "topK" ? { recallTopK: parsed } : { recallPool: parsed });
+    if (which === "topK") topKCommitted.current = parsed;
+    else poolCommitted.current = parsed;
   };
 
   const toggleSandbox = (enabled: boolean): void => {
@@ -302,10 +350,12 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         const message = (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
         const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
         if (cmd === undefined) return;
-        // 管家记忆 B1：steward.set_config 校验失败（如开启记忆前端点未配）
-        // 同面交代——命令尾缀归因辨识写面
+        // steward.set_config 拒答双交代（命令名无法区分 payload 组）：管家组
+        // （enabled/model）与长期记忆组（memory）同帧各自行内交代——归因粒度
+        // 至命令级，两组都可能是发起者，宁两处显示不静默丢失
         if (cmd === "steward.set_config") {
           setStewardError(message);
+          setMemoryError(message);
           return;
         }
         if (cmd !== "config.set_sandbox") return;
@@ -450,112 +500,8 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             <span className="ag-note">{t("chat.settings.general.stewardHotkeyNote")}</span>
           </div>
         )}
-        {/* 记忆（管家记忆 B2 瘦身）：启用管家的从属项（缩进一层）——开关 +
-            「向量模型」下拉（embedding.list 驱动，选中写 endpointId 引用）；
-            端点 CRUD 收编模型页向量 tab，空列表显示引导链接 */}
-        {stewardEnabled === true && (
-          <div className="fld fld-sub" data-steward-memory>
-            <span className="hud-label">{t("chat.settings.general.stewardMemory")}</span>
-            <label className="set-check" data-steward-memory-enabled>
-              <input
-                type="checkbox"
-                checked={memoryCfg?.enabled === true}
-                onChange={(e) => toggleMemory(e.target.checked)}
-              />
-              {t("chat.settings.general.stewardSwitchOn")}
-            </label>
-            {memoryCfg !== null && memoryCfg.entryCount > 0 && (
-              <span className="ag-note" data-steward-memory-count>
-                {t("chat.settings.general.stewardMemoryEntries", { count: memoryCfg.entryCount })}
-              </span>
-            )}
-            {memoryCfg !== null && memoryCfg.enabled && !memoryCfg.available && (
-              <span className="ag-note" data-steward-memory-pending>
-                {t("chat.settings.general.stewardMemoryPending")}
-              </span>
-            )}
-          </div>
-        )}
-        {stewardEnabled === true && memoryCfg?.enabled === true && (
-          <div className="fld fld-sub" data-steward-memory-endpoint>
-            {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => (ep.kind ?? "embedding") === "embedding").length > 0 ? (
-              <div className="sel-wrap">
-                <select
-                  className="hud-input"
-                  data-steward-memory-endpoint-select
-                  value={memoryCfg.endpoint?.id ?? ""}
-                  onChange={(e) => selectMemoryEndpoint(e.target.value)}
-                >
-                  <option value="">{t("chat.settings.general.stewardMemoryEndpointPlaceholder")}</option>
-                  {embeddingEndpoints
-                    .filter((ep) => (ep.kind ?? "embedding") === "embedding")
-                    .map((ep) => (
-                      <option key={ep.id} value={ep.id}>
-                        {`${ep.name} (${ep.model})`}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="hud-btn hud-btn-ghost sm"
-                data-steward-memory-go-config
-                onClick={onOpenModelsEmbeddingTab}
-              >
-                {t("chat.settings.general.stewardMemoryGoConfig")}
-              </button>
-            )}
-            <span className="ag-note">{t("chat.settings.general.stewardMemoryEndpointNote")}</span>
-          </div>
-        )}
-        {/* 判官端点下拉（B4a：kind=classifier 端点；未配 = 自动沉淀静默不挂） */}
-        {stewardEnabled === true && memoryCfg?.enabled === true && (
-          <div className="fld fld-sub" data-steward-memory-judge>
-            {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => ep.kind === "classifier").length > 0 ? (
-              <div className="sel-wrap">
-                <select
-                  className="hud-input"
-                  data-steward-memory-judge-select
-                  value={memoryCfg.judgeEndpoint?.id ?? ""}
-                  onChange={(e) => selectJudgeEndpoint(e.target.value)}
-                >
-                  <option value="">{t("chat.settings.general.stewardMemoryJudgePlaceholder")}</option>
-                  {embeddingEndpoints
-                    .filter((ep) => ep.kind === "classifier")
-                    .map((ep) => (
-                      <option key={ep.id} value={ep.id}>
-                        {`${ep.name} (${ep.model})`}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="hud-btn hud-btn-ghost sm"
-                data-steward-memory-judge-go-config
-                onClick={onOpenModelsEmbeddingTab}
-              >
-                {t("chat.settings.general.stewardMemoryGoConfig")}
-              </button>
-            )}
-            <span className="ag-note">{t("chat.settings.general.stewardMemoryJudgeNote")}</span>
-          </div>
-        )}
-        {/* 入口②：管理记忆链接（跳记忆独立页 /steward/memory——mock 内嵌区退役） */}
-        {stewardEnabled === true && memoryCfg?.enabled === true && (
-          <div className="fld fld-sub" data-steward-memory-manage>
-            <button
-              type="button"
-              className="hud-btn hud-btn-ghost sm"
-              data-steward-memory-manage-link
-              onClick={onOpenMemory}
-            >
-              {t("chat.settings.general.stewardMemoryManage")}
-            </button>
-          </div>
-        )}
+        {/* 记忆区已迁出（设置页长期记忆组批）：memory.* 通用域五键归通用分区
+            「长期记忆」组（不级联管家启用）——管家配置零记忆项 */}
       </div>
 
       {/* 工作空间卡（原独立分区并入；绑定展示 + 切换入口语义不变） */}
@@ -912,6 +858,179 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               </select>
             </div>
             <span className="ag-note">{t("chat.settings.general.summaryTaskModelNote")}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 长期记忆（设置页长期记忆组批）：memory.* 通用配置域五键独立组——
+          开关双按钮 + 向量端点 + 判官端点 + 召回量两输入框（enabled 展开从属
+          四项）；写面 steward.set_config {memory} 转发，回执回填不乐观；
+          不级联管家启用（通用域）*/}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupMemory")}</h3>
+      <div className="hud-card" data-memory-card>
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.memoryEnable")}</span>
+          <div className="lang-switch" data-memory-switch role="group" aria-label={t("chat.settings.general.memoryEnable")}>
+            <button
+              type="button"
+              className={cn("hud-btn sm", memoryCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-memory-option="on"
+              aria-pressed={memoryCfg?.enabled === true}
+              onClick={() => toggleMemory(true)}
+            >
+              {t("chat.settings.general.sandboxOn")}
+            </button>
+            <button
+              type="button"
+              className={cn("hud-btn sm", memoryCfg?.enabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-memory-option="off"
+              aria-pressed={memoryCfg?.enabled === false}
+              onClick={() => toggleMemory(false)}
+            >
+              {t("chat.settings.general.sandboxOff")}
+            </button>
+          </div>
+          {memoryError !== null && (
+            <span className="mcp-err" data-memory-save-error role="alert">
+              {memoryError}
+            </span>
+          )}
+        </div>
+        {memoryCfg?.enabled === true && (
+          <>
+            {/* 向量端点（记忆写入与检索的 embedding 端点——embedding.list 驱动，
+                空列表引导跳模型页向量 tab） */}
+            <div className="fld fld-sub" data-memory-endpoint>
+              {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => (ep.kind ?? "embedding") === "embedding").length > 0 ? (
+                <div className="sel-wrap">
+                  <select
+                    className="hud-input"
+                    data-memory-endpoint-select
+                    value={memoryCfg.endpoint?.id ?? ""}
+                    onChange={(e) => selectMemoryEndpoint(e.target.value)}
+                  >
+                    <option value="">{t("chat.settings.general.memoryEndpointPlaceholder")}</option>
+                    {embeddingEndpoints
+                      .filter((ep) => (ep.kind ?? "embedding") === "embedding")
+                      .map((ep) => (
+                        <option key={ep.id} value={ep.id}>
+                          {`${ep.name} (${ep.model})`}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="hud-btn hud-btn-ghost sm"
+                  data-memory-go-config
+                  onClick={onOpenModelsEmbeddingTab}
+                >
+                  {t("chat.settings.general.memoryGoConfig")}
+                </button>
+              )}
+              <span className="ag-note">{t("chat.settings.general.memoryEndpointNote")}</span>
+            </div>
+            {/* 判官端点（B4a：kind=classifier 端点——查重精判；未配 = 精判静默
+                回退纯向量高阈值） */}
+            <div className="fld fld-sub" data-memory-judge>
+              {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => ep.kind === "classifier").length > 0 ? (
+                <div className="sel-wrap">
+                  <select
+                    className="hud-input"
+                    data-memory-judge-select
+                    value={memoryCfg.judgeEndpoint?.id ?? ""}
+                    onChange={(e) => selectJudgeEndpoint(e.target.value)}
+                  >
+                    <option value="">{t("chat.settings.general.memoryJudgePlaceholder")}</option>
+                    {embeddingEndpoints
+                      .filter((ep) => ep.kind === "classifier")
+                      .map((ep) => (
+                        <option key={ep.id} value={ep.id}>
+                          {`${ep.name} (${ep.model})`}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="hud-btn hud-btn-ghost sm"
+                  data-memory-judge-go-config
+                  onClick={onOpenModelsEmbeddingTab}
+                >
+                  {t("chat.settings.general.memoryGoConfig")}
+                </button>
+              )}
+              <span className="ag-note">{t("chat.settings.general.memoryJudgeNote")}</span>
+            </div>
+            {/* 召回量两键（memory.recallTopK / memory.recallPool——缺省 5/24；
+                非法值（非 1-200 整数）失焦回落最近已提交值零命令；组合语义
+                （topK ≤ pool）由 daemon 读面裁决回执生效值回显） */}
+            <div className="fld fld-sub" data-memory-topk>
+              <label className="hud-label" htmlFor="memory-topk-input">
+                {t("chat.settings.general.memoryTopKLabel")}
+              </label>
+              <input
+                id="memory-topk-input"
+                className="hud-input"
+                type="number"
+                min={1}
+                max={MEMORY_RECALL_INPUT_MAX}
+                data-memory-topk-input
+                value={topKDraft}
+                onChange={(e) => setTopKDraft(e.target.value)}
+                onBlur={() => commitRecallDraft("topK")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRecallDraft("topK");
+                }}
+              />
+              <span className="ag-note">{t("chat.settings.general.memoryTopKNote")}</span>
+            </div>
+            <div className="fld fld-sub" data-memory-pool>
+              <label className="hud-label" htmlFor="memory-pool-input">
+                {t("chat.settings.general.memoryPoolLabel")}
+              </label>
+              <input
+                id="memory-pool-input"
+                className="hud-input"
+                type="number"
+                min={1}
+                max={MEMORY_RECALL_INPUT_MAX}
+                data-memory-pool-input
+                value={poolDraft}
+                onChange={(e) => setPoolDraft(e.target.value)}
+                onBlur={() => commitRecallDraft("pool")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRecallDraft("pool");
+                }}
+              />
+              <span className="ag-note">{t("chat.settings.general.memoryPoolNote")}</span>
+            </div>
+          </>
+        )}
+        {/* 观测与入口：条目计数（零条目不显示）+ 待命提示（开启但端点未就绪）
+            + 管理记忆链接（跳记忆独立页 /steward/memory） */}
+        {memoryCfg !== null && memoryCfg.entryCount > 0 && (
+          <span className="ag-note" data-memory-count>
+            {t("chat.settings.general.memoryEntries", { count: memoryCfg.entryCount })}
+          </span>
+        )}
+        {memoryCfg !== null && memoryCfg.enabled && !memoryCfg.available && (
+          <span className="ag-note" data-memory-pending>
+            {t("chat.settings.general.memoryPending")}
+          </span>
+        )}
+        {memoryCfg?.enabled === true && (
+          <div className="fld fld-sub" data-memory-manage>
+            <button
+              type="button"
+              className="hud-btn hud-btn-ghost sm"
+              data-memory-manage-link
+              onClick={onOpenMemory}
+            >
+              {t("chat.settings.general.memoryManage")}
+            </button>
           </div>
         )}
       </div>

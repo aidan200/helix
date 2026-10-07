@@ -55,7 +55,7 @@ import type {
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
-import type { StewardToolResult, StewardToolSpec } from "../ports/outbound/StewardToolSpec";
+import type { StewardToolSpec } from "../ports/outbound/StewardToolSpec";
 import type { StewardSurfacePort, StewardSurfaceActRequest } from "../ports/outbound/StewardSurfacePort";
 import { evaluateSurfaceRisk, surfaceRiskRank } from "../surface/SurfaceRiskGate";
 import { isSurfaceVerb, surfaceVerbRisk, type SurfaceRisk } from "@helix/protocol";
@@ -190,9 +190,6 @@ export const STEWARD_CONFIRM_REMIND_AFTER_MS = 30_000;
 
 /** 确认超时作废的 action.completed detail 文案（用户与 LLM 共同可见）。 */
 export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认，已自动作废——如仍需要请重新提出）";
-
-/** 工具/思考过程帧摘要截断上限（steward.tool 帧面——屏幕折叠行密度）。 */
-export const PROCESS_SUMMARY_MAX_CHARS = 200;
 
 /** ── 确认链路修复批（2026-10-06 12:13-12:28 事故）：口令路由词表 + 登记簿 ──
  * 事故定性：用户每次重述 → 管家新提案 → 新卡（六卡并存）；「确认了很多遍」
@@ -383,11 +380,6 @@ function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
   return { role: "assistant", content };
 }
 
-/** 过程帧摘要（防御性截断）。 */
-function summarizeForFrame(text: string): string {
-  return text.length <= PROCESS_SUMMARY_MAX_CHARS ? text : `${text.slice(0, PROCESS_SUMMARY_MAX_CHARS)}…`;
-}
-
 /** 字段级截断（紧凑投影用；超限截断加省略号）。 */
 function capChars(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
@@ -558,8 +550,7 @@ export function buildPendingProposalsSection(
 }
 
 /** 工具结果送 LLM 前体量护栏（A1-hotfix 纯函数，导出供单测）：超
- *  TOOL_RESULT_MAX_CHARS 截断 + 标记（防任何工具的病理体量直达上下文；
- *  过程帧摘要面 summarizeForFrame 独立，不受影响）。 */
+ *  TOOL_RESULT_MAX_CHARS 截断 + 标记（防任何工具的病理体量直达上下文）。 */
 export function capToolResultText(text: string): string {
   return text.length <= TOOL_RESULT_MAX_CHARS ? text : `${text.slice(0, TOOL_RESULT_MAX_CHARS)}${TOOL_RESULT_TRUNCATION_MARK}`;
 }
@@ -1081,25 +1072,6 @@ const TOOL_ACT: StewardLlmTool = {
     additionalProperties: false,
   },
 };
-
-const STEWARD_TOOLS: readonly StewardLlmTool[] = [
-  TOOL_LIST_INSTANCES,
-  TOOL_LIST_TASKS,
-  TOOL_QUERY_RECENT_WORK,
-  TOOL_READ_SESSION,
-  TOOL_KG_SEARCH,
-  TOOL_KG_GET,
-  TOOL_PROPOSE_SEND,
-  TOOL_DELIVER_TO_SESSION,
-  TOOL_CREATE_SESSION,
-  TOOL_START_SESSION,
-  TOOL_SPAWN_REVIEW_TASK,
-  TOOL_REMEMBER,
-  TOOL_SURFACE_LIST,
-  TOOL_SNAPSHOT,
-  TOOL_READ,
-  TOOL_ACT,
-];
 
 /** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行；
  *  act 为 risk 动态档——read 直行/write·destructive 挂闸，判定在
