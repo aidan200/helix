@@ -324,11 +324,13 @@ describe("可靠性③：confirm_required 可达性提醒（30s 无人消费 →
     svc.reliabilityTick();
     expect(notifies.filter((n) => n.title === "待确认操作").length).toBe(1); // 仍只有提醒帧
 
-    // 299s：跨 180s 看门狗阈值（挂闸阻塞的 run 被唤醒收口——恢复通知属正常生产行为）
+    // 299s：跨 180s 看门狗阈值（挂闸阻塞的 run 被唤醒收口——挂闸等待零恢复
+    // 通知，2026-10-07 事故修订：CAND-666）
     nowRef.now = 299_999;
     svc.reliabilityTick();
     expect(notifies.filter((n) => n.title === "待确认操作").length).toBe(1); // 提醒不重复
     expect(notifies.filter((n) => n.title === "确认已超时").length).toBe(0); // 未到 TTL 零作废
+    expect(notifies.filter((n) => n.title.includes("恢复")).length).toBe(0); // 挂闸等待零恢复通知
 
     nowRef.now = 300_000;
     svc.reliabilityTick();
@@ -402,11 +404,15 @@ describe("可靠性⑤：事故场景端到端（write 档确认无人点 → �
     if (first.status !== "confirm_required") throw new Error("unreachable");
     const actionId = first.actionId;
 
-    // t+180s：看门狗 → abort 唤醒挂闸阻塞的 run + 挂起通知 + 队列服务恢复
+    // t+180s：看门狗 → abort 唤醒挂闸阻塞的 run + 队列服务恢复。
+    // 2026-10-07 事故修订（CAND-666）：挂闸等待（pending 有卡）是合法业务态——
+    // 用户知道有卡待确认，不需要「管家已自动恢复」惊吓通知；通知只保留给
+    // 「用户在等答案却被挂死」场景（pending 空 + run 挂起）。
     nowRef.now = 180_000;
     svc.reliabilityTick();
     await settle();
-    expect(notifies.some((n) => n.urgency === "high" && n.title.includes("恢复"))).toBe(true);
+    expect(notifies.some((n) => n.urgency === "high" && n.title.includes("恢复"))).toBe(false); // 挂闸等待零恢复通知
+    expect(logger.warns.some((m) => m.includes("看门狗"))).toBe(true); // abort 兜底照做（日志可见）
 
     // t+300s：确认卡 TTL 自动作废 + 用户提醒 + action.completed 超时回执 + 零执行
     nowRef.now = 300_000;

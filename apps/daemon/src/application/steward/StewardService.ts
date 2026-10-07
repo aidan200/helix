@@ -1212,7 +1212,7 @@ export class StewardService {
   private runActive = false;
   /** 当前 run 内最近事件时刻（可靠性批看门狗锚：driveAsk 置位、每引擎事件
    *  推进——「无事件推进」才是挂起，活跃轮永不触发）。 */
-  private runLastProgressAt = 0;
+  private runLastProgressAt: number | undefined = undefined;
   /** 看门狗已触发时刻（undefined = 未触发；同集 episode 不重复 abort/通知，
    *  宽限窗后仍未收口进入强制收口轨——abort 丳不醒的挂死流兑底）。 */
   private watchdogFiredAt: number | undefined;
@@ -1312,7 +1312,7 @@ export class StewardService {
       // runActive 已被 finishRun/看门狗复位（收口后竞态），原样上抛。
       if (!this.runActive) throw err;
       this.runActive = false;
-      this.runLastProgressAt = 0;
+      this.runLastProgressAt = undefined;
       this.watchdogFiredAt = undefined;
       this.runSettledMark?.();
       this.runSettledMark = undefined;
@@ -1659,7 +1659,7 @@ export class StewardService {
   private async finishRun(startError?: string): Promise<void> {
     if (!this.runActive) return; // 幂等守卫（事故热修批④）
     this.runActive = false;
-    this.runLastProgressAt = 0;
+    this.runLastProgressAt = undefined;
     this.watchdogFiredAt = undefined;
     this.runSettledMark?.();
     this.runSettledMark = undefined;
@@ -1806,16 +1806,30 @@ export class StewardService {
       this.watchdogFiredAt = undefined; // 空闲态复位（下一 run 重计）
       return;
     }
+    if (this.runLastProgressAt === undefined) {
+      // 2026-10-07 事故防御（CAND-666）：runActive=true 但推进锚未锚定（收口
+      // 复位与下一 run 置位之间的竞态窗口）——now-0 会算出 56 年级挂起时长
+      // （Date.now() 毫秒÷1000≈epoch 秒）误触发 + 荒谬文案。未锚定不判挂起。
+      // 哨兵 undefined 而非 0：测试时钟域起点 0 是合法锚定值，0 会被误判未锚定。
+      return;
+    }
     if (this.watchdogFiredAt === undefined) {
       if (now - this.runLastProgressAt < STEWARD_RUN_WATCHDOG_MS) return;
       this.watchdogFiredAt = now;
       const hungSeconds = Math.round((now - this.runLastProgressAt) / 1000);
-      this.deps.logger?.warn(`管家 run 看门狗触发：挂起 ${hungSeconds}s 无事件推进——abort 在途轮并通知`);
-      this.emitLifecycleNotify(
-        "high",
-        "管家已自动恢复",
-        `管家处理挂起 ${hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
+      const gatedWait = this.pending.size > 0; // 挂闸等待：有卡待确认（合法业务态）
+      this.deps.logger?.warn(
+        `管家 run 看门狗触发：挂起 ${hungSeconds}s 无事件推进${gatedWait ? "（挂闸等待中——pending 有卡）" : ""}——abort 在途轮${gatedWait ? "（等待态零通知）" : "并通知"}`,
       );
+      if (!gatedWait) {
+        // 恢复通知只留给「用户在等答案却被挂死」场景；挂闸等待用户知情
+        // （有卡挂着），「已自动恢复」是惊扰噪音（2026-10-07 事故修订 CAND-666）
+        this.emitLifecycleNotify(
+          "high",
+          "管家已自动恢复",
+          `管家处理挂起 ${hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
+        );
+      }
       this.abortInFlight("run 看门狗：挂起超时"); // 挂闸阻塞的 run 被唤醒收口（raceAbort）
       return;
     }
@@ -1935,7 +1949,7 @@ export class StewardService {
     this.engine = undefined;
     this.pausedGateToken = undefined;
     this.runActive = false;
-    this.runLastProgressAt = 0;
+    this.runLastProgressAt = undefined;
     this.watchdogFiredAt = undefined;
     this.askSettler = undefined;
   }
