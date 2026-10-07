@@ -19,6 +19,10 @@
  *   （V3a 现行为）→ 再失败只丢句不断对话；静音钮 stopSpeaking →
  *   voice.synthesize.stop + 播放队列清空 + 分句缓冲 reset；面板卸载（Dock
  *   关）即停。money 闸：语音模式 × 偏好开在 delta/result 两时点判。
+ *   双声重叠修复批①②③④：出声面协调（speech-floor——对话 > 通知：c 通知面
+ *   延后/收编，a×b 互斥 b 起播即停 a）；新轮清在途（resetAnswer 停在途句 +
+ *   player 旧尾音）；回执轮次校验（迟到回执弃播）；stopSpeaking 全轨停止
+ *   （含 c——弃播不续）。欢迎语固化音频不接协调（用户裁决：很短不值得接）。
  *
  * 语音链（V3b-1）：点击 mic（idle→listening；同步发 stt.stream.start）→
  * 边说边转写（interim 淡色浮字实时上屏）→ VAD 静音 ~1.8s/点击强制停 →
@@ -102,6 +106,7 @@ import {
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
 import { warmAudioOutputOnce } from "./audio-output-warmup";
 import { beginSpeechLease, endSpeechLease, speechLeaseActive } from "@/shared/lib/speech-mutex";
+import { beginDialogueSpeech, endDialogueSpeech, stopNotificationSpeech } from "@/shared/lib/speech-floor";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import {
   effectiveRmsThreshold,
@@ -137,6 +142,12 @@ export const STREAM_FINAL_TIMEOUT_MS = 4_000;
 const SPEECH_LEASE_SPEECH_OUT = "steward-speech";
 const SPEECH_LEASE_LEGACY = "steward-legacy-audio";
 const SPEECH_LEASE_WELCOME = "steward-welcome-audio";
+
+// ── ① speech-floor 对话源（出声面协调器：播×播互斥——对话 > 通知）：
+//    回答轮在途（askInFlight）/ a 流式播放器在播 / b 一次性回执在播三源
+//    任一在场 = 对话发言期——通知播报面（c）被压制（延后/收编，见
+//    speech-floor）。源 id 与租约同串（两套计数客自独立，互不混）。──
+const SPEECH_FLOOR_ROUND = "steward-answer-round";
 
 /** useStewardVoice 注入面（测试缝：设备面/时钟面可注入——生产调用方缺省）。 */
 export interface UseStewardVoiceOptions {
@@ -294,6 +305,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const [streamSpeaking, setStreamSpeaking] = useState(false);
   const speaking = legacySpeaking || streamSpeaking;
   const speakPendingRef = useRef(false);
+  // ── ③ 回执轮次校验（迟到回执弃播）：fallback 发出时记轮次 id，回执到达
+  //    时轮次已变（新 ask 已开）→ 弃播（不 new Audio——旧轮音频不覆盖新轮）。
+  //    轮次 id 随 resetAnswer（askInFlight 边沿）递增。──
+  const speakRoundRef = useRef(0);
+  const answerRoundRef = useRef(0);
   // ── B2 barge-in 触发面（V3b-3）：门状态 + 相位镜像 + 触发闭包转发 ──
   const bargeInGateRef = useRef<BargeInGateState>(INITIAL_BARGE_IN_GATE);
   const phaseRef = useRef<StewardVoicePhase>("idle");
@@ -337,17 +353,29 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const speechOut = speechOutRef.current;
   useEffect(() => {
     // ⑥ 播放态边沿 = 租约边沿（首块入队播放 → 发言期；播尽/停 → 释放）
+    // ① 同边沿接协调器：a 面在播 = 对话发言期（通知面被压制/收编）
     return speechOut.onSpeakingChange((active) => {
-      if (active) beginSpeechLease(SPEECH_LEASE_SPEECH_OUT);
-      else endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
+      if (active) {
+        beginSpeechLease(SPEECH_LEASE_SPEECH_OUT);
+        beginDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
+      } else {
+        endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
+        endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
+      }
       setStreamSpeaking(active);
     });
   }, [speechOut]);
 
-  /** 一次性回执播放态（legacy Audio）：状态 + 租约同点写（播放即持、播毕释放）。 */
+  /** 一次性回执播放态（legacy Audio）：状态 + 租约 + ① 协调器同点写
+   * （播放即持、播毕释放；b 面在播 = 对话发言期）。 */
   const markLegacySpeaking = useCallback((active: boolean) => {
-    if (active) beginSpeechLease(SPEECH_LEASE_LEGACY);
-    else endSpeechLease(SPEECH_LEASE_LEGACY);
+    if (active) {
+      beginSpeechLease(SPEECH_LEASE_LEGACY);
+      beginDialogueSpeech(SPEECH_LEASE_LEGACY);
+    } else {
+      endSpeechLease(SPEECH_LEASE_LEGACY);
+      endDialogueSpeech(SPEECH_LEASE_LEGACY);
+    }
     setLegacySpeaking(active);
   }, []);
 
@@ -365,9 +393,16 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     }
     setLegacySpeaking(false);
     setStreamSpeaking(false); // 静音即停——不依赖播放器回调时序（fake/真体一致）
+    // ④ 全轨停止：c 通知面先清（弃播不续）——先于对话面收位，防收编边沿
+    //（末源退出 → resume）在队列清空前误放行延后通知
+    stopNotificationSpeech();
     // ⑥ 租约同点收位（幂等；不依赖播放器回调时序——同上假/真体一致）
     endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
     endSpeechLease(SPEECH_LEASE_LEGACY);
+    // ① 协调器同点收位（幂等——a/b 对话面离场；末源退出 resume 时队列已空
+    // → no-op，零误放行）
+    endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
+    endDialogueSpeech(SPEECH_LEASE_LEGACY);
     speechOut.stopSpeaking(); // stop 命令 + 队列清空 + 分句缓冲 reset + 本轮静音
   }, [speechOut]);
 
@@ -444,6 +479,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         // ⑥ 租约收位（卸载不留幽灵租约——否则后续收音永久暂停）
         endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
         endSpeechLease(SPEECH_LEASE_LEGACY);
+        // ① 协调器同点收位（卸载不留幽灵对话位——否则通知面永久延后）
+        endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
+        endDialogueSpeech(SPEECH_LEASE_LEGACY);
         stopWelcomeAudio();
       };
     },
@@ -587,14 +625,22 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         return;
       }
       const verdict = speechOut.answerResult(status, typeof payload.text === "string" ? payload.text : "");
-      if (verdict === "fallback") speakPendingRef.current = true; // 一次性回执单飞门控位
+      if (verdict === "fallback") {
+        speakPendingRef.current = true; // 一次性回执单飞门控位
+        speakRoundRef.current = answerRoundRef.current; // ③ 记轮次 id（迟到回执弃播判据）
+      }
     });
   }, [subscribeStewardFrames, speechOut]);
 
   // ask 在途 → 新一轮朗读开轮（迟到 delta 归零——句不跨轮泄漏）
   const askInFlight = steward.askInFlight;
   useEffect(() => {
-    if (askInFlight) speechOut.resetAnswer();
+    if (!askInFlight) return;
+    // ① 对话发言期开轮（先占面再清在途——防清理边沿瞬时放行通知面）
+    beginDialogueSpeech(SPEECH_FLOOR_ROUND);
+    answerRoundRef.current += 1; // ③ 轮次 id 递增（旧轮回执自此判为迟到）
+    speechOut.resetAnswer(); // ② 新轮清在途（在途句定向 stop + player 旧尾音停 + 闸复位）
+    return () => endDialogueSpeech(SPEECH_FLOOR_ROUND); // 收口（含卸载）——a/b 在播仍持面
   }, [askInFlight, speechOut]);
 
   // 一次性回退回执 → 播放（单飞门控：仅本面 pending 消费——设置页试听回执
@@ -621,12 +667,19 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       if (event.type !== "voice.synthesize.result") return;
       if (!speakPendingRef.current) return;
       speakPendingRef.current = false;
+      // ③ 迟到回执弃播：fallback 发出后新 ask 已开轮（轮次 id 已变）→ 旧轮
+      // 音频不覆盖新轮——零 new Audio（内容在活动流/toast 可查）
+      if (speakRoundRef.current !== answerRoundRef.current) return;
       const payload = event.payload as { status?: unknown; audio?: unknown };
       if (payload.status !== "ok" || typeof payload.audio !== "string") {
         markLegacySpeaking(false);
         return;
       }
       try {
+        markLegacySpeaking(true); // ⑥ 回执发言期登记租约 + ① b 面起播占对话面
+        // ① a×b 互斥：b 起播即停 a——旧流式尾音/在途句不与回执同时出声
+        //（money：在途句逐条定向 stop）
+        speechOut.stopInFlightPlayback();
         const audio = new Audio(payload.audio);
         audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
         audioRef.current = audio;

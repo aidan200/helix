@@ -39,6 +39,7 @@ class FakeAudio {
   static instances: FakeAudio[] = [];
   src: string;
   volume = 1;
+  paused = false;
   onended: (() => void) | null = null;
   onerror: (() => void) | null = null;
   constructor(src: string) {
@@ -47,6 +48,9 @@ class FakeAudio {
   }
   play(): Promise<void> {
     return rejectPlay ? Promise.reject(new Error("NotAllowedError")) : Promise.resolve();
+  }
+  pause(): void {
+    this.paused = true;
   }
 }
 
@@ -58,6 +62,12 @@ vi.mock("@/shared/lib/voice-pref", () => ({
 
 import { useVoiceBroadcast } from "./useVoiceBroadcast";
 import { resetSpeechMutexForTest, speechLeaseActive } from "@/shared/lib/speech-mutex";
+import {
+  beginDialogueSpeech,
+  endDialogueSpeech,
+  resetSpeechFloorForTest,
+  stopNotificationSpeech,
+} from "@/shared/lib/speech-floor";
 
 const broadcastFrame = (seq: number, audio = `data:audio/wav;base64,S${seq}`): EventEnvelope =>
   ({ v: "0.14", sessionId: "__system__", channel: "voice", type: "voice.broadcast", payload: { kind: "agent.completed", agentId: "agent-1", text: "t", audio, provider: "dashscope", seq } }) as unknown as EventEnvelope;
@@ -192,5 +202,109 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(speechLeaseActive()).toBe(false); // 全部跳过 → 租约释放（不永久暂停收音）
+  });
+});
+
+// ── ①④ 发言协调（speech-floor 接线：对话 > 通知，播×播互斥）──────────────
+
+describe("useVoiceBroadcast（① 发言协调：对话优先，c 面服从/被收编 + ④ 全轨停止）", () => {
+  beforeEach(() => {
+    FakeAudio.instances = [];
+    rejectPlay = false;
+    (globalThis as { Audio?: unknown }).Audio = FakeAudio;
+    resetSpeechMutexForTest();
+    resetSpeechFloorForTest();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    frameListener = null;
+    resetSpeechMutexForTest();
+    resetSpeechFloorForTest();
+  });
+
+  it("T3 通知服从对话：对话发言期 voice.broadcast 到达 → 延后（不立即播）；对话收口 → 串行起播", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    act(() => {
+      beginDialogueSpeech("stream"); // 对话发言期（a 面在播形态）
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+      frameListener!(broadcastFrame(2));
+    });
+    expect(FakeAudio.instances.length).toBe(0); // 延后——不立即播（不打断对话）
+    expect(speechLeaseActive()).toBe(false); // 延后期不占播报租约（未出声不拦收音）
+    act(() => {
+      endDialogueSpeech("stream"); // 对话收口
+    });
+    expect(FakeAudio.instances.length).toBe(1); // 收口后串行起播（首条）
+    await act(async () => {
+      FakeAudio.instances[0]!.onended?.();
+    });
+    expect(FakeAudio.instances.length).toBe(2); // 逐条串行（顺序保障保持）
+  });
+
+  it("T4 对话收编通知：通知在播 + 队列有货时新对话起 → 在播 pause + 队列清空（弃播——收口后也不回放）", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(1)); // 在播
+      frameListener!(broadcastFrame(2)); // 排队
+    });
+    expect(FakeAudio.instances.length).toBe(1);
+    act(() => {
+      beginDialogueSpeech("round"); // 新对话轮起（最新对话优先）
+    });
+    expect(FakeAudio.instances[0]!.paused).toBe(true); // 在播被停
+    expect(speechLeaseActive()).toBe(false); // 租约收位（不永久暂停收音）
+    act(() => {
+      endDialogueSpeech("round"); // 对话收口——弃播不续：清掉的队列不回放
+    });
+    expect(FakeAudio.instances.length).toBe(1); // 零回放（第二条不补播）
+  });
+
+  it("T5 全轨停止（stopNotificationSpeech = stopSpeaking 的 c 面）：在播 pause + 队列清空 + 弃播不续", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+      frameListener!(broadcastFrame(2));
+    });
+    expect(FakeAudio.instances.length).toBe(1);
+    act(() => {
+      stopNotificationSpeech();
+    });
+    expect(FakeAudio.instances[0]!.paused).toBe(true); // 在播停
+    expect(speechLeaseActive()).toBe(false);
+    await act(async () => {
+      FakeAudio.instances[0]!.onended?.(); // 已被弃播：收口回调零续播
+    });
+    expect(FakeAudio.instances.length).toBe(1); // 队列已清——不续播
+  });
+
+  it("延后期租约语义：对话收口起播首条 → 租约占住；排空释放（⑥ 边沿与协调并存不破）", async () => {
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    act(() => {
+      beginDialogueSpeech("stream");
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+    });
+    expect(speechLeaseActive()).toBe(false); // 延后期
+    act(() => {
+      endDialogueSpeech("stream");
+    });
+    expect(speechLeaseActive()).toBe(true); // 放行起播 → 发言期占租约
+    await act(async () => {
+      FakeAudio.instances[0]!.onended?.();
+    });
+    expect(speechLeaseActive()).toBe(false); // 排空释放
   });
 });

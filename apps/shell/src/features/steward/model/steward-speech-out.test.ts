@@ -313,4 +313,49 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
       expect(player.enqueued).toEqual([[id1, "QUJD"], [id1, "Q0JD"]]);
     });
   });
+
+  describe("新轮清在途 + a×b 互斥（双声重叠修复 ①②）", () => {
+    it("T1 重叠回归：旧轮句未收口（无 done）+ 新轮 resetAnswer → 旧句逐条 sendStopFor 定向停 + player.stop 旧尾音 + 新句头句直通零卡闸 + 零降级零回退", () => {
+      // 旧轮：句 1 已收口在播尾音，句 2 在途未收口（闸卡后继的病根形态）
+      out.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      out.onChunkFrame(id1, "QUJD", 1);
+      out.onDoneFrame(id1);
+      out.onChunkFrame(id2, "RDg=", 1); // 句 2 过闸入队（旧轮在播）
+      player.emit(true);
+      // 新轮开（ask 时 hook 接线同序）
+      out.resetAnswer();
+      expect(senders.stopFor).toEqual([id2]); // 在途句逐条定向停——money 零孤儿（id1 已 done 收口出 pending，仅 id2 在途）
+      expect(player.stopped).toBe(1); // 旧尾音即停（anyAudio 错位缺陷同步根除）
+      // 新句不再卡闸：issue → 头句直通，chunk 立即入队（零缓冲）
+      out.feedRawDelta("新轮句。");
+      const id3 = senders.streams[2]![0];
+      out.onChunkFrame(id3, "Q0JD", 1);
+      expect(player.enqueued.map(([id]) => id)).toEqual([id1, id2, id3]);
+      // 零降级：超时窗内无超时降级（闸未卡——超时触发器消失）
+      vi.advanceTimersByTime(6_500);
+      expect(senders.stopFor).toEqual([id2]);
+      expect(out.answerResult("answer", "新轮句。")).toBe("stream"); // 非回退
+      expect(senders.fallbacks).toEqual([]); // 零一次性回退（双声第二源头消失）
+    });
+
+    it("空场开轮零空发：无在途无在播时 resetAnswer 不发 stop 命令不空停 player", () => {
+      out.resetAnswer();
+      expect(senders.stopFor).toEqual([]); // money：无在途零命令
+      expect(player.stopped).toBe(0);
+    });
+
+    it("b 起播即停 a（stopInFlightPlayback）：在途句定向停 + player 全停；不动轮次语义位（非静音——后续喂句照常发流）", () => {
+      out.feedRawDelta("第一句。");
+      const id1 = senders.streams[0]![0];
+      out.onChunkFrame(id1, "QUJD", 1);
+      player.emit(true);
+      out.stopInFlightPlayback();
+      expect(senders.stopFor).toEqual([id1]);
+      expect(player.stopped).toBe(1);
+      // 与 stopSpeaking 区分：不置静音位——同轮后续句照常发流
+      out.feedRawDelta("第二句。");
+      expect(senders.streams.length).toBe(2);
+    });
+  });
 });

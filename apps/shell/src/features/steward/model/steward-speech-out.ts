@@ -18,6 +18,10 @@
  *   中途失败（已出声）只丢句不降级；
  * - 静音钮 stopSpeaking：voice.synthesize.stop（全部在途句）+ 播放队列清空
  *   + 分句缓冲 reset + 本轮静音（终态不再回退出声）；
+ * - 新轮清在途（双声重叠修复 ②）：beginAnswer（resetAnswer）停在途句（逐条
+ *   定向 stop——money 零孤儿）+ player 全停旧尾音 + 闸复位——旧轮滞留句不再
+ *   卡新句闸（6s 首帧超时降级双声链路根除）；stopInFlightPlayback 另供 b 面
+ *   起播收编 a 面（协调器① a×b 互斥）复用；
  * - 无 delta 的 answer（纯一次性路径）= V3a 现行为等价。
  *
  * money 纪律：闸（语音模式 × 偏好开 × answer）在消费端（useStewardVoice）
@@ -278,6 +282,20 @@ export class StewardSpeechOut {
     if (tail !== null) this.issue(tail);
   }
 
+  /** 停在途播放（协调收编路径：新轮开轮 ② / b 起播收编 a 面 ①）：在途句逐条
+   * 定向 stop（money 零孤儿——daemon 侧合成任务取消）+ player 全停。不动轮次
+   * 语义位（muted/streamDead/fallbackText——那是 stopSpeaking 静音钮的职责：
+   * 收编是让位不是静音，后续喂句照常发流）。 */
+  stopInFlightPlayback(): void {
+    if (this.disposed) return;
+    for (const [utterId, pending] of [...this.pending.entries()]) {
+      if (pending.timer !== null) clearTimeout(pending.timer);
+      this.pending.delete(utterId);
+      this.senders.sendStopFor(utterId);
+    }
+    this.player.stop();
+  }
+
   /** 释放（面板卸载）。 */
   close(): void {
     this.disposed = true;
@@ -304,6 +322,15 @@ export class StewardSpeechOut {
   // ── 内部 ────────────────────────────────────────────────
 
   private beginAnswer(): void {
+    // ② 新轮清在途（重叠触发器根除）：旧轮滞留句（无 done 收口）会卡住播放闸
+    // ——新句 chunk 缓冲 6s 首帧超时 → 降级一次性回执 new Audio 整段播，与旧轮
+    // player 尾音同时出声（用户报告「两段语音同时播放」病根链）。清在途（逐条
+    // 定向 stop——money 零孤儿）+ player 全停（旧尾音即停）+ 闸复位（pending 清
+    // 空 = 闸按发句序重开）。anyAudio 随之成为真「本轮」语义——旧音频已同步停，
+    // 不再出现「复位 false 但在播」的错位（与①一致：新轮起播即收编旧面）。
+    // 空场（无在途句且本轮零出声）零空发：预停读/新开面板不空发 stop 命令。
+    if (this.pending.size > 0 || this.anyAudio) this.stopInFlightPlayback();
+    this.clearCutTimer();
     this.rawMd = "";
     this.fedLen = 0;
     this.buffer.reset();
