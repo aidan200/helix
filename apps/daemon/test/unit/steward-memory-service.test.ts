@@ -816,3 +816,85 @@ describe("StewardMemoryService 遗忘机制批", () => {
     svc.dispose(); // 幂等
   });
 });
+
+// ── 防双写水位闸直接单测（设置页长期记忆组批）────────────────────────
+//
+// 与 steward-memory-tool.test.ts ⑥⑦ 的区别：那边断言在 fakeMemory 镜像面
+// （fake 自持 lastExplicitRememberAt）；此处构造**真实 StewardMemoryService**
+// （受控 clock + fake 出站依赖），断言落在真实实现的水位置位/读面语义上——
+// 双写场景：轮内显式 remember（steward-turn/manual）置位 → 总结器记忆点
+// 经 explicitRememberedSince(spanStart) 判本轮让位；自动生产源
+// （session-summary）不置位不误伤。
+describe("防双写水位闸（explicitRememberedSince 真实实现直接单测）", () => {
+  /** 受控时钟服务构造糖（t 可变——模拟轮内时间推进）。 */
+  function svcAt(t: number): { svc: StewardMemoryService; store: ReturnType<typeof fakeStore>; t: { now: number } } {
+    const clock = { now: t };
+    const store = fakeStore();
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => clock.now,
+    });
+    return { svc, store, t: clock };
+  }
+
+  test("① 初始态：水位 -1 → explicitRememberedSince 任意起点 false", () => {
+    const { svc } = svcAt(1000);
+    expect(svc.explicitRememberedSince(0)).toBe(false);
+    expect(svc.explicitRememberedSince(1000)).toBe(false);
+  });
+
+  test("② 显式 remember（steward-turn）成功 → 水位置位：since ≤ 写入时刻 true / since > 写入时刻 false", async () => {
+    const { svc, t } = svcAt(500);
+    await svc.remember("用户偏好简洁回复", "preference", "steward-turn");
+    expect(svc.explicitRememberedSince(0)).toBe(true); // 轮 spanStart（=0）以来写过
+    expect(svc.explicitRememberedSince(500)).toBe(true); // 等号含入（>= 语义：本轮锚点整点写入算本轮）
+    t.now = 900;
+    expect(svc.explicitRememberedSince(901)).toBe(false); // 水位 500 < 901：下轮 spanStart 之后才写的才算
+  });
+
+  test("③ manual 人工新增同样置位（appendMemoryEntry → remember source=manual）", async () => {
+    const { svc } = svcAt(700);
+    const outcome = await svc.appendMemoryEntry("手动记一条", "preference");
+    expect(outcome.ok).toBe(true);
+    expect(svc.explicitRememberedSince(700)).toBe(true);
+  });
+
+  test("④ 自动生产源不置位：session-summary 记忆点入库 → 水位不动（显式写入才防双写）", async () => {
+    const { svc } = svcAt(300);
+    const outcome = await svc.rememberSessionMemoryPoint("总结器提炼的偏好");
+    expect(outcome.updated).toBe(false); // 入库成功（新增）
+    expect(svc.explicitRememberedSince(0)).toBe(false); // 自动源不置水位
+  });
+
+  test("⑤ 写失败不置位：embed 抛错 → remember 抛错 + 水位不动（总结器下锚点可补写）", async () => {
+    const store = fakeStore();
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(3, true), // embed 抛错
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => 800,
+    });
+    await expect(svc.remember("存不进去的", "fact", "steward-turn")).rejects.toThrow("端点不可达");
+    expect(svc.explicitRememberedSince(0)).toBe(false);
+  });
+
+  test("⑥ 双写场景全链：轮内显式写入后同轮总结器让位，下轮恢复可写", async () => {
+    const { svc, t } = svcAt(1000);
+    // 第 1 轮（spanStart=1000）：显式 remember 成功 → 本轮防双写闸关
+    await svc.remember("用户偏好简洁", "preference", "steward-turn");
+    expect(svc.explicitRememberedSince(1000)).toBe(true); // 总结器看到 true → 本轮记忆点让位
+    // 第 2 轮（spanStart=2000）：显式水位（1000）不越界 → 总结器照常产记忆点
+    t.now = 2000;
+    expect(svc.explicitRememberedSince(2000)).toBe(false);
+    // 第 2 轮记忆点入库（session-summary 自动源）→ 不置水位（第 3 轮仍可产）
+    await svc.rememberSessionMemoryPoint("第 2 轮总结器提炼");
+    expect(svc.explicitRememberedSince(2000)).toBe(false);
+    // 第 3 轮（spanStart=3000）：闸仍开
+    t.now = 3000;
+    expect(svc.explicitRememberedSince(3000)).toBe(false);
+  });
+});
