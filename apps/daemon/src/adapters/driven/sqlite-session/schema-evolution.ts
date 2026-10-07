@@ -17,7 +17,10 @@ import { LEGACY_MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
  *   ALTER 主键，走守护式重建（rename→create→copy→drop，事务包裹原子；
  *   旧行 instance_id 回填 'main'）。重建表形状与 schema.ts 新建表一致。
  *
- * 不做迁移框架（迭代边界）：无版本表、无回滚——检测即修，崩溃安全靠事务。
+ * 不做迁移框架（迭代边界）：无版本表、无回滚——检测即修。崩溃安全分工：
+ * DDL 单语句原子；数据回填走 runBatchedBackfill 分批可续传（TR-245——
+ * 单事务大回填被杀即全量回滚、每次开库从零重跑，会与壳侧握手窗形成
+ * 启动死循环）。
  */
 export function ensureSchemaEvolved(db: Database): void {
   if (!hasColumn(db, "domain_events", "agent_instance_id")) {
@@ -73,12 +76,17 @@ export function ensureSchemaEvolved(db: Database): void {
   // legacy 'main' 或 = 该会话 main_instance_id → 'main'；其余 → 'subagent'
   //（steward 形态在 kind 列引入后才有直书行，历史无）。前置：
   // session_state.main_instance_id 列已在上方就位（子查询引用）。
+  // 分批可续传（TR-245）：6 万行级回填若单事务整表跑，迁移中途被壳
+  // SIGKILL（15s 握手窗）即全量回滚、下次开库从零重跑——跑不完的启动
+  // 死循环（2026-10-07 事故）。
   if (tableColumns(db, "tool_calls").length > 0) {
-    db.exec(
-      "UPDATE tool_calls SET kind = CASE " +
+    runBatchedBackfill(
+      db,
+      "tool_calls",
+      "kind = CASE " +
         `WHEN instance_id = '${LEGACY_MAIN_INSTANCE_ID}' OR instance_id = (SELECT main_instance_id FROM session_state WHERE session_state.session_id = tool_calls.session_id) ` +
-        "THEN 'main' ELSE 'subagent' END " +
-        "WHERE kind IS NULL",
+        "THEN 'main' ELSE 'subagent' END",
+      "kind IS NULL",
     );
   }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
@@ -114,11 +122,52 @@ export function ensureSchemaEvolved(db: Database): void {
   // 幂等：已修好的行不满足 WHERE（IS NOT 处理 NULL 三值比较），重跑零写；
   // 表不存在（新库——随后 SCHEMA_SQL 直建）= 无需回填。
   if (tableColumns(db, "session_state").length > 0) {
-    db.exec(
-      "UPDATE session_state SET updated_at = COALESCE(json_extract(entries, '$[#-1].createdAt'), created_at) " +
-        "WHERE updated_at IS NOT COALESCE(json_extract(entries, '$[#-1].createdAt'), created_at)",
+    runBatchedBackfill(
+      db,
+      "session_state",
+      "updated_at = COALESCE(json_extract(entries, '$[#-1].createdAt'), created_at)",
+      "updated_at IS NOT COALESCE(json_extract(entries, '$[#-1].createdAt'), created_at)",
     );
   }
+}
+
+/**
+ * 数据回填批大小：每批一行 UPDATE 语句 = 一个独立事务。低数千行量级——
+ * 单批耗时远小于壳侧 15s 握手窗（HANDSHAKE_TIMEOUT），被杀只回滚当前批。
+ */
+const BACKFILL_BATCH_ROWS = 5000;
+
+/**
+ * 整表谓词回填分批执行器（可续传，TR-245 根修）。
+ *
+ * 每批一条「UPDATE <table> SET <setSql> WHERE rowid IN (SELECT rowid FROM
+ * <table> WHERE <whereSql> LIMIT ?)」——独立事务提交；进程中途被 SIGKILL
+ * 只回滚当前批，幂等谓词（如 WHERE kind IS NULL）即续传判据：下次开库
+ * 自动跳过已回填行、从剩余行继续。消除「单事务大回填被杀 → 全量回滚 →
+ * 每次开库从零重跑」与壳侧握手窗叠加的启动死循环。
+ *
+ * 约束：SET 后行必须不再匹配谓词，否则循环不终止（现有两处回填均满足）。
+ * maxBatches 为测试预算口（模拟迁移中途被杀）；缺省跑至谓词行清空。预算
+ * 耗尽保守回报 done=false（即便恰好完成——重跑得 done=true 零批）。
+ */
+export function runBatchedBackfill(
+  db: Database,
+  table: string,
+  setSql: string,
+  whereSql: string,
+  options: { readonly batchSize?: number; readonly maxBatches?: number } = {},
+): { done: boolean; batches: number } {
+  const batchSize = options.batchSize ?? BACKFILL_BATCH_ROWS;
+  const stmt = db.prepare(
+    `UPDATE ${table} SET ${setSql} WHERE rowid IN (SELECT rowid FROM ${table} WHERE ${whereSql} LIMIT ?)`,
+  );
+  let batches = 0;
+  while (options.maxBatches === undefined || batches < options.maxBatches) {
+    const { changes } = stmt.run(batchSize);
+    if (changes === 0) return { done: true, batches };
+    batches += 1;
+  }
+  return { done: false, batches };
 }
 
 /** 列存在性（表不存在视为"无需演进"——随后的 CREATE TABLE 直建新形状）。 */
