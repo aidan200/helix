@@ -374,7 +374,8 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     act(() => {
       expect(capturedOnFinalText?.("确认")).toBe("consumed");
     });
-    expect(sendStewardConfirm).toHaveBeenCalledTimes(1);
+    // M3-c：confirm 经声纹门异步化（未注册 → skip 照旧放行）——断言 waitFor
+    await waitFor(() => expect(sendStewardConfirm).toHaveBeenCalledTimes(1));
     expect(sendStewardConfirm).toHaveBeenCalledWith("act-1");
     expect(sendStewardAsk).not.toHaveBeenCalled(); // 口令句零 ask
     // 回读字幕（管家行）

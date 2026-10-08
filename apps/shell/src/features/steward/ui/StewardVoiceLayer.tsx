@@ -38,9 +38,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useStewardVoice } from "../model/useStewardVoice";
 import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
-import { parseVoiceCommand, resolveVoiceCommand } from "../model/voice-command";
+import { parseVoiceCommand, resolveVoiceCommand, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
 import { useI18n } from "@/shared/i18n";
+import { getStewardVoiceprintService, type VoiceprintGate } from "../voiceprint/model/steward-voiceprint";
 
 /** 光球淡出时长（ms；reduced-motion 直切不等待）。 */
 export const ORB_FADE_MS = 180;
@@ -48,9 +49,12 @@ export const ORB_FADE_MS = 180;
 export interface StewardVoiceLayerProps {
   /** app 层 steward-open-signal 接线计数（递增即唤起——app 层订阅信号推进）。 */
   readonly wakeSignal?: number;
+  /** M3-c 声纹校验门（确认口令消费卡前验「这句话是注册主人说的吗」；
+   *  缺省 = 生产单例；测试注入假 gate）。 */
+  readonly voiceprintGate?: VoiceprintGate;
 }
 
-const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: StewardVoiceLayerProps) {
+const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprintGate }: StewardVoiceLayerProps) {
   const { t } = useI18n();
   // ── 口令数据面：useStewardActions 副实例（帧驱动同构副本——与
   //    ConfirmStack 单实例各自订阅同一帧源，卡栈状态同步演进）──
@@ -66,7 +70,40 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
 
   // ── 语音口令（D3=b）：final 整句拦截——口令本地解析 + 卡栈快照裁决 +
   //    动作执行（既有命令）+ 回读（say + 字幕）；非口令句 pass 走 ask。──
+  //    M3-c 声纹授权点：confirm 口令在消费卡前验声纹（异步门——口令句仍
+  //    同步返回 consumed，验后放行/拒绝；拒绝纯语音白话明示 + 卡保留）。──
   const sayRef = useRef<(text: string) => void>(() => undefined);
+  const gateRef = useRef<VoiceprintGate>(voiceprintGate ?? getStewardVoiceprintService());
+  gateRef.current = voiceprintGate ?? getStewardVoiceprintService();
+  const confirmCardWithReadback = useCallback(
+    (target: VoiceCardTarget) => {
+      const ok = actionsRef.current.confirmCard(target.actionId);
+      const reply = ok ? t("steward.voice.cmdConfirmOk", { target: target.agentId }) : t("chat.modelsConfig.sendFailToast");
+      setLines((prev) => captionPush(prev, "steward", reply));
+      sayRef.current(reply);
+    },
+    [t],
+  );
+  const gateConfirmWithVoiceprint = useCallback(
+    async (target: VoiceCardTarget, pcm: Float32Array | null) => {
+      let decision;
+      try {
+        decision = await gateRef.current.verifyGate(pcm);
+      } catch {
+        decision = { kind: "skip" as const, reason: "inference-error" as const }; // gate 面异常兑底照旧放行（授权链零劣化）
+      }
+      if (decision.kind === "reject") {
+        // 拒绝消费：纯语音白话明示（TR-243/TR-249）；卡保留——不是 cancel，
+        // 继续挂着等主人重说或 TTL 作废（E-204）。
+        const notice = t("steward.voice.voiceprintReject");
+        setLines((prev) => captionPush(prev, "steward", notice));
+        sayRef.current(notice);
+        return;
+      }
+      confirmCardWithReadback(target); // pass / skip（未注册、引擎失败、推理抛错、音频过短）照旧放行
+    },
+    [confirmCardWithReadback, t],
+  );
   const onFinalText = useCallback(
     (text: string): "consumed" | "pass" => {
       pushLine("user", text); // 用户行入字幕（final 实——口令句也是说出的话）
@@ -87,8 +124,9 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
       } else {
         const target = result.targets[0]!;
         if (result.kind === "confirm") {
-          const ok = actionsRef.current.confirmCard(target.actionId);
-          reply = ok ? t("steward.voice.cmdConfirmOk", { target: target.agentId }) : t("chat.modelsConfig.sendFailToast");
+          // 授权点：本句音频同步取（final 定稿时点环尾部即本句），异步验后裁决
+          void gateConfirmWithVoiceprint(target, svLastUtterancePcmRef.current?.() ?? null);
+          return "consumed"; // 口令句零 ask（验后放行/拒绝均在口令面内收口）
         } else {
           actionsRef.current.cancelCard(target.actionId);
           reply = t("steward.voice.cmdCancelOk", { target: target.agentId });
@@ -98,11 +136,13 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0 }: Steward
       sayRef.current(reply); // 回读音频（money 闸内判）
       return "consumed";
     },
-    [pushLine, t],
+    [pushLine, t, gateConfirmWithVoiceprint],
   );
 
   const sv = useStewardVoice({ onFinalText, welcomeText: t("steward.voice.welcome") });
   sayRef.current = sv.say;
+  const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
+  svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）
 
   // ── 行 TTL 驱逐（短驻批）：duplex 活跃期周期驱逐静置超时行（captionEvict
   //    无淘汰原引用返回——tick 空转零重渲）；行全空且无 interim 时字幕容器
