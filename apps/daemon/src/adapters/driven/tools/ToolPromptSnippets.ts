@@ -41,6 +41,8 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   "kg-update":
     "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识——scene 适用场景必填 / updateNode 补全节点元数据（仅限 scene 等，内容改动走候选人审）/ addEdge 建知识边（srcId+verb+dstId，verb 封闭词表）；iterationId 缺省服务端机械解析，显式传参仅作覆盖；proposeCandidate/decideCandidate 候选台账操作）",
   codegraph: "查询代码索引（只读：status/search 定位符号/node 读源码/callers/callees/impact 查影响面——改代码前先 impact）",
+  memory_search:
+    "语义检索用户长期记忆（只读：用户偏好与工作状态类认知，范围 = global + 当前会话项目，排除进展条目）——开工或决策前按任务意图作 query 主动检索，命中即遵守（与当前任务指令冲突时以任务指令为准；代码与项目现实以知识图谱约束为准）",
   task_create: "创建任务并启动执行（与用户确认干什么之后再调用——对话即确认，调用即创建；返回任务回执）",
   task_report: "查询任务结果与报告（只读：list 最近任务清单 / get 指定任务阶段产物、批次收口摘要与报告路径——全文用 read 按路径读）",
   task_insert_batch: "在指定阶段插入批次行（划批次落库，返回批次号；暂停/终态会被拒）",

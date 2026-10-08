@@ -45,9 +45,13 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
       ["Main", MAIN_SESSION_SYSTEM_PROMPT],
       ["SubAgent", SUBAGENT_SYSTEM_PROMPT],
     ] as const) {
-      test(`${label}：开工链路三段（codegraph 落地符号 → kg affected 锚反查 → kg get 读全文）+ impact 查影响面`, () => {
+      test(`${label}：开工链路四查（技能在第一铁律 → memory_search 检索用户记忆 → codegraph 落地符号 → kg affected 锚反查 + kg get 读全文）+ impact 查影响面`, () => {
         expect(prompt).toContain("开工链路");
         expect(prompt).toContain("codegraph");
+        // 批E 四查：memory_search 检索用户偏好/工作状态类记忆，命中即遵守
+        expect(prompt).toContain("memory_search");
+        expect(prompt).toContain("用户偏好/工作状态");
+        expect(prompt).toContain("命中即遵守");
         expect(prompt).toContain("kg affected");
         expect(prompt).toContain("锚反查");
         expect(prompt).toContain("impact 查影响面");

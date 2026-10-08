@@ -18,6 +18,7 @@ import { kgToolsStub } from "../helpers/kgToolsStub";
 import { planToolStub } from "../helpers/planToolStub";
 import { taskReportStub } from "../helpers/taskReportStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
+import { memorySearchStub } from "../helpers/memorySearchStub";
 import { withTaskEnv } from "../helpers/task-fixtures";
 import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
@@ -232,6 +233,8 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
       plan: planToolStub(),
       // U4：coord 三名 stub 注入保持 resolveTools 可装配
       coord: stubCoordDeps(),
+      // 批E：main 全集声明 memory_search——替身注入保持 resolveTools 可装配
+      memorySearch: memorySearchStub(),
     });
     // main 全集（减动态族 browser——条件注册面，与本任务无关；permission_request
     // 同为条件注册面——提权申请批槽未注入时 resolveTools 单名容忍跳过）

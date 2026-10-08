@@ -48,7 +48,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
-      // tools 全集注入：两 profile 声明面（main 28 含编排四件 + codemode（codemode 批仅 main）与 coord 三工具（U4）与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）与 task_report（D3 仅 main）与 plan 三工具（main-session plan 批两域同构）与 edit-lines（F4 接通批）与 permission_request（提权申请批）；subagent 15 同含 plan 三工具与 edit-lines 与 permission_request）
+      // tools 全集注入：两 profile 声明面（main 29 含编排四件 + codemode（codemode 批仅 main）与 coord 三工具（U4）与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）与 task_report（D3 仅 main）与 plan 三工具（main-session plan 批两域同构）与 edit-lines（F4 接通批）与 permission_request（提权申请批）与 memory_search（批E，主/worker 同面）；subagent 16 同含 plan 三工具与 edit-lines 与 permission_request 与 memory_search）
       expect(daemon.resource.getEffectiveTools("main-session")).toEqual([
         "bash",
         "read",
@@ -77,6 +77,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "coord_query",
         "permission_request", // 提权申请批（声明恒在，注册面门控）
         "codemode", // codemode 批：JS 沙箱编排工具（仅 main）
+        "memory_search", // 批E：长期记忆只读语义检索（本面=声明目录视图；engineFor 注册面门控，未装配记忆时提示面剔除）
       ]);
       expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual([
         "bash",
@@ -93,6 +94,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "todo_write", // todo 双工具（plan 三工具改名批）
         "todo_read",
         "permission_request", // 提权申请批（两域同扩）
+        "memory_search", // 批E：长期记忆只读语义检索（主/worker 同面；ChildMain 恒注册降级不炸）
       ]);
 
       // skills：user 层扫出（source 标签 = user；统一启停批：缺省禁用显式启用制）

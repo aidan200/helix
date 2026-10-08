@@ -84,8 +84,8 @@ export interface EmbeddingConfigServiceDeps {
   readonly clock?: () => number;
 }
 
-/** KV JSON 防御解析（形态非法视同空表）。 */
-function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
+/** KV JSON 防御解析（形态非法视同空表）。导出（批E）：ChildMain 本地 memory_search 栈复用同源解析（子进程无 EmbeddingConfigService 全量装配——只消费记录查我丽 resolveRecord 面，parse 不另写一份）。 */
+export function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
   if (raw === undefined || raw.trim() === "") return [];
   try {
     const parsed = JSON.parse(raw) as unknown;

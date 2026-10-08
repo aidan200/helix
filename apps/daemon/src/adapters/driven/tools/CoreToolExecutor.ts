@@ -37,6 +37,7 @@ import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
 import { createCodegraphTool, type CodegraphToolDeps } from "./codegraph/CodegraphTool";
 import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
 import { createTaskReportTool, type TaskReportToolDeps } from "./task-report/TaskReportTool";
+import { createMemorySearchTool, type MemorySearchToolDeps } from "./memory-search/MemorySearchTool";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "./task-ops/TaskOpsTools";
 import { createCodemodeTool } from "./codemode/CodemodeTool";
 import {
@@ -223,6 +224,18 @@ export interface CoreToolExecutorOptions {
    */
   readonly taskReport?: TaskReportToolDeps;
   /**
+   * memory_search 工具注入面（批E 编码 agent 记忆消费面工具化）：提供则
+   * 注册 memory_search（长期记忆只读语义检索）。主会话
+   * （sessionEngineFactory engineFor，会话级闭包供 projectOf）与 SubAgent
+   * 子进程（ChildMain 本地栈）注入——Orchestrator 不声明该名（栈级无会话
+   * 项目上下文，与批D 不注入同口径）。检索面 = StewardMemoryService 窄面
+   * （searchMemories/isAvailable）；项目 scope 由 projectOf 装配面闭包供给
+   * （工具参数无 project 防伪造）。缺省不注册（测试形态——profile 声明该名
+   * 时 engineFor 同步剔除，kg/codegraph W1 模式同构；ChildMain 恒注册，
+   * 记忆未装配时调用降级文案不炸）。
+   */
+  readonly memorySearch?: MemorySearchToolDeps;
+  /**
    * 任务引擎回口工具族注入面（T2.2，AD-3③）：七工具（划批次落行/派发落章/
    * 阶段推进/阶段产物聚合/任务收口/装配完成回执）+ 编排者台账读变体。仅编排主 agent
    * 会话（组合根 orchestrator-runtime 工厂）注入——不进主会话/SubAgent
@@ -395,6 +408,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
       // task_report（D3）：chat 回流通用报告查询面（list/get 只读；
       // 仅 MainAgent 生效集——报告全文不进回执，MainAgent 用 read 按需读）
       tools.push(createTaskReportTool(options.taskReport));
+    }
+    if (options.memorySearch !== undefined) {
+      // memory_search（批E）：长期记忆只读语义检索薄壳（复用管家 recall
+      // 管线底层；主动检索记 markRecalled 复习强化）
+      tools.push(createMemorySearchTool(options.memorySearch));
     }
     if (options.taskOps !== undefined) {
       // 任务引擎回口工具族（T2.2，AD-3③）：仅编排主 agent 会话生效集

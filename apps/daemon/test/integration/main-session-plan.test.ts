@@ -252,11 +252,11 @@ describe("① 主会话装配面（todo 双工具）", () => {
     }
   });
 
-  test("effectiveMainToolNames：plan/coord 注入时保留；未注入时剔除（声明面 = 注册面一致）", () => {
+  test("effectiveMainToolNames：plan/coord 注入时保留；未注入时剔除（声明面 = 注册面一致；批E memory_search 旗标恒传 true——记忆门控另测）", () => {
     const declared = MainSessionProfile.tools;
-    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: true });
+    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, memorySearch: true, permissionRequest: true });
     expect(kept).toEqual([...declared]);
-    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: false, coord: true, permissionRequest: true });
+    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: false, coord: true, memorySearch: true, permissionRequest: true });
     for (const name of ["todo_write", "todo_read"]) {
       expect(dropped).not.toContain(name);
     }
@@ -265,20 +265,32 @@ describe("① 主会话装配面（todo 双工具）", () => {
       declared.filter((t) => !t.startsWith("todo_")).length,
     );
     // taskReport 未注入 → task_report 剔除（taskCreate/plan/coord 同构：声明面 = 注册面一致）
-    const noReport = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: false, plan: true, coord: true, permissionRequest: true });
+    const noReport = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: false, plan: true, coord: true, memorySearch: true, permissionRequest: true });
     expect(noReport).not.toContain("task_report");
     // coord 未注入 → coord 三名剔除（U4）
-    const noCoord = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: false, permissionRequest: false });
+    const noCoord = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: false, memorySearch: true, permissionRequest: false });
     for (const name of ["coord_claim", "coord_release", "coord_query"]) {
       expect(noCoord).not.toContain(name);
     }
   });
 
+  test("effectiveMainToolNames：memory_search 未可用时剔除（批E 广告面门控 = isAvailable 现值——不广告不可用工具）", () => {
+    const declared = MainSessionProfile.tools;
+    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, memorySearch: true, permissionRequest: true });
+    expect(kept).toContain("memory_search");
+    const unavailable = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, memorySearch: false, permissionRequest: true });
+    expect(unavailable).not.toContain("memory_search");
+    // 其余名不受 memory_search 剔除影响
+    expect(unavailable.filter((t) => t !== "memory_search").length).toBe(
+      declared.filter((t) => t !== "memory_search").length,
+    );
+  });
+
   test("effectiveMainToolNames：permission_request 未注入时剔除；注入时保留（提权申请批）", () => {
     const declared = MainSessionProfile.tools;
-    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: true });
+    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, memorySearch: true, permissionRequest: true });
     expect(kept).toContain("permission_request");
-    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, permissionRequest: false });
+    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true, coord: true, memorySearch: true, permissionRequest: false });
     expect(dropped).not.toContain("permission_request");
   });
 });

@@ -118,6 +118,10 @@ export const MainSessionProfile: AgentProfile = {
     //（agent_* 编排族/permission_request 除外——审批闸不进脚本）。
     // 仅主会话声明（SubAgent/编排面不接入）。
     "codemode",
+    // memory_search（批E：编码 agent 记忆消费面工具化）：长期记忆只读语义
+    // 检索（用户偏好/工作状态）；主/worker 同面，编排面不声明；未装配记忆
+    // 时 engineFor 同步剔除（声明面=注册面）
+    "memory_search",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

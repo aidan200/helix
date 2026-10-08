@@ -46,6 +46,7 @@ const TOOL_NAMES = [
   "coord_query",
   "permission_request", // 提权申请批：一次性沙箱外执行申请（main/worker 同面；声明恒在注册面门控）
   "codemode", // pi-codemode 接入批：JS 沙箱编排其他工具（仅 main——嵌套中间结果不进上下文）
+  "memory_search", // 批E 工具化：长期记忆只读语义检索（main/worker 同面；编排面不声明）
 ] as const;
 
 /** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务；D3 task_report 同理——批次/编排面无查询任务报告职责；codemode 批：JS 沙箱编排仅主会话）。 */
@@ -84,7 +85,10 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
       // 句引用编排工具名同性质（行为指引非清单枚举）。
       // D8 W-R6："kg-update" 不再放行——收权后 worker 提示词零出现（写通道
       // 改走 findings 文件，工具面也注册不到），词边界检查升格为硬断言。
-      if (name === "kg" || name === "codegraph") continue;
+      // 批E："memory_search" 放行同 kg/codegraph——knowledge-core.md 开工链路
+      // 四查以行为指引形态引用该名（检索用户偏好/工作状态记忆），非工具
+      // 清单枚举（清单唯一源仍是组装器）。
+      if (name === "kg" || name === "codegraph" || name === "memory_search") continue;
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
         `SubAgent profile 提示仍含工具名 ${name}`,
@@ -92,7 +96,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 28 / subagent 15（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main；F4 接通批 +edit-lines 两 profile 同扩；提权申请批 +permission_request 两 profile 同扩；codemode 批 +codemode 仅 main）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 28 / subagent 15（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main；F4 接通批 +edit-lines 两 profile 同扩；提权申请批 +permission_request 两 profile 同扩；codemode 批 +codemode 仅 main；批E 工具化 +memory_search main/worker 同扩）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       TOOL_NAMES.filter((t) => !t.startsWith("agent_"))

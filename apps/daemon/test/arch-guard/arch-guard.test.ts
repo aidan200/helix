@@ -579,6 +579,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_FAKE_ENGINE_SCRIPT",
       "HELIX_FINDINGS_PATH", // task-778eb18a 截断兑底：findings 旁路文件落点（SubagentLauncher 注入 / 提示词引导预写 / ClosureRecorder 机械读）
       "HELIX_INSTANCE_ID",
+      "HELIX_MEMORY_PROJECT", // 批E 工具化：memory_search 项目 scope 定格透传（SubagentLauncher launch 时刻足迹单项目归约注入 / ChildMain 本地栈 projectOf 消费；零/多足迹不传键 = 仅 global）
       "HELIX_MODEL_JSON",
       // mcp 批：MCP server 配置透传（SubagentLauncher 注入 launch 时刻现拍 /
       // ChildMain 自建 McpRegistry await 预热——spawn 快照工具名时序保证）
@@ -592,6 +593,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_THINKING_LEVEL",
       "HELIX_TOOLS_JSON",
       "HELIX_TOOL_CWD",
+      "HELIX_VEC_PATH", // 批E 工具化：vec0 扩展 bundle 路径透传（ChildMain 本地 memory_search 栈二级解析第①级消费——与父进程 container 同键同源）
       "HELIX_WRITE_FACTS_DIR", // U1 护栏：manifest 根透传（子进程 pre-commit hook 定位写集合）
     ].sort();
     const found = new Set<string>();

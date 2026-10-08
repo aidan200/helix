@@ -18,6 +18,7 @@ import { taskCreateStub } from "../helpers/taskCreateStub";
 import { taskReportStub } from "../helpers/taskReportStub";
 import { planToolStub } from "../helpers/planToolStub";
 import { stubCoordDeps } from "../helpers/coord-stub";
+import { memorySearchStub } from "../helpers/memorySearchStub";
 
 /**
  * TP-CL5-3（I）：剧本 S2 —— 五工具会话内闭环。
@@ -152,6 +153,8 @@ function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): Loo
     plan: planToolStub(),
     // U4：MainSessionProfile 声明 coord 三名——stub 注入保持 resolveTools 可装配
     coord: stubCoordDeps(),
+    // 批E：MainSessionProfile 声明 memory_search——替身注入保持 resolveTools 可装配
+    memorySearch: memorySearchStub(),
   });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,

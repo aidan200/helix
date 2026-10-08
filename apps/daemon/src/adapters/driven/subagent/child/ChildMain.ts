@@ -68,6 +68,15 @@ import path from "node:path";
 import { sanitizeDeprecatedToolNames } from "../../tools/deprecated-tool-names";
 import { CodegraphEngineAdapter } from "../../codegraph-engine/CodegraphEngineAdapter";
 import { resolveCodegraphPath } from "../../codegraph-engine/resolve-codegraph";
+import { getLoadablePath } from "sqlite-vec";
+import { SqliteVecMemoryStore } from "../../steward-memory/SqliteVecMemoryStore";
+import { resolveVec0Path } from "../../steward-memory/resolve-vec0";
+import { OpenAiCompatEmbeddingAdapter } from "../../embedding/OpenAiCompatEmbeddingAdapter";
+import { StewardMemoryService } from "../../../../application/steward/StewardMemoryService";
+import { parseRecords } from "../../../../application/embedding/EmbeddingConfigService";
+import type { RuntimeConfigPort } from "../../../../application/ports/outbound/RuntimeConfigPort";
+import type { EmbeddingEndpointRecord } from "../../../../application/embedding/EmbeddingConfigService";
+import type { MemorySearchServiceFace } from "../../tools/memory-search/MemorySearchTool";
 
 // ── argv/env 解析 ──────────────────────────────────────────
 
@@ -528,6 +537,107 @@ function isExecutableFile(p: string): boolean {
   }
 }
 
+// ── 子进程本地 memory_search 栈（批E：编码 agent 记忆消费面工具化） ──
+
+/**
+ * 子进程本地 memory_search 栈：与 buildLocalKgStack 同构——ChildMain 是
+ * 子进程组合根（new 具体 adapter/service 不违 AG-02④ 扫描域）。
+ *
+ * 装置面（全部从父进程 spawn env/库文件现拍，零新增键）：
+ * - vec0 二级解析（resolveVec0Path：HELIX_VEC_PATH bundle 级 → sqlite-vec
+ *   node_modules 级——与父进程同源同式，容器内同一家族）；
+ * - 存储直连 steward_memory.db（HOME 推导 = HELIX_DB_PATH 同目录——
+ *   helix.db/steward_memory.db 同 home 是组合根约定）；
+ * - 配置/端点只读直连 helix.db（runtime_config 表：memory.* 键 +
+ *   embedding_endpoints——与 LazyWorkLedger 同构的子进程直连，WAL +
+ *   busy_timeout；子进程只读不写配置）；
+ * - embedding 走 OpenAiCompatEmbeddingAdapter（同父进程实现类，端点经
+ *   embedding_endpoints KV 解析）。
+ *
+ * 恒注册纪律：栈不可建（dbPath 缺席/vec0 不可解析/开库失败）也返回
+ * 「不可用面」（isAvailable=false）——工具恒注册，调用得降级引导文案
+ * 不炸（kg/codegraph degraded 先例同族；与主会话面「未装配不注册」
+ * 分野：子进程声明面来自 spawn 快照定格，注册面必须恒宽否则弹性解析
+ * 兑底成「未知工具」占位）。projectOf = HELIX_MEMORY_PROJECT 定格
+ * （SubagentLauncher spawn 时刻足迹单项目归约快照；零/多足迹不传键 =
+ * 仅 global）。
+ */
+export function buildLocalMemorySearchStack(
+  dbPath: string | undefined,
+): MemorySearchServiceFace {
+  // 兑底不可用面（恒注册的降级分支）
+  const unavailable: MemorySearchServiceFace = {
+    isAvailable: () => false,
+    searchMemories: async () => [],
+  };
+  if (dbPath === undefined) return unavailable; // 测试形态/极早期竞态
+  try {
+    const vec0 = resolveVec0Path({
+      bundlePath: process.env.HELIX_VEC_PATH,
+      nodeModulesPath: (() => {
+        try {
+          return getLoadablePath();
+        } catch {
+          return undefined; // 编译单文件形态 npm 解析失败——靠 bundle 级兑底
+        }
+      })(),
+      probe: (p) => isFile(p),
+    });
+    if (vec0.kind !== "resolved") return unavailable;
+    const store = new SqliteVecMemoryStore(
+      path.join(path.dirname(dbPath), "steward_memory.db"),
+      vec0.path,
+    );
+    // 配置只读直连（LazyWorkLedger 同构；子进程不写配置——set 面
+    // 静默不落盘，读面 runtime_config 单点）
+    const db = openTaskLedgerDatabase(dbPath);
+    const readKey = (key: string): string | undefined => {
+      const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
+        | { value: string }
+        | null;
+      return row === null ? undefined : row.value;
+    };
+    const config: RuntimeConfigPort = {
+      get: readKey,
+      set: async () => {
+        /* 子进程只读 */
+      },
+    };
+    const resolveRecord = (endpointId: string): EmbeddingEndpointRecord | null =>
+      parseRecords(readKey("embedding_endpoints")).find((r) => r.id === endpointId) ?? null;
+    const embedding = new OpenAiCompatEmbeddingAdapter({
+      getConfig: () => {
+        const endpointId = readKey("memory.endpointId");
+        if (endpointId === undefined || endpointId === "") return null;
+        const record = resolveRecord(endpointId);
+        return record === null
+          ? null
+          : { baseUrl: record.baseUrl, apiKey: record.apiKey, model: record.model };
+      },
+    });
+    return new StewardMemoryService({
+      config,
+      embedding,
+      embeddingConfig: { resolveRecord },
+      store,
+      // 子进程只读消费（检索 + markRecalled 复习强化回写归 store）——不挂
+      // GC 定时器（遗忘机制归管家父进程单点）、不挂判官（写入面归管家）
+    });
+  } catch {
+    return unavailable; // 开库/装配异常 → 不可用面（工具调用降级文案不炸）
+  }
+}
+
+/** 存在探测（isExecutableFile 同族：抛错一律视为不存在）。 */
+function isFile(p: string): boolean {
+  try {
+    accessSync(p, fsConstants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── 主流程 ─────────────────────────────────────────────────
 
 /**
@@ -714,6 +824,15 @@ async function main(): Promise<void> {
     kg: kg.tools,
     codegraph,
     plan: workLedger.tools,
+    // 批E：memory_search 恒注册（worker 家族声明面来自 spawn 快照定格——
+    // 注册面必须恒宽，栈不可建时不可用面兑底降级文案；project scope =
+    // HELIX_MEMORY_PROJECT 定格透传（launcher spawn 时刻足迹单项目归约））
+    memorySearch: {
+      service: buildLocalMemorySearchStack(childDbPath),
+      projectOf: () => (process.env.HELIX_MEMORY_PROJECT !== undefined && process.env.HELIX_MEMORY_PROJECT !== ""
+        ? process.env.HELIX_MEMORY_PROJECT
+        : undefined),
+    },
     // mcp 批：预热完成的命名空间工具注入（零 running server → 空数组不注键）。
     // deferred 批：meta 发现工具同批注入（懒加载入口）；物化集 = 子进程本地
     // 内存态（worker 短生命周期——discover 后经 engine.setTools + hooks 同

@@ -75,6 +75,10 @@ export const SubAgentProfile: AgentProfile = {
     // permission_request（提权申请批）：与主会话同面——SubAgent 经 wire
     // ask-request 行转发父进程仲裁（卡片弹在归属会话页；沙箱 on 时注册）
     "permission_request",
+    // memory_search（批E：编码 agent 记忆消费面工具化）：长期记忆只读语义
+    // 检索（用户偏好/工作状态）；主/worker 同面，编排面不声明；ChildMain
+    // 本地栈恒注册（缺席降级文案不炸）
+    "memory_search",
   ],
   lifecycle: { mode: "single-shot" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：与主会话同坑同填——装配点实例化）

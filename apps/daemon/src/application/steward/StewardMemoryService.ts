@@ -53,6 +53,7 @@ import {
 } from "../memory/memoryConfig";
 import type {
   StewardMemoryEntry,
+  StewardMemoryHit,
   StewardMemoryPort,
 } from "../ports/outbound/StewardMemoryPort";
 
@@ -119,14 +120,26 @@ export const STEWARD_MEMORY_GC_INTERVAL_MS = 24 * 3_600_000;
 export const STEWARD_MEMORY_PROGRESS_RECALL_QUOTA = 2;
 
 /**
- * 编码 agent 召回 topK（批D 只读消费面）：系统提示组装链同步定格——无
- * 轮内 query 语义检索，走「scope + kind 过滤 → strength 排序」轻管线；
- * prompt 预算紧于管家面（管家 memory.recallTopK 缺省 5）。命名对齐
- * memoryConfig 缺省值族（MEMORY_RECALL_TOP_K_DEFAULT）；不新增 memory.*
- * 配置键（E-261：编码面 topK 走代码常量，运营参数升级等真需求出现再
- * additive）。
+ * memory_search 工具 topK（批E 工具化消费面）：对齐 memory.recallTopK 缺省值
+ * 5——工具回执是紧凑行列表（非系统提示注入段，预算宽于批D 注入面的 3）；
+ * 代码常量不新增 memory.* 键（E-261 additive 纪律，AGENT_MEMORY_RECALL_TOP_K
+ * 同先例——运营参数升级等真需求出现再 additive）。候选池仍走 memory.recallPool
+ * 配置驱动（与管家面同源，无需双份）。
  */
-export const AGENT_MEMORY_RECALL_TOP_K = 3;
+export const MEMORY_SEARCH_TOP_K = 5;
+
+/** 工具面 kind 白名单：编码 agent 只吃 preference/fact（progress 是管家域——
+ *  批B/D 以来边界维持；工具化不改变分野）。 */
+const MEMORY_SEARCH_KINDS: ReadonlySet<"fact" | "preference"> = new Set(["preference", "fact"]);
+
+/** memory_search 回执行（紧凑投影：id/kind/text/score/updatedAt）。 */
+export interface MemorySearchHit {
+  readonly id: number;
+  readonly kind: "fact" | "preference";
+  readonly text: string;
+  readonly score: number;
+  readonly updatedAt: number;
+}
 
 /** progress 文本上限（Unicode 码点——超限截断加省略号）。 */
 export const STEWARD_MEMORY_PROGRESS_MAX_CHARS = 120;
@@ -374,46 +387,25 @@ export class StewardMemoryService {
    * 项目隔离批（additive 过滤维度）：project = 当前项目目录名（候选池
    * 取数时 rowid IN 预过滤 global + 本项目；undefined = 无项目上下文只见
    * global）——融合排序/progress 配额/资格闸零改动（E-259 管辖面不触碰）。
+   * 批E：管线底层提取为 semanticRecallCore 共享（memory_search 工具同源
+   *  ——管家行为零变化，kinds 缺席 = 全类收、progress 走配额）。
    * 任何失败静默降级 undefined + warn（召回绝不能挡对话主链路）；
    *  记忆不可用 → undefined（零调用零日志——常态降级）。
    */
   async recallSection(queryText: string, project?: string): Promise<string | undefined> {
     if (!this.isAvailable()) return undefined;
     try {
-      const { vectors, dim } = await this.deps.embedding.embed([queryText]);
-      await this.ensureDim(dim);
-      const now = this.now();
-      const { topK, pool: poolSize } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
-      // 项目隔离批：召回视野 = global + 当前项目（无项目上下文 → 只 global）。
-      // 预过滤在 store 层（KNN 名额只给合格行——他项目最近邻不占位）。
-      const recallScopes =
-        project !== undefined && project.trim() !== "" ? [MEMORY_SCOPE_GLOBAL, project.trim()] : [MEMORY_SCOPE_GLOBAL];
-      // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ 0.30 语义不变）→
-      // 融合排序（cosine × 强度——时间权重只在竞争位起作用，唯一强相关
-      // 的老记忆仍能出线）→ topK 注入。
-      const pool = this.deps
-        .store!.search(vectors[0]!, poolSize, recallScopes)
-        .filter((h) => h.fadedAt === 0)
-        .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE);
-      pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
-      // progress 批：topK 选取加 kind 配额——排序位不变，progress 超配额让位
-      // 于后续非 progress 候选（池内竞争，不是事后剔除——不浪费 topK 名额）。
-      const hits: typeof pool = [];
-      let progressTaken = 0;
-      for (const h of pool) {
-        if (hits.length >= topK) break;
-        if (h.kind === "progress") {
-          if (progressTaken >= STEWARD_MEMORY_PROGRESS_RECALL_QUOTA) continue;
-          progressTaken += 1;
-        }
-        hits.push(h);
-      }
+      const { topK } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
+      const hits = await this.semanticRecallCore({
+        queryText,
+        project,
+        kinds: undefined,
+        progressQuota: STEWARD_MEMORY_PROGRESS_RECALL_QUOTA,
+        topK,
+        markRecalled: true,
+        alignDim: true,
+      });
       if (hits.length === 0) return undefined;
-      // 幸存者回写（复习强化——只记注入者，候选池陪跑不记，防马太加速）
-      this.deps.store!.markRecalled(
-        hits.map((h) => h.id),
-        now,
-      );
       const lines = hits.map((h) =>
         h.kind === "progress" && h.sessionId !== undefined
           ? `- [进展] ${h.text}（sid: ${h.sessionId}）`
@@ -427,54 +419,104 @@ export class StewardMemoryService {
   }
 
   /**
-   * 编码 agent 召回段（批D 只读消费面——主会话 main-session 与 SubAgent
-   * 双形态系统提示组装链消费）：同步轻管线，无 query 语义检索（组装时刻
-   * 无用户输入，且 embedding HTTP 不进同步组装链/spawn 秒回链）：
-   * - scope 过滤（E-264 原语同源）：global + 本项目（project 缺席/空白 →
-   *   仅 global）；
-   * - kind 过滤：preference + fact 注入、progress 排除（progress 是管家域
-   *   ——编码 agent 的「最近工作」来自其会话上下文与任务面；是 kind 过滤
-   *   而非管家那样的竞争位配额）；
-   * - 过淡忘（faded 退出召回池）→ strength 降序（manual/pinned 恒满浮顶
-   *   ——用户显式保护位最高）→ 同分 updatedAt 新优先 → 常量 topK 截断
-   *  （「preference 优先 + fact」按内容域解读：两类注入、progress 排除；
-   *   kind 不设排序特权——否则同分时把 pinned fact 压到 preference 后，
-   *   破坏 strength 模型自洽（E-259：manual/pinned 恒满）；fact 半衰长
-   *   天然 strength 占优是模型自然结果）；
-   * - 不记 markRecalled（E-259 幸存者回写只归管家消费面——防编码 agent
-   *   高频轮次把条目强度刷爆）；
-   * 任何失败静默降级 undefined + warn（召回异常零注入不炸组装主链路）；
-   * 记忆不可用 → undefined（零调用零日志——常态降级）。
+   * 语义召回管线核心（批E 提取共享——管家 recallSection 与编码面
+   * memory_search 工具同源底层，管家行为零变化）：
+   * embedding → vec0 KNN 候选池（scope 预过滤 rowid IN：global + project，
+   * E-264 口径——他项目最近邻不占 KNN 名额）→ 过淡忘 → 资格闸
+   * （cosine ≥ 0.30，E-259 资格与排序解耦）→ kind 白名单（可选；管家面
+   * 缺席 = 全类收，工具面排除 progress）→ cosine×strength 融合排序 →
+   * progress 配额选取 topK → 幸存者回写（可选）。
+   * 维度对齐（ensureDim）由调用方决定：管家面保留（写入一致性链）；工具面
+   * 不触发（读工具不重建向量面——维度失配自然降级空结果）。
+   * 任何失败上抛（调用方决定降级形态——管家 warn + undefined；工具面降级
+   * 文案不炸主链路）。
    */
-  agentRecallSection(project?: string): string | undefined {
-    if (!this.isAvailable()) return undefined;
-    try {
-      const scopes =
-        project !== undefined && project.trim() !== ""
-          ? [MEMORY_SCOPE_GLOBAL, project.trim()]
-          : [MEMORY_SCOPE_GLOBAL];
-      const now = this.now();
-      const candidates = this.deps
-        .store!.list()
-        .filter((e) => e.fadedAt === 0 && e.kind !== "progress")
-        .filter((e) => scopes.includes(e.projectScope ?? MEMORY_SCOPE_GLOBAL));
-      candidates.sort((a, b) => {
-        const d = memoryStrength(b, now) - memoryStrength(a, now);
-        if (d !== 0) return d;
-        return b.updatedAt - a.updatedAt;
-      });
-      const hits = candidates.slice(0, AGENT_MEMORY_RECALL_TOP_K);
-      if (hits.length === 0) return undefined;
-      const lines = hits.map((h) => `- [${KIND_LABELS[h.kind]}] ${h.text}`);
-      return [
-        "## 用户偏好与工作状态（长期记忆只读召回——用户偏好与工作状态类认知；与当前任务指令冲突时以任务为准；代码与项目现实以知识图谱约束为准）",
-        ...lines,
-      ].join("\n");
-    } catch (err) {
-      this.deps.logger?.warn(`编码 agent 记忆召回降级：${(err as Error).message}`);
-      return undefined;
+  private async semanticRecallCore(req: {
+    readonly queryText: string;
+    readonly project?: string;
+    /** kind 白名单（undefined = 全类收——管家面 progress 走配额不排除）。 */
+    readonly kinds: ReadonlySet<"fact" | "preference" | "progress"> | undefined;
+    /** progress 配额（管家面 = STEWARD_MEMORY_PROGRESS_RECALL_QUOTA；工具面白名单已排除恒不触及）。 */
+    readonly progressQuota: number;
+    /** topK 截断（管家面 = memory.recallTopK 生效值；工具面 = MEMORY_SEARCH_TOP_K 常量）。 */
+    readonly topK: number;
+    /** 幸存者回写开关（只记最终入选者，候选池陪跑不记——防马太加速）。 */
+    readonly markRecalled: boolean;
+    /** 维度对齐开关（换 embedding 模型 → vec0 重建——写路径，管家面专属）。 */
+    readonly alignDim: boolean;
+  }): Promise<readonly StewardMemoryHit[]> {
+    const { vectors, dim } = await this.deps.embedding.embed([req.queryText]);
+    if (req.alignDim) await this.ensureDim(dim);
+    const now = this.now();
+    const { pool: poolSize } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
+    // 项目隔离批：召回视野 = global + 当前项目（无项目上下文 → 只 global）。
+    // 预过滤在 store 层（KNN 名额只给合格行——他项目最近邻不占位）。
+    const recallScopes =
+      req.project !== undefined && req.project.trim() !== "" ? [MEMORY_SCOPE_GLOBAL, req.project.trim()] : [MEMORY_SCOPE_GLOBAL];
+    // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ 0.30 语义不变）→
+    // 融合排序（cosine × 强度——时间权重只在竞争位起作用，唯一强相关
+    // 的老记忆仍能出线）。批E：kind 白名单在排序前（工具面排除 progress）。
+    const pool = this.deps
+      .store!.search(vectors[0]!, poolSize, recallScopes)
+      .filter((h) => h.fadedAt === 0)
+      .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE)
+      .filter((h) => req.kinds === undefined || req.kinds.has(h.kind));
+    pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
+    // progress 批：topK 选取加 kind 配额——排序位不变，progress 超配额让位
+    // 于后续非 progress 候选（池内竞争，不是事后剔除——不浪费 topK 名额）。
+    const hits: typeof pool = [];
+    let progressTaken = 0;
+    for (const h of pool) {
+      if (hits.length >= req.topK) break;
+      if (h.kind === "progress") {
+        if (progressTaken >= req.progressQuota) continue;
+        progressTaken += 1;
+      }
+      hits.push(h);
     }
+    // 幸存者回写（复习强化——只记入选者，候选池陪跑不记，防马太加速）
+    if (req.markRecalled && hits.length > 0) {
+      this.deps.store!.markRecalled(
+        hits.map((h) => h.id),
+        now,
+      );
+    }
+    return hits;
   }
+
+  /**
+   * memory_search 工具检索面（批E 编码 agent 消费面工具化）：与管家
+   * recallSection 共用 semanticRecallCore 底层，分野——
+   * - kind 白名单：preference + fact（编码面只吃偏好/事实——progress 是
+   *   管家域，批B/D 以来边界维持）；
+   * - topK = MEMORY_SEARCH_TOP_K 代码常量（5，对齐 memory.recallTopK 缺省；
+   *   不新增 memory.* 键，E-261 additive 纪律）；
+   * - 幸存者回写：记 markRecalled（批E 预授权裁决——工具主动检索 = 真的
+   *   用上了，与批D 被动注入不记的分野：注入面无消费确认，工具面有）；
+   *   高频自查的强度风险由 STRENGTHEN_CAP/HALF_LIFE_CAP 双封顶兑底；
+   * - 不做维度对齐（读工具不触发 ensureDim 向量重建写路径）。
+   * 失败上抛（工具面 catch 降级文案）；不可用/空 query → 空数组（工具面
+   * isAvailable 先行引导）。
+   */
+  async searchMemories(queryText: string, project?: string): Promise<readonly MemorySearchHit[]> {
+    const trimmed = queryText.trim();
+    if (trimmed === "" || !this.isAvailable()) return [];
+    const hits = await this.semanticRecallCore({
+      queryText: trimmed,
+      project,
+      kinds: MEMORY_SEARCH_KINDS,
+      progressQuota: 0,
+      topK: MEMORY_SEARCH_TOP_K,
+      markRecalled: true,
+      alignDim: false,
+    });
+    // 白名单窄化（TS 不穿透 Set 过滤——运行时 progress 已被 kinds 闸排除，
+    // filter 是同判定的类型面兑底非双份逻辑）
+    return hits
+      .filter((h): h is StewardMemoryHit & { kind: "fact" | "preference" } => h.kind !== "progress")
+      .map((h) => ({ id: h.id, kind: h.kind, text: h.text, score: h.score, updatedAt: h.updatedAt }));
+  }
+
 
   /**
    * 写入（confirm 闸执行体调用）：条目 embed → 维度对齐 → append。
