@@ -204,6 +204,9 @@ export interface WsServerAdapterDeps {
   readonly port: number;
   /** 静态产物 handler（组合根注入 driven StaticServe；未配置时缺省）。 */
   readonly staticHandler?: (req: Request) => Promise<Response | null> | Response | null;
+  /** 本地模型资产目录（`~/.helix/models/`；HTTP 模型路由的读写根——
+   *  paths 单点派生，TR-112；可选——未装配时路由 404（stub rig 兼容）。 */
+  readonly modelsDir?: () => string;
   /** 主时间轴尾窗大小（G-1：缺省 30；组合根/测试注入面）。 */
   readonly tailSize?: number;
   /**

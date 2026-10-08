@@ -37,6 +37,9 @@ export interface HelixPaths {
   readonly skillsHome: () => string;
   /** 单例幂等锁：`<home>/daemon.lock`（AG-17，同 --home 二启拒绝）。 */
   readonly lockPath: () => string;
+  /** 本地模型资产目录：`<home>/models/`（声纹等本地推理模型的磁盘归位——
+   *  手动放置与导入上行共同落点；ensureHome 时一并补建）。 */
+  readonly modelsDir: () => string;
   /** 确保主目录存在（递归创建；首启目录不存在时的目录补建单点）。 */
   readonly ensureHome: () => void;
 }
@@ -91,6 +94,7 @@ export function createPaths(explicitHome?: string): HelixPaths {
     stewardMemoryDbPath: () => path.join(home, "steward_memory.db"),
     skillsHome: () => path.join(home, "skills"),
     lockPath: () => path.join(home, "daemon.lock"),
+    modelsDir: () => path.join(home, "models"),
     ensureHome: () => mkdirSync(home, { recursive: true }),
   };
 }

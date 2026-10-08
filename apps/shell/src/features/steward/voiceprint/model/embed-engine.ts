@@ -1,25 +1,33 @@
 /**
  * embed-engine —— 说话人向量推理引擎（M3-c 声纹批；wasm ort-web 驱动面）。
  *
- * 生产链：IndexedDB 模型缓存（26.5MB ArrayBuffer，本机应用数据区）→ 未
- * 命中 fetch 下载源（onProgress 供注册 UI 进度）→ 缓存回写 → ort-web
+ * 生产链（v2：模型归位 ~/.helix/models/ 磁盘目录）：daemon HTTP 模型路由
+ * （GET /models/voiceprint-model.onnx，content-length 供进度）→ ort-web
  * wasm session（单线程——WKWebView 无 crossOriginIsolation/SAB）→
- * computeFbank + session.run。
+ * computeFbank + session.run。磁盘即缓存——shell 侧无持久化（IndexedDB
+ * 缓存随 v2 退役）；手动放置/导入经 daemon PUT 路由落盘（importModelFile）。
  *
  * 测试缝：fetchImpl / modelCache 均可注入（fbank.test.ts 的端到端对拍
  * 用例直连 createWasmEmbedEngineForModelBuffer——node 下 wasm 路径经
  * createRequire 解析 dist 前缀，浏览器经 vite ?url 资产映射）。
  */
 import * as ortNS from "onnxruntime-web";
+import { DAEMON_PORT } from "@/shared/config/env";
+import { VOICEPRINT_MODEL_HTTP_PATH, VOICEPRINT_MODEL_MAX_BYTES } from "@helix/protocol";
 import type { EmbedEngine, EmbedEngineLoader } from "./voiceprint-service";
 import { computeFbank } from "./fbank";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const ort = ortNS as any;
 
-/** 模型下载源（sherpa-onnx 官方 release；wespeaker Apache-2.0，26.5MB）。 */
+/** 手动下载源（sherpa-onnx 官方 release；wespeaker Apache-2.0，26.5MB）。
+ * 仅供设置页提示文案引用——拉取本体走 daemon 磁盘路由（网络受阻时
+ * 用户按此 URL 手动下载后经「从本地导入」上行落盘）。 */
 export const VOICEPRINT_MODEL_URL =
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_zh_cnceleb_resnet34_LM.onnx";
+
+/** daemon 模型路由 base（与 ws 同端口；生产唯一拉取源）。 */
+export const VOICEPRINT_MODEL_DAEMON_URL = `http://127.0.0.1:${DAEMON_PORT}${VOICEPRINT_MODEL_HTTP_PATH}`;
 
 /** 模型体积（字节；下载进度分母与完整性粗校验）。 */
 export const VOICEPRINT_MODEL_BYTES = 26_530_548;
@@ -39,50 +47,11 @@ function configureWasm(): void {
   wasmConfigured = true;
 }
 
-/** 模型缓存 port（生产 = IndexedDB；测试注入内存实现）。 */
+/** 模型缓存 port（测试缝：node 下注入内存实现；生产 v2 无持久缓存——
+ *  磁盘即缓存，daemon 路由命中即零成本）。 */
 export interface ModelCache {
   get(): Promise<ArrayBuffer | undefined>;
   put(buffer: ArrayBuffer): Promise<void>;
-}
-
-/** IndexedDB 模型缓存（db=helix-voiceprint / store=models；不可用 → 空缓存直落下载）。 */
-export function createIndexedDbModelCache(): ModelCache {
-  const DB_NAME = "helix-voiceprint";
-  const STORE = "models";
-  const KEY = "wespeaker-resnet34-LM";
-  const globalWindow = globalThis as { indexedDB?: IDBFactory };
-  if (typeof globalWindow.indexedDB === "undefined") {
-    return { get: async () => undefined, put: async () => undefined };
-  }
-  const openDb = (): Promise<IDBDatabase | null> =>
-    new Promise((resolve) => {
-      const req = globalWindow.indexedDB!.open(DB_NAME, 1);
-      req.onupgradeneeded = () => {
-        if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-    });
-  return {
-    async get() {
-      const db = await openDb();
-      if (db === null) return undefined;
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, "readonly").objectStore(STORE).get(KEY);
-        tx.onsuccess = () => resolve(tx.result as ArrayBuffer | undefined);
-        tx.onerror = () => resolve(undefined);
-      });
-    },
-    async put(buffer) {
-      const db = await openDb();
-      if (db === null) return;
-      await new Promise<void>((resolve) => {
-        const req = db.transaction(STORE, "readwrite").objectStore(STORE).put(buffer, KEY);
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-      });
-    },
-  };
 }
 
 /** 内存模型缓存（测试）。 */
@@ -105,20 +74,21 @@ export interface WasmEngineLoaderOptions {
   readonly onProgress?: (received: number, total: number | null) => void;
 }
 
-/** 下载模型字节（缓存优先；带进度；完整性体积校验）。 */
+/** 拉取模型字节（daemon 磁盘路由流式拉取；带进度；404 → 手动放置/导入
+ *  引导的专用错误名）。 */
 export async function loadModelBytes(options: WasmEngineLoaderOptions = {}): Promise<ArrayBuffer> {
-  const cache = options.modelCache ?? createIndexedDbModelCache();
-  const cached = await cache.get();
+  const cache = options.modelCache;
+  const cached = cache === undefined ? undefined : await cache.get();
   if (cached !== undefined && cached.byteLength > 0) return cached;
-  const url = options.modelUrl ?? VOICEPRINT_MODEL_URL;
+  const url = options.modelUrl ?? VOICEPRINT_MODEL_DAEMON_URL;
   const doFetch = options.fetchImpl ?? ((input: string) => fetch(input));
   const resp = await doFetch(url);
-  if (!resp.ok) throw new Error(`model download failed (HTTP ${resp.status})`);
+  if (!resp.ok) throw new Error(`model asset missing (HTTP ${resp.status})`);
   const total = resp.headers.get("content-length") !== null ? Number(resp.headers.get("content-length")) : null;
   if (resp.body === null || typeof resp.body.getReader !== "function") {
     const buf = await resp.arrayBuffer();
     options.onProgress?.(buf.byteLength, buf.byteLength);
-    await cache.put(buf);
+    await cache?.put(buf);
     return buf;
   }
   const reader = resp.body.getReader();
@@ -138,8 +108,23 @@ export async function loadModelBytes(options: WasmEngineLoaderOptions = {}): Pro
     at += c.byteLength;
   }
   const buffer = merged.buffer;
-  await cache.put(buffer);
+  await cache?.put(buffer);
   return buffer;
+}
+
+/** 从本地文件导入模型（设置页「从本地导入」：GitHub 直连受阻时的手动
+ *  通道——手动下载后选文件 → PUT 上行 daemon 落盘 ~/.helix/models/）。
+ *  幂等覆写；体积护栏与路由侧一致（MAX 字节）。 */
+export async function importModelFile(file: File, options: WasmEngineLoaderOptions = {}): Promise<void> {
+  if (file.size <= 0 || file.size > VOICEPRINT_MODEL_MAX_BYTES) {
+    throw new Error(`model file size out of range (${file.size} bytes)`);
+  }
+  const doFetch = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
+  const resp = await doFetch(VOICEPRINT_MODEL_DAEMON_URL, {
+    method: "PUT",
+    body: await file.arrayBuffer(),
+  });
+  if (!resp.ok) throw new Error(`model import failed (HTTP ${resp.status})`);
 }
 
 /** 由模型字节（或 node 文件路径——测试对拍直连）建推理引擎。 */

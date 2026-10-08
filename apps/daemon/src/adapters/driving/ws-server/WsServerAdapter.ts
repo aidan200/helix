@@ -39,7 +39,7 @@ import type {
   FrameVersion,
   SessionSnapshotEvent,
 } from "@helix/protocol";
-import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import { PROTOCOL_VERSION, SYSTEM_SESSION_ID, VOICEPRINT_MODEL_FILENAME, VOICEPRINT_MODEL_HTTP_PATH, VOICEPRINT_MODEL_MAX_BYTES } from "@helix/protocol";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」）
 import type { ServerWebSocket } from "bun";
@@ -77,6 +77,7 @@ export function createRawSender(
     ws.send(JSON.stringify(frame));
   };
 }
+import { mkdirSync, writeFileSync } from "node:fs";
 import { EventStream, type FrameSender } from "./EventStream";
 import { toSnapshotDto, TAIL_WINDOW_SIZE } from "./DtoMapper";
 import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
@@ -298,13 +299,58 @@ export class WsServerAdapter {
       return this.devTokenResponse(req);
     }
 
-    // ③ 前端静态产物（driven StaticServe，未配置/未命中由 handler 表达）
+    // ③ 本地模型资产（固定白名单路径：GET 流式拉取 / PUT 导入上行——
+    //    文件名 protocol 单源，任意其他 /models/* 一律 404，不开放任意读写盘）
+    if (url.pathname === VOICEPRINT_MODEL_HTTP_PATH && (req.method === "GET" || req.method === "PUT")) {
+      return this.modelAssetResponse(req);
+    }
+
+    // ④ 前端静态产物（driven StaticServe，未配置/未命中由 handler 表达）
     if (this.deps.staticHandler) {
       const resp = await this.deps.staticHandler(req);
       if (resp) return resp;
     }
 
     return new Response("Not Found\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+  }
+
+  /** 本地模型资产路由（读写根 = deps.modelsDir；Origin 校验同 dev-token 面）。 */
+  private async modelAssetResponse(req: Request): Promise<Response> {
+    const headers = this.loopbackCorsHeaders(req);
+    if (headers === null) {
+      return new Response("Forbidden\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    const filePath = `${this.deps.modelsDir?.() ?? ""}/${VOICEPRINT_MODEL_FILENAME}`;
+    if (req.method === "GET") {
+      const file = Bun.file(filePath);
+      if (this.deps.modelsDir === undefined || !(await file.exists())) {
+        return new Response("Not Found\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+      }
+      return new Response(file, { headers: { ...headers, "content-type": "application/octet-stream" } });
+    }
+    // PUT：导入上行（体积护栏 1B~MAX；幂等覆写——同名重导即替换）
+    const dir = this.deps.modelsDir?.();
+    if (dir === undefined) {
+      return new Response("Not Found\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    const body = await req.arrayBuffer();
+    if (body.byteLength <= 0 || body.byteLength > VOICEPRINT_MODEL_MAX_BYTES) {
+      return new Response("Payload Too Large\n", { status: 413, headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(`${dir}/${VOICEPRINT_MODEL_FILENAME}`, Buffer.from(body));
+    return new Response("OK\n", { status: 200, headers });
+  }
+
+  /** loopback Origin 反射头（dev-token 同款：非 loopback Origin 拒绝返回 null）。 */
+  private loopbackCorsHeaders(req: Request): Record<string, string> | null {
+    const headers: Record<string, string> = {};
+    const origin = req.headers.get("origin");
+    if (origin !== null) {
+      if (!LOOPBACK_ORIGIN_RE.test(origin)) return null;
+      headers["access-control-allow-origin"] = origin;
+    }
+    return headers;
   }
 
   private devTokenResponse(req: Request): Response {

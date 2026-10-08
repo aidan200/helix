@@ -449,6 +449,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
       : {}),
     port: deps.port ?? DEFAULT_PORT, // deps.port = 组合根已解析端口（argv > KV > 7333 链定格产物）
     staticHandler: (req) => staticServe.handle(req),
+    modelsDir: paths.modelsDir,
     tailSize: deps.tailSize,
     // 修复批③⑤：握手超时自清 + 连接级诊断日志（INFO 一行式——未来死锁连接有轨迹可查）
     ...(deps.wsHandshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: deps.wsHandshakeTimeoutMs } : {}),

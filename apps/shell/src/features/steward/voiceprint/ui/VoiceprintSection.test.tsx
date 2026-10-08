@@ -55,6 +55,7 @@ function renderSection(opts?: {
   service?: ReturnType<typeof makeFakeService>["service"];
   recorder?: ReturnType<typeof makeRecorder>;
   prepareModel?: (onProgress: (received: number, total: number | null) => void) => Promise<void>;
+  importModel?: (file: File) => Promise<void>;
 }) {
   return render(
     <I18nProvider>
@@ -62,6 +63,7 @@ function renderSection(opts?: {
         {...(opts?.service !== undefined ? { service: opts.service } : {})}
         {...(opts?.recorder !== undefined ? { recorder: opts.recorder } : {})}
         {...(opts?.prepareModel !== undefined ? { prepareModel: opts.prepareModel } : {})}
+        {...(opts?.importModel !== undefined ? { importModel: opts.importModel } : {})}
       />
     </I18nProvider>,
   );
@@ -213,5 +215,38 @@ describe("VoiceprintSection（M3-c 注册引导）", () => {
     renderSection({ service });
     expect(byVp("status").textContent).toContain("已注册");
     expect(byVpOpt("register")).toBeNull();
+  });
+
+  it("手动导入：选文件 → importModel 上行 → 直接进采句态（daemon 落盘后拉取命中）", async () => {
+    const importModelProbe = vi.fn().mockResolvedValue(undefined);
+    const { service } = makeFakeService();
+    renderSection({ service, importModel: importModelProbe });
+    const fileInput = byVp("file") as HTMLInputElement;
+    const file = new File([new Uint8Array(8).fill(1)], "voiceprint-model.onnx");
+    await act(async () => {
+      Object.defineProperty(fileInput, "files", { value: [file] });
+      fireEvent.change(fileInput);
+    });
+    await waitFor(() => {
+      expect(importModelProbe).toHaveBeenCalledWith(file);
+      expect(byVp("count")).toBeTruthy(); // 采句态（说一句按钮在）
+      expect(byVpOpt("import")).toBeNull(); // 未注册态入口退场
+    });
+  });
+
+  it("手动导入失败：白话错误展示、停留未注册态（可重试）", async () => {
+    const importModelFail = vi.fn().mockRejectedValue(new Error("upload fail"));
+    const { service } = makeFakeService();
+    renderSection({ service, importModel: importModelFail });
+    const fileInput = byVp("file") as HTMLInputElement;
+    const file = new File([new Uint8Array(8).fill(1)], "voiceprint-model.onnx");
+    await act(async () => {
+      Object.defineProperty(fileInput, "files", { value: [file] });
+      fireEvent.change(fileInput);
+    });
+    await waitFor(() => {
+      expect(byVp("error").textContent).toContain("导入失败");
+      expect(byVp("register")).toBeTruthy();
+    });
   });
 });

@@ -275,6 +275,10 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "TRACE_PAGE_MAX",
       // 投影·trace 域（迁自 daemon TraceQuery normalize 段 + fake 过滤分页段）
       "TraceQueryInvalidError",
+      // 本地模型资产面（M3-c v2）：daemon 模型路由固定白名单文件名/路径/体积护栏
+      "VOICEPRINT_MODEL_FILENAME",
+      "VOICEPRINT_MODEL_HTTP_PATH",
+      "VOICEPRINT_MODEL_MAX_BYTES",
       // 投影·usage 域（迁自 daemon UsageLedger + shell addUsage 副本）
       "ZERO_USAGE",
       "addUsage",

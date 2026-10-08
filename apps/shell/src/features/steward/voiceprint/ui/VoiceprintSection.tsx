@@ -29,9 +29,12 @@ export interface VoiceprintSectionProps {
   /** 录句器（缺省麦克风录音器；测试注入 fake）。 */
   readonly recorder?: UtteranceRecorder;
   /** 模型准备面（缺省 = 动态 import embed-engine 直调 loadModelBytes——
-   *  与 service 引擎共享 IndexedDB 缓存零重复下载；测试注入 fake 免拖
+   *  与 service 引擎共享 daemon 磁盘路由零重复拉取；测试注入 fake 免拖
    *  ort bundle）。 */
   readonly prepareModel?: (onProgress: (received: number, total: number | null) => void) => Promise<void>;
+  /** 模型导入面（缺省 = 动态 import embed-engine 直调 importModelFile——
+   *  GitHub 直连受阻时的手动通道；测试注入 fake）。 */
+  readonly importModel?: (file: File) => Promise<void>;
 }
 
 const prepareModelViaEngine: NonNullable<VoiceprintSectionProps["prepareModel"]> = async (onProgress) => {
@@ -39,7 +42,14 @@ const prepareModelViaEngine: NonNullable<VoiceprintSectionProps["prepareModel"]>
   await loadModelBytes({ onProgress });
 };
 
-const VoiceprintSection = function VoiceprintSection({ service, recorder, prepareModel }: VoiceprintSectionProps) {
+/** 手动导入（缺省 = 动态 import embed-engine 直调 importModelFile——PUT
+ *  上行 daemon 落盘；测试注入 fake）。 */
+const importModelViaEngine = async (file: File): Promise<void> => {
+  const { importModelFile } = await import("../model/embed-engine");
+  await importModelFile(file);
+};
+
+const VoiceprintSection = function VoiceprintSection({ service, recorder, prepareModel, importModel }: VoiceprintSectionProps) {
   const { t } = useI18n();
   const serviceRef = useRef<VoiceprintService>(service ?? getStewardVoiceprintService());
   serviceRef.current = service ?? getStewardVoiceprintService();
@@ -68,8 +78,8 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
     [t],
   );
 
-  // ── 注册入口：模型先就位（下载进度直显——loadModelBytes 与 service 引擎
-  //    共享 IndexedDB 缓存，注册时零重复下载）。──
+  // ── 注册入口：模型先就位（daemon 磁盘路由拉取带进度——拉不到走
+  //    手动导入通道）。──
   const startRegister = useCallback(async () => {
     setErrorMessage(null);
     setTestScore(null);
@@ -84,6 +94,28 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
       setProgress(null);
       setErrorMessage(t("chat.settings.general.voiceprintDownloadFail"));
       setPhase("idle");
+    }
+  }, [t]);
+
+  // ── 手动导入（GitHub 直连受阻：手动下载后选文件 → PUT 上行 daemon
+  //    落盘 ~/.helix/models/ → 直接进入采句）。──
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const importModelRef = useRef<NonNullable<VoiceprintSectionProps["importModel"]>>(importModel ?? importModelViaEngine);
+  importModelRef.current = importModel ?? importModelViaEngine;
+  const onImportPicked = useCallback(async () => {
+    const file = fileInputRef.current?.files?.[0];
+    if (file === undefined) return;
+    setErrorMessage(null);
+    setBusy(true);
+    try {
+      await importModelRef.current(file);
+      setUtterances([]);
+      setPhase("collecting");
+    } catch {
+      setErrorMessage(t("chat.settings.general.voiceprintImportFail"));
+    } finally {
+      setBusy(false);
+      if (fileInputRef.current !== null) fileInputRef.current.value = "";
     }
   }, [t]);
 
@@ -162,6 +194,19 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
             {t("chat.settings.general.voiceprintRegister")}
           </button>
           <span className="ag-note">{t("chat.settings.general.voiceprintRegisterHint")}</span>
+          {/* 手动导入通道（下载不动时）：隐藏 file input + 触发钮 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".onnx,application/octet-stream"
+            className="hidden"
+            data-vp-file
+            onChange={() => void onImportPicked()}
+          />
+          <button type="button" className="btn-ghost" data-vp-import disabled={busy} onClick={() => fileInputRef.current?.click()}>
+            {t("chat.settings.general.voiceprintImport")}
+          </button>
+          <span className="ag-note">{t("chat.settings.general.voiceprintImportHint")}</span>
         </>
       )}
       {phase === "preparing" && (

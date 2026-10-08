@@ -38,6 +38,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { readSttProviderPref, writeSttProviderPref } from "@/shared/lib/stt-provider-pref";
+import VoiceprintSection from "@/features/steward/voiceprint/ui/VoiceprintSection";
 import {
   DEFAULT_TTS_VOICE,
   MIN_DURATION_RANGE,
@@ -439,6 +440,15 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
           </div>
         </div>
         <span className="ag-note">{t("chat.settings.voiceTts.voiceHint")}</span>
+      </div>
+
+      {/* ── 声纹校验（M3-c v2：语音设置页承载——录入位置与语音同域）：
+          注册/手动导入/测试/删除；本地推理零上传。────────── */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.voiceprintLabel")}</h3>
+      <div className="hud-card" data-voice-voiceprint>
+        <div className="fld">
+          <VoiceprintSection />
+        </div>
       </div>
 
       {/* ── 欢迎词工坊（欢迎词固化批）：生成试听 → 确认固化；热键呼出直

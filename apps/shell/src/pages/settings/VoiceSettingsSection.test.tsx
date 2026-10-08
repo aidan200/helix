@@ -159,7 +159,8 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
   it("key 录入入口零残留：无密码输入框（key 管理归「模型」分区，不做第二入口）", () => {
     const r = rig();
     expect(r.container.querySelectorAll('input[type="password"]')).toHaveLength(0);
-    expect(r.container.querySelectorAll("button").length).toBe(7); // 3 偏好按钮 + 1 试听 + 3 欢迎词工坊（生成/确认/恢复——欢迎词固化批）
+    // 9 = 3 偏好按钮 + 1 试听 + 3 欢迎词工坊 + 2 声纹（注册/导入——声纹 v2 迁入语音页）
+    expect(r.container.querySelectorAll("button").length).toBe(9);
   });
 });
 

@@ -193,13 +193,16 @@ describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP �
         continue;
       }
       if (rel === VOICEPRINT_MODEL_FILE) {
-        // 声纹模型下载例外（M3-c）：fetch 在场（守护非空转）+ 文件内一切
-        // URL 字面量锚定 sherpa-onnx release 前缀（改前缀即红）。
-        expect(hits.length, `${rel} 应实际含模型下载 fetch（守护非空转）`).toBeGreaterThan(0);
+        // 声纹模型面例外（M3-c v2）：①手动源 URL 字面量锚定 sherpa-onnx
+        // release 前缀；②daemon 回环模型路由（拉取/导入上行）——大资产
+        // 流式通道与 token 端点同性质（非业务通路、不走 ws 信封——26.5MB
+        // 二进制经 ws 帧是反模式），锚定 127.0.0.1 回环前缀；其余 URL 一律红。
+        expect(hits.length, `${rel} 应实际含模型拉取 fetch（守护非空转）`).toBeGreaterThan(0);
         const urlLiterals = [...src.matchAll(/https?:\/\/[^"'`\s)]+/g)].map((m) => m[0]!);
         expect(urlLiterals.length, `${rel} 应含模型源 URL 常量（守护非空转）`).toBeGreaterThan(0);
         for (const u of urlLiterals) {
-          expect(u.startsWith(VOICEPRINT_MODEL_URL_PREFIX), `${rel} 的 URL 必须锚定声纹模型源：${u}`).toBe(true);
+          const anchored = u.startsWith(VOICEPRINT_MODEL_URL_PREFIX) || u.startsWith("http://127.0.0.1");
+          expect(anchored, `${rel} 的 URL 必须锚定声纹模型源或 daemon 回环：${u}`).toBe(true);
         }
         continue;
       }
