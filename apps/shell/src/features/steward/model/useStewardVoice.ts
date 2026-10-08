@@ -88,6 +88,7 @@ import { useI18n } from "@/shared/i18n";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
 import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
+import { createPcmRing, type PcmRing } from "../voiceprint/model/pcm-ring";
 import type { SpeechPlayerFactory } from "@/shared/lib/pcm-player";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import {
@@ -228,6 +229,9 @@ export interface UseStewardVoice {
   toggleWake(): void;
   /** B2 主动发言（欢迎语/口令回读同链；money 闸内判——偏好关零合成）。 */
   say(text: string): void;
+  /** M3-c 声纹面：取本句音频（授权点专用——尾部语音段 Int16 域 PCM；
+   *  null = 无语音可用。duplex 收口清环，跨会话旧音频不泄入）。 */
+  lastUtterancePcm(): Float32Array | null;
 }
 
 export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoice {
@@ -751,10 +755,16 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     }
   }, []);
 
-  // PCM 帧 → stt.stream.chunk（仅 armed 且未死；他态零上行——money 纪律）
+  // ── M3-c 声纹面：授权点音频环（PCM 帧无条件入环——STT 上行门与环互不
+  //    干涉；duplex 收口清环防跨会话泄入）。──
+  const pcmRingRef = useRef<PcmRing | null>(null);
+  if (pcmRingRef.current === null) pcmRingRef.current = createPcmRing();
+
+  // PCM 帧 → 声纹环（无条件）+ stt.stream.chunk（仅 armed 且未死；他态零上行——money 纪律）
   // ⑥ 互斥门：播报发言期（任一租约在场）本地暂停上行——流保持开（不重开
   // 不关流），播报完自动恢复；TTS 自声回灌不再污染转写（「回执冲掉说话」根修）。
   const onPcmFrame = useCallback((frame: ArrayBuffer) => {
+    pcmRingRef.current?.push(frame);
     if (!streamArmedRef.current || streamDeadRef.current) return;
     if (speechLeaseActive()) return; // 发言期暂停上行
     const send = streamSendersRef.current.sendSttStreamChunk;
@@ -795,6 +805,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   //（money 纪律）。
   const cancelWake = useCallback(() => {
     clearFallbackTimer();
+    pcmRingRef.current?.clear(); // 声纹环清位（跨会话旧音频不泄入新会话第一句）
     finalPendingRef.current = false;
     streamIdRef.current = null;
     if (streamArmedRef.current && !streamDeadRef.current) {
@@ -1153,5 +1164,6 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     toggleMute,
     toggleWake: toggleWakeStable,
     say,
+    lastUtterancePcm: useCallback(() => pcmRingRef.current?.takeUtterance() ?? null, []),
   };
 }

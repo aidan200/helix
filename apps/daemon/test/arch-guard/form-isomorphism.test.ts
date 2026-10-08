@@ -168,6 +168,13 @@ const BINARY_FETCH_FILES: readonly string[] = ["install-skeleton.ts"];
  */
 const PREBIND_FILE = "dev-desktop.ts";
 
+/** 声纹模型下载例外（M3-c）：外部公开工件一次性下载（scripts 面 fetch-rg
+ * 的 GitHub releases 二进制下载同性质——非业务通路、不经 daemon 回环）；
+ * 守护 = 文件内一切 URL 字面量锚定 sherpa-onnx release 前缀（改前缀即红）。 */
+const VOICEPRINT_MODEL_FILE = path.join("features", "steward", "voiceprint", "model", "embed-engine.ts");
+const VOICEPRINT_MODEL_URL_PREFIX =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models";
+
 describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP 直连绕过 WS、无形态分支连接", () => {
   test("apps/shell/src：HTTP 调用面唯一落点 = shared/api/helix-ws.ts（token 端点），且其 fetch 全打 /helix-dev-token", () => {
     const files = listFiles(shellSrc, [".ts", ".tsx"]).filter((rel) => !/\.test\.tsx?$/.test(rel));
@@ -182,6 +189,17 @@ describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP �
           if (/\bfetch\s*\(/.test(line)) {
             expect(line, `${rel} 的 fetch 目标必须是 /helix-dev-token：${line.trim()}`).toContain("/helix-dev-token");
           }
+        }
+        continue;
+      }
+      if (rel === VOICEPRINT_MODEL_FILE) {
+        // 声纹模型下载例外（M3-c）：fetch 在场（守护非空转）+ 文件内一切
+        // URL 字面量锚定 sherpa-onnx release 前缀（改前缀即红）。
+        expect(hits.length, `${rel} 应实际含模型下载 fetch（守护非空转）`).toBeGreaterThan(0);
+        const urlLiterals = [...src.matchAll(/https?:\/\/[^"'`\s)]+/g)].map((m) => m[0]!);
+        expect(urlLiterals.length, `${rel} 应含模型源 URL 常量（守护非空转）`).toBeGreaterThan(0);
+        for (const u of urlLiterals) {
+          expect(u.startsWith(VOICEPRINT_MODEL_URL_PREFIX), `${rel} 的 URL 必须锚定声纹模型源：${u}`).toBe(true);
         }
         continue;
       }

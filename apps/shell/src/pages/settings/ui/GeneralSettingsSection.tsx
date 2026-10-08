@@ -46,6 +46,7 @@ import { cn } from "@/shared/lib/cn";
 import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import HotkeyRecorder from "./HotkeyRecorder";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
+import VoiceprintSection from "@/features/steward/voiceprint/ui/VoiceprintSection";
 import { useConfigField } from "./settings-hooks";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
 import type { CatalogModel, EmbeddingEndpointView } from "@helix/protocol";
@@ -571,6 +572,15 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                 )}
               </div>
             )}
+          </div>
+        )}
+        {/* M3-c 声纹校验（管家组第五件）：注册引导（3-5 句生成模板）/测试/
+            删除——从属启用（与语音播报/唤醒链/判官同构 fld-sub 形态）；
+            授权点校验只对已注册生效（未注册零劣化）。 */}
+        {stewardEnabled === true && (
+          <div className="fld fld-sub" data-steward-voiceprint>
+            <span className="hud-label">{t("chat.settings.general.voiceprintLabel")}</span>
+            <VoiceprintSection />
           </div>
         )}
         {/* 记忆区已迁出（设置页长期记忆组批）：memory.* 通用域五键归通用分区
