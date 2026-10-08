@@ -299,9 +299,10 @@ export class WsServerAdapter {
       return this.devTokenResponse(req);
     }
 
-    // ③ 本地模型资产（固定白名单路径：GET 流式拉取 / PUT 导入上行——
-    //    文件名 protocol 单源，任意其他 /models/* 一律 404，不开放任意读写盘）
-    if (url.pathname === VOICEPRINT_MODEL_HTTP_PATH && (req.method === "GET" || req.method === "PUT")) {
+    // ③ 本地模型资产（固定白名单路径：GET 流式拉取 / HEAD 就绪探测 / PUT
+    //    导入上行——文件名 protocol 单源，任意其他 /models/* 一律 404，
+    //    不开放任意读写盘）
+    if (url.pathname === VOICEPRINT_MODEL_HTTP_PATH && (req.method === "GET" || req.method === "PUT" || req.method === "HEAD")) {
       return this.modelAssetResponse(req);
     }
 
@@ -321,6 +322,15 @@ export class WsServerAdapter {
       return new Response("Forbidden\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } });
     }
     const filePath = `${this.deps.modelsDir?.() ?? ""}/${VOICEPRINT_MODEL_FILENAME}`;
+    if (req.method === "HEAD") {
+      // 就绪探测：命中 200 + content-length + 零 body（设置页自动检测面——
+      // 磁盘有模型即明示已就绪，不再摆下载/导入姿态）。
+      const file = Bun.file(filePath);
+      if (this.deps.modelsDir === undefined || !(await file.exists())) {
+        return new Response(null, { status: 404, headers: { ...headers, "content-type": "application/octet-stream" } });
+      }
+      return new Response(null, { status: 200, headers: { ...headers, "content-length": String(file.size), "content-type": "application/octet-stream" } });
+    }
     if (req.method === "GET") {
       const file = Bun.file(filePath);
       if (this.deps.modelsDir === undefined || !(await file.exists())) {

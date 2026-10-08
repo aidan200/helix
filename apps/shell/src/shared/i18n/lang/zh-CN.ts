@@ -461,6 +461,7 @@ export const zhCN = {
         voiceprintNote: "用声音确认下指令的是你本人。录音和声纹样本只存在这台电脑上，不会上传。",
         voiceprintRegister: "注册声纹",
         voiceprintRegisterHint: "在安静的地方，用平时说话的声音录 3 到 5 句话。",
+        voiceprintModelReady: "声音模型已就绪（本地 ~/.helix/models/），点「注册声纹」直接开始，无需下载。",
         voiceprintImport: "从本地文件导入模型",
         voiceprintImportHint: "下载不动？手动下载模型文件后在这里选它，会存到 ~/.helix/models/ 目录（voiceprint-model.onnx）。",
         voiceprintImportFail: "模型导入失败，请检查文件后重试",

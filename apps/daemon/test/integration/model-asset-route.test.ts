@@ -13,6 +13,7 @@ import { VOICEPRINT_MODEL_FILENAME } from "@helix/protocol";
  * 本地模型资产路由（M3-c v2：模型归位 ~/.helix/models/ 磁盘目录）。
  *
  * 覆盖：GET 命中（流式字节 + content-length 进度分母）/ GET 未装配 404 /
+ * HEAD 就绪探测（命中 200 零 body / 缺席 404——设置页自动检测面）/
  * PUT 导入落盘（幂等覆写）/ PUT 体积护栏 413 / 任意其他 /models/* 路径 404
  * （白名单——不开放任意读写盘）。
  */
@@ -63,6 +64,31 @@ describe("本地模型资产路由（~/.helix/models/）", () => {
     const rig = await makeRig();
     try {
       const res = await fetch(`${base(rig)}/models/${VOICEPRINT_MODEL_FILENAME}`);
+      expect(res.status).toBe(404);
+    } finally {
+      await rig.dispose();
+    }
+  });
+
+  test("HEAD：模型在盘 → 200 + content-length + 零 body（就绪探测零搬运）", async () => {
+    const rig = await makeRig();
+    try {
+      const dir = path.join(rig.home, "models");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, VOICEPRINT_MODEL_FILENAME), new Uint8Array(4096).fill(3));
+      const res = await fetch(`${base(rig)}/models/${VOICEPRINT_MODEL_FILENAME}`, { method: "HEAD" });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-length")).toBe("4096");
+      expect((await res.arrayBuffer()).byteLength).toBe(0);
+    } finally {
+      await rig.dispose();
+    }
+  });
+
+  test("HEAD：模型不在盘 → 404（设置页显示下载/导入通道）", async () => {
+    const rig = await makeRig();
+    try {
+      const res = await fetch(`${base(rig)}/models/${VOICEPRINT_MODEL_FILENAME}`, { method: "HEAD" });
       expect(res.status).toBe(404);
     } finally {
       await rig.dispose();

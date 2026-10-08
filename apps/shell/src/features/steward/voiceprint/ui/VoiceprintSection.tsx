@@ -10,7 +10,7 @@
  * 注入 fake；模型下载进度经动态 import embed-engine 直调 loadModelBytes，
  * service 引擎随后命中 IndexedDB 缓存零重复下载）。
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { getStewardVoiceprintService } from "../model/steward-voiceprint";
 import type { VoiceprintService } from "../model/voiceprint-service";
@@ -35,11 +35,19 @@ export interface VoiceprintSectionProps {
   /** 模型导入面（缺省 = 动态 import embed-engine 直调 importModelFile——
    *  GitHub 直连受阻时的手动通道；测试注入 fake）。 */
   readonly importModel?: (file: File) => Promise<void>;
+  /** 模型就绪探测面（缺省 = 动态 import embed-engine 直调 probeModelAvailable
+   *  ——HEAD 零搬运；磁盘命中即明示已就绪；测试注入 fake）。 */
+  readonly probeModel?: () => Promise<boolean>;
 }
 
 const prepareModelViaEngine: NonNullable<VoiceprintSectionProps["prepareModel"]> = async (onProgress) => {
   const { loadModelBytes } = await import("../model/embed-engine");
   await loadModelBytes({ onProgress });
+};
+
+const probeModelViaEngine: NonNullable<VoiceprintSectionProps["probeModel"]> = async () => {
+  const { probeModelAvailable } = await import("../model/embed-engine");
+  return probeModelAvailable();
 };
 
 /** 手动导入（缺省 = 动态 import embed-engine 直调 importModelFile——PUT
@@ -49,7 +57,7 @@ const importModelViaEngine = async (file: File): Promise<void> => {
   await importModelFile(file);
 };
 
-const VoiceprintSection = function VoiceprintSection({ service, recorder, prepareModel, importModel }: VoiceprintSectionProps) {
+const VoiceprintSection = function VoiceprintSection({ service, recorder, prepareModel, importModel, probeModel }: VoiceprintSectionProps) {
   const { t } = useI18n();
   const serviceRef = useRef<VoiceprintService>(service ?? getStewardVoiceprintService());
   serviceRef.current = service ?? getStewardVoiceprintService();
@@ -57,6 +65,20 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
   recorderRef.current = recorder ?? createMicUtteranceRecorder();
   const prepareModelRef = useRef<NonNullable<VoiceprintSectionProps["prepareModel"]>>(prepareModel ?? prepareModelViaEngine);
   prepareModelRef.current = prepareModel ?? prepareModelViaEngine;
+  const probeModelRef = useRef<NonNullable<VoiceprintSectionProps["probeModel"]>>(probeModel ?? probeModelViaEngine);
+  probeModelRef.current = probeModel ?? probeModelViaEngine;
+  // 模型就绪探测（null = 未知/探测中——磁盘命中即明示已就绪，不再摆
+  // 下载/导入姿态；探测失败保守显示两通道，不阻塞注册入口）。
+  const [modelReady, setModelReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void probeModelRef.current().then((ready) => {
+      if (alive) setModelReady(ready);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [phase, setPhase] = useState<Phase>(() => (serviceRef.current.isRegistered() ? "saved" : "idle"));
   const [utterances, setUtterances] = useState<readonly Float32Array[]>([]);
   const [progress, setProgress] = useState<{ received: number; total: number | null } | null>(null);
@@ -109,6 +131,7 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
     setBusy(true);
     try {
       await importModelRef.current(file);
+      setModelReady(true); // 导入落盘即就绪（后续入口不再摆下载姿态）
       setUtterances([]);
       setPhase("collecting");
     } catch {
@@ -193,20 +216,29 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
           <button type="button" className="btn-ghost" data-vp-register onClick={() => void startRegister()}>
             {t("chat.settings.general.voiceprintRegister")}
           </button>
-          <span className="ag-note">{t("chat.settings.general.voiceprintRegisterHint")}</span>
-          {/* 手动导入通道（下载不动时）：隐藏 file input + 触发钮 */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".onnx,application/octet-stream"
-            className="hidden"
-            data-vp-file
-            onChange={() => void onImportPicked()}
-          />
-          <button type="button" className="btn-ghost" data-vp-import disabled={busy} onClick={() => fileInputRef.current?.click()}>
-            {t("chat.settings.general.voiceprintImport")}
-          </button>
-          <span className="ag-note">{t("chat.settings.general.voiceprintImportHint")}</span>
+          {modelReady === true ? (
+            // 磁盘已就绪：明示状态，收起下载/导入姿态（点注册即本机搬运零网络）
+            <span className="ag-note" data-vp-model-ready>
+              {t("chat.settings.general.voiceprintModelReady")}
+            </span>
+          ) : (
+            <>
+              <span className="ag-note">{t("chat.settings.general.voiceprintRegisterHint")}</span>
+              {/* 手动导入通道（下载不动时）：隐藏 file input + 触发钮 */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".onnx,application/octet-stream"
+                className="hidden"
+                data-vp-file
+                onChange={() => void onImportPicked()}
+              />
+              <button type="button" className="btn-ghost" data-vp-import disabled={busy} onClick={() => fileInputRef.current?.click()}>
+                {t("chat.settings.general.voiceprintImport")}
+              </button>
+              <span className="ag-note">{t("chat.settings.general.voiceprintImportHint")}</span>
+            </>
+          )}
         </>
       )}
       {phase === "preparing" && (

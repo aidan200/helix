@@ -56,6 +56,7 @@ function renderSection(opts?: {
   recorder?: ReturnType<typeof makeRecorder>;
   prepareModel?: (onProgress: (received: number, total: number | null) => void) => Promise<void>;
   importModel?: (file: File) => Promise<void>;
+  probeModel?: () => Promise<boolean>;
 }) {
   return render(
     <I18nProvider>
@@ -64,12 +65,14 @@ function renderSection(opts?: {
         {...(opts?.recorder !== undefined ? { recorder: opts.recorder } : {})}
         {...(opts?.prepareModel !== undefined ? { prepareModel: opts.prepareModel } : {})}
         {...(opts?.importModel !== undefined ? { importModel: opts.importModel } : {})}
+        {...(opts?.probeModel !== undefined ? { probeModel: opts.probeModel } : { probeModel: probeFalse })}
       />
     </I18nProvider>,
   );
 }
 
 const noopPrepare = async () => undefined;
+const probeFalse = async () => false;
 
 
 /** 语义属性查询（data-vp-xxx——组件测试惯例：语义 data 属性直查）。 */
@@ -248,5 +251,29 @@ describe("VoiceprintSection（M3-c 注册引导）", () => {
       expect(byVp("error").textContent).toContain("导入失败");
       expect(byVp("register")).toBeTruthy();
     });
+  });
+
+  it("就绪探测命中：明示模型已就绪 + 收起导入通道（注册入口保留）", async () => {
+    const { service } = makeFakeService();
+    renderSection({ service, probeModel: async () => true });
+    await waitFor(() => {
+      expect(byVp("model-ready").textContent).toContain("已就绪");
+    });
+    expect(byVp("register")).toBeTruthy(); // 注册入口仍在（点下即本机搬运）
+    expect(byVpOpt("import")).toBeNull(); // 导入姿态收起
+    expect(byVpOpt("file")).toBeNull();
+  });
+
+  it("就绪探测缺席：保持下载/导入双通道（保守显示）", async () => {
+    const { service } = makeFakeService();
+    renderSection({ service, probeModel: async () => false });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(byVp("register")).toBeTruthy();
+      expect(byVp("import")).toBeTruthy();
+    });
+    expect(byVpOpt("model-ready")).toBeNull();
   });
 });

@@ -456,6 +456,7 @@ export const enUS = {
         voiceprintNote: "Confirms commands in your own voice. Recordings and your voiceprint stay on this computer and are never uploaded.",
         voiceprintRegister: "Register voiceprint",
         voiceprintRegisterHint: "In a quiet spot, record 3 to 5 sentences in your normal voice.",
+        voiceprintModelReady: "Voice model ready (local ~/.helix/models/) — click Register to start right away, no download needed.",
         voiceprintImport: "Import model from local file",
         voiceprintImportHint: "Download keeps failing? Download the model manually, then pick the file here — it will be saved to ~/.helix/models/ (voiceprint-model.onnx).",
         voiceprintImportFail: "Model import failed; check the file and try again",

@@ -112,6 +112,19 @@ export async function loadModelBytes(options: WasmEngineLoaderOptions = {}): Pro
   return buffer;
 }
 
+/** 模型就绪探测（HEAD 零 body 零搬运——设置页 idle 态自动检测：磁盘
+ *  命中即明示已就绪，不再摆下载/导入姿态）。网络/路由异常一律 false
+ *  （探测失败不阻塞 UI，保守显示两通道）。 */
+export async function probeModelAvailable(options: WasmEngineLoaderOptions = {}): Promise<boolean> {
+  const doFetch = options.fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));
+  try {
+    const resp = await doFetch(VOICEPRINT_MODEL_DAEMON_URL, { method: "HEAD" });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** 从本地文件导入模型（设置页「从本地导入」：GitHub 直连受阻时的手动
  *  通道——手动下载后选文件 → PUT 上行 daemon 落盘 ~/.helix/models/）。
  *  幂等覆写；体积护栏与路由侧一致（MAX 字节）。 */
