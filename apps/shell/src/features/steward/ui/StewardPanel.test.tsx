@@ -105,7 +105,7 @@ describe("StewardPanel（V2.5 管家面板）", () => {
     expect(sendStewardAsk).not.toHaveBeenCalled();
     // Alt+Enter：发送（草稿清空）
     fireEvent.keyDown(ta, { key: "Enter", altKey: true });
-    expect(sendStewardAsk).toHaveBeenCalledWith("第一行");
+    expect(sendStewardAsk).toHaveBeenCalledWith("第一行", undefined);
     await waitFor(() => expect((screen.getByTestId("steward-input") as HTMLTextAreaElement).value).toBe(""));
   });
 
@@ -117,7 +117,7 @@ describe("StewardPanel（V2.5 管家面板）", () => {
     await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
     fireEvent.change(screen.getByTestId("steward-input"), { target: { value: "现在有什么在跑？" } });
     fireEvent.click(screen.getByTestId("steward-send"));
-    expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？");
+    expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？", undefined);
     await waitFor(() => expect(screen.getByTestId("steward-msg-user").textContent).toContain("在跑"));
   });
 

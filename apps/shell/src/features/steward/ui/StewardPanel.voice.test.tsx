@@ -122,6 +122,6 @@ describe("StewardPanel 语音 UI 下线回归（B2/D4：纯记录面）", () => 
     fireEvent.change(screen.getByTestId("steward-input"), { target: { value: "文本提问" } });
     fireEvent.keyDown(screen.getByTestId("steward-input"), { key: "Enter", altKey: true });
     expect(sendStewardAsk).toHaveBeenCalledTimes(1);
-    expect(sendStewardAsk).toHaveBeenCalledWith("文本提问");
+    expect(sendStewardAsk).toHaveBeenCalledWith("文本提问", undefined);
   });
 });

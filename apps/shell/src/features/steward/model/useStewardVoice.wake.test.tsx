@@ -251,7 +251,7 @@ describe("useStewardVoice 唤醒链（B4 组合键 → B2-hotfix 直通双工）
     expect(r.current.phase).toBe("listening"); // 直通待听（非 wake_armed）
     await finishRound(r, "今天有什么任务在跑");
     await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
-    expect(sendStewardAsk).toHaveBeenCalledWith("今天有什么任务在跑");
+    expect(sendStewardAsk).toHaveBeenCalledWith("今天有什么任务在跑", "voice-duplex");
     // 会话仍在（无超时收场）
     expect(r.current.duplexActive).toBe(true);
   });

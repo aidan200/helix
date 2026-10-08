@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
-import type { EventEnvelope, StewardHistoryRecord } from "@helix/protocol";
+import type { EventEnvelope, StewardAskSource, StewardHistoryRecord } from "@helix/protocol";
 
 /** feed 滚动窗口上限（截尾保最新；面板轻量态不落 store）。 */
 export const STEWARD_FEED_MAX_LINES = 50;
@@ -93,8 +93,9 @@ export interface UseSteward {
   readonly askActivity: StewardAskActivity | null;
   /** 设置现态（null = 未收到 config.result）。 */
   readonly config: StewardConfig | null;
-  /** 发送一轮对话（未连接返回 false——零静默丢消息，submit 同语义）。 */
-  ask(text: string): boolean;
+  /** 发送一轮对话（未连接返回 false——零静默丢消息，submit 同语义）。
+   *  source = 输入来源（addressee 判定触发面——voice-duplex 判旁人话语）。 */
+  ask(text: string, source?: StewardAskSource): boolean;
   /** 新对话（A1：三处同步清——本地条目 + daemon KV + LLM 窗口）。 */
   newDialog(): boolean;
 }
@@ -184,7 +185,7 @@ export function useSteward(): UseSteward {
     subscribeStewardFrames,
   } = useSession() as {
     topology?: { active?: { conn?: string } };
-    sendStewardAsk?: (text: string) => boolean;
+    sendStewardAsk?: (text: string, source?: StewardAskSource) => boolean;
     sendStewardSubscribe?: () => boolean;
     sendStewardUnsubscribe?: () => boolean;
     sendStewardGetConfig?: () => boolean;
@@ -329,6 +330,7 @@ export function useSteward(): UseSteward {
           | { status: "answer"; text: string }
           | { status: "confirm_required"; actionId: string; agentId: string; message: string }
           | { status: "queued"; queued: true; position: number }
+          | { status: "dropped"; reason?: "ambient" }
           | { status: "error"; reason: string };
         // L1 件二：排队确认帧——显示「已排队」，不清流式缓冲、不结束在途态
         //（本轮仍在跑；结果帧随后到达时再收口）
@@ -338,6 +340,12 @@ export function useSteward(): UseSteward {
         }
         setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error 同口径）
         setAskActivity(null); // 过程反馈 UI 批：收口状态区收起
+        if (payload.status === "dropped") {
+          // 静默丢弃（addressee 判定 = 旁人话语/自言自语）：零字幕零播报零
+          // 条目——收口在途态即完（旧壳对未知判别的防御同构：不 push）
+          markAskInFlight(false);
+          return;
+        }
         if (payload.status === "answer") {
           pushItem({ kind: "assistant", text: payload.text });
         } else {
@@ -395,11 +403,11 @@ export function useSteward(): UseSteward {
   }, [subscribeStewardFrames, pushItem, t]);
 
   const ask = useCallback(
-    (text: string): boolean => {
+    (text: string, source?: StewardAskSource): boolean => {
       const trimmed = text.trim();
       if (trimmed === "") return false;
       if (typeof sendStewardAsk !== "function") return false;
-      const ok = sendStewardAsk(trimmed);
+      const ok = sendStewardAsk(trimmed, source);
       if (ok === false) return false; // 未连接：零静默丢消息（TR-168 严格判）
       setStreamingText(null); // 新一轮复位（防御：上轮断连残留）
       pushItem({ kind: "user", text: trimmed });

@@ -1393,7 +1393,7 @@ export const enUS = {
       // ── ③ Voice outreach (voice-loop batch): short announce on card pop (active voice session only) ──
       cardPending: "A delivery is waiting for your confirmation",
       // ── M3-c voiceprint batch: plain-language reject at the authorization gate ──
-      voiceprintReject: "That doesn't sound like you; not executing",
+      voiceprintReject: "Not recognized as the registered voice",
     },
   },
 } satisfies Translations;

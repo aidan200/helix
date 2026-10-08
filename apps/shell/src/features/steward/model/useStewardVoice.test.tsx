@@ -254,7 +254,7 @@ describe("useStewardVoice（V3a 管家语音闭环）", () => {
     });
     await speakOnce(r, "现在有什么在跑？");
     await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledTimes(1));
-    expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？");
+    expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？", "voice-manual");
     expect(r.current.askInFlight).toBe(true);
     expect(r.current.phase).toBe("asking");
   });
@@ -392,7 +392,7 @@ describe("useStewardVoice（V3a 管家语音闭环）", () => {
       act(() => {
         emit("stt", frame("stt.transcribe.result", { status: "ok", text: "切换时的话", provider: "dashscope" }, "stt"));
       });
-      await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("切换时的话"));
+      await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("切换时的话", "voice-manual"));
     } finally {
       spy.mockRestore();
     }
@@ -1172,7 +1172,7 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
     act(() => {
       emit("stt", frame("stt.stream.final", { status: "ok", streamId: "str-b2", text: "换个问题问", provider: "dashscope" }, "stt"));
     });
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("换个问题问"));
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("换个问题问", "voice-duplex"));
   });
 
   it("重复触发幂等：触发后持续人声帧（含出静默窗段）零二次打断", async () => {

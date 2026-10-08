@@ -41,6 +41,7 @@ import type {
   TraceQueryPayload,
   DiffGetPayload,
   StewardSetConfigPayload,
+  StewardAskSource,
   SurfaceDescriptor,
   SurfaceEventUplinkPayload,
   ProviderDeleteCommand,
@@ -294,10 +295,10 @@ export const COMMAND_SURFACE = {
     (utterId?: string): boolean => deps.send(voiceSynthesizeStopCommand(utterId)),
 
   // ── 文本管家面（V2.5 steward）────────────────────────────
-  /** 管家对话一轮（全局命令；回执 steward.ask.result 三判别经
+  /** 管家对话一轮（全局命令；回执 steward.ask.result 五判别经
    * subscribeStewardFrames 点对点消费；返回 false = 未连接）。 */
   sendStewardAsk: (deps) =>
-    (text: string): boolean => deps.send(stewardAskCommand(text)),
+    (text: string, source?: StewardAskSource): boolean => deps.send(stewardAskCommand(text, source)),
   /** 确认闸放行（actionId 单次消费；回执 steward.confirm.result）。 */
   sendStewardConfirm: (deps) =>
     (actionId: string): boolean => deps.send(stewardConfirmCommand(actionId)),

@@ -18,10 +18,19 @@
  */
 import type { CommandFrame } from "../envelope";
 
+/** steward.ask 输入来源（additive——addressee 判定触发面的判据）。
+ *  "voice-duplex" = 双工常开麦收音段的语音 final：语义有歧义（是叫管家还是
+ *  旁人说话），触发 addressee 判定，旁人话语回 dropped 判别静默丢弃；
+ *  "voice-manual" = 单轮手动语音（用户显式发起，addressee 无歧义零判定）；
+ *  "text" = 文本输入（缺省；显式面向会话零判定）。 */
+export type StewardAskSource = "voice-duplex" | "voice-manual" | "text";
+
 /** steward.ask 载荷。 */
 export interface StewardAskPayload {
   /** 用户输入文本（空串/超长由 daemon 校验回 error 判别）。 */
   text: string;
+  /** 输入来源（additive 可选，缺省 "text"——旧壳零适配）。 */
+  source?: StewardAskSource;
 }
 
 /** steward.ask：管家对话一轮（点对点回执 steward.ask.result）。 */

@@ -81,6 +81,7 @@ const stopSpeaking = vi.fn();
 const toggleMute = vi.fn();
 const toggleWake = vi.fn();
 const say = vi.fn();
+const submitUtterance = vi.fn();
 let svState: {
   duplexActive: boolean;
   welcomeActive: boolean;
@@ -136,6 +137,8 @@ vi.mock("../model/useStewardVoice", () => ({
       toggleMute,
       toggleWake,
       say,
+      submitUtterance,
+      lastUtterancePcm: () => null,
     };
   },
 }));
@@ -401,7 +404,8 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     act(() => {
       expect(capturedOnFinalText?.("都不要了")).toBe("consumed");
     });
-    expect(sendStewardCancel).toHaveBeenCalledTimes(2);
+    // 总闸异步化（微任务后 dispatch）——断言 waitFor
+    await waitFor(() => expect(sendStewardCancel).toHaveBeenCalledTimes(2));
     expect(sendStewardCancel).toHaveBeenCalledWith("a1");
     expect(sendStewardCancel).toHaveBeenCalledWith("a2");
     // 「确认5号」彼时无此卡 → 零 confirm + 回读无卡
@@ -409,19 +413,20 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     act(() => {
       expect(capturedOnFinalText?.("确认5号")).toBe("consumed");
     });
-    expect(sendStewardConfirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendStewardConfirm).not.toHaveBeenCalled());
     await waitFor(() => {
       const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
       expect(Array.from(lines).some((l) => l.textContent?.includes("5"))).toBe(true);
     });
   });
 
-  it("非口令句照常放行（pass → 走 ask 链）", () => {
+  it("非口令句经声纹闸放行（consumed → submitUtterance 发问）", async () => {
     svState.duplexActive = true;
     renderLayer();
     act(() => {
-      expect(capturedOnFinalText?.("帮我确认一下这件事")).toBe("pass");
+      expect(capturedOnFinalText?.("帮我确认一下这件事")).toBe("consumed"); // 总闸：一律本地消费
     });
+    await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("帮我确认一下这件事"));
     expect(sendStewardConfirm).not.toHaveBeenCalled();
   });
 

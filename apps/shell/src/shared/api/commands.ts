@@ -122,6 +122,7 @@ import type {
   SttStreamStopCommand,
   SttTranscribeCommand,
   StewardAskCommand,
+  StewardAskSource,
   SurfaceActionResultCommand,
   SurfaceDescriptor,
   SurfaceEventCommand,
@@ -617,9 +618,13 @@ export function surfaceActionResultCommand(seq: number, ok: boolean, detail?: st
 // 回执 = steward.ask.result / confirm.result / config.result 点对点；
 // feed 文本行经 steward.feed 广播（仅已订阅连接收）。
 
-/** steward.ask：对话一轮（全局命令；三判别回执 answer/confirm_required/error）。 */
-export function stewardAskCommand(text: string): StewardAskCommand {
-  return { v: PROTOCOL_VERSION, type: "steward.ask", payload: { text } };
+/** steward.ask：对话一轮（全局命令；五判别回执 answer/confirm_required/queued/dropped/error）。 */
+export function stewardAskCommand(text: string, source?: StewardAskSource): StewardAskCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.ask",
+    payload: { text, ...(source !== undefined ? { source } : {}) },
+  };
 }
 
 /** steward.confirm：确认闸放行（actionId 单次消费；全局命令）。 */

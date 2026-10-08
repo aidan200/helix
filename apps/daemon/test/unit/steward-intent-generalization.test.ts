@@ -52,8 +52,8 @@ function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort {
   };
 }
 
-/** 意图判官 fake：三问固定分数 + 调用记录。 */
-function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: number }, opts: { enabled?: boolean; ready?: boolean; throwErr?: Error } = {}): IntentJudgeFace & { noulCalls: { state: string; question: string }[] } {
+/** 意图判官 fake：三问固定分数 + addressee 分数 + 调用记录。 */
+function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: number; addressee?: number }, opts: { enabled?: boolean; ready?: boolean; throwErr?: Error } = {}): IntentJudgeFace & { noulCalls: { state: string; question: string }[] } {
   const noulCalls: { state: string; question: string }[] = [];
   const questionKey: Record<string, keyof typeof scores> = {};
   void questionKey;
@@ -65,6 +65,7 @@ function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: numb
       noulCalls.push({ state, question });
       if (opts.throwErr !== undefined) throw opts.throwErr;
       // 按问句关键词分流固定分数（问句单源常量与实现同模块——关键词稳定）
+      if (question.includes("跟管家")) return scores.addressee ?? 1;
       if (question.includes("修正")) return scores.revise;
       if (question.includes("取消")) return scores.cancel;
       return scores.confirm;
@@ -312,5 +313,112 @@ describe("M3-a 修正意图（noul≥0.5 → 撤旧卡 + 带卡上下文新开�
     await settle();
     expect(sessions.deliveries.length).toBe(1);
     expect(sessions.deliveries[0]!.sessionId).toBe("s-2");
+  });
+});
+
+// ── addressee 判定（声纹→Jev 链路批：双工收音段「对谁说」判定）────────
+
+describe("addressee 判定（voice-duplex 才触发；旁人高置信 → dropped 静默丢弃）", () => {
+  test("双工语音 + 判官判旁人（< 0.3）→ dropped 零 LLM", async () => {
+    const llm = fakeLlm([]); // 剧本空——走到 LLM 即抛错（防误路由）
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.1 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    const outcome = await svc.ask("小明你把那个文件发我一下", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("dropped");
+    expect((outcome as { reason?: string }).reason).toBe("ambient");
+    expect(llm.requests.length).toBe(0);
+  });
+
+  test("双工语音 + 判官判管家（≥ 0.5）→ 原样走 LLM", async () => {
+    const llm = fakeLlm([answer("好")]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.9 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    const outcome = await svc.ask("帮我查一下今天的日程", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("answer");
+    expect(llm.requests.length).toBe(1);
+  });
+
+  test("双工语音 + 灰区（[0.3, 0.5)）→ 置信偏置偏 chat，继续走 LLM", async () => {
+    const llm = fakeLlm([answer("好")]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.4 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    const outcome = await svc.ask("明天记得买菜", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("answer"); // 宁多应答不漏应答（用户裁决）
+    expect(llm.requests.length).toBe(1);
+  });
+
+  test("text / voice-manual 来源 → addressee 零调用（显式面向会话）", async () => {
+    const llm = fakeLlm([answer("好"), answer("好")]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.05 }); // 即使判官会判旁人也不触发
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    const a = await svc.ask("帮我查一下日程");
+    expect(a.status).toBe("answer");
+    const b = await svc.ask("再查一下天气", undefined, undefined, "voice-manual");
+    expect(b.status).toBe("answer");
+    expect(judge.noulCalls.length).toBe(0);
+  });
+
+  test("词表全等命中（双工语音）→ 机械权威，addressee 零调用直接路由", async () => {
+    const llm = fakeLlm([toolCall("deliver_to_session", { sessionId: "s-1", text: "干活" })]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.05 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    const card = await askForCard(svc, "发到会话 s-1"); // 弹卡（走 LLM 剧本）
+    void card;
+    // 词表命中「不要了」→ cancel 路由（不判 addressee/不判 intent）
+    const outcome = await svc.ask("不要了", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("answer");
+    expect(String((outcome as { text?: string }).text)).toContain("放弃");
+    expect(judge.noulCalls.length).toBe(0);
+  });
+
+  test("判官抛错 → 偏 chat 回退（WARN 不重试），原样走 LLM", async () => {
+    const llm = fakeLlm([answer("好")]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.1 }, { throwErr: new Error("judge boom") });
+    const { svc, logger } = makeService({ llm: llm.port, intentJudge: judge });
+    const outcome = await svc.ask("今天天气怎么样", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("answer"); // 偏 chat（零误丢）
+    expect(logger.warns.some((w) => w.includes("addressee"))).toBe(true);
+  });
+
+  test("判官关闭（默认态）→ 零调用零日志偏 chat", async () => {
+    const llm = fakeLlm([answer("好")]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.05 }, { enabled: false });
+    const { svc, logger } = makeService({ llm: llm.port, intentJudge: judge });
+    const outcome = await svc.ask("今天天气怎么样", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("answer");
+    expect(judge.noulCalls.length).toBe(0);
+    expect(logger.warns.length).toBe(0);
+  });
+
+  test("双工语音旁人话语：卡在场也不消费卡（dropped 先于 intent 判定）", async () => {
+    const llm = fakeLlm([toolCall("deliver_to_session", { sessionId: "s-1", text: "干活" })]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0.9, addressee: 0.05 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "发到会话 s-1");
+    // 旁人说「确认」样的话（词表未命中的长句）→ dropped，卡不消费
+    const outcome = await svc.ask("对对对就这个赶紧弄吧", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("dropped");
+    expect(svc.pendingSnapshot().length).toBe(1); // 卡保留
+  });
+});
+
+// ── isAmbientSpeech 纯函数（置信偏置阈值）────────────────
+
+import { isAmbientSpeech, STEWARD_ADDRESSEE_DROP_THRESHOLD } from "../../src/application/steward/StewardIntentJudge";
+
+describe("isAmbientSpeech（置信偏置：显著低分才丢，灰区/坏值偏 chat）", () => {
+  test("显著低分（< 0.3）→ 旁人判定", () => {
+    expect(isAmbientSpeech(0)).toBe(true);
+    expect(isAmbientSpeech(0.29)).toBe(true);
+  });
+  test("灰区及以上（≥ 0.3）→ 偏 chat", () => {
+    expect(isAmbientSpeech(STEWARD_ADDRESSEE_DROP_THRESHOLD)).toBe(false);
+    expect(isAmbientSpeech(0.4)).toBe(false);
+    expect(isAmbientSpeech(1)).toBe(false);
+  });
+  test("坏值（NaN/越界）→ 偏 chat（保守回退零误丢）", () => {
+    expect(isAmbientSpeech(Number.NaN)).toBe(false);
+    expect(isAmbientSpeech(99)).toBe(false);
+    expect(isAmbientSpeech(-1)).toBe(true); // 负值钳制 0 → 显著低（判旁人）
   });
 });

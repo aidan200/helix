@@ -112,7 +112,7 @@ describe("useSteward（V2.5 文本管家）", () => {
     act(() => {
       result.current.ask("现在有什么在跑？");
     });
-    expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？");
+    expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？", undefined);
     expect(result.current.askInFlight).toBe(true);
     act(() => {
       frameListener?.(frame("steward.ask.result", { status: "answer", text: "2 个实例运行中。" }));

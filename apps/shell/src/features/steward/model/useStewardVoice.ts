@@ -122,7 +122,7 @@ import {
   VOICE_NOISE_CALIB_WINDOW_MS,
 } from "@/shared/lib/voice-gate";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
-import type { EventEnvelope } from "@helix/protocol";
+import type { EventEnvelope, StewardAskSource } from "@helix/protocol";
 import { useSteward, type StewardPanelItem } from "./useSteward";
 import { StewardSpeechOut } from "./steward-speech-out";
 import {
@@ -180,7 +180,11 @@ export interface UseStewardVoice {
   readonly feed: ReturnType<typeof useSteward>["feed"];
   readonly askInFlight: boolean;
   readonly config: ReturnType<typeof useSteward>["config"];
-  ask(text: string): boolean;
+  ask(text: string, source?: StewardAskSource): boolean;
+  /** 声纹总闸放行后的 utterance 派发口（StewardVoiceLayer consumed 自派发
+   *  专用）：发问 + planTranscript 回退（与 routeToAsk 同构）；source 按
+   *  双工态自动归类（voice-duplex = addressee 判定触发面）。 */
+  submitUtterance(text: string): void;
   newDialog(): boolean;
   // ── 双模（互斥；打开默认 voice）──
   readonly mode: StewardInputMode;
@@ -797,6 +801,17 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const askRef = useRef(steward.ask);
   askRef.current = steward.ask;
 
+  // 声纹总闸派发口（ref 转发——handleTranscript 闭包读稳定口）：发问 +
+  // planTranscript 回退（零静默丢话）；source 按双工态归类（addressee 判定）。
+  const submitUtterance = useCallback((utterance: string) => {
+    const source = duplexRef.current ? "voice-duplex" : "voice-manual";
+    const sent = askRef.current(utterance, source);
+    const plan = planTranscript(utterance, sent);
+    if (plan.kind === "fallback") setVoiceDraft(plan.draft);
+  }, []);
+  const submitUtteranceRef = useRef(submitUtterance);
+  submitUtteranceRef.current = submitUtterance;
+
   // 双工会话收口（B2：组合键再按（D2 单键 toggle 关麦）/ Esc 共径）：关麦
   //（track.stop 即刻零转写，ed508171 同纪律）+ 废流（stt.stream.stop）+ 停朗
   // 读（synthesize stop + 队列清空）+ 停欢迎语固化音频 + duplex 落（光球淡
@@ -845,9 +860,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       /** 即将 ask 的文本路由：口令拦截（D3=b）优先——consumed 零 ask。 */
       const routeToAsk = (utterance: string) => {
         if (onFinalTextRef.current?.(utterance) === "consumed") return;
-        const sent = askRef.current(utterance);
-        const plan = planTranscript(utterance, sent);
-        if (plan.kind === "fallback") setVoiceDraft(plan.draft);
+        submitUtteranceRef.current(utterance);
       };
       routeToAsk(text);
     },
@@ -1164,6 +1177,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     toggleMute,
     toggleWake: toggleWakeStable,
     say,
+    submitUtterance,
     lastUtterancePcm: useCallback(() => pcmRingRef.current?.takeUtterance() ?? null, []),
   };
 }

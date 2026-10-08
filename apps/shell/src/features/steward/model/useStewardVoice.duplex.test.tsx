@@ -319,7 +319,7 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
     // 欢迎语首句已开流；用户说话（终帧）→ ask
     const streamStartsBefore = sendSttStreamStart.mock.calls.length;
     await finishUtterance(r, "现在有什么在跑？");
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？"));
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("现在有什么在跑？", "voice-duplex"));
     // 管家流式回答 → TTS 出声（speaking）
     await stewardAnswers();
     expect(r.current.speaking).toBe(true);
@@ -396,7 +396,7 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
     // 自动续听开新流 → 回执后第二轮照发
     await ackLatestStream();
     await finishUtterance(r, "帮我确认一下");
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("帮我确认一下")); // 聊天句照发
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("帮我确认一下", "voice-duplex")); // 聊天句照发
   });
 
   it("B2-hotfix：热键直通无待命超时——唤醒词非空 + 短窗注入 duplex 也不落（旧待命超时收场语义退役）", async () => {

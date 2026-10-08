@@ -49,7 +49,7 @@ export const ORB_FADE_MS = 180;
 export interface StewardVoiceLayerProps {
   /** app 层 steward-open-signal 接线计数（递增即唤起——app 层订阅信号推进）。 */
   readonly wakeSignal?: number;
-  /** M3-c 声纹校验门（确认口令消费卡前验「这句话是注册主人说的吗」；
+  /** 声纹校验门（链路重排批：每轮 final 总闸——「这句话是注册主人说的吗」；
    *  缺省 = 生产单例；测试注入假 gate）。 */
   readonly voiceprintGate?: VoiceprintGate;
 }
@@ -69,9 +69,10 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   }, []);
 
   // ── 语音口令（D3=b）：final 整句拦截——口令本地解析 + 卡栈快照裁决 +
-  //    动作执行（既有命令）+ 回读（say + 字幕）；非口令句 pass 走 ask。──
-  //    M3-c 声纹授权点：confirm 口令在消费卡前验声纹（异步门——口令句仍
-  //    同步返回 consumed，验后放行/拒绝；拒绝纯语音白话明示 + 卡保留）。──
+  //    动作执行（既有命令）+ 回读（say + 字幕）；非口令句 submitUtterance
+  //    发问。── 声纹总闸（链路重排批：机械→声纹→Jev→LLM）：每轮 final
+  //    过 verifyGate（注册了才有验证环节，未注册即刻 skip 放行）；reject
+  //    只上字幕不出声 + 整轮终止（零执行零 ask）；skip 照旧放行。──
   const sayRef = useRef<(text: string) => void>(() => undefined);
   const gateRef = useRef<VoiceprintGate>(voiceprintGate ?? getStewardVoiceprintService());
   gateRef.current = voiceprintGate ?? getStewardVoiceprintService();
@@ -84,31 +85,17 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     },
     [t],
   );
-  const gateConfirmWithVoiceprint = useCallback(
-    async (target: VoiceCardTarget, pcm: Float32Array | null) => {
-      let decision;
-      try {
-        decision = await gateRef.current.verifyGate(pcm);
-      } catch {
-        decision = { kind: "skip" as const, reason: "inference-error" as const }; // gate 面异常兑底照旧放行（授权链零劣化）
-      }
-      if (decision.kind === "reject") {
-        // 拒绝消费：纯语音白话明示（TR-243/TR-249）；卡保留——不是 cancel，
-        // 继续挂着等主人重说或 TTL 作废（E-204）。
-        const notice = t("steward.voice.voiceprintReject");
-        setLines((prev) => captionPush(prev, "steward", notice));
-        sayRef.current(notice);
+
+  /** 声纹放行后的派发内核：口令本地消费 + 回读；聊天句经 submitUtterance
+   *  发问（hook 内 source 归类 + planTranscript 回退）。 */
+  const submitUtteranceRef = useRef<(text: string) => void>(() => undefined);
+  const dispatchAfterGate = useCallback(
+    (text: string) => {
+      const command = parseVoiceCommand(text);
+      if (command === null) {
+        submitUtteranceRef.current(text); // 聊天句：发问（voice-duplex 归类在 hook 内）
         return;
       }
-      confirmCardWithReadback(target); // pass / skip（未注册、引擎失败、推理抛错、音频过短）照旧放行
-    },
-    [confirmCardWithReadback, t],
-  );
-  const onFinalText = useCallback(
-    (text: string): "consumed" | "pass" => {
-      pushLine("user", text); // 用户行入字幕（final 实——口令句也是说出的话）
-      const command = parseVoiceCommand(text);
-      if (command === null) return "pass"; // 聊天句：零拦截
       const result = resolveVoiceCommand(command, actionsRef.current.cards);
       let reply: string;
       if (result.kind === "none") {
@@ -124,23 +111,45 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
       } else {
         const target = result.targets[0]!;
         if (result.kind === "confirm") {
-          // 授权点：本句音频同步取（final 定稿时点环尾部即本句），异步验后裁决
-          void gateConfirmWithVoiceprint(target, svLastUtterancePcmRef.current?.() ?? null);
-          return "consumed"; // 口令句零 ask（验后放行/拒绝均在口令面内收口）
-        } else {
-          actionsRef.current.cancelCard(target.actionId);
-          reply = t("steward.voice.cmdCancelOk", { target: target.agentId });
+          confirmCardWithReadback(target); // 声纹总闸已验（前置）——直接执行
+          return;
         }
+        actionsRef.current.cancelCard(target.actionId);
+        reply = t("steward.voice.cmdCancelOk", { target: target.agentId });
       }
       setLines((prev) => captionPush(prev, "steward", reply)); // 回读字幕
       sayRef.current(reply); // 回读音频（money 闸内判）
-      return "consumed";
     },
-    [pushLine, t, gateConfirmWithVoiceprint],
+    [pushLine, t, confirmCardWithReadback],
+  );
+  const onFinalText = useCallback(
+    (text: string): "consumed" | "pass" => {
+      pushLine("user", text); // 用户行入字幕（final 实——口令句也是说出的话）
+      // 声纹总闸（链路重排批：机械→声纹→Jev→LLM）：每轮必验，不区分口令/
+      // 聊天/有无卡；本句 PCM 同步取（final 定稿时点环尾部即本句）。reject
+      // 只上字幕不出声（用户裁决）+ 整轮终止；skip 照旧放行（授权链零劣化）。
+      const pcm = svLastUtterancePcmRef.current?.() ?? null;
+      void (async () => {
+        let decision;
+        try {
+          decision = await gateRef.current.verifyGate(pcm);
+        } catch {
+          decision = { kind: "skip" as const, reason: "inference-error" as const };
+        }
+        if (decision.kind === "reject") {
+          setLines((prev) => captionPush(prev, "steward", t("steward.voice.voiceprintReject")));
+          return;
+        }
+        dispatchAfterGate(text);
+      })();
+      return "consumed"; // 一律本地消费（聊天句由 dispatch 自派发 ask）
+    },
+    [pushLine, t, dispatchAfterGate],
   );
 
   const sv = useStewardVoice({ onFinalText, welcomeText: t("steward.voice.welcome") });
   sayRef.current = sv.say;
+  submitUtteranceRef.current = sv.submitUtterance;
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）
 

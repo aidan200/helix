@@ -56,6 +56,7 @@ vi.mock("@/shared/lib/wake-hotkey", () => ({
 
 // ── useStewardVoice 受控桩（同 Layer 主测试形态 + 声纹面 lastUtterancePcm）──
 const say = vi.fn();
+const submitUtterance = vi.fn();
 const fakePcm = new Float32Array(16000); // 1s（Int16 域）
 const lastUtterancePcm = vi.fn(() => fakePcm);
 let capturedOnFinalText: ((text: string) => "consumed" | "pass") | undefined;
@@ -91,6 +92,7 @@ vi.mock("../model/useStewardVoice", () => ({
       toggleMute: () => undefined,
       toggleWake: () => undefined,
       say,
+      submitUtterance,
       lastUtterancePcm,
     };
   },
@@ -135,7 +137,7 @@ function gateReturning(decision: VerifyDecision): VoiceprintGate & { calls: numb
   return g;
 }
 
-describe("StewardVoiceLayer 声纹授权点（M3-c：确认口令消费卡前校验）", () => {
+describe("StewardVoiceLayer 声纹总闸（链路重排：机械→声纹→Jev→LLM）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stewardListeners.clear();
@@ -171,19 +173,22 @@ describe("StewardVoiceLayer 声纹授权点（M3-c：确认口令消费卡前校
     expect(gate.calls).toBe(1);
   });
 
-  it("reject → 零 confirm + 纯语音白话明示（say + 字幕）+ 卡保留（零 cancel）", async () => {
+  it("reject → 零 confirm + 只上字幕不出声（零 reject 回读）+ 卡保留（零 cancel）", async () => {
     const gate = gateReturning({ kind: "reject", score: 0.3 });
     renderLayer(gate);
     pushCard("act-reject", "写操作");
     act(() => {
       expect(capturedOnFinalText?.("确认")).toBe("consumed");
     });
-    await waitFor(() => expect(say).toHaveBeenCalledWith("未识别为你的声音，没有执行"));
+    // 字幕上「未识别为用户的声音」（用户裁决文案）
+    await waitFor(() => {
+      const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
+      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音")).toBe(true);
+    });
     expect(sendStewardConfirm).not.toHaveBeenCalled();
     expect(sendStewardCancel).not.toHaveBeenCalled(); // 拒绝不是 cancel——卡保留等重说或 TTL
-    // 字幕同句（白话明示）
-    const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
-    expect(Array.from(lines).some((l) => l.textContent === "未识别为你的声音，没有执行")).toBe(true);
+    // 只上字幕不出声（用户裁决）：say 零 reject 文案回读（弹卡触达播报另算）
+    expect(say).not.toHaveBeenCalledWith("未识别为用户的声音");
   });
 
   it("gate 抛错 → 兜底照旧放行（gate 面异常不吞授权）", async () => {
@@ -198,7 +203,7 @@ describe("StewardVoiceLayer 声纹授权点（M3-c：确认口令消费卡前校
     await waitFor(() => expect(sendStewardConfirm).toHaveBeenCalledTimes(1));
   });
 
-  it("cancel 口令不经声纹门（只挂授权点 confirm）", async () => {
+  it("cancel 口令同过声纹总闸（每轮必验）：pass → cancel 执行 + gate 调用", async () => {
     const gate = gateReturning({ kind: "pass" });
     renderLayer(gate);
     pushCard("act-c", "会话");
@@ -206,8 +211,47 @@ describe("StewardVoiceLayer 声纹授权点（M3-c：确认口令消费卡前校
       expect(capturedOnFinalText?.("取消")).toBe("consumed");
     });
     await waitFor(() => expect(sendStewardCancel).toHaveBeenCalledTimes(1));
-    expect(gate.calls).toBe(0); // cancel 零声纹调用
+    expect(gate.calls).toBe(1); // 总闸：cancel 也验（链路重排：每轮必验语义）
     expect(sendStewardConfirm).not.toHaveBeenCalled();
+  });
+
+  it("cancel 口令 reject → 零 cancel（卡保留）", async () => {
+    const gate = gateReturning({ kind: "reject", score: 0.1 });
+    renderLayer(gate);
+    pushCard("act-c2", "会话");
+    act(() => {
+      capturedOnFinalText?.("取消");
+    });
+    await waitFor(() => {
+      const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
+      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音")).toBe(true);
+    });
+    expect(sendStewardCancel).not.toHaveBeenCalled();
+    expect(gate.calls).toBe(1);
+  });
+
+  it("聊天句同样过总闸：reject → 零 submitUtterance（零 ask）", async () => {
+    const gate = gateReturning({ kind: "reject", score: 0.2 });
+    renderLayer(gate);
+    act(() => {
+      expect(capturedOnFinalText?.("今天天气怎么样")).toBe("consumed");
+    });
+    await waitFor(() => {
+      const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
+      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音")).toBe(true);
+    });
+    expect(submitUtterance).not.toHaveBeenCalled();
+  });
+
+  it("聊天句 pass → submitUtterance 发问（本句 PCM 送验）", async () => {
+    const gate = gateReturning({ kind: "pass" });
+    renderLayer(gate);
+    act(() => {
+      expect(capturedOnFinalText?.("今天天气怎么样")).toBe("consumed");
+    });
+    await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("今天天气怎么样"));
+    expect(gate.calls).toBe(1);
+    expect(gate.lastPcm).toBe(fakePcm);
   });
 
   it("reject 后卡仍在：再次「确认」（pass）→ 放行成功（等重说语义）", async () => {

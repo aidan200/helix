@@ -16,10 +16,12 @@
 import type { EventFrame } from "../envelope";
 import type { SummaryConfigStatePayload } from "./config";
 
-/** steward.ask.result payload：四判别——answer = 直答文本；confirm_required =
+/** steward.ask.result payload：五判别——answer = 直答文本；confirm_required =
  *  确认闸请求（写注入唯一原语 propose_send 的回执形态，未确认零执行）；
  *  queued = 忙碌态入队确认（L1 件二：本轮工具循环收口后自动作为下一轮
- *  输入，结果帧随后另发）；error = 业务失败（开关关/模型未配/key 缺失/
+ *  输入，结果帧随后另发）；dropped = 静默丢弃（addressee 判定判为旁人话语
+ *  ——双工常开麦收音段非管家对话，零回答零播报零字幕，前端静默收口轮次）；
+ *  error = 业务失败（开关关/模型未配/key 缺失/
  *  循环超限等，reason 含引导）。 */
 export type StewardAskResultPayload =
   | {
@@ -42,6 +44,11 @@ export type StewardAskResultPayload =
       queued: true;
       /** 队内位置（1 起——首条即将被消费）。 */
       position: number;
+    }
+  | {
+      status: "dropped";
+      /** 丢弃原因分类（additive 预留；当前恒 "ambient" = 判为旁人话语/自言自语）。 */
+      reason?: "ambient";
     }
   | {
       status: "error";

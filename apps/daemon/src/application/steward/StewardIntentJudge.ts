@@ -34,6 +34,24 @@ export const STEWARD_INTENT_JUDGE_CANCEL_QUESTION =
 export const STEWARD_INTENT_JUDGE_REVISE_QUESTION =
   "用户这句话是在修正或补充刚才那个待确认的操作吗？（改目标、改内容、补充细节、换个对象 = 是；单纯确认或取消、完全无关的新话题 = 不是）";
 
+/** addressee 判定问句（声纹→Jev 链路批：双工常开麦收音段的「对谁说」判定
+ *  ——声纹只证明「是用户本人」，证明不了「在叫管家」。单源常量同纪律）。 */
+export const STEWARD_ADDRESSEE_QUESTION =
+  "用户这句话是在跟管家（AI 语音助手）说话吗？（在叫助手、向助手提问或下指令 = 是；跟房间里其他人说话、自言自语、对宠物说话 = 不是）";
+
+/** addressee 判定丢弃阈值（置信偏置，声纹→Jev 链路批）：noul 问「在跟管家
+ *  说话吗」的校准概率 < 此值 = 高置信「旁人话语」→ 静默丢弃（dropped）；
+ *  [0.3, 0.5) 灰区与 ≥0.5 一律偏「当聊天」继续走 LLM。安全偏置：误丢用户
+ *  请求比误应答旁人闲聊更伤体验（宁多应答不漏应答——用户裁决）。 */
+export const STEWARD_ADDRESSEE_DROP_THRESHOLD = 0.3;
+
+/** addressee 打分 → 旁人话语判定（纯函数）：显著低分才丢，灰区偏 chat。 */
+export function isAmbientSpeech(addresseeScore: number): boolean {
+  const clamp = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1);
+  // 坏值（NaN/越界）钳制为 1 = 当 chat（保守回退同向，不因坏端点误丢）
+  return clamp(addresseeScore) < STEWARD_ADDRESSEE_DROP_THRESHOLD;
+}
+
 /** 意图判别结果（分流三态——confirm/cancel 复用口令路由执行面）。 */
 export type StewardPendingIntent = "confirm" | "cancel" | "revise";
 

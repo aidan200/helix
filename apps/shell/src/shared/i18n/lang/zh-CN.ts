@@ -1399,7 +1399,7 @@ export const zhCN = {
       // ── ③ 语音触达（语音闭环批）：弹卡即播短句（仅双工会话活跃期）──
       cardPending: "有个投递等你确认",
       // ── M3-c 声纹批：授权点拒绝白话（纯语音明示 + 卡保留——TR-243/TR-249）──
-      voiceprintReject: "未识别为你的声音，没有执行",
+      voiceprintReject: "未识别为用户的声音",
     },
   },
 };

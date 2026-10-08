@@ -27,11 +27,12 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { StewardCommandContext } from "./context";
 import type { StewardAskEvents } from "../../../../application/steward/StewardService";
+import type { StewardAskSource } from "@helix/protocol";
 
 /** ask 文本防御上限（管家对话单轮；超长引导拆分）。 */
 const ASK_TEXT_MAX = 2000;
 
-/** steward.ask（全局命令）：对话一轮 + 流式增量帧 + 点对点回执（三判别）。 */
+/** steward.ask（全局命令）：对话一轮 + 流式增量帧 + 点对点回执（五判别）。 */
 export function handleStewardAsk(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const text = ctx.payload.text;
@@ -41,6 +42,10 @@ export function handleStewardAsk(ctx: StewardCommandContext): void {
   if (text.length > ASK_TEXT_MAX) {
     return ctx.commandError(ctx.type, "command.invalid_payload", `payload.text 超长（≤${ASK_TEXT_MAX} 字符）`);
   }
+  // 输入来源归一（additive 可选字段；旧壳零适配——非法/缺失一律 "text"）
+  const rawSource = ctx.payload.source;
+  const source: StewardAskSource =
+    rawSource === "voice-duplex" || rawSource === "voice-manual" ? rawSource : "text";
   // 过程帧（A1 工作记忆批）：单 ask 内 seq 单调 1 起——ask.delta 与
   // tool/thinking 共用同一计数器（帧序即到达序，WS 有序传输下前端直接拼接）
   let deltaSeq = 0;
@@ -105,7 +110,7 @@ export function handleStewardAsk(ctx: StewardCommandContext): void {
     ctx.sendNow(sender, frame);
   };
   void ctx.steward.service
-    .ask(text, events, deliverResult)
+    .ask(text, events, deliverResult, source)
     .then((payload) => {
       // 直接路径：promise 即结果（一帧）；排队路径：queued 确认帧（结果帧
       // 由 service 在轮次完成时经 deliverResult 另发——双帧双轨不重复）。

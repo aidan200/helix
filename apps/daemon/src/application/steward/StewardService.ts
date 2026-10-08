@@ -53,16 +53,19 @@ import type {
   StewardMemoryWrittenPayload,
   StewardNotifyPayload,
   StewardProactivePayload,
+  StewardAskSource,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
 import {
+  STEWARD_ADDRESSEE_QUESTION,
   STEWARD_INTENT_JUDGE_CANCEL_QUESTION,
   STEWARD_INTENT_JUDGE_CONFIRM_QUESTION,
   STEWARD_INTENT_JUDGE_REVISE_QUESTION,
   buildIntentJudgeState,
   buildIntentReviseAskText,
+  isAmbientSpeech,
   pickIntentByScores,
   type IntentJudgeFace,
 } from "./StewardIntentJudge";
@@ -1263,6 +1266,7 @@ export class StewardService {
     text: string,
     events: StewardAskEvents = {},
     deliver?: (payload: StewardAskResultPayload) => void,
+    source: StewardAskSource = "text",
   ): Promise<StewardAskResultPayload> {
     if (typeof text !== "string" || text.trim() === "") {
       return { status: "error", reason: "payload.text 应为非空 string" };
@@ -1291,6 +1295,13 @@ export class StewardService {
     // 抛错 → 回退词表后行为零劣化（judgePendingIntent 内降级链）。挂闸
     // 阻塞中泛化确认 = 面板点卡的等价入口（与口令路由同构）。
     if (phrase === undefined) {
+      // addressee 判定（声纹→Jev 链路批）：双工常开麦收音段的「对谁说」判定
+      // ——词表未命中才判（词表全等 = 机械权威零判定）；声纹闸在 shell 已拦
+      // 非用户，本层只判「用户本人是不是在叫管家」。旁人高置信 → dropped
+      // 静默丢弃；判官缺席/灰区/抛错 → 偏「当聊天」继续（宁多应答不漏）。
+      if (source === "voice-duplex" && (await this.judgeAddressee(text))) {
+        return { status: "dropped", reason: "ambient" };
+      }
       const generalized = await this.judgePendingIntent(text);
       if (generalized !== undefined) {
         if (generalized.intent !== "revise") {
@@ -2138,6 +2149,27 @@ export class StewardService {
    *  执行面；revise = 撤旧卡 + 修正轮 LLM 输入（带卡全文上下文）。
    *  降级链（E-250 同款）：开关关零日志 / 端点未配 WARN / 抛错 WARN 不
    *  重试——全部回退词表后行为零劣化。无卡零判官调用（不判闲聊）。 */
+  /** addressee 判定（声纹→Jev 链路批）：双工收音段的「对谁说」判定。
+   *  返回 true = 高置信旁人话语（调用方回 dropped 静默丢弃）；判官缺席
+   *  （undefined/关/未配）/ 灰区 / 抛错一律 false = 偏「当聊天」（置信偏置
+   *  同向：宁多应答不漏应答，零配置时行为与旧版完全一致）。 */
+  private async judgeAddressee(text: string): Promise<boolean> {
+    const judge = this.deps.intentJudge;
+    if (judge === undefined) return false;
+    if (!judge.enabled()) return false; // 开关关：默认态零日志（同款）
+    if (!judge.ready()) {
+      this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——addressee 判定回退当聊天（原样走 LLM）");
+      return false;
+    }
+    try {
+      const score = await judge.noul(`用户这句话：${text}`, STEWARD_ADDRESSEE_QUESTION);
+      return isAmbientSpeech(score);
+    } catch (err) {
+      this.deps.logger?.warn(`addressee 判定失败，回退当聊天：${(err as Error).message}`);
+      return false;
+    }
+  }
+
   private async judgePendingIntent(
     text: string,
   ): Promise<
