@@ -573,6 +573,8 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     const registered = [
       "HELIX_API_KEYS_JSON",
       "HELIX_CODEGRAPH_PATH", // W1-B：codegraph 二进制定格路径透传（SubagentLauncher 注入 / ChildMain 本地栈二级解析第①级消费）
+      // custom provider 批：自定义 provider 定义全量透传（SubagentLauncher launch 时刻现拍 / ChildMain buildChildModels 注册进本地 pi-ai Models）
+      "HELIX_CUSTOM_PROVIDERS_JSON",
       "HELIX_DB_PATH", // T1.4（AD-6①）：work_item 台账库路径（SubagentLauncher 注入 / ChildMain 本地栈消费）
       "HELIX_FAKE_ENGINE_SCRIPT",
       "HELIX_FINDINGS_PATH", // task-778eb18a 截断兑底：findings 旁路文件落点（SubagentLauncher 注入 / 提示词引导预写 / ClosureRecorder 机械读）

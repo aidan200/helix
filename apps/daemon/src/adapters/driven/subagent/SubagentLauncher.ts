@@ -13,6 +13,7 @@ import type {
 } from "../../../application/services/InstanceRunner";
 import type { AgentEngineEvent } from "../../../application/ports/outbound/AgentEnginePort";
 import type { WorkItemData } from "../../../application/ports/outbound/WorkLedgerPort";
+import type { CustomProviderDef } from "../../../application/ports/outbound/CustomProviderPort";
 import type { AgentProfile } from "../pi-engine/runtime/AgentProfile";
 import type { McpServerConfig } from "../mcp/types";
 import { ChildProcessTransport } from "./transport/ChildProcessTransport";
@@ -155,6 +156,17 @@ export interface SubagentLauncherDeps {
    * env 定格，CRUD 后新 spawn 跟随）。
    */
   readonly mcpServersFor?: (profileKind: string) => readonly McpServerConfig[] | undefined;
+  /**
+   * 自定义 provider 定义透传面（custom provider 子进程注册批）：launch 时刻
+   * 读现值定格（代际生效——已 spawn 实例 env 不变，provider CRUD 后新 spawn
+   * 跟随；mcpServersFor/spawnSnapshot 同哲学）。全量 CustomProviderDef[] 经
+   * HELIX_CUSTOM_PROVIDERS_JSON 序列化透传，子进程 ChildMain 注册进本地
+   * pi-ai Models（否则自定义 provider 模型槽位的子进程流式首调
+   * Models.requireProvider 抛 Unknown provider）。空表/缺省 → 不传键
+   * （子进程零注册零开销）。注入源 = 组合根 CustomProviderService.list()
+   * getter（定义读面单源——launcher 不自开 KV 读取）。
+   */
+  readonly customProviders?: () => readonly CustomProviderDef[];
   /**
    * 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位读面（R7
    * per-kind：入参 = 实例 profileKind——kg-writer 读自身槽位，不联动
@@ -380,6 +392,9 @@ export class SubagentLauncher implements InstanceRunner {
     );
     // mcp 批：MCP server 配置 launch 时刻现拍（kind 门控后的 enabled 行）
     const mcpServers = this.deps.mcpServersFor?.(instance.profileKind);
+    // custom provider 批：自定义 provider 定义 launch 时刻现拍（代际生效——
+    // provider CRUD 后新 spawn 跟随，已 spawn 实例 env 已定格）
+    const customProviders = this.deps.customProviders?.() ?? [];
     // W1F-F2：toolCwd spawn 时刻读现值（getter 形态 = 经持有者读绑定 root；
     // 静态字符串 = 既有测试形态）——与 apiKeys 同款 getter 注入源模式；
     // U3 isolated：override（worktree 路径）优先——写面物理钉隔离树
@@ -436,6 +451,12 @@ export class SubagentLauncher implements InstanceRunner {
         //（未装配/kind 不接入/零 server）不传键——零开销路径）
         ...(mcpServers !== undefined && mcpServers.length > 0
           ? { HELIX_MCP_SERVERS_JSON: JSON.stringify(mcpServers) }
+          : {}),
+        // custom provider 批：自定义 provider 定义全量透传（子进程 ChildMain
+        // 注册进本地 pi-ai Models——自定义 provider 模型槽位引擎可跑）；
+        // 空表不传键（子进程零注册零开销，与 mcpServers 空集同语义）
+        ...(customProviders.length > 0
+          ? { HELIX_CUSTOM_PROVIDERS_JSON: JSON.stringify(customProviders) }
           : {}),
         ...(this.deps.fakeEngineScript !== undefined
           ? { HELIX_FAKE_ENGINE_SCRIPT: this.deps.fakeEngineScript }

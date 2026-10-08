@@ -22,9 +22,10 @@
  * 本模块只在 `bun run ChildMain.ts` 直跑时执行 main（import.meta.main 守卫，
  * 测试可导入 parseClosureBlock 单测）。
  */
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, MutableModels } from "@earendil-works/pi-ai";
 import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
-import { supportsThinkingLevel } from "../../llm";
+import { createModelsBase, registerCustomProviders, supportsThinkingLevel } from "../../llm";
+import { parseCustomProviders } from "../../../../application/services/CustomProviderService";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
 import { readSandboxRuntime } from "../../tools/sandboxSetup";
@@ -342,6 +343,27 @@ export function spawnOverridesFromEnv(
     ...(systemPrompt !== undefined ? { systemPrompt: sanitizeDeprecatedToolNames(systemPrompt) } : {}),
     ...(toolsJson !== undefined ? { tools: JSON.parse(toolsJson) as string[] } : {}),
   };
+}
+
+// ── 自定义 provider 子进程注册（custom provider 子进程装配批） ─────
+
+/**
+ * 子进程本地 Models 装配：父进程 launch 时刻定格透传的自定义 provider 定义
+ * （HELIX_CUSTOM_PROVIDERS_JSON）→ registerCustomProviders 注册进子进程本地
+ * pi-ai Models（createModelsBase 底座 = builtin 全量，与主进程
+ * buildModelStack 同构）。时序契约：必须在 PiAgentEngineAdapter 构造**前**
+ * 调用并经 options.models 注入——引擎流式首调 Models.requireProvider(model)
+ * 按 model.provider 查活注册表，未注册即抛 Unknown provider（本批修复的
+ * 缺口：此前子进程零 custom provider 注册，自定义 provider 模型槽位的
+ * SubAgent 子进程跑不动）。
+ *
+ * 防御解析复用 parseCustomProviders（env 空缺/坏 JSON/形态非法视同空表）
+ * ——零注册不炸，与 HELIX_MCP_SERVERS_JSON 空缺零装配同语义。
+ */
+export function buildChildModels(env: Record<string, string | undefined>): MutableModels {
+  const models = createModelsBase();
+  registerCustomProviders(models, parseCustomProviders(env["HELIX_CUSTOM_PROVIDERS_JSON"]));
+  return models;
 }
 
 // ── 子进程本地 kg 栈（T3.3：kg/kg-update 双工具注入面） ─────
@@ -736,10 +758,14 @@ async function main(): Promise<void> {
   const parkState = { parkRequested: false };
   /** 挂起等待唤醒器（parked 循环内量；RESUME/SIGTERM 解除）。 */
   let parkedWake: (() => void) | undefined;
+  // custom provider 子进程注册：本地 Models 在引擎构造前装配并经
+  // options.models 注入（时序契约见 buildChildModels）
+  const models = buildChildModels(process.env as Record<string, string | undefined>);
   const engine = new PiAgentEngineAdapter({
     profile,
     model, // env JSON 解析的完整对象透传（与父侧深度相等）
     apiKeys,
+    models, // 本地 Models（含 HELIX_CUSTOM_PROVIDERS_JSON 注册的自定义 provider）
     ...(script ? { streamFnOverride: makeScriptedStreamFn(script, model) } : {}),
     // §3.5 装配点 2：定格值 + 能力过滤（§3.3 同构——定格值不被模型支持
     // → undefined → 注入器不动 options）。包装在 adapter 内 override 外侧，

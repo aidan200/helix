@@ -548,6 +548,17 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    让「无配置 daemon」的 mcp 命令族整族失效。──
   const mcpRegistry = new McpRegistry({ logger });
 
+  // ── 三方平台批：CustomProviderService 提前构造（构造无副作用）——provider
+  //    族三命令回口（buildDrivingAdapters 下方复用同一实例）与 SubAgent
+  //    子进程透传读面（customProvidersOf：launcher HELIX_CUSTOM_PROVIDERS_JSON
+  //    的定义来源，launch 时刻经 list() 读现值定格）共用同一读面单源。
+  const customProviderService = new CustomProviderService({
+    config: persistence.runtimeConfig,
+    registry: modelStack.customProviderRegistry,
+    auth: modelStack.authStore,
+    defaultModel: persistence.defaultModel,
+  });
+
   const sessionStack = await buildSessionStack({
     paths,
     config,
@@ -563,6 +574,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
     sandboxConfig: persistence.sandboxConfig, // 沙箱开关（装配期定格读取，沙箱开关批）
     askService, // 提权申请批：permission_request 工具仲裁（沙箱 on 时注册）
+    // custom provider 子进程透传批：定义读面单源（CustomProviderService.list
+    // ——launcher env 定格透传，详见 SubagentLauncherDeps.customProviders）
+    customProvidersOf: () => customProviderService.list(),
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -1503,14 +1517,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       service: embeddingConfig,
     },
     // 三方平台批：provider 族三命令回口（CustomProviderService——自定义
-    // OpenAI 兼容平台 CRUD + 活目录同步；key/verify 走既有 auth 族）
+    // OpenAI 兼容平台 CRUD + 活目录同步；key/verify 走既有 auth 族）。
+    // 实例在 sessionStack 前提前构造（SubAgent 透传读面同源，见上方）。
     provider: {
-      service: new CustomProviderService({
-        config: persistence.runtimeConfig,
-        registry: modelStack.customProviderRegistry,
-        auth: modelStack.authStore,
-        defaultModel: persistence.defaultModel,
-      }),
+      service: customProviderService,
     },
     // mcp 批：mcp 族六命令依赖面——registry 单例 + 配置窄写面闭包
     //（整段替换 config.mcpServers → writeConfig 全字段序列化；readonly →

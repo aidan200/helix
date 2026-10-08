@@ -61,6 +61,7 @@ import type { TodoToolDeps } from "../../adapters/driven/tools/todo/TodoTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
+import type { CustomProviderDef } from "../../application/ports/outbound/CustomProviderPort";
 import type { CodegraphToolDeps } from "../../adapters/driven/tools/codegraph/CodegraphTool";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
@@ -313,6 +314,13 @@ export interface BuildSessionStackDeps {
    * 补投走既有 warn 路径）。
    */
   readonly taskClosureSink?: (agentId: string) => void;
+  /**
+   * 自定义 provider 定义读面（custom provider 子进程透传批）：launcher
+   * HELIX_CUSTOM_PROVIDERS_JSON 的定义来源——组合根注入
+   * CustomProviderService.list() getter（读面单源，launch 时刻读现值定格）。
+   * 缺省不注入（测试形态——子进程不透传自定义 provider）。
+   */
+  readonly customProvidersOf?: () => readonly CustomProviderDef[];
 }
 
 export interface SessionStack {
@@ -786,6 +794,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           },
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
+          // custom provider 子进程透传批：定义读面（组合根接
+          // CustomProviderService.list()）——launch 时刻现值定格经
+          // HELIX_CUSTOM_PROVIDERS_JSON 透传（缺省不注入 = 不传键）
+          customProviders: deps.customProvidersOf,
           // W1F-F2：子进程 env cwd = spawn 时刻现值（toolCwdOf 同源求值——
           // 绑定 root 缺省回落启动 cwd；重绑后新 spawn 跟随新根，已 spawn
           // 实例 env 已定格，代际生效）。deps.toolCwd 显式注入（测试面）
