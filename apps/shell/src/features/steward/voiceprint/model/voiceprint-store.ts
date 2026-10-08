@@ -2,9 +2,9 @@
  * voiceprint-store —— 声纹模板存储 port（M3-c 声纹批）。
  *
  * 生产形态 = localStorage（本机 WKWebView 应用数据区，单模板单主人，键
- * helix.steward.voiceprint；明文 JSON：dim/vector/utterances/createdAt——
- * 模板是 256 维 float ≈ 1KB，非音频非原文，删除即彻底移除）。测试注入
- * 内存实现（createMemoryVoiceprintStore）。
+ * helix.steward.voiceprint；明文 JSON：dim/vector/vectors/utterances/createdAt
+ * ——模板是 256 维 float ≈ 5KB（含逐句槽位明细），非音频非原文，删除即
+ * 彻底移除）。测试注入内存实现（createMemoryVoiceprintStore）。
  */
 import type { VoiceprintTemplate } from "./speaker-verify";
 
@@ -25,7 +25,13 @@ export function createLocalVoiceprintStore(storage: Storage): VoiceprintStore {
       const raw = storage.getItem(VOICEPRINT_STORE_KEY);
       if (raw === null) return null;
       try {
-        const parsed = JSON.parse(raw) as { dim: number; vector: number[]; utterances: number; createdAt: number };
+        const parsed = JSON.parse(raw) as {
+          dim: number;
+          vector: number[];
+          vectors?: number[][];
+          utterances: number;
+          createdAt: number;
+        };
         if (
           typeof parsed.dim !== "number" ||
           !Array.isArray(parsed.vector) ||
@@ -35,9 +41,19 @@ export function createLocalVoiceprintStore(storage: Storage): VoiceprintStore {
         ) {
           return null; // 病态数据按未注册处理（授权链零劣化）
         }
+        // 逐句向量（槽位明细）：缺失/病态回读为空数组（旧版模板——校验照旧
+        // 走均值向量，单槽编辑不可用）。
+        const vectors: Float32Array[] = [];
+        if (Array.isArray(parsed.vectors)) {
+          for (const v of parsed.vectors) {
+            if (!Array.isArray(v) || v.length !== parsed.dim) return null; // 明细病态整份拒收
+            vectors.push(new Float32Array(v));
+          }
+        }
         return {
           dim: parsed.dim,
           vector: new Float32Array(parsed.vector),
+          vectors,
           utterances: parsed.utterances,
           createdAt: parsed.createdAt,
         };
@@ -49,6 +65,7 @@ export function createLocalVoiceprintStore(storage: Storage): VoiceprintStore {
       const raw = JSON.stringify({
         dim: template.dim,
         vector: Array.from(template.vector),
+        vectors: template.vectors.map((v) => Array.from(v)),
         utterances: template.utterances,
         createdAt: template.createdAt,
       });

@@ -12,6 +12,8 @@
  * 引擎）；模板存储注入（VoiceprintStore port）。
  */
 import {
+  SAMPLES_PER_SECOND,
+  VOICEPRINT_MATCH_THRESHOLD,
   VOICEPRINT_MAX_UTTERANCES,
   VOICEPRINT_MIN_UTTERANCE_SECONDS,
   VOICEPRINT_MIN_UTTERANCES,
@@ -43,6 +45,9 @@ export type VerifyDecision =
 export interface VoiceprintServiceOptions {
   readonly engineLoader: EmbedEngineLoader;
   readonly store: VoiceprintStore;
+  /** 阈值读取（缺省 = VOICEPRINT_MATCH_THRESHOLD；设置页滑杆热改后
+   *  verifyGate 每次现读——调参即时生效零重建服务）。 */
+  readonly threshold?: () => number;
   /** WARN 出口（缺省 console.warn；测试断言）。 */
   readonly warn?: (message: string) => void;
 }
@@ -52,7 +57,9 @@ export type VoiceprintErrorCode =
   | "min-utterances"
   | "max-utterances"
   | "utterance-too-short"
-  | "not-registered";
+  | "not-registered"
+  | "slots-unavailable"
+  | "slot-range";
 
 /** 结构化错误（code 供 UI 映射；detail 附带句号等上下文）。 */
 export class VoiceprintError extends Error {
@@ -65,11 +72,10 @@ export class VoiceprintError extends Error {
   }
 }
 
-const SAMPLES_PER_SECOND = 16_000;
-
 export function createVoiceprintService(options: VoiceprintServiceOptions) {
   const { engineLoader, store } = options;
   const warn = options.warn ?? ((message: string) => console.warn(`[voiceprint] ${message}`));
+  const thresholdOf = options.threshold ?? (() => VOICEPRINT_MATCH_THRESHOLD);
   let enginePromise: Promise<EmbedEngine> | null = null;
 
   const loadEngine = (): Promise<EmbedEngine> => {
@@ -81,6 +87,11 @@ export function createVoiceprintService(options: VoiceprintServiceOptions) {
     /** 是否已注册（模板在场）。 */
     isRegistered(): boolean {
       return store.read() !== null;
+    },
+
+    /** 模板现值（UI 槽位渲染/测试判定用；未注册 = null）。 */
+    getTemplate(): VoiceprintTemplate | null {
+      return store.read();
     },
 
     /**
@@ -122,6 +133,51 @@ export function createVoiceprintService(options: VoiceprintServiceOptions) {
       store.remove();
     },
 
+    /**
+     * 单槽录入（槽位编辑——已注册模板的逐句重录/补录）。槽位序 = 逐句
+     * 向量序：index < 现句数 = 重录该槽；index === 现句数 = 补录末槽；
+     * 其余越界拒（slot-range）。每次变更句向量重合成落盘（均值口径不变）。
+     * 旧版模板（无逐句明细）拒（slots-unavailable——引导整份重注册）。
+     */
+    async recordSlot(index: number, pcm: Float32Array): Promise<VoiceprintTemplate> {
+      const template = store.read();
+      if (template === null) throw new VoiceprintError("not-registered");
+      if (template.vectors.length === 0) throw new VoiceprintError("slots-unavailable");
+      if (!Number.isInteger(index) || index < 0 || index > template.vectors.length) {
+        throw new VoiceprintError("slot-range");
+      }
+      if (index >= VOICEPRINT_MAX_UTTERANCES) throw new VoiceprintError("max-utterances");
+      const minLength = VOICEPRINT_MIN_UTTERANCE_SECONDS * SAMPLES_PER_SECOND;
+      if (pcm.length < minLength) throw new VoiceprintError("utterance-too-short", index + 1);
+      const engine = await loadEngine();
+      const emb = await engine.embed(pcm);
+      const vectors = template.vectors.map((v) => new Float32Array(v));
+      const embCopy = new Float32Array(emb); // ArrayBuffer 域拷贝（泛型对齐 + 防外部底座变异）
+      if (index === vectors.length) vectors.push(embCopy);
+      else vectors[index] = embCopy;
+      const next = synthesizeTemplate(vectors);
+      store.write(next);
+      return next;
+    },
+
+    /**
+     * 单槽删除（逐句向量移除后重合成）。保底句数 3（min-utterances）
+     * ——模板保底信噪比，不够就整份重录。
+     */
+    async deleteSlot(index: number): Promise<VoiceprintTemplate> {
+      const template = store.read();
+      if (template === null) throw new VoiceprintError("not-registered");
+      if (template.vectors.length === 0) throw new VoiceprintError("slots-unavailable");
+      if (!Number.isInteger(index) || index < 0 || index >= template.vectors.length) {
+        throw new VoiceprintError("slot-range");
+      }
+      if (template.vectors.length <= VOICEPRINT_MIN_UTTERANCES) throw new VoiceprintError("min-utterances");
+      const vectors = template.vectors.filter((_, i) => i !== index).map((v) => new Float32Array(v));
+      const next = synthesizeTemplate(vectors);
+      store.write(next);
+      return next;
+    },
+
     /** 模板预载（app 启动/注册完成后后台预热引擎，授权点零等待）。 */
     warmup(): void {
       if (store.read() === null) return;
@@ -153,7 +209,7 @@ export function createVoiceprintService(options: VoiceprintServiceOptions) {
         return { kind: "skip", reason: "inference-error" };
       }
       const score = cosineSimilarity(template.vector, emb);
-      return decideVerify(score);
+      return decideVerify(score, thresholdOf());
     },
   };
 }

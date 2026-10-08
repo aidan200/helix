@@ -500,9 +500,7 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
           注册/手动导入/测试/删除；本地推理零上传。────────── */}
       <h3 className="section-label gen-group-label">{t("chat.settings.general.voiceprintLabel")}</h3>
       <div className="hud-card" data-voice-voiceprint>
-        <div className="fld">
-          <VoiceprintSection />
-        </div>
+        <VoiceprintSection />
       </div>
 
       {/* ── 欢迎词工坊（欢迎词固化批）：生成试听 → 确认固化；热键呼出直

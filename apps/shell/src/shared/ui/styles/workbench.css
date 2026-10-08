@@ -857,3 +857,40 @@ html.light .tp-popover {
 .memory-page-size { display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
   font-size: var(--text-cap); color: var(--text-dim); }
 .memory-page-size .hud-input { width: auto; }
+
+/* ── 声纹组（v3 槽位批）：5 槽横排不重叠（横向排列偏好）；槽位卡 =
+   vp-slot 语言（on = 已录高亮 / legacy = 虚线旧样本）；动作区定高 26px
+   与 hud-btn.sm 对齐（按钮增减不破横排）── */
+.vp-slots {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .vp-slots { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+}
+.vp-slot {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 6px; min-width: 0;
+  border: 1px solid rgb(var(--edge-rgb) / 0.12); border-radius: 8px;
+  background: rgb(var(--void-rgb) / 0.4);
+  transition: border-color 0.15s;
+}
+.vp-slot:hover { border-color: rgb(var(--edge-rgb) / 0.24); }
+.vp-slot-on { border-color: rgb(var(--accent-rgb) / 0.35); background: rgb(var(--accent-rgb) / 0.06); }
+.vp-slot-legacy { border-style: dashed; }
+.vp-slot-index {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 999px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.18);
+  font-family: var(--font-mono); font-size: var(--text-cap); color: var(--text-muted);
+}
+.vp-slot-on .vp-slot-index {
+  color: rgb(var(--accent-rgb) / 0.9); border-color: rgb(var(--accent-rgb) / 0.4);
+}
+.vp-slot-label { font-size: var(--text-cap); color: var(--text-dim); white-space: nowrap; }
+.vp-slot-on .vp-slot-label { color: var(--text); }
+.vp-slot-actions {
+  display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;
+  min-height: 26px; /* 与 hud-btn.sm 同高——动作增减不破横排节奏 */
+}

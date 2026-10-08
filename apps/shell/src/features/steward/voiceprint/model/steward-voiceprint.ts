@@ -9,6 +9,7 @@
 import { createVoiceprintService, type VoiceprintService } from "./voiceprint-service";
 import { createLocalVoiceprintStore } from "./voiceprint-store";
 import type { VerifyDecision } from "./voiceprint-service";
+import { readVoiceprintThresholdPref } from "@/shared/lib/voice-pref";
 
 let shared: VoiceprintService | null = null;
 
@@ -17,6 +18,8 @@ export function getStewardVoiceprintService(): VoiceprintService {
   if (shared === null) {
     shared = createVoiceprintService({
       store: createLocalVoiceprintStore(globalThis.localStorage),
+      // 阈值现读（设置页滑杆热改即时生效；%/100 → 余弦域）
+      threshold: () => readVoiceprintThresholdPref() / 100,
       engineLoader: async () => {
         const { createWasmEmbedEngineLoader } = await import("./embed-engine");
         return createWasmEmbedEngineLoader()();

@@ -1,16 +1,23 @@
 // @vitest-environment jsdom
 /**
- * VoiceprintSection 测试（M3-c 声纹批）——设置页注册引导（E-263 管家组
- * 第五件：3-5 句采集 / 测试按钮实时得分 / 删除彻底移除）。
+ * VoiceprintSection 测试（v3：阈值参数 + 5 槽位编辑批）——设置页声纹组。
+ *
+ * 契约面：
+ * - 阈值滑杆（参数设置行形态）：改动 → chip 回显 + localStorage 偏好落值；
+ * - 5 槽横排：录一句/重录/删除（未注册暂存；句长不达标当场拒绝不落槽）；
+ * - 完成注册（>=3 句）：模型准备（进度）→ 落模板 → 状态 chip + 测试行；
+ * - 已注册槽位编辑：单槽重录/删除即时重合成落盘；
+ * - 测试行（试听行形态）：得分 + 通过/未通过判定（vs 当前阈值）；
+ * - 旧模板（无逐句明细）：legacy 提示 + 单槽编辑不可用；
+ * - 模型行：就绪 chip / 手动导入兜底（导入成功自动续跑注册）。
  *
  * 注入面：service（真服务 + 假引擎）与 recorder（假录音器——jsdom 无音频）。
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/shared/i18n";
+import { VOICEPRINT_STORE_KEY, createLocalVoiceprintStore, createMemoryVoiceprintStore } from "../model/voiceprint-store";
 import { createVoiceprintService, type EmbedEngine } from "../model/voiceprint-service";
-import { createMemoryVoiceprintStore } from "../model/voiceprint-store";
-import { createLocalVoiceprintStore } from "../model/voiceprint-store";
 import VoiceprintSection from "./VoiceprintSection";
 
 /** 够长的假语句 PCM（1.5s Int16 域）。 */
@@ -22,21 +29,16 @@ function fakeUtterance(): Float32Array {
 }
 
 function makeFakeService(store = createMemoryVoiceprintStore()) {
+  let next: number[] = [1, 0.1, 0.05, 0.01];
   const engine: EmbedEngine = {
-    embed: async (samples: Float32Array) => {
-      // 句向量 = 首样本符号注入的确定性向量（不同句可区分；同向量族高相似）
-      const v = new Float32Array(4);
-      const tag = samples[0] ?? 0;
-      v[0] = tag > 0 ? 1 : 1;
-      v[1] = 0.1 * (samples.length % 7);
-      v[2] = 0.05;
-      v[3] = 0.01;
-      return v;
-    },
+    embed: async () => new Float32Array(next),
   };
   return {
     service: createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store }),
     store,
+    setVector: (v: number[]) => {
+      next = v;
+    },
   };
 }
 
@@ -51,9 +53,11 @@ function makeRecorder(utterance: () => Float32Array = fakeUtterance) {
   };
 }
 
+type FakeRecorder = { record(min: number, max: number): Promise<Float32Array | null> };
+
 function renderSection(opts?: {
   service?: ReturnType<typeof makeFakeService>["service"];
-  recorder?: ReturnType<typeof makeRecorder>;
+  recorder?: FakeRecorder;
   prepareModel?: (onProgress: (received: number, total: number | null) => void) => Promise<void>;
   importModel?: (file: File) => Promise<void>;
   probeModel?: () => Promise<boolean>;
@@ -62,7 +66,7 @@ function renderSection(opts?: {
     <I18nProvider>
       <VoiceprintSection
         {...(opts?.service !== undefined ? { service: opts.service } : {})}
-        {...(opts?.recorder !== undefined ? { recorder: opts.recorder } : {})}
+        recorder={opts?.recorder ?? makeRecorder()}
         {...(opts?.prepareModel !== undefined ? { prepareModel: opts.prepareModel } : {})}
         {...(opts?.importModel !== undefined ? { importModel: opts.importModel } : {})}
         {...(opts?.probeModel !== undefined ? { probeModel: opts.probeModel } : { probeModel: probeFalse })}
@@ -74,7 +78,6 @@ function renderSection(opts?: {
 const noopPrepare = async () => undefined;
 const probeFalse = async () => false;
 
-
 /** 语义属性查询（data-vp-xxx——组件测试惯例：语义 data 属性直查）。 */
 function byVp(name: string): HTMLElement {
   const el = document.querySelector(`[data-vp-${name}]`);
@@ -84,8 +87,41 @@ function byVp(name: string): HTMLElement {
 function byVpOpt(name: string): HTMLElement | null {
   return document.querySelector(`[data-vp-${name}]`) as HTMLElement | null;
 }
+function slotOf(i: number): HTMLElement {
+  const el = document.querySelector(`[data-vp-slot="${i}"]`);
+  if (el === null) throw new Error(`slot ${i} not found`);
+  return el as HTMLElement;
+}
+function slotBtnOpt(action: string, i: number): HTMLElement | null {
+  return document.querySelector(`[data-vp-slot-${action}="${i}"]`) as HTMLElement | null;
+}
+function slotBtn(action: string, i: number): HTMLElement {
+  const el = slotBtnOpt(action, i);
+  if (el === null) throw new Error(`slot ${i} action ${action} not found`);
+  return el;
+}
 
-describe("VoiceprintSection（M3-c 注册引导）", () => {
+/** 逐槽录满 n 句（每槽点「录一句」——录句异步收尾用 waitFor 轮询落地）。 */
+async function recordSlots(n: number) {
+  for (let i = 0; i < n; i++) {
+    await act(async () => {
+      fireEvent.click(slotBtn("record", i));
+    });
+    await waitFor(() => expect(slotOf(i).getAttribute("data-vp-slot-state")).toBe("filled"));
+  }
+}
+
+/** 录满 3 句并完成注册（常用收口路径）。 */
+async function registerThree(fake: ReturnType<typeof makeFakeService>) {
+  await recordSlots(3);
+  await act(async () => {
+    fireEvent.click(byVp("finish"));
+  });
+  await waitFor(() => expect(byVp("status").textContent).toContain("已注册"));
+  return fake;
+}
+
+describe("VoiceprintSection（v3 阈值参数 + 5 槽位编辑）", () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("helix-lang", "zh-CN");
@@ -95,135 +131,173 @@ describe("VoiceprintSection（M3-c 注册引导）", () => {
     vi.clearAllMocks();
   });
 
-  it("未注册态：说明文案（本地/不上传）+ 注册入口", () => {
+  it("未注册态：隐私说明 + 5 槽横排（首槽待录）+ 阈值滑杆默认 55%", () => {
     const { service } = makeFakeService();
     renderSection({ service });
     expect(screen.getByText(/只存在这台电脑上，不会上传/)).toBeTruthy();
-    expect(byVp("register")).toBeTruthy();
+    expect(byVp("slots")).toBeTruthy();
+    expect(document.querySelectorAll("[data-vp-slot]")).toHaveLength(5);
+    expect(slotOf(0).getAttribute("data-vp-slot-state")).toBe("next");
+    expect(slotOf(1).getAttribute("data-vp-slot-state")).toBe("empty");
+    expect((byVp("threshold") as HTMLInputElement).value).toBe("55");
+    expect(byVp("threshold-value").textContent).toContain("55%");
   });
 
-  it("注册流程：说一句 ×3 → 完成注册出现 → 点击落模板（saved 态）", async () => {
-    const { service, store } = makeFakeService();
-    const recorder = makeRecorder();
-    renderSection({ service, recorder, prepareModel: noopPrepare });
-    await act(async () => {
-      fireEvent.click(byVp("register"));
-    });
-    // 三句采集（进度显示已录句数）
-    for (let i = 1; i <= 3; i++) {
-      const btn = byVp("say");
-      expect(btn.textContent).toContain(`第 ${i} 句`);
-      await act(async () => {
-        fireEvent.click(btn);
-      });
-      await waitFor(() => expect(byVp("count").textContent).toBe(`已录 ${i} 句`));
-    }
-    // ≥3 句 → 完成注册出现
-    const finish = byVp("finish");
-    await act(async () => {
-      fireEvent.click(finish);
-    });
-    await waitFor(() => expect(byVp("status").textContent).toContain("已注册"));
-    expect(store.read()).not.toBeNull();
-    expect(store.read()!.utterances).toBe(3);
-  });
-
-  it("不足 3 句：完成注册不出现（2 句后仍无按钮）", async () => {
+  it("阈值滑杆：改值 → chip 回显 + localStorage 偏好落值（授权点热读面）", async () => {
     const { service } = makeFakeService();
-    const recorder = makeRecorder();
-    renderSection({ service, recorder, prepareModel: noopPrepare });
+    renderSection({ service });
+    const slider = byVp("threshold") as HTMLInputElement;
     await act(async () => {
-      fireEvent.click(byVp("register"));
+      fireEvent.change(slider, { target: { value: "70" } });
     });
-    for (let i = 0; i < 2; i++) {
-      await act(async () => {
-        fireEvent.click(byVp("say"));
-      });
-      await waitFor(() => expect(byVp("count").textContent).toBe(`已录 ${i + 1} 句`));
-    }
+    expect(byVp("threshold-value").textContent).toContain("70%");
+    expect(localStorage.getItem("helix.voice.vpThreshold")).toBe("70");
+  });
+
+  it("录句推进：3 句后完成注册出现、计数回显；2 句时无完成注册", async () => {
+    const { service } = makeFakeService();
+    renderSection({ service, prepareModel: noopPrepare });
+    await act(async () => {
+      fireEvent.click(slotBtn("record", 0));
+    });
+    await waitFor(() => expect(byVp("count").textContent).toContain("1 / 5"));
     expect(byVpOpt("finish")).toBeNull();
+    await act(async () => {
+      fireEvent.click(slotBtn("record", 1));
+    });
+    await waitFor(() => expect(slotOf(1).getAttribute("data-vp-slot-state")).toBe("filled"));
+    await act(async () => {
+      fireEvent.click(slotBtn("record", 2));
+    });
+    await waitFor(() => expect(byVp("count").textContent).toContain("3 / 5"));
+    expect(byVp("finish")).toBeTruthy();
   });
 
-  it("已注册态：测试按钮 → 实时相似度得分展示（百分比）", async () => {
+  it("完成注册：模型准备（进度回调）→ 落模板 → 状态 chip + 测试行出现", async () => {
+    const fake = makeFakeService();
+    const prepareModel = vi.fn(async (onProgress: (received: number, total: number | null) => void) => {
+      onProgress(1e6, 27e6);
+    });
+    renderSection({ service: fake.service, prepareModel, probeModel: async () => true });
+    await registerThree(fake);
+    expect(prepareModel).toHaveBeenCalled();
+    expect(byVp("status").textContent).toContain("已注册 · 3 句");
+    expect(fake.store.read()!.vectors).toHaveLength(3);
+    expect(byVp("test")).toBeTruthy();
+    expect(byVp("delete")).toBeTruthy();
+  });
+
+  it("未注册槽编辑：录 4 句删 1 → 计数 3；重录不增句数", async () => {
     const { service } = makeFakeService();
-    const recorder = makeRecorder();
-    renderSection({ service, recorder, prepareModel: noopPrepare });
+    renderSection({ service, prepareModel: noopPrepare });
+    await recordSlots(4);
+    await waitFor(() => expect(byVp("count").textContent).toContain("4 / 5"));
     await act(async () => {
-      fireEvent.click(byVp("register"));
+      fireEvent.click(slotBtn("delete", 0));
     });
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        fireEvent.click(byVp("say"));
-      });
-      await waitFor(() => expect(byVp("count")).toBeTruthy());
-    }
+    await waitFor(() => expect(byVp("count").textContent).toContain("3 / 5"));
     await act(async () => {
-      fireEvent.click(byVp("finish"));
+      fireEvent.click(slotBtn("rerecord", 1));
     });
-    await waitFor(() => expect(byVp("test")).toBeTruthy());
+    await waitFor(() => expect(slotOf(1).getAttribute("data-vp-slot-state")).toBe("filled"));
+    expect(byVp("count").textContent).toContain("3 / 5");
+  });
+
+  it("已注册槽位编辑：重录槽 1 向量换新；补录后删除槽句数 -1（即时重合成落盘）", async () => {
+    const fake = makeFakeService();
+    renderSection({ service: fake.service, prepareModel: noopPrepare, probeModel: async () => true });
+    await registerThree(fake);
+    fake.setVector([0, 1, 0, 0]); // 重录句向量换向（4 维与模板对齐）
+    await act(async () => {
+      fireEvent.click(slotBtn("rerecord", 1));
+    });
+    await waitFor(() => expect(Array.from(fake.store.read()!.vectors[1]!)).toEqual([0, 1, 0, 0]));
+    fake.setVector([1, 0.1, 0.05, 0.01]);
+    await act(async () => {
+      fireEvent.click(slotBtn("record", 3)); // 补录第 4 句
+    });
+    await waitFor(() => expect(fake.store.read()!.utterances).toBe(4));
+    await act(async () => {
+      fireEvent.click(slotBtn("delete", 2));
+    });
+    await waitFor(() => expect(fake.store.read()!.utterances).toBe(3));
+    expect(byVp("status").textContent).toContain("已注册 · 3 句");
+  });
+
+  it("测试行：高分通过 chip / 低分未通过（判定 vs 当前阈值）", async () => {
+    const fake = makeFakeService();
+    renderSection({ service: fake.service, prepareModel: noopPrepare, probeModel: async () => true });
+    await registerThree(fake);
     await act(async () => {
       fireEvent.click(byVp("test"));
     });
-    await waitFor(() => expect(byVp("test-score").textContent).toMatch(/相似度/));
+    await waitFor(() => expect(byVp("test-score").textContent).toContain("通过"));
+    expect(byVp("test-score").textContent).toContain("相似度");
+    fake.setVector([-1, 0]); // 与模板反向 → 低分
+    await act(async () => {
+      fireEvent.click(byVp("test"));
+    });
+    await waitFor(() => expect(byVp("test-score").textContent).toContain("未通过"));
   });
 
-  it("删除：saved → 点删除 → 回未注册态 + 模板彻底移除", async () => {
-    const { service, store } = makeFakeService();
-    const recorder = makeRecorder();
-    renderSection({ service, recorder, prepareModel: noopPrepare });
-    await act(async () => {
-      fireEvent.click(byVp("register"));
-    });
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        fireEvent.click(byVp("say"));
-      });
-      await waitFor(() => expect(byVp("count")).toBeTruthy());
-    }
-    await act(async () => {
-      fireEvent.click(byVp("finish"));
-    });
-    await waitFor(() => expect(byVp("delete")).toBeTruthy());
+  it("删除声纹：回未注册形态 + 模板彻底移除", async () => {
+    const fake = makeFakeService();
+    renderSection({ service: fake.service, prepareModel: noopPrepare, probeModel: async () => true });
+    await registerThree(fake);
     await act(async () => {
       fireEvent.click(byVp("delete"));
     });
-    await waitFor(() => expect(byVp("register")).toBeTruthy());
-    expect(store.read()).toBeNull();
+    await waitFor(() => expect(slotBtnOpt("record", 0)).toBeTruthy());
+    expect(fake.store.read()).toBeNull();
   });
 
-  it("句太短（<1.2s）→ 注册拒绝白话错误展示、不落模板", async () => {
-    const { service, store } = makeFakeService();
-    const recorder = makeRecorder(() => new Float32Array(16000 * 0.5)); // 0.5s
+  it("旧模板（无逐句明细）：legacy 提示 + 单槽编辑不可用 + 校验态保留", () => {
+    const store = createLocalVoiceprintStore(localStorage);
+    // 旧版数据形态：无 vectors 字段
+    localStorage.setItem(
+      VOICEPRINT_STORE_KEY,
+      JSON.stringify({ dim: 2, vector: [1, 0], utterances: 3, createdAt: 1 }),
+    );
+    const { service } = makeFakeService(store);
+    renderSection({ service });
+    expect(byVp("hint").textContent).toContain("旧版样本");
+    expect(byVp("status").textContent).toContain("已注册 · 3 句");
+    expect(slotBtnOpt("rerecord", 0)).toBeNull();
+    expect(slotBtnOpt("delete", 0)).toBeNull();
+    expect(byVp("test")).toBeTruthy();
+    expect(byVp("delete")).toBeTruthy();
+  });
+
+  it("句太短（<1.2s）→ 当场白话错误、不落槽", async () => {
+    const { service } = makeFakeService();
+    const recorder = makeRecorder(() => new Float32Array(16000 * 0.5));
     renderSection({ service, recorder, prepareModel: noopPrepare });
     await act(async () => {
-      fireEvent.click(byVp("register"));
+      fireEvent.click(slotBtn("record", 0));
     });
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        fireEvent.click(byVp("say"));
-      });
-      await waitFor(() => expect(byVp("count").textContent).toBe(`已录 ${i + 1} 句`));
-    }
+    await waitFor(() => expect(byVp("error").textContent).toContain("太短"));
+    expect(byVp("count").textContent).toContain("0 / 5");
+    expect(slotOf(0).getAttribute("data-vp-slot-state")).toBe("next");
+  });
+
+  it("模型下载失败 → 白话错误 + 导入通道保留（可手动导入续跑）", async () => {
+    const fake = makeFakeService();
+    const prepareModel = vi.fn().mockRejectedValue(new Error("download fail"));
+    renderSection({ service: fake.service, prepareModel, probeModel: async () => false });
+    await recordSlots(3);
     await act(async () => {
       fireEvent.click(byVp("finish"));
     });
-    await waitFor(() => expect(byVp("error").textContent).toContain("太短"));
-    expect(store.read()).toBeNull();
+    await waitFor(() => expect(byVp("error").textContent).toContain("拉取失败"));
+    expect(byVp("import")).toBeTruthy();
+    expect(fake.service.isRegistered()).toBe(false);
   });
 
-  it("生产 store 注入面：localStorage 模板可读（跨会话已注册态直显）", async () => {
-    const store = createLocalVoiceprintStore(localStorage);
-    store.write({ dim: 4, vector: new Float32Array([1, 0, 0, 0]), utterances: 3, createdAt: 1 });
-    const { service } = makeFakeService(store);
-    renderSection({ service });
-    expect(byVp("status").textContent).toContain("已注册");
-    expect(byVpOpt("register")).toBeNull();
-  });
-
-  it("手动导入：选文件 → importModel 上行 → 直接进采句态（daemon 落盘后拉取命中）", async () => {
-    const importModelProbe = vi.fn().mockResolvedValue(undefined);
-    const { service } = makeFakeService();
-    renderSection({ service, importModel: importModelProbe });
+  it("手动导入成功：就绪 chip + 自动续跑注册（暂存 >=3 句）", async () => {
+    const fake = makeFakeService();
+    const importModel = vi.fn().mockResolvedValue(undefined);
+    renderSection({ service: fake.service, importModel, prepareModel: noopPrepare, probeModel: async () => false });
+    await recordSlots(3);
     const fileInput = byVp("file") as HTMLInputElement;
     const file = new File([new Uint8Array(8).fill(1)], "voiceprint-model.onnx");
     await act(async () => {
@@ -231,49 +305,29 @@ describe("VoiceprintSection（M3-c 注册引导）", () => {
       fireEvent.change(fileInput);
     });
     await waitFor(() => {
-      expect(importModelProbe).toHaveBeenCalledWith(file);
-      expect(byVp("count")).toBeTruthy(); // 采句态（说一句按钮在）
-      expect(byVpOpt("import")).toBeNull(); // 未注册态入口退场
+      expect(importModel).toHaveBeenCalledWith(file);
+      expect(byVp("model-ready")).toBeTruthy();
     });
+    await waitFor(() => expect(fake.store.read()).not.toBeNull()); // 自动续跑注册成功
   });
 
-  it("手动导入失败：白话错误展示、停留未注册态（可重试）", async () => {
-    const importModelFail = vi.fn().mockRejectedValue(new Error("upload fail"));
-    const { service } = makeFakeService();
-    renderSection({ service, importModel: importModelFail });
-    const fileInput = byVp("file") as HTMLInputElement;
-    const file = new File([new Uint8Array(8).fill(1)], "voiceprint-model.onnx");
-    await act(async () => {
-      Object.defineProperty(fileInput, "files", { value: [file] });
-      fireEvent.change(fileInput);
-    });
-    await waitFor(() => {
-      expect(byVp("error").textContent).toContain("导入失败");
-      expect(byVp("register")).toBeTruthy();
-    });
-  });
-
-  it("就绪探测命中：明示模型已就绪 + 收起导入通道（注册入口保留）", async () => {
+  it("就绪探测命中：声音模型就绪 chip + 导入姿态收起", async () => {
     const { service } = makeFakeService();
     renderSection({ service, probeModel: async () => true });
     await waitFor(() => {
       expect(byVp("model-ready").textContent).toContain("已就绪");
+      expect(byVpOpt("import")).toBeNull();
+      expect(byVpOpt("file")).toBeNull();
     });
-    expect(byVp("register")).toBeTruthy(); // 注册入口仍在（点下即本机搬运）
-    expect(byVpOpt("import")).toBeNull(); // 导入姿态收起
-    expect(byVpOpt("file")).toBeNull();
   });
 
-  it("就绪探测缺席：保持下载/导入双通道（保守显示）", async () => {
+  it("麦克风失败 → 白话错误（麦克风不可用）", async () => {
     const { service } = makeFakeService();
-    renderSection({ service, probeModel: async () => false });
+    const recorder = { record: async () => null };
+    renderSection({ service, recorder, prepareModel: noopPrepare });
     await act(async () => {
-      await Promise.resolve();
+      fireEvent.click(slotBtn("record", 0));
     });
-    await waitFor(() => {
-      expect(byVp("register")).toBeTruthy();
-      expect(byVp("import")).toBeTruthy();
-    });
-    expect(byVpOpt("model-ready")).toBeNull();
+    await waitFor(() => expect(byVp("error").textContent).toContain("麦克风不可用"));
   });
 });

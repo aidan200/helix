@@ -12,8 +12,12 @@
  * 得分供用户自校准。
  */
 
-/** 判定阈值（余弦相似度 >= 此值 = 主人）。 */
+/** 判定阈值默认值（余弦相似度 >= 此值 = 主人；用户可在设置页按 30-80%
+ *  调参——阈值读取经 service 注入 getter，本常量是缺省口径）。 */
 export const VOICEPRINT_MATCH_THRESHOLD = 0.55;
+
+/** 采样率（16k mono——fbank/引擎/录音器同口径；UI 句长校验共用）。 */
+export const SAMPLES_PER_SECOND = 16_000;
 
 /** 注册最少句数（brief：说 3-5 句话生成模板）。 */
 export const VOICEPRINT_MIN_UTTERANCES = 3;
@@ -31,6 +35,9 @@ export const VERIFY_MIN_SECONDS = 0.4;
 export interface VoiceprintTemplate {
   readonly dim: number;
   readonly vector: Float32Array;
+  /** 逐句向量（槽位明细——支撑单槽重录/删除后重合成；旧版模板无此字段
+   *  回读为空数组：校验照旧走均值向量，单槽编辑不可用）。 */
+  readonly vectors: readonly Float32Array[];
   /** 注册句数（3-5）。 */
   readonly utterances: number;
   /** 注册时间（epoch ms）。 */
@@ -73,7 +80,13 @@ export function synthesizeTemplate(vectors: readonly Float32Array[], now: number
   } else {
     for (let i = 0; i < dim; i++) vector[i] = mean[i]! / norm;
   }
-  return { dim, vector, utterances: vectors.length, createdAt: now };
+  return {
+    dim,
+    vector,
+    vectors: vectors.map((v) => new Float32Array(v)),
+    utterances: vectors.length,
+    createdAt: now,
+  };
 }
 
 /** 模板 → 句向量域回读投影（测试/日志用；同构拷贝）。 */
@@ -81,8 +94,12 @@ export function utteranceVectorsOf(t: VoiceprintTemplate): Float32Array {
   return new Float32Array(t.vector);
 }
 
-/** 阈值判定：>= 阈值 pass；< 阈值 reject（带 score）。 */
-export function decideVerify(score: number): { kind: "pass" } | { kind: "reject"; score: number } {
-  if (score >= VOICEPRINT_MATCH_THRESHOLD) return { kind: "pass" };
+/** 阈值判定：>= 阈值 pass；< 阈值 reject（带 score）。阈值缺省 =
+ *  VOICEPRINT_MATCH_THRESHOLD（设置页调参时由调用方传入现值）。 */
+export function decideVerify(
+  score: number,
+  threshold: number = VOICEPRINT_MATCH_THRESHOLD,
+): { kind: "pass" } | { kind: "reject"; score: number } {
+  if (score >= threshold) return { kind: "pass" };
   return { kind: "reject", score };
 }

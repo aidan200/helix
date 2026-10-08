@@ -127,11 +127,16 @@ export const VOICE_VOICE_CHECK_PREF_KEY = "helix.voice.voiceCheck";
 /** 容忍带强度存储键（0-100 整数；缺省 50）。 */
 export const VOICE_ZCR_TOLERANCE_PREF_KEY = "helix.voice.zcrTolerance";
 
+/** 声纹相似度阈值存储键（整数百分比 30-80；缺省 55 = VOICEPRINT_MATCH_THRESHOLD
+ *  0.55 原口径——设置页声纹组滑杆写入，授权点 verifyGate 现读即时生效）。 */
+export const VOICEPRINT_THRESHOLD_PREF_KEY = "helix.voice.vpThreshold";
+
 /** 参数区间（写入钳制 / 读取合法性判定共用）。 */
 export const VAD_SENSITIVITY_RANGE = { min: 0, max: 100, default: 50 } as const;
 export const MIN_DURATION_RANGE = { min: 100, max: 1000, default: 300 } as const;
 export const SILENCE_WINDOW_RANGE = { min: 0, max: 1000, default: 300 } as const;
 export const ZCR_TOLERANCE_RANGE = { min: 0, max: 100, default: 50 } as const;
+export const VOICEPRINT_THRESHOLD_RANGE = { min: 30, max: 80, default: 55 } as const;
 
 /** 灵敏度映射端点（s=0 钝档 / s=100 灵档；s=50 恰为 VOICE_RMS_THRESHOLD）。 */
 export const VOICE_RMS_THRESHOLD_MAX = 0.036;
@@ -170,6 +175,16 @@ function writeNumericPref(key: string, value: number, range: { min: number; max:
 /** 读 VAD 灵敏度（0-100；缺省 50）。 */
 export function readVoiceVadSensitivityPref(): number {
   return readNumericPref(VOICE_VAD_SENSITIVITY_PREF_KEY, VAD_SENSITIVITY_RANGE);
+}
+
+/** 读声纹相似度阈值（整数百分比 30-80；缺省 55）。 */
+export function readVoiceprintThresholdPref(): number {
+  return readNumericPref(VOICEPRINT_THRESHOLD_PREF_KEY, VOICEPRINT_THRESHOLD_RANGE);
+}
+
+/** 写声纹相似度阈值（round + 区间钳制）。 */
+export function writeVoiceprintThresholdPref(percent: number): void {
+  writeNumericPref(VOICEPRINT_THRESHOLD_PREF_KEY, percent, VOICEPRINT_THRESHOLD_RANGE);
 }
 
 /** 写 VAD 灵敏度。 */

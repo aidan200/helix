@@ -47,6 +47,16 @@ describe("synthesizeTemplate（均值 + L2 归一）", () => {
     expect([...utteranceVectorsOf(t)][0]).toBeCloseTo(0.6, 6);
     expect([...utteranceVectorsOf(t)][1]).toBeCloseTo(0.8, 6);
   });
+
+  it("逐句明细随模板落盘：vectors 同构拷贝（槽位编辑数据面）", () => {
+    const v1 = new Float32Array([1, 0]);
+    const v2 = new Float32Array([0, 1]);
+    const t = synthesizeTemplate([v1, v2]);
+    expect(t.vectors).toHaveLength(2);
+    expect([...t.vectors[0]!]).toEqual([1, 0]);
+    v1[0] = 99; // 底座变异不影响已落模板（拷贝语义）
+    expect(t.vectors[0]![0]).toBe(1);
+  });
 });
 
 describe("decideVerify（阈值判定）", () => {
@@ -58,5 +68,10 @@ describe("decideVerify（阈值判定）", () => {
     });
     expect(decideVerify(1)).toEqual({ kind: "pass" });
     expect(decideVerify(0)).toMatchObject({ kind: "reject" });
+  });
+
+  it("自定义阈值（设置页调参）：0.9 阈值下 0.85 reject、0.95 pass", () => {
+    expect(decideVerify(0.95, 0.9)).toEqual({ kind: "pass" });
+    expect(decideVerify(0.85, 0.9)).toEqual({ kind: "reject", score: 0.85 });
   });
 });

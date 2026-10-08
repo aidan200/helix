@@ -144,7 +144,7 @@ describe("verifyGate 契约（授权点判定）", () => {
     });
     await svc.register([utterance(), utterance(), utterance()]).catch(() => undefined);
     // 直接种模板（不经引擎）再测 gate：
-    store.write({ dim: 2, vector: new Float32Array([1, 0]), utterances: 3, createdAt: 1 });
+    store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
     const r = await svc.verifyGate(utterance(2));
     expect(r).toEqual({ kind: "skip", reason: "engine-unavailable" });
     expect(warn).toHaveBeenCalled();
@@ -152,7 +152,7 @@ describe("verifyGate 契约（授权点判定）", () => {
 
   it("推理抛错 → skip(inference-error) + WARN", async () => {
     const warn = vi.fn();
-    store.write({ dim: 2, vector: new Float32Array([1, 0]), utterances: 3, createdAt: 1 });
+    store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
     const { engine } = fakeEngine([1, 0], { embedThrows: true });
     const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store, warn });
     const r = await svc.verifyGate(utterance(2));
@@ -164,10 +164,93 @@ describe("verifyGate 契约（授权点判定）", () => {
 describe("test 契约（注册页测试按钮）", () => {
   it("返回与模板的实时相似度得分", async () => {
     const store = createMemoryVoiceprintStore();
-    store.write({ dim: 2, vector: new Float32Array([1, 0]), utterances: 3, createdAt: 1 });
+    store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
     const { engine } = fakeEngine([0.9, 0.1]);
     const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store });
     const score = await svc.test(utterance(1.5));
     expect(score).toBeGreaterThan(0.95);
+  });
+});
+
+describe("阈值注入（设置页调参即时生效）", () => {
+  it("threshold getter 现读生效：同一得分高阈值 reject、低阈值 pass", async () => {
+    const store = createMemoryVoiceprintStore();
+    store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
+    const { engine } = fakeEngine([0.9, 0.1]); // cos ≈ 0.994
+    let threshold = 0.995;
+    const svc = createVoiceprintService({
+      engineLoader: () => Promise.resolve(engine),
+      store,
+      threshold: () => threshold,
+    });
+    const rejected = await svc.verifyGate(utterance(2));
+    expect(rejected.kind).toBe("reject");
+    threshold = 0.5; // 调参后无需重建服务——下一次 gate 现读即生效
+    const passed = await svc.verifyGate(utterance(2));
+    expect(passed).toEqual({ kind: "pass" });
+  });
+});
+
+describe("槽位编辑契约（单槽重录/删除——逐句向量明细）", () => {
+  it("注册落逐句明细：vectors 句数与 utterances 一致", async () => {
+    const store = createMemoryVoiceprintStore();
+    const { engine } = fakeEngine([1, 0]);
+    const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store });
+    const t = await svc.register([utterance(), utterance(), utterance()]);
+    expect(t.vectors).toHaveLength(3);
+    expect(t.utterances).toBe(3);
+    expect(svc.getTemplate()?.vectors).toHaveLength(3);
+  });
+
+  it("recordSlot 重录（index < 句数）→ 该槽向量换新 + 模板重合成", async () => {
+    const store = createMemoryVoiceprintStore();
+    let next: number[] = [1, 0];
+    const engine: EmbedEngine = {
+      embed: async () => new Float32Array(next),
+    };
+    const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store });
+    await svc.register([utterance(), utterance(), utterance()]);
+    next = [0, 1];
+    const t = await svc.recordSlot(1, utterance());
+    expect(Array.from(t.vectors[1]!)).toEqual([0, 1]);
+    expect(Array.from(t.vectors[0]!)).toEqual([1, 0]);
+    expect(t.utterances).toBe(3);
+  });
+
+  it("recordSlot 补录（index === 句数）→ 句数 +1（上限 5）", async () => {
+    const store = createMemoryVoiceprintStore();
+    const { engine } = fakeEngine([1, 0]);
+    const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store });
+    await svc.register([utterance(), utterance(), utterance()]);
+    const t = await svc.recordSlot(3, utterance());
+    expect(t.utterances).toBe(4);
+    await expect(svc.recordSlot(4, utterance())).resolves.toMatchObject({ utterances: 5 });
+    await expect(svc.recordSlot(5, utterance())).rejects.toMatchObject({ code: "max-utterances" });
+  });
+
+  it("守卫：未注册 not-registered / 旧模板 slots-unavailable / 越界 slot-range / 短句 utterance-too-short", async () => {
+    const store = createMemoryVoiceprintStore();
+    const { engine } = fakeEngine([1, 0]);
+    const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store });
+    await expect(svc.recordSlot(0, utterance())).rejects.toMatchObject({ code: "not-registered" });
+    store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
+    await expect(svc.recordSlot(0, utterance())).rejects.toMatchObject({ code: "slots-unavailable" });
+    await expect(svc.deleteSlot(0)).rejects.toMatchObject({ code: "slots-unavailable" });
+    await svc.remove();
+    await svc.register([utterance(), utterance(), utterance()]);
+    await expect(svc.recordSlot(4, utterance())).rejects.toMatchObject({ code: "slot-range" });
+    await expect(svc.recordSlot(-1, utterance())).rejects.toMatchObject({ code: "slot-range" });
+    await expect(svc.recordSlot(0, utterance(0.5))).rejects.toMatchObject({ code: "utterance-too-short" });
+  });
+
+  it("deleteSlot → 句数 -1 重合成；3 句保底拒删（min-utterances）", async () => {
+    const store = createMemoryVoiceprintStore();
+    const { engine } = fakeEngine([1, 0]);
+    const svc = createVoiceprintService({ engineLoader: () => Promise.resolve(engine), store });
+    await svc.register([utterance(), utterance(), utterance(), utterance()]);
+    const t = await svc.deleteSlot(1);
+    expect(t.utterances).toBe(3);
+    await expect(svc.deleteSlot(0)).rejects.toMatchObject({ code: "min-utterances" });
+    await expect(svc.deleteSlot(3)).rejects.toMatchObject({ code: "slot-range" });
   });
 });
