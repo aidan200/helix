@@ -41,6 +41,7 @@ import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tool
 import type { TodoToolDeps } from "../../adapters/driven/tools/todo/TodoTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
+import type { MemorySearchToolDeps } from "../../adapters/driven/tools/memory-search/MemorySearchTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { CodegraphToolDeps } from "../../adapters/driven/tools/codegraph/CodegraphTool";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
@@ -94,7 +95,7 @@ export type SessionEngineFactory = (
  */
 export function effectiveMainToolNames(
   declared: readonly string[],
-  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean; readonly coord: boolean; readonly permissionRequest: boolean },
+  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean; readonly coord: boolean; readonly memorySearch: boolean; readonly permissionRequest: boolean },
 ): string[] {
   return declared
     .filter((t) => injected.kg || (t !== "kg" && t !== "kg-update"))
@@ -109,6 +110,8 @@ export function effectiveMainToolNames(
       (t) =>
         injected.coord || (t !== "coord_claim" && t !== "coord_release" && t !== "coord_query"),
     )
+    // 批E：记忆未装配（memorySearchFor 返回 undefined）时剔除——不广告未注册工具
+    .filter((t) => injected.memorySearch || t !== "memory_search")
     // 提权申请批：沙箱未开启（executor 未注入 permissionRequest 槽）时剔除
     .filter((t) => injected.permissionRequest || t !== "permission_request");
 }
@@ -121,18 +124,20 @@ export interface MainEngineFactoryCtx {
   readonly resourceService: ResourceService;
   /** main 组装快照现值读面（let 缓存被 refreshAssembly 重算——getter 保现值读取语义）。 */
   readonly mainAssemblyOf: () => AssemblySnapshot;
-  /**
-   * U7 会话足迹常驻规则段数据源（可选注入——buildSessionStack 委派
+  /** U7 会话足迹常驻规则段数据源（可选注入——buildSessionStack 委派
    * deps.residentRulesOf）：engineFor 装配与 instantiatedSnapshot 两接触点
    * 尾拼；缺省不拼（测试形态，栈级快照原样）。
    */
   readonly residentRulesFor?: (sessionId: string) => string | null;
   /**
-   * 批D 编码 agent 记忆召回段数据源（可选注入——buildSessionStack 委派
-   * deps.agentMemoryRecallOf）：与 residentRulesFor 并列的会话级尾拼段
-   *（engineFor 装配与 instantiatedSnapshot 两接触点）；缺省不拼。
+   * memory_search 工具装配面（批E：编码 agent 记忆消费面工具化——批D
+   * 静态段注入退役，改为运行时工具调用）：会话级闭包（service 现值 +
+   * 调用时写足迹单项目归约 projectOf）；undefined = service 缺席
+   * （vec0 不可解析/记忆未装配）→ 不注册；service 在场即注册，广告面
+   * （effectiveMainToolNames）另按 isAvailable 现值门控——分野兑底 toggle
+   * 推送崩溃面（声明面=注册面铁律不破：广告 ⊆ 注册恒成立）。
    */
-  readonly agentMemoryRecallFor?: (sessionId: string) => string | null;
+  readonly memorySearchFor?: (sessionId: string) => MemorySearchToolDeps | undefined;
   readonly compactionSettings: () => CompactionSettings;
   readonly globalThinking: () => string | undefined;
   readonly toolCwdOf: () => string;
@@ -224,6 +229,9 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     // 沙箱装饰前的原始 NodeExecutionEnv 通道——AG-04：pi 符号不出 driven
     // 域，装配面经惰性闭包取 executor 公开成员；permissionRequest 槽仅在
     // 批准后的工具执行期调用，构造期不消费，自引用闭包安全）。
+    // 批E：memory_search 工具（service 在场即注册；广告面剔除见下方
+    // effectiveMainToolNames 旗标——可用性只管广告/降级文案，不管注册）。
+    const memorySearch = ctx.memorySearchFor?.(sessionId);
     const toolExecutor = new CoreToolExecutor({
       cwd: ctx.toolCwdOf(),
       // U1 护栏：bash 子进程携带会话标识 + manifest 根（pre-commit hook
@@ -286,6 +294,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       // task_report（D3）：仅主会话 executor（SubAgent 子进程本地栈与
       // 编排主 agent 不注入——生效集隔离，taskCreate 同构）
       ...(ctx.taskReport !== undefined ? { taskReport: ctx.taskReport } : {}),
+      ...(memorySearch !== undefined ? { memorySearch } : {}),
       // 主会话 todo 双工具：清单写面 + 广播包装
       ...(planDeps !== undefined ? { plan: planDeps } : {}),
       // 提权申请批：permission_request 工具——沙箱开启 + askService 注入时注册
@@ -331,17 +340,14 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     // 小对象引用无句柄调用（可接受——避免 SessionRegistry 加卸载回调面）。
     ctx.sessionExecutors.set(sessionId, toolExecutor);
     // U7：会话级常驻规则段拼接（应用时刻足迹现值——栈级快照 + 段尾拼；
-    // instantiatedSnapshot 同函数复用，两接触点同源）+ 批D：同点尾拼记忆
-    // 召回段（编码 agent 只读消费面——主会话形态）。
+    // instantiatedSnapshot 同函数复用，两接触点同源）。批E：批D 记忆召回
+    // 静态段已退役——记忆消费改走 memory_search 工具（运行时异步，无组装
+    // 链同步限制）。
     const mainSystemPrompt = (): string => {
       let prompt = ctx.mainAssemblyOf().systemPrompt;
       if (ctx.residentRulesFor !== undefined) {
         const section = ctx.residentRulesFor(sessionId);
         if (section !== null) prompt = `${prompt}\n\n${section}`;
-      }
-      if (ctx.agentMemoryRecallFor !== undefined) {
-        const memory = ctx.agentMemoryRecallFor(sessionId);
-        if (memory !== null) prompt = `${prompt}\n\n${memory}`;
       }
       return prompt;
     };
@@ -357,6 +363,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       taskReport: ctx.taskReport !== undefined,
       plan: planDeps !== undefined,
       coord: ctx.coordination !== undefined,
+      memorySearch: memorySearch !== undefined && memorySearch.service.isAvailable(),
       permissionRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
     });
     // thinking 解析链（§3.1 落点一/§3.3，thinking 批 T1.2）：链 =
@@ -432,8 +439,8 @@ export interface SessionRuntimeFactoryCtx {
   readonly mainAssemblyOf: () => AssemblySnapshot;
   /** U7 会话足迹常驻段（engineFor 同款字段——instantiatedSnapshot 接触点尾拼；缺省不拼）。 */
   readonly residentRulesFor?: (sessionId: string) => string | null;
-  /** 批D 编码 agent 记忆召回段（engineFor 同款字段——与 residentRulesFor 并列的会话级尾拼段；缺省不拼）。 */
-  readonly agentMemoryRecallFor?: (sessionId: string) => string | null;
+  /** 批E memory_search 旗标源（instantiatedSnapshot 声明面=注册面铁律：记忆未装配时快照不广告该名）。 */
+  readonly memorySearchFor?: (sessionId: string) => MemorySearchToolDeps | undefined;
   /** U4 占用协调服务（instantiatedSnapshot 声明面=注册面铁律的 coord 旗标源；缺省 = false 剔除）。 */
   readonly coordination?: CoordinationService;
   readonly compactionSettings: () => CompactionSettings;
@@ -481,17 +488,13 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       diff: diffState,
     });
     // U7：会话级常驻段拼接（buildRuntime 侧接触点——engineFor 同款局部
-    // helper，两函数各自作用域定义；sessionId = material.session.id）+
-    // 批D：同点尾拼记忆召回段（主会话 instantiatedSnapshot 接触点）。
+    // helper，两函数各自作用域定义；sessionId = material.session.id）。
+    // 批E：批D 记忆静态段已退役——消费改走 memory_search 工具。
     const mainSystemPrompt = (): string => {
       let prompt = ctx.mainAssemblyOf().systemPrompt;
       if (ctx.residentRulesFor !== undefined) {
         const section = ctx.residentRulesFor(material.session.id);
         if (section !== null) prompt = `${prompt}\n\n${section}`;
-      }
-      if (ctx.agentMemoryRecallFor !== undefined) {
-        const memory = ctx.agentMemoryRecallFor(material.session.id);
-        if (memory !== null) prompt = `${prompt}\n\n${memory}`;
       }
       return prompt;
     };
@@ -529,6 +532,13 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
           taskReport: ctx.taskReport !== undefined,
           plan: ctx.hasMainPlan,
           coord: ctx.coordination !== undefined,
+          memorySearch: (() => {
+            // 批E：广告面门控 = isAvailable 现值（engineFor 同口径——注册面
+            // 是 service 在场超集，可用性翻转不致注册面缺口，toggle 推送
+            // （raw catalog 名直推 setTools）永不撞未注册名）
+            const deps = ctx.memorySearchFor?.(material.session.id);
+            return deps !== undefined && deps.service.isAvailable();
+          })(),
           permissionRequest: ctx.askService !== undefined && ctx.sandboxOf?.() !== undefined,
         }),
         model: engine.currentModel?.() ?? ctx.defaultModel.current(),

@@ -11,7 +11,7 @@ import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/run
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 三 profile 全集全覆盖：main 27 名 + subagent 14 名 + kg-writer 13 名均有非空 snippet（plan 三工具改名批：todo 双工具——3→2；F4 接通批：edit-lines 进 main/worker；kg-writer 字面量落地不随 worker 渗入；提权申请批 +permission_request 进 main/worker；codemode 批 +codemode 仅 main）", () => {
+  test("① 三 profile 全集全覆盖：main 28 名 + subagent 15 名 + kg-writer 14 名均有非空 snippet（批E 工具化 +memory_search main/worker/kg-writer 同扩——worker 家族字面量清单奇偶同步；reviewer 派生断言同批跟随）", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
@@ -21,21 +21,22 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     for (const name of SubAgentKgWriterProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `kg-writer 工具 ${name} 缺 snippet`).toBeTruthy();
     }
-    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 27 / subagent 15
+    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 28 / subagent 15
     //（T3-B +agent_inspect；T3.3 +kg；T1.4 +plan 三工具 AD-6①；
     // T2.4 +task_create 仅 main，AD-7；D3 +task_report 仅 main；W1-B +codegraph R5；D8 W-R6 -kg-update
     // 收权；⑤ 链 C +agent_park/agent_resume 仅 main，P1；main-session plan 批
     // Main 同含 plan 三名两域同构——subagent 计数不变；F4 接通批 +edit-lines
-    // main/worker 同扩；提权申请批 +permission_request main/worker 同扩）；
+    // main/worker 同扩；提权申请批 +permission_request main/worker 同扩；批E
+    // 工具化 +memory_search main/worker 同扩）；
     // kg-writer = subagent 去 edit-lines/permission_request + kg-update（14，豁免面——提权裸跑不渗入图谱产出面）
-    expect(MainSessionProfile.tools).toHaveLength(27); // U4 +coord 三工具；提权申请批 +permission_request；todo 改名批 3→2；codemode 批 +codemode（仅 main）
-    expect(SubAgentProfile.tools).toHaveLength(14);
-    expect(SubAgentKgWriterProfile.tools).toHaveLength(13);
+    expect(MainSessionProfile.tools).toHaveLength(28); // codemode 批 +codemode（仅 main）；批E +memory_search
+    expect(SubAgentProfile.tools).toHaveLength(15); // 批E 工具化 +memory_search
+    expect(SubAgentKgWriterProfile.tools).toHaveLength(14); // 批E +memory_search（奇偶跟随 worker）
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 34 条（main 全集 + plan 三工具 + 编排 task 回口七工具——T2.2 + D3
-    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具；提权申请批 +permission_request；codemode 批 +codemode）
+    // 恰 35 条（main 全集 + plan 三工具 + 编排 task 回口七工具——T2.2 + D3
+    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume；F4 接通批 +edit-lines；U4 +coord 三工具；提权申请批 +permission_request；codemode 批 +codemode；批E +memory_search）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -56,6 +57,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "grep",
         "kg",
         "kg-update",
+        "memory_search",
         "todo_read",
         "todo_write",
         "read",

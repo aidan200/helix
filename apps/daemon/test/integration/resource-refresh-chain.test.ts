@@ -20,6 +20,7 @@ import { taskReportStub } from "../helpers/taskReportStub";
 import { planToolStub } from "../helpers/planToolStub";
 import { createPaths } from "../../src/infrastructure/paths";
 import { stubCoordDeps } from "../helpers/coord-stub";
+import { memorySearchStub } from "../helpers/memorySearchStub";
 
 /**
  * M6 T2 生效链（组合根接线）：
@@ -107,6 +108,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     plan: planToolStub(),
     // U4：coord 三名 stub 注入保持 resolveTools 可装配
     coord: stubCoordDeps(),
+    // 批E：MainSessionProfile 声明 memory_search——替身注入保持 resolveTools 可装配
+    memorySearch: memorySearchStub(),
   });
   return new PiAgentEngineAdapter({
     profile: MainSessionProfile,
@@ -146,8 +149,9 @@ const MAIN_TOOLS = [
   "coord_query",
   "permission_request", // 提权申请批（声明恒在，注册面门控）
   "codemode", // codemode 批：JS 沙箱编排工具（仅 main）
+  "memory_search", // 批E：长期记忆只读语义检索（主/worker 同面，编排面不声明）
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "todo_write", "todo_read", "permission_request"]; // H-3：+browser；T3.3：+kg；T1.4 起 todo 双工具（plan 三工具改名批；两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines；提权申请批：+permission_request
+const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "todo_write", "todo_read", "permission_request", "memory_search"]; // H-3：+browser；T3.3：+kg；T1.4 起 todo 双工具（plan 三工具改名批；两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines；提权申请批：+permission_request；批E：+memory_search（长期记忆只读语义检索）
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {

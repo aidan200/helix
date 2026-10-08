@@ -62,6 +62,9 @@ export const SubAgentCodeReviewerProfile: AgentProfile = {
     "codegraph",
     "todo_write",
     "todo_read",
+    // 批E 工具化：长期记忆只读语义检索（worker 家族奇偶同步——位置对齐
+    // SubAgentProfile 派生序，与写收权边界不冲突）
+    "memory_search",
   ],
   lifecycle: SubAgentProfile.lifecycle,
   hooks: SubAgentProfile.hooks,

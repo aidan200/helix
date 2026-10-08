@@ -457,7 +457,7 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
         const p = row.payload as {
           profileSnapshot: { systemPrompt: string; tools: string[]; model: string };
         };
-        expect(p.profileSnapshot.tools).toHaveLength(13); // 14 − read（spawn 组装快照 = 声明全集面，不经 effectiveMainToolNames 注册面门控；todo 改名批 3→2）
+        expect(p.profileSnapshot.tools).toHaveLength(14); // 15 − read（spawn 组装快照 = 声明全集面，不经 effectiveMainToolNames 注册面门控；todo 改名批 3→2；批E +memory_search）
         expect(p.profileSnapshot.tools).not.toContain("read");
         expect(p.profileSnapshot.model).toBe("anthropic/claude-haiku-4-5"); // profile 槽位第一级（uiModelSlot ?? 全局兜底，T12 两级链）
         expect(p.profileSnapshot.systemPrompt).not.toContain("- read:");

@@ -91,6 +91,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
       "todo_write",
       "todo_read",
       "permission_request", // 提权申请批：一次性沙箱外执行申请随 Main 清单直传（两域同扩；声明恒在注册面门控）
+      "memory_search", // 批E 工具化：长期记忆只读语义检索随 Main 清单直传（两域同扩；主会话注册面按 isAvailable 广告门控，子进程恒注册降级兑底）
     ]);
   });
 

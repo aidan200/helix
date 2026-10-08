@@ -145,8 +145,14 @@ export interface SubagentLauncherDeps {
    * isolated spawn 收口 failed 带原因——诚实报因不裸奔）。
    */
   readonly worktreeProvisioner?: WorktreeProvisionerPort;
-  /** U3：provision 成功回调（组合根接 SchedulerService.registerWorktree——closure 文案携路径的登记面）。 */
+  /** U1：provision 成功回调（组合根接 SchedulerService.registerWorktree——closure 文案携路径的登记面）。 */
   readonly onWorktreeProvisioned?: (instanceId: string, info: Exclude<WorktreeProvisionResult, { error: string }>) => void;
+  /**
+   * 批E：memory_search 项目 scope 定格透传面（launch 时刻求值 → env
+   * HELIX_MEMORY_PROJECT）：派发会话写足迹单项目归约（singleProjectDirOf
+   * 单点）；零/多足迹不传键（子进程仅 global）。缺省不透传（测试形态）。
+   */
+  readonly memoryProjectFor?: (sessionId: string) => string | undefined;
   /**
    * MCP server 配置透传面（mcp 批）：launch 时刻现拍组合根闭包（kind
    * 白名单门控 + registry 现值；返回空数组/undefined = 不透传键）。子进程
@@ -438,6 +444,12 @@ export class SubagentLauncher implements InstanceRunner {
         // U1 护栏：会话标识 + manifest 根透传（子进程 bash 的 commit 归属
         // 判定与父会话同域；实例级回退 instanceId——独立实例也有独立 manifest）
         HELIX_SESSION_ID: instance.sessionId || id,
+        ...(this.deps.memoryProjectFor !== undefined
+          ? (() => {
+              const project = this.deps.memoryProjectFor!(instance.sessionId || id);
+              return project !== undefined && project !== "" ? { HELIX_MEMORY_PROJECT: project } : {};
+            })()
+          : {}),
         ...(this.deps.writeFactsManifestDir !== undefined
           ? { HELIX_WRITE_FACTS_DIR: this.deps.writeFactsManifestDir }
           : {}),
