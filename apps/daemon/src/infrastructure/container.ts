@@ -87,6 +87,7 @@ import { CustomProviderService } from "../application/services/CustomProviderSer
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
 import { makeJudgeAdapter } from "../adapters/driven/embedding/JudgeAdapterFactory";
 import { makeTriageJudgeFace, resolveTriageJudgeRecord } from "../application/steward/StewardTriageJudge";
+import { makeIntentJudgeFace } from "../application/steward/StewardIntentJudge";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { SqliteStewardDialogStore, migrateStewardDialogKv } from "../adapters/driven/steward-memory/SqliteStewardDialogStore";
 import { StewardDialogMemory } from "../application/steward/StewardDialogMemory";
@@ -787,6 +788,19 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       judgeServices,
     ),
   });
+  // ── M3-a：管家意图判别判定面（判官第五消费面——E-199 注册表预言三次
+  //    验证：零改 JudgeAdapterFactory 任何一行，仅组合根新增一次
+  //    makeJudgeAdapter 调用 + Pick<JudgePort,"noul"> 窄注入）。与分诊
+  //    判官共享开关与端点（steward.triage.* 两键 + 端点解析单源闭包——
+  //    「判官判定」一个开关管全部管家判官判定，零新增配置面零 UI）。 */
+  const intentJudge = makeIntentJudgeFace({
+    config: persistence.runtimeConfig,
+    embeddingConfig,
+    judge: makeJudgeAdapter(
+      () => resolveTriageJudgeRecord(persistence.runtimeConfig, embeddingConfig),
+      judgeServices,
+    ),
+  });
   let voiceBroadcastRef: BroadcastService | undefined;
   let stewardServiceRef: StewardService | undefined;
   const stewardPerception =
@@ -990,6 +1004,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     ...(dialog !== undefined ? { dialog } : {}),
     memory: stewardMemory,
     triageJudge,
+    intentJudge,
     // 项目隔离批：当前项目口径解析（workspace 绑定根 + 一级目录扫描，
     // 与 codegraph/kg 的 projectPath 同源口径；kg 缺省范围批起双消费：记忆
     // 召回 + kg_search/kg_get 缺省范围——resolveKgScope 直接取本口径，不另
@@ -1064,6 +1079,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 作废三提醒）
     emitActionCompleted: (payload) => eventStream.broadcastStewardActionCompleted(payload),
     emitNotify: (payload) => eventStream.broadcastStewardNotify(payload),
+    // M3-a（CAND-601 闭环）：对话内主动汇报实时帧出口（reportProactive 双写
+    // ——开着的面板实时冒条目；与 feed/notify 同订阅闸）
+    emitProactive: (payload) => eventStream.broadcastStewardProactive(payload),
     // B4a 自动沉淀提案帧出口（与 feed 同订阅闸——判官判定后轮外投递确认卡）
     emitMemoryWritten: (payload) => eventStream.broadcastStewardMemoryWritten(payload),
     // M0 表面协议地基批（D8 navigate 收编）：emitNavigate 域出口改经

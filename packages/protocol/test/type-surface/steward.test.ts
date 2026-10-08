@@ -103,6 +103,7 @@ type _StewardFamily = Expect<
       | "steward.thinking"
       | "steward.navigate"
       | "steward.notify"
+      | "steward.proactive"
       | "steward.pending.snapshot"
       | "steward.memory_written"
       | "steward.memory_list.result"
@@ -593,5 +594,51 @@ describe("管家感知批：steward.notify 主动通知帧（与 feed 同订阅�
     expect(notifyFrame.payload.seq).toBe(1);
     expect(summarizeEvent(notifyFrame)).toBe("steward-notify:normal:任务完成:1");
     expect(familyOf(notifyFrame)).toBe("steward/steward.notify");
+  });
+});
+
+// ── M3-a 批：steward.proactive 对话内主动汇报实时帧（CAND-601 闭环）──
+
+import type { StewardProactiveEvent, StewardProactivePayload } from "../../src/index";
+
+const proactiveFrame: StewardProactiveEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "steward",
+  type: "steward.proactive",
+  payload: {
+    title: "部署完成",
+    text: "部署服务这轮跑完了，健康检查全部通过。",
+    suggestions: [{ label: "看看报告", verb: "open_tasks" }],
+    seq: 1,
+  },
+};
+
+describe("M3-a 批：steward.proactive 主动汇报实时帧（additive 事件帧——与 feed 同订阅闸）", () => {
+  test("目录登记（EVENT_TYPES / EVENT_CHANNELS 挂 steward 族）", () => {
+    expect(EVENT_TYPES).toContain("steward.proactive");
+    expect(EVENT_CHANNELS["steward.proactive"]).toBe("steward");
+  });
+
+  test("payload 窄化：title/text/suggestions（同 notify 建议形态）/seq 单调", () => {
+    expect(proactiveFrame.payload.title).toBe("部署完成");
+    expect(proactiveFrame.payload.text).toContain("健康检查");
+    expect(proactiveFrame.payload.suggestions?.[0]?.label).toBe("看看报告");
+    expect(proactiveFrame.payload.suggestions?.[0]?.verb).toBe("open_tasks");
+    expect(proactiveFrame.payload.seq).toBe(1);
+    expect(summarizeEvent(proactiveFrame)).toBe("steward-proactive:部署完成:1");
+    expect(familyOf(proactiveFrame)).toBe("steward/steward.proactive");
+  });
+
+  test("信封纪律：daemon 级全局帧（SYSTEM_SESSION_ID + channel steward——无会话作用域）", () => {
+    expect(proactiveFrame.sessionId).toBe("__system__");
+    expect(proactiveFrame.channel).toBe("steward");
+    expect(proactiveFrame.type).toBe("steward.proactive");
+  });
+
+  test("payload 类型面：title/text/seq 必填 + suggestions 可选（additive 缺省容忍）", () => {
+    const minimal: StewardProactivePayload = { title: "t", text: "x", seq: 2 };
+    expect(minimal.seq).toBe(2);
+    expect(minimal.suggestions).toBeUndefined();
   });
 });

@@ -1309,6 +1309,10 @@ export const zhCN = {
     send: "发送",
     // L1 件二：排队确认帧文案（{position} 插值）
     askQueued: "已排队（第 {position} 位）——当前回答完成后自动接续",
+    // M3-a（CAND-601）：主动汇报实时帧文案——与 daemon 工作记忆记录逐字节
+    // 同形（回放同构：en 同文，见 en-US 同键注释）
+    proactiveTitle: "【主动汇报】{title}",
+    proactiveSuggestion: "建议：{label}（点按才动）",
     memoryAdded: "已记入长期记忆",
     memoryUpdated: "记忆已更新（同一条覆盖）",
     confirmTitle: "写动作待确认",

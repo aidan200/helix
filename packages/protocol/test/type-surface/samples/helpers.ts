@@ -376,6 +376,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.pending.snapshot":
       // 确认链路修复批：在途确认卡快照（订阅对账/清场）
       return `steward-pending-snapshot:${event.payload.actionIds.join(",")}`;
+    case "steward.proactive":
+      // M3-a 批：对话内主动汇报实时帧（CAND-601 闭环——与 notify 同建议形态，无 urgency）
+      return `steward-proactive:${event.payload.title}:${event.payload.seq}`;
     case "surface.action":
       // 表面协议地基批（M0）：统一动作指令帧窄化（verb + risk + seq + 定向面）
       return `surface-action:${event.payload.verb}:${event.payload.risk}:${event.payload.seq}:${event.payload.surfaceIds?.join(",") ?? "-"}`;

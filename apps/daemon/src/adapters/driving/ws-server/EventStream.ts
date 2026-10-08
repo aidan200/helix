@@ -43,6 +43,8 @@ import type {
   SurfaceActionPayload,
   StewardNotifyEvent,
   StewardNotifyPayload,
+  StewardProactiveEvent,
+  StewardProactivePayload,
   StewardPendingSnapshotEvent,
   StewardPendingSnapshotPayload,
   TaskChangedEvent,
@@ -645,6 +647,33 @@ export class EventStream implements EventPublisherPort {
     }
     // 语音闭环批 ⑤：发出即打 INFO（title + seq + 投递连接数——通知行为可观测）
     this.deps.logger?.info?.(`steward.notify 发出：${payload.title}（seq=${payload.seq}，投递 ${recipients} 连接）`);
+  }
+
+  /**
+   * steward.proactive 对话内主动汇报实时广播（M3-a 批——CAND-601 闭环）：
+   * daemon 级全局帧（信封 sessionId = SYSTEM_SESSION_ID、channel = "steward"），
+   * 投递按连接级 steward 订阅位过滤（feed/notify 同闸门同构）。触发面 =
+   * StewardService.reportProactive（激活态主动环投递——工作记忆 assistant
+   * 记录与实时帧双写：开着的面板实时冒条目，重开面板由 history 回放同源
+   * 再现）。**事件帧非指令帧**（与 notify 同通道治理）：告知 + 建议点按
+   * 才动；不进对话上下文不占通知预算（对话内汇报与 notify 预算分轨）。
+   */
+  broadcastStewardProactive(payload: StewardProactivePayload): void {
+    const frame: StewardProactiveEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.proactive",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
   }
 
   /**

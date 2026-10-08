@@ -465,6 +465,31 @@ export interface StewardNotifyEvent extends EventFrame<StewardNotifyPayload> {
   type: "steward.notify";
 }
 
+/**
+ * steward.proactive payload（M3-a 批，additive——CAND-601 闭环）：对话内
+ * 主动汇报实时帧——reportProactive 写工作记忆的同时广播本帧，开着的管
+ * 家面板实时冒出汇报条目（不重开面板；重开由 history 回放同源再现）。
+ * **事件帧非指令帧**（与 notify 同通道治理：告知 + 建议点按才动）；
+ * suggestions 与 notify 建议形态同源（无 urgency——对话内汇报不进通知预算）。
+ */
+export interface StewardProactivePayload {
+  /** 汇报标题（任务标题机械字段 / 终态词——与 notify.title 同源）。 */
+  title: string;
+  /** 汇报正文（与工作记忆 assistant 记录同文本）。 */
+  text: string;
+  /** 接续提案（可选；点按才动——与 notify.suggestions 同形态）。 */
+  suggestions?: readonly StewardNotifySuggestion[];
+  /** 连接内单调顺序号（1 起；shell 侧顺序保障/丢帧检测面）。 */
+  seq: number;
+}
+
+/** steward.proactive：对话内主动汇报实时广播帧（channel = "steward"；仅发
+ *  已订阅连接——与 feed/notify 同闸门；旧壳缺帧型忽略零破坏）。 */
+export interface StewardProactiveEvent extends EventFrame<StewardProactivePayload> {
+  channel?: "steward";
+  type: "steward.proactive";
+}
+
 /** steward.pending.snapshot payload（确认链路修复批；E-206 预留帧位落地）：
  *  daemon 当前在途确认卡集快照——订阅对账载体。空集即清场指令（daemon
  *  重启后内存 pending 不持久化，shell 收空集即撤全部旧卡——跨重启残卡

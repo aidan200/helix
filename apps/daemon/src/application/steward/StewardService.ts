@@ -52,10 +52,20 @@ import type {
   StewardNavigatePayload,
   StewardMemoryWrittenPayload,
   StewardNotifyPayload,
+  StewardProactivePayload,
 } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
+import {
+  STEWARD_INTENT_JUDGE_CANCEL_QUESTION,
+  STEWARD_INTENT_JUDGE_CONFIRM_QUESTION,
+  STEWARD_INTENT_JUDGE_REVISE_QUESTION,
+  buildIntentJudgeState,
+  buildIntentReviseAskText,
+  pickIntentByScores,
+  type IntentJudgeFace,
+} from "./StewardIntentJudge";
 import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
 import type { StewardToolSpec } from "../ports/outbound/StewardToolSpec";
 import type { StewardSurfacePort, StewardSurfaceActRequest } from "../ports/outbound/StewardSurfacePort";
@@ -804,6 +814,11 @@ export interface StewardServiceDeps {
  *  组读写 + 感知服务判定依赖同源真体；缺席 = triage 组读写降级不可用
  *  + 判定面不启用——回退现行 LLM JSON 路径）。 */
   readonly triageJudge?: TriageJudgeFace;
+  /** M3-a 意图判别判定面（判官第五消费面——词表未命中 ∧ pending 卡在场
+   *  时的泛化判定：确认/取消/修正三问 noul 分流；缺席/关闭/未配/抛错 →
+   *  回退词表后行为（原样走 LLM），零劣化。与分诊判官共享开关与端点
+   *  （组合根 makeIntentJudgeFace 单源闭包）。 */
+  readonly intentJudge?: IntentJudgeFace;
   /** 当前项目口径解析（项目隔离批引入；kg 缺省范围批起双消费面）：返回
  *  workspace 一级项目目录名（workspace 绑定根 + 一级目录扫描的单项目口径
  *  ——记忆召回与 kg_search/kg_get 缺省范围共用同源，不另造口径判定）；多
@@ -827,6 +842,10 @@ export interface StewardServiceDeps {
   /** 可靠性批：用户提醒出口（挂起恢复/确认可达性/TTL 作废三提醒帧——组合根
    *  接 EventStream.broadcastStewardNotify；缺席 = 零提醒）。 */
   readonly emitNotify?: (payload: StewardNotifyPayload) => void;
+  /** M3-a：对话内主动汇报实时帧出口（CAND-601 闭环——组合根接
+   *  EventStream.broadcastStewardProactive；缺席 = 零帧，工作记忆记录照写
+   *  ——语义面零降级，仅实时性缺席）。 */
+  readonly emitProactive?: (payload: StewardProactivePayload) => void;
 }
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
@@ -1227,6 +1246,8 @@ export class StewardService {
   private watchdogFiredAt: number | undefined;
   /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
   private notifySeq = 0;
+  /** 主动汇报实时帧序（emitProactive 单调 seq——M3-a，与 notify 同构口径）。 */
+  private proactiveSeq = 0;
   /** 可靠性批巡检定时器（生产 interval 句柄——start/stopReliabilityTimers；
    *  测试不启定时器直接调 reliabilityTick 注入时钟）。 */
   private reliabilityTimer: ReturnType<typeof setInterval> | undefined;
@@ -1262,6 +1283,24 @@ export class StewardService {
     if (phrase !== undefined) {
       const routed = this.routeConfirmPhrase(phrase);
       if (routed !== undefined) return routed;
+    }
+    // 判官泛化层（M3-a：三级漏斗第二级）：词表未命中 ∧ pending 卡在场 →
+    // 判官 noul 三问分流「确认/取消/修正」。确认/取消复用口令路由执行面
+    //（零 LLM 零新提案）；修正 = 撤旧卡 + 按修正后意图新开（一次 LLM 带卡
+    // 全文上下文）；三问皆低 = 无关新任务原样走 LLM。判官缺席/关闭/未配/
+    // 抛错 → 回退词表后行为零劣化（judgePendingIntent 内降级链）。挂闸
+    // 阻塞中泛化确认 = 面板点卡的等价入口（与口令路由同构）。
+    if (phrase === undefined) {
+      const generalized = await this.judgePendingIntent(text);
+      if (generalized !== undefined) {
+        if (generalized.intent !== "revise") {
+          const routed = this.routeConfirmPhrase(generalized.intent);
+          if (routed !== undefined) return routed;
+          // 卡在分类与路由间消失（TTL/并发消费）：零差异回退原样走 LLM
+        } else {
+          text = generalized.revisedText; // 修正轮输入替换（下方队列/驱动链零感知）
+        }
+      }
     }
     // 暂停态（挂闸阻塞中）新 ask：loop 语义 = 旧 run 已 settle 过期、新 ask
     // 照常（E-197 迁移前等价）——pi 映射：abort 阻塞中的 run（闸内 raceAbort
@@ -2094,6 +2133,55 @@ export class StewardService {
     return latest?.id;
   }
 
+  /** 判官泛化层（M3-a）：词表未命中 ∧ pending 卡在场 → 判官三问分流。
+   *  返回 undefined = 不适用/降级（原样走 LLM）；confirm/cancel = 路由
+   *  执行面；revise = 撤旧卡 + 修正轮 LLM 输入（带卡全文上下文）。
+   *  降级链（E-250 同款）：开关关零日志 / 端点未配 WARN / 抛错 WARN 不
+   *  重试——全部回退词表后行为零劣化。无卡零判官调用（不判闲聊）。 */
+  private async judgePendingIntent(
+    text: string,
+  ): Promise<
+    | { intent: "confirm" | "cancel" }
+    | { intent: "revise"; revisedText: string }
+    | undefined
+  > {
+    const judge = this.deps.intentJudge;
+    if (judge === undefined) return undefined;
+    if (!judge.enabled()) return undefined; // 开关关：默认态零日志（与分诊判官同款）
+    const latest = this.latestPendingActionId();
+    if (latest === undefined) return undefined; // 无卡零判官调用（范围钳制）
+    if (!judge.ready()) {
+      // 开关开但端点未配/已删/非 classifier——值得提醒（用户预期判官生效）
+      this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——回退词表后行为（原样走 LLM）");
+      return undefined;
+    }
+    const entry = this.pending.get(latest)!;
+    const state = buildIntentJudgeState(entry.action.displayTarget, entry.action.message, text);
+    try {
+      const [revise, cancel, confirm] = await Promise.all([
+        judge.noul(state, STEWARD_INTENT_JUDGE_REVISE_QUESTION),
+        judge.noul(state, STEWARD_INTENT_JUDGE_CANCEL_QUESTION),
+        judge.noul(state, STEWARD_INTENT_JUDGE_CONFIRM_QUESTION),
+      ]);
+      const intent = pickIntentByScores(revise, cancel, confirm);
+      if (intent === undefined) return undefined; // 无关新任务 → 原样走 LLM
+      if (intent === "revise") {
+        // 修正：撤旧卡（终局 voided + superseded 广播——多窗卡栈同步）+
+        // 修正轮 LLM 输入带原卡全文（一次 LLM，不先撤卡再裸问）
+        this.cancel(latest);
+        return {
+          intent: "revise",
+          revisedText: buildIntentReviseAskText(entry.action.displayTarget, entry.action.message, text),
+        };
+      }
+      return { intent };
+    } catch (err) {
+      // 判官抛错即降级不重试（E-214/E-250 同款保守语义）
+      this.deps.logger?.warn(`管家意图判官判定失败，回退词表后行为：${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
   /** 口令路由（确认链路修复批③）：纯文本口令绑定最近 pending 卡消费/作废
    *  ——零 LLM 零新提案（治「确认了很多遍」被当新指令）；无 pending 卡时
    *  返回 undefined 原样走 LLM。确认回执经广播出口（口令来自任意连接）。 */
@@ -2394,13 +2482,24 @@ export class StewardService {
    * 现场）；只是记录追加，零引擎驱动零响应环改动；接续提案为文本建议行，
    * 点按才动/写类动作仍过确认闸（D12-⑤ 不变）。组合根接
    * StewardPerceptionService.reportDialog 窄接口。
+   *
+   * M3-a（CAND-601 闭环）：记录追加的同时广播 steward.proactive 实时帧
+   * ——开着的面板实时冒出汇报条目（不重开面板）；重开面板由 history 回放
+   * 同源再现。emitProactive 缺席 = 零帧，记录照写（语义面零降级）。
    */
-  async reportProactive(report: { title: string; text: string; suggestions?: readonly { label: string }[] }): Promise<void> {
+  async reportProactive(report: { title: string; text: string; suggestions?: readonly { label: string; verb?: string; sessionId?: string }[] }): Promise<void> {
     const lines = [`【主动汇报】${report.title}`, report.text];
     for (const s of report.suggestions ?? []) {
       if (s.label.trim() !== "") lines.push(`建议：${s.label}（点按才动）`);
     }
     await this.pushRecord({ kind: "assistant", text: lines.join("\n"), at: this.now() });
+    this.proactiveSeq += 1;
+    this.deps.emitProactive?.({
+      title: report.title,
+      text: report.text,
+      ...(report.suggestions !== undefined && report.suggestions.length > 0 ? { suggestions: report.suggestions } : {}),
+      seq: this.proactiveSeq,
+    });
   }
 
   // ── 内部 ────────────────────────────────────────────────

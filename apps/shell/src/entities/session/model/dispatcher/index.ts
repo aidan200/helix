@@ -188,6 +188,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.thinking",
   "steward.navigate",
   "steward.notify",
+  // M3-a 批 +steward.proactive（对话内主动汇报实时帧——CAND-601 闭环：真
+  // 消费归 useSteward 面板条目实时追加；与 notify 同订阅闸广播）
+  "steward.proactive",
   // 确认链路修复批 +steward.pending.snapshot（在途确认卡快照——订阅对账/
   // 跨重启清场；真消费归 useStewardActions 撤旧卡）
   "steward.pending.snapshot",

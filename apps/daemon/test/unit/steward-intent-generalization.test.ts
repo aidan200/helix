@@ -1,0 +1,316 @@
+/**
+ * M3-a 批：管家意图判官泛化判定服务级单测（判官第五消费面——三级漏斗
+ * 第二级：词表 0ms → 判官 ~百ms → LLM 秒级）。
+ *
+ * 断言面（brief 测试要求逐条）：
+ * - 词表未命中 ∧ pending 卡在场 ∧ noul≥0.5 → 消费卡（确认）或作废（取消）
+ *   ——零 LLM 新提案；
+ * - noul<0.5（三问皆低）→ 原样走 LLM（无关新任务）；
+ * - 无卡 → 判官零调用（不判闲聊——范围钳制）；
+ * - 词表命中 → 判官零调用（第一级优先）；
+ * - 判官抛错 → 回退词表后行为（原样走 LLM）+ WARN 不重试；
+ * - 判官关闭（默认态）→ 零调用零日志；开但未配 → WARN 回退；
+ * - 「修正」意图 → 撤旧卡（superseded 广播）+ 按修正后意图新开（一次 LLM
+ *   带卡全文上下文）。
+ */
+import { describe, expect, test } from "bun:test";
+import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
+import type { StewardLlmPort, StewardLlmRequest, StewardLlmResponse } from "../../src/application/ports/outbound/StewardLlmPort";
+import type { AgentOrchestrationPort, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
+import type { RuntimeConfigPort } from "../../src/application/ports/outbound/RuntimeConfigPort";
+import type { StewardActionCompletedPayload, StewardNotifyPayload } from "@helix/protocol";
+import { StewardService } from "../../src/application/steward/StewardService";
+import { StewardDialogMemory } from "../../src/application/steward/StewardDialogMemory";
+import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
+import type { IntentJudgeFace } from "../../src/application/steward/StewardIntentJudge";
+
+// ── fakes（confirm-chain harness 同款最小面） ─────────────────
+
+function fakeLlm(script: readonly StewardLlmResponse[]) {
+  const requests: StewardLlmRequest[] = [];
+  let round = 0;
+  const port: StewardLlmPort = {
+    modelId: "fake/flash",
+    async complete(request: StewardLlmRequest): Promise<StewardLlmResponse> {
+      requests.push(request);
+      const next = script[round];
+      round += 1;
+      if (next === undefined) throw new Error(`fake LLM 剧本耗尽（round=${round}——判官路由应零 LLM 调用）`);
+      return next;
+    },
+  };
+  return { port, requests };
+}
+
+function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort {
+  const kv = new Map(Object.entries(initial));
+  return {
+    get: (key: string) => kv.get(key),
+    set: async (key: string, value: string) => {
+      kv.set(key, value);
+    },
+  };
+}
+
+/** 意图判官 fake：三问固定分数 + 调用记录。 */
+function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: number }, opts: { enabled?: boolean; ready?: boolean; throwErr?: Error } = {}): IntentJudgeFace & { noulCalls: { state: string; question: string }[] } {
+  const noulCalls: { state: string; question: string }[] = [];
+  const questionKey: Record<string, keyof typeof scores> = {};
+  void questionKey;
+  return {
+    noulCalls,
+    enabled: () => opts.enabled ?? true,
+    ready: () => opts.ready ?? true,
+    noul: async (state, question) => {
+      noulCalls.push({ state, question });
+      if (opts.throwErr !== undefined) throw opts.throwErr;
+      // 按问句关键词分流固定分数（问句单源常量与实现同模块——关键词稳定）
+      if (question.includes("修正")) return scores.revise;
+      if (question.includes("取消")) return scores.cancel;
+      return scores.confirm;
+    },
+  };
+}
+
+function fakeSessions() {
+  const deliveries: { sessionId: string; text: string }[] = [];
+  return {
+    deliveries,
+    listSessionMetadata: async () => [],
+    startDraftSession: async () => ({ sessionId: "s-new" }),
+    createTitledSession: async (title: string) => ({ sessionId: `s-${title}` }),
+    sessionExists: async (sessionId: string) => sessionId.startsWith("s-"),
+    deliverToSession: async (sessionId: string, text: string) => {
+      deliveries.push({ sessionId, text });
+      return { delivered: true, detail: `已投递到 ${sessionId}（idle → 新轮次）` };
+    },
+    readSessionTail: async () => [],
+  };
+}
+
+function makeService(opts: { llm: StewardLlmPort; intentJudge?: IntentJudgeFace }) {
+  const notifies: StewardNotifyPayload[] = [];
+  const actionCompleted: StewardActionCompletedPayload[] = [];
+  const logger = { infos: [] as string[], warns: [] as string[], info: (m: string) => logger.infos.push(m), warn: (m: string) => logger.warns.push(m) };
+  const sends: { agentId: string; message: string }[] = [];
+  const orchestration = {
+    sends,
+    status: (): AgentInstanceStatus[] => [
+      { agentId: "agent-1", state: "running", displayState: "active", profileKind: "subagent-worker", task: "部署服务" },
+    ],
+    send: (agentId: string, message: string) => {
+      sends.push({ agentId, message });
+      return { delivered: true, detail: "已投递（turn 边界注入生效）" };
+    },
+  } as unknown as Pick<AgentOrchestrationPort, "status" | "send"> & { sends: { agentId: string; message: string }[] };
+  const sessions = fakeSessions();
+  const innerCreate = createEngineFromPort(opts.llm);
+  const svc = new StewardService({
+    llm: opts.llm,
+    orchestration,
+    tasks: { listTasks: () => [] },
+    config: fakeConfig({ "steward.enabled": "1" }),
+    dialog: new StewardDialogMemory(fakeDialogStore()),
+    clock: () => 0,
+    feedGate: { hasStewardSubscribers: () => false },
+    emitFeed: () => undefined,
+    emitNotify: (payload) => notifies.push(payload),
+    emitActionCompleted: (payload) => actionCompleted.push(payload),
+    logger,
+    sessions,
+    onDelivered: () => undefined,
+    createEngine: (engineOpts) => innerCreate(engineOpts),
+    ...(opts.intentJudge !== undefined ? { intentJudge: opts.intentJudge } : {}),
+  });
+  return { svc, sessions, notifies, actionCompleted, logger };
+}
+
+async function settle(rounds = 12): Promise<void> {
+  for (let i = 0; i < rounds; i += 1) {
+    await new Promise((r) => setTimeout(r, 1));
+  }
+}
+
+const toolCall = (name: string, args: Record<string, unknown>): StewardLlmResponse => ({
+  kind: "blocks",
+  blocks: [{ type: "toolCall", id: `call-${name}-${Math.random().toString(36).slice(2, 7)}`, name, args }],
+  stopReason: "toolUse",
+});
+const answer = (text: string): StewardLlmResponse => ({
+  kind: "blocks",
+  blocks: [{ type: "text", text }],
+  stopReason: "stop",
+});
+
+/** 挂闸弹卡快捷面（deliver_to_session 提案 → confirm_required）。 */
+async function askForCard(svc: StewardService, text: string): Promise<{ actionId: string; message: string }> {
+  const outcome = await svc.ask(text);
+  if (outcome.status !== "confirm_required") throw new Error(`预期 confirm_required，实际 ${outcome.status}`);
+  return { actionId: outcome.actionId, message: outcome.message };
+}
+
+/** 弹一张 deliver 卡的剧本（会话 s-1）。 */
+const CARD_SCRIPT: readonly StewardLlmResponse[] = [
+  toolCall("deliver_to_session", { sessionId: "s-1", text: "继续执行部署计划" }),
+];
+
+// ── 确认意图：词表未命中 + 卡在场 + noul≥0.5 → 消费卡零 LLM ─────────
+
+describe("M3-a 确认意图泛化（noul≥0.5 → 消费在途卡）", () => {
+  test("长句确认表述（非词表全等）→ 判官确认 → 卡被消费真执行，零 LLM 新提案", async () => {
+    const llm = fakeLlm([...CARD_SCRIPT]); // 剧本只有弹卡轮——第二轮 LLM 调用即剧本耗尽红
+    const judge = fakeIntentJudge({ revise: 0.1, cancel: 0.1, confirm: 0.92 });
+    const { svc, sessions } = makeService({ llm: llm.port, intentJudge: judge });
+    const card = await askForCard(svc, "把部署计划发给会话 s-1");
+
+    const outcome = await svc.ask("嗯就这样可以了，弄吧");
+    expect(outcome.status).toBe("answer");
+    if (outcome.status !== "answer") throw new Error("unreachable");
+    expect(outcome.text).toContain("已确认"); // 与词表路由同款回执（TR-243 纯语音短句形态）
+    await settle();
+    expect(sessions.deliveries.length).toBe(1); // 卡真执行
+    expect(svc.pendingSnapshot().length).toBe(0); // 卡已消费
+    expect(judge.noulCalls.length).toBe(3); // 三问并发各一次
+    expect(llm.requests.length).toBe(1); // 零 LLM 新提案（只有弹卡轮）
+  });
+
+  test("取消意图（noul≥0.5）→ 卡作废零执行 + superseded 广播", async () => {
+    const llm = fakeLlm([...CARD_SCRIPT]);
+    const judge = fakeIntentJudge({ revise: 0.05, cancel: 0.88, confirm: 0.2 });
+    const { svc, sessions, actionCompleted } = makeService({ llm: llm.port, intentJudge: judge });
+    const card = await askForCard(svc, "把部署计划发给会话 s-1");
+
+    const outcome = await svc.ask("这个先算了别弄了");
+    expect(outcome.status).toBe("answer");
+    if (outcome.status !== "answer") throw new Error("unreachable");
+    expect(outcome.text).toContain("已放弃");
+    await settle();
+    expect(sessions.deliveries.length).toBe(0); // 零执行
+    expect(svc.pendingSnapshot().length).toBe(0);
+    const superseded = actionCompleted.find((p) => p.actionId === card.actionId && (p as { outcome?: string }).outcome === "superseded");
+    expect(superseded).toBeDefined(); // 多窗卡栈同步撤卡
+    expect(llm.requests.length).toBe(1); // 零 LLM
+  });
+});
+
+// ── 无关新任务：noul<0.5 → 原样走 LLM ─────────────────────────
+
+describe("M3-a 无关新任务（三问皆 <0.5 → 原样走 LLM）", () => {
+  test("判官判无关 → 不消费卡，新指令走 LLM（卡保留）", async () => {
+    const llm = fakeLlm([
+      ...CARD_SCRIPT,
+      answer("好的——已另开新话题处理（旧卡保留待确认）。"),
+    ]);
+    const judge = fakeIntentJudge({ revise: 0.1, cancel: 0.1, confirm: 0.2 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+
+    const outcome = await svc.ask("顺便帮我查一下今天有哪些任务在跑");
+    expect(outcome.status).toBe("answer");
+    expect(svc.pendingSnapshot().length).toBe(1); // 卡保留（未误消费）
+    expect(judge.noulCalls.length).toBe(3);
+    expect(llm.requests.length).toBe(2); // 第二轮 LLM 原样收到用户话
+  });
+});
+
+// ── 无卡零判官（不判闲聊——范围钳制） ─────────────────────────
+
+describe("M3-a 无卡 → 判官零调用", () => {
+  test("无 pending 卡时任意输入 → 零 noul 调用，原样走 LLM", async () => {
+    const llm = fakeLlm([answer("目前没有待确认的操作。")]);
+    const judge = fakeIntentJudge({ revise: 0.9, cancel: 0.9, confirm: 0.9 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    const outcome = await svc.ask("今天天气怎么样");
+    expect(outcome.status).toBe("answer");
+    expect(judge.noulCalls.length).toBe(0); // 无卡零判官调用
+  });
+
+  test("词表命中（「确认执行」）→ 判官零调用（第一级漏斗优先）", async () => {
+    const llm = fakeLlm([...CARD_SCRIPT]);
+    const judge = fakeIntentJudge({ revise: 0.9, cancel: 0.9, confirm: 0.9 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+    const outcome = await svc.ask("确认执行");
+    expect(outcome.status).toBe("answer");
+    expect(judge.noulCalls.length).toBe(0); // 词表命中不经判官
+    expect(llm.requests.length).toBe(1); // 零 LLM
+  });
+});
+
+// ── 降级链：关/未配/抛错 → 回退词表后行为（零劣化） ───────────────
+
+describe("M3-a 判官降级链（关/未配/抛错 → 回退原样走 LLM）", () => {
+  test("判官关闭（默认态）→ 零调用零日志，原样走 LLM", async () => {
+    const llm = fakeLlm([...CARD_SCRIPT, answer("走 LLM 的回答。")]);
+    const judge = fakeIntentJudge({ revise: 0.9, cancel: 0.9, confirm: 0.9 }, { enabled: false });
+    const { svc, logger } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+    const outcome = await svc.ask("就按刚才说的弄");
+    expect(outcome.status).toBe("answer");
+    expect(judge.noulCalls.length).toBe(0);
+    expect(logger.warns.filter((w) => w.includes("判官"))).toHaveLength(0); // 关闭 = 默认态判官零日志（abort-再驱动路径的收口日志与本面无关）
+    expect(llm.requests.length).toBe(2);
+  });
+
+  test("判官开但端点未配 → WARN 提醒 + 回退 LLM", async () => {
+    const llm = fakeLlm([...CARD_SCRIPT, answer("走 LLM 的回答。")]);
+    const judge = fakeIntentJudge({ revise: 0.9, cancel: 0.9, confirm: 0.9 }, { enabled: true, ready: false });
+    const { svc, logger } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+    const outcome = await svc.ask("就按刚才说的弄");
+    expect(outcome.status).toBe("answer");
+    expect(judge.noulCalls.length).toBe(0);
+    expect(logger.warns.some((w) => w.includes("端点未配"))).toBe(true);
+    expect(llm.requests.length).toBe(2);
+  });
+
+  test("判官抛错 → WARN 不重试 + 回退 LLM（零劣化）", async () => {
+    const llm = fakeLlm([...CARD_SCRIPT, answer("回退路径的回答。")]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0 }, { throwErr: new Error("分类端点 503") });
+    const { svc, logger } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+    const outcome = await svc.ask("嗯行就这么办");
+    expect(outcome.status).toBe("answer");
+    expect(judge.noulCalls.length).toBeGreaterThanOrEqual(1); // 试过
+    expect(logger.warns.some((w) => w.includes("意图判官"))).toBe(true);
+    expect(llm.requests.length).toBe(2); // 回退词表后行为（原样 LLM）
+  });
+});
+
+// ── 修正意图：撤旧卡 + 按修正后意图新开（一次 LLM 带卡全文上下文） ────
+
+describe("M3-a 修正意图（noul≥0.5 → 撤旧卡 + 带卡上下文新开）", () => {
+  test("「不对，发给 s-2」→ 旧卡 superseded 撤除 + 新提案给 s-2 + LLM 输入含原卡全文", async () => {
+    const llm = fakeLlm([
+      toolCall("deliver_to_session", { sessionId: "s-1", text: "继续执行部署计划" }), // 弹卡轮（s-1）
+      toolCall("deliver_to_session", { sessionId: "s-2", text: "继续执行部署计划" }), // 修正轮（s-2）
+      answer("已按修正后的目标重新提案。"),
+    ]);
+    const judge = fakeIntentJudge({ revise: 0.9, cancel: 0.1, confirm: 0.3 });
+    const { svc, sessions, actionCompleted } = makeService({ llm: llm.port, intentJudge: judge });
+    const oldCard = await askForCard(svc, "把部署计划发给会话 s-1");
+
+    const outcome = await svc.ask("不对，发给 s-2");
+    expect(outcome.status).toBe("confirm_required"); // 修正后新提案弹新卡
+    if (outcome.status !== "confirm_required") throw new Error("unreachable");
+    expect(outcome.actionId).not.toBe(oldCard.actionId);
+    expect(svc.pendingSnapshot()).toEqual([outcome.actionId]); // 旧卡已撤只剩新卡
+    const superseded = actionCompleted.find((p) => p.actionId === oldCard.actionId && (p as { outcome?: string }).outcome === "superseded");
+    expect(superseded).toBeDefined(); // 撤旧卡广播（多窗同步）
+    // 修正轮 LLM 输入带原卡全文上下文 + 用户原话（一次 LLM——不先撤卡再裸问）
+    expect(llm.requests.length).toBe(2);
+    const revisedInput = JSON.stringify(llm.requests[1]!);
+    expect(revisedInput).toContain("待确认提案");
+    expect(revisedInput).toContain("继续执行部署计划");
+    expect(revisedInput).toContain("不对，发给 s-2");
+    await settle();
+    expect(sessions.deliveries.length).toBe(0); // 未确认零执行
+
+    // 新卡确认后按修正目标执行
+    const confirmed = await svc.confirm(outcome.actionId);
+    expect(confirmed.status).toBe("accepted");
+    await settle();
+    expect(sessions.deliveries.length).toBe(1);
+    expect(sessions.deliveries[0]!.sessionId).toBe("s-2");
+  });
+});

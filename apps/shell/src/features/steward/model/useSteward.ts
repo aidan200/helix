@@ -20,7 +20,9 @@
  *   items 从记录数组同源重建；
  * - 新对话（A1）：newDialog() → steward.history {clear:true}（daemon 清 KV
  *   + LLM 窗口）+ 本地 items 清空——三处同步清；
- * - feed 面：steward.feed 文本行 → 滚动窗口（上限截尾保最新）。
+ * - feed 面：steward.feed 文本行 → 滚动窗口（上限截尾保最新）；
+ * - 主动汇报实时面（M3-a，CAND-601 闭环）：steward.proactive → items
+ *   实时追加汇报条目（与回放渲染同构——不重开面板）。
  *
  * 防自激纪律（TR-169）：订阅 effect 只按 [conn, enabled] 离散依赖发命令，
  * 不在 effect 体内因 send 失败复位任何守卫 ref；send 返回值消费一律
@@ -354,6 +356,24 @@ export function useSteward(): UseSteward {
         if (payload.outcome === "superseded") return;
         if (typeof payload.detail !== "string") return;
         pushItem({ kind: "assistant", text: payload.ok === true ? payload.detail : payload.detail });
+        return;
+      }
+      if (event.type === "steward.proactive") {
+        // M3-a（CAND-601 闭环）：对话内主动汇报实时帧——开着的面板实时冒条目
+        //（不重开面板；重开由 history 回放同源再现，此处与回放渲染同构——
+        // daemon 工作记忆记录恒中文，故 zh/en 键值同文保持逐字节同形）。
+        // 缺字段/坏形状忽略零破坏（旧壳防御——additive 帧纪律）。
+        const payload = event.payload as { title?: unknown; text?: unknown; suggestions?: unknown };
+        if (typeof payload.title !== "string" || payload.title === "") return;
+        if (typeof payload.text !== "string" || payload.text === "") return;
+        const lines = [t("steward.proactiveTitle", { title: payload.title }), payload.text];
+        if (Array.isArray(payload.suggestions)) {
+          for (const s of payload.suggestions) {
+            const label = (s as { label?: unknown }).label;
+            if (typeof label === "string" && label.trim() !== "") lines.push(t("steward.proactiveSuggestion", { label }));
+          }
+        }
+        pushItem({ kind: "assistant", text: lines.join("\n") });
         return;
       }
       if (event.type === "steward.config.result") {

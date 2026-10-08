@@ -1302,6 +1302,11 @@ export const enUS = {
     send: "Send",
     // L1 queue batch: queued ack copy ({position} interpolation)
     askQueued: "Queued (position {position}) — starts right after the current reply finishes",
+    // M3-a (CAND-601): proactive report live-frame copy — byte-identical to the
+    // daemon work-memory record (replay parity: the record is always Chinese, so
+    // en mirrors zh verbatim by design)
+    proactiveTitle: "【主动汇报】{title}",
+    proactiveSuggestion: "建议：{label}（点按才动）",
     memoryAdded: "Saved to long-term memory",
     memoryUpdated: "Memory updated (overwritten)",
     confirmTitle: "Write action needs confirmation",
