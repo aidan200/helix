@@ -91,6 +91,9 @@ export interface StewardSetConfigPayload {
     recallTopK?: number;
     /** 召回候选池（批B；缺省 24，上界 200）。同上两段校验分层。 */
     recallPool?: number;
+    /** 召回资格闸阈值（additive；缺省 0.3）。值域 [0,1]，非法由读面
+     *  静默回退缺省 + warn——回执生效值所见即所得。 */
+    recallMinScore?: number;
   };
   /** 分诊判官组（分诊判官接入批，additive；全部位可选）：判定面接
    *  JudgePort（noul 校准概率判定 + 高危判别），生成面纯文本两段制；

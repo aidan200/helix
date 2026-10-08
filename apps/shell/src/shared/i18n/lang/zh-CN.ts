@@ -494,6 +494,8 @@ export const zhCN = {
         memoryTopKNote: "每轮注入对话的最多记忆条数（1-200，默认 5）",
         memoryPoolLabel: "召回候选池",
         memoryPoolNote: "检索候选池大小（1-200，默认 24）——召回条数不得超候选池，非法组合自动回退默认",
+        memoryScoreLabel: "召回资格阈值",
+        memoryScoreNote: "相似度下限（0-1，默认 0.3）——低于此值的记忆不召回（融合排序前按裸相似度裁决）",
         modelsTabChat: "对话模型",
         modelsTabEmbedding: "其他模型",
         modelsTabClassifier: "分类模型",

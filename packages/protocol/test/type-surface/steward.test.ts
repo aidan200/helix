@@ -441,6 +441,9 @@ const memoryConfigResult: StewardConfigResultEvent = {
       judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
       entryCount: 3,
       dim: 1024,
+      recallTopK: 8,
+      recallPool: 32,
+      recallMinScore: 0.3,
     },
   },
 };
@@ -496,6 +499,26 @@ describe("管家记忆 B2：memory 组瘦身（endpointId 引用态）", () => {
     expect(endpoint.hasApiKey).toBe(false);
     expect("baseUrl" in endpoint).toBe(false);
     expect(memoryConfigResult.payload.memory.available).toBe(true);
+  });
+});
+
+// ── 召回资格阈值进配置（memory.recallMinScore，additive）─────────
+
+describe("memory.recallMinScore additive（召回资格闸阈值进配置域）", () => {
+  test("set_config.memory 补丁接受 recallTopK/recallPool/recallMinScore（additive 可选 number）", () => {
+    const cmd: StewardSetConfigCommand = {
+      v: PROTOCOL_VERSION,
+      type: "steward.set_config",
+      payload: { memory: { recallTopK: 8, recallPool: 32, recallMinScore: 0.5 } },
+    };
+    expect(dispatchCommand(cmd)).toBe("steward-set_config:undefined:-");
+    expect(cmd.payload.memory?.recallMinScore).toBe(0.5);
+  });
+
+  test("config.result.memory 回执携带 recallMinScore 生效值（additive 可选——旧壳/未装配缺席忽略）", () => {
+    expect(memoryConfigResult.payload.memory.recallTopK).toBe(8);
+    expect(memoryConfigResult.payload.memory.recallPool).toBe(32);
+    expect(memoryConfigResult.payload.memory.recallMinScore).toBe(0.3);
   });
 });
 

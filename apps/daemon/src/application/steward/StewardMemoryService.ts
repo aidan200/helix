@@ -11,8 +11,9 @@
  *   席注入，同降级路径）。
  *
  * 三职责（+ 遗忘机制批四）：
- * ① 召回（recallSection）：候选池 → 过淡忘 → 资格闸 0.30 → 融合排序
- *    （cosine × 强度）→ top5 注入 + 幸存者回写。任何失败（端点不可达/
+ * ① 召回（recallSection）：候选池 → 过淡忘 → 资格闸（memory.recallMinScore
+ *    生效值，缺省 0.30）→ 融合排序（cosine × 强度）→ topK 注入 + 幸存者
+ *    回写。任何失败（端点不可达/
  *    协议异常/维度重建失败）静默降级为 undefined（无记忆段）+ logger.warn
  *    ——召回绝不能挡对话；
  * ② 写入（remember / appendMemoryEntry）：轮内工具与人工新增
@@ -33,7 +34,9 @@
  * - memory.endpointId（引用 embedding_endpoints 配置域条目——
  *   B1 期的 steward.memory.embedding 三字段私钥已一次性迁移进该域）；
  * - memory.recallTopK / memory.recallPool（召回量配置驱动——缺省
- *   5/24 = B1 定格常量现值，零行为变化；值语义读面单点裁决）。
+ *   5/24 = B1 定格常量现值，零行为变化；值语义读面单点裁决）；
+ * - memory.recallMinScore（召回资格闸阈值配置驱动——缺省 0.30 = B3 定格
+ *   常量现值；STEWARD_MEMORY_RECALL_MIN_SCORE 保留为缺省值单一来源）。
  * available 闸 = 开关 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配。
  * 凭据卫生：getMemoryState 导出面只回引用态（id/name/model/hasApiKey），
  * apiKey 与 baseUrl 永不出库。
@@ -47,6 +50,7 @@ import {
   MEMORY_ENABLED_KEY,
   MEMORY_ENDPOINT_ID_KEY,
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
+  MEMORY_RECALL_MIN_SCORE_KEY,
   MEMORY_RECALL_POOL_KEY,
   MEMORY_RECALL_TOP_K_KEY,
   resolveMemoryRecallParams,
@@ -66,9 +70,11 @@ export const STEWARD_MEMORY_EMBEDDING_KEY = "steward.memory.embedding";
 // pool）迁通用记忆配置域 memory.*，单源 ../memory/memoryConfig.ts——
 // 键不挂管家名下（旧 steward.memory.* 三键一次性迁移在同模块收口）。
 /**
- * 召回相似度下限（B3：score < 此值的命中不注入——语义无关条目污染
- * system prompt 的噪音闸；bge-m3 cosine 经验值 0.30，近似主题即可达标，
- * 纯噪音明显低于此）。
+ * 召回相似度下限缺省值（B3：score < 资格闸的命中不注入——语义无关条目
+ * 污染 system prompt 的噪音闸；bge-m3 cosine 经验值 0.30，近似主题即可
+ * 达标，纯噪音明显低于此）。资格闸生效值批起配置驱动（memory.recallMinScore，
+ * resolveMemoryRecallParams 读面解析）——本常量保留为缺省值单一来源
+ * （config 回退引用它，不双写字面量）。
  */
 export const STEWARD_MEMORY_RECALL_MIN_SCORE = 0.3;
 /**
@@ -236,6 +242,9 @@ export interface StewardMemoryState {
   readonly recallTopK?: number;
   /** 召回候选池生效值（批B——非法 KV 回退缺省 24；additive）。 */
   readonly recallPool?: number;
+  /** 召回资格闸阈值生效值（非法 KV 回退缺省 STEWARD_MEMORY_RECALL_MIN_SCORE
+   *  = 0.3；additive）。 */
+  readonly recallMinScore?: number;
   /** 记忆条目总数。 */
   readonly entryCount: number;
   /** 当前向量维度（未初始化 = null）。 */
@@ -321,8 +330,9 @@ export class StewardMemoryService {
     return this.deps.judge!.noul(`既有：${existingText}\n新写入：${incomingText}`, STEWARD_MEMORY_SAME_QUESTION);
   }
 
-  /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库；recallTopK/recallPool
-   *  为读面 resolver 回退后生效值——非法 KV 回显缺省，调用方所见即所得）。 */
+  /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库；recallTopK/recallPool/
+   *  recallMinScore 为读面 resolver 回退后生效值——非法 KV 回显缺省，调用
+   *  方所见即所得）。 */
   getMemoryState(): StewardMemoryState {
     const record = this.endpointRecord();
     const judgeRecord = this.judgeEndpointRecord();
@@ -332,6 +342,7 @@ export class StewardMemoryService {
       available: this.isAvailable(),
       recallTopK: recall.topK,
       recallPool: recall.pool,
+      recallMinScore: recall.minScore,
       endpoint:
         record === null
           ? null
@@ -359,6 +370,7 @@ export class StewardMemoryService {
     judgeEndpointId?: string;
     recallTopK?: number;
     recallPool?: number;
+    recallMinScore?: number;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.endpointId !== undefined) {
       // 空串 = 清除引用（显式解绑）
@@ -373,6 +385,9 @@ export class StewardMemoryService {
     if (patch.recallPool !== undefined) {
       await this.deps.config.set(MEMORY_RECALL_POOL_KEY, String(patch.recallPool));
     }
+    if (patch.recallMinScore !== undefined) {
+      await this.deps.config.set(MEMORY_RECALL_MIN_SCORE_KEY, String(patch.recallMinScore));
+    }
     if (patch.enabled !== undefined) {
       await this.deps.config.set(MEMORY_ENABLED_KEY, patch.enabled ? "1" : "0");
     }
@@ -380,8 +395,10 @@ export class StewardMemoryService {
   }
 
   /**
-   * 召回（ask 前轮内）：候选池语义检索 → 过淡忘 → 资格闸（cosine ≥ 0.30
-   *  语义不变）→ 融合排序（cosine × 强度）→ topK 注入 + 幸存者回写。
+   * 召回（ask 前轮内）：候选池语义检索 → 过淡忘 → 资格闸（cosine ≥
+   *  memory.recallMinScore 生效值，缺省 0.30——闸砍在裸相似度上、融合排序
+   *  之前，E-259 资格与排序解耦语义不变）→ 融合排序（cosine × 强度）→
+   *  topK 注入 + 幸存者回写。
    * 召回量（topK/候选池）批B 起配置驱动（memory.recallTopK/recallPool，
    * 缺省 5/24 = 定格常量现值零行为变化；非法 KV 读面回退缺省）。
    * 项目隔离批（additive 过滤维度）：project = 当前项目目录名（候选池
@@ -423,7 +440,8 @@ export class StewardMemoryService {
    * memory_search 工具同源底层，管家行为零变化）：
    * embedding → vec0 KNN 候选池（scope 预过滤 rowid IN：global + project，
    * E-264 口径——他项目最近邻不占 KNN 名额）→ 过淡忘 → 资格闸
-   * （cosine ≥ 0.30，E-259 资格与排序解耦）→ kind 白名单（可选；管家面
+   * （cosine ≥ memory.recallMinScore 生效值，缺省 0.30，E-259 资格与排序
+   * 解耦——管家面与 memory_search 工具同源同闸）→ kind 白名单（可选；管家面
    * 缺席 = 全类收，工具面排除 progress）→ cosine×strength 融合排序 →
    * progress 配额选取 topK → 幸存者回写（可选）。
    * 维度对齐（ensureDim）由调用方决定：管家面保留（写入一致性链）；工具面
@@ -448,18 +466,19 @@ export class StewardMemoryService {
     const { vectors, dim } = await this.deps.embedding.embed([req.queryText]);
     if (req.alignDim) await this.ensureDim(dim);
     const now = this.now();
-    const { pool: poolSize } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
+    const { pool: poolSize, minScore } = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
     // 项目隔离批：召回视野 = global + 当前项目（无项目上下文 → 只 global）。
     // 预过滤在 store 层（KNN 名额只给合格行——他项目最近邻不占位）。
     const recallScopes =
       req.project !== undefined && req.project.trim() !== "" ? [MEMORY_SCOPE_GLOBAL, req.project.trim()] : [MEMORY_SCOPE_GLOBAL];
-    // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ 0.30 语义不变）→
+    // 遗忘机制批：候选池 → 过淡忘 → 资格闸（cosine ≥ minScore 生效值——
+    // 阈值批起 memory.recallMinScore 配置驱动，缺省 0.30 零行为变化）→
     // 融合排序（cosine × 强度——时间权重只在竞争位起作用，唯一强相关
     // 的老记忆仍能出线）。批E：kind 白名单在排序前（工具面排除 progress）。
     const pool = this.deps
       .store!.search(vectors[0]!, poolSize, recallScopes)
       .filter((h) => h.fadedAt === 0)
-      .filter((h) => h.score >= STEWARD_MEMORY_RECALL_MIN_SCORE)
+      .filter((h) => h.score >= minScore)
       .filter((h) => req.kinds === undefined || req.kinds.has(h.kind));
     pool.sort((a, b) => b.score * memoryStrength(b, now) - a.score * memoryStrength(a, now));
     // progress 批：topK 选取加 kind 配额——排序位不变，progress 超配额让位

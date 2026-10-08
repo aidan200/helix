@@ -7,14 +7,15 @@
  * + set_config 写、config.result 回执回填，不乐观）；语音播报 = 本地偏好
  * （helix.steward.speakReply，面板语音模式朗读闸逐次读）——仅启用后显示
  * （从属项，缩进一层），非平级。管家模型槽位在智能体页管家卡。
- * 长期记忆（设置页长期记忆组批）：memory.* 通用配置域五键独立组
- * （enabled/endpointId/judgeEndpointId/recallTopK/recallPool）——写面
- * steward.set_config {memory} 转发（批B 裁决：该组非 deprecated，本组仍
- * shell UI 现役写面），回显 steward.config.result memory 组（回执回填不
- * 乐观）；记忆配置不再从属管家启用（通用域——未来不止管家使用记忆）。
- * 召回量两输入框同 everyTurns 模式：失焦/回车提交、非法值（非 1-200 整数）
- * 回落最近已提交值零命令；旧 daemon 回执缺席 recallTopK/recallPool（additive）
- * → 缺省 5/24 兑底展示。管家卡记忆区（B2 起）随本批迁出——管家配置零记忆项。
+ * 长期记忆（设置页长期记忆组批）：memory.* 通用配置域六键独立组
+ * （enabled/endpointId/judgeEndpointId/recallTopK/recallPool/recallMinScore）
+ * ——写面 steward.set_config {memory} 转发（批B 裁决：该组非 deprecated，
+ * 本组仍 shell UI 现役写面），回显 steward.config.result memory 组（回执回填
+ * 不乐观）；记忆配置不再从属管家启用（通用域——未来不止管家使用记忆）。
+ * 召回量两输入框 + 资格阈值输入框同 everyTurns 模式：失焦/回车提交、非法值
+ * （召回量非 1-200 整数；阈值非 0-1 数）回落最近已提交值零命令；旧 daemon
+ * 回执缺席 recallTopK/recallPool/recallMinScore（additive）→ 缺省 5/24/0.3
+ * 兑底展示。管家卡记忆区（B2 起）随本批迁出——管家配置零记忆项。
  * 总结（会话总结器独立化批①）：「总结」组 = 三产物开关 + 轮次输入 + 总结
  * 模型下拉 + 任务总结两项——写面 config.set_summary（summary.* 通用域），
  * config.get/set_summary.result 回填不乐观；管家配置零总结项。总结模型显式
@@ -62,6 +63,9 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
 // 兑底展示）。 */
 const MEMORY_TOPK_FALLBACK = 5;
 const MEMORY_POOL_FALLBACK = 24;
+/** 召回资格阈值缺省（值域 0-1；与 daemon STEWARD_MEMORY_RECALL_MIN_SCORE
+ *  常量对齐——同硬拷注释纪律）。 */
+const MEMORY_SCORE_FALLBACK = 0.3;
 /** 召回量上界（topK ≤ pool ≤ 200 传递上界；非法值 UI 侧回落零命令）。 */
 const MEMORY_RECALL_INPUT_MAX = 200;
 
@@ -126,14 +130,17 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     dim: number | null;
     recallTopK?: number;
     recallPool?: number;
+    recallMinScore?: number;
   } | null>(null);
   const [memoryError, setMemoryError] = useState<string | null>(null);
-  // 召回量两键草稿（同 everyTurns 模式：本地草稿，失焦/回车提交；非法值回落
-  // 最近已提交值零命令；回执生效值变化才覆写——不误伤在途草稿）
+  // 召回量两键 + 资格阈值草稿（同 everyTurns 模式：本地草稿，失焦/回车提交；
+  // 非法值回落最近已提交值零命令；回执生效值变化才覆写——不误伤在途草稿）
   const [topKDraft, setTopKDraft] = useState<string>("");
   const topKCommitted = useRef<number | null>(null);
   const [poolDraft, setPoolDraft] = useState<string>("");
   const poolCommitted = useRef<number | null>(null);
+  const [scoreDraft, setScoreDraft] = useState<string>("");
+  const scoreCommitted = useRef<number | null>(null);
   const [embeddingEndpoints, setEmbeddingEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
   // 分诊判官（分诊判官接入批）：daemon 权威现态（steward.config.result triage
   // 组回执回填，不乐观）；开关 + 分类端点下拉（数据源 = 模型页分类 tab 已
@@ -160,6 +167,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             dim: number | null;
             recallTopK?: number;
             recallPool?: number;
+            recallMinScore?: number;
           };
           triage?: {
             judgeEnabled: boolean;
@@ -196,7 +204,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // ── 长期记忆组写面（设置页长期记忆组批）：steward.set_config {memory}
   // 部分更新（批B 转发写面裁决）；开关/下拉点击即发；召回量失焦/回车提交；
   // 空串 = 清除端点引用回未配置态；回执驱动回填不乐观
-  const sendMemory = (patch: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number }): void => {
+  const sendMemory = (patch: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number }): void => {
     if (sendStewardSetConfig({ memory: patch }) === false) {
       setMemoryError(t("chat.settings.general.sendFail"));
       return;
@@ -263,6 +271,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // additive 字段 → 缺省兑底展示）
   const memoryTopKEffective = memoryCfg?.recallTopK ?? MEMORY_TOPK_FALLBACK;
   const memoryPoolEffective = memoryCfg?.recallPool ?? MEMORY_POOL_FALLBACK;
+  const memoryScoreEffective = memoryCfg?.recallMinScore ?? MEMORY_SCORE_FALLBACK;
   useEffect(() => {
     if (memoryCfg === null) return;
     topKCommitted.current = memoryTopKEffective;
@@ -273,13 +282,22 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     poolCommitted.current = memoryPoolEffective;
     setPoolDraft(String(memoryPoolEffective));
   }, [memoryCfg === null ? null : memoryPoolEffective]);
-  const commitRecallDraft = (which: "topK" | "pool"): void => {
-    const draft = which === "topK" ? topKDraft : poolDraft;
-    const committed = which === "topK" ? topKCommitted.current : poolCommitted.current;
-    const setDraft = which === "topK" ? setTopKDraft : setPoolDraft;
+  useEffect(() => {
+    if (memoryCfg === null) return;
+    scoreCommitted.current = memoryScoreEffective;
+    setScoreDraft(String(memoryScoreEffective));
+  }, [memoryCfg === null ? null : memoryScoreEffective]);
+  const commitRecallDraft = (which: "topK" | "pool" | "score"): void => {
+    const draft = which === "topK" ? topKDraft : which === "pool" ? poolDraft : scoreDraft;
+    const committed = which === "topK" ? topKCommitted.current : which === "pool" ? poolCommitted.current : scoreCommitted.current;
+    const setDraft = which === "topK" ? setTopKDraft : which === "pool" ? setPoolDraft : setScoreDraft;
     // Number 严校验（parseInt("2.5") 会截成 2 误当合法——小数/空串必须回落）
     const parsed = Number(draft);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > MEMORY_RECALL_INPUT_MAX) {
+    const valid =
+      which === "score"
+        ? draft.trim() !== "" && Number.isFinite(parsed) && parsed >= 0 && parsed <= 1
+        : Number.isInteger(parsed) && parsed >= 1 && parsed <= MEMORY_RECALL_INPUT_MAX;
+    if (!valid) {
       setDraft(committed === null ? "" : String(committed)); // 非法回落零命令
       return;
     }
@@ -287,9 +305,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       setDraft(String(parsed));
       return;
     }
-    sendMemory(which === "topK" ? { recallTopK: parsed } : { recallPool: parsed });
+    sendMemory(which === "topK" ? { recallTopK: parsed } : which === "pool" ? { recallPool: parsed } : { recallMinScore: parsed });
     if (which === "topK") topKCommitted.current = parsed;
-    else poolCommitted.current = parsed;
+    else if (which === "pool") poolCommitted.current = parsed;
+    else scoreCommitted.current = parsed;
   };
 
   const toggleSandbox = (enabled: boolean): void => {
@@ -1084,6 +1103,30 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                 }}
               />
               <span className="ag-note">{t("chat.settings.general.memoryPoolNote")}</span>
+            </div>
+            {/* 召回资格阈值（memory.recallMinScore——缺省 0.3，值域 0-1；
+                非法值失焦回落最近已提交值零命令；生效值由 daemon 读面裁决
+                回执回显——闸砍在裸相似度上、融合排序之前） */}
+            <div className="fld fld-sub" data-memory-score>
+              <label className="hud-label" htmlFor="memory-score-input">
+                {t("chat.settings.general.memoryScoreLabel")}
+              </label>
+              <input
+                id="memory-score-input"
+                className="hud-input"
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
+                data-memory-score-input
+                value={scoreDraft}
+                onChange={(e) => setScoreDraft(e.target.value)}
+                onBlur={() => commitRecallDraft("score")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRecallDraft("score");
+                }}
+              />
+              <span className="ag-note">{t("chat.settings.general.memoryScoreNote")}</span>
             </div>
           </>
         )}

@@ -197,6 +197,7 @@ function feedStewardConfig(
     dim: number | null;
     recallTopK?: number;
     recallPool?: number;
+    recallMinScore?: number;
   },
   triage?: { judgeEnabled: boolean; judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null },
 ) {
@@ -701,6 +702,7 @@ describe("管家组瘦身（设置页长期记忆组批：记忆区迁出管家�
     dim: 1024,
     recallTopK: 8,
     recallPool: 32,
+    recallMinScore: 0.5,
   };
 
   it("管家卡不再携带记忆区：启用前后 data-steward-memory* 全不在场（配置归通用分区「长期记忆」组）", () => {
@@ -725,7 +727,7 @@ describe("管家组瘦身（设置页长期记忆组批：记忆区迁出管家�
   });
 });
 
-describe("长期记忆组（设置页 memory.* 五键：开关 + 端点 + 判官 + 召回量两键）", () => {
+describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官 + 召回量两键 + 资格阈值）", () => {
   const MEMORY_ON = {
     enabled: true,
     available: true,
@@ -735,9 +737,10 @@ describe("长期记忆组（设置页 memory.* 五键：开关 + 端点 + 判官
     dim: 1024,
     recallTopK: 8,
     recallPool: 32,
+    recallMinScore: 0.5,
   };
 
-  it("组常驻设置页（不依赖管家启用）：组卡 + 开关双按钮在场；enabled=false 从属四项不渲染", () => {
+  it("组常驻设置页（不依赖管家启用）：组卡 + 开关双按钮在场；enabled=false 从属五项不渲染", () => {
     const { container } = ui();
     feedStewardConfig(false, { ...MEMORY_ON, enabled: false, available: false });
     const card = container.querySelector("[data-memory-card]")!;
@@ -748,6 +751,7 @@ describe("长期记忆组（设置页 memory.* 五键：开关 + 端点 + 判官
     expect(card.querySelector("[data-memory-judge]")).toBeNull();
     expect(card.querySelector("[data-memory-topk]")).toBeNull();
     expect(card.querySelector("[data-memory-pool]")).toBeNull();
+    expect(card.querySelector("[data-memory-score]")).toBeNull();
   });
 
   it("开关双按钮：点击 → sendStewardSetConfig({memory:{enabled}}) 不乐观翻转；回执回填", () => {
@@ -762,10 +766,10 @@ describe("长期记忆组（设置页 memory.* 五键：开关 + 端点 + 判官
     expect(container.querySelector<HTMLElement>('[data-memory-option="off"]')!.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("enabled=true → 从属四项展开：向量端点下拉 + 判官下拉 + 召回量两输入框（fld-sub 缩进）", () => {
+  it("enabled=true → 从属五项展开：向量端点下拉 + 判官下拉 + 召回量两输入框 + 资格阈值输入框（fld-sub 缩进）", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);
-    for (const sel of ["[data-memory-endpoint]", "[data-memory-judge]", "[data-memory-topk]", "[data-memory-pool]"]) {
+    for (const sel of ["[data-memory-endpoint]", "[data-memory-judge]", "[data-memory-topk]", "[data-memory-pool]", "[data-memory-score]"]) {
       const el = container.querySelector(sel)!;
       expect(el).not.toBeNull();
       expect(el.className).toContain("fld-sub");
@@ -857,6 +861,34 @@ describe("长期记忆组（设置页 memory.* 五键：开关 + 端点 + 判官
     fireEvent.blur(input);
     expect(sendStewardSetConfig).not.toHaveBeenCalled();
     expect(input.value).toBe("48");
+  });
+
+  it("资格阈值现值回填：回执 recallMinScore 生效值 → 阈值输入框；旧 daemon 缺席（additive）→ 缺省 0.3 兑底", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    expect((container.querySelector<HTMLInputElement>("[data-memory-score-input]")!).value).toBe("0.5");
+    feedStewardConfig(true, { ...MEMORY_ON, recallMinScore: undefined });
+    expect((container.querySelector<HTMLInputElement>("[data-memory-score-input]")!).value).toBe("0.3");
+  });
+
+  it("recallMinScore 输入：改值失焦/回车提交 {memory:{recallMinScore}}；非法值（-0.1/1.5/非数）回落最近已提交值零命令", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    const input = container.querySelector<HTMLInputElement>("[data-memory-score-input]")!;
+    expect(input.value).toBe("0.5");
+    fireEvent.change(input, { target: { value: "0.8" } });
+    fireEvent.blur(input);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { recallMinScore: 0.8 } });
+    sendStewardSetConfig.mockClear();
+    for (const bad of ["-0.1", "1.5", "abc"]) {
+      fireEvent.change(input, { target: { value: bad } });
+      fireEvent.blur(input);
+      expect(sendStewardSetConfig).not.toHaveBeenCalled();
+      expect(input.value).toBe("0.8"); // 非法回落最近已提交值（非数在 number 输入被清洗为空串——同判回落）
+    }
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.keyDown(input, { key: "Enter" }); // 回车也提交；0 = 关闸全放行（值域下界合法）
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { recallMinScore: 0 } });
   });
 
   it("观测与入口迁入：条目计数行 + 待命提示（enabled ∧ !available）+ 管理记忆链接", () => {

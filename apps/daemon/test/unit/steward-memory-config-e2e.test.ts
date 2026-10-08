@@ -35,6 +35,7 @@ import {
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
   MEMORY_RECALL_POOL_KEY,
   MEMORY_RECALL_TOP_K_KEY,
+  MEMORY_RECALL_MIN_SCORE_KEY,
 } from "../../src/application/memory/memoryConfig";
 
 // ── fakes（steward-memory-service.test.ts / config-summary-handler.test.ts 同款收窄面）──
@@ -231,5 +232,43 @@ describe("长期记忆组写路径端到端（steward.set_config memory 组 → 
     const frame = frames[0] as { payload: { memory: { recallTopK?: number; recallPool?: number } } };
     expect(frame.payload.memory.recallTopK).toBe(5);
     expect(frame.payload.memory.recallPool).toBe(24);
+  });
+
+  test("⑥ recallMinScore additive 写入闭环：{recallMinScore:0.5} → KV 落值 + 回执生效值 0.5；非法值 1.5 落 KV 后回执回显缺省 0.3", async () => {
+    const config = fakeConfig();
+    const { ctx, frames, errors } = stewardCtxOf(makeService(config), {
+      memory: { recallMinScore: 0.5 },
+    });
+    handleStewardSetConfig(ctx);
+    await settle();
+    expect(errors).toHaveLength(0);
+    expect(config.kv.get(MEMORY_RECALL_MIN_SCORE_KEY)).toBe("0.5");
+    const frame = frames[0] as { payload: { memory: { recallMinScore?: number } } };
+    expect(frame.payload.memory.recallMinScore).toBe(0.5);
+    // 值非法（>1、类型合法）→ 写面不拒写、回执回显缺省生效值（所见即所得）
+    const config2 = fakeConfig();
+    const second = stewardCtxOf(makeService(config2), {
+      memory: { recallMinScore: 1.5 },
+    });
+    handleStewardSetConfig(second.ctx);
+    await settle();
+    expect(second.errors).toHaveLength(0);
+    expect(config2.kv.get(MEMORY_RECALL_MIN_SCORE_KEY)).toBe("1.5");
+    const frame2 = second.frames[0] as { payload: { memory: { recallMinScore?: number } } };
+    expect(frame2.payload.memory.recallMinScore).toBe(0.3);
+  });
+
+  test("⑦ recallMinScore 类型闸：非 number → invalid_payload 拒答零写入", async () => {
+    const config = fakeConfig();
+    const { ctx, frames, errors } = stewardCtxOf(makeService(config), {
+      memory: { recallMinScore: "0.5" },
+    });
+    handleStewardSetConfig(ctx);
+    await settle();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe("command.invalid_payload");
+    expect(errors[0]!.message).toContain("recallMinScore");
+    expect(config.kv.get(MEMORY_RECALL_MIN_SCORE_KEY)).toBeUndefined();
+    expect(frames).toHaveLength(0);
   });
 });

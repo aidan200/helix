@@ -226,6 +226,8 @@ export interface StewardConfigResultPayload {
     recallTopK?: number;
     /** 召回候选池生效值（批B；缺省 24。additive 可选）。 */
     recallPool?: number;
+    /** 召回资格闸阈值生效值（additive；缺省 0.3；非法 KV 回显缺省）。 */
+    recallMinScore?: number;
   };
   /** 分诊判官配置现态（分诊判官接入批，additive 可选：旧壳/未装配缺席
    *  忽略；judgeEndpoint 引用态——端点被删回 null（读面视为未配，UI 显示

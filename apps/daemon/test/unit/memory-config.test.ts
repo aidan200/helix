@@ -30,6 +30,7 @@ import {
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
   MEMORY_RECALL_TOP_K_KEY,
   MEMORY_RECALL_POOL_KEY,
+  MEMORY_RECALL_MIN_SCORE_KEY,
   MEMORY_RECALL_TOP_K_DEFAULT,
   MEMORY_RECALL_POOL_DEFAULT,
   MEMORY_RECALL_POOL_MAX,
@@ -39,7 +40,11 @@ import {
   migrateLegacyStewardMemoryKeys,
   resolveMemoryRecallParams,
 } from "../../src/application/memory/memoryConfig";
-import { StewardMemoryService, type EmbeddingConfigLookup } from "../../src/application/steward/StewardMemoryService";
+import {
+  StewardMemoryService,
+  STEWARD_MEMORY_RECALL_MIN_SCORE,
+  type EmbeddingConfigLookup,
+} from "../../src/application/steward/StewardMemoryService";
 import { handleStewardSetConfig } from "../../src/adapters/driving/ws-server/handlers/steward";
 import type { StewardCommandContext } from "../../src/adapters/driving/ws-server/handlers/context";
 import type { StewardService } from "../../src/application/steward/StewardService";
@@ -227,6 +232,50 @@ describe("批B·召回量配置驱动（topK/pool 常量 → KV 配置）", () =
   });
 });
 
+// ── 本批：recallMinScore 键（召回资格闸阈值进配置域）────────────
+
+describe("recallMinScore 配置域键（resolver 读面 + 读写闭环）", () => {
+  test("⑨ 缺省 0.3（STEWARD_MEMORY_RECALL_MIN_SCORE 缺省单一来源）；显式生效；边界 0 与 1 合法", () => {
+    expect(resolveMemoryRecallParams(fakeConfig()).minScore).toBe(STEWARD_MEMORY_RECALL_MIN_SCORE);
+    expect(resolveMemoryRecallParams(fakeConfig()).minScore).toBe(0.3);
+    expect(resolveMemoryRecallParams(fakeConfig({ [MEMORY_RECALL_MIN_SCORE_KEY]: "0.5" })).minScore).toBe(0.5);
+    expect(resolveMemoryRecallParams(fakeConfig({ [MEMORY_RECALL_MIN_SCORE_KEY]: "0" })).minScore).toBe(0); // 0 = 关闸全放行（值域下界合法）
+    expect(resolveMemoryRecallParams(fakeConfig({ [MEMORY_RECALL_MIN_SCORE_KEY]: "1" })).minScore).toBe(1);
+  });
+
+  test("⑩ 非法值静默回退 0.3 + warn 不抛错（非数/负数/>1/NaN/Infinity）；空串 = 未配置不 warn", () => {
+    for (const bad of ["abc", "-0.2", "1.5", "NaN", "Infinity", "0.5abc"]) {
+      const warns: string[] = [];
+      const params = resolveMemoryRecallParams(fakeConfig({ [MEMORY_RECALL_MIN_SCORE_KEY]: bad }), (m) => warns.push(m));
+      expect(params.minScore).toBe(0.3);
+      expect(warns.length).toBeGreaterThan(0);
+    }
+    const quiet: string[] = [];
+    expect(resolveMemoryRecallParams(fakeConfig({ [MEMORY_RECALL_MIN_SCORE_KEY]: "" }), (m) => quiet.push(m)).minScore).toBe(0.3);
+    expect(quiet).toEqual([]); // 清空 = 未配置态不 warn（对齐 recallTopK/recallPool 惯例）
+  });
+
+  test("⑪ 读写闭环：setMemoryConfig 写 recallMinScore → KV 落值 → getMemoryState 回显生效值；非法 KV 回显缺省", async () => {
+    const { service } = makeService({});
+    expect(service.getMemoryState().recallMinScore).toBe(STEWARD_MEMORY_RECALL_MIN_SCORE);
+    expect((await service.setMemoryConfig({ recallMinScore: 0.5 })).ok).toBe(true);
+    expect(service.getMemoryState().recallMinScore).toBe(0.5);
+    // 写面直出 KV（无前置校验——值语义由读面 resolver 裁决）
+    const config = fakeConfig();
+    const svc2 = new StewardMemoryService({
+      config,
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store: fakeStore(0),
+    });
+    await svc2.setMemoryConfig({ recallMinScore: 0.75 });
+    expect(config.kv.get(MEMORY_RECALL_MIN_SCORE_KEY)).toBe("0.75");
+    // 非法 KV（>1）→ 回显缺省生效值（所见即所得）
+    const { service: svc3 } = makeService({ [MEMORY_RECALL_MIN_SCORE_KEY]: "1.5" });
+    expect(svc3.getMemoryState().recallMinScore).toBe(STEWARD_MEMORY_RECALL_MIN_SCORE);
+  });
+});
+
 // ── 5. 旧键一次性迁移 ────────────────────────────────────────────
 
 describe("批B·旧键一次性迁移（steward.memory.* → memory.* 命名域）", () => {
@@ -343,5 +392,16 @@ describe("批B·steward.set_config memory 组（转发 memory.* 域）", () => {
     expect(legacy.errors).toEqual([]);
     await Bun.sleep(0);
     expect(legacy.patches).toEqual([{ memory: { endpointId: "ep-1" } }]);
+  });
+
+  test("⑨ recallMinScore additive：number 透传；非 number → invalid_payload", async () => {
+    const ok = setConfigCtx({ memory: { recallMinScore: 0.5 } });
+    expect(ok.errors).toEqual([]);
+    await Bun.sleep(0);
+    expect(ok.patches).toEqual([{ memory: { recallMinScore: 0.5 } }]);
+    const bad = setConfigCtx({ memory: { recallMinScore: "0.5" } });
+    expect(bad.errors.length).toBe(1);
+    expect(bad.errors[0]).toContain("recallMinScore");
+    expect(bad.patches).toEqual([]);
   });
 });

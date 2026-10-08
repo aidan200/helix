@@ -45,6 +45,8 @@ import {
   MEMORY_ENABLED_KEY,
   MEMORY_ENDPOINT_ID_KEY,
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
+  MEMORY_RECALL_MIN_SCORE_KEY,
+  MEMORY_RECALL_TOP_K_KEY,
 } from "../../src/application/memory/memoryConfig";
 
 const EP_ID = "ep-bge";
@@ -896,5 +898,92 @@ describe("防双写水位闸（explicitRememberedSince 真实实现直接单测�
     // 第 3 轮（spanStart=3000）：闸仍开
     t.now = 3000;
     expect(svc.explicitRememberedSince(3000)).toBe(false);
+  });
+});
+
+// ── 召回资格闸配置驱动（memory.recallMinScore；STEWARD_MEMORY_RECALL_MIN_SCORE
+//    退役为缺省值单一来源）──────────────────────────────────
+
+describe("召回资格闸配置驱动（memory.recallMinScore）", () => {
+  /** 可控命中 fake store：search 回放给定 hits（资格闸断言面）。 */
+  function hitStore(hits: readonly StewardMemoryHit[]): StewardMemoryPort {
+    return {
+      append: () => {},
+      search: () => hits,
+      list: () => hits,
+      forget: () => false,
+      updateEntry: () => false,
+      findProgressId: () => null,
+      markRecalled: () => {},
+      setPinned: () => false,
+      restore: () => false,
+      fadeMany: () => {},
+      count: () => hits.length,
+      storedDim: () => 3,
+      resetVectors: () => {},
+      putVector: () => {},
+      close: () => {},
+    };
+  }
+
+  function hit(id: number, score: number, over: Partial<StewardMemoryEntry> = {}): StewardMemoryHit {
+    return {
+      ...life({ id, kind: "preference", text: `条目 ${id}`, source: "steward-turn", createdAt: 1, updatedAt: 1 }),
+      ...over,
+      score,
+    };
+  }
+
+  function gateService(kv: Record<string, string>, hits: readonly StewardMemoryHit[]): StewardMemoryService {
+    return new StewardMemoryService({
+      config: fakeConfig({ ...ENABLED_KV, ...kv }),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store: hitStore(hits),
+      clock: () => 5000,
+    });
+  }
+
+  test("① 配置阈值生效于资格闸：阈值 0.5 时 score 0.4 不返回、0.6 返回（管家召回面）", async () => {
+    const svc = gateService({ [MEMORY_RECALL_MIN_SCORE_KEY]: "0.5" }, [hit(1, 0.6), hit(2, 0.4)]);
+    const section = await svc.recallSection("随便什么");
+    expect(section).toContain("条目 1");
+    expect(section).not.toContain("条目 2");
+  });
+
+  test("② 资格与排序解耦回归钉死：低于阈值条目即便强度满格（pinned）也不返回——强度救不回低相似度", async () => {
+    const svc = gateService(
+      { [MEMORY_RECALL_MIN_SCORE_KEY]: "0.5" },
+      [hit(1, 0.49, { pinned: true }), hit(2, 0.6, { createdAt: 1, updatedAt: 1, lastRecalledAt: 1, recallCount: 8 })],
+    );
+    const section = await svc.recallSection("随便什么");
+    expect(section).toContain("条目 2");
+    expect(section).not.toContain("条目 1"); // 闸砍在裸相似度上（融合排序之前）——pinned 恒满强度也不救回
+  });
+
+  test("③ 缺省阈值 = STEWARD_MEMORY_RECALL_MIN_SCORE（未配置——常量缺省单一来源，0.30 判界等价旧行为）", async () => {
+    const svc = gateService(
+      {},
+      [hit(1, STEWARD_MEMORY_RECALL_MIN_SCORE - 0.01), hit(2, STEWARD_MEMORY_RECALL_MIN_SCORE + 0.01)],
+    );
+    const section = await svc.recallSection("随便什么");
+    expect(section).not.toContain("条目 1");
+    expect(section).toContain("条目 2");
+  });
+
+  test("④ topK 上限语义不变：阈值放行全部候选后仍按 memory.recallTopK 截断（上限不是配额）", async () => {
+    const svc = gateService(
+      { [MEMORY_RECALL_MIN_SCORE_KEY]: "0", [MEMORY_RECALL_TOP_K_KEY]: "2" },
+      [hit(1, 0.9), hit(2, 0.8), hit(3, 0.7)],
+    );
+    const section = await svc.recallSection("随便什么");
+    const lines = section!.split("\n").filter((l) => l.startsWith("- ["));
+    expect(lines).toHaveLength(2);
+  });
+
+  test("⑤ memory_search 工具面同源闸（semanticRecallCore 共用）：阈值 0.5 时 0.4 不回、0.6 回", async () => {
+    const svc = gateService({ [MEMORY_RECALL_MIN_SCORE_KEY]: "0.5" }, [hit(1, 0.6), hit(2, 0.4)]);
+    const hits = await svc.searchMemories("随便什么");
+    expect(hits.map((h) => h.id)).toEqual([1]);
   });
 });

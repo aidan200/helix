@@ -253,11 +253,13 @@ describe("memory_search 工具·检索行为（真管线）", () => {
 });
 
 describe("memory_search 工具·降级面", () => {
-  test("⑪ 记忆不可用（enabled 关）→ 引导文案（不炸、不静默空转）", async () => {
+  test("⑪ 记忆不可用（enabled 关）→ 引导文案（不炸、不静默空转）；设置路径指针 = 设置 → 通用 → 长期记忆（旧指针已清除）", async () => {
     const rig = makeRig({ "memory.enabled": "0" });
     seed(rig, { kind: "preference", text: "用户偏好测试先红后绿" });
     const out = await run(makeTool(rig), { query: "测试" });
     expect(out).toContain("未启用或未配置");
+    expect(out).toContain("设置 → 通用 → 长期记忆"); // 降级文案路径指针（记忆区已从管家组迁出为通用分区独立组）
+    expect(out).not.toContain("管家 → 记忆"); // 过时旧指针（批A 之前位置）不得残留
   });
 
   test("⑫ 检索异常（embedding 抛错）→ 降级文案不炸主链路（失败静默空结果）", async () => {

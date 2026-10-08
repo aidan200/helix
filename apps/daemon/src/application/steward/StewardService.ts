@@ -2434,7 +2434,8 @@ export class StewardService {
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
    *  memory 组 {enabled?,endpointId?,judgeEndpointId?} + 批B 召回量
-   *  {recallTopK?,recallPool?}——组内字段整体转发通用记忆配置域 memory.*；
+   *  {recallTopK?,recallPool?} + 阈值 {recallMinScore?}——组内字段整体转发
+   *  通用记忆配置域 memory.*；
    *  triage 组 {judgeEnabled?,judgeEndpointId?} 转发分诊判官配置域
    *  （分诊判官接入批）。
    *  **summary/sessionMemory 组已摘除**（会话总结器独立化批①——总结配置
@@ -2443,7 +2444,7 @@ export class StewardService {
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
-    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number };
+    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number };
     triage?: { judgeEnabled?: boolean; judgeEndpointId?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.memory !== undefined) {

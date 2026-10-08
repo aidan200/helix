@@ -260,8 +260,8 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   }
   // 管家记忆 B2：memory 组瘦身校验（{enabled?,endpointId?}——透传前最后一道
   // TR-159 逐字段透传纪律）；批B +召回量 {recallTopK?,recallPool?} + B4a
-  // judgeEndpointId（类型闸在此、值语义由 daemon 读面 resolver 静默回退
-  // 缺省——非法值不拒写不抛错）
+  // judgeEndpointId + 资格阈值 {recallMinScore?}（类型闸在此、值语义由
+  // daemon 读面 resolver 静默回退缺省——非法值不拒写不抛错）
   if (memory !== undefined) {
     if (typeof memory !== "object" || memory === null) {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory 应为 object");
@@ -272,6 +272,7 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
       judgeEndpointId?: unknown;
       recallTopK?: unknown;
       recallPool?: unknown;
+      recallMinScore?: unknown;
     };
     if (mem.enabled !== undefined && typeof mem.enabled !== "boolean") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.enabled 应为 boolean");
@@ -287,6 +288,9 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     }
     if (mem.recallPool !== undefined && typeof mem.recallPool !== "number") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.recallPool 应为 number");
+    }
+    if (mem.recallMinScore !== undefined && typeof mem.recallMinScore !== "number") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.recallMinScore 应为 number");
     }
   }
   // 分诊判官接入批：triage 组校验（{judgeEnabled?,judgeEndpointId?}——类型
@@ -315,6 +319,7 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
               judgeEndpointId?: string;
               recallTopK?: number;
               recallPool?: number;
+              recallMinScore?: number;
             },
           }
         : {}),

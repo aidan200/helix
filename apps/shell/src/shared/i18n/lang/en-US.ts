@@ -489,6 +489,8 @@ export const enUS = {
         memoryTopKNote: "Max memory entries injected per turn (1-200, default 5)",
         memoryPoolLabel: "Recall candidate pool",
         memoryPoolNote: "Candidate pool size for retrieval (1-200, default 24) — topK must not exceed pool; invalid combos fall back to defaults",
+        memoryScoreLabel: "Recall similarity threshold",
+        memoryScoreNote: "Minimum similarity for recall (0-1, default 0.3) — entries below are not recalled (raw similarity gate before re-ranking)",
         modelsTabChat: "Chat models",
         modelsTabEmbedding: "Other models",
         modelsTabClassifier: "Classifiers",

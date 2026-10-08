@@ -75,7 +75,7 @@ export function createMemorySearchTool(deps: MemorySearchToolDeps): AgentHarness
       }
       if (!deps.service.isAvailable()) {
         return text(
-          "长期记忆未启用或未配置（设置 → 通用 → 管家 → 记忆）——本次无用户偏好/工作状态参考，按任务指令与知识图谱约束继续。",
+          "长期记忆未启用或未配置（设置 → 通用 → 长期记忆）——本次无用户偏好/工作状态参考，按任务指令与知识图谱约束继续。",
         );
       }
       let hits: readonly MemorySearchHit[];
