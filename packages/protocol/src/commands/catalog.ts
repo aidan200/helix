@@ -38,6 +38,8 @@ import type {
   ConfigGetSandboxCommand,
   ConfigSetSummaryCommand,
   ConfigGetSummaryCommand,
+  ConfigSetVoiceModelsCommand,
+  ConfigGetVoiceModelsCommand,
   AuthListCommand,
   AuthSetKeyCommand,
   AuthDeleteKeyCommand,
@@ -174,6 +176,8 @@ export type CommandEnvelope =
   | ConfigGetSandboxCommand
   | ConfigSetSummaryCommand
   | ConfigGetSummaryCommand
+  | ConfigSetVoiceModelsCommand
+  | ConfigGetVoiceModelsCommand
   | AuthListCommand
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
@@ -349,6 +353,8 @@ export const COMMAND_TYPES = [
   "config.get_sandbox",
   "config.set_summary",
   "config.get_summary",
+  "config.set_voice_models",
+  "config.get_voice_models",
   "auth.list",
   "auth.set_key",
   "auth.delete_key",

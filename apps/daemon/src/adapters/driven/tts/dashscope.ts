@@ -22,13 +22,15 @@
  * 中文错误（指向设置页 auth.set_key 录入路径）。
  */
 import type { TtsPort, TtsRequest, TtsResult } from "../../../application/ports/outbound/TtsPort";
+import { DEFAULT_VOICE_MODEL_CONFIG } from "../../../application/voice/voiceModelConfig";
 
 /** DashScope 多模态生成端点（通用域名；Qwen-TTS 非实时族官方端点）。 */
 const DASHSCOPE_MULTIMODAL_ENDPOINT =
   "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
 
-/** V2 主选 TTS 模型（qwen3-tts-flash：非实时系稳定版，0.8 元/万字符）。 */
-export const DASHSCOPE_TTS_MODEL = "qwen3-tts-flash";
+/** V2 主选 TTS 模型（qwen3-tts-flash：非实时系稳定版，0.8 元/万字符）。
+ *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
+export const DASHSCOPE_TTS_MODEL = DEFAULT_VOICE_MODEL_CONFIG.ttsModel;
 
 /** 默认音色（Cherry——女声，官方示例音色；中文播报基线）。 */
 export const DASHSCOPE_TTS_DEFAULT_VOICE = "Cherry";
@@ -61,6 +63,8 @@ interface DashScopeTtsOkBody {
 export interface DashScopeTtsDeps {
   /** 当前 provider key getter（组合根注入 authStore.apiKeyOf；每次调用重读）。 */
   readonly getApiKey: () => string | undefined;
+  /** 模型 id getter（可选——模型配置接入 P0；空/undefined 回落默认）。 */
+  readonly getModel?: () => string | undefined;
   /** fetch 注入（测试 fetch 层断言用；缺省 globalThis.fetch）。 */
   readonly fetchFn?: typeof fetch;
 }
@@ -68,11 +72,18 @@ export interface DashScopeTtsDeps {
 export class DashScopeTtsAdapter implements TtsPort {
   readonly providerId = DASHSCOPE_PROVIDER_ID;
   private readonly getApiKey: () => string | undefined;
+  private readonly getModel: (() => string | undefined) | undefined;
   private readonly fetchFn: typeof fetch;
 
   constructor(deps: DashScopeTtsDeps) {
     this.getApiKey = deps.getApiKey;
+    this.getModel = deps.getModel;
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
+  }
+
+  /** 生效模型 id（配置值优先；空/未配回落默认常量）。 */
+  private effectiveModel(): string {
+    return this.getModel?.()?.trim() || DASHSCOPE_TTS_MODEL;
   }
 
   async synthesize(request: TtsRequest): Promise<TtsResult> {
@@ -84,7 +95,7 @@ export class DashScopeTtsAdapter implements TtsPort {
     }
 
     const body: Record<string, unknown> = {
-      model: DASHSCOPE_TTS_MODEL,
+      model: this.effectiveModel(),
       input: {
         text: request.text,
         voice: request.voice ?? DASHSCOPE_TTS_DEFAULT_VOICE,

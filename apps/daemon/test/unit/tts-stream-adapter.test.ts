@@ -240,3 +240,16 @@ describe("DashScopeStreamingTtsAdapter（V3b-2 流式 TTS）", () => {
     expect(h.sockets[0]!.closed).toBe(true);
   });
 });
+
+// ── 模型配置接入 P0：model getter（配置值优先，空/未配回落默认）──────
+
+describe("模型配置接入 P0：getModel 注入（流式 TTS）", () => {
+  test("model getter：getModel 生效；空/未配回落 DASHSCOPE_TTS_STREAM_MODEL", () => {
+    const overridden = new DashScopeStreamingTtsAdapter({ getApiKey: () => "k", getModel: () => "stream-tts-custom" });
+    expect(overridden.model).toBe("stream-tts-custom");
+    const blank = new DashScopeStreamingTtsAdapter({ getApiKey: () => "k", getModel: () => " " });
+    expect(blank.model).toBe(DASHSCOPE_TTS_STREAM_MODEL);
+    const absent = new DashScopeStreamingTtsAdapter({ getApiKey: () => "k" });
+    expect(absent.model).toBe(DASHSCOPE_TTS_STREAM_MODEL);
+  });
+});

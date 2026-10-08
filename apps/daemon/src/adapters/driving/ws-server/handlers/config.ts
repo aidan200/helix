@@ -9,8 +9,11 @@ import type {
   ConfigSetSandboxResultEvent,
   ConfigGetSummaryResultEvent,
   ConfigSetSummaryResultEvent,
+  ConfigGetVoiceModelsResultEvent,
+  ConfigSetVoiceModelsResultEvent,
+  ConfigSetVoiceModelsPayload,
 } from "@helix/protocol";
-import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import { PROTOCOL_VERSION, SYSTEM_SESSION_ID, VOICE_MODEL_FIELDS } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
 
 /**
@@ -315,6 +318,65 @@ export function handleConfigSetSummary(ctx: WsCommandContext): void {
         sessionId: SYSTEM_SESSION_ID,
         channel: "model",
         type: "config.set_summary.result",
+        payload: { state },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+}
+
+// ── config.voice_models 族（ASR/TTS 模型配置接入 P0；部分更新语义：携带项
+//    写入，未携带项保留现值；字段空串 = 回落默认值）────────────────
+
+/** config.get_voice_models：语音模型配置读面（点对点回执——全量生效态，含默认值填充）。 */
+export function handleConfigGetVoiceModels(ctx: WsCommandContext): void {
+  if (ctx.voiceModelConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（voiceModelConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: ConfigGetVoiceModelsResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "config.get_voice_models.result",
+    payload: ctx.voiceModelConfig.current(),
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** config.set_voice_models：语音模型配置写面（点对点回执；部分更新合并写 +
+ *  类型闸：携带字段须 string（空串 = 回落默认值）；至少携带一项）。 */
+export function handleConfigSetVoiceModels(ctx: WsCommandContext): void {
+  if (ctx.voiceModelConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（voiceModelConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const patch: ConfigSetVoiceModelsPayload = {};
+  let seen = false;
+  for (const field of VOICE_MODEL_FIELDS) {
+    const value = ctx.payload[field];
+    if (value === undefined) continue;
+    if (typeof value !== "string") {
+      return ctx.commandError(ctx.type, "command.invalid_payload", `payload.${field} 应为 string（空串 = 回落默认值）`);
+    }
+    patch[field] = value;
+    seen = true;
+  }
+  if (!seen) {
+    return ctx.commandError(
+      ctx.type,
+      "command.invalid_payload",
+      `payload 至少携带一项（${VOICE_MODEL_FIELDS.join("/")}）`,
+    );
+  }
+  void ctx.voiceModelConfig
+    .set(patch)
+    .then((state) => {
+      const frame: ConfigSetVoiceModelsResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "config.set_voice_models.result",
         payload: { state },
       };
       ctx.sendNow(sender, frame);

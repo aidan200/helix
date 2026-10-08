@@ -37,6 +37,7 @@
  * fail-fast 抛中文错误（指向设置页 auth.set_key 录入路径）。
  */
 import type { SttPort, SttRequest, SttResult } from "../../../application/ports/outbound/SttPort";
+import { DEFAULT_VOICE_MODEL_CONFIG } from "../../../application/voice/voiceModelConfig";
 
 /** DashScope 多模态生成端点（通用域名）。 */
 const DASHSCOPE_MULTIMODAL_ENDPOINT =
@@ -45,8 +46,9 @@ const DASHSCOPE_MULTIMODAL_ENDPOINT =
 /** DashScope 上传 policy 端点（GET action=getPolicy）。 */
 const DASHSCOPE_UPLOADS_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/uploads";
 
-/** V1 主选 ASR 模型（qwen-audio-3.0-asr-flash：即时热词 + 上下文双通道）。 */
-export const DASHSCOPE_ASR_MODEL = "qwen-audio-3.0-asr-flash";
+/** V1 主选 ASR 模型（qwen-audio-3.0-asr-flash：即时热词 + 上下文双通道）。
+ *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
+export const DASHSCOPE_ASR_MODEL = DEFAULT_VOICE_MODEL_CONFIG.sttModel;
 
 /** auth.json provider id（设置页 key 录入的 provider 位）。 */
 export const DASHSCOPE_PROVIDER_ID = "dashscope";
@@ -104,6 +106,9 @@ interface DashScopeOkBody {
 export interface DashScopeSttDeps {
   /** 当前 provider key getter（组合根注入 authStore.apiKeyOf；每次调用重读）。 */
   readonly getApiKey: () => string | undefined;
+  /** 模型 id getter（可选——模型配置接入 P0；每次调用读现值，改配置即热；
+   *  空/undefined 回落 DASHSCOPE_ASR_MODEL 默认）。 */
+  readonly getModel?: () => string | undefined;
   /** fetch 注入（测试 fetch 层断言用；缺省 globalThis.fetch）。 */
   readonly fetchFn?: typeof fetch;
 }
@@ -111,11 +116,18 @@ export interface DashScopeSttDeps {
 export class DashScopeSttAdapter implements SttPort {
   readonly providerId = DASHSCOPE_PROVIDER_ID;
   private readonly getApiKey: () => string | undefined;
+  private readonly getModel: (() => string | undefined) | undefined;
   private readonly fetchFn: typeof fetch;
 
   constructor(deps: DashScopeSttDeps) {
     this.getApiKey = deps.getApiKey;
+    this.getModel = deps.getModel;
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
+  }
+
+  /** 生效模型 id（配置值优先；空/未配回落默认常量）。 */
+  private effectiveModel(): string {
+    return this.getModel?.()?.trim() || DASHSCOPE_ASR_MODEL;
   }
 
   async transcribe(request: SttRequest): Promise<SttResult> {
@@ -144,7 +156,7 @@ export class DashScopeSttAdapter implements SttPort {
     const vocabulary: Record<string, number> = {};
     for (const t of request.context.terms) vocabulary[t.term] = t.weight;
     const body: Record<string, unknown> = {
-      model: DASHSCOPE_ASR_MODEL,
+      model: this.effectiveModel(),
       input: { messages },
       parameters: {
         format: formatOfMime(mime),
@@ -194,7 +206,7 @@ export class DashScopeSttAdapter implements SttPort {
    */
   private async uploadToOss(apiKey: string, bytes: Uint8Array, mime: string): Promise<string> {
     const policyRes = await this.fetchFn(
-      `${DASHSCOPE_UPLOADS_ENDPOINT}?action=getPolicy&model=${DASHSCOPE_ASR_MODEL}`,
+      `${DASHSCOPE_UPLOADS_ENDPOINT}?action=getPolicy&model=${encodeURIComponent(this.effectiveModel())}`,
       {
         method: "GET",
         headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },

@@ -724,6 +724,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    默认 off 的落地面）──
   const voiceTts = deps.voiceTtsOverride ?? new DashScopeTtsAdapter({
     getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID),
+    // 模型配置接入 P0：getModel getter 每次调用读现值（KV voice_model_config
+    // 运行期即热；空/未配回落默认常量）
+    getModel: () => persistence.voiceModelConfig.current().ttsModel,
   });
   // 流式 TTS 批（V3b-2）：单句流式合成服务（连接池复用 adapter；key 读面
   // 与一次性合成同源——每次调用重读 auth.json，换 key 自动跟随；哑帧修复批
@@ -731,7 +734,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const ttsStream =
     deps.voiceTtsStreamOverride ??
     new TtsStreamService({
-      adapters: [new DashScopeStreamingTtsAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID) })],
+      adapters: [
+        new DashScopeStreamingTtsAdapter({
+          getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_TTS_PROVIDER_ID),
+          // 模型配置接入 P0：流式 TTS 模型同源配置（ttsStreamModel 槽位）
+          getModel: () => persistence.voiceModelConfig.current().ttsStreamModel,
+        }),
+      ],
       apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
     });
 

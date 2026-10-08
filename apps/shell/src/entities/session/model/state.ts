@@ -326,6 +326,8 @@ export interface ModelConfigState {
   sandbox: SandboxConfigState | null;
   /** 总结配置（null = 未请求；config.get/set_summary 帧驱动，总结器独立化批①） */
   summary: SummaryConfigState | null;
+  /** ASR/TTS 模型配置（null = 未请求；config.get/set_voice_models 帧驱动，模型配置接入 P0） */
+  voiceModels: VoiceModelConfigState | null;
 }
 
 /** 压缩参数配置（token 绝对值；与协议 config.*.result payload 同构）。 */
@@ -363,6 +365,16 @@ export interface SummaryConfigState {
   task: { enabled: boolean; model: string | null };
 }
 
+/** ASR/TTS 模型配置（与协议 VoiceModelConfigStatePayload 同构；5 槽位全量
+ *  生效态含默认值填充；模型配置接入 P0）。 */
+export interface VoiceModelConfigState {
+  sttModel: string;
+  sttSiliconflowModel: string;
+  sttRealtimeModel: string;
+  ttsModel: string;
+  ttsStreamModel: string;
+}
+
 /** 初始配置面（未请求态；数据由命令结果帧驱动填充）。 */
 export function createInitialModelConfigState(): ModelConfigState {
   return {
@@ -382,6 +394,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     port: null,
     sandbox: null,
     summary: null,
+    voiceModels: null,
   };
 }
 

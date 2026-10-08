@@ -121,3 +121,35 @@ export interface ConfigSetSummaryResultEvent extends EventFrame<ConfigSetSummary
   channel?: "model";
   type: "config.set_summary.result";
 }
+
+// ── config.voice_models 族（ASR/TTS 模型配置接入 P0；语音模型槽位）──
+
+/**
+ * config.get_voice_models / config.set_voice_models 回执同形载荷（get = 现态
+ * 读面；set = 校验通过写入后的新现态回读）。5 个语音模型槽位全量生效态
+ *（所见即所得，含默认值填充）；空串写入 = 回落默认值。
+ */
+export interface VoiceModelConfigStatePayload {
+  /** STT 一次性转写 · DashScope 模型 id（默认 qwen-audio-3.0-asr-flash）。 */
+  sttModel: string;
+  /** STT 一次性转写 · SiliconFlow 模型 id（默认 FunAudioLLM/SenseVoiceSmall）。 */
+  sttSiliconflowModel: string;
+  /** STT 流式转写 · DashScope realtime 模型 id（默认 qwen3-asr-flash-realtime）。 */
+  sttRealtimeModel: string;
+  /** TTS 一次性合成 · DashScope 模型 id（默认 qwen3-tts-flash）。 */
+  ttsModel: string;
+  /** TTS 流式合成 · DashScope 模型 id（默认 qwen-audio-3.0-tts-flash）。 */
+  ttsStreamModel: string;
+}
+export interface ConfigGetVoiceModelsResultEvent extends EventFrame<VoiceModelConfigStatePayload> {
+  channel?: "model";
+  type: "config.get_voice_models.result";
+}
+export interface ConfigSetVoiceModelsResultPayload {
+  /** 写入后的新现态（与 get 同形）。 */
+  state: VoiceModelConfigStatePayload;
+}
+export interface ConfigSetVoiceModelsResultEvent extends EventFrame<ConfigSetVoiceModelsResultPayload> {
+  channel?: "model";
+  type: "config.set_voice_models.result";
+}

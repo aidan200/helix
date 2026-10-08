@@ -49,9 +49,11 @@ export interface RealtimeSocket {
 }
 
 import type { AsrContext } from "../../../application/stt/VocabularyBuilder";
+import { DEFAULT_VOICE_MODEL_CONFIG } from "../../../application/voice/voiceModelConfig";
 
-/** V3b-1 主选流式 ASR 模型（Realtime 事件协议族）。 */
-export const DASHSCOPE_ASR_REALTIME_MODEL = "qwen3-asr-flash-realtime";
+/** V3b-1 主选流式 ASR 模型（Realtime 事件协议族）。
+ *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
+export const DASHSCOPE_ASR_REALTIME_MODEL = DEFAULT_VOICE_MODEL_CONFIG.sttRealtimeModel;
 
 /** realtime WS 端点（通用域名——无需 workspace id，冒烟实测）。 */
 const REALTIME_WS_BASE = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime";
@@ -71,6 +73,8 @@ const CHUNK_MS = 100;
 export interface DashScopeRealtimeSttDeps {
   /** 当前 provider key getter（组合根注入 authStore.apiKeyOf；每次调用重读）。 */
   readonly getApiKey: () => string | undefined;
+  /** 模型 id getter（可选——模型配置接入 P0；每次调用读现值；空/undefined 回落默认）。 */
+  readonly getModel?: () => string | undefined;
   /** WS 工厂（缺省 Bun global WebSocket——headers 透传 Bearer；测试注入 fake）。 */
   readonly wsFactory?: (url: string, headers: Record<string, string>) => RealtimeSocket;
   /** 定时器面（缺省 setTimeout；测试注入手工时钟）。 */
@@ -83,17 +87,23 @@ type Phase = "connecting" | "ready" | "closed";
 
 export class DashScopeRealtimeSttAdapter implements SttStreamPort {
   readonly providerId = "dashscope";
-  readonly model = DASHSCOPE_ASR_REALTIME_MODEL;
   private readonly getApiKey: () => string | undefined;
+  private readonly getModel: (() => string | undefined) | undefined;
   private readonly wsFactory: (url: string, headers: Record<string, string>) => RealtimeSocket;
   private readonly setTimer: (cb: () => void, ms: number) => number;
   private readonly clearTimer: (id: number) => void;
 
   constructor(deps: DashScopeRealtimeSttDeps) {
     this.getApiKey = deps.getApiKey;
+    this.getModel = deps.getModel;
     this.wsFactory = deps.wsFactory ?? defaultWsFactory;
     this.setTimer = deps.setTimer ?? ((cb, ms) => setTimeout(cb, ms) as unknown as number);
     this.clearTimer = deps.clearTimer ?? ((id) => clearTimeout(id as unknown as Parameters<typeof clearTimeout>[0]));
+  }
+
+  /** 生效模型 id（配置值优先；空/未配回落默认常量；SttStreamService 回执 model 随之反映配置）。 */
+  get model(): string {
+    return this.getModel?.()?.trim() || DASHSCOPE_ASR_REALTIME_MODEL;
   }
 
   open(options: SttStreamOpenOptions): SttStreamSession {
@@ -103,7 +113,7 @@ export class DashScopeRealtimeSttAdapter implements SttStreamPort {
         `auth.json 中没有 provider "dashscope" 的 API key（请经设置页语音输入区 auth.set_key 录入；显式传入，不走环境变量）`,
       );
     }
-    return new RealtimeSession(apiKey, options, this.wsFactory, this.setTimer, this.clearTimer);
+    return new RealtimeSession(apiKey, this.model, options, this.wsFactory, this.setTimer, this.clearTimer);
   }
 }
 
@@ -117,6 +127,8 @@ class RealtimeSession implements SttStreamSession {
   private ws: RealtimeSocket;
   private phase: Phase = "connecting";
   private readonly apiKey: string;
+  /** open 时点定格的模型 id（配置热改不重连——会话内协议参数不变）。 */
+  private readonly model: string;
   private readonly language: string | undefined;
   private readonly hint: string;
   private readonly cb: SttStreamCallbacks;
@@ -137,12 +149,14 @@ class RealtimeSession implements SttStreamSession {
 
   constructor(
     apiKey: string,
+    model: string,
     options: SttStreamOpenOptions,
     wsFactory: (url: string, headers: Record<string, string>) => RealtimeSocket,
     setTimer: (cb: () => void, ms: number) => number,
     clearTimer: (id: number) => void,
   ) {
     this.apiKey = apiKey;
+    this.model = model;
     this.language = options.language;
     this.hint = options.context.hint;
     this.cb = options.callbacks;
@@ -185,7 +199,7 @@ class RealtimeSession implements SttStreamSession {
   // ── 内部 ────────────────────────────────────────────────
 
   private connect(): RealtimeSocket {
-    const url = `${REALTIME_WS_BASE}?model=${DASHSCOPE_ASR_REALTIME_MODEL}`;
+    const url = `${REALTIME_WS_BASE}?model=${encodeURIComponent(this.model)}`;
     const ws = this.wsFactory(url, { Authorization: `Bearer ${this.apiKey}` });
     ws.addEventListener("open", () => this.onOpen());
     ws.addEventListener("message", (ev) => this.onMessage(String((ev as { data?: unknown }).data)));

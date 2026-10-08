@@ -115,6 +115,10 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `config-get-summary-result:${String(event.payload.enabled)}:${event.payload.model ?? "-"}:${event.payload.everyTurns}:${String(event.payload.task.enabled)}`;
     case "config.set_summary.result":
       return `config-set-summary-result:${String(event.payload.state.enabled)}`;
+    case "config.get_voice_models.result":
+      return `config-get-voice-models-result:${event.payload.sttModel}:${event.payload.ttsStreamModel}`;
+    case "config.set_voice_models.result":
+      return `config-set-voice-models-result:${event.payload.state.sttModel}`;
     case "auth.list.result":
       return `auth-list-result:${event.payload.providers.length}:${event.payload.providers[0]?.configured ?? "-"}`;
     case "auth.set_key.result":
@@ -457,6 +461,10 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `config-set-summary:${String(cmd.payload.enabled ?? "-")}:${cmd.payload.model ?? "-"}:${String(cmd.payload.everyTurns ?? "-")}`;
     case "config.get_summary":
       return "config-get-summary";
+    case "config.set_voice_models":
+      return `config-set-voice-models:${cmd.payload.sttModel ?? "-"}:${cmd.payload.ttsModel ?? "-"}`;
+    case "config.get_voice_models":
+      return "config-get-voice-models";
     // ── v0.2 auth 族 ──
     case "auth.list":
       return "auth-list";

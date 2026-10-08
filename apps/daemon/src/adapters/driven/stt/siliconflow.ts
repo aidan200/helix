@@ -10,12 +10,14 @@
  * model-provider.ts AuthStore getter 先例）。
  */
 import type { SttPort, SttRequest, SttResult } from "../../../application/ports/outbound/SttPort";
+import { DEFAULT_VOICE_MODEL_CONFIG } from "../../../application/voice/voiceModelConfig";
 
 /** SiliconFlow OpenAI 兼容转写端点。 */
 const SILICONFLOW_TRANSCRIPTIONS_ENDPOINT = "https://api.siliconflow.cn/v1/audio/transcriptions";
 
-/** 兜底模型（中文优先 SenseVoice）。 */
-export const SILICONFLOW_ASR_MODEL = "FunAudioLLM/SenseVoiceSmall";
+/** 兜底模型（中文优先 SenseVoice）。
+ *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
+export const SILICONFLOW_ASR_MODEL = DEFAULT_VOICE_MODEL_CONFIG.sttSiliconflowModel;
 
 export const SILICONFLOW_PROVIDER_ID = "siliconflow";
 
@@ -34,6 +36,8 @@ export function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: strin
 export interface SiliconFlowSttDeps {
   /** 当前 provider key getter（组合根注入 authStore.apiKeyOf）。 */
   readonly getApiKey: () => string | undefined;
+  /** 模型 id getter（可选——模型配置接入 P0；空/undefined 回落默认）。 */
+  readonly getModel?: () => string | undefined;
   /** fetch 注入（测试 fetch 层断言用；缺省 globalThis.fetch）。 */
   readonly fetchFn?: typeof fetch;
 }
@@ -41,11 +45,18 @@ export interface SiliconFlowSttDeps {
 export class SiliconFlowSttAdapter implements SttPort {
   readonly providerId = SILICONFLOW_PROVIDER_ID;
   private readonly getApiKey: () => string | undefined;
+  private readonly getModel: (() => string | undefined) | undefined;
   private readonly fetchFn: typeof fetch;
 
   constructor(deps: SiliconFlowSttDeps) {
     this.getApiKey = deps.getApiKey;
+    this.getModel = deps.getModel;
     this.fetchFn = deps.fetchFn ?? (globalThis.fetch as typeof fetch);
+  }
+
+  /** 生效模型 id（配置值优先；空/未配回落默认常量）。 */
+  private effectiveModel(): string {
+    return this.getModel?.()?.trim() || SILICONFLOW_ASR_MODEL;
   }
 
   async transcribe(request: SttRequest): Promise<SttResult> {
@@ -59,7 +70,7 @@ export class SiliconFlowSttAdapter implements SttPort {
     const ext = mime.startsWith("audio/webm") ? "webm" : mime.startsWith("audio/mp4") ? "mp4" : "wav";
     const form = new FormData();
     form.append("file", new Blob([bytes], { type: mime }), `speech.${ext}`);
-    form.append("model", SILICONFLOW_ASR_MODEL);
+    form.append("model", this.effectiveModel());
     if (request.context.hint !== "") form.append("prompt", request.context.hint);
     if (request.language !== undefined) form.append("language", request.language);
 

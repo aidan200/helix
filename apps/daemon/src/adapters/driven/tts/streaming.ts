@@ -24,6 +24,7 @@
  * （测试 fake——零真实网络）。
  */
 import type { TtsStreamCallbacks, TtsStreamOpenOptions, TtsStreamPort, TtsStreamSession } from "../../../application/ports/outbound/TtsStreamPort";
+import { DEFAULT_VOICE_MODEL_CONFIG } from "../../../application/voice/voiceModelConfig";
 
 /**
  * 最小 WS 客户端面（Bun global WebSocket 同构；测试 fake 注入）。
@@ -38,8 +39,9 @@ export interface TtsSocket {
   removeEventListener(type: "open" | "message" | "close" | "error", listener: (ev: { data?: unknown }) => void): void;
 }
 
-/** V3b-2 主选流式 TTS 模型（Qwen-Audio-TTS 实时族；1 元/万字符）。 */
-export const DASHSCOPE_TTS_STREAM_MODEL = "qwen-audio-3.0-tts-flash";
+/** V3b-2 主选流式 TTS 模型（Qwen-Audio-TTS 实时族；1 元/万字符）。
+ *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
+export const DASHSCOPE_TTS_STREAM_MODEL = DEFAULT_VOICE_MODEL_CONFIG.ttsStreamModel;
 
 /** 默认音色（longanlingxi 龙安灵犀——官方示例配对，冒烟验证）。 */
 export const DASHSCOPE_TTS_STREAM_VOICE = "longanlingxi";
@@ -59,6 +61,8 @@ export const TTS_STREAM_FINISH_TIMEOUT_MS = 20_000;
 export interface DashScopeStreamingTtsDeps {
   /** 当前 provider key getter（组合根注入 authStore.apiKeyOf；每次调用重读）。 */
   readonly getApiKey: () => string | undefined;
+  /** 模型 id getter（可选——模型配置接入 P0；每次 openUtterance 读现值；空/undefined 回落默认）。 */
+  readonly getModel?: () => string | undefined;
   /** WS 工厂（缺省 Bun global WebSocket——headers 透传 Bearer；测试注入 fake）。 */
   readonly wsFactory?: (url: string, headers: Record<string, string>) => TtsSocket;
   /** 定时器面（缺省 setTimeout；测试注入手工时钟）。 */
@@ -77,8 +81,8 @@ interface Pooled {
 
 export class DashScopeStreamingTtsAdapter implements TtsStreamPort {
   readonly providerId = "dashscope";
-  readonly model = DASHSCOPE_TTS_STREAM_MODEL;
   private readonly getApiKey: () => string | undefined;
+  private readonly getModel: (() => string | undefined) | undefined;
   private readonly wsFactory: (url: string, headers: Record<string, string>) => TtsSocket;
   private readonly setTimer: (cb: () => void, ms: number) => number;
   private readonly clearTimer: (id: number) => void;
@@ -87,9 +91,15 @@ export class DashScopeStreamingTtsAdapter implements TtsStreamPort {
 
   constructor(deps: DashScopeStreamingTtsDeps) {
     this.getApiKey = deps.getApiKey;
+    this.getModel = deps.getModel;
     this.wsFactory = deps.wsFactory ?? defaultWsFactory;
     this.setTimer = deps.setTimer ?? ((cb, ms) => setTimeout(cb, ms) as unknown as number);
     this.clearTimer = deps.clearTimer ?? ((id) => clearTimeout(id as unknown as Parameters<typeof clearTimeout>[0]));
+  }
+
+  /** 生效模型 id（配置值优先；空/未配回落默认常量；service 回执 model 随之反映配置）。 */
+  get model(): string {
+    return this.getModel?.()?.trim() || DASHSCOPE_TTS_STREAM_MODEL;
   }
 
   openUtterance(options: TtsStreamOpenOptions): TtsStreamSession {
@@ -100,7 +110,7 @@ export class DashScopeStreamingTtsAdapter implements TtsStreamPort {
       );
     }
     const socket = this.acquire(apiKey);
-    return new Utterance(options, socket, this.setTimer, this.clearTimer, () => this.release(socket));
+    return new Utterance(options, socket, this.model, this.setTimer, this.clearTimer, () => this.release(socket));
   }
 
   /** 取一条可用连接：池内优先（清空闲计时 + 摘池内监听），否则新建。 */
@@ -175,6 +185,8 @@ class Utterance implements TtsStreamSession {
   constructor(
     private readonly options: TtsStreamOpenOptions,
     private readonly socket: TtsSocket,
+    /** open 时点定格的模型 id（配置热改不影响在途句）。 */
+    private readonly model: string,
     private readonly setTimer: (cb: () => void, ms: number) => number,
     private readonly clearTimer: (id: number) => void,
     private readonly release: (socket: TtsSocket) => void,
@@ -223,7 +235,7 @@ class Utterance implements TtsStreamSession {
         task_group: "audio",
         task: "tts",
         function: "SpeechSynthesizer",
-        model: DASHSCOPE_TTS_STREAM_MODEL,
+        model: this.model,
         input: {},
         parameters: {
           voice: this.options.voice ?? DASHSCOPE_TTS_STREAM_VOICE,

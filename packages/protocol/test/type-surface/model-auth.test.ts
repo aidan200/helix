@@ -29,6 +29,8 @@ type _ModelFamily = Expect<
     | "config.set_sandbox.result"
     | "config.get_summary.result"
     | "config.set_summary.result"
+    | "config.get_voice_models.result"
+    | "config.set_voice_models.result"
     | "auth.list.result"
     | "auth.set_key.result"
     | "auth.delete_key.result"

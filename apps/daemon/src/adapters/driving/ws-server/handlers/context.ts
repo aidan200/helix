@@ -33,6 +33,7 @@ import type { SchedulingConfigPort } from "../../../../application/ports/outboun
 import type { PortConfigPort } from "../../../../application/ports/outbound/PortConfigPort";
 import type { SandboxConfigPort } from "../../../../application/ports/outbound/SandboxConfigPort";
 import type { SummaryConfigPort } from "../../../../application/ports/outbound/SummaryConfigPort";
+import type { VoiceModelConfigPort } from "../../../../application/ports/outbound/VoiceModelConfigPort";
 import type { AskService } from "../../../../application/services/AskService";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
@@ -116,6 +117,9 @@ export interface WsCommandContext {
   /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域；
    * 未装配 → unimplemented）。 */
   readonly summaryConfig?: SummaryConfigPort;
+  /** ASR/TTS 模型配置读写面（config.get/set_voice_models 命令族——
+   *  模型配置接入 P0；未装配 → unimplemented）。 */
+  readonly voiceModelConfig?: VoiceModelConfigPort;
   /** 提权申请仲裁面（ask.answer 命令回口；未装配 → unimplemented）。 */
   readonly askService?: AskService;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */

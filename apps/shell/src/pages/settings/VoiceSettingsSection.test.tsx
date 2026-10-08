@@ -23,6 +23,8 @@ import type { EventEnvelope } from "@helix/protocol";
 import type { AuthProviderEntry } from "@/entities/session/model/state";
 
 const requestAuthList = vi.fn();
+const requestVoiceModelConfig = vi.fn();
+const setVoiceModelConfig = vi.fn((_patch: Partial<Record<string, string>>) => true);
 const sendVoiceSynthesize = vi.fn(() => true);
 const sendVoiceSubscribe = vi.fn(() => true);
 const sendVoiceUnsubscribe = vi.fn(() => true);
@@ -35,11 +37,15 @@ const subscribeVoiceFrames = vi.fn((cb: (e: EventEnvelope) => void) => {
 });
 // 配置态区分数据注入口（per-test 变更；工厂闭包渲染时求值，无 TDZ）
 let mockAuth: Record<string, AuthProviderEntry> = {};
+// ASR/TTS 模型配置注入口（模型配置接入 P0；null = 未请求态）
+let mockVoiceModels: Record<string, string> | null = null;
 
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
-    topology: { modelConfig: { auth: mockAuth }, active: { conn: "connected" } },
+    topology: { modelConfig: { auth: mockAuth, voiceModels: mockVoiceModels }, active: { conn: "connected" } },
     requestAuthList,
+    requestVoiceModelConfig,
+    setVoiceModelConfig,
     sendVoiceSynthesize,
     sendVoiceSubscribe,
     sendVoiceUnsubscribe,
@@ -159,8 +165,8 @@ describe("VoiceSettingsSection 语音输入段（UX 重排批）", () => {
   it("key 录入入口零残留：无密码输入框（key 管理归「模型」分区，不做第二入口）", () => {
     const r = rig();
     expect(r.container.querySelectorAll('input[type="password"]')).toHaveLength(0);
-    // 9 = 3 偏好按钮 + 1 试听 + 3 欢迎词工坊 + 2 声纹（注册/导入——声纹 v2 迁入语音页）
-    expect(r.container.querySelectorAll("button").length).toBe(9);
+    // 11 = 3 偏好按钮 + 1 试听 + 3 欢迎词工坊 + 2 声纹（注册/导入——声纹 v2 迁入语音页）+ 2 模型配置（保存/恢复默认——模型配置接入 P0）
+    expect(r.container.querySelectorAll("button").length).toBe(11);
   });
 });
 
@@ -382,5 +388,111 @@ describe("VoiceSettingsSection B3 插话检测参数组（回声防线）", () =
     expect(screen.getByText(/插话检测/)).toBeTruthy();
     expect(screen.getByText("最短发声时长", { selector: "label" })).toBeTruthy();
     expect(r.container.textContent).not.toContain("chat.settings.voice.gate");
+  });
+});
+
+// ── ASR/TTS 模型配置组（模型配置接入 P0）────────────────────────
+describe("VoiceSettingsSection 模型配置组（config.get/set_voice_models）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    mockAuth = {};
+    mockVoiceModels = null;
+    vi.clearAllMocks();
+    setVoiceModelConfig.mockImplementation(() => true);
+  });
+
+  const rig = () =>
+    render(
+      <I18nProvider>
+        <ToastProvider>
+          <VoiceSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+
+  it("进入分区拉取一次；未请求态输入为空 + placeholder = 默认值", () => {
+    const r = rig();
+    expect(requestVoiceModelConfig).toHaveBeenCalled();
+    const input = r.container.querySelector('[data-voice-model="sttModel"]') as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.placeholder).toBe("qwen-audio-3.0-asr-flash");
+    expect(r.container.textContent).toContain("转写/合成模型");
+  });
+
+  it("帧驱动回填不乐观：voiceModels 现态落入输入框", () => {
+    mockVoiceModels = {
+      sttModel: "custom-asr-v2",
+      sttSiliconflowModel: "FunAudioLLM/SenseVoiceSmall",
+      sttRealtimeModel: "qwen3-asr-flash-realtime",
+      ttsModel: "qwen3-tts-flash",
+      ttsStreamModel: "qwen-audio-3.0-tts-flash",
+    };
+    const r = rig();
+    expect((r.container.querySelector('[data-voice-model="sttModel"]') as HTMLInputElement).value).toBe("custom-asr-v2");
+    expect((r.container.querySelector('[data-voice-model="ttsModel"]') as HTMLInputElement).value).toBe("qwen3-tts-flash");
+  });
+
+  it("保存只发改动项（未改动字段不携带）", () => {
+    mockVoiceModels = {
+      sttModel: "custom-asr-v2",
+      sttSiliconflowModel: "FunAudioLLM/SenseVoiceSmall",
+      sttRealtimeModel: "qwen3-asr-flash-realtime",
+      ttsModel: "qwen3-tts-flash",
+      ttsStreamModel: "qwen-audio-3.0-tts-flash",
+    };
+    const r = rig();
+    const input = r.container.querySelector('[data-voice-model="sttModel"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "another-asr" } });
+    fireEvent.click(r.container.querySelector("[data-voice-models-save]") as HTMLButtonElement);
+    expect(setVoiceModelConfig).toHaveBeenCalledTimes(1);
+    expect(setVoiceModelConfig.mock.calls[0]![0]).toEqual({ sttModel: "another-asr" });
+  });
+
+  it("无改动点保存 → 不发（空 patch 零请求）", () => {
+    mockVoiceModels = {
+      sttModel: "custom-asr-v2",
+      sttSiliconflowModel: "FunAudioLLM/SenseVoiceSmall",
+      sttRealtimeModel: "qwen3-asr-flash-realtime",
+      ttsModel: "qwen3-tts-flash",
+      ttsStreamModel: "qwen-audio-3.0-tts-flash",
+    };
+    const r = rig();
+    fireEvent.click(r.container.querySelector("[data-voice-models-save]") as HTMLButtonElement);
+    expect(setVoiceModelConfig).not.toHaveBeenCalled();
+  });
+
+  it("清空字段保存 = 发空串（回落默认协议语义）", () => {
+    mockVoiceModels = {
+      sttModel: "custom-asr-v2",
+      sttSiliconflowModel: "FunAudioLLM/SenseVoiceSmall",
+      sttRealtimeModel: "qwen3-asr-flash-realtime",
+      ttsModel: "qwen3-tts-flash",
+      ttsStreamModel: "qwen-audio-3.0-tts-flash",
+    };
+    const r = rig();
+    fireEvent.change(r.container.querySelector('[data-voice-model="sttModel"]') as HTMLInputElement, { target: { value: "" } });
+    fireEvent.click(r.container.querySelector("[data-voice-models-save]") as HTMLButtonElement);
+    expect(setVoiceModelConfig.mock.calls[0]![0]).toEqual({ sttModel: "" });
+  });
+
+  it("恢复默认：五槽位全量空串", () => {
+    const r = rig();
+    fireEvent.click(r.container.querySelector("[data-voice-models-reset]") as HTMLButtonElement);
+    expect(setVoiceModelConfig.mock.calls[0]![0]).toEqual({
+      sttModel: "",
+      sttSiliconflowModel: "",
+      sttRealtimeModel: "",
+      ttsModel: "",
+      ttsStreamModel: "",
+    });
+  });
+
+  it("保存未发出（send false）→ toast 行内交代（TR-168）", () => {
+    setVoiceModelConfig.mockImplementation(() => false);
+    const r = rig();
+    fireEvent.change(r.container.querySelector('[data-voice-model="ttsModel"]') as HTMLInputElement, { target: { value: "x" } });
+    fireEvent.click(r.container.querySelector("[data-voice-models-save]") as HTMLButtonElement);
+    expect(r.container.textContent).toContain("保存未发出");
   });
 });

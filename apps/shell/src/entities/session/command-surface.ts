@@ -109,6 +109,8 @@ import {
   configSetSandboxCommand,
   configGetSummaryCommand,
   configSetSummaryCommand,
+  configGetVoiceModelsCommand,
+  configSetVoiceModelsCommand,
   configSetPortCommand,
   diffGetCommand,
   kgBootstrapCreateCommand,
@@ -678,6 +680,23 @@ export const COMMAND_SURFACE = {
       model?: string | null;
       task?: { enabled?: boolean; model?: string | null };
     }): boolean => deps.send(configSetSummaryCommand(patch)),
+  /** ASR/TTS 模型配置拉取（语音设置分区进入；未请求态才发；模型配置接入 P0）。 */
+  requestVoiceModelConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.voiceModels === null) {
+        deps.send(configGetVoiceModelsCommand());
+      }
+    },
+  /** ASR/TTS 模型配置写入（运行期即热——下一次语音调用即用新模型）。
+   *  部分更新语义：携带项写入；字段空串 = 回落默认值。send 返回值透传。 */
+  setVoiceModelConfig: (deps) =>
+    (patch: {
+      sttModel?: string;
+      sttSiliconflowModel?: string;
+      sttRealtimeModel?: string;
+      ttsModel?: string;
+      ttsStreamModel?: string;
+    }): boolean => deps.send(configSetVoiceModelsCommand(patch)),
   /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
    *  恢复发送前凭据条目 + 返回 false。 */
   verifyProvider: (deps) =>

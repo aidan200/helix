@@ -18,7 +18,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { DashScopeSttAdapter, DASHSCOPE_ASR_MODEL } from "../../src/adapters/driven/stt/dashscope";
-import { decodeDataUrl, SiliconFlowSttAdapter } from "../../src/adapters/driven/stt/siliconflow";
+import { decodeDataUrl, SiliconFlowSttAdapter, SILICONFLOW_ASR_MODEL } from "../../src/adapters/driven/stt/siliconflow";
 import type { AsrContext } from "../../src/application/stt/VocabularyBuilder";
 
 const AUDIO = "data:audio/webm;codecs=opus;base64,SGVsbG8gV29ybGQ=";
@@ -260,5 +260,37 @@ describe("SiliconFlowSttAdapter：OpenAI 兼容 form 形态 + 兜底语义", () 
     expect(mime).toBe("audio/mp4");
     expect(new TextDecoder().decode(bytes)).toBe("hello");
     expect(() => decodeDataUrl("https://example.com/a.wav")).toThrow("base64 data URL");
+  });
+});
+
+// ── 模型配置接入 P0：getModel 覆盖（空/未配回落默认常量）────────────
+
+describe("模型配置接入 P0：getModel 注入", () => {
+  test("DashScope：getModel 生效于请求体 + getPolicy URL；空串回落默认", async () => {
+    const { calls, fetchFn } = dashscopeFetch(() => ({ output: { text: "ok" } }));
+    const adapter = new DashScopeSttAdapter({ getApiKey: () => "sk-dash", getModel: () => "custom-asr-v2", fetchFn });
+    await adapter.transcribe({ audio: AUDIO, context: ctxOf([]) });
+    const gen = calls.find((c) => c.url.includes("multimodal-generation"))!;
+    expect((JSON.parse(String(gen.init.body)) as { model: string }).model).toBe("custom-asr-v2");
+    const policy = calls.find((c) => c.url.includes("action=getPolicy"))!;
+    expect(policy.url).toContain("model=custom-asr-v2");
+
+    const second = dashscopeFetch(() => ({ output: { text: "ok" } }));
+    const fallback = new DashScopeSttAdapter({ getApiKey: () => "sk-dash", getModel: () => "  ", fetchFn: second.fetchFn });
+    await fallback.transcribe({ audio: AUDIO, context: ctxOf([]) });
+    const gen2 = second.calls.find((c) => c.url.includes("multimodal-generation"))!;
+    expect((JSON.parse(String(gen2.init.body)) as { model: string }).model).toBe(DASHSCOPE_ASR_MODEL);
+  });
+
+  test("SiliconFlow：getModel 生效于 multipart model 字段；未配回落默认", async () => {
+    const { calls, fetchFn } = captureFetch(() => ({ text: "ok" }));
+    const adapter = new SiliconFlowSttAdapter({ getApiKey: () => "sk-sf", getModel: () => "custom-sf-asr", fetchFn });
+    await adapter.transcribe({ audio: AUDIO, context: ctxOf([]) });
+    expect((calls[0]!.init.body as FormData).get("model")).toBe("custom-sf-asr");
+
+    const second = captureFetch(() => ({ text: "ok" }));
+    const fallback = new SiliconFlowSttAdapter({ getApiKey: () => "sk-sf", fetchFn: second.fetchFn });
+    await fallback.transcribe({ audio: AUDIO, context: ctxOf([]) });
+    expect((second.calls[0]!.init.body as FormData).get("model")).toBe(SILICONFLOW_ASR_MODEL);
   });
 });

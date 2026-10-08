@@ -350,6 +350,20 @@ export const enUS = {
         welcomeBlocked: "Playback blocked by browser policy (interact with the page first)",
         welcomeEmpty: "Welcome text cannot be empty",
       },
+      voiceModels: {
+        title: "Transcription / synthesis models",
+        note: "Model ids used by the voice pipeline for ASR and TTS. Leave empty (or clear) to fall back to the defaults. Saving takes effect immediately for the next voice call — no restart needed. A wrong model id will make voice calls fail; reset to default to recover.",
+        groupModels: "Model slots",
+        sttModel: "Transcription model (DashScope)",
+        sttSiliconflowModel: "Transcription model (SiliconFlow)",
+        sttRealtimeModel: "Streaming transcription model (DashScope)",
+        ttsModel: "Synthesis model (DashScope)",
+        ttsStreamModel: "Streaming synthesis model (DashScope)",
+        save: "Save",
+        saveFail: "Save not sent: daemon connection unavailable",
+        reset: "Reset all to defaults",
+        resetFail: "Reset not sent: daemon connection unavailable",
+      },
 
       skills: {
         title: "User skills",

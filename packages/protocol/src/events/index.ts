@@ -94,8 +94,10 @@ import type {
   ConfigSetPortResultEvent,
   ConfigGetSandboxResultEvent,
   ConfigGetSummaryResultEvent,
+  ConfigGetVoiceModelsResultEvent,
   ConfigSetSandboxResultEvent,
   ConfigSetSummaryResultEvent,
+  ConfigSetVoiceModelsResultEvent,
 } from "./config";
 import type { TraceQueryResultEvent } from "./trace";
 import type { ThinkingChangedEvent } from "./thinking";
@@ -277,6 +279,8 @@ export type EventEnvelope =
   | ConfigGetSummaryResultEvent
   | ConfigSetSandboxResultEvent
   | ConfigSetSummaryResultEvent
+  | ConfigGetVoiceModelsResultEvent
+  | ConfigSetVoiceModelsResultEvent
   | AuthListResultEvent
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
@@ -429,6 +433,8 @@ export const EVENT_TYPES = [
   "config.set_sandbox.result",
   "config.get_summary.result",
   "config.set_summary.result",
+  "config.get_voice_models.result",
+  "config.set_voice_models.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -626,6 +632,8 @@ export const EVENT_CHANNELS = {
   "config.set_sandbox.result": "model",
   "config.get_summary.result": "model",
   "config.set_summary.result": "model",
+  "config.get_voice_models.result": "model",
+  "config.set_voice_models.result": "model",
   "auth.list.result": "model",
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",

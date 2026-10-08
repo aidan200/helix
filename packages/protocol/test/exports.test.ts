@@ -279,6 +279,9 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "VOICEPRINT_MODEL_FILENAME",
       "VOICEPRINT_MODEL_HTTP_PATH",
       "VOICEPRINT_MODEL_MAX_BYTES",
+      // 语音模型槽位字段名单（ASR/TTS 模型配置接入 P0：载荷字段名协议契约单源；
+      // sort() 字典序："_"(95) > "P"(80)，故排 VOICEPRINT_* 之后）
+      "VOICE_MODEL_FIELDS",
       // 投影·usage 域（迁自 daemon UsageLedger + shell addUsage 副本）
       "ZERO_USAGE",
       "addUsage",
@@ -316,8 +319,8 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
   test("② 常量语义值 + 目录计数（+ 确认链路修复批：命令 120 / 事件 149；v0.14）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.14"); // v0.14 批次版本位（管家工作记忆批；契约 = changelog/v0.14.md §17.17）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(120); // 表面协议地基批 +4（surface.register/unregister/event/action.result）// P5 草稿驳回批 +1（kg.node.discard）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1（steward.history）// 流式转写批 +4（stt.stream 四命令）// 文本管家批 +6（steward 六命令）
-    expect(protocol.EVENT_TYPES.length).toBe(149); // 确认链路修复批 +1（steward.pending.snapshot——订阅对账/清场帧，E-206 预留帧位落地）// 管家感知批 M0.5 +1（steward.notify——主动通知帧）// 表面协议地基批 +2（surface.action 指令帧 + surface.registered 回执）// P5 草稿驳回批 +1（kg.node.discard.result）// P2 审计批 +1（kg.auto.audit.result） // kg-triage 批 +1（kg.triage.create.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1（steward.navigate）// 管家工作记忆批 +3（history.result/tool/thinking）// 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(149); // 确认链路修复批 +1 // 管家感知批 M0.5 +1 // 表面协议地基批 +2（surface 族两帧登记 channel "surface"）// P5 草稿驳回批 +1 // P2 审计批 +1 // 登记目录恰等（+B1 两段式确认批 1）（+ 管家记忆 B2 批 3 / helix-loop L1 批 1 / 管家公民权批 1 / helix-loop L0 批 loop 族 15）
+    expect(protocol.COMMAND_TYPES.length).toBe(122); // ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface.register/unregister/event/action.result）// P5 草稿驳回批 +1（kg.node.discard）// P2 审计批 +1（kg.auto.audit） // 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1（steward.history）// 流式转写批 +4（stt.stream 四命令）// 文本管家批 +6（steward 六命令）
+    expect(protocol.EVENT_TYPES.length).toBe(151); // ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：确认链路修复批 +1（steward.pending.snapshot——订阅对账/清场帧，E-206 预留帧位落地）// 管家感知批 M0.5 +1（steward.notify——主动通知帧）// 表面协议地基批 +2（surface.action 指令帧 + surface.registered 回执）// P5 草稿驳回批 +1（kg.node.discard.result）// P2 审计批 +1（kg.auto.audit.result） // kg-triage 批 +1（kg.triage.create.result） // B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1（steward.navigate）// 管家工作记忆批 +3（history.result/tool/thinking）// 流式转写批 +3（stt.stream 三事件）// 文本管家批 +4（steward 四事件）+ 流式体验批 +1（steward.ask.delta）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(151); // ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：确认链路修复批 +1 // 管家感知批 M0.5 +1 // 表面协议地基批 +2（surface 族两帧登记 channel "surface"）// P5 草稿驳回批 +1 // P2 审计批 +1 // 登记目录恰等（+B1 两段式确认批 1）（+ 管家记忆 B2 批 3 / helix-loop L1 批 1 / 管家公民权批 1 / helix-loop L0 批 loop 族 15）
   });
 });

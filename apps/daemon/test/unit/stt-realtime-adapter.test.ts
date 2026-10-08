@@ -357,3 +357,16 @@ describe("DashScope realtime 流式 adapter：abort 与终态纪律", () => {
     expect(DASHSCOPE_ASR_REALTIME_MODEL).toBe("qwen3-asr-flash-realtime");
   });
 });
+
+// ── 模型配置接入 P0：model getter（配置值优先，空/未配回落默认）──────
+
+describe("模型配置接入 P0：getModel 注入（realtime）", () => {
+  test("model getter：getModel 生效；空/未配回落 DASHSCOPE_ASR_REALTIME_MODEL", () => {
+    const overridden = new DashScopeRealtimeSttAdapter({ getApiKey: () => "k", getModel: () => "rt-custom" });
+    expect(overridden.model).toBe("rt-custom");
+    const blank = new DashScopeRealtimeSttAdapter({ getApiKey: () => "k", getModel: () => " " });
+    expect(blank.model).toBe(DASHSCOPE_ASR_REALTIME_MODEL);
+    const absent = new DashScopeRealtimeSttAdapter({ getApiKey: () => "k" });
+    expect(absent.model).toBe(DASHSCOPE_ASR_REALTIME_MODEL);
+  });
+});

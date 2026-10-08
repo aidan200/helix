@@ -374,11 +374,27 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // 对齐 model-provider AuthStore getter 先例——每次调用重读 auth.json，
     // 换 key 后自动跟随）
     stt: {
-      providers: [new DashScopeSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID) }), new SiliconFlowSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(SILICONFLOW_PROVIDER_ID) })],
+      providers: [
+        new DashScopeSttAdapter({
+          getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID),
+          // 模型配置接入 P0：getModel getter 每次调用读现值（KV voice_model_config
+          // 运行期即热；空/未配回落默认常量）
+          getModel: () => persistence.voiceModelConfig.current().sttModel,
+        }),
+        new SiliconFlowSttAdapter({
+          getApiKey: () => modelStack.authStore.apiKeyOf(SILICONFLOW_PROVIDER_ID),
+          getModel: () => persistence.voiceModelConfig.current().sttSiliconflowModel,
+        }),
+      ],
       apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
       stream: {
         service: new SttStreamService({
-          adapters: [new DashScopeRealtimeSttAdapter({ getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID) })],
+          adapters: [
+            new DashScopeRealtimeSttAdapter({
+              getApiKey: () => modelStack.authStore.apiKeyOf(DASHSCOPE_PROVIDER_ID),
+              getModel: () => persistence.voiceModelConfig.current().sttRealtimeModel,
+            }),
+          ],
           apiKeyOf: (providerId) => modelStack.authStore.apiKeyOf(providerId),
         }),
       },

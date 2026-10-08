@@ -39,6 +39,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "config.set_sandbox.result",
   "config.get_summary.result",
   "config.set_summary.result",
+  "config.get_voice_models.result",
+  "config.set_voice_models.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -162,6 +164,14 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
     case "config.set_summary.result":
       // 总结配置写回执（state = 写入后新现态回读——回填不乐观）
       next = { ...mc, summary: { enabled: frame.payload.state.enabled, everyTurns: frame.payload.state.everyTurns, model: frame.payload.state.model, task: { enabled: frame.payload.state.task.enabled, model: frame.payload.state.task.model } } };
+      break;
+    case "config.get_voice_models.result":
+      // ASR/TTS 模型配置读回执（模型配置接入 P0；get = 5 槽位全量生效态）
+      next = { ...mc, voiceModels: { sttModel: frame.payload.sttModel, sttSiliconflowModel: frame.payload.sttSiliconflowModel, sttRealtimeModel: frame.payload.sttRealtimeModel, ttsModel: frame.payload.ttsModel, ttsStreamModel: frame.payload.ttsStreamModel } };
+      break;
+    case "config.set_voice_models.result":
+      // ASR/TTS 模型配置写回执（state = 写入后新现态回读——回填不乐观）
+      next = { ...mc, voiceModels: { sttModel: frame.payload.state.sttModel, sttSiliconflowModel: frame.payload.state.sttSiliconflowModel, sttRealtimeModel: frame.payload.state.sttRealtimeModel, ttsModel: frame.payload.state.ttsModel, ttsStreamModel: frame.payload.state.ttsStreamModel } };
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);

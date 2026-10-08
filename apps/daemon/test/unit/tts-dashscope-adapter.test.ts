@@ -131,3 +131,25 @@ describe("DashScopeTtsAdapter：两步 HTTP 合成（fetch 层断言）", () => 
     await expect(adapter.synthesize({ text: "测试" })).rejects.toThrow(/下载失败.*404/s);
   });
 });
+
+// ── 模型配置接入 P0：getModel 覆盖（空/未配回落默认常量）────────────
+
+describe("模型配置接入 P0：getModel 注入（一次性 TTS）", () => {
+  test("getModel 生效于请求体 model；空串回落默认", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchFn = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      if (String(url).includes("multimodal-generation")) {
+        return new Response(JSON.stringify({ output: { audio: { url: "https://fake-audio.example.com/a.wav" } } }), { status: 200 });
+      }
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    }) as typeof fetch;
+    const adapter = new DashScopeTtsAdapter({ getApiKey: () => "sk-dash", getModel: () => "custom-tts-v2", fetchFn });
+    await adapter.synthesize({ text: "测试" });
+    expect((JSON.parse(String(calls[0]!.init.body)) as { model: string }).model).toBe("custom-tts-v2");
+
+    const adapter2 = new DashScopeTtsAdapter({ getApiKey: () => "sk-dash", getModel: () => "", fetchFn });
+    await adapter2.synthesize({ text: "测试" });
+    expect((JSON.parse(String(calls[2]!.init.body)) as { model: string }).model).toBe(DASHSCOPE_TTS_MODEL);
+  });
+});

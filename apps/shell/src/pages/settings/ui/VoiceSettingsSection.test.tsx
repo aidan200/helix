@@ -23,6 +23,10 @@ const sendVoiceSynthesize = vi.fn(() => true);
 const sendVoiceSubscribe = vi.fn(() => true);
 const sendVoiceUnsubscribe = vi.fn(() => true);
 const requestAuthList = vi.fn();
+const requestVoiceModelConfig = vi.fn();
+const setVoiceModelConfig = vi.fn(() => true);
+/** ASR/TTS 模型配置注入口（模型配置接入 P0；null = 未请求态）。 */
+let mockVoiceModels: Record<string, string> | null = null;
 /** voice 帧听众（synthesize.result 回执注入面）。 */
 let voiceListeners: ((e: EventEnvelope) => void)[] = [];
 
@@ -32,8 +36,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [], daemonFreshness: null },
-      topology: { modelConfig: { auth: {}, authLoaded: true }, list: [] },
+      topology: { modelConfig: { auth: {}, authLoaded: true, voiceModels: mockVoiceModels }, list: [] },
       requestAuthList,
+      requestVoiceModelConfig,
+      setVoiceModelConfig,
       sendVoiceSynthesize,
       sendVoiceSubscribe,
       sendVoiceUnsubscribe,

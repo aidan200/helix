@@ -181,7 +181,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
-import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetSummary, handleConfigSetSummary } from "./handlers/config";
+import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetSummary, handleConfigSetSummary, handleConfigGetVoiceModels, handleConfigSetVoiceModels } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleAskAnswer } from "./handlers/ask";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
@@ -998,6 +998,11 @@ export class WsServerAdapter {
         return handleConfigGetSummary(this.contexts.commandContext(ws, type, payload, envelope));
       case "config.set_summary":
         return handleConfigSetSummary(this.contexts.commandContext(ws, type, payload, envelope));
+      // ── ASR/TTS 模型配置批（config.voice_models 族，模型配置接入 P0）──
+      case "config.get_voice_models":
+        return handleConfigGetVoiceModels(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.set_voice_models":
+        return handleConfigSetVoiceModels(this.contexts.commandContext(ws, type, payload, envelope));
       // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
       case "thinking.set":
         return handleThinkingSet(this.contexts.commandContext(ws, type, payload, envelope));

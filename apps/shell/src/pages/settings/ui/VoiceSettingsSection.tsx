@@ -68,6 +68,18 @@ import {
   writeWelcomeTextPref,
 } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
+import { VOICE_MODEL_FIELDS } from "@helix/protocol";
+
+type VoiceModelField = (typeof VOICE_MODEL_FIELDS)[number];
+
+/** 默认模型（placeholder 展示面；真源 = daemon DEFAULT_VOICE_MODEL_CONFIG 字面值）。 */
+const DEFAULT_VOICE_MODELS: Record<VoiceModelField, string> = {
+  sttModel: "qwen-audio-3.0-asr-flash",
+  sttSiliconflowModel: "FunAudioLLM/SenseVoiceSmall",
+  sttRealtimeModel: "qwen3-asr-flash-realtime",
+  ttsModel: "qwen3-tts-flash",
+  ttsStreamModel: "qwen-audio-3.0-tts-flash",
+};
 
 const STT_PROVIDERS = ["dashscope", "siliconflow"] as const;
 
@@ -84,7 +96,7 @@ interface SynthResultPayload {
 const VoiceSettingsSection = function VoiceSettingsSection() {
   const { t } = useI18n();
   const toast = useToast();
-  const { topology, requestAuthList, sendVoiceSynthesize, sendVoiceSubscribe, sendVoiceUnsubscribe, subscribeVoiceFrames } = useSession();
+  const { topology, requestAuthList, sendVoiceSynthesize, sendVoiceSubscribe, sendVoiceUnsubscribe, subscribeVoiceFrames, requestVoiceModelConfig, setVoiceModelConfig } = useSession();
   const [provider, setProvider] = useState<string>(() => readSttProviderPref() ?? "auto");
   // ── TTS 偏好态（初值 localStorage；写 = 偏好 + 立即生效面由 useVoiceBroadcast 消费）──
   const [broadcastOn, setBroadcastOn] = useState<boolean>(() => readVoiceBroadcastPref());
@@ -104,6 +116,48 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
   const [welcomeFixed, setWelcomeFixed] = useState(() => readWelcomeAudioPref() !== null);
   const [welcomeDraft, setWelcomeDraft] = useState<string | null>(null);
   const welcomePendingRef = useRef(false);
+  // ── ASR/TTS 模型配置（模型配置接入 P0）：帧驱动回填不乐观——daemon 权威
+  //    现态（config.get/set_voice_models.result）落 draft；保存只发改动项，
+  //    空串 = 回落默认值（协议语义）──
+  const voiceModels = topology.modelConfig.voiceModels;
+  const [modelDrafts, setModelDrafts] = useState<Record<VoiceModelField, string>>({
+    sttModel: "",
+    sttSiliconflowModel: "",
+    sttRealtimeModel: "",
+    ttsModel: "",
+    ttsStreamModel: "",
+  });
+
+  useEffect(() => {
+    requestVoiceModelConfig();
+  }, [requestVoiceModelConfig]);
+
+  useEffect(() => {
+    if (voiceModels === null) return;
+    setModelDrafts({
+      sttModel: voiceModels.sttModel,
+      sttSiliconflowModel: voiceModels.sttSiliconflowModel,
+      sttRealtimeModel: voiceModels.sttRealtimeModel,
+      ttsModel: voiceModels.ttsModel,
+      ttsStreamModel: voiceModels.ttsStreamModel,
+    });
+  }, [voiceModels]);
+
+  const onSaveVoiceModels = () => {
+    const patch: Partial<Record<VoiceModelField, string>> = {};
+    for (const field of VOICE_MODEL_FIELDS) {
+      const draft = modelDrafts[field].trim();
+      if (draft !== (voiceModels?.[field] ?? "")) patch[field] = draft; // 空串 = 回落默认
+    }
+    if (Object.keys(patch).length === 0) return; // 无改动不发
+    if (setVoiceModelConfig(patch) === false) toast.push("err", t("chat.settings.voiceModels.saveFail"));
+  };
+
+  const onResetVoiceModels = () => {
+    const patch: Partial<Record<VoiceModelField, string>> = {};
+    for (const field of VOICE_MODEL_FIELDS) patch[field] = "";
+    if (setVoiceModelConfig(patch) === false) toast.push("err", t("chat.settings.voiceModels.resetFail"));
+  };
 
   useEffect(() => {
     requestAuthList();
@@ -507,6 +561,39 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
           </div>
         </div>
         <span className="ag-note">{t("chat.settings.voiceTts.welcomeConfirmHint")}</span>
+      </div>
+
+      {/* ── ASR/TTS 模型配置（模型配置接入 P0）：5 槽位 free-text，保存即热── */}
+      <h2 className="pg-title pg-subtitle">{t("chat.settings.voiceModels.title")}</h2>
+      <h3 className="section-label gen-group-label first">{t("chat.settings.voiceModels.groupModels")}</h3>
+      <div className="hud-card" data-voice-models>
+        <p className="ag-note">{t("chat.settings.voiceModels.note")}</p>
+        {VOICE_MODEL_FIELDS.map((field) => (
+          <div className="fld" key={field}>
+            <label className="hud-label" htmlFor={`voice-model-${field}`}>
+              {t(`chat.settings.voiceModels.${field}`)}
+            </label>
+            <input
+              id={`voice-model-${field}`}
+              className="hud-input"
+              data-voice-model={field}
+              type="text"
+              value={modelDrafts[field]}
+              placeholder={DEFAULT_VOICE_MODELS[field]}
+              onChange={(e) => setModelDrafts((prev) => ({ ...prev, [field]: e.target.value }))}
+            />
+          </div>
+        ))}
+        <div className="fld">
+          <div className="set-inline">
+            <button type="button" className="hud-btn hud-btn-cyan" data-voice-models-save onClick={onSaveVoiceModels}>
+              {t("chat.settings.voiceModels.save")}
+            </button>
+            <button type="button" className="hud-btn hud-btn-ghost" data-voice-models-reset onClick={onResetVoiceModels}>
+              {t("chat.settings.voiceModels.reset")}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

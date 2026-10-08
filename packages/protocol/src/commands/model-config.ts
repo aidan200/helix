@@ -177,6 +177,43 @@ export interface ConfigGetSummaryCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_summary";
 }
 
+// ── config.voice_models 族（ASR/TTS 模型配置接入 P0；语音模型槽位）──
+
+/**
+ * config.set_voice_models 载荷：ASR/TTS 模型配置（部分更新语义：携带项写入，
+ * 未携带项保留现值；字段空串 = 回落默认值）。非 string 字段回执 invalid_payload。
+ */
+export interface ConfigSetVoiceModelsPayload {
+  /** STT 一次性转写 · DashScope 模型 id。 */
+  sttModel?: string;
+  /** STT 一次性转写 · SiliconFlow 模型 id。 */
+  sttSiliconflowModel?: string;
+  /** STT 流式转写 · DashScope realtime 模型 id。 */
+  sttRealtimeModel?: string;
+  /** TTS 一次性合成 · DashScope 模型 id。 */
+  ttsModel?: string;
+  /** TTS 流式合成 · DashScope 模型 id。 */
+  ttsStreamModel?: string;
+}
+export interface ConfigSetVoiceModelsCommand extends CommandFrame<ConfigSetVoiceModelsPayload> {
+  type: "config.set_voice_models";
+}
+
+/** config.get_voice_models 载荷：全局命令。 */
+export interface ConfigGetVoiceModelsCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_voice_models";
+}
+
+/** 语音模型槽位五件（载荷字段名协议契约单源——daemon 驱动侧 import 白名单
+ *  放行 @helix/protocol，字段遍历面从这里取）。 */
+export const VOICE_MODEL_FIELDS = [
+  "sttModel",
+  "sttSiliconflowModel",
+  "sttRealtimeModel",
+  "ttsModel",
+  "ttsStreamModel",
+] as const;
+
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
 /** auth.list 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */

@@ -41,6 +41,8 @@ import type {
   ConfigGetSandboxCommand,
   ConfigGetSummaryCommand,
   ConfigSetSummaryCommand,
+  ConfigGetVoiceModelsCommand,
+  ConfigSetVoiceModelsCommand,
   ConfigSetSandboxCommand,
   KgAutoAuditCommand,
   KgAutoAuditPayload,
@@ -388,6 +390,23 @@ export function configSetSummaryCommand(patch: {
   task?: { enabled?: boolean; model?: string | null };
 }): ConfigSetSummaryCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_summary", payload: patch };
+}
+
+/** config.get_voice_models：ASR/TTS 模型配置读面（全局命令；模型配置接入 P0）。 */
+export function configGetVoiceModelsCommand(): ConfigGetVoiceModelsCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_voice_models", payload: {} };
+}
+
+/** config.set_voice_models：ASR/TTS 模型配置写面（运行期即热）。
+ * 部分更新语义：携带项写入，未携带项保留现值；字段空串 = 回落默认值。 */
+export function configSetVoiceModelsCommand(patch: {
+  sttModel?: string;
+  sttSiliconflowModel?: string;
+  sttRealtimeModel?: string;
+  ttsModel?: string;
+  ttsStreamModel?: string;
+}): ConfigSetVoiceModelsCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_voice_models", payload: patch };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

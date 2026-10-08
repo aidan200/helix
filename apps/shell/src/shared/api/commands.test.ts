@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardCancelCommand, stewardSetConfigCommand,
-  configSetSummaryCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
+  configSetSummaryCommand, configGetVoiceModelsCommand, configSetVoiceModelsCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -198,6 +198,21 @@ describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）
     expect(configSetSummaryCommand({ model: null }).payload).toEqual({ model: null });
     expect(configSetSummaryCommand({ task: { model: "" } }).payload).toEqual({ task: { model: "" } });
     expect(configSetSummaryCommand({}).payload).toEqual({});
+  });
+
+  it("config.get/set_voice_models：模型配置两构造器（模型配置接入 P0；部分更新 + 空串回落默认）", () => {
+    expect(configGetVoiceModelsCommand()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "config.get_voice_models",
+      payload: {},
+    });
+    expect(configSetVoiceModelsCommand({ sttModel: "custom-asr-v2" })).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "config.set_voice_models",
+      payload: { sttModel: "custom-asr-v2" },
+    });
+    expect(configSetVoiceModelsCommand({ ttsStreamModel: "" }).payload).toEqual({ ttsStreamModel: "" });
+    expect(configSetVoiceModelsCommand({}).payload).toEqual({});
   });
 
   it("三槽位共存（摘组后）：enabled + model + memory 同时携带互不覆盖", () => {
