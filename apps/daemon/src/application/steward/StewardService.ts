@@ -201,6 +201,12 @@ export const STEWARD_RUN_WATCHDOG_TICK_MS = 5_000;
  *  run promise 仍永悬，必须弃引擎重建；180+15=195s < 5 分钟自愈口径）。 */
 export const STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS = 15_000;
 
+/** 手动 abort 快进宽限（手动停止批）：abortInFlight 后此时长仍 runActive
+ *  （挂死流 abort 打不醒——E-240 实测）→ 快进强制收口（弃引擎重建）。被动
+ *  看门狗 195s 对语音交互太慢（2026-10-09 事故：用户距看门狗触发差 12s 放弃
+ *  重启）；手动停止后最长 8s 恢复。正常流 abort 后 1-2s 内即收口，8s 足宽。 */
+export const STEWARD_MANUAL_ABORT_GRACE_MS = 8_000;
+
 /** 确认卡 TTL：pending 挂闸无人 confirm/cancel 持续此时长 → 自动作废（复用
  *  cancel 内部语义——删除即作废；300s）。E-206 残项中「超时作废」部分，
  *  跨重启重放不做。 */
@@ -233,6 +239,17 @@ export const STEWARD_CONFIRM_PHRASES: readonly string[] = [
 
 /** 取消类口令词表（命中绑定最近 pending 卡作废）。 */
 export const STEWARD_CANCEL_PHRASES: readonly string[] = ["取消", "不要了", "放弃"];
+
+/** 强制停止类口令词表（手动停止批）：在途 run 命中 → 全停（abort 当前 +
+ *  清空排队，回执携丢弃条数）；无在途原样走 LLM（词表仅在场路由——TR-240
+ *  同款纪律）。与确认口令词表互斥：「取消」是卡作废口令，「停」族是 run 全停
+ *  口令，语义分层不互吞。 */
+export const STEWARD_STOP_PHRASES: readonly string[] = ["停", "停下", "停止", "别说了", "闭嘴", "住嘴", "stop"];
+
+/** 停止词判定（归一复用口令面 normalizePhrase；零 LLM 纯函数）。 */
+export function matchStewardStopPhrase(text: string): boolean {
+  return STEWARD_STOP_PHRASES.includes(normalizePhrase(text));
+}
 
 /** 口令归一（trim + 尾部标点剥除——语音转写常带句读；中部不改）。 */ function normalizePhrase(text: string): string {
   return text.trim().replace(/[。．.!！?？?，,、；;～~\s]+$/u, "");
@@ -1298,6 +1315,9 @@ export class StewardService {
   /** 看门狗已触发时刻（undefined = 未触发；同集 episode 不重复 abort/通知，
    *  宽限窗后仍未收口进入强制收口轨——abort 丳不醒的挂死流兑底）。 */
   private watchdogFiredAt: number | undefined;
+  /** 手动 abort 时刻（手动停止批快进锚）：abortInFlight 置位、run 边界复位；
+   *  宽限后仍 runActive = 挂死流 → 快进强制收口轨（不等被动看门狗 180s）。 */
+  private manualAbortAt: number | undefined;
   /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
   private notifySeq = 0;
   /** 主动汇报实时帧序（emitProactive 单调 seq——M3-a，与 notify 同构口径）。 */
@@ -1338,6 +1358,16 @@ export class StewardService {
     if (phrase !== undefined) {
       const routed = this.routeConfirmPhrase(phrase);
       if (routed !== undefined) return routed;
+    }
+    // 强制停止词（手动停止批）：在途 run 命中 → 全停（abort 当前 + 清空排队，
+    // 回执携丢弃条数）；无在途原样走 LLM（用户闲聊可能带「停」字——词表仅在
+    // 场路由，TR-240 同款纪律）。挂闸阻塞态同样全停（旧逻辑会把停止词当新
+    // ask abort-再驱动——语义错位）；pending 卡不动（卡生命周期 TTL 域独立）。
+    if (this.runActive && matchStewardStopPhrase(text)) {
+      const dropped = this.askQueue.splice(0).length;
+      this.abortInFlight("停止词全停");
+      this.logInfo(`管家手动停止（停止词）：丢弃排队 ${dropped} 条`);
+      return { status: "stopped", reason: "已停止当前处理", dropped };
     }
     // 判官泛化层（M3-a：三级漏斗第二级）：词表未命中 ∧ pending 卡在场 →
     // 判官 noul 三问分流「确认/取消/修正」。确认/取消复用口令路由执行面
@@ -1387,10 +1417,13 @@ export class StewardService {
   }
 
   /** 在途轮 abort（幂等——非在途态 no-op 返回 false；挂闸阻塞中同样唤醒
-   *  收口）。收口后自持队列自动接管（序不变量：队列不丢）。 */
+   *  收口）。收口后自持队列自动接管（序不变量：队列不丢）。手动停止批：
+   *  置位 manualAbortAt 快进锚——abort 打不醒的挂死流（E-240 实测）在宽限
+   *  后由快进轨强制收口，不等被动看门狗 180s。 */
   abortInFlight(reason: string): boolean {
     void reason;
     if (!this.runActive || this.engine === undefined) return false;
+    this.manualAbortAt = this.now(); // 快进锚（手动停止批）
     this.engine.abort();
     return true;
   }
@@ -1424,6 +1457,7 @@ export class StewardService {
       this.runActive = false;
       this.runLastProgressAt = undefined;
       this.watchdogFiredAt = undefined;
+      this.manualAbortAt = undefined; // 手动停止批：run 边界清锚（不误伤下一 run）
       this.runSettledMark?.();
       this.runSettledMark = undefined;
       const payload: StewardAskResultPayload = {
@@ -1494,6 +1528,7 @@ export class StewardService {
     this.runActive = true; // 幂等（driveAsk 已同步占位——防御直接调用面）
     this.runLastProgressAt = this.now();
     this.watchdogFiredAt = undefined;
+    this.manualAbortAt = undefined; // 手动停止批：新 run 清手动锚（上一 run 残锚不残留）
     this.logInfo(`管家 run 开始：${item.text.slice(0, 40)}`);
     this.pendingRunAsk = item;
     this.askStreamEvents = item.events;
@@ -1771,6 +1806,7 @@ export class StewardService {
     this.runActive = false;
     this.runLastProgressAt = undefined;
     this.watchdogFiredAt = undefined;
+    this.manualAbortAt = undefined; // 手动停止批：run 边界清锚
     this.runSettledMark?.();
     this.runSettledMark = undefined;
     const outcome: StewardAskResultPayload =
@@ -1916,6 +1952,17 @@ export class StewardService {
       this.watchdogFiredAt = undefined; // 空闲态复位（下一 run 重计）
       return;
     }
+    // 手动停止批：手动 abort 快进轨——abort 打不醒的挂死流不等被动看门狗
+    //（180s），abort 后宽限内仍 runActive 直接强制收口（弃引擎重建恢复队列）。
+    // manualAbortAt 有值 ⇔ abortInFlight 曾返回 true（runActive + engine 双
+    // 在场），锚已定的前提不需要重复检查（置锚时 run 必已开始）。同步清锚
+    // 防重（finishRun 经投影链异步，重复 tick 不二触）。
+    if (this.manualAbortAt !== undefined && now - this.manualAbortAt >= STEWARD_MANUAL_ABORT_GRACE_MS) {
+      this.forceRecoverRun(
+        `手动停止快进：abort 后 ${STEWARD_MANUAL_ABORT_GRACE_MS / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
+      );
+      return;
+    }
     if (this.runLastProgressAt === undefined) {
       // 2026-10-07 事故防御（CAND-666）：runActive=true 但推进锚未锚定（收口
       // 复位与下一 run 置位之间的竞态窗口）——now-0 会算出 56 年级挂起时长
@@ -1946,13 +1993,21 @@ export class StewardService {
     // 已触发：宽限窗后仍未收口 → 强制收口（abort 丳不醒的挂死流）
     if (now - this.watchdogFiredAt >= STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS) {
       this.watchdogFiredAt = now; // 周期性兜底重置（极端场景下每宽限窗再查）
-      this.deps.logger?.warn(
-        `管家 run 看门狗强制收口：abort 宽限 ${STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS / 1000}s 内 run 未收口——弃引擎重建并恢复队列服务`,
+      this.forceRecoverRun(
+        `run 看门狗强制收口：abort 宽限 ${STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS / 1000}s 内 run 未收口——弃引擎重建并恢复队列服务`,
       );
-      this.engine = undefined; // 弃引擎（下一 run 懒重建；代际守卫隔旧事件）
-      this.pausedGateToken = undefined;
-      this.enqueueProjection(() => this.finishRun("run 看门狗强制收口：引擎挂死且 abort 未唤醒（已弃引擎重建）"));
     }
+  }
+
+  /** 强制收口轨（手动停止批提取；挂死流唯一恢复路径——E-240）：看门狗宽限段
+   *  与手动停止快进段共用。弃引擎（代际守卫隔离旧引擎残余事件）+ 经投影链
+   *  finishRun（队列驱动/deliver 回执/挂闸卡处置全走既有收口面）。 */
+  private forceRecoverRun(reason: string): void {
+    this.manualAbortAt = undefined; // 同步清锚防重（finishRun 异步，重复 tick 不二触）
+    this.engine = undefined; // 弃引擎（下一 run 懒重建；代际守卫隔旧事件）
+    this.pausedGateToken = undefined;
+    this.deps.logger?.warn(`管家 run 强制收口：${reason}`);
+    this.enqueueProjection(() => this.finishRun(reason));
   }
 
   /** 确认可达性提醒（语音闭环批 ②聚合版）：任一卡到 30s 未消费 → 按 pending

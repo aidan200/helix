@@ -1401,6 +1401,10 @@ export const zhCN = {
     },
     inputPlaceholder: "问管家：现在有什么在跑？",
     send: "发送",
+    // 手动停止批：在途停止按钮 + stopped 回执文案（{count} 插值）
+    stop: "停止",
+    stoppedNotice: "已停止当前处理",
+    stoppedNoticeDropped: "已停止当前处理（丢弃 {count} 条排队输入）",
     // L1 件二：排队确认帧文案（{position} 插值）
     askQueued: "已排队（第 {position} 位）——当前回答完成后自动接续",
     // M3-a（CAND-601）：主动汇报实时帧文案——与 daemon 工作记忆记录逐字节

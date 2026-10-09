@@ -51,6 +51,15 @@ export type StewardAskResultPayload =
       reason?: "ambient";
     }
   | {
+      /** 手动停止批：在途 run 被停止词全停（abort 当前 + 清空排队；收口由
+       *  daemon 异步完成——回执即刻返回，收口后排队输入不再被消费）。 */
+      status: "stopped";
+      /** 停止说明。 */
+      reason: string;
+      /** 随停丢弃的排队输入条数。 */
+      dropped: number;
+    }
+  | {
       status: "error";
       /** 失败原因（含引导，如开关关时指向设置页开启路径）。 */
       reason: string;

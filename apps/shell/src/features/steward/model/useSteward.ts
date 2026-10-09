@@ -96,6 +96,9 @@ export interface UseSteward {
   /** 发送一轮对话（未连接返回 false——零静默丢消息，submit 同语义）。
    *  source = 输入来源（addressee 判定触发面——voice-duplex 判旁人话语）。 */
   ask(text: string, source?: StewardAskSource): boolean;
+  /** 手动停在途轮（手动停止批：steward.interrupt → daemon abortInFlight；
+   *  挂死流由 daemon 快进轨 8s 强制收口——回执 ask.result 异步到达）。 */
+  stopInFlight(): boolean;
   /** 新对话（A1：三处同步清——本地条目 + daemon KV + LLM 窗口）。 */
   newDialog(): boolean;
 }
@@ -178,6 +181,7 @@ export function useSteward(): UseSteward {
   const {
     topology,
     sendStewardAsk,
+    sendStewardInterrupt,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
@@ -186,6 +190,7 @@ export function useSteward(): UseSteward {
   } = useSession() as {
     topology?: { active?: { conn?: string } };
     sendStewardAsk?: (text: string, source?: StewardAskSource) => boolean;
+    sendStewardInterrupt?: (reason?: string) => boolean;
     sendStewardSubscribe?: () => boolean;
     sendStewardUnsubscribe?: () => boolean;
     sendStewardGetConfig?: () => boolean;
@@ -331,6 +336,7 @@ export function useSteward(): UseSteward {
           | { status: "confirm_required"; actionId: string; agentId: string; message: string }
           | { status: "queued"; queued: true; position: number }
           | { status: "dropped"; reason?: "ambient" }
+          | { status: "stopped"; reason: string; dropped: number }
           | { status: "error"; reason: string };
         // L1 件二：排队确认帧——显示「已排队」，不清流式缓冲、不结束在途态
         //（本轮仍在跑；结果帧随后到达时再收口）
@@ -343,6 +349,19 @@ export function useSteward(): UseSteward {
         if (payload.status === "dropped") {
           // 静默丢弃（addressee 判定 = 旁人话语/自言自语）：零字幕零播报零
           // 条目——收口在途态即完（旧壳对未知判别的防御同构：不 push）
+          markAskInFlight(false);
+          return;
+        }
+        if (payload.status === "stopped") {
+          // 手动停止批：停止词全停回执（daemon 收口异步——被停轮的最终交代
+          // 帧随快进轨随后另达）；入条目流让用户看到停止确认。
+          pushItem({
+            kind: "assistant",
+            text:
+              payload.dropped > 0
+                ? t("steward.stoppedNoticeDropped", { count: payload.dropped })
+                : t("steward.stoppedNotice"),
+          });
           markAskInFlight(false);
           return;
         }
@@ -418,6 +437,11 @@ export function useSteward(): UseSteward {
     [sendStewardAsk, pushItem],
   );
 
+  const stopInFlight = useCallback((): boolean => {
+    if (typeof sendStewardInterrupt !== "function") return false;
+    return sendStewardInterrupt("panel-stop");
+  }, [sendStewardInterrupt]);
+
   const newDialog = useCallback((): boolean => {
     if (typeof sendStewardHistory !== "function") return false;
     const ok = sendStewardHistory(true);
@@ -426,5 +450,5 @@ export function useSteward(): UseSteward {
     return true;
   }, [sendStewardHistory]);
 
-  return { items, streamingText, feed, askInFlight, askActivity, config, ask, newDialog };
+  return { items, streamingText, feed, askInFlight, askActivity, config, ask, stopInFlight, newDialog };
 }

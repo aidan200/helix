@@ -18,6 +18,7 @@ import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
+const sendStewardInterrupt = vi.fn(() => true);
 const sendStewardConfirm = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
@@ -40,6 +41,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
     topology: { active: { conn: "connected" } },
     sendStewardAsk,
+    sendStewardInterrupt,
     sendStewardConfirm,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
@@ -330,6 +332,7 @@ describe("StewardPanel（A1 过程行渲染——真实 DOM 断言）", () => {
     expect(sendStewardHistory).toHaveBeenCalledWith(true);
     await waitFor(() => expect(screen.queryAllByTestId("steward-msg-user").length).toBe(0));
   });
+
 });
 
 // ── 管家记忆 B2-④：头部记忆入口钮（入口①→ /steward/memory）──
@@ -410,6 +413,36 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
       emitSteward(frame("steward.ask.result", { status: "answer", text: "2 个实例运行中。" }));
     });
     await waitFor(() => expect(screen.queryByTestId("steward-inflight")).toBeNull());
+  });
+
+  // ── 手动停止批：在途停止钮 + stopped 回执收口 ──
+  it("在途时停止钮出现，点击 → sendStewardInterrupt；stopped 回执（dropped=2）→ 停止确认条目 + 在途态收口（输入面恢复）", async () => {
+    renderEnabledPanel();
+    await askInFlight();
+    // 在途时停止钮出现；空闲时不出现（渲染条件 = askInFlight）
+    const stopBtn = screen.getByTestId("steward-stop");
+    fireEvent.click(stopBtn);
+    expect(sendStewardInterrupt).toHaveBeenCalled();
+    act(() => {
+      emitSteward(frame("steward.ask.result", { status: "stopped", reason: "已停止当前处理", dropped: 2 }));
+    });
+    await waitFor(() => expect(screen.queryByTestId("steward-inflight")).toBeNull());
+    // 停止确认条目（丢弃 2 条排队）+ 输入面恢复可用
+    expect(screen.getByTestId("steward-msg-steward").textContent).toContain("丢弃 2 条排队输入");
+    await waitFor(() => expect((screen.getByTestId("steward-input") as HTMLTextAreaElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.queryByTestId("steward-stop")).toBeNull()); // 收口后停止钮消失
+  });
+
+  it("stopped 回执（dropped=0）→ 无丢弃条数文案（零排队时不吓用户）", async () => {
+    renderEnabledPanel();
+    await askInFlight();
+    act(() => {
+      emitSteward(frame("steward.ask.result", { status: "stopped", reason: "已停止当前处理", dropped: 0 }));
+    });
+    await waitFor(() => expect(screen.queryByTestId("steward-inflight")).toBeNull());
+    const text = screen.getByTestId("steward-msg-steward").textContent ?? "";
+    expect(text).toContain("已停止当前处理");
+    expect(text).not.toContain("丢弃");
   });
 
   it("thinking 段级帧 → 滚动区追加首行摘要；第 3 块到达第 1 块滚出（两行窗）", async () => {

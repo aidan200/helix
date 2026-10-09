@@ -309,6 +309,13 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
             <button type="button" className="stp-send" data-testid="steward-send" disabled={sv.askInFlight} onClick={submit}>
               {t("steward.send")}
             </button>
+            {/* 手动停止批：在途时停止按钮（steward.interrupt → daemon abortInFlight；
+                挂死流由快进轨 8s 强制收口——被停轮终态帧随后另达收口在途态）。 */}
+            {sv.askInFlight && (
+              <button type="button" className="stp-stop" data-testid="steward-stop" onClick={() => sv.stopInFlight()}>
+                {t("steward.stop")}
+              </button>
+            )}
           </div>
         </>
       )}

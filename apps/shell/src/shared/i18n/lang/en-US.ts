@@ -1394,6 +1394,10 @@ export const enUS = {
     },
     inputPlaceholder: "Ask the steward: what is running now?",
     send: "Send",
+    // Manual-stop batch: in-flight stop button + stopped ack copy ({count} interpolation)
+    stop: "Stop",
+    stoppedNotice: "Stopped the current processing",
+    stoppedNoticeDropped: "Stopped the current processing ({count} queued input(s) dropped)",
     // L1 queue batch: queued ack copy ({position} interpolation)
     askQueued: "Queued (position {position}) — starts right after the current reply finishes",
     // M3-a (CAND-601): proactive report live-frame copy — byte-identical to the

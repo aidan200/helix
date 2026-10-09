@@ -1506,6 +1506,15 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 }
 .stp-send:hover { background: rgb(var(--accent-rgb) / 0.24); }
 .stp-send:active { transform: translateY(1px); }
+/* 手动停止批：在途停止钮（危险侧 error 通道——与发送钮同密度） */
+.stp-stop {
+  flex: 0 0 auto; padding: 6px 14px; cursor: pointer; font-size: var(--text-cap);
+  border: 1px solid rgb(var(--error-rgb) / 0.5); border-radius: 6px;
+  background: rgb(var(--error-rgb) / 0.12); color: var(--error);
+  transition: background 0.15s, transform 0.15s;
+}
+.stp-stop:hover { background: rgb(var(--error-rgb) / 0.22); }
+.stp-stop:active { transform: translateY(1px); }
 
 /* ── 双模输入区（V3a 语音模式）：modebar 切换排 + 静音钮 + 语音面 ──
    token 单源（accent/edge 通道变量）；动效仅 transform/opacity；
