@@ -401,6 +401,9 @@ function respondMemoryList(ctx: StewardCommandContext): void {
         // 项目隔离批：作用域透传（additive——旧 shell 忽略无损；旧 daemon
         //  不携带）
         ...(e.projectScope !== undefined ? { projectScope: e.projectScope } : {}),
+        // domain 维度批：业务领域透传（additive——逐字段显式透传 TR-159，
+        //  漏拷即静默剥成缺省；旧 daemon 不携带）
+        ...(e.domain !== undefined ? { domain: e.domain } : {}),
       })),
     },
   };
@@ -418,7 +421,9 @@ export function handleStewardMemoryList(ctx: StewardCommandContext): void {
 /** steward.memory_append（全局命令；管家记忆 B2）：人工新增（embed 入库）
  *  → 回执新清单；失败经 invalid_payload 交代（命令回执 error 判别面）。
  *  projectScope（项目隔离批 additive 入参）：非空 string（"global" 或项目
- *  目录名）；缺省按 kind 规则。 */
+ *  目录名）；domain（domain 维度批 additive 入参）：habit|general|project，
+ *  缺省按 kind 推导（preference→habit、fact→general）或由显式 projectScope
+ *  反向隐含 project 域——一致性约束在写入单点裁定。 */
 export function handleStewardMemoryAppend(ctx: StewardCommandContext): void {
   const text = ctx.payload.text;
   if (typeof text !== "string" || text.trim() === "") {
@@ -432,7 +437,11 @@ export function handleStewardMemoryAppend(ctx: StewardCommandContext): void {
   if (projectScope !== undefined && (typeof projectScope !== "string" || projectScope.trim() === "")) {
     return ctx.commandError(ctx.type, "command.invalid_payload", 'payload.projectScope 应为非空 string（"global" 或项目目录名）');
   }
-  const job = ctx.steward.service.appendMemoryEntry(text, kind, projectScope);
+  const domain = ctx.payload.domain;
+  if (domain !== undefined && domain !== "habit" && domain !== "general" && domain !== "project") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", 'payload.domain 应为 "habit" | "general" | "project"');
+  }
+  const job = ctx.steward.service.appendMemoryEntry(text, kind, projectScope, domain);
   void job
     .then((outcome) => {
       if (!outcome.ok) {

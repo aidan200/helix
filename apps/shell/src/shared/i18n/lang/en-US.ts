@@ -1334,8 +1334,22 @@ export const enUS = {
       justNow: "Just now",
       source: {
         manual: "Manual",
-        stewardTurn: "Steward",
+        stewardTurn: "Conversation",
+        sessionSummary: "Session summary",
+        sessionProgress: "Session progress",
+        autoSediment: "Auto-saved",
       },
+      // ── Domain dimension batch: business domain (badge/filter/append tagging) ──
+      domain: {
+        habit: "Habit",
+        general: "General",
+        project: "Project",
+      },
+      domainLabel: "Domain",
+      projectLabel: "Project",
+      projectPlaceholder: "Project directory name (e.g. helix)",
+      filterKindAll: "All kinds",
+      filterDomainAll: "All domains",
       // ── Forgetting batch: filter/sort/pagination/faded/pin ──
       filterAll: "All",
       filterActive: "Active",

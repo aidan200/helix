@@ -844,6 +844,10 @@ html.light .tp-popover {
 .memory-pin-btn.is-pinned { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); }
 .memory-chip-faded { color: var(--warning); border-color: rgb(var(--warning-rgb) / 0.35); }
 .memory-chip-pinned { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.35); }
+/* domain 徽标（中性细边——与 kind 徽标同形、色彩让位生命周期徽标） */
+.memory-chip-domain { color: var(--text-dim); border-color: rgb(var(--edge-rgb) / 0.2); }
+/* 筛选组分隔（kind × domain × 生命周期三维 chip 组间细竖线） */
+.memory-filter-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
 .memory-sub { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .memory-meta { font-size: var(--text-cap); color: var(--text-dim); }
 .memory-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }

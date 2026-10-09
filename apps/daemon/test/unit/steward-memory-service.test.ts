@@ -866,7 +866,7 @@ describe("防双写水位闸（explicitRememberedSince 真实实现直接单测�
 
   test("④ 自动生产源不置位：session-summary 记忆点入库 → 水位不动（显式写入才防双写）", async () => {
     const { svc } = svcAt(300);
-    const outcome = await svc.rememberSessionMemoryPoint("总结器提炼的偏好");
+    const outcome = await svc.rememberSessionMemoryPoint("总结器提炼的偏好", "preference", "habit");
     expect(outcome.updated).toBe(false); // 入库成功（新增）
     expect(svc.explicitRememberedSince(0)).toBe(false); // 自动源不置水位
   });
@@ -893,7 +893,7 @@ describe("防双写水位闸（explicitRememberedSince 真实实现直接单测�
     t.now = 2000;
     expect(svc.explicitRememberedSince(2000)).toBe(false);
     // 第 2 轮记忆点入库（session-summary 自动源）→ 不置水位（第 3 轮仍可产）
-    await svc.rememberSessionMemoryPoint("第 2 轮总结器提炼");
+    await svc.rememberSessionMemoryPoint("第 2 轮总结器提炼", "preference", "habit");
     expect(svc.explicitRememberedSince(2000)).toBe(false);
     // 第 3 轮（spanStart=3000）：闸仍开
     t.now = 3000;

@@ -119,7 +119,10 @@ afterAll(() => {
 });
 
 /** 直写条目（向量按文本关键词派生——与 query 同源假嵌入）。 */
-function seed(rig: Rig, item: Omit<StewardMemoryAppendItem, "vector" | "source" | "createdAt"> & { createdAt?: number; source?: string }): void {
+function seed(
+  rig: Rig,
+  item: Omit<StewardMemoryAppendItem, "vector" | "source" | "createdAt"> & { createdAt?: number; source?: string },
+): void {
   rig.store.append([
     {
       kind: item.kind,
@@ -129,6 +132,7 @@ function seed(rig: Rig, item: Omit<StewardMemoryAppendItem, "vector" | "source" 
       vector: vectorFor(item.text),
       sessionId: item.sessionId,
       projectScope: item.projectScope ?? MEMORY_SCOPE_GLOBAL,
+      ...(item.domain !== undefined ? { domain: item.domain } : {}),
     },
   ]);
 }
@@ -143,12 +147,12 @@ async function run(tool: ReturnType<typeof makeTool>, params: Record<string, unk
 }
 
 describe("memory_search 工具·注册契约", () => {
-  test("① 工具名/参数面：name = memory_search；query 必填单参数", () => {
+  test("① 工具名/参数面：name = memory_search；query 必填 + domain 可选过滤（additive）", () => {
     const rig = makeRig();
     const tool = makeTool(rig);
     expect(tool.name).toBe("memory_search");
     expect((tool.parameters as { required?: string[] }).required).toEqual(["query"]);
-    expect(Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties)).toEqual(["query"]);
+    expect(Object.keys((tool.parameters as { properties: Record<string, unknown> }).properties)).toEqual(["query", "domain"]);
   });
 
   test("② CoreToolExecutor 注册面：memorySearch 槽注入 → resolveTools 可解析；未注入 → 抛错（声明=注册铁律）", () => {
@@ -249,6 +253,60 @@ describe("memory_search 工具·检索行为（真管线）", () => {
     const out = await run(makeTool(rig), { query: "测试" });
     expect(out.length).toBeLessThanOrEqual(TOOL_RESULT_MAX_CHARS + 100);
     expect(out).toContain("已截断");
+  });
+});
+
+describe("memory_search 工具·domain 过滤（additive——不传=全域）", () => {
+  test("⑭ 命中：domain 参数只回同域条目（habit/general/project 正交——与 kind 无关）", async () => {
+    const rig = makeRig();
+    seed(rig, { kind: "preference", text: "用户测试习惯：先写失败用例", domain: "habit" });
+    seed(rig, { kind: "fact", text: "测试环境通用事实", domain: "general" });
+    seed(rig, { kind: "fact", text: "helix 项目测试事实", domain: "project", projectScope: "projA" });
+
+    const habit = await run(makeTool(rig, () => "projA"), { query: "测试相关", domain: "habit" });
+    expect(habit).toContain("用户测试习惯");
+    expect(habit).not.toContain("测试环境通用事实");
+    expect(habit).not.toContain("helix 项目测试事实");
+
+    const project = await run(makeTool(rig, () => "projA"), { query: "测试相关", domain: "project" });
+    expect(project).toContain("helix 项目测试事实");
+    expect(project).not.toContain("用户测试习惯");
+
+    const general = await run(makeTool(rig, () => "projA"), { query: "测试相关", domain: "general" });
+    expect(general).toContain("测试环境通用事实");
+    expect(general).not.toContain("helix 项目测试事实");
+  });
+
+  test("⑮ 不传 domain = 全域（现状行为不变）；非法 domain 值结构化报错", async () => {
+    const rig = makeRig();
+    seed(rig, { kind: "preference", text: "用户测试习惯：先写失败用例", domain: "habit" });
+    seed(rig, { kind: "fact", text: "测试环境通用事实", domain: "general" });
+    const all = await run(makeTool(rig), { query: "测试相关" });
+    expect(all).toContain("用户测试习惯");
+    expect(all).toContain("测试环境通用事实");
+    await expect(run(makeTool(rig), { query: "测试相关", domain: "workspace" })).rejects.toThrow("domain");
+  });
+
+  test("⑯ 过滤在资格闸之前且不改变闸语义：同域低相似度仍被闸砍（过滤≠放水）", async () => {
+    const rig = makeRig();
+    seed(rig, { kind: "preference", text: "用户测试习惯：先写失败用例", domain: "habit" });
+    // 同域但语义无关（cosine 0）——资格闸照砍
+    seed(rig, { kind: "preference", text: "浏览器无关偏好", domain: "habit" });
+    const out = await run(makeTool(rig), { query: "测试要求", domain: "habit" });
+    expect(out).toContain("用户测试习惯");
+    expect(out).not.toContain("浏览器无关偏好");
+  });
+
+  test("⑰ domain 过滤是候选池预过滤：被滤域不占 KNN/topK 名额（scope 预过滤同层）", async () => {
+    const rig = makeRig();
+    // 5 条 general 域最相关 + 1 条 habit 域；domain=habit 时 general 不占位
+    for (let i = 1; i <= 5; i += 1) {
+      seed(rig, { kind: "fact", text: `测试通用事实 ${i}`, domain: "general", createdAt: NOW - i });
+    }
+    seed(rig, { kind: "fact", text: "测试习惯事实", domain: "habit", createdAt: NOW - 10 * DAY });
+    const out = await run(makeTool(rig), { query: "测试", domain: "habit" });
+    expect(out).toContain("测试习惯事实");
+    expect(out).not.toContain("测试通用事实");
   });
 });
 

@@ -17,6 +17,7 @@
  *   服务端权威：开关关 = steward.ask 直接拒答，零 LLM 调用）。
  */
 import type { CommandFrame } from "../envelope";
+import type { StewardMemoryDomain } from "../events/steward";
 
 /** steward.ask 输入来源（additive——addressee 判定触发面的判据）。
  *  "voice-duplex" = 双工常开麦收音段的语音 final：语义有歧义（是叫管家还是
@@ -153,8 +154,14 @@ export interface StewardMemoryAppendPayload {
   /** 条目类别（缺省 "fact"；枚举对齐存储面既有 kind 值）。 */
   kind?: "fact" | "preference";
   /** 项目作用域（项目隔离批，additive："global" 或项目目录名；缺省按
-   *  kind 规则——preference → global，fact → global（协议面无项目上下文）。 */
+   *  domain 一致性约束裁定——habit/general → global，domain=project 必绑
+   *  具体项目名（显式 projectScope 为项目名唯一显式通道，缺省回落
+   *  general+global）。 */
   projectScope?: string;
+  /** 业务领域维度（domain 维度批，additive）：habit/general/project；缺省
+   *  按 kind 推导（preference→habit、fact→general）或由显式 projectScope
+   *  反向隐含 project 域（↔ 约束）。 */
+  domain?: StewardMemoryDomain;
 }
 
 /** steward.memory_append：人工新增记忆（回执 steward.memory_list.result）。 */

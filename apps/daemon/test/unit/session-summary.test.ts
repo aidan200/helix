@@ -23,12 +23,15 @@ import type { StewardLlmPort, StewardLlmRequest, StewardLlmResponse } from "../.
 import type { SummaryConfigState } from "../../src/application/summary/summaryConfig";
 import {
   SessionSummaryService,
+  SUMMARY_SYSTEM_PROMPT,
   TOPIC_SYSTEM_PROMPT,
+  buildSummaryPrompt,
   cleanTopicText,
   isSummaryAnchorTurn,
   parseSessionSummary,
   recentTurnPairsOf,
   recentUserTextsOf,
+  type MemoryPoint,
   type SessionSummaryServiceDeps,
   type SessionSummaryTarget,
 } from "../../src/application/services/session-summary/SessionSummaryService";
@@ -73,11 +76,16 @@ function summaryState(over: Partial<SummaryConfigState> = {}): SummaryConfigStat
   };
 }
 
+/** 记忆点投递记录（结构化产物 [{text,kind,domain}] + sessionId 透传）。 */
+interface PointRecord extends MemoryPoint {
+  sessionId: string;
+}
+
 interface Rig {
   svc: SessionSummaryService;
   llm: StewardLlmPort & { calls: StewardLlmRequest[] };
   progress: { sessionId: string; text: string }[];
-  memoryPoints: string[];
+  memoryPoints: PointRecord[];
   updates: { topic: string; previous: string; anchorTurn: number }[];
   announces: string[];
   explicit: { since: number }[];
@@ -93,7 +101,7 @@ function makeRig(opts: {
 }): Rig {
   const llm = fakeLlm(opts.script ?? []);
   const progress: { sessionId: string; text: string }[] = [];
-  const memoryPoints: string[] = [];
+  const memoryPoints: PointRecord[] = [];
   const announces: string[] = [];
   const explicit: { since: number }[] = [];
   let explicitRemembered = false;
@@ -117,8 +125,8 @@ function makeRig(opts: {
       ? {}
       : {
           memoryPointsStore: {
-            rememberMemoryPoint: async (text: string) => {
-              memoryPoints.push(text);
+            rememberMemoryPoint: async (point: MemoryPoint, sessionId: string) => {
+              memoryPoints.push({ ...point, sessionId });
               return { id: memoryPoints.length, updated: false };
             },
             explicitRememberedSince: (since: number) => {
@@ -163,11 +171,15 @@ describe("总结器·纯函数", () => {
     for (const n of [1, 2, 3, 4]) expect(isSummaryAnchorTurn(n, 1)).toBe(true);
   });
 
-  test("parseSessionSummary：裸 JSON / ```json 围栏 / 字段缺席容忍 / memoryPoints 双形态", () => {
-    expect(parseSessionSummary('{"topic": "光球视觉", "progress": "三档亮度已交付", "memoryPoints": ["用户偏好简洁回复"]}')).toEqual({
+  test("parseSessionSummary：裸 JSON / ```json 围栏 / 字段缺席容忍 / memoryPoints 结构化 [{text,kind,domain}]", () => {
+    expect(
+      parseSessionSummary(
+        '{"topic": "光球视觉", "progress": "三档亮度已交付", "memoryPoints": [{"text": "用户偏好简洁回复", "kind": "preference", "domain": "habit"}]}',
+      ),
+    ).toEqual({
       topic: "光球视觉",
       progress: "三档亮度已交付",
-      memoryPoints: ["用户偏好简洁回复"],
+      memoryPoints: [{ text: "用户偏好简洁回复", kind: "preference", domain: "habit" }],
     });
     expect(parseSessionSummary('```json\n{"topic": "保持", "progress": "继续调帧率", "memoryPoints": []}\n```')).toEqual({
       topic: "保持",
@@ -175,10 +187,50 @@ describe("总结器·纯函数", () => {
     });
     expect(parseSessionSummary('{"progress": "只有进展"}')).toEqual({ progress: "只有进展" });
     expect(parseSessionSummary('{"topic": "只有主题"}')).toEqual({ topic: "只有主题" });
-    // memoryPoints：单串容错为单元素数组；空串/非串元素过滤
-    expect(parseSessionSummary('{"memoryPoints": "用户习惯用 vitest"}')).toEqual({ memoryPoints: ["用户习惯用 vitest"] });
-    expect(parseSessionSummary('{"memoryPoints": ["有效", "", 42, "  "]}')).toEqual({ memoryPoints: ["有效"] });
+    // 三域×两 kind 全组合透传
+    expect(
+      parseSessionSummary(
+        '{"memoryPoints": [{"text": "项目事实", "kind": "fact", "domain": "project"}, {"text": "通用事实", "kind": "fact", "domain": "general"}]}',
+      ),
+    ).toEqual({
+      memoryPoints: [
+        { text: "项目事实", kind: "fact", domain: "project" },
+        { text: "通用事实", kind: "fact", domain: "general" },
+      ],
+    });
+    // 无效元素过滤（非对象/空 text/非法 kind/domain）——逐元素容错不整批丢
+    expect(
+      parseSessionSummary(
+        '{"memoryPoints": [{"text": "有效", "kind": "fact", "domain": "habit"}, {"text": "", "kind": "fact", "domain": "habit"}, {"text": "坏 kind", "kind": "progress", "domain": "habit"}, {"text": "坏 domain", "kind": "fact", "domain": "workspace"}, 42]}',
+      ),
+    ).toEqual({ memoryPoints: [{ text: "有效", kind: "fact", domain: "habit" }] });
+    // 旧纯文本形态容错（单串/字符串元素）：按旧固定语义回落 preference+habit
+    expect(parseSessionSummary('{"memoryPoints": "用户习惯用 vitest"}')).toEqual({
+      memoryPoints: [{ text: "用户习惯用 vitest", kind: "preference", domain: "habit" }],
+    });
+    expect(parseSessionSummary('{"memoryPoints": ["有效", "", 42, "  "]}')).toEqual({
+      memoryPoints: [{ text: "有效", kind: "preference", domain: "habit" }],
+    });
     expect(parseSessionSummary("{}")).toEqual({});
+  });
+
+  test("总结 prompt 判据：memoryPoints 结构化（kind 两判据 + habit/general/project 三判据）", () => {
+    for (const prompt of [
+      SUMMARY_SYSTEM_PROMPT,
+      buildSummaryPrompt({
+        displayTitle: "主题",
+        recentTurnPairs: [],
+        wantTopic: false,
+        wantProgress: false,
+        wantMemoryPoints: true,
+      }),
+    ]) {
+      expect(prompt).toContain("habit");
+      expect(prompt).toContain("general");
+      expect(prompt).toContain("project");
+      expect(prompt).toContain("preference");
+      expect(prompt).toContain("fact");
+    }
   });
 
   test("parseSessionSummary：烂输出整体丢弃 → undefined", () => {
@@ -213,9 +265,11 @@ describe("总结器·纯函数", () => {
 // ── 三产物（summary.model 已配）──────────────────────────
 
 describe("总结器·三产物 JSON", () => {
-  test("① 同一锚点一次调用三产物：topic 演进 + progress + 记忆点各收货", async () => {
+  test("① 同一锚点一次调用三产物：topic 演进 + progress + 记忆点各收货（结构化 kind/domain 透传）", async () => {
     const rig = makeRig({
-      script: ['{"topic": "光球视觉调整", "progress": "三档亮度方案已交付", "memoryPoints": ["用户偏好先给方案再问细节", "用户习惯用 vitest 跑测试"]}'],
+      script: [
+        '{"topic": "光球视觉调整", "progress": "三档亮度方案已交付", "memoryPoints": [{"text": "用户偏好先给方案再问细节", "kind": "preference", "domain": "habit"}, {"text": "helix 的测试约定写在 kg 里", "kind": "fact", "domain": "project"}]}',
+      ],
     });
     rig.svc.onDomainEvent(turnCompleted("sess-a", "done"));
     await settle();
@@ -223,7 +277,10 @@ describe("总结器·三产物 JSON", () => {
     expect(rig.updates).toEqual([{ topic: "光球视觉调整", previous: "旧主题", anchorTurn: 3 }]);
     expect(rig.announces).toEqual(["sess-a"]);
     expect(rig.progress).toEqual([{ sessionId: "sess-a", text: "三档亮度方案已交付" }]);
-    expect(rig.memoryPoints).toEqual(["用户偏好先给方案再问细节", "用户习惯用 vitest 跑测试"]);
+    expect(rig.memoryPoints).toEqual([
+      { text: "用户偏好先给方案再问细节", kind: "preference", domain: "habit", sessionId: "sess-a" },
+      { text: "helix 的测试约定写在 kg 里", kind: "fact", domain: "project", sessionId: "sess-a" },
+    ]);
     const userText = rig.llm.calls[0]!.messages[0] as { role: string; text: string };
     expect(userText.text).toContain("topic");
     expect(userText.text).toContain("progress");
@@ -231,12 +288,12 @@ describe("总结器·三产物 JSON", () => {
   });
 
   test("② 「保持」哨兵与显式标题锁定：topic 不动，其余产物照常", async () => {
-    const keep = makeRig({ script: ['{"topic": "保持", "progress": "继续调帧率", "memoryPoints": ["用户讨厌长回复"]}'] });
+    const keep = makeRig({ script: ['{"topic": "保持", "progress": "继续调帧率", "memoryPoints": [{"text": "用户讨厌长回复", "kind": "preference", "domain": "habit"}]}'] });
     keep.svc.onDomainEvent(turnCompleted("sess-a", "done"));
     await settle();
     expect(keep.updates).toHaveLength(0);
     expect(keep.progress).toHaveLength(1);
-    expect(keep.memoryPoints).toEqual(["用户讨厌长回复"]);
+    expect(keep.memoryPoints).toEqual([{ text: "用户讨厌长回复", kind: "preference", domain: "habit", sessionId: "sess-a" }]);
 
     const locked = makeRig({
       target: fakeTarget({ title: "用户起的名字", topic: undefined }),
@@ -326,20 +383,22 @@ describe("总结器·记忆点入库（查重在 remember 两段闸）与防双�
   test("① 记忆点逐条投递 rememberMemoryPoint（超量/超长护栏）", async () => {
     const long = "长".repeat(100);
     const rig = makeRig({
-      script: [`{"memoryPoints": ["第一条", "${long}", "第二条", "第三条", "第四条"]}`],
+      script: [
+        `{"memoryPoints": [{"text": "第一条", "kind": "preference", "domain": "habit"}, {"text": "${long}", "kind": "fact", "domain": "general"}, {"text": "第二条", "kind": "fact", "domain": "project"}, {"text": "第三条", "kind": "fact", "domain": "habit"}, {"text": "第四条", "kind": "fact", "domain": "habit"}]}`,
+      ],
     });
     rig.svc.onDomainEvent(turnCompleted("sess-a", "done"));
     await settle();
-    // 上限 3 条/锚点；单条超长截断
+    // 上限 3 条/锚点；单条超长截断；kind/domain 逐条透传
     expect(rig.memoryPoints).toHaveLength(3);
-    expect(rig.memoryPoints[0]).toBe("第一条");
-    expect(rig.memoryPoints[1]).toBe(`${"长".repeat(60)}`);
-    expect(rig.memoryPoints[2]).toBe("第二条");
+    expect(rig.memoryPoints[0]).toEqual({ text: "第一条", kind: "preference", domain: "habit", sessionId: "sess-a" });
+    expect(rig.memoryPoints[1]).toEqual({ text: "长".repeat(60), kind: "fact", domain: "general", sessionId: "sess-a" });
+    expect(rig.memoryPoints[2]).toEqual({ text: "第二条", kind: "fact", domain: "project", sessionId: "sess-a" });
   });
 
   test("② 防双写：本轮显式 remember 过 → 记忆点跳过，progress/topic 照常", async () => {
     const rig = makeRig({
-      script: ['{"topic": "光球视觉", "progress": "帧率定稿", "memoryPoints": ["用户偏好简洁回复"]}'],
+      script: ['{"topic": "光球视觉", "progress": "帧率定稿", "memoryPoints": [{"text": "用户偏好简洁回复", "kind": "preference", "domain": "habit"}]}'],
     });
     rig.setExplicitRemembered(true);
     rig.svc.onDomainEvent(turnCompleted("sess-a", "done"));

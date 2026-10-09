@@ -351,10 +351,11 @@ export const COMMAND_SURFACE = {
   /** 条目读面（记忆页列表数据源）。 */
   sendStewardMemoryList: (deps) =>
     (): boolean => deps.send(stewardMemoryListCommand()),
-  /** 人工新增（embed 入库；kind 缺省 fact）。 */
+  /** 人工新增（embed 入库；kind 缺省 fact；domain 业务领域可选；projectScope
+   *  = 项目名显式通道（domain=project 配对））。 */
   sendStewardMemoryAppend: (deps) =>
-    (text: string, kind?: "fact" | "preference"): boolean =>
-      deps.send(stewardMemoryAppendCommand(text, kind)),
+    (text: string, kind?: "fact" | "preference", domain?: import("@helix/protocol").StewardMemoryDomain, projectScope?: string): boolean =>
+      deps.send(stewardMemoryAppendCommand(text, kind, domain, projectScope)),
   /** 条目文本更新（重嵌）。 */
   sendStewardMemoryUpdate: (deps) =>
     (id: number, text: string): boolean => deps.send(stewardMemoryUpdateCommand(id, text)),

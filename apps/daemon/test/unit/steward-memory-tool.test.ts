@@ -68,7 +68,7 @@ function fakeMemory(
    *  session-summary——写入成功置位；explicitRememberedSince 契约测试面）。 */
   let lastExplicitRememberAt = -1;
   const state = {
-    remembers: [] as { text: string; kind: string; source: string; scope?: { project?: string; explicit?: string } }[],
+    remembers: [] as { text: string; kind: string; source: string; scope?: { project?: string; explicit?: string; domain?: string } }[],
     recalls: [] as string[],
     configPatches: [] as Record<string, unknown>[],
   };
@@ -92,7 +92,7 @@ function fakeMemory(
       text: string,
       kind: "fact" | "preference",
       source: string,
-      scope?: { project?: string; explicit?: string },
+      scope?: { project?: string; explicit?: string; domain?: string },
     ) => {
       rememberCalls += 1;
       if (opts.rememberFails === true) {
@@ -150,7 +150,9 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
     const { svc, notes } = makeService({ llm, memory });
     const result = await svc.ask("记住：以后回复都简洁点");
     expect(result.status).toBe("answer"); // 摘闸：不挂确认直写（B5 静默化）
-    expect(memory.remembers).toEqual([{ text: "用户偏好简洁回复", kind: "preference", source: "steward-turn" }]);
+    expect(memory.remembers).toEqual([
+      { text: "用户偏好简洁回复", kind: "preference", source: "steward-turn", scope: { domain: "habit" } },
+    ]);
     // 工具结果回灌（LLM 第二轮可见入库交代）
     const toolResult = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult");
     expect(toolResult!.text).toContain("已沉淀长期记忆");
@@ -160,7 +162,8 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
     expect(notes[0]).toMatchObject({ text: "用户偏好简洁回复", mode: "added" });
   });
 
-  test("①b remember 直写 scope 透传（项目隔离批）：memoryProject 在场 → fact 绑写时项目；缺席 → 不传回落 global", async () => {
+  test("①b remember 直写 domain 透传（domain 维度批）：缺省按 kind 推导（preference→habit / fact→general）+ 项目通道照传；显式 domain 优先", async () => {
+    // fact 缺省 domain → general（服务层一致性约束对 general 强制 global）
     const llm = fakeLlm([
       { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "helix 仓用 bun test", kind: "fact" } }], stopReason: "toolUse" },
       { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
@@ -168,16 +171,25 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
     const memory = fakeMemory();
     const { svc } = makeService({ llm, memory, memoryProject: () => "helix" });
     await svc.ask("记住：helix 仓用 bun test");
-    expect(memory.remembers[0]!.scope).toEqual({ project: "helix" });
-    // 缺席（多项目/未绑定 workspace）：不传 scope 参数 → 服务层回落 global
+    expect(memory.remembers[0]!.scope).toEqual({ project: "helix", domain: "general" });
+    // 显式 domain=project 优先（项目事实显式打标 → 服务层绑定写时项目）
+    const llmP = fakeLlm([
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "helix 记忆库在 steward_memory.db", kind: "fact", domain: "project" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
+    ]);
+    const memoryP = fakeMemory();
+    const { svc: svcP } = makeService({ llm: llmP, memory: memoryP, memoryProject: () => "helix" });
+    await svcP.ask("记住：helix 记忆库位置");
+    expect(memoryP.remembers[0]!.scope).toEqual({ project: "helix", domain: "project" });
+    // preference 缺省 → habit；项目缺席也照传推导域
     const llm2 = fakeLlm([
-      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "全局事实一句", kind: "fact" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "remember", args: { text: "用户偏好简洁回复", kind: "preference" } }], stopReason: "toolUse" },
       { kind: "blocks", blocks: [{ type: "text", text: "记好了。" }], stopReason: "stop" },
     ]);
     const memory2 = fakeMemory();
     const { svc: svc2 } = makeService({ llm: llm2, memory: memory2 });
-    await svc2.ask("记住：全局事实一句");
-    expect(memory2.remembers[0]!.scope).toBeUndefined();
+    await svc2.ask("记住：用户偏好简洁回复");
+    expect(memory2.remembers[0]!.scope).toEqual({ domain: "habit" });
   });
 
   test("② 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）", async () => {    const llm = fakeLlm([

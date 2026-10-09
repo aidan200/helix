@@ -128,7 +128,7 @@ describe("管家记忆独立页（B2-④）", () => {
     expect(container.querySelector('[data-memory-item-text="1"]')!.textContent).toBe("用户偏好简洁回复");
     expect(container.querySelector('[data-memory-item-kind="1"]')!.textContent).toContain("偏好");
     expect(container.querySelector('[data-memory-item-kind="2"]')!.textContent).toContain("事实");
-    expect(container.querySelector('[data-memory-item-meta="2"]')!.textContent).toContain("管家沉淀");
+    expect(container.querySelector('[data-memory-item-meta="2"]')!.textContent).toContain("对话记录");
   });
 
   it("搜索过滤：前端子串过滤（大小写不敏感）", () => {
@@ -189,7 +189,7 @@ describe("管家记忆独立页（B2-④）", () => {
     fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-add-input]")!, { target: { value: "手动新增一条" } });
     fireEvent.change(container.querySelector<HTMLSelectElement>("[data-memory-add-kind]")!, { target: { value: "preference" } });
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-save]")!);
-    expect(sendStewardMemoryAppend).toHaveBeenCalledWith("手动新增一条", "preference");
+    expect(sendStewardMemoryAppend).toHaveBeenCalledWith("手动新增一条", "preference", "general", undefined);
     expect(container.querySelector("[data-memory-add-input]")).toBeNull(); // 弹窗关闭（向量化在途）
   });
 
@@ -295,5 +295,73 @@ describe("管家记忆独立页（遗忘机制批）", () => {
     const { container } = ui();
     feedConfig(true);
     expect(container.querySelectorAll(".memory-skeleton").length).toBe(3);
+  });
+});
+
+// ── domain 维度批：source 四值映射 + kind×domain 双维筛选 + 徽标/打标 ──
+
+describe("管家记忆独立页（domain 维度批）", () => {
+  const DOMAIN_ENTRIES = [
+    { id: 1, text: "手动习惯条目", kind: "preference", domain: "habit", createdAt: 1000, sourceTurn: "manual", updatedAt: 1000 },
+    { id: 2, text: "对话事实条目", kind: "fact", domain: "general", createdAt: 2000, sourceTurn: "steward-turn", updatedAt: 2000 },
+    { id: 3, text: "总结沉淀条目", kind: "preference", domain: "habit", createdAt: 3000, sourceTurn: "session-summary", updatedAt: 3000 },
+    { id: 4, text: "会话进展条目", kind: "progress", domain: "project", createdAt: 4000, sourceTurn: "session-progress", updatedAt: 4000 },
+  ];
+
+  it("source 标签四值映射：manual→手动 / steward-turn→对话记录 / session-summary→总结沉淀 / session-progress→会话进展", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(DOMAIN_ENTRIES));
+    expect(container.querySelector('[data-memory-item-meta="1"]')!.textContent).toContain("手动");
+    expect(container.querySelector('[data-memory-item-meta="2"]')!.textContent).toContain("对话记录");
+    expect(container.querySelector('[data-memory-item-meta="3"]')!.textContent).toContain("总结沉淀");
+    expect(container.querySelector('[data-memory-item-meta="4"]')!.textContent).toContain("会话进展");
+  });
+
+  it("条目行 domain 徽标：习惯/通用/项目三值渲染", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(DOMAIN_ENTRIES));
+    expect(container.querySelector('[data-memory-item-domain="1"]')!.textContent).toContain("习惯");
+    expect(container.querySelector('[data-memory-item-domain="2"]')!.textContent).toContain("通用");
+    expect(container.querySelector('[data-memory-item-domain="4"]')!.textContent).toContain("项目");
+  });
+
+  it("双维筛选：kind 与 domain 独立过滤（交叉组合生效）", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(DOMAIN_ENTRIES));
+    // kind 维：只看进展
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-kind-filter='progress']")!);
+    expect(container.querySelector('[data-memory-item="4"]')).not.toBeNull();
+    expect(container.querySelectorAll("[data-memory-item]")).toHaveLength(1);
+    // domain 维叠加：kind=progress ∧ domain=habit → 空集
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-domain-filter='habit']")!);
+    expect(container.querySelectorAll("[data-memory-item]")).toHaveLength(0);
+    // 回到 kind 全部 ∧ domain=habit → 两条习惯条目
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-kind-filter='all']")!);
+    expect(container.querySelectorAll("[data-memory-item]")).toHaveLength(2);
+    // domain 全部 → 四条全回
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-domain-filter='all']")!);
+    expect(container.querySelectorAll("[data-memory-item]")).toHaveLength(4);
+  });
+
+  it("新增弹窗 domain 打标：缺省 general；选 project 露出项目名输入并随载荷透传", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(DOMAIN_ENTRIES));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-open]")!);
+    // 缺省 general（不传 domain → 载荷缺省 general）
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-add-input]")!, { target: { value: "通用事实一条" } });
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-save]")!);
+    expect(sendStewardMemoryAppend).toHaveBeenCalledWith("通用事实一条", "fact", "general", undefined);
+    // domain=project：项目名输入随载荷透传
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-open]")!);
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-add-input]")!, { target: { value: "helix 项目事实" } });
+    fireEvent.change(container.querySelector<HTMLSelectElement>("[data-memory-add-domain]")!, { target: { value: "project" } });
+    expect(container.querySelector("[data-memory-add-project]")).not.toBeNull();
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-add-project]")!, { target: { value: "helix" } });
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-save]")!);
+    expect(sendStewardMemoryAppend).toHaveBeenCalledWith("helix 项目事实", "fact", "project", "helix");
   });
 });
