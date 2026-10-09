@@ -100,6 +100,7 @@ import {
   resetSpeechFloorForTest,
 } from "@/shared/lib/speech-floor";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
+import { BARGE_IN_INTENT_PREF_KEY } from "@/shared/lib/voice-pref";
 
 class FakeMediaRecorder {
   static instances: FakeMediaRecorder[] = [];
@@ -391,7 +392,7 @@ describe("useStewardVoice 双工会话（B2：组合键 → 光球双工 → 关
     await pressHotkey(r);
     await finishUtterance(r, "确认");
     await tick();
-    expect(onFinalText).toHaveBeenCalledWith("确认");
+    expect(onFinalText).toHaveBeenCalledWith("确认", { bargeInIntent: false }); // 第二参=意图窗态（口令句非窗内——E-283 契约）
     expect(sendStewardAsk).not.toHaveBeenCalled(); // 口令句零 ask
     // 自动续听开新流 → 回执后第二轮照发
     await ackLatestStream();
@@ -526,6 +527,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
   it("底噪估计（低百分位）抬升 barge-in 门：偏好阈值下会触发的帧（0.04）抬升后不触发；够响帧照常触发", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
+    localStorage.setItem(BARGE_IN_INTENT_PREF_KEY, "0"); // 钉回退直停：本组聚焦门阈值校准本身（意图窗路径归 barge-in 意图窗套）
     const r = renderVoice({ createMeter, createPlayer });
     await enterDuplexMuted(r);
     // 采样窗：底噪 0.02 混 TTS 尖峰 → P20 ≈ 0.02 → 阈值 max(0.012, 0.02×2.5=0.05)
@@ -543,6 +545,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
   it("采样帧不足（<10）→ 不校准回落纯偏好值：同幅帧（0.04）照常触发", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
+    localStorage.setItem(BARGE_IN_INTENT_PREF_KEY, "0"); // 钉回退直停（同上）
     const r = renderVoice({ createMeter, createPlayer });
     await enterDuplexMuted(r);
     // 仅 5 帧采样 + 越窗定稿 → 回落纯偏好（0.012）
@@ -565,6 +568,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
   it("cancelWake 后再开双工 → 重新校准：同幅帧（0.05）两轮判定随底噪重采翻转", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
+    localStorage.setItem(BARGE_IN_INTENT_PREF_KEY, "0"); // 钉回退直停（同上）
     const r = renderVoice({ createMeter, createPlayer });
     await enterDuplexMuted(r);
     calibrate(25); // 轮 1：底噪 0.02 → 阈值 0.05（speaking ×2 = 0.10）
@@ -645,6 +649,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
   it("校准排除发言租约期帧（欢迎语污染修复）：租约期帧不入样本 → 样本不足回落纯偏好 → 阈值不被毒化", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
+    localStorage.setItem(BARGE_IN_INTENT_PREF_KEY, "0"); // 钉回退直停（同上）
     const r = renderVoice({ createMeter, createPlayer });
     await enterDuplexMuted(r);
     // 欢迎语播放形态：租约在场，采样窗内的帧全被跳过（不入样本）
@@ -679,13 +684,20 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     });
     // 对照：无通知占用时响帧零触发（idle 相位门关——现状语义钉子）
     frames(6, 0.3);
+    expect(r.current.bargeInIntentActive).toBe(false);
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
-    // 通知占用在场（useVoiceBroadcast 播放边沿镜像）→ 门开，同幅帧触发打断
-    //（帧数取 5：t=300ms 首触发后落在 300ms 静默窗内——单次触发零二次，
-    // 确定性断言不依赖占用自清——真机上 useVoiceBroadcast 挂载会随停播自清）
+    // 通知占用在场（useVoiceBroadcast 播放边沿镜像）→ 门开，同幅帧照常触发
+    //（意图门控新契约 E-283：触发=开意图窗收插话判意图——真停需停止意图
+    //  确认，sendStewardInterrupt 不再即刻发生；帧数取 5：t=300ms 首触发后
+    //  落在 300ms 静默窗内——单次触发零二次，确定性断言不依赖占用自清）
     beginNotificationPlayback();
     frames(5, 0.3);
-    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
+    expect(r.current.bargeInIntentActive).toBe(true); // 门触发 → 意图窗开（武装面不变）
+    expect(sendStewardInterrupt).not.toHaveBeenCalled(); // 真停等意图（窗内无 final 不真停）
     endNotificationPlayback();
+    act(() => {
+      r.current.closeBargeInIntentWindow(); // 收窗（清 5s 超时定时器——测试面不悬挂）
+    });
+    expect(r.current.bargeInIntentActive).toBe(false);
   });
 });
