@@ -1253,12 +1253,16 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       return;
     }
     if (legacySpeaking || streamSpeaking || askInFlight) return;
+    // 通知播报中不提交（回归修复：排队回答的 ask 会开 SPEECH_FLOOR_ROUND
+    // 收编截断在播通知——「上一条没播完下一条就开始」体感根源之一；通知
+    // 播毕边沿串行放行）。
+    if (notifSpeaking) return;
     if (phase === "listening" || phase === "transcribing") return; // 用户在说话/转写在途不打扰
     const q = queuedUtterancesRef.current;
     if (q.length === 0) return;
     const next = q.shift()!;
     submitUtteranceRef.current(next);
-  }, [duplexActive, legacySpeaking, streamSpeaking, askInFlight, phase]);
+  }, [duplexActive, legacySpeaking, streamSpeaking, askInFlight, notifSpeaking, phase]);
 
   // interim 出态清理（listening/transcribing 外不残留浮字）
   useEffect(() => {

@@ -151,12 +151,22 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           setLines((prev) => captionPush(prev, "steward", t("steward.voice.voiceprintReject")));
           return;
         }
+        // 停止词本地消费（回归修复：停止词不当聊天句回灌 LLM——真停后立即又
+        // 开新一轮播报的级联根因）：窗内外同径 executeBargeInStop（幂等——
+        // interim 快通道已真停再停无害；非窗内 asking 期喊停 = 中止在途轮，
+        // idle 空气喊停 = 停播 no-op）。零 submitUtterance 零回读。
+        if (isStopIntentPhrase(text)) {
+          svExecStopRef.current();
+          return;
+        }
         if (ctx?.bargeInIntent) {
-          // 意图窗 final 慢通道：①强停止词命中→真停（三步打断序）；②非停止
-          // 意图→排队新轮（播毕自动提交，宁多应答不漏）+ 字幕确认 + 窗收位。
-          // （interim 快通道已在 hook 内先行——此处是 final 级兑底/非流式面。）
-          if (isStopIntentPhrase(text)) {
-            svExecStopRef.current();
+          // 意图窗 final 慢通道：非停止意图 → 排队新轮（播毕自动提交，宁多应
+          // 答不漏）+ 字幕确认 + 窗收位。排队是特权——需声纹正面确认（pass）：
+          // skip（未注册/推断失败）不排队不 ask（自动应答面比直说宽，噪音/
+          // 旁人灰区话语不得经此进 LLM——回归修复：身份判定前置到排队提交前）。
+          if (decision.kind !== "pass") {
+            pushLine("steward", t("steward.voice.bargeInVerifySkip"));
+            svCloseWindowRef.current();
             return;
           }
           svQueueRef.current(text);

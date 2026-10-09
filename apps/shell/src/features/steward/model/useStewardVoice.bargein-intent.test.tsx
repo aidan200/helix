@@ -92,7 +92,7 @@ vi.mock("@/shared/lib/wake-hotkey", () => ({
 
 import { useStewardVoice } from "./useStewardVoice";
 import { resetSpeechMutexForTest } from "@/shared/lib/speech-mutex";
-import { resetSpeechFloorForTest } from "@/shared/lib/speech-floor";
+import { resetSpeechFloorForTest, beginNotificationPlayback, endNotificationPlayback } from "@/shared/lib/speech-floor";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 
 class FakeMediaRecorder {
@@ -437,5 +437,52 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in"); // ②
     expect(r.current.bargeInIntentActive).toBe(false); // 零意图窗
     expect(playerSetVolumeCalls).toEqual([]); // 零 duck
+  });
+
+  it("T6 drain 通知守卫：通知播报中不提交排队插话（播毕串行）——通知不被排队回答收编截断", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({
+      createMeter: fakeCreateMeter,
+      createPlayer,
+      onFinalText: () => "consumed",
+    });
+    await pressHotkey(r);
+    await stewardSpeaking(r);
+    await voiceBargeInFrames();
+    await waitFor(() => expect(r.current.bargeInIntentActive).toBe(true));
+    await ackLatestStream();
+
+    // 收口 → final（意图窗内，消费方 stub 全 consumed）→ 镜像 Layer 动作面排队
+    let nowMs = Date.now();
+    const stopSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    nowMs += 1_500;
+    act(() => {
+      r.current.stopListening();
+    });
+    await tick();
+    stopSpy.mockRestore();
+    act(() => {
+      emit("stt", frame("stt.stream.final", { status: "ok", streamId: `s${streamSeq}`, text: "回头查下天气" }, "stt"));
+    });
+    await tick();
+    act(() => {
+      r.current.queueUtterance("回头查下天气");
+      r.current.closeBargeInIntentWindow();
+    });
+
+    // 对话播报毕 + 通知轨在播（通知先到——回答等通知播完，不收编截断）
+    sendStewardAsk.mockClear();
+    beginNotificationPlayback();
+    act(() => {
+      playerActiveCb?.(false);
+    });
+    await tick();
+    await new Promise((res) => setTimeout(res, 40));
+    expect(sendStewardAsk).not.toHaveBeenCalled(); // 通知在播 → 不提交
+
+    // 通知播毕 → 串行放行提交
+    endNotificationPlayback();
+    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("回头查下天气", "voice-duplex"));
   });
 });
