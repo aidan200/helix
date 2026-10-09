@@ -21,6 +21,7 @@ import { I18nProvider } from "@/shared/i18n";
 
 const sendStewardAsk = vi.fn(() => true);
 const sendStewardConfirm = vi.fn(() => true);
+const sendStewardCancel = vi.fn(() => true);
 const sendStewardInterrupt = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
@@ -32,6 +33,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     topology: { active: { conn: "connected" } },
     sendStewardAsk,
     sendStewardConfirm,
+    sendStewardCancel,
     sendStewardInterrupt,
     subscribeStewardFrames: (cb: (e: EventEnvelope) => void) => {
       stewardListeners.add(cb);
@@ -235,5 +237,68 @@ describe("StewardVoiceLayer barge-in 意图判定分支（回归修复：停止�
     await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("今天天气怎么样"));
     expect(executeBargeInStop).not.toHaveBeenCalled();
     expect(queueUtterance).not.toHaveBeenCalled();
+  });
+
+  // ── R4 窗内口令直达（TTS 播报中抢答取消/确认——意图窗吞口令盲区修复）──
+  // 场景：确认卡在屏 + 答案/触达语音还在播 → 用户抢说「取消」→ 声学门开窗
+  // → final 口令应直达卡栈动作（原被无条件归为非停插话排队→播毕发 LLM，卡零动作）。
+
+  it("R4-A 窗内「取消」+ pass → 真停 + 直达 cancelCard + 零排队零判官零 ask", async () => {
+    renderLayer(gateReturning({ kind: "pass" }));
+    act(() => {
+      stewardListeners.forEach((fn) =>
+        fn({ type: "steward.ask.result", payload: { status: "confirm_required", actionId: "a1", agentId: "主会话", message: "m" } } as unknown as EventEnvelope),
+      );
+    });
+    act(() => {
+      expect(capturedOnFinalText?.("取消", { bargeInIntent: true })).toBe("consumed");
+    });
+    await waitFor(() => expect(sendStewardCancel).toHaveBeenCalledWith("a1"));
+    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1)); // 真停：答案剩余无意义（用户已裁决）
+    expect(queueUtterance).not.toHaveBeenCalled(); // 口令不排队
+    expect(judgeStopIntent).not.toHaveBeenCalled(); // 机械全等先于语义判官（零成本）
+    expect(submitUtterance).not.toHaveBeenCalled(); // 不发 LLM
+    expect(sendStewardAsk).not.toHaveBeenCalled();
+  });
+
+  it("R4-B 窗内「确认」+ skip（未注册）→ 照样直达 confirmCard（口令非排队特权——与非窗内口令路径一致）", async () => {
+    renderLayer(gateReturning({ kind: "skip", reason: "unregistered" }));
+    act(() => {
+      stewardListeners.forEach((fn) =>
+        fn({ type: "steward.ask.result", payload: { status: "confirm_required", actionId: "a1", agentId: "主会话", message: "m" } } as unknown as EventEnvelope),
+      );
+    });
+    act(() => {
+      expect(capturedOnFinalText?.("确认", { bargeInIntent: true })).toBe("consumed");
+    });
+    await waitFor(() => expect(sendStewardConfirm).toHaveBeenCalledWith("a1"));
+    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
+    expect(queueUtterance).not.toHaveBeenCalled();
+    expect(closeBargeInIntentWindow).not.toHaveBeenCalled(); // executeBargeInStop 内含收窗（非两段路径）
+  });
+
+  it("R4-C 窗内「全部取消」多卡 → 逐卡 cancel + 真停一次；聊天句仍排队（口令/非口令分野不变）", async () => {
+    renderLayer(gateReturning({ kind: "pass" }));
+    act(() => {
+      stewardListeners.forEach((fn) => {
+        fn({ type: "steward.ask.result", payload: { status: "confirm_required", actionId: "a1", agentId: "会话一", message: "m" } } as unknown as EventEnvelope);
+        fn({ type: "steward.ask.result", payload: { status: "confirm_required", actionId: "a2", agentId: "会话二", message: "m2" } } as unknown as EventEnvelope);
+      });
+    });
+    act(() => {
+      expect(capturedOnFinalText?.("都不要了", { bargeInIntent: true })).toBe("consumed");
+    });
+    await waitFor(() => {
+      expect(sendStewardCancel).toHaveBeenCalledWith("a1");
+      expect(sendStewardCancel).toHaveBeenCalledWith("a2");
+    });
+    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
+    expect(queueUtterance).not.toHaveBeenCalled();
+    // 非口令句窗内行为不变：照排队
+    judgeStopIntent.mockResolvedValueOnce(false);
+    act(() => {
+      expect(capturedOnFinalText?.("参数改成五号", { bargeInIntent: true })).toBe("consumed");
+    });
+    await waitFor(() => expect(queueUtterance).toHaveBeenCalledWith("参数改成五号"));
   });
 });

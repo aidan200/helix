@@ -161,6 +161,19 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           return;
         }
         if (ctx?.bargeInIntent) {
+          // 卡栈口令直达（意图窗吞口令盲区修复：确认卡在屏 + 答案/触达语音
+          // 还在播时抢答「取消/确认」——原被无条件归为非停插话排队，播毕后当
+          // 聊天句发 LLM，卡零动作）：口令与停止词表正交（取消≠闭嘴），先于
+          // 排队/判官（机械全等零成本）。真停答案剩余（用户已裁决，剩余无
+          // 意义——executeBargeInStop 内含收窗恢复）+ 窗内外同径
+          // dispatchAfterGate（卡栈动作 + 回读经 speech-floor 收编协调）。
+          // skip 照放——口令非排队特权（本地卡栈动作，声纹 reject 已在总闸挡；
+          // 与非窗内口令路径一致：未注册用户语音取消/确认能力窗内外同权）。
+          if (parseVoiceCommand(text) !== null) {
+            svExecStopRef.current();
+            dispatchAfterGate(text);
+            return;
+          }
           // 意图窗 final 慢通道：非停止意图 → 排队新轮（播毕自动提交，宁多应
           // 答不漏）+ 字幕确认 + 窗收位。排队是特权——需声纹正面确认（pass）：
           // skip（未注册/推断失败）不排队不 ask（自动应答面比直说宽，噪音/
