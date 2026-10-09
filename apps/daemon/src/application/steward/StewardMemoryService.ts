@@ -553,7 +553,7 @@ export class StewardMemoryService {
     scope?: { project?: string; explicit?: string },
   ): Promise<{ id: number; updated: boolean }> {
     if (!this.isAvailable()) {
-      throw new Error("记忆功能未启用或未配置（设置 → 通用 → 管家 → 记忆）");
+      throw new Error("记忆功能未启用或未配置（设置 → 通用 → 长期记忆）");
     }
     const trimmed = text.trim();
     if (trimmed === "") throw new Error("记忆文本不得为空");
@@ -754,7 +754,7 @@ export class StewardMemoryService {
    */
   async updateMemoryEntry(id: number, text: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!this.isAvailable()) {
-      return { ok: false, error: "记忆功能未启用或未配置（设置 → 通用 → 管家 → 记忆）" };
+      return { ok: false, error: "记忆功能未启用或未配置（设置 → 通用 → 长期记忆）" };
     }
     const trimmed = text.trim();
     if (trimmed === "") return { ok: false, error: "记忆文本不得为空" };

@@ -1337,7 +1337,7 @@ export const zhCN = {
       emptyTextErr: "记忆文本不得为空",
       empty: "暂无记忆条目",
       vectorizing: "向量化中…",
-      unavailable: "记忆未启用或向量端点未就绪（设置 → 通用 → 管家 → 记忆）",
+      unavailable: "记忆未启用或向量端点未就绪（设置 → 通用 → 长期记忆）",
       justNow: "刚刚",
       source: {
         manual: "手动",

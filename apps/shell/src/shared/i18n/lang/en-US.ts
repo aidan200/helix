@@ -1330,7 +1330,7 @@ export const enUS = {
       emptyTextErr: "Memory text must not be empty",
       empty: "No memory entries",
       vectorizing: "Vectorizing…",
-      unavailable: "Memory disabled or endpoint not ready (Settings → General → Steward → Memory)",
+      unavailable: "Memory disabled or endpoint not ready (Settings → General → Long-term memory)",
       justNow: "Just now",
       source: {
         manual: "Manual",

@@ -70,7 +70,7 @@ export class OpenAiCompatEmbeddingAdapter implements EmbeddingPort {
   async embed(texts: readonly string[]): Promise<EmbeddingResult> {
     const cfg = this.deps.getConfig();
     if (cfg === null) {
-      throw new Error("嵌入端点未配置（设置 → 通用 → 管家 → 记忆）");
+      throw new Error("嵌入端点未配置（设置 → 通用 → 长期记忆）");
     }
     if (texts.length === 0) return { vectors: [], dim: 0 };
     const url = `${cfg.baseUrl.replace(/\/+$/, "")}/embeddings`;
