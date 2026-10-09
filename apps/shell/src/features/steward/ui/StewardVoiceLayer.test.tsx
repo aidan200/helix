@@ -12,7 +12,9 @@
  *   toggleMute（临时静音）；muted 点击 → 恢复；
  * - 字幕：用户行/管家行弱区分（data-kind）；短驻批：上限 2 行 + TTL 6s
  *   驻留（静置自动移除、流式更新保活、空栈容器隐藏）；
- *   interim 实时行灰显（data-interim）；
+ *   interim 实时行灰显（data-interim）；过程活动行（过程可见语音面批：
+ *   askActivity 思考/工具状态 + thinking 摘要，不入栈、流式开始退场、
+ *   在场容器驻留）；
  * - 欢迎语：进入 duplex → steward 行入字幕（i18n 常量文案）；
  * - 语音口令（D3=b）：final 整句口令 → steward.confirm/steward.cancel
  *   （既有命令零新帧）+ 回读字幕/音频；非口令句零拦截；
@@ -92,6 +94,7 @@ let svState: {
   interim: string | null;
   streamingText: string | null;
   items: Array<{ kind: string; text: string }>;
+  askActivity: { phase: "thinking" | "tool"; toolName: string | null; thinkingLines: string[] } | null;
 } = {
   duplexActive: false,
   welcomeActive: false,
@@ -102,6 +105,7 @@ let svState: {
   interim: null,
   streamingText: null,
   items: [],
+  askActivity: null,
 };
 /** 桩捕获的 options.onFinalText（口令拦截面驱动口）。 */
 let capturedOnFinalText: ((text: string) => "consumed" | "pass") | undefined;
@@ -112,6 +116,7 @@ vi.mock("../model/useStewardVoice", () => ({
     return {
       items: svState.items,
       streamingText: svState.streamingText,
+      askActivity: svState.askActivity,
       feed: [],
       askInFlight: false,
       config: { enabled: true, model: "x/y" },
@@ -184,6 +189,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
       interim: null,
       streamingText: null,
       items: [],
+      askActivity: null,
     };
     localStorage.setItem("helix-lang", "zh-CN");
   });
@@ -361,6 +367,78 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     renderLayer();
     expect(screen.getByTestId("steward-caption")).toBeTruthy();
     expect(screen.getByTestId("steward-interim")).toBeTruthy();
+  });
+
+  // ── 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具
+  //    状态入字幕——不入 CaptionLine 栈（interim 同构实时消费零历史）。──
+
+  it("过程活动行：thinking 态 → 状态行「思考中…」+ 最近 thinking 摘要行；data-kind=activity", () => {
+    svState.duplexActive = true;
+    svState.phase = "asking";
+    svState.askActivity = { phase: "thinking", toolName: null, thinkingLines: ["先查任务清单。", "对比两个实例。"] };
+    renderLayer();
+    const activity = screen.getByTestId("steward-activity");
+    expect(activity.textContent).toBe("思考中…");
+    expect(activity.getAttribute("data-kind")).toBe("activity");
+    // 摘要行取窗口末条（最新思考块——字幕最新在下语义同构）
+    const think = screen.getByTestId("steward-activity-think");
+    expect(think.textContent).toBe("对比两个实例。");
+    // 光球相位照常 thinking（动画面不受活动行影响）
+    expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("thinking");
+  });
+
+  it("过程活动行：tool 相位 → 状态行「正在调用 {name}…」（steward.activityTool 同键）", () => {
+    svState.duplexActive = true;
+    svState.phase = "asking";
+    svState.askActivity = { phase: "tool", toolName: "list_tasks", thinkingLines: ["先查任务清单。"] };
+    renderLayer();
+    expect(screen.getByTestId("steward-activity").textContent).toBe("正在调用 list_tasks…");
+    expect(screen.getByTestId("steward-activity-think").textContent).toBe("先查任务清单。");
+  });
+
+  it("过程活动行：thinkingLines 空 → 摘要行不渲染（纯思考初期零摘要）", () => {
+    svState.duplexActive = true;
+    svState.phase = "asking";
+    svState.askActivity = { phase: "thinking", toolName: null, thinkingLines: [] };
+    renderLayer();
+    expect(screen.getByTestId("steward-activity").textContent).toBe("思考中…");
+    expect(screen.queryByTestId("steward-activity-think")).toBeNull();
+  });
+
+  it("过程活动行退场契约（面板同构）：streamingText 非空 → 活动行退场（流式文字即反馈）；收口（askActivity null）→ 消失", () => {
+    svState.duplexActive = true;
+    svState.phase = "asking";
+    svState.askActivity = { phase: "thinking", toolName: null, thinkingLines: ["先查任务清单。"] };
+    const { rerenderLayer } = renderLayer();
+    expect(screen.getByTestId("steward-activity")).toBeTruthy();
+    // 流式回答开始：活动行退场（面板同构——流式文字即反馈）
+    svState.streamingText = "回答开始了";
+    rerenderLayer({});
+    expect(screen.queryByTestId("steward-activity")).toBeNull();
+    expect(screen.queryByTestId("steward-activity-think")).toBeNull();
+    // 收口：askActivity null（即使无流式）→ 活动行不在
+    svState.streamingText = null;
+    svState.askActivity = null;
+    rerenderLayer({});
+    expect(screen.queryByTestId("steward-activity")).toBeNull();
+  });
+
+  it("过程活动行：行空且无 interim 但 askActivity 在 → 容器驻留（长工具期用户行被 TTL 驱逐后反馈不断流）", () => {
+    vi.useFakeTimers();
+    try {
+      svState.duplexActive = true;
+      svState.phase = "asking";
+      svState.askActivity = { phase: "tool", toolName: "run_task", thinkingLines: [] };
+      renderLayer();
+      // 欢迎语/用户行全部过期驱逐（字幕栈清空）——活动行仍驻留容器不隐藏
+      act(() => {
+        vi.advanceTimersByTime(7_000);
+      });
+      expect(screen.queryByTestId("steward-activity")).toBeTruthy();
+      expect(screen.getByTestId("steward-caption")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("语音口令（D3=b）：整句「确认」→ steward.confirm 既有命令 + 回读字幕；无卡零动作回读", async () => {

@@ -123,7 +123,7 @@ import {
 } from "@/shared/lib/voice-gate";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 import type { EventEnvelope, StewardAskSource } from "@helix/protocol";
-import { useSteward, type StewardPanelItem } from "./useSteward";
+import { useSteward, type StewardAskActivity, type StewardPanelItem } from "./useSteward";
 import { StewardSpeechOut } from "./steward-speech-out";
 import {
   deriveStewardVoicePhase,
@@ -177,6 +177,10 @@ export interface UseStewardVoice {
   // ── useSteward 整面透传（面板数据面不二开；A1：messages → items 过程条目）──
   readonly items: readonly StewardPanelItem[];
   readonly streamingText: string | null;
+  /** ask 进行中态投影（过程活动行数据面——useSteward 同构透传：phase 随最近
+   *  过程帧切 thinking/tool + thinking 首行摘要窗；null = 非在途。光球字幕
+   *  活动行与面板状态区同源同形（TR-241 语音版）。 */
+  readonly askActivity: StewardAskActivity | null;
   readonly feed: ReturnType<typeof useSteward>["feed"];
   readonly askInFlight: boolean;
   readonly config: ReturnType<typeof useSteward>["config"];

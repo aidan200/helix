@@ -17,7 +17,11 @@
  * - **StewardCaption** 字幕条（光球上方，玻璃族）：用户行（interim 灰/
  *   final 实）与管家行（ask.delta 聚合）弱区分，最新在下（短驻批：上限
  *   2 行 + TTL 6s 驻留——静置自动移除，流式更新刷新保活；行全空且无
- *   interim 时容器整面隐藏，气泡只在事件发生期可见）；纯 fixed 文本层
+ *   interim 时容器整面隐藏，气泡只在事件发生期可见）；**过程活动行**
+ *   （过程可见语音面批：ask 在途期 askActivity 投影——思考中/正在调用
+ *   {tool} 状态行 + 最近 thinking 摘要行，interim 同构不入栈零历史；
+ *   流式回答开始即退场（面板同构）；活动行在场容器驻留——长工具期
+ *   用户行被 TTL 驱逐后反馈不断流）；纯 fixed 文本层
  *   零滚动容器（E-124 WKWebView sticky 坑）；
  *   视觉=用户裁决例外（直角/无边框/满窗高，溢出裁顶保最新行——
  *   详见 app.css .stv-caption 段注）；
@@ -262,8 +266,24 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
 
   if (orbPhase === null) return null;
   const showInterim = sv.interim !== null && sv.interim !== "";
-  // 短驻批：行全空且无 interim → 字幕容器不渲染（事件发生期外零气泡面）
-  const captionVisible = lines.length > 0 || showInterim;
+  // ── 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具
+  //    状态入字幕——不入 CaptionLine 栈（interim 同构：呈现层实时消费零
+  //    历史，生命周期 = askActivity 本体）。退场契约面板同构：流式回答
+  //    开始（streamingText 非空）活动行退场——流式文字即反馈；收口
+  //    （askActivity null）即消失。──
+  const streamingActive = sv.streamingText !== null && sv.streamingText !== "";
+  const showActivity = sv.askActivity !== null && !streamingActive;
+  const activityStatus =
+    sv.askActivity !== null && sv.askActivity.phase === "tool" && sv.askActivity.toolName !== null
+      ? t("steward.activityTool", { name: sv.askActivity.toolName })
+      : t("steward.thinking");
+  const activityThink =
+    sv.askActivity !== null && sv.askActivity.thinkingLines.length > 0
+      ? (sv.askActivity.thinkingLines[sv.askActivity.thinkingLines.length - 1] ?? null)
+      : null;
+  // 短驻批：行全空且无 interim → 字幕容器不渲染（事件发生期外零气泡面）；
+  // 活动行在场则驻留（长工具期用户行被 TTL 驱逐后过程反馈不断流）
+  const captionVisible = lines.length > 0 || showInterim || showActivity;
   // RMS 微缩放系数（E-124：calc 乘法不进 CSS——组件端预计算成现成 scale
   // 值，CSS 只吃 --stv-lv；与 P1 均衡嘴三变量同源同 clamp）
   const lv = Math.max(0.15, sv.level);
@@ -280,6 +300,23 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
               {line.text}
             </div>
           ))}
+          {/* 过程活动行（不入栈——最新在下语义：栈行 → 过程状态 → 摘要 →
+              interim（打断新输入时排最下））；aria-live 容器顺带播报状态变化 */}
+          {showActivity && (
+            <div className="stv-line stv-activity" data-kind="activity" data-testid="steward-activity">
+              {activityStatus}
+            </div>
+          )}
+          {showActivity && activityThink !== null && (
+            <div
+              className="stv-line stv-activity-think"
+              data-kind="activity"
+              data-think="on"
+              data-testid="steward-activity-think"
+            >
+              {activityThink}
+            </div>
+          )}
           {showInterim && (
             <div className="stv-line stv-interim" data-kind="user" data-interim="on" data-testid="steward-interim">
               {sv.interim}

@@ -156,4 +156,24 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
     expect(seg).toMatch(/\.stv-orb\.stv-phase-listening \.stv-sprite\s*\{[^}]*background-position:\s*40% 80%/); // (5,3)
     expect(seg).toMatch(/\.stv-orb\.stv-phase-speaking \.stv-sprite\s*\{[^}]*background-position:\s*60% 100%/); // (6,4)
   });
+
+  it("过程活动行（过程可见语音面批）：token 单源弱化 + 呼吸点 opacity keyframe + reduced-motion 关停", () => {
+    // 状态行弱区分（text-dim）+ 显式 opacity 盖堆叠渐隐（声明序后置压 nth-last-child）
+    const status = seg.match(/\.stv-line\[data-kind="activity"\]\s*\{[^}]*\}/)![0];
+    expect(status).toMatch(/color:\s*var\(--text-dim\)/);
+    expect(status).toMatch(/opacity:\s*1/);
+    // 摘要行更弱（text-faint + --text-cap 字号阶梯）
+    const think = seg.match(/\.stv-line\[data-kind="activity"\]\[data-think="on"\]\s*\{[^}]*\}/)![0];
+    expect(think).toMatch(/color:\s*var\(--text-faint\)/);
+    expect(think).toMatch(/font-size:\s*var\(--text-cap\)/);
+    // 呼吸点：keyframes 只动 opacity（E-124 允许面）+ animation 简写全常量
+    const pulse = seg.match(/@keyframes stv-activity-pulse\s*\{[\s\S]*?\n\}/)![0];
+    expect(pulse).toMatch(/opacity/);
+    expect(pulse).not.toMatch(/(?:left|top|right|bottom|width|height|background(?!-position)|border|box-shadow|margin|padding|filter)\s*:/);
+    const pulseAnim = seg.match(/animation:\s*stv-activity-pulse[^;]+;/)![0];
+    expect(pulseAnim.includes("var(")).toBe(false);
+    expect(pulseAnim.includes("calc(")).toBe(false);
+    // reduced-motion：呼吸点关停（静态点）
+    expect(seg).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.stv-line\[data-kind="activity"\]::before\s*\{[^}]*animation:\s*none/);
+  });
 });

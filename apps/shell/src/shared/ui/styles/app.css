@@ -1639,11 +1639,39 @@ html.light .stv-caption {
 .stv-line { font-size: var(--text-body); color: var(--text); overflow-wrap: anywhere; }
 .stv-line[data-kind="user"] { color: var(--text-faint); } /* 用户行弱区分（final 实色偏弱） */
 .stv-interim { font-style: italic; color: var(--text-dim); } /* interim 灰（未定稿） */
-/* 堆叠渐隐：最新在下最实（短驻批：栈上限 2 + interim 实时行——最多 3 个
-   .stv-line；旧行更早被 TTL 驱逐，梯度只铺两级；纯 opacity，E-124） */
+/* 堆叠渐隐：最新在下最实（短驻批：栈上限 2 + 过程活动行 2 + interim 实时行
+   ——最多 5 个 .stv-line；旧行更早被 TTL 驱逐，梯度铺四级；纯 opacity，
+   E-124。活动行有显式 opacity:1（声明序后置）不随栈位褪色——过程现场
+   非历史行） */
+.stv-line:nth-last-child(5) { opacity: 0.45; }
+.stv-line:nth-last-child(4) { opacity: 0.6; }
 .stv-line:nth-last-child(3) { opacity: 0.75; }
 .stv-line:nth-last-child(2) { opacity: 0.9; }
 .stv-line:nth-last-child(1) { opacity: 1; }
+/* 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具状态行
+   + 最近 thinking 摘要——不入 CaptionLine 栈（interim 同构实时消费）。弱区分
+   两级：状态行 text-dim + 呼吸点，摘要行 text-faint + --text-cap；显式
+   opacity 盖堆叠渐隐（声明序后置压 nth-last-child 同特异性——活动行是
+   过程现场而非历史行，不随栈位褪色）；呼吸点 keyframes 只动 opacity
+   （E-124 允许面），animation 简写全常量 */
+.stv-line[data-kind="activity"] {
+  color: var(--text-dim); opacity: 1;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+}
+.stv-line[data-kind="activity"]::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%; flex: none;
+  background: currentColor;
+  animation: stv-activity-pulse 1.6s ease-in-out infinite;
+}
+.stv-line[data-kind="activity"][data-think="on"] {
+  color: var(--text-faint); font-size: var(--text-cap); opacity: 1;
+}
+.stv-line[data-kind="activity"][data-think="on"]::before { content: none; }
+@keyframes stv-activity-pulse {
+  0% { opacity: 0.35; }
+  50% { opacity: 1; }
+  100% { opacity: 0.35; }
+}
 
 /* 光球（帧动画雪碧图皮面——用户手绘像素图 orb.png。九序列帧表（行列 1 计）：
    待机循环 (1,1)(1,2)(1,3)(1,4)(1,1)｜疑问转换 (1,1)(1,5)(1,6)(2,1)(2,2)→
@@ -1776,4 +1804,5 @@ html.light .stv-caption {
   .stv-orb { transition: none; }
   /* !important 压过相位类高特异性（0-3-0）——关停后落各相位静态代表帧 */
   .stv-sprite { animation: none !important; transition: none; }
+  .stv-line[data-kind="activity"]::before { animation: none; } /* 呼吸点静态 */
 }

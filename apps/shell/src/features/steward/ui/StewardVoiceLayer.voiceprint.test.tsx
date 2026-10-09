@@ -67,6 +67,7 @@ vi.mock("../model/useStewardVoice", () => ({
     return {
       items: [],
       streamingText: null,
+      askActivity: null,
       feed: [],
       askInFlight: false,
       config: { enabled: true, model: "x/y" },
