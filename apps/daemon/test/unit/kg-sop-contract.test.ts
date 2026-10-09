@@ -128,6 +128,27 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     });
   });
 
+  describe("收口记忆召回点（工程纪律②衔接——收口/交代前 memory_search 善后偏好检索）", () => {
+    for (const [label, prompt] of [
+      ["Main", MAIN_SESSION_SYSTEM_PROMPT],
+      ["SubAgent", SUBAGENT_SYSTEM_PROMPT],
+    ] as const) {
+      test(`${label}：收口记忆召回点关键句齐备（收口/向用户交代前 / 「收尾/善后/清理」意图检索 / 命中按偏好善后 / 无命中正常收口）`, () => {
+        expect(prompt).toContain("收口记忆召回点");
+        expect(prompt).toContain("收口/向用户交代前");
+        expect(prompt).toContain("「收尾/善后/清理」");
+        expect(prompt).toContain("命中即按偏好完成善后再收口");
+        expect(prompt).toContain("无命中即正常收口");
+      });
+    }
+
+    test("同刻衔接：召回点紧随「收尾前先提交——未提交的工作等于没做」（不重写检查点既有句，仅衔接）", () => {
+      for (const prompt of [MAIN_SESSION_SYSTEM_PROMPT, SUBAGENT_SYSTEM_PROMPT]) {
+        expect(prompt).toContain("未提交的工作等于没做。收口记忆召回点");
+      }
+    });
+  });
+
   describe("Orchestrator：只加 brief 派发提示一句（AD-10 不挂写面）", () => {
     test("派发提示句齐备（codegraph → kg affected → kg get）", () => {
       expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain("派发提示");
