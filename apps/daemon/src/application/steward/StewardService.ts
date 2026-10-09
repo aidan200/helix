@@ -59,13 +59,14 @@ import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
 import {
-  STEWARD_ADDRESSEE_QUESTION,
-  STEWARD_INTENT_JUDGE_CANCEL_QUESTION,
+  STEWARD_ADDRESSEE_QUESTION,  STEWARD_INTENT_JUDGE_CANCEL_QUESTION,
   STEWARD_INTENT_JUDGE_CONFIRM_QUESTION,
   STEWARD_INTENT_JUDGE_REVISE_QUESTION,
   buildIntentJudgeState,
   buildIntentReviseAskText,
   isAmbientSpeech,
+  STEWARD_STOP_QUESTION,
+  isStopIntent,
   pickIntentByScores,
   type IntentJudgeFace,
 } from "./StewardIntentJudge";
@@ -2217,6 +2218,28 @@ export class StewardService {
     } catch (err) {
       this.deps.logger?.warn(`addressee 判定失败，回退当聊天：${(err as Error).message}`);
       return false;
+    }
+  }
+
+  /** stop-intent 语义判定（barge-in 意图窗批）：非词表停止表达（「先别说了/
+   *  等一下」类）的判官判定面——shell 意图窗 final 慢通道在排队前调（协议
+   *  面 steward.judge_stop_intent）。stop=true 才真停；降级链（off/unready/
+   *  error）一律 stop=false 回退照排队（与 addressee 同向保守：宁多应答不
+   *  漏——误停丢播报不可回滚，误排队仅延后应答）。 */
+  async judgeStopIntent(text: string): Promise<{ stop: boolean; score?: number; degraded?: "off" | "unready" | "error" }> {
+    const judge = this.deps.intentJudge;
+    if (judge === undefined) return { stop: false, degraded: "off" };
+    if (!judge.enabled()) return { stop: false, degraded: "off" }; // 开关关：默认态零日志（同款）
+    if (!judge.ready()) {
+      this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——stop-intent 判定回退不停止（照排队）");
+      return { stop: false, degraded: "unready" };
+    }
+    try {
+      const score = await judge.noul(`用户这句话：${text}`, STEWARD_STOP_QUESTION);
+      return isStopIntent(score) ? { stop: true, score } : { stop: false, score };
+    } catch (err) {
+      this.deps.logger?.warn(`stop-intent 判定失败，回退不停止（照排队）：${(err as Error).message}`);
+      return { stop: false, degraded: "error" };
     }
   }
 

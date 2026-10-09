@@ -21,6 +21,7 @@ import type {
   StewardConfigResultEvent,
   StewardConfirmResultEvent,
   StewardHistoryResultEvent,
+  StewardJudgeStopIntentResultEvent,
   StewardThinkingEvent,
   StewardToolEvent,
 } from "@helix/protocol";
@@ -527,6 +528,33 @@ export function handleStewardInterrupt(ctx: StewardCommandContext): void {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.reason 应为 string");
   }
   ctx.steward.service.abortInFlight(reason ?? "barge-in");
+}
+
+/** steward.judge_stop_intent（全局命令；barge-in 意图窗批）：语义停止判定
+ *  → StewardService.judgeStopIntent（判官 noul + 降级链）→ 点对点回执
+ *  steward.judge_stop_intent.result。异步判定、回执后置（不阻塞命令分发
+ *  ——ask 流式同构先例）；单飞语义：意图窗至多一判，迟到回执由 shell 侧
+ *  序列守卫吞。 */
+export function handleStewardJudgeStopIntent(ctx: StewardCommandContext): void {
+  const text = ctx.payload.text;
+  if (typeof text !== "string" || text.trim() === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.text 应为非空 string");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.steward.service.judgeStopIntent(text).then((res) => {
+    const frame: StewardJudgeStopIntentResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.judge_stop_intent.result",
+      payload: {
+        stop: res.stop,
+        ...(res.score !== undefined ? { score: res.score } : {}),
+        ...(res.degraded !== undefined ? { degraded: res.degraded } : {}),
+      },
+    };
+    ctx.sendNow(sender, frame);
+  });
 }
 
 /** ── M3-d1 感知兑现批：活动账两命令（时间线页数据源）────────────── */

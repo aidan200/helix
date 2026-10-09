@@ -107,6 +107,8 @@ type _StewardFamily = Expect<
       | "steward.pending.snapshot"
       | "steward.memory_written"
       | "steward.memory_list.result"
+      // barge-in 意图窗批 +steward.judge_stop_intent.result（语义停止判定回执）
+      | "steward.judge_stop_intent.result"
       // 管家活动账批 M3-d1 +steward.activity.result（查询/清理回执）+
       // steward.activity（实时活动条目广播）
       | "steward.activity.result"

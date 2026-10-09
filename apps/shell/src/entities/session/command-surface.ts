@@ -62,6 +62,7 @@ import {
   stewardHistoryCommand,
   stewardCancelCommand,
   stewardInterruptCommand,
+  stewardJudgeStopIntentCommand,
   stewardMemoryAppendCommand,
   stewardMemoryDeleteCommand,
   stewardMemoryListCommand,
@@ -331,6 +332,10 @@ export const COMMAND_SURFACE = {
    *  loop.run.interrupted + ask 终态已够；返回 false = 未连接）。 */
   sendStewardInterrupt: (deps) =>
     (reason?: string): boolean => deps.send(stewardInterruptCommand(reason)),
+  /** 语义停止判定（barge-in 意图窗批；回执 steward.judge_stop_intent.result
+   *  ——useStewardVoice 意图窗慢通道消费；降级/超时 shell 侧回退照排队）。 */
+  sendStewardJudgeStopIntent: (deps) =>
+    (text: string): boolean => deps.send(stewardJudgeStopIntentCommand(text)),
 
   // ── surface 面（M0 表面协议地基批）：注册/事件上行/动作回执 ─────────
   /** 表面自述注册（连接就绪恒发——navigate 收编不依赖感知开关；重连重放
@@ -1081,6 +1086,7 @@ export const LISTEN_SURFACE = {
       type === "steward.pending.snapshot" ||
       type === "steward.memory_written" ||
       type === "steward.memory_list.result" ||
+      type === "steward.judge_stop_intent.result" ||
       type === "steward.activity.result" ||
       type === "steward.activity" ||
       type === "connection.error",

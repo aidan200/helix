@@ -311,6 +311,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.memory_list.result":
       // 管家记忆 B2：长期记忆条目清单回执窄化（数量 + 首条 kind 面）
       return `steward-memory-list:${event.payload.entries.length}:${event.payload.entries[0]?.kind ?? "-"}`;
+    case "steward.judge_stop_intent.result":
+      // barge-in 意图窗批：语义停止判定回执窄化（stop 判别 + degraded 面）
+      return `steward-judge-stop:${event.payload.stop}:${event.payload.degraded ?? "-"}`;
     case "steward.notify":
       // 管家感知批 M0.5：主动通知帧窄化（urgency/title/seq + 首条建议 label）
       return `steward-notify:${event.payload.urgency}:${event.payload.title}:${event.payload.seq}`;
@@ -622,6 +625,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.interrupt":
       // B2 barge-in 批：在途轮打断（reason 缺省 = daemon 归一 "barge-in"）
       return `steward-interrupt:${cmd.payload.reason ?? "barge-in"}`;
+    case "steward.judge_stop_intent":
+      // barge-in 意图窗批：语义停止判定（非词表停止表达）
+      return `steward-judge-stop:${cmd.payload.text.length}`;
     case "steward.memory_list":
       // 管家记忆 B2：条目读面
       return "steward-memory_list";

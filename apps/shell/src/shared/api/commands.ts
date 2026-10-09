@@ -134,6 +134,7 @@ import type {
   StewardGetConfigCommand,
   StewardHistoryCommand,
   StewardInterruptCommand,
+  StewardJudgeStopIntentCommand,
   StewardMemoryAppendCommand,
   StewardMemoryDeleteCommand,
   StewardMemoryDomain,
@@ -698,6 +699,13 @@ export function stewardInterruptCommand(reason?: string): StewardInterruptComman
     type: "steward.interrupt",
     payload: reason === undefined ? {} : { reason },
   };
+}
+
+/** steward.judge_stop_intent：语义停止判定（barge-in 意图窗慢通道——非词表
+ *  停止表达「先别说了/等一下」类经判官 noul 判定；回执
+ *  steward.judge_stop_intent.result，降级一律 stop=false 照排队）。 */
+export function stewardJudgeStopIntentCommand(text: string): StewardJudgeStopIntentCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.judge_stop_intent", payload: { text } };
 }
 
 // ── 管家记忆 B2：长期记忆条目管理（读/人工新增/重嵌更新/行级删除；四命令

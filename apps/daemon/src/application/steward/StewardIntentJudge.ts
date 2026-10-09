@@ -52,6 +52,21 @@ export function isAmbientSpeech(addresseeScore: number): boolean {
   return clamp(addresseeScore) < STEWARD_ADDRESSEE_DROP_THRESHOLD;
 }
 
+/** stop-intent 判定问句（barge-in 意图窗批：非词表停止表达的判官慢通道——
+ *  词表快通道 0ms 之后的语义兜底，shell 意图窗排队前调）。单源常量同纪律。 */
+export const STEWARD_STOP_QUESTION =
+  "用户这句话是在要求 AI 语音助手停止说话吗？（叫停、示意先别说了、嫌吵、让它停下 = 是；提问、纠正、补充信息、提出新要求、与助手无关的闲聊 = 不是）";
+
+/** stop-intent 判定阈值（与意图判官同款 0.5 校准概率——E-250 同源）。 */
+export const STEWARD_STOP_JUDGE_THRESHOLD = 0.5;
+
+/** stop-intent 打分 → 停止判定（纯函数）：阈值门控；越界钳制 [0,1]、NaN
+ *  视为 0（坏端点不误停——保守回退照排队，与 addressee 同向安全偏置）。 */
+export function isStopIntent(stopScore: number): boolean {
+  const clamp = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
+  return clamp(stopScore) >= STEWARD_STOP_JUDGE_THRESHOLD;
+}
+
 /** 意图判别结果（分流三态——confirm/cancel 复用口令路由执行面）。 */
 export type StewardPendingIntent = "confirm" | "cancel" | "revise";
 

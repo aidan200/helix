@@ -25,6 +25,7 @@ import type { EventEnvelope } from "@helix/protocol";
 const sendStewardAsk = vi.fn(() => true);
 const sendStewardConfirm = vi.fn(() => true);
 const sendStewardInterrupt = vi.fn(() => true);
+const sendStewardJudgeStopIntent = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
@@ -63,6 +64,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendStewardAsk,
     sendStewardConfirm,
     sendStewardInterrupt,
+    sendStewardJudgeStopIntent,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
@@ -484,5 +486,60 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     // 通知播毕 → 串行放行提交
     endNotificationPlayback();
     await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("回头查下天气", "voice-duplex"));
+  });
+});
+
+describe("useStewardVoice judgeStopIntent（意图窗慢通道：daemon 判官 RPC 单飞）", () => {
+  let restoreEnv: (() => void) | null = null;
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    for (const s of Object.values(listeners)) s.clear();
+    fireWakeHotkey = null;
+    playerSetVolumeCalls.length = 0;
+    meterFrameCbs.length = 0;
+    streamSeq = 0;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  it("T7 回执 stop=true → true；单飞：后调作废前调（前调迟到收敛 false 不悬挂）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    const first = r.current.judgeStopIntent("先别说了");
+    const second = r.current.judgeStopIntent("等一下");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: true, score: 0.9 }, "steward"));
+    });
+    expect(sendStewardJudgeStopIntent).toHaveBeenCalledTimes(2);
+    await expect(second).resolves.toBe(true); // 最新调吃到回执
+    await expect(first).resolves.toBe(false); // 旧调作废 → 保守 false（不悬挂）
+  });
+
+  it("T8 降级回执（stop=false + degraded）→ false 照排队", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    const p = r.current.judgeStopIntent("先别说了");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: false, degraded: "unready" }, "steward"));
+    });
+    await expect(p).resolves.toBe(false);
+  });
+
+  it("T9 未连接（send false）→ 立即 false（TR-168：不悬挂等待）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    sendStewardJudgeStopIntent.mockImplementationOnce(() => false);
+    await expect(r.current.judgeStopIntent("先别说了")).resolves.toBe(false);
+    expect(sendStewardJudgeStopIntent).toHaveBeenCalledTimes(1);
   });
 });

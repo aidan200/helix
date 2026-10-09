@@ -14,7 +14,9 @@ import { describe, expect, test } from "bun:test";
 import type { RuntimeConfigPort } from "../../src/application/ports/outbound/RuntimeConfigPort";
 import {
   STEWARD_INTENT_JUDGE_THRESHOLD,
+  STEWARD_STOP_QUESTION,
   buildIntentReviseAskText,
+  isStopIntent,
   makeIntentJudgeFace,
   pickIntentByScores,
 } from "../../src/application/steward/StewardIntentJudge";
@@ -127,5 +129,26 @@ describe("M3-a 修正轮 LLM 输入组装（buildIntentReviseAskText）", () => 
     expect(text).toContain("继续调整光球动画");
     expect(text).toContain("不对，改成先做配色");
     expect(text).toContain("修正");
+  });
+});
+
+// ── stop-intent 判定（barge-in 意图窗批：非词表停止表达的判官慢通道）────
+
+describe("stop-intent 打分判定（isStopIntent）", () => {
+  test("阈值 ≥0.5 → 停止意图（恰含边界）", () => {
+    expect(isStopIntent(0.9)).toBe(true);
+    expect(isStopIntent(0.5)).toBe(true);
+    expect(isStopIntent(0.49)).toBe(false);
+    expect(isStopIntent(0)).toBe(false);
+  });
+  test("越界值防御钳制（>1 归 1 仍停、负值归 0 不停）", () => {
+    expect(isStopIntent(1.5)).toBe(true);
+    expect(isStopIntent(-1)).toBe(false);
+  });
+  test("NaN → false（坏端点不误停——保守回退照排队）", () => {
+    expect(isStopIntent(Number.NaN)).toBe(false);
+  });
+  test("问句常量在场（单源——测试直引防措辞漂移）", () => {
+    expect(STEWARD_STOP_QUESTION).toContain("停止说话");
   });
 });

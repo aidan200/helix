@@ -53,7 +53,7 @@ function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort {
 }
 
 /** 意图判官 fake：三问固定分数 + addressee 分数 + 调用记录。 */
-function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: number; addressee?: number }, opts: { enabled?: boolean; ready?: boolean; throwErr?: Error } = {}): IntentJudgeFace & { noulCalls: { state: string; question: string }[] } {
+function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: number; addressee?: number; stop?: number }, opts: { enabled?: boolean; ready?: boolean; throwErr?: Error } = {}): IntentJudgeFace & { noulCalls: { state: string; question: string }[] } {
   const noulCalls: { state: string; question: string }[] = [];
   const questionKey: Record<string, keyof typeof scores> = {};
   void questionKey;
@@ -66,6 +66,7 @@ function fakeIntentJudge(scores: { revise: number; cancel: number; confirm: numb
       if (opts.throwErr !== undefined) throw opts.throwErr;
       // 按问句关键词分流固定分数（问句单源常量与实现同模块——关键词稳定）
       if (question.includes("跟管家")) return scores.addressee ?? 1;
+      if (question.includes("停止说话")) return scores.stop ?? 0;
       if (question.includes("修正")) return scores.revise;
       if (question.includes("取消")) return scores.cancel;
       return scores.confirm;
@@ -420,5 +421,62 @@ describe("isAmbientSpeech（置信偏置：显著低分才丢，灰区/坏值偏
     expect(isAmbientSpeech(Number.NaN)).toBe(false);
     expect(isAmbientSpeech(99)).toBe(false);
     expect(isAmbientSpeech(-1)).toBe(true); // 负值钳制 0 → 显著低（判旁人）
+  });
+});
+
+// ── stop-intent 判定面（barge-in 意图窗慢通道：非词表停止表达 → 判官 noul）──
+
+describe("stop-intent 判定（judgeStopIntent：shell 意图窗排队前调用）", () => {
+  test("判官判停止（≥0.5）→ {stop:true}（词表未命中的「先别说了/等一下」类）", async () => {
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.9, stop: 0.8 });
+    const { svc } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
+    const res = await svc.judgeStopIntent("先别说了，等一下");
+    expect(res.stop).toBe(true);
+    expect(res.score).toBe(0.8);
+    expect(judge.noulCalls.length).toBe(1);
+    expect(judge.noulCalls[0]!.state).toContain("先别说了");
+  });
+
+  test("判官判非停止（<0.5）→ {stop:false}（纠正/补充内容照排队）", async () => {
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.9, stop: 0.2 });
+    const { svc } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
+    const res = await svc.judgeStopIntent("我想补充一点，那个参数改成 5");
+    expect(res.stop).toBe(false);
+    expect(res.score).toBe(0.2);
+  });
+
+  test("开关关（默认态）→ {stop:false, degraded:'off'} 零调用零日志", async () => {
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, stop: 0.9 }, { enabled: false });
+    const { svc, logger } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
+    const res = await svc.judgeStopIntent("先别说了");
+    expect(res.stop).toBe(false);
+    expect(res.degraded).toBe("off");
+    expect(judge.noulCalls.length).toBe(0);
+    expect(logger.warns.length).toBe(0);
+  });
+
+  test("端点未配 → {stop:false, degraded:'unready'} + WARN（用户预期判官生效）", async () => {
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, stop: 0.9 }, { ready: false });
+    const { svc, logger } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
+    const res = await svc.judgeStopIntent("先别说了");
+    expect(res.stop).toBe(false);
+    expect(res.degraded).toBe("unready");
+    expect(logger.warns.some((w) => w.includes("stop-intent"))).toBe(true);
+  });
+
+  test("判官抛错 → {stop:false, degraded:'error'} + WARN 不重试（保守回退照排队）", async () => {
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, stop: 0.9 }, { throwErr: new Error("judge boom") });
+    const { svc, logger } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
+    const res = await svc.judgeStopIntent("先别说了");
+    expect(res.stop).toBe(false);
+    expect(res.degraded).toBe("error");
+    expect(logger.warns.some((w) => w.includes("stop-intent"))).toBe(true);
+  });
+
+  test("判官缺席（未注入）→ {stop:false, degraded:'off'}（零配置面行为）", async () => {
+    const { svc } = makeService({ llm: fakeLlm([]).port });
+    const res = await svc.judgeStopIntent("先别说了");
+    expect(res.stop).toBe(false);
+    expect(res.degraded).toBe("off");
   });
 });

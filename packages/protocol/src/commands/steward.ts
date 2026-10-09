@@ -235,6 +235,21 @@ export interface StewardInterruptCommand extends CommandFrame<StewardInterruptPa
   type: "steward.interrupt";
 }
 
+/** steward.judge_stop_intent 载荷（barge-in 意图窗批，additive）。 */
+export interface StewardJudgeStopIntentPayload {
+  /** 待判定文本（意图窗插话 final——词表未命中的非停止表达疑似句）。 */
+  text: string;
+}
+
+/** steward.judge_stop_intent：语义停止判定（barge-in 意图窗慢通道，shell→
+ *  daemon）——非词表停止表达（「先别说了/等一下」类）经判官 noul 判定，
+ *  回执 steward.judge_stop_intent.result（{stop, score?, degraded?}）。
+ *  降级（开关关/端点未配/抛错）一律 stop=false——shell 照排队不真停（误停
+ *  丢播报不可回滚，误排队仅延后应答）。 */
+export interface StewardJudgeStopIntentCommand extends CommandFrame<StewardJudgeStopIntentPayload> {
+  type: "steward.judge_stop_intent";
+}
+
 // ── 管家活动账（M3-d1 感知兑现批，additive）────────────────────
 
 /** steward.activity.list 时间窗档位（与 query_recent_work 四档同词表 +

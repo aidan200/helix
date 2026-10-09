@@ -137,6 +137,7 @@ import {
   handleStewardGetConfig,
   handleStewardHistory,
   handleStewardInterrupt,
+  handleStewardJudgeStopIntent,
   handleStewardActivityList,
   handleStewardActivityClear,
   handleStewardMemoryAppend,
@@ -860,6 +861,11 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardInterrupt(this.contexts.stewardContext(ws, type, payload));
+      // ── barge-in 意图窗批：语义停止判定（非词表停止表达；回执 judge_stop_intent.result）──
+      case "steward.judge_stop_intent":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardJudgeStopIntent(this.contexts.stewardContext(ws, type, payload));
       // ── M3-d1 感知兑现批：活动账两命令（时间线页数据源；activity 回口
       //    缺席 = 零活动降级——读面空清单/清理 no-op，不走 unimplemented）──
       case "steward.activity.list":

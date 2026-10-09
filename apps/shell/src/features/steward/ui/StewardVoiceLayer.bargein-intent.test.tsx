@@ -55,6 +55,9 @@ const submitUtterance = vi.fn();
 const executeBargeInStop = vi.fn();
 const queueUtterance = vi.fn();
 const closeBargeInIntentWindow = vi.fn();
+// 语义停止判官桩（意图窗慢通道）：缺省 false（照排队——daemon 降级链同向）；
+// 判停用例 mockResolvedValueOnce(true) 覆写
+const judgeStopIntent = vi.fn((_text: string) => Promise.resolve(false));
 const fakePcm = new Float32Array(16000);
 let capturedOnFinalText:
   | ((text: string, ctx?: { bargeInIntent: boolean }) => "consumed" | "pass")
@@ -95,6 +98,7 @@ vi.mock("../model/useStewardVoice", () => ({
       executeBargeInStop,
       closeBargeInIntentWindow,
       queueUtterance,
+      judgeStopIntent,
       muted: false,
       toggleMute: () => undefined,
       toggleWake: () => undefined,
@@ -188,6 +192,29 @@ describe("StewardVoiceLayer barge-in 意图判定分支（回归修复：停止�
     });
     await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
     expect(queueUtterance).not.toHaveBeenCalled();
+  });
+
+  it("R3 语义停止判官判停：窗内非词表停止表达（「先别说了，等一下」）+ pass + 判官 true → 真停不排队", async () => {
+    renderLayer(gateReturning({ kind: "pass" }));
+    judgeStopIntent.mockResolvedValueOnce(true);
+    act(() => {
+      expect(capturedOnFinalText?.("先别说了，等一下", { bargeInIntent: true })).toBe("consumed");
+    });
+    await waitFor(() => expect(judgeStopIntent).toHaveBeenCalledWith("先别说了，等一下"));
+    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
+    expect(queueUtterance).not.toHaveBeenCalled(); // 判停优先于排队
+    expect(submitUtterance).not.toHaveBeenCalled();
+  });
+
+  it("R3-b 判官不判停（纠正/补充内容）→ 照排队不真停（降级/超时同路径 false）", async () => {
+    renderLayer(gateReturning({ kind: "pass" }));
+    judgeStopIntent.mockResolvedValueOnce(false);
+    act(() => {
+      expect(capturedOnFinalText?.("我想补充一点，参数改成 5", { bargeInIntent: true })).toBe("consumed");
+    });
+    await waitFor(() => expect(judgeStopIntent).toHaveBeenCalledWith("我想补充一点，参数改成 5"));
+    await waitFor(() => expect(queueUtterance).toHaveBeenCalledWith("我想补充一点，参数改成 5"));
+    expect(executeBargeInStop).not.toHaveBeenCalled();
   });
 
   it("保护：窗内 reject（旁人）→ 关窗不排队不真停（旁人防线保持）", async () => {

@@ -196,6 +196,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.pending.snapshot",
   "steward.memory_written",
   "steward.memory_list.result",
+  // barge-in 意图窗批 +steward.judge_stop_intent.result（语义停止判定回执
+  // ——useStewardVoice 意图窗慢通道单飞消费；与 ask 族同订阅面）
+  "steward.judge_stop_intent.result",
   // 管家活动账批 M3-d1 +steward.activity.result（时间线查询/清理回执）+
   // steward.activity（实时活动条目广播——落账即发），真消费归活动时间线页
   // （subscribeStewardFrames 订阅面；与 feed/notify 同订阅闸广播）

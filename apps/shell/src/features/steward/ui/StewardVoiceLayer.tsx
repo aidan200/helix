@@ -96,6 +96,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   // 意图窗动作面 ref（onFinalText 异步判定后回调——定义先于 sv，赋值在后）
   const svExecStopRef = useRef<() => void>(() => undefined);
   const svQueueRef = useRef<(text: string) => void>(() => undefined);
+  const svJudgeStopRef = useRef<(text: string) => Promise<boolean>>(() => Promise.resolve(false));
   const svCloseWindowRef = useRef<() => void>(() => undefined);
   const dispatchAfterGate = useCallback(
     (text: string) => {
@@ -169,6 +170,13 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
             svCloseWindowRef.current();
             return;
           }
+          // 语义停止判官（daemon noul 慢通道）：非词表停止表达（「先别说了/
+          // 等一下」类）判停才真停；超时/未连接/降级一律 false 照排队（误停
+          // 丢播报不可回滚，误排队仅延后应答——与 daemon 侧同向保守）。
+          if (await svJudgeStopRef.current(text)) {
+            svExecStopRef.current();
+            return;
+          }
           svQueueRef.current(text);
           pushLine("steward", t("steward.voice.bargeInQueued"));
           svCloseWindowRef.current();
@@ -187,6 +195,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   // 意图窗动作面 ref 转发（onFinalText 定义先于 sv——与 say/submit 同构）
   svExecStopRef.current = sv.executeBargeInStop;
   svQueueRef.current = sv.queueUtterance;
+  svJudgeStopRef.current = sv.judgeStopIntent;
   svCloseWindowRef.current = sv.closeBargeInIntentWindow;
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）

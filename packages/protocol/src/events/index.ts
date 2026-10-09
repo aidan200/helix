@@ -167,6 +167,7 @@ import type {
   StewardNavigateEvent,
   StewardMemoryWrittenEvent,
   StewardMemoryListResultEvent,
+  StewardJudgeStopIntentResultEvent,
   StewardNotifyEvent,
   StewardProactiveEvent,
   StewardActionCompletedEvent,
@@ -356,6 +357,7 @@ export type EventEnvelope =
   | StewardNavigateEvent
   | StewardMemoryWrittenEvent
   | StewardMemoryListResultEvent
+  | StewardJudgeStopIntentResultEvent
   | SurfaceActionEvent
   | SurfaceRegisteredEvent
   | StewardNotifyEvent
@@ -566,6 +568,9 @@ export const EVENT_TYPES = [
   // 四命令共用）+ embedding 配置域两帧（新族 channel "embedding"——端点
   // 清单回执与连通测试回执）
   "steward.memory_list.result",
+  // barge-in 意图窗批：语义停止判定回执（steward.judge_stop_intent 命令
+  // 专属——非词表停止表达「先别说了/等一下」类判官 noul 判定）
+  "steward.judge_stop_intent.result",
   "embedding.list.result",
   "embedding.verify.result",
   // 三方平台（自定义 provider）族：平台清单回执（provider.list/set/delete
@@ -717,6 +722,7 @@ export const EVENT_CHANNELS = {
   "steward.memory_written": "steward",
   "steward.action.completed": "steward",
   "steward.memory_list.result": "steward",
+  "steward.judge_stop_intent.result": "steward",
   "surface.action": "surface",
   "surface.registered": "surface",
   "steward.notify": "steward",
