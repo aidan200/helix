@@ -42,7 +42,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useStewardVoice } from "../model/useStewardVoice";
 import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
-import { parseVoiceCommand, resolveVoiceCommand, type VoiceCardTarget } from "../model/voice-command";
+import { parseVoiceCommand, resolveVoiceCommand, isStopIntentPhrase, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
 import { useI18n } from "@/shared/i18n";
 import { getStewardVoiceprintService, type VoiceprintGate } from "../voiceprint/model/steward-voiceprint";
@@ -93,6 +93,10 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   /** 声纹放行后的派发内核：口令本地消费 + 回读；聊天句经 submitUtterance
    *  发问（hook 内 source 归类 + planTranscript 回退）。 */
   const submitUtteranceRef = useRef<(text: string) => void>(() => undefined);
+  // 意图窗动作面 ref（onFinalText 异步判定后回调——定义先于 sv，赋值在后）
+  const svExecStopRef = useRef<() => void>(() => undefined);
+  const svQueueRef = useRef<(text: string) => void>(() => undefined);
+  const svCloseWindowRef = useRef<() => void>(() => undefined);
   const dispatchAfterGate = useCallback(
     (text: string) => {
       const command = parseVoiceCommand(text);
@@ -127,7 +131,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     [pushLine, t, confirmCardWithReadback],
   );
   const onFinalText = useCallback(
-    (text: string): "consumed" | "pass" => {
+    (text: string, ctx?: { bargeInIntent: boolean }): "consumed" | "pass" => {
       pushLine("user", text); // 用户行入字幕（final 实——口令句也是说出的话）
       // 声纹总闸（链路重排批：机械→声纹→Jev→LLM）：每轮必验，不区分口令/
       // 聊天/有无卡；本句 PCM 同步取（final 定稿时点环尾部即本句）。reject
@@ -141,12 +145,28 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           decision = { kind: "skip" as const, reason: "inference-error" as const };
         }
         if (decision.kind === "reject") {
+          // 旁人/非注册主人：意图窗内也不真停不排队（用户需求：其他人的语音
+          // 不打断）——窗收位恢复音量，字幕沿用声纹拒绝文案。
+          if (ctx?.bargeInIntent) svCloseWindowRef.current();
           setLines((prev) => captionPush(prev, "steward", t("steward.voice.voiceprintReject")));
+          return;
+        }
+        if (ctx?.bargeInIntent) {
+          // 意图窗 final 慢通道：①强停止词命中→真停（三步打断序）；②非停止
+          // 意图→排队新轮（播毕自动提交，宁多应答不漏）+ 字幕确认 + 窗收位。
+          // （interim 快通道已在 hook 内先行——此处是 final 级兑底/非流式面。）
+          if (isStopIntentPhrase(text)) {
+            svExecStopRef.current();
+            return;
+          }
+          svQueueRef.current(text);
+          pushLine("steward", t("steward.voice.bargeInQueued"));
+          svCloseWindowRef.current();
           return;
         }
         dispatchAfterGate(text);
       })();
-      return "consumed"; // 一律本地消费（聊天句由 dispatch 自派发 ask）
+      return "consumed"; // 一律本地消费（意图窗插话不直发 ask——排队面处理；聊天句由 dispatch 自派发）
     },
     [pushLine, t, dispatchAfterGate],
   );
@@ -154,6 +174,10 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const sv = useStewardVoice({ onFinalText, welcomeText: t("steward.voice.welcome") });
   sayRef.current = sv.say;
   submitUtteranceRef.current = sv.submitUtterance;
+  // 意图窗动作面 ref 转发（onFinalText 定义先于 sv——与 say/submit 同构）
+  svExecStopRef.current = sv.executeBargeInStop;
+  svQueueRef.current = sv.queueUtterance;
+  svCloseWindowRef.current = sv.closeBargeInIntentWindow;
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）
 

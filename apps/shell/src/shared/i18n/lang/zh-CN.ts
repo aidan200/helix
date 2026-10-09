@@ -1437,6 +1437,7 @@ export const zhCN = {
       cardPending: "有个投递等你确认",
       // ── M3-c 声纹批：授权点拒绝白话（纯语音明示 + 卡保留——TR-243/TR-249）──
       voiceprintReject: "未识别为用户的声音",
+      bargeInQueued: "听到了，播完接着处理",
     },
   },
 };

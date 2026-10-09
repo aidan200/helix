@@ -1431,6 +1431,7 @@ export const enUS = {
       cardPending: "A delivery is waiting for your confirmation",
       // ── M3-c voiceprint batch: plain-language reject at the authorization gate ──
       voiceprintReject: "Not recognized as the registered voice",
+      bargeInQueued: "Got it — I'll handle that after finishing",
     },
   },
 } satisfies Translations;

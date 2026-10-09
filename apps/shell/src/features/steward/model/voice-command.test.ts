@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  isStopIntentPhrase,
   parseVoiceCommand,
   resolveVoiceCommand,
   type VoiceCardSnapshot,
@@ -116,5 +117,30 @@ describe("resolveVoiceCommand（整句定稿时卡栈快照绑定）", () => {
       ],
     });
     expect(resolveVoiceCommand({ kind: "cancelAll" }, [])).toEqual({ kind: "none", reason: "noCards" });
+  });
+});
+
+// ── 意图门控打断：停止意图快通道词表（barge-in 意图窗批）──────────────────
+
+describe("isStopIntentPhrase（停止意图快通道——interim/final 两级共用）", () => {
+  it("强停止词全等命中：停/停止/停下/别说了/不用说了/闭嘴", () => {
+    for (const p of ["停", "停止", "停下", "别说了", "不用说了", "闭嘴"]) {
+      expect(isStopIntentPhrase(p)).toBe(true);
+    }
+  });
+
+  it("尾句读容忍：句尾标点剥除后命中（说出口令常带收尾语气）", () => {
+    expect(isStopIntentPhrase("停。")).toBe(true);
+    expect(isStopIntentPhrase("别说了！")).toBe(true);
+    expect(isStopIntentPhrase(" 不用说了， ")).toBe(true);
+  });
+
+  it("夹带/变体不命中：全等主闸——聊天句夹「停」、非停止表达零触发", () => {
+    expect(isStopIntentPhrase("先停一下")).toBe(false);
+    expect(isStopIntentPhrase("停下来")).toBe(false); // 变体不进快通道（宁缺勿滥——交慢通道/不打断）
+    expect(isStopIntentPhrase("暂停")).toBe(false);
+    expect(isStopIntentPhrase("你说到哪了")).toBe(false);
+    expect(isStopIntentPhrase("")).toBe(false);
+    expect(isStopIntentPhrase("  ")).toBe(false);
   });
 });

@@ -103,7 +103,9 @@ import {
   voiceRmsThresholdFromSensitivity,
   readWelcomeAudioPref,
   readWelcomeTextPref,
+  readBargeInIntentPref,
 } from "@/shared/lib/voice-pref";
+import { isStopIntentPhrase } from "./voice-command";
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
 import { warmAudioOutputOnce } from "./audio-output-warmup";
 import { beginSpeechLease, endSpeechLease, speechLeaseActive } from "@/shared/lib/speech-mutex";
@@ -151,6 +153,14 @@ const SPEECH_LEASE_SPEECH_OUT = "steward-speech";
 const SPEECH_LEASE_LEGACY = "steward-legacy-audio";
 const SPEECH_LEASE_WELCOME = "steward-welcome-audio";
 
+// ── barge-in 意图窗参数（意图门控打断批）──
+/** duck 音量比例（播报不停但压低——降自声回灌 + 插话清晰）。 */
+const BARGE_IN_INTENT_DUCK_SCALE = 0.2;
+/** 窗超时（ms）：无 final 兕底关窗（噪音过门后用户实际没说话/ASR 无产出）。 */
+const BARGE_IN_INTENT_WINDOW_MS = 5_000;
+/** 排队插话上限（溢出丢新——防长播报期刷屏）。 */
+const BARGE_IN_QUEUE_MAX = 3;
+
 // ── ① speech-floor 对话源（出声面协调器：播×播互斥——对话 > 通知）：
 //    回答轮在途（askInFlight）/ a 流式播放器在播 / b 一次性回执在播三源
 //    任一在场 = 对话发言期——通知播报面（c）被压制（延后/收编，见
@@ -170,8 +180,10 @@ export interface UseStewardVoiceOptions {
   /** B2 欢迎语文本（缺省 i18n 常量；Layer 注入）。 */
   readonly welcomeText?: string;
   /** B2 终帧拦截钩（D3=b 语音口令）：返回 "consumed" = 前端本地消费零 ask
-   *  （口令解析/执行面 voice-command.ts + StewardVoiceLayer）；"pass" = 照发。 */
-  readonly onFinalText?: (text: string) => "consumed" | "pass";
+   *  （口令解析/执行面 voice-command.ts + StewardVoiceLayer）；"pass" = 照发。
+   *  第二参 ctx（意图窗批）：bargeInIntent = final 落在意图窗内——消费方
+   *  （Layer）走意图判定分支（停止词表→声纹→排队）而非常规口令/ask 链。 */
+  readonly onFinalText?: (text: string, ctx?: { bargeInIntent: boolean }) => "consumed" | "pass";
 }
 
 export interface UseStewardVoice {
@@ -233,6 +245,20 @@ export interface UseStewardVoice {
   /** 通知轨播报占用镜像（speech-floor 边沿订阅——光球说话姿驱动；与 barge-in
    *  门武装面同信号源：通知语音不驱动 speaking 相位，视觉面由此镜像补齐）。 */
   readonly notifSpeaking: boolean;
+  // ── barge-in 意图窗（意图门控打断：停止意图才真停，其余声音保持播报）──
+  /** 意图窗并（barge-in 声学触发后→意图判定中：播报 duck 不停、收音豁免门控
+   *  收插话）；Layer 的 onFinalText 读 ctx.bargeInIntent 分流，窗收口由
+   *  executeBargeInStop（真停）/ closeBargeInIntentWindow（不打断）驱动。 */
+  readonly bargeInIntentActive: boolean;
+  /** 真停（停止意图确认）：三步打断序（停播全轨 + interrupt + 靠自动续听重开
+   *  收音）——窗先关再执行，录音链/续听照常。 */
+  executeBargeInStop(): void;
+  /** 窗收口不真停（噪音/旁人/非停止插话）：恢复音量 + 回收音门控；录音链
+   *  照常（自动续听边沿重开）。 */
+  closeBargeInIntentWindow(): void;
+  /** 排队插话（非停止意图的真插话——播毕后自动提交为新轮 ask：宁多应答不漏）。
+   *  上限 3 条溢出丢新。 */
+  queueUtterance(text: string): void;
   /** 临时静音（D5：listening 点击切换——静音期续听挂起，duplex 会话保持）。 */
   readonly muted: boolean;
   /** D5 点击行为：listening 点击 = 临时静音切换（speaking 停读归 stopSpeaking）。 */
@@ -341,7 +367,20 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const bargeInGateRef = useRef<BargeInGateState>(INITIAL_BARGE_IN_GATE);
   const phaseRef = useRef<StewardVoicePhase>("idle");
   const bargeInRef = useRef<() => void>(() => {});
+  /** executeBargeInStop ref 转发（stt 帧 effect 定义在前——interim 快通道调）。 */
+  const executeBargeInStopRef = useRef<() => void>(() => {});
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // ── barge-in 意图窗（意图门控打断批）：声学触发后不真停，开窗收插话判
+  //    意图（停止词表快通道→声纹→排队）；窗内 duck 播报 + 豁免收音门控。──
+  /** 窗开标记（同步读面——onPcmFrame 豁免/final 分流；state 面向 Layer）。 */
+  const bargeInIntentRef = useRef(false);
+  const [bargeInIntentActive, setBargeInIntentActive] = useState(false);
+  /** 窗超时计时器（无 final 兕底——噪音过门后用户实际没说话）。 */
+  const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** duck 前各轨原音量（恢复用——Audio 元素/播放器当前值，非偏好重算）。 */
+  const duckedVolumesRef = useRef<{ player: number; legacy: number; welcome: number } | null>(null);
+  /** 排队插话（非停止意图——播毕后自动提交新轮；上限 3 溢出丢新）。 */
+  const queuedUtterancesRef = useRef<string[]>([]);
 
   // 发送面 ref 转发（speechOut 单例构造——发送器随连接态重绑，streamSenders 先例）
   const speechSendersRef = useRef({
@@ -406,10 +445,49 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     setLegacySpeaking(active);
   }, []);
 
+  // ── barge-in 意图窗：duck/恢复（意图门控打断批）──
+  // duck 目的：播报不停但压低——降低 TTS 自声回灌（豁免门控后插话帧与自声
+  // 同流上行，ASR 抗混音能力有限）+ 用户插话更清晰。恢复写回 duck 前原值
+  //（非偏好重算——中途改偏好不突跳）。欢迎语/通知轨互斥关系下通常不同时
+  // 在播，逐轨各自 duck 各自恢复，未在播轨记原值不动。
+  const duckVolume = useCallback(
+    (scale: number) => {
+      if (duckedVolumesRef.current !== null) return; // 已 duck 幂等
+      const legacy = audioRef.current?.volume ?? 1;
+      const welcome = welcomeAudioRef.current?.volume ?? 1;
+      duckedVolumesRef.current = { player: 1, legacy, welcome };
+      speechOut.setVolume(scale); // player 原值不可读——恢复面恒 1（真体从未设过）
+      if (audioRef.current !== null) audioRef.current.volume = legacy * scale;
+      if (welcomeAudioRef.current !== null) welcomeAudioRef.current.volume = welcome * scale;
+    },
+    [speechOut],
+  );
+  const restoreVolume = useCallback(() => {
+    const v = duckedVolumesRef.current;
+    if (v === null) return; // 未 duck 幂等
+    duckedVolumesRef.current = null;
+    speechOut.setVolume(v.player);
+    if (audioRef.current !== null) audioRef.current.volume = v.legacy;
+    if (welcomeAudioRef.current !== null) welcomeAudioRef.current.volume = v.welcome;
+  }, [speechOut]);
+  /** 窗收位直接操作（stopSpeaking/duplex 收口内联用——不引闭包环）：清标记
+   *  + 恢复音量 + 清超时计时器；录音链不动（自动续听照常）。 */
+  const settleBargeInWindow = useCallback(() => {
+    if (bargeInWindowTimerRef.current !== null) {
+      clearTimeout(bargeInWindowTimerRef.current);
+      bargeInWindowTimerRef.current = null;
+    }
+    if (!bargeInIntentRef.current) return;
+    bargeInIntentRef.current = false;
+    setBargeInIntentActive(false);
+    restoreVolume();
+  }, [restoreVolume]);
+
   const stopSpeaking = useCallback(() => {
     // 停播即开残响静默窗（B2：防 TTS 残响被耳 meter 再触发——静音钮/打断同径；
     // B3：窗长取偏好值，设置面改参即时生效）
     bargeInGateRef.current = openBargeInSilenceWindow(bargeInGateRef.current, Date.now(), readVoiceSilenceWindowPref());
+    settleBargeInWindow(); // 意图窗随停播收位（手动停读/新轮清在途同径——播都停了判定窗无义）
     speakPendingRef.current = false;
     const audio = audioRef.current;
     audioRef.current = null;
@@ -431,7 +509,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
     endDialogueSpeech(SPEECH_LEASE_LEGACY);
     speechOut.stopSpeaking(); // stop 命令 + 队列清空 + 分句缓冲 reset + 本轮静音
-  }, [speechOut]);
+  }, [speechOut, settleBargeInWindow]);
 
   // ── B2 欢迎语（进入双工时 TTS；字幕同步归 Layer）：speechOut 主动发言
   //    入口 sayNow（切句发流——闸/播放队列全复用，TR-200 播放闸零改动）；
@@ -783,7 +861,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const onPcmFrame = useCallback((frame: ArrayBuffer) => {
     pcmRingRef.current?.push(frame);
     if (!streamArmedRef.current || streamDeadRef.current) return;
-    if (speechLeaseActive()) return; // 发言期暂停上行
+    // 发言期暂停上行（意图窗豁免：插话帧与自声同流上行——duck 压低回灌，
+    // 窗关回门控）。
+    if (speechLeaseActive() && !bargeInIntentRef.current) return;
     const send = streamSendersRef.current.sendSttStreamChunk;
     if (typeof send !== "function") return;
     send(pcmFrameToBase64(frame));
@@ -870,9 +950,10 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       // 音频（开场白让位对话；录制期间相位已压过欢迎位，此处收 state 兼兜底）
       setWelcomeActive(false);
       stopWelcomeAudio();
-      /** 即将 ask 的文本路由：口令拦截（D3=b）优先——consumed 零 ask。 */
+      /** 即将 ask 的文本路由：口令拦截（D3=b）优先——consumed 零 ask；
+       *  意图窗内 final 传 ctx（Layer 判定分支：停止词表→声纹→排队）。 */
       const routeToAsk = (utterance: string) => {
-        if (onFinalTextRef.current?.(utterance) === "consumed") return;
+        if (onFinalTextRef.current?.(utterance, { bargeInIntent: bargeInIntentRef.current }) === "consumed") return;
         submitUtteranceRef.current(utterance);
       };
       routeToAsk(text);
@@ -925,6 +1006,14 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         const stash = typeof p.stash === "string" ? p.stash : "";
         const accumulated = `${prior}${text}${stash}`;
         setInterim(accumulated);
+        // 意图窗快通道（interim 级）：强停止词全等命中即真停——不等 VAD 收口
+        // 与 final（真停延迟从 ~2.5-4s 压到 ~1s 内）；录音继续（用户后续语音
+        // 同轮收口自然衔接）。误停代价可按受（ASR 修正期「停」误现——打断本
+        // 低频且用户确在插话，损失远小于延迟）。
+        if (bargeInIntentRef.current && isStopIntentPhrase(accumulated)) {
+          recordBargeInTrace({ at: Date.now(), rms: 0, zcr: 0, phase: phaseRef.current, fired: true });
+          executeBargeInStopRef.current();
+        }
       } else if (event.type === "stt.stream.final") {
         const p = event.payload as { status?: unknown; streamId?: unknown; text?: unknown };
         if (p.streamId !== streamIdRef.current) return; // 单飞门控
@@ -967,7 +1056,50 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   // B2 barge-in 打断序（①②③不可换序——UX 与一致性分离）：①立即停播
   // （零延迟）②steward.interrupt（daemon abortInFlight 幂等善后）③进
   // listening 开 stt.stream.start 新流；新转写 final → steward.ask 新轮。
+  // 意图门控批：偏好开（默认）→ 开意图窗（不真停：duck + 收插话判意图——
+  // 停止意图才走三步序）；偏好关 → 回退声学直停（原行为零改动）。
+  const openBargeInIntentWindow = useCallback(() => {
+    if (bargeInIntentRef.current) return; // 窗已开幂等（fired 闩锁外再防线）
+    bargeInIntentRef.current = true;
+    setBargeInIntentActive(true);
+    duckVolume(BARGE_IN_INTENT_DUCK_SCALE);
+    void beginListening(); // 开麦+开新转写流（收插话）——不 stopSpeaking 不 interrupt
+    if (bargeInWindowTimerRef.current !== null) clearTimeout(bargeInWindowTimerRef.current);
+    bargeInWindowTimerRef.current = setTimeout(() => {
+      bargeInWindowTimerRef.current = null;
+      // 窗超时兕底：无 final（噪音过门后用户实际没说话/麦克失败/ASR 无产出）
+      // ——不真停不排队，恢复音量关窗回门控（自动续听照常）。
+      settleBargeInWindow();
+    }, BARGE_IN_INTENT_WINDOW_MS);
+  }, [duckVolume, beginListening, settleBargeInWindow]);
+
+  /** 真停（停止意图确认——Layer 意图判定后调）：三步序①停播全轨②interrupt；
+   *  ③收音不显式开——interim 快通路径录音本就在跑（后续语音同轮收口），
+   *  final 慢通路径靠自动续听（idle 边沿）重开。 */
+  const executeBargeInStop = useCallback(() => {
+    settleBargeInWindow(); // 窗先收（恢复音量——stopSpeaking 面再收幂等）
+    stopSpeaking(); // ①（含残响静默窗 + 全轨停止）
+    sendStewardInterrupt?.("barge-in"); // ②（幂等；未连接本地停播即事实）
+  }, [settleBargeInWindow, stopSpeaking, sendStewardInterrupt]);
+  executeBargeInStopRef.current = executeBargeInStop;
+
+  /** 窗收口不真停（噪音/旁人/非停止插话——Layer 判定后调）。 */
+  const closeBargeInIntentWindow = useCallback(() => {
+    settleBargeInWindow();
+  }, [settleBargeInWindow]);
+
+  /** 排队插话（非停止意图的真插话：播毕后自动提交新轮——宁多应答不漏）。 */
+  const queueUtterance = useCallback((text: string) => {
+    const q = queuedUtterancesRef.current;
+    if (text.trim() === "" || q.length >= BARGE_IN_QUEUE_MAX) return; // 上限溢出丢新
+    q.push(text);
+  }, []);
+
   const bargeIn = useCallback(() => {
+    if (readBargeInIntentPref()) {
+      openBargeInIntentWindow();
+      return;
+    }
     stopSpeaking(); // ①（含残响静默窗）
     const interruptOk = sendStewardInterrupt?.("barge-in") ?? false; // ②
     if (interruptOk === false) {
@@ -975,7 +1107,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       // 发送失败走 voiceDraft 回填既有降级（零静默丢话）
     }
     void beginListening(); // ③
-  }, [stopSpeaking, beginListening, sendStewardInterrupt]);
+  }, [stopSpeaking, beginListening, sendStewardInterrupt, openBargeInIntentWindow]);
   bargeInRef.current = bargeIn;
 
   // 新一轮说话 = 停上轮朗读 + 听音本体（手动 barge-in 同构先序）
@@ -1112,6 +1244,22 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     if (phase === "unsupported") setModeState("text");
   }, [phase]);
 
+  // ── 排队插话 drain（意图窗批 D1=排队）：播毕/无在途轮且用户未在说话时
+  //    自动提交队首（逐条——新 ask 的 asking 相位会压后续 drain 到轮收口）；
+  //    duplex 收口清队列（关会话即弃——上下文已不连续）。──
+  useEffect(() => {
+    if (!duplexActive) {
+      queuedUtterancesRef.current = [];
+      return;
+    }
+    if (legacySpeaking || streamSpeaking || askInFlight) return;
+    if (phase === "listening" || phase === "transcribing") return; // 用户在说话/转写在途不打扰
+    const q = queuedUtterancesRef.current;
+    if (q.length === 0) return;
+    const next = q.shift()!;
+    submitUtteranceRef.current(next);
+  }, [duplexActive, legacySpeaking, streamSpeaking, askInFlight, phase]);
+
   // interim 出态清理（listening/transcribing 外不残留浮字）
   useEffect(() => {
     if (phase !== "listening" && phase !== "transcribing") setInterim(null);
@@ -1187,6 +1335,10 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     duplexActive,
     welcomeActive,
     notifSpeaking,
+    bargeInIntentActive,
+    executeBargeInStop,
+    closeBargeInIntentWindow,
+    queueUtterance,
     muted,
     toggleMute,
     toggleWake: toggleWakeStable,

@@ -1107,6 +1107,9 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    // 意图门控批：本组测声学直停链（触发即三步打断序）——前置偏好关回退
+    // 旧行为（新默认 = 意图窗，见 useStewardVoice.bargein-intent.test.tsx）。
+    localStorage.setItem("helix.voice.bargeInIntent", "0");
     for (const s of Object.values(listeners)) s.clear();
     FakeMeter.instances = [];
     streamStartEnabled = true;
@@ -1114,6 +1117,7 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
     nowMs = Date.now();
     nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
   });
+  // 意图窗行为（新默认）由 bargein-intent 集成测试全套覆盖。
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -1270,6 +1274,9 @@ describe("useStewardVoice（B3 回声防线）", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    // 意图门控批：本组测声学直停链（触发即三步打断序）——前置偏好关回退
+    // 旧行为（新默认 = 意图窗，见 useStewardVoice.bargein-intent.test.tsx）。
+    localStorage.setItem("helix.voice.bargeInIntent", "0");
     for (const s of Object.values(listeners)) s.clear();
     FakeMeter.instances = [];
     streamStartEnabled = true;

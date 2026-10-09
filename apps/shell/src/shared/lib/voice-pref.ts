@@ -109,6 +109,31 @@ export function writeStewardSpeakReplyPref(on: boolean): void {
   }
 }
 
+// ── barge-in 意图门控开关（意图窗批：打断从「有人声就打断」收紧为「识别出
+// 停止意图才打断」——强停止词快通道 + 声纹 + 排队新轮；关闭回退声学直停）──
+
+/** barge-in 意图门控存储键（"0"=关回退声学直停；缺省/其它 = 开——新行为）。 */
+export const BARGE_IN_INTENT_PREF_KEY = "helix.voice.bargeInIntent";
+
+/** 读 barge-in 意图门控开关（默认开：用户裁决行为变更）。 */
+export function readBargeInIntentPref(): boolean {
+  try {
+    return localStorage.getItem(BARGE_IN_INTENT_PREF_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/** 写 barge-in 意图门控开关。 */
+export function writeBargeInIntentPref(on: boolean): void {
+  try {
+    if (on) localStorage.removeItem(BARGE_IN_INTENT_PREF_KEY);
+    else localStorage.setItem(BARGE_IN_INTENT_PREF_KEY, "0");
+  } catch {
+    // 静默兜底（等价默认开）
+  }
+}
+
 // ── B3 回声防线门参数偏好（设置页「语音输入」插话检测组写入 /
 // useStewardVoice barge-in 门参数消费——逐帧读偏好，面板期改参即时生效）──
 

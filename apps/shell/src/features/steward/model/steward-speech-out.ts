@@ -242,6 +242,12 @@ export class StewardSpeechOut {
     return "stream";
   }
 
+  /** 音量透传（意图窗 duck/恢复——player GainNode 即时生效；调用方负责
+   *  记原值与恢复，本面零状态）。 */
+  setVolume(volume: number): void {
+    this.player.setVolume(Math.max(0, Math.min(1, volume)));
+  }
+
   /** 静音钮：全停在途（stop 命令 + 队列 + 缓冲）+ 本轮静音标记。无在途句
    *（pending 空）时零命令发出——预停读（startListening 先停上轮）不空发帧。 */
   stopSpeaking(): void {
