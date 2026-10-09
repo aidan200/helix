@@ -349,11 +349,15 @@ export class StewardPerceptionService {
     });
     // 机械短讯（白话硬约束）：任务状态是机械事实——零 LLM 零判官零分诊，
     // 启用态与否不影响（机械事实不依赖 LLM 配置）；failed = high 豁免
-    // 通知限流（失败早知道）；语音同句直供（notify 预算内）。
+    // 通知限流（失败早知道）。语音激活绑定（C 裁决 2026-10-08）：光球不在场
+    // = normal 只 toast 零语音，仅 failed 破沉默开口；在场 = 语音同句直供。
     const body = status === "failed" ? "任务失败了" : status === "cancelled" ? "任务被停掉了" : "任务完成了";
     const urgency = status === "failed" ? "high" : "normal";
-    // 语音先入队（播报队列独立限流——上限 5 溢出合并，不受通知预算约束）
-    this.deps.voice?.enqueueDiagnosed({ kind: "task.done", agentId: sessionId, text: body });
+    // 语音（播报队列独立限流——上限 5 溢出合并，不受通知预算约束）：
+    // failed 恒播（真出事破沉默）；done/cancelled 仅激活态（说面与 TR-250 同源）
+    if (status === "failed" || this.isActive()) {
+      this.deps.voice?.enqueueDiagnosed({ kind: "task.done", agentId: sessionId, text: body });
+    }
     const now = this.now();
     if (urgency !== "high") {
       this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
@@ -554,7 +558,10 @@ export class StewardPerceptionService {
         voiceText = input.fallbackText ?? "那个对话回你了";
         notifyBody = voiceText;
       }
-      this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: voiceText });
+      // 语音激活绑定（C 裁决）：详报只在光球在场时上嘴；不在场 = notify 机械短讯静默告知
+      if (this.isActive()) {
+        this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: voiceText });
+      }
       // notify 机械短讯（白话——通知生命周期短，写多也看不完）
       const now = this.now();
       this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
@@ -655,7 +662,9 @@ export class StewardPerceptionService {
       return;
     }
     this.normalSentAt.push(now);
-    this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text });
+    if (this.isActive()) {
+      this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text });
+    }
     const title = input.taskTitle ?? "对话回复了";
     this.notifySeq += 1;
     this.deps.emitNotify?.({

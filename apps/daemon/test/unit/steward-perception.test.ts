@@ -249,7 +249,7 @@ describe("激活判定（feed 订阅在场 ∧ 近期 ask 衰减窗）——v2.9
 });
 
 describe("任务终态锚机械化（用户裁决 2026-10-08：任务状态是机械事实——零 LLM 零判官零分诊；notify/语音同句机械短讯）", () => {
-  test("job done → 零分诊调用 + 机械 notify「xx 任务完成了」+ 语音同句（含未启用态语义统一）", async () => {
+  test("job done → 零分诊调用 + 机械 notify「xx 任务完成了」（未激活零语音——C 裁决，激活对照见下节）", async () => {
     const { perception, diagnose, tts, notifies, dialogReports, memory } = makeStack({
       stewardSubscribed: false,
       subscribers: 1,
@@ -260,8 +260,7 @@ describe("任务终态锚机械化（用户裁决 2026-10-08：任务状态是�
     expect(notifies.length).toBe(1);
     expect(notifies[0]!.title).toBe("管家感知修正（helix）");
     expect(notifies[0]!.body).toBe("任务完成了"); // 机械短句（非 600 字详文）
-    expect(tts.calls.length).toBe(1);
-    expect(tts.calls[0]!.text).toBe("任务完成了"); // 语音同句机械短讯
+    expect(tts.calls.length).toBe(0); // C 裁决：光球不在场，normal 只 toast 静默
     expect(dialogReports.length).toBe(0); // 主动对话汇报随分诊退役
     expect(memory.progress.length).toBe(0); // progress 薄条目随分诊退役（ring task.terminal 照记）
     expect(perception.ringSnapshot().some((r) => r.kind === "task.terminal")).toBe(true); // ring 照记
@@ -292,6 +291,67 @@ describe("任务终态锚机械化（用户裁决 2026-10-08：任务状态是�
       await broadcast_drain(perception);
     }
     expect(notifies.length).toBe(4);
+  });
+});
+
+describe("语音播报激活绑定（用户裁决 2026-10-08 C：光球不在场 = normal 只 toast 静默，仅 failed/high 才开口；光球在场 = 完整详报——说面与 TR-250 听面原则同源）", () => {
+  function turnEvent(sessionId: string): DomainEvent {
+    return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
+  }
+
+  test("任务 done + 激活 → 语音同句恢复（toast + 语音双通道）", async () => {
+    const { perception, tts, notifies } = makeStack({ stewardSubscribed: true, recentAsk: true, subscribers: 1 });
+    perception.onJobTerminal("job-1", "done", "判官接入批");
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1);
+    expect(tts.calls).toHaveLength(1);
+    expect(tts.calls[0]!.text).toBe("任务完成了");
+  });
+
+  test("任务 done + 未激活 → 零语音（C 裁决核心：normal 档只 toast）", async () => {
+    const { perception, tts, notifies } = makeStack({ stewardSubscribed: false, recentAsk: false, subscribers: 1 });
+    perception.onJobTerminal("job-1", "done", "判官接入批");
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1); // toast 照发
+    expect(tts.calls).toHaveLength(0); // 零语音
+  });
+
+  test("任务 failed + 未激活 → 语音照播（失败豁免——真出事才破沉默）", async () => {
+    const { perception, tts, notifies } = makeStack({ stewardSubscribed: false, recentAsk: false, subscribers: 1 });
+    perception.onJobTerminal("job-2", "failed", "判官接入批");
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1);
+    expect(tts.calls).toHaveLength(1);
+    expect(tts.calls[0]!.text).toBe("任务失败了");
+  });
+
+  test("会话回复详报 + 未激活 → notify 短讯照发 + 零语音（详报只在光球在场时上嘴）", async () => {
+    const { perception, notifies, frames } = makeStack({
+      stewardSubscribed: false,
+      recentAsk: false,
+      diagnose: fakeDiagnose({
+        result: { present: "对话回复了", detail: "这是详细的逐项汇报正文，未激活不该被念出来。" },
+      }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1); // 机械短讯照发
+    expect(frames).toHaveLength(0); // 零语音帧
+  });
+
+  test("分诊失败 fallback + 未激活 → notify 保底照发 + 零语音", async () => {
+    const { perception, notifies, frames } = makeStack({
+      stewardSubscribed: false,
+      recentAsk: false,
+      diagnose: fakeDiagnose({ available: false }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect(notifies).toHaveLength(1);
+    expect(notifies[0]!.body).toBe("那个对话回你了");
+    expect(frames).toHaveLength(0);
   });
 });
 
