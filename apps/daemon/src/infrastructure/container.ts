@@ -1360,7 +1360,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
                 stewardMemory.recordSessionProgress(sessionId, text),
             },
             memoryPointsStore: {
-              rememberMemoryPoint: (text: string) => stewardMemory.rememberSessionMemoryPoint(text),
+              rememberMemoryPoint: (point: { text: string; kind: "fact" | "preference"; domain: "habit" | "general" | "project" }, sessionId: string) =>
+                stewardMemory.rememberSessionMemoryPoint(point.text, point.kind, point.domain, sessionId),
               explicitRememberedSince: (since: number) => stewardMemory.explicitRememberedSince(since),
             },
           }

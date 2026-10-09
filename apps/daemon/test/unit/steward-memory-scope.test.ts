@@ -3,16 +3,19 @@
  * 四写入面 scope 赋值 + 存量迁移 + 管理命令展示）。
  *
  * 红绿证据链（brief 测试要求逐条）：
- * 1. resolveMemoryWriteScope 纯函数：explicit 优先 / preference 缺省
- *    global / fact·progress 缺省绑写时项目 / 无项目上下文回落 global；
+ * 1. resolveMemoryWriteAttrs 纯函数（domain 维度批起单点——scope 随 domain
+ *    一致性约束裁定）：explicit 优先（↔ 隐含 project 域）/ preference 缺省
+ *    habit+global / progress 缺省绑写时项目 / fact 缺省 general+global /
+ *    无项目上下文回落 global；
  * 2. store（真库 :memory:）：存量迁移（旧行 → global + 幂等重跑）+
  *    append projectScope 落库（缺省 global）+ search scopeFilter
  *    （rowid IN pre-filter——他项目最近邻不占 KNN 名额）+ updateEntry
  *    传 scope 重落/不传保持；
- * 3. service 写入面：管家轮 fact 无上下文 → global（现实核实：driveAsk
- *    无项目上下文）/ 记忆点 preference → global / 人工 append 显式 scope /
- *    progress 会话足迹单项目 → 绑项目（多项目/无足迹 → global）+
- *    覆盖更新 scope 随写时重落不新建 + 查重视野带 scope；
+ * 3. service 写入面：管家轮 fact 缺省 general → global（domain 一致性约束批
+ *    起 fact 不再自动绑项目——项目事实须显式 domain=project）/ 记忆点
+ *    habit → global / 人工 append 显式 scope（↔ 隐含 project 域）/ progress
+ *    会话足迹单项目 → 绑项目（多项目/无足迹 → global）+ 覆盖更新 scope
+ *    随写时重落不新建 + 查重视野带 scope；
  * 4. 召回过滤（真库 + 真 service）：global+本项目入选、他项目不注入、
  *    无 scope 上下文只见 global；
  * 5. 协议面：memory_list 回执 projectScope 透传 + memory_append 显式
@@ -29,7 +32,7 @@ import Database from "better-sqlite3";
 import { SqliteVecMemoryStore } from "../../src/adapters/driven/steward-memory/SqliteVecMemoryStore";
 import {
   StewardMemoryService,
-  resolveMemoryWriteScope,
+  resolveMemoryWriteAttrs,
   MEMORY_SCOPE_GLOBAL,
 } from "../../src/application/steward/StewardMemoryService";
 import type {
@@ -82,25 +85,25 @@ function fakeEmbedding(): EmbeddingPort {
 
 // ── 1. scope 赋值纯函数 ─────────────────────────────────────
 
-describe("项目作用域·resolveMemoryWriteScope 纯函数", () => {
-  test("① explicit 显式指定优先（任意 kind——人工 append 唯一显式通道）", () => {
-    expect(resolveMemoryWriteScope("preference", undefined, "helix")).toBe("helix");
-    expect(resolveMemoryWriteScope("fact", "other-proj", "helix")).toBe("helix");
-    expect(resolveMemoryWriteScope("progress", undefined, "global")).toBe(MEMORY_SCOPE_GLOBAL);
+describe("项目作用域·resolveMemoryWriteAttrs 纯函数（scope 面——domain 维度批起单点升格，完整约束面见 steward-memory-domain.test）", () => {
+  test("① explicit 显式指定优先（任意 kind——人工 append 唯一显式通道；↔ 约束反向隐含 project 域）", () => {
+    expect(resolveMemoryWriteAttrs({ kind: "preference", explicit: "helix" })).toEqual({ domain: "project", projectScope: "helix" });
+    expect(resolveMemoryWriteAttrs({ kind: "fact", project: "other-proj", explicit: "helix" })).toEqual({ domain: "project", projectScope: "helix" });
+    expect(resolveMemoryWriteAttrs({ kind: "progress", explicit: "global" })).toEqual({ domain: "general", projectScope: MEMORY_SCOPE_GLOBAL });
   });
 
-  test("② preference 缺省 global（用户画像跨项目成立——即使写时有项目上下文）", () => {
-    expect(resolveMemoryWriteScope("preference", "helix")).toBe(MEMORY_SCOPE_GLOBAL);
-    expect(resolveMemoryWriteScope("preference")).toBe(MEMORY_SCOPE_GLOBAL);
+  test("② preference 缺省 habit+global（用户画像跨项目成立——即使写时有项目上下文）", () => {
+    expect(resolveMemoryWriteAttrs({ kind: "preference", project: "helix" })).toEqual({ domain: "habit", projectScope: MEMORY_SCOPE_GLOBAL });
+    expect(resolveMemoryWriteAttrs({ kind: "preference" })).toEqual({ domain: "habit", projectScope: MEMORY_SCOPE_GLOBAL });
   });
 
-  test("③ fact/progress 缺省绑写时项目；无项目上下文回落 global", () => {
-    expect(resolveMemoryWriteScope("fact", "helix")).toBe("helix");
-    expect(resolveMemoryWriteScope("progress", "helix")).toBe("helix");
-    expect(resolveMemoryWriteScope("fact")).toBe(MEMORY_SCOPE_GLOBAL);
-    expect(resolveMemoryWriteScope("progress")).toBe(MEMORY_SCOPE_GLOBAL);
+  test("③ progress 缺省绑写时项目（domain=project）；fact 缺省 general+global（domain 一致性约束——项目事实须显式 domain=project）", () => {
+    expect(resolveMemoryWriteAttrs({ kind: "progress", project: "helix" })).toEqual({ domain: "project", projectScope: "helix" });
+    expect(resolveMemoryWriteAttrs({ kind: "fact", project: "helix" })).toEqual({ domain: "general", projectScope: MEMORY_SCOPE_GLOBAL });
+    expect(resolveMemoryWriteAttrs({ kind: "fact" })).toEqual({ domain: "general", projectScope: MEMORY_SCOPE_GLOBAL });
+    expect(resolveMemoryWriteAttrs({ kind: "progress" })).toEqual({ domain: "general", projectScope: MEMORY_SCOPE_GLOBAL });
     // 空白串项目名 = 无上下文（防脏值落库）
-    expect(resolveMemoryWriteScope("fact", "  ")).toBe(MEMORY_SCOPE_GLOBAL);
+    expect(resolveMemoryWriteAttrs({ kind: "progress", project: "  " })).toEqual({ domain: "general", projectScope: MEMORY_SCOPE_GLOBAL });
   });
 });
 
@@ -285,20 +288,21 @@ function serviceOf(store: StewardMemoryPort, extra: { resolveSessionProject?: (s
 }
 
 describe("项目作用域·service 写入面 scope 赋值", () => {
-  test("⑨ 管家轮 remember（fact）：无项目上下文 → global；project 通道（单项目 workspace）→ 绑项目", async () => {
+  test("⑨ 管家轮 remember（fact）缺省 domain=general → 恒 global；显式 domain=project → 绑写时项目", async () => {
     const store = scopeFakeStore();
     await serviceOf(store).remember("helix 用 bun test", "fact", "steward-turn");
     expect(store.appended[0]!.projectScope).toBe(MEMORY_SCOPE_GLOBAL);
     // 查重视野 = 写入 scope（global-only）
     expect(store.searchCalls[0]!.scopes).toEqual([MEMORY_SCOPE_GLOBAL]);
-    // project 通道（kind 规则）：单项目 workspace 下管家 fact 绑写时项目
+    // 项目事实须显式打标 domain=project（缺省推导 fact→general 不再自动绑项目——
+    // domain 一致性约束批）
     const storeP = scopeFakeStore();
-    await serviceOf(storeP).remember("helix 用 bun test", "fact", "steward-turn", { project: "helix" });
+    await serviceOf(storeP).remember("helix 用 bun test", "fact", "steward-turn", { domain: "project", project: "helix" });
     expect(storeP.appended[0]!.projectScope).toBe("helix");
     expect(storeP.searchCalls[0]!.scopes).toEqual(["helix"]);
   });
 
-  test("⑩ remember preference：project 通道不影响（用户画像跨项目成立）；fact 显式 scope → 项目", async () => {
+  test("⑩ remember preference：project 通道不影响（habit+global）；人工显式 scope（↔ 隐含 project 域）→ 项目", async () => {
     const store = scopeFakeStore();
     const svc = serviceOf(store);
     await svc.remember("回复要简洁", "preference", "steward-turn", { project: "helix" });
@@ -311,9 +315,9 @@ describe("项目作用域·service 写入面 scope 赋值", () => {
     expect(store.searchCalls[1]!.scopes).toEqual(["helix"]);
   });
 
-  test("⑪ 会话总结器记忆点（source=session-summary）→ preference 规则 global", async () => {
+  test("⑪ 会话总结器记忆点（source=session-summary）→ habit 规则 global", async () => {
     const store = scopeFakeStore();
-    await serviceOf(store).rememberSessionMemoryPoint("用户偏好中文回复");
+    await serviceOf(store).rememberSessionMemoryPoint("用户偏好中文回复", "preference", "habit");
     expect(store.appended[0]!.projectScope).toBe(MEMORY_SCOPE_GLOBAL);
   });
 
@@ -445,7 +449,7 @@ describe("项目作用域·协议面（memory_list 回执 + memory_append 入参
     const okCtx = frameCtxOf("steward.memory_append", { text: "helix 事实一条", kind: "fact", projectScope: "helix" }, [], appendedArgs);
     handleStewardMemoryAppend(okCtx.ctx);
     await Promise.resolve();
-    expect(appendedArgs).toEqual([["helix 事实一条", "fact", "helix"]]);
+    expect(appendedArgs).toEqual([["helix 事实一条", "fact", "helix", undefined]]);
     // 非法类型打回
     const badCtx = frameCtxOf("steward.memory_append", { text: "x", projectScope: 42 }, [], appendedArgs);
     handleStewardMemoryAppend(badCtx.ctx);

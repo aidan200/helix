@@ -32,7 +32,7 @@ import { capToolResultText } from "../../../../application/steward/StewardServic
 /** 检索面（StewardMemoryService 窄面——测试注入 fake 同形）。 */
 export interface MemorySearchServiceFace {
   isAvailable(): boolean;
-  searchMemories(query: string, project?: string): Promise<readonly MemorySearchHit[]>;
+  searchMemories(query: string, project?: string, domains?: ReadonlySet<"habit" | "general" | "project">): Promise<readonly MemorySearchHit[]>;
 }
 
 export interface MemorySearchToolDeps {
@@ -50,6 +50,12 @@ const memorySearchParameters = {
       type: "string",
       description:
         "检索意图（任务意图/类型描述——如「用户对本类任务的偏好」「测试与提交习惯」）；语义匹配用户偏好与工作状态类记忆，非项目知识（项目现实用 codegraph/kg）",
+    },
+    domain: {
+      type: "string",
+      enum: ["habit", "general", "project"],
+      description:
+        "业务领域过滤（可选；不传 = 全域）：habit=用户习惯（换个团队也成立）/ general=通用事实（跟项目无关）/ project=项目专属（换个项目不成立）",
     },
   },
   required: ["query"],
@@ -69,9 +75,12 @@ export function createMemorySearchTool(deps: MemorySearchToolDeps): AgentHarness
     parameters: memorySearchParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { query } = params as { query?: string };
+      const { query, domain } = params as { query?: string; domain?: string };
       if (typeof query !== "string" || query.trim() === "") {
         throw new Error("memory_search 需要 query（非空——任务意图/类型描述，语义匹配用户偏好与工作状态类记忆）");
+      }
+      if (domain !== undefined && domain !== "habit" && domain !== "general" && domain !== "project") {
+        throw new Error(`memory_search domain 非法：${JSON.stringify(domain)}（应为 "habit"、"general" 或 "project"；不传 = 全域）`);
       }
       if (!deps.service.isAvailable()) {
         return text(
@@ -80,7 +89,11 @@ export function createMemorySearchTool(deps: MemorySearchToolDeps): AgentHarness
       }
       let hits: readonly MemorySearchHit[];
       try {
-        hits = await deps.service.searchMemories(query, deps.projectOf());
+        hits = await deps.service.searchMemories(
+          query,
+          deps.projectOf(),
+          domain !== undefined ? new Set([domain as "habit" | "general" | "project"]) : undefined,
+        );
       } catch (err) {
         // 失败静默降级（不炸主链路——与管家召回降级同族纪律）
         return text(

@@ -14,6 +14,15 @@
  *   服务层自行编排 embed（异步）→ append（同步）次序）。
  */
 
+/** 业务领域维度（domain 维度批；与协议面 StewardMemoryDomain 同形）：
+ *  habit = 关于用户怎么干活（换个团队也成立）/ general = 环境与通用工作方式
+ *  事实（跟项目无关）/ project = 绑定具体项目才有意义（换个项目不成立）。
+ *  kind × domain 正交：preference/fact 都可能落任意域；progress 固定
+ *  domain=project（无项目会话回落 general）。一致性约束（写入单点
+ *  resolveMemoryWriteAttrs 强制）：domain="project" ↔ projectScope=具体
+ *  项目名（必绑定）；domain="habit"|"general" ↔ projectScope="global"。 */
+export type MemoryDomain = "habit" | "general" | "project";
+
 /** 记忆条目（存储面全字段）。 */
 export interface StewardMemoryEntry {
   readonly id: number;
@@ -45,6 +54,10 @@ export interface StewardMemoryEntry {
    *  + global 消费面可召回。存储投影恒携带（真库列 NOT NULL DEFAULT
    *  'global'）；可选形态 = additive 兼容旧 fake/断言）。 */
   readonly projectScope?: string;
+  /** 业务领域维度（domain 维度批；存储投影恒携带——真库列 NOT NULL，存量行
+   *  迁移缺省：progress→project、其余→habit；可选形态 = additive 兼容旧
+   *  fake/断言）。 */
+  readonly domain?: MemoryDomain;
 }
 
 /** 召回命中（条目 + 相似度分数——cosine distance 转 similarity，越大越像）。 */
@@ -62,8 +75,11 @@ export interface StewardMemoryAppendItem {
   /** 关联会话 id（kind=progress 专属；其他 kind 不携带）。 */
   readonly sessionId?: string;
   /** 项目作用域（写入时落：缺省 "global"；赋值规则单点
-   *  StewardMemoryService.resolveMemoryWriteScope）。 */
+   *  StewardMemoryService.resolveMemoryWriteAttrs——含 domain 一致性约束）。 */
   readonly projectScope?: string;
+  /** 业务领域维度（写入时落；缺省 "habit"（与存量迁移打标同口径）；真实
+   *  写入面由 resolveMemoryWriteAttrs 单点解析后必携）。 */
+  readonly domain?: MemoryDomain;
 }
 
 export interface StewardMemoryPort {
@@ -73,8 +89,10 @@ export interface StewardMemoryPort {
    *  scopeFilter（项目隔离批，可选）：允许召回的 project_scope 集合
    *  （如 ["global"] 或 ["global", "helix"]）——rowid IN 预过滤（KNN 名额
    *  只给合格行，他项目最近邻不占位）；undefined = 不过滤（全库——兼容
-   *  既有调用语义）。 */
-  search(query: Float32Array, topK: number, scopeFilter?: readonly string[]): readonly StewardMemoryHit[];
+   *  既有调用语义）。domainFilter（domain 维度批，可选）：允许召回的
+   *  domain 集合（如 ["habit"]）——与 scopeFilter 同层同形态（rowid IN
+   *  预过滤，被滤域不占 KNN 名额）；undefined = 全域。 */
+  search(query: Float32Array, topK: number, scopeFilter?: readonly string[], domainFilter?: readonly MemoryDomain[]): readonly StewardMemoryHit[];
   /** 全量条目（创建时间升序——配置面只读列表数据源）。 */
   list(): readonly StewardMemoryEntry[];
   /** 按 id 删除（条目 + 向量同事务；id 不存在 → false）。 */

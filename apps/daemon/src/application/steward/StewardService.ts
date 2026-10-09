@@ -1046,12 +1046,18 @@ const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
 const TOOL_REMEMBER: StewardLlmTool = {
   name: "remember",
   description:
-    "沉淀长期记忆（立即静默入库并弹通知卡，无需用户确认）。仅用于跨会话有持久价值的认知增量：用户明确表达的偏好/习惯（kind=preference）或对话中确认的事实（kind=fact）。text 要提炼成一句简单易懂、主题明确的记忆句（不要照搬用户原话口语）。一次性上下文、本轮临时信息、寒暄不记；语义重复会自动覆盖更新原条目。",
+    "沉淀长期记忆（立即静默入库并弹通知卡，无需用户确认）。仅用于跨会话有持久价值的认知增量：用户明确表达的偏好/习惯（kind=preference）或对话中确认的事实（kind=fact）。text 要提炼成一句简单易懂、主题明确的记忆句（不要照搬用户原话口语）。一次性上下文、本轮临时信息、寒暄不记；语义重复会自动覆盖更新原条目。domain 标注记忆的业务领域（缺省按 kind 推导：preference→habit、fact→general）：habit = 关于用户怎么干活（换个团队也成立）；general = 环境与通用工作方式事实（跟项目无关）；project = 绑定具体项目才有意义（换个项目不成立——项目专属事实/约定请显式标注 project）。",
   parameters: {
     type: "object",
     properties: {
       text: { type: "string", description: "记忆文本（一句自然语言，将向用户全文展示以供确认）" },
       kind: { type: "string", enum: ["fact", "preference"], description: "条目类别（缺省 fact）" },
+      domain: {
+        type: "string",
+        enum: ["habit", "general", "project"],
+        description:
+          "业务领域（可选；缺省按 kind 推导：preference→habit、fact→general）：habit=用户习惯（换个团队也成立）/ general=通用事实（跟项目无关）/ project=项目专属（换个项目不成立）",
+      },
     },
     required: ["text"],
     additionalProperties: false,
@@ -2432,12 +2438,19 @@ export class StewardService {
   }
 
   /** 人工新增（embed 入库；缺席/失败 → error outcome）。projectScope =
-   *  显式指定通道（项目隔离批——"global" 或项目目录名，缺省按 kind 规则）。 */
-  async appendMemoryEntry(text: string, kind?: "fact" | "preference", projectScope?: string): Promise<{ ok: true } | { ok: false; error: string }> {
+   *  显式指定通道（项目隔离批——"global" 或项目目录名）；domain（domain
+   *  维度批）= 业务领域显式指定，缺省按 kind 推导（preference→habit、
+   *  fact→general）或由显式 projectScope 反向隐含 project 域。 */
+  async appendMemoryEntry(
+    text: string,
+    kind?: "fact" | "preference",
+    projectScope?: string,
+    domain?: import("../ports/outbound/StewardMemoryPort").MemoryDomain,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.deps.memory === undefined) {
       return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
     }
-    return this.deps.memory.appendMemoryEntry(text, kind, projectScope);
+    return this.deps.memory.appendMemoryEntry(text, kind, projectScope, domain);
   }
 
   /** 重嵌更新（缺席/失败 → error outcome）。 */
@@ -3017,17 +3030,26 @@ export class StewardService {
 
   /** remember 直接执行体（B5 摘闸静默化：参数校验 → 可用性闸 → 两段查重
    *  入库 → memory_written 通知；回执回灌 LLM 续轮）。失败/不可用回执为
-   *  引导文本（LLM 转述用户）——与旧 guideOutcome 语义同构。 */
+   *  引导文本（LLM 转述用户）——与旧 guideOutcome 语义同构。domain 维度批：
+   *  domain 可选参数（enum habit|general|project），缺省按 kind 推导
+   * （preference→habit、fact→general），显式传优先；入参透传至 remember
+   * （一致性约束在写入单点裁定）。 */
   private async directRemember(args: Record<string, unknown>): Promise<GateToolOutcome> {
     const text = typeof args.text === "string" ? args.text.trim() : "";
     const kindRaw = args.kind;
+    const domainRaw = args.domain;
     if (text === "") {
       return this.guideOutcome("参数缺失：text 必填（记忆文本）").outcome;
     }
     if (kindRaw !== undefined && kindRaw !== "fact" && kindRaw !== "preference") {
       return this.guideOutcome(`kind 非法：${JSON.stringify(kindRaw)}（应为 "fact" 或 "preference"）`).outcome;
     }
+    if (domainRaw !== undefined && domainRaw !== "habit" && domainRaw !== "general" && domainRaw !== "project") {
+      return this.guideOutcome(`domain 非法：${JSON.stringify(domainRaw)}（应为 "habit"、"general" 或 "project"）`).outcome;
+    }
     const kind = (kindRaw as "fact" | "preference" | undefined) ?? "fact";
+    // domain 维度批：显式传优先；缺省按 kind 推导（preference→habit、fact→general）
+    const domain = (domainRaw as "habit" | "general" | "project" | undefined) ?? (kind === "preference" ? "habit" : "general");
     const memory = this.deps.memory;
     if (memory === undefined || !memory.isAvailable()) {
       return this.guideOutcome(
@@ -3035,12 +3057,14 @@ export class StewardService {
       ).outcome;
     }
     try {
-      // 项目隔离批：fact 缺省绑写时项目——项目上下文与召回同源
-      //（memoryProject 单项目 workspace 口径；多项目/未绑定 → 不传 →
-      // 回落 global）。preference 不受 project 通道影响（kind 规则缺省
-      // global）。
+      // 项目隔离批：项目上下文与召回同源（memoryProject 单项目 workspace
+      // 口径；多项目/未绑定 → 不传）。domain 维度批：仅 domain=project 时
+      // 作项目取名通道（habit/general 一致性约束强制 global——单点裁定）。
       const project = this.deps.memoryProject?.();
-      const saved = await memory.remember(text, kind, "steward-turn", project !== undefined ? { project } : undefined);
+      const saved = await memory.remember(text, kind, "steward-turn", {
+        domain,
+        ...(project !== undefined ? { project } : {}),
+      });
       this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
       const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
       return { kind: "result", text: capToolResultText(detail) };

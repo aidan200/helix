@@ -136,6 +136,7 @@ import type {
   StewardInterruptCommand,
   StewardMemoryAppendCommand,
   StewardMemoryDeleteCommand,
+  StewardMemoryDomain,
   StewardMemoryListCommand,
   StewardMemoryPinCommand,
   StewardMemoryRestoreCommand,
@@ -704,12 +705,24 @@ export function stewardMemoryListCommand(): StewardMemoryListCommand {
   return { v: PROTOCOL_VERSION, type: "steward.memory_list", payload: {} };
 }
 
-/** steward.memory_append：人工新增（embed 入库；kind 缺省 fact）。 */
-export function stewardMemoryAppendCommand(text: string, kind?: "fact" | "preference"): StewardMemoryAppendCommand {
+/** steward.memory_append：人工新增（embed 入库；kind 缺省 fact；domain
+ *  缺省按 kind 推导（preference→habit、fact→general），projectScope =
+ *  项目名显式通道（与 domain=project 配对）——逐字段透传 TR-159）。 */
+export function stewardMemoryAppendCommand(
+  text: string,
+  kind?: "fact" | "preference",
+  domain?: StewardMemoryDomain,
+  projectScope?: string,
+): StewardMemoryAppendCommand {
   return {
     v: PROTOCOL_VERSION,
     type: "steward.memory_append",
-    payload: { text, ...(kind !== undefined ? { kind } : {}) },
+    payload: {
+      text,
+      ...(kind !== undefined ? { kind } : {}),
+      ...(domain !== undefined ? { domain } : {}),
+      ...(projectScope !== undefined && projectScope.trim() !== "" ? { projectScope } : {}),
+    },
   };
 }
 

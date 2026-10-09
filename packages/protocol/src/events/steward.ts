@@ -389,10 +389,18 @@ export interface StewardNavigateEvent extends EventFrame<StewardNavigatePayload>
   type: "steward.navigate";
 }
 
+/** 长期记忆业务领域维度（domain 维度批；kind × domain 正交——preference/
+ *  fact 都可能落任意域，progress 固定 domain=project（无项目会话回落
+ *  general））：habit = 关于用户怎么干活（换个团队也成立）/ general = 环境与
+ *  通用工作方式事实（跟项目无关）/ project = 绑定具体项目才有意义（换个项目
+ *  不成立）。一致性约束（daemon 写入单点强制）：domain="project" ↔
+ *  projectScope=具体项目名；domain="habit"|"general" ↔ projectScope="global"。 */
+export type StewardMemoryDomain = "habit" | "general" | "project";
+
 /** 长期记忆条目行（管家记忆 B2：memory_list 回执形态；kind 枚举对齐
  *  存储面既有值 fact/preference，progress 批扩 progress = 会话进展状态
  *  （同 session 覆盖更新；additive——旧 shell 忽略无损）；遗忘机制批 additive
- *  生命周期字段——旧 shell 忽略无损）。 */
+ *  生命周期字段——旧 shell 忽略无损；domain 维度批 additive 业务领域字段）。 */
 export interface StewardMemoryEntryView {
   /** 条目 id（存储 rowid）。 */
   id: number;
@@ -421,6 +429,10 @@ export interface StewardMemoryEntryView {
    *  跨项目可见 / 项目目录名 = 仅该项目 + global 消费面可召回；旧 daemon
    *  不携带（存量行迁移默认 global）。 */
   projectScope?: string;
+  /** 业务领域维度（domain 维度批，additive——旧 shell 忽略无损）：habit/
+   *  general/project（与 projectScope 一致性约束在 daemon 写入单点强制）；
+   *  旧 daemon 不携带（存量行迁移缺省：progress→project、其余→habit）。 */
+  domain?: StewardMemoryDomain;
 }
 
 /** steward.memory_list.result payload：条目清单（memory_list/append/

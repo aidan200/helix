@@ -13,9 +13,11 @@
  * - topic（演进语义全保留：「保持」哨兵 / cleanTopicText / 显式标题锁定 /
  *   updateTopic 单一写路径 / title-topic 分野）；
  * - progress（≤120 字与覆盖更新语义在 recordSessionProgress——本层只投递）；
- * - memoryPoints（值得跨会话记住的用户偏好/习惯/纠正/事实线索——只记用户域
- *   与工作方式域，项目事实不记；走 remember 两段查重闸入库，source =
- *   "session-summary"）。
+ * - memoryPoints（值得跨会话记住的用户偏好/习惯/纠正/事实线索——**结构化
+ *   产物 [{text, kind, domain}]**（domain 维度批）：kind ∈ preference|fact、
+ *   domain ∈ habit|general|project 三判据提取分类，不再固定 kind=preference；
+ *   走 remember 两段查重闸入库，source = "session-summary"；domain=project
+ *   由写入单点取会话项目归约）；
  *
  * 触发与锚点：`turn.completed`（done + interrupted 都进——被打断也是进展
  * 信息）经 fan-out session-summary-bridge 旁路异步触发。锚点 = 统一计数
@@ -43,6 +45,7 @@
  */
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
+import type { MemoryDomain } from "../../ports/outbound/StewardMemoryPort";
 import type { StewardLlmPort } from "../../ports/outbound/StewardLlmPort";
 import type { SummaryConfigState } from "../../summary/summaryConfig";
 import type { StewardMemoryWrittenPayload } from "@helix/protocol";
@@ -80,9 +83,11 @@ export interface SessionSummaryServiceDeps {
   };
   /** 记忆点写入面（StewardMemoryService.rememberSessionMemoryPoint 委托——
    *  remember 两段查重闸语义复用，source = "session-summary"；缺席 = 记忆点
-   *  不产）。explicitRememberedSince：防双写闸读面（本轮显式 remember 水位）。 */
+   *  不产）。domain 维度批：结构化点（含 kind/domain 提取分类）+ sessionId
+   *  透传（domain=project 时写入单点取会话项目）。explicitRememberedSince：
+   *  防双写闸读面（本轮显式 remember 水位）。 */
   readonly memoryPointsStore?: {
-    rememberMemoryPoint(text: string): Promise<{ id: number; updated: boolean }>;
+    rememberMemoryPoint(point: MemoryPoint, sessionId: string): Promise<{ id: number; updated: boolean }>;
     explicitRememberedSince(since: number): boolean;
   };
   /** 记忆落盘通知（memory_written 通知卡链——自动沉淀换轨后沿用 B5 静默入库
@@ -171,12 +176,23 @@ export function buildTopicPrompt(input: {
 
 // ── 三产物协议（JSON）────────────────────────────────────
 
+/** 结构化记忆点（domain 维度批产物形状：[{text, kind, domain}]——
+ *  kind ∈ preference|fact、domain ∈ habit|general|project，提取时分类）。 */
+export interface MemoryPoint {
+  readonly text: string;
+  readonly kind: "fact" | "preference";
+  readonly domain: MemoryDomain;
+}
+
 /** 三产物总结 system prompt（joint 形态——字段按产物集裁剪）。 */
 export const SUMMARY_SYSTEM_PROMPT =
   "你是会话轮末总结器。根据当前主题与最近的消息窗口，输出一个 JSON 对象（不要输出 JSON 以外的任何文字）。" +
   "字段规则：topic = 不超过 30 字的名词短语（不带句号/引号），概括会话当前的实际工作内容；" +
   "progress = 不超过两句的简洁中文进展状态（在做什么/干到哪/待办或结论）；" +
-  "memoryPoints = 值得跨会话记住的用户偏好/习惯/纠正/事实线索的字符串数组（只记用户域与工作方式域——项目与任务事实不记；没有则空数组 []），每条一句、主语明确（用户……）、不超过 40 字。";
+  "memoryPoints = 值得跨会话记住的记忆点对象数组（没有则空数组 []），每个对象三个字段：" +
+  "text（一句记忆句，主语明确（用户……）、不超过 40 字）；" +
+  "kind（二选一：\"preference\" = 用户偏好/习惯/要求；\"fact\" = 事实/环境/纠正）；" +
+  "domain（三选一：\"habit\" = 关于用户怎么干活，换个团队也成立；\"general\" = 环境与通用工作方式事实，跟项目无关；\"project\" = 绑定具体项目才有意义，换个项目不成立）。";
 
 /** 三产物 user prompt（按产物集裁剪字段——topic 未 wanted 时不给「保持」出口）。 */
 export function buildSummaryPrompt(input: {
@@ -204,7 +220,9 @@ export function buildSummaryPrompt(input: {
     fields.push('"progress": "不超过两句的进展状态（在做什么/干到哪/待办或结论）"');
   }
   if (input.wantMemoryPoints) {
-    fields.push('"memoryPoints": ["值得跨会话记住的用户偏好/习惯/纠正/事实线索（只记用户域与工作方式域，项目事实不记；没有则 []）"]');
+    fields.push(
+      '"memoryPoints": [{"text": "一句记忆句（主语明确、不超 40 字）", "kind": "preference|fact", "domain": "habit|general|project"}]（没有则 []；kind：preference=用户偏好/习惯/要求，fact=事实/环境/纠正；domain：habit=关于用户怎么干活（换个团队也成立），general=环境与通用工作方式事实（跟项目无关），project=绑定具体项目才有意义（换个项目不成立）)',
+    );
   }
   lines.push(`请只输出一个 JSON 对象：{${fields.join(", ")}}`);
   return lines.join("\n");
@@ -212,9 +230,11 @@ export function buildSummaryPrompt(input: {
 
 /** 三产物解析（容错纯函数，导出供单测）：```json 围栏剥壳 + 首尾大括号
  * 定位 + JSON.parse；字段缺席容忍（只收有效字段——topic/progress 字符串非空、
- * memoryPoints 数组过滤非串/空串元素，单串容错为单元素数组）；任何解析失败 →
- * undefined（烂输出整体丢弃，下个锚点幂等重试——零半产物写入）。 */
-export function parseSessionSummary(raw: string): { topic?: string; progress?: string; memoryPoints?: string[] } | undefined {
+ * memoryPoints 结构化 [{text,kind,domain}] 逐元素过滤无效项，旧纯文本形态容错
+ * 为 {text, kind:"preference", domain:"habit"}（旧固定语义回落），单串容错为单
+ * 元素数组）；任何解析失败 → undefined（烂输出整体丢弃，下个锚点幂等重试——
+ * 零半产物写入）。 */
+export function parseSessionSummary(raw: string): { topic?: string; progress?: string; memoryPoints?: MemoryPoint[] } | undefined {
   let t = raw.trim();
   const fence = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   if (fence !== null) t = fence[1]!;
@@ -229,19 +249,35 @@ export function parseSessionSummary(raw: string): { topic?: string; progress?: s
   }
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return undefined;
   const record = obj as Record<string, unknown>;
-  const out: { topic?: string; progress?: string; memoryPoints?: string[] } = {};
+  const out: { topic?: string; progress?: string; memoryPoints?: MemoryPoint[] } = {};
   if (typeof record.topic === "string" && record.topic.trim() !== "") out.topic = record.topic;
   if (typeof record.progress === "string" && record.progress.trim() !== "") out.progress = record.progress;
   const mp = record.memoryPoints;
-  if (Array.isArray(mp)) {
-    const points = mp
-      .filter((p): p is string => typeof p === "string" && p.trim() !== "")
-      .map((p) => p.trim());
-    if (points.length > 0) out.memoryPoints = points;
-  } else if (typeof mp === "string" && mp.trim() !== "") {
-    out.memoryPoints = [mp.trim()];
-  }
+  const rawPoints: unknown[] = Array.isArray(mp) ? mp : typeof mp === "string" && mp.trim() !== "" ? [mp] : [];
+  const points = rawPoints
+    .map(toMemoryPoint)
+    .filter((p): p is MemoryPoint => p !== null);
+  if (points.length > 0) out.memoryPoints = points;
   return out;
+}
+
+/** 记忆点单元素容错（解析纯函数）：旧纯文本形态回落 {preference, habit}
+ *（旧固定语义）；对象形态要求三字段全合法（无效元素过滤不整批丢）；
+ * 其余形态 → null。 */
+function toMemoryPoint(raw: unknown): MemoryPoint | null {
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    return text === "" ? null : { text, kind: "preference", domain: "habit" };
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const text = typeof r.text === "string" ? r.text.trim() : "";
+  const kind = r.kind;
+  const domain = r.domain;
+  if (text === "") return null;
+  if (kind !== "preference" && kind !== "fact") return null;
+  if (domain !== "habit" && domain !== "general" && domain !== "project") return null;
+  return { text, kind, domain };
 }
 
 /** 总结输入窗单条截断（Unicode 码点）。 */
@@ -398,7 +434,7 @@ export class SessionSummaryService {
           await this.deps.progressStore!.recordSessionProgress(sessionId, parsed.progress);
         }
         if (memoryWanted && parsed.memoryPoints !== undefined) {
-          await this.storeMemoryPoints(parsed.memoryPoints);
+          await this.storeMemoryPoints(parsed.memoryPoints, sessionId);
         }
       } else {
         // 只出标题降级形态（summary.model 未配）：旧纯文本协议（零回归路径）
@@ -417,14 +453,15 @@ export class SessionSummaryService {
 
   /** 记忆点入库（逐条 best-effort——单条失败不拖垮其余；查重语义在
    *  remember 两段闸（E-214）——同条覆盖更新不重复堆积。条数/单条长度护栏
-   *  在此收口；落盘通知沿用 memory_written 通知卡链）。 */
-  private async storeMemoryPoints(points: readonly string[]): Promise<void> {
+   *  在此收口；结构化点（text/kind/domain）逐字段透传 + sessionId（domain=
+   *  project 取会话项目）；落盘通知沿用 memory_written 通知卡链）。 */
+  private async storeMemoryPoints(points: readonly MemoryPoint[], sessionId: string): Promise<void> {
     const store = this.deps.memoryPointsStore!;
     for (const point of points.slice(0, SUMMARY_MEMORY_POINTS_MAX)) {
-      const capped = capPoints(point);
+      const capped: MemoryPoint = { ...point, text: capPoints(point.text) };
       try {
-        const saved = await store.rememberMemoryPoint(capped);
-        this.deps.emitMemoryWritten?.({ text: capped, mode: saved.updated ? "updated" : "added" });
+        const saved = await store.rememberMemoryPoint(capped, sessionId);
+        this.deps.emitMemoryWritten?.({ text: capped.text, mode: saved.updated ? "updated" : "added" });
       } catch (err) {
         this.deps.logger?.warn(`记忆点入库降级：${(err as Error).message}`);
       }

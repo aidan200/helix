@@ -24,6 +24,7 @@
 
 import Database from "better-sqlite3";
 import type {
+  MemoryDomain,
   StewardMemoryAppendItem,
   StewardMemoryEntry,
   StewardMemoryHit,
@@ -45,6 +46,9 @@ interface EntryRow {
   session_id?: string;
   /** 项目隔离批：项目作用域（存量行 ALTER 补列后为 'global'）。 */
   project_scope: string;
+  /** domain 维度批：业务领域（存量行 ALTER 补列后按迁移打标：progress→
+   *  'project'、其余→'habit'）。 */
+  domain: MemoryDomain;
 }
 
 function toEntry(row: EntryRow): StewardMemoryEntry {
@@ -63,6 +67,8 @@ function toEntry(row: EntryRow): StewardMemoryEntry {
     ...(row.session_id !== undefined && row.session_id !== "" ? { sessionId: row.session_id } : {}),
     // 项目隔离批：存储投影恒携带（列 NOT NULL——真库总有值）
     projectScope: row.project_scope,
+    // domain 维度批：存储投影恒携带（列 NOT NULL——真库总有值）
+    domain: row.domain,
   };
 }
 
@@ -123,6 +129,14 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (!columns.some((c) => c.name === "project_scope")) {
       this.db.exec("ALTER TABLE entries ADD COLUMN project_scope TEXT NOT NULL DEFAULT 'global'");
     }
+    // domain 维度批幂等补列：业务领域（存量打标缺省：progress→project、
+    // 其余→habit——ALTER ADD COLUMN DEFAULT 'habit' 对存量行填 'habit'，再
+    // 单独把 progress 行改 'project'；两步只在补列当次生效，重复构造列已
+    // 存在 → 零动作（迁移函数幂等可重跑，不重放打标覆盖新写入显式值）。
+    if (!columns.some((c) => c.name === "domain")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN domain TEXT NOT NULL DEFAULT 'habit'");
+      this.db.exec("UPDATE entries SET domain = 'project' WHERE kind = 'progress'");
+    }
   }
 
   storedDim(): number | null {
@@ -155,7 +169,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (items.length === 0) return;
     this.ensureVecTable(items[0]!.vector.length);
     const insertEntry = this.db.prepare(
-      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)",
+      "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope, domain) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)",
     );
     const insertVec = this.db.prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)");
     const tx = this.db.transaction((rows: readonly StewardMemoryAppendItem[]) => {
@@ -163,7 +177,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
         // 遗忘机制批：新条目满强度起步（last_recalled_at = createdAt——锄点
         // 即创建时刻，新条目不吃存量衰减亏）。项目隔离批：scope 写入时落
         // （缺省 global）。
-        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt, item.sessionId ?? "", item.projectScope ?? "global");
+        const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt, item.sessionId ?? "", item.projectScope ?? "global", item.domain ?? "habit");
         // Bun NAPI better-sqlite3 把 JS number 绑定为 REAL——vec0 rowid 只
         // 收 INTEGER 字面类型（"Only integers are allowed" 实证），BigInt
         // 才绑定为 INTEGER（条目数 << 2^53 无精度问题）。
@@ -180,19 +194,28 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
       .run(BigInt(id), Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength));
   }
 
-  search(query: Float32Array, topK: number, scopeFilter?: readonly string[]): readonly StewardMemoryHit[] {
+  search(query: Float32Array, topK: number, scopeFilter?: readonly string[], domainFilter?: readonly MemoryDomain[]): readonly StewardMemoryHit[] {
     if (this.storedDim() === null || topK <= 0) return [];
     // 项目隔离批：rowid IN 预过滤（spike 实证 sqlite-vec KNN 查询对
     // rowid IN 子查询是 pre-filter——KNN 名额只给合格行，他项目最近邻
     // 不占位；与 JOIN 外表 WHERE 的 post-filter 形态（名额被占）语义
     // 相反，此处必须用 IN 形态。值全部经 ? 参数绑定（零拼接注入面）。
-    const scopeClause =
-      scopeFilter !== undefined && scopeFilter.length > 0
-        ? ` AND v.rowid IN (SELECT id FROM entries WHERE project_scope IN (${scopeFilter.map(() => "?").join(",")}))`
-        : "";
+    // domain 维度批：同层同形态（AND 进同一预过滤子查询——被滤域不占
+    // KNN 名额）。
+    const conditions: string[] = [];
+    const filterValues: string[] = [];
+    if (scopeFilter !== undefined && scopeFilter.length > 0) {
+      conditions.push(`project_scope IN (${scopeFilter.map(() => "?").join(",")})`);
+      filterValues.push(...scopeFilter);
+    }
+    if (domainFilter !== undefined && domainFilter.length > 0) {
+      conditions.push(`domain IN (${domainFilter.map(() => "?").join(",")})`);
+      filterValues.push(...domainFilter);
+    }
+    const scopeClause = conditions.length > 0 ? ` AND v.rowid IN (SELECT id FROM entries WHERE ${conditions.join(" AND ")})` : "";
     const rows = this.db
       .prepare(
-        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, e.session_id, e.project_scope, v.distance
+        `SELECT e.id, e.kind, e.text, e.source, e.created_at, e.updated_at, e.last_recalled_at, e.recall_count, e.faded_at, e.pinned, e.session_id, e.project_scope, e.domain, v.distance
          FROM vec_items v JOIN entries e ON e.id = v.rowid
          WHERE v.embedding MATCH ? AND k = ?${scopeClause}
          ORDER BY v.distance ASC`,
@@ -200,7 +223,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
       .all(
         Buffer.from(query.buffer, query.byteOffset, query.byteLength),
         topK,
-        ...(scopeFilter ?? []),
+        ...filterValues,
       ) as (EntryRow & { distance: number })[];
     return rows.map((row) => ({ ...toEntry(row), score: 1 - row.distance }));
   }
@@ -208,7 +231,7 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
   list(): readonly StewardMemoryEntry[] {
     const rows = this.db
       .prepare(
-        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope FROM entries ORDER BY created_at ASC",
+        "SELECT id, kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope, domain FROM entries ORDER BY created_at ASC",
       )
       .all() as EntryRow[];
     return rows.map(toEntry);

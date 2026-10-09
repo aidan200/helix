@@ -2,13 +2,16 @@
  * 管家记忆独立页（/steward/memory，B2-④ + 遗忘机制批改版）。
  *
  * 头部：搜索框（前端过滤——条目量千级天花板，无服务端检索诉求）+
- * 排序下拉（最近更新/最早创建/被想起最多）+ 筛选 chip（全部/活跃/淡忘/
- * 置顶——零值 chip 隐藏）+ 多状态统计 + 当前端点徽标 + 右上「+ 新增」
- * 弹窗（text + kind 下拉 → steward.memory_append）。
+ * 排序下拉（最近更新/最早创建/被想起最多）+ 筛选 chip（kind × domain
+ * 双维（domain 维度批，独立交叉组合）+ 生命周期档 全部/活跃/淡忘/置顶
+ * ——零值 chip 隐藏）+ 多状态统计 + 当前端点徽标 + 右上「+ 新增」弹窗
+ * （text + kind + domain 打标（选 project 露出项目名输入）→
+ * steward.memory_append）。
  *
  * 列表（steward.memory_list.result 驱动——六命令共用回执，写后即刷新）：
- * 两行卡片（行1 text 占满换行 + pin 钮 + kind 徽标；行2 meta 组「创建 ·
- * 来源 · 被想起 N 次 · 最后想起 X 前」+ 动作组）。faded 条目整卡灰显 +
+ * 两行卡片（行1 text 占满换行 + pin 钮 + kind/domain 徽标；行2 meta 组
+ * 「创建 · 来源（四值映射：手动/对话记录/总结沉淀/会话进展，auto-sediment
+ * 历史值→自动沉淀）· 被想起 N 次 · 最后想起 X 前」+ 动作组）。faded 条目整卡灰显 +
  * 「淡忘中」徽标 + 恢复钮（steward.memory_restore——满血复活）；pinned
  * 徽标 + pin 钮切换（steward.memory_pin——置顶永不淡忘永不 GC）；
  * 行内编辑（保存触发 steward.memory_update——重嵌异步，行内「向量化中」
@@ -24,7 +27,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ChevronLeft, ChevronRight, Pin, PinOff, Plus, RotateCcw, Search } from "lucide-react";
-import type { StewardMemoryEntryView } from "@helix/protocol";
+import type { StewardMemoryDomain, StewardMemoryEntryView } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
@@ -34,6 +37,27 @@ import { useArmedConfirm } from "@/shared/lib/useArmedConfirm";
 
 /** kind 下拉枚举（对齐 daemon 存储面既有 kind 值）。 */
 const KIND_OPTIONS = ["fact", "preference"] as const;
+
+/** kind 筛选档位（比新增下拉多 progress——列表可含会话进展条目，E-247）。 */
+const KIND_FILTERS = ["all", "fact", "preference", "progress"] as const;
+type KindFilterKey = (typeof KIND_FILTERS)[number];
+
+/** domain 枚举（业务领域维度批）：habit = 用户怎么干活 / general = 环境与
+ * 通用工作方式 / project = 绑定具体项目才有意义（类型 = 协议 StewardMemoryDomain）。 */
+const DOMAIN_VALUES: readonly StewardMemoryDomain[] = ["habit", "general", "project"];
+/** domain 筛选档位。 */
+const DOMAIN_FILTERS = ["all", ...DOMAIN_VALUES] as const;
+type DomainFilterKey = (typeof DOMAIN_FILTERS)[number];
+
+/** sourceTurn 实值 → i18n 键段（四值 + auto-sediment 历史存量值；未知值
+ * 回落对话记录标签）。 */
+const SOURCE_KEYS: Record<string, string> = {
+  manual: "manual",
+  "steward-turn": "stewardTurn",
+  "session-summary": "sessionSummary",
+  "session-progress": "sessionProgress",
+  "auto-sediment": "autoSediment",
+};
 
 /** 筛选档位。 */
 type FilterKey = "all" | "active" | "faded" | "pinned";
@@ -68,6 +92,11 @@ function timeLabel(at: number, t: (k: string, v?: Record<string, string | number
   }
 }
 
+/** 来源标签（sourceTurn 经 SOURCE_KEYS 映射——模板串前缀族供死 key 扫描识别）。 */
+function sourceLabel(sourceTurn: string, t: (k: string, v?: Record<string, string | number>) => string): string {
+  return t(`steward.memory.source.${SOURCE_KEYS[sourceTurn] ?? "stewardTurn"}`);
+}
+
 const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string }) {
   const { t } = useI18n();
   const {
@@ -92,6 +121,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   } | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [kindFilter, setKindFilter] = useState<KindFilterKey>("all");
+  const [domainFilter, setDomainFilter] = useState<DomainFilterKey>("all");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(loadPageSize);
@@ -99,8 +130,14 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   /** 向量化在途行（memory_append/update 的回执等待面）。 */
   const [vectorizing, setVectorizing] = useState<number | "new" | null>(null);
-  /** 新增弹窗（text + kind）。 */
-  const [adding, setAdding] = useState<{ text: string; kind: (typeof KIND_OPTIONS)[number] } | null>(null);
+  /** 新增弹窗（text + kind + domain 打标；project = domain=project 时配对
+   * 的项目名——显式通道，随载荷透传）。 */
+  const [adding, setAdding] = useState<{
+    text: string;
+    kind: (typeof KIND_OPTIONS)[number];
+    domain: StewardMemoryDomain;
+    project: string;
+  } | null>(null);
   const [addErr, setAddErr] = useState<string | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   /** 写后回执的页码锚（当前页首条 id——新清单到达时按 id 重新定位页码）。 */
@@ -140,7 +177,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   useEffect(() => {
     setPage(1);
     pageAnchorRef.current = null;
-  }, [search, filter, sortKey, pageSize]);
+  }, [search, filter, kindFilter, domainFilter, sortKey, pageSize]);
 
   /** 写操作前记录当前页首条锚（回执到达时按 id 重定位——写后条目可能换页）。 */
   const notePageAnchor = (items: readonly StewardMemoryEntryView[]): void => {
@@ -153,6 +190,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     const q = search.trim().toLowerCase();
     const filtered = entries.filter((e) => {
       if (q !== "" && !e.text.toLowerCase().includes(q)) return false;
+      if (kindFilter !== "all" && e.kind !== kindFilter) return false; // kind × domain 双维独立交叉
+      if (domainFilter !== "all" && e.domain !== domainFilter) return false;
       if (filter === "faded") return e.faded === true;
       if (filter === "pinned") return e.pinned === true;
       if (filter === "active") return e.faded !== true;
@@ -168,7 +207,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     });
     const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
     return { sorted, pageCount };
-  }, [entries, search, filter, sortKey, pageSize]);
+  }, [entries, search, filter, kindFilter, domainFilter, sortKey, pageSize]);
 
   /** 新清单到达 → 按 id 锚定页码（找不到则回退最近有效页）。 */
   useEffect(() => {
@@ -203,7 +242,10 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
 
   const openAdd = (): void => {
     setAddErr(null);
-    setAdding({ text: "", kind: "fact" });
+    // 重开弹窗：清上一条新增的在途展示态（不卡第二次写入；行级在途不动，
+    // 回执照常刷新列表）
+    setVectorizing((v) => (v === "new" ? null : v));
+    setAdding({ text: "", kind: "fact", domain: "general", project: "" });
     window.setTimeout(() => addInputRef.current?.focus(), 60);
   };
 
@@ -213,7 +255,9 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
       setAddErr(t("steward.memory.emptyTextErr"));
       return;
     }
-    if (sendStewardMemoryAppend(adding.text, adding.kind) === false) return; // 未连接：保留弹窗可重试
+    // domain=project 配对项目名显式通道；空名回落 daemon 侧一致性约束兜底
+    const project = adding.domain === "project" && adding.project.trim() !== "" ? adding.project.trim() : undefined;
+    if (sendStewardMemoryAppend(adding.text, adding.kind, adding.domain, project) === false) return; // 未连接：保留弹窗可重试
     setVectorizing("new");
     setAdding(null);
   };
@@ -376,6 +420,31 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
               </button>
             </div>
             <div className="toolbar-row" data-memory-filters>
+              {/* kind × domain 双维筛选（独立交叉组合；与生命周期档叠加） */}
+              {KIND_FILTERS.map((k) => (
+                <button
+                  key={k}
+                  className={cn("hud-btn sm", kindFilter === k ? "hud-btn-cyan" : "hud-btn-ghost")}
+                  type="button"
+                  data-memory-kind-filter={k}
+                  onClick={() => setKindFilter(k)}
+                >
+                  {k === "all" ? t("steward.memory.filterKindAll") : t(`chat.settings.general.memoryKind.${k}`)}
+                </button>
+              ))}
+              <span className="memory-filter-sep" aria-hidden="true" />
+              {DOMAIN_FILTERS.map((d) => (
+                <button
+                  key={d}
+                  className={cn("hud-btn sm", domainFilter === d ? "hud-btn-cyan" : "hud-btn-ghost")}
+                  type="button"
+                  data-memory-domain-filter={d}
+                  onClick={() => setDomainFilter(d)}
+                >
+                  {d === "all" ? t("steward.memory.filterDomainAll") : t(`steward.memory.domain.${d}`)}
+                </button>
+              ))}
+              <span className="memory-filter-sep" aria-hidden="true" />
               {(["all", "active", "faded", "pinned"] as const)
                 .filter((f) => {
                   if (stats === null) return f === "all";
@@ -497,6 +566,11 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                           <span className="hud-chip" data-memory-item-kind={entry.id}>
                             {t(`chat.settings.general.memoryKind.${entry.kind}`)}
                           </span>
+                          {entry.domain !== undefined && (
+                            <span className="hud-chip memory-chip-domain" data-memory-item-domain={entry.id}>
+                              {t(`steward.memory.domain.${entry.domain}`)}
+                            </span>
+                          )}
                           <button
                             className={cn("hud-btn sm memory-pin-btn", pinned && "is-pinned")}
                             type="button"
@@ -514,8 +588,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                       </div>
                       <div className="memory-sub">
                         <span className="memory-meta" data-memory-item-meta={entry.id}>
-                          {timeLabel(entry.createdAt, t)} ·{" "}
-                          {t(`steward.memory.source.${entry.sourceTurn === "manual" ? "manual" : "stewardTurn"}`)}
+                          {timeLabel(entry.createdAt, t)} · {sourceLabel(entry.sourceTurn, t)}
                           {recalled > 0 && (
                             <>
                               {" · "}
@@ -569,7 +642,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
 
           {pageButtons}
 
-          {/* 新增弹窗（text + kind 下拉 → steward.memory_append） */}
+          {/* 新增弹窗（text + kind + domain 打标（project 配对项目名）→ steward.memory_append） */}
           {adding !== null && (
             <div
               className="modal-backdrop open"
@@ -615,6 +688,40 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                       ))}
                     </select>
                   </div>
+                  <label className="hud-label" htmlFor="memory-add-domain">
+                    {t("steward.memory.domainLabel")}
+                  </label>
+                  <div className="sel-wrap">
+                    <select
+                      className="hud-input"
+                      id="memory-add-domain"
+                      value={adding.domain}
+                      data-memory-add-domain
+                      onChange={(e) => setAdding({ ...adding, domain: e.target.value as StewardMemoryDomain })}
+                    >
+                      {DOMAIN_VALUES.map((d) => (
+                        <option key={d} value={d}>
+                          {t(`steward.memory.domain.${d}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {adding.domain === "project" && (
+                    <>
+                      <label className="hud-label" htmlFor="memory-add-project">
+                        {t("steward.memory.projectLabel")}
+                      </label>
+                      <input
+                        className="hud-input"
+                        id="memory-add-project"
+                        type="text"
+                        value={adding.project}
+                        placeholder={t("steward.memory.projectPlaceholder")}
+                        data-memory-add-project
+                        onChange={(e) => setAdding({ ...adding, project: e.target.value })}
+                      />
+                    </>
+                  )}
                   <span className={cn("form-err", addErr !== null && "show")} data-memory-add-err>
                     <AlertCircle size={14} strokeWidth={1.75} aria-hidden="true" />
                     {addErr ?? ""}

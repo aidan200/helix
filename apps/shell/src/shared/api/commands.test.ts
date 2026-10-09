@@ -246,9 +246,21 @@ describe("steward memory_* / embedding.* 构造器（管家记忆 B2）", () => 
     expect(stewardMemoryListCommand()).toEqual({ v: PROTOCOL_VERSION, type: "steward.memory_list", payload: {} });
   });
 
-  it("steward.memory_append：kind 缺省不携带键；携带时透传", () => {
+  it("steward.memory_append：kind/domain/projectScope 缺省不携带键；携带时逐字段透传（TR-159 命令写路径）", () => {
     expect(stewardMemoryAppendCommand("手动记一条")).toEqual({ v: PROTOCOL_VERSION, type: "steward.memory_append", payload: { text: "手动记一条" } });
     expect(stewardMemoryAppendCommand("偏好", "preference").payload).toEqual({ text: "偏好", kind: "preference" });
+    // domain 维度批：domain + projectScope 逐字段透传（漏登即静默剥成缺省）
+    expect(stewardMemoryAppendCommand("项目事实", "fact", "project", "helix").payload).toEqual({
+      text: "项目事实",
+      kind: "fact",
+      domain: "project",
+      projectScope: "helix",
+    });
+    expect(stewardMemoryAppendCommand("通用事实", "fact", "general").payload).toEqual({
+      text: "通用事实",
+      kind: "fact",
+      domain: "general",
+    });
   });
 
   it("steward.memory_update / memory_delete：id + text / id 最小帧", () => {

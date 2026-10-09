@@ -1341,8 +1341,22 @@ export const zhCN = {
       justNow: "刚刚",
       source: {
         manual: "手动",
-        stewardTurn: "管家沉淀",
+        stewardTurn: "对话记录",
+        sessionSummary: "总结沉淀",
+        sessionProgress: "会话进展",
+        autoSediment: "自动沉淀",
       },
+      // ── domain 维度批：业务领域（徽标/筛选/新增打标）──
+      domain: {
+        habit: "习惯",
+        general: "通用",
+        project: "项目",
+      },
+      domainLabel: "业务领域",
+      projectLabel: "项目名",
+      projectPlaceholder: "项目目录名（如 helix）",
+      filterKindAll: "全部类别",
+      filterDomainAll: "全部领域",
       // ── 遗忘机制批：筛选/排序/分页/淡忘/置顶 ──
       filterAll: "全部",
       filterActive: "活跃",
