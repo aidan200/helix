@@ -316,6 +316,50 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     return row.n;
   }
 
+  /** meta 表幂等标记读取（批量回填脚本专用：非 JSON 数组防御 → 空集）。 */
+  readMetaIds(key: string): ReadonlySet<number> {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+    if (row === undefined) return new Set();
+    try {
+      const parsed = JSON.parse(row.value) as unknown;
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((v): v is number => typeof v === "number" && Number.isInteger(v) && v > 0));
+    } catch {
+      return new Set();
+    }
+  }
+
+  /**
+   * 批量重判回填（一次性运维——批B 存量 kind/domain/project_scope 三列
+   * 原子回写 + meta 幂等标记合并；单事务：全成或全不落）。
+   * 只改 kind/domain/project_scope 三列——text/向量/生命周期列/updated_at/
+   * session_id/source/created_at 零触碰（运维打标非内容变更）；条件命中零
+   * 行（条目已删）静默零改。返回实际更新行数。
+   */
+  reclassifyMany(
+    updates: readonly { id: number; kind: "preference" | "fact"; domain: "habit" | "general" | "project"; projectScope: string }[],
+    markerKey: string,
+  ): number {
+    if (updates.length === 0) return 0;
+    const updateStmt = this.db.prepare("UPDATE entries SET kind = ?, domain = ?, project_scope = ? WHERE id = ?");
+    const markStmt = this.db.prepare(
+      "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    );
+    const tx = this.db.transaction(
+      (rows: readonly { id: number; kind: "preference" | "fact"; domain: "habit" | "general" | "project"; projectScope: string }[], marker: string) => {
+        let changed = 0;
+        const ids = new Set(this.readMetaIds(marker));
+        for (const row of rows) {
+          changed += updateStmt.run(row.kind, row.domain, row.projectScope, row.id).changes;
+          ids.add(row.id);
+        }
+        markStmt.run(marker, JSON.stringify([...ids].sort((a, b) => a - b)));
+        return changed;
+      },
+    );
+    return tx(updates, markerKey);
+  }
+
   close(): void {
     this.db.close();
   }
