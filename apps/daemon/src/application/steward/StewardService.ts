@@ -34,6 +34,9 @@ import {
   type PendingAction,
   type PendingEntry,
 } from "../../domain/steward/confirmation/ProposalLedger";
+import { StewardRun } from "../../domain/steward/run/StewardRun";
+import { judgeRunWatchdog } from "../../domain/steward/run/RunWatchdog";
+import { AskQueue } from "../../domain/steward/run/AskQueue";
 
 // 确认闸聚合域 re-export（批 1：定义已迁 domain/steward/confirmation——
 // 兼容既有引用面；行为零变更）
@@ -1217,8 +1220,9 @@ export class StewardService implements StewardComponent {
   private engine: AgentEnginePort | undefined;
   /** 当前 run 的挂闸提案候选（confirm_required 回执映射锚——每 run 重置）。 */
   private currentPause: { actionId: string; action: PendingAction }[] = [];
-  /** ask 自持队列（方案甲——E-197 行为等价：上限 3/收口后自动下一轮）。 */
-  private readonly askQueue: StewardAskItem[] = [];
+  /** ask 自持队列（批 2 收编 AskQueue 值对象——上限 tuning.ask.queueMax 即热，
+   *  E-197 行为等价：FIFO 不丢/满拒新/收口后自动下一轮）。 */
+  private readonly askQueue: AskQueue<StewardAskItem>;
   /** 当前 run 驱动的 ask 项（收口 deliver 回执锚）。 */
   private pendingRunAsk: StewardAskItem | undefined;
   /** ask promise 收口器（confirm_required 在 engine_paused 即收，其余 agent_end）。 */
@@ -1227,43 +1231,17 @@ export class StewardService implements StewardComponent {
   private projectionChain: Promise<void> = Promise.resolve();
   /** 当前 ask 的流式回调（事件转发面）。 */
   private askStreamEvents: StewardAskEvents = {};
-  /** 当前 run 结果推导态（agent_end 时收口映射）。事故热修批⑦：hardErrorKind
-   *  区分 hardError 来源（模型调用失败 vs 闸面 terminate 翻译）——工具面
-   *  aborted 不再被误归为模型失败（2026-10-07 事故 act 挂闸 60s 后收口被记
-   *  「模型调用失败」）。 */
-  private runState: {
-    lastAnswerText: string;
-    hardError: string | undefined; // 消息级（stopReason=error）：error 回执优先于 answer
-    hardErrorKind: StewardAskErrorKind | undefined; // hardError 分类（模型失败/闸面终止）
-    softError: string | undefined; // 事件级 engine_error（压缩失败等 fail-open）：answer 在则让位
-    sawAborted: boolean;
-    roundLimit: boolean;
-    toolCalls: number;
-  } = {
-    lastAnswerText: "",
-    hardError: undefined,
-    hardErrorKind: undefined,
-    softError: undefined,
-    sawAborted: false,
-    roundLimit: false,
-    toolCalls: 0,
-  };
-  /** 当前挂闸中的 pauseToken（暂停态新 ask 的 abort-再驱动判别锚）。 */
-  private pausedGateToken: string | undefined;
   /** run 收口通知（driveAsk 的 abort-再驱动路径等 settle）。 */
   private runSettled: Promise<void> = Promise.resolve();
-  /** run 在途自持位（busy 判别不依赖 engine.isStreaming——投影链 settle 微任务
-   *  早于 pi agent 态翻转，误判 busy 会把直答 ask 错误入队）。 */
-  private runActive = false;
-  /** 当前 run 内最近事件时刻（可靠性批看门狗锚：driveAsk 置位、每引擎事件
-   *  推进——「无事件推进」才是挂起，活跃轮永不触发）。 */
-  private runLastProgressAt: number | undefined = undefined;
-  /** 看门狗已触发时刻（undefined = 未触发；同集 episode 不重复 abort/通知，
-   *  宽限窗后仍未收口进入强制收口轨——abort 丳不醒的挂死流兑底）。 */
-  private watchdogFiredAt: number | undefined;
-  /** 手动 abort 时刻（手动停止批快进锚）：abortInFlight 置位、run 边界复位；
-   *  宽限后仍 runActive = 挂死流 → 快进强制收口轨（不等被动看门狗 180s）。 */
-  private manualAbortAt: number | undefined;
+  /** run 收口通知标记（runSettled promise 的 resolve 句柄）。 */
+  private runSettledMark: (() => void) | undefined;
+  /** ── 批 2（DDD 重构）：run 状态容器收编原 6 散字段（runActive/
+   *  runLastProgressAt/watchdogFiredAt/manualAbortAt/pausedGateToken/
+   *  runState——注释语义与事故史随字段迁 domain/steward/run/StewardRun；
+   *  锚清理只经容器迁移方法，「三处清锚」从根上消灭）。伴随编排态
+   *  （askSettler/pendingRunAsk/askStreamEvents/projectionChain/runSettled）
+   *  与 engine 代际守卫留应用层——与 promise 编排/引擎调用深度耦合。 ── */
+  private readonly run: StewardRun<StewardAskErrorKind>;
   /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
   private notifySeq = 0;
   /** 主动汇报实时帧序（emitProactive 单调 seq——M3-a，与 notify 同构口径）。 */
@@ -1278,6 +1256,8 @@ export class StewardService implements StewardComponent {
     this.now = deps.clock ?? (() => Date.now());
     this.tuningOf = deps.tuningOf ?? (() => STEWARD_TUNING_DEFAULTS);
     this.ledger = new ProposalLedger({ now: () => this.now() });
+    this.run = new StewardRun<StewardAskErrorKind>(() => this.now());
+    this.askQueue = new AskQueue<StewardAskItem>(() => this.tuningOf().ask.queueMax); // 批 2：上限现拍（KV 即热）
     this.registerTools();
   }
 
@@ -1311,8 +1291,8 @@ export class StewardService implements StewardComponent {
     // 回执携丢弃条数）；无在途原样走 LLM（用户闲聊可能带「停」字——词表仅在
     // 场路由，TR-240 同款纪律）。挂闸阻塞态同样全停（旧逻辑会把停止词当新
     // ask abort-再驱动——语义错位）；pending 卡不动（卡生命周期 TTL 域独立）。
-    if (this.runActive && matchStewardStopPhrase(text)) {
-      const dropped = this.askQueue.splice(0).length;
+    if (this.run.active && matchStewardStopPhrase(text)) {
+      const dropped = this.askQueue.clearAll();
       this.abortInFlight("停止词全停");
       this.logInfo(`管家手动停止（停止词）：丢弃排队 ${dropped} 条`);
       return { status: "stopped", reason: "已停止当前处理", dropped };
@@ -1346,19 +1326,18 @@ export class StewardService implements StewardComponent {
     // 照常（E-197 迁移前等价）——pi 映射：abort 阻塞中的 run（闸内 raceAbort
     // 唤醒、工具不执行）→ 收口后驱动新 ask（确认卡保持有效：confirm 时
     // pauseToken 已过期自然失效）。
-    if (this.runActive) {
-      if (this.pausedGateToken !== undefined && this.engine !== undefined) {
+    if (this.run.active) {
+      if (this.run.gateToken !== undefined && this.engine !== undefined) {
         this.engine.abort();
         await this.runSettled;
         return this.driveAsk({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
       }
-      if (this.askQueue.length >= this.tuningOf().ask.queueMax) {
+      if (!this.askQueue.tryPush({ text, events, ...(deliver !== undefined ? { deliver } : {}) })) {
         return {
           status: "error",
           reason: `管家正在处理中，排队已满（上限 ${this.tuningOf().ask.queueMax} 条）——请稍后再试`,
         };
       }
-      this.askQueue.push({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
       return { status: "queued", queued: true, position: this.askQueue.length };
     }
     return this.driveAsk({ text, events });
@@ -1370,8 +1349,8 @@ export class StewardService implements StewardComponent {
    *  后由快进轨强制收口，不等被动看门狗 180s。 */
   abortInFlight(reason: string): boolean {
     void reason;
-    if (!this.runActive || this.engine === undefined) return false;
-    this.manualAbortAt = this.now(); // 快进锚（手动停止批）
+    if (!this.run.active || this.engine === undefined) return false;
+    this.run.noteAbort(); // 快进锚（手动停止批）
     this.engine.abort();
     return true;
   }
@@ -1388,7 +1367,7 @@ export class StewardService implements StewardComponent {
    *  多一个 run 在途；E-240 队列行为断言面不变）。装配异常兑底：占位后若
    *  装配失败，释放占位并收口 error 回执（防 runActive 永真死锁队列）。 */
   private driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
-    this.runActive = true; // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
+    this.run.occupy(); // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
     const run = this.assembleAndRun(item);
     run.catch(() => undefined); // 兕底异常不经本链传播（收口在内部处理）
     return run;
@@ -1401,11 +1380,8 @@ export class StewardService implements StewardComponent {
       // 装配段异常（快照/记忆召回/引擎构造失败）：占位必须释放（占位提前后
       // 的必需兑底——否则 runActive 永真死锁队列）；收口 error 回执后返。若
       // runActive 已被 finishRun/看门狗复位（收口后竞态），原样上抛。
-      if (!this.runActive) throw err;
-      this.runActive = false;
-      this.runLastProgressAt = undefined;
-      this.watchdogFiredAt = undefined;
-      this.manualAbortAt = undefined; // 手动停止批：run 边界清锚（不误伤下一 run）
+      if (!this.run.active) throw err;
+      this.run.assemblyFailed(); // 批 2：释放占位 + 清锚（不误伤下一 run）
       this.runSettledMark?.();
       this.runSettledMark = undefined;
       const payload: StewardAskResultPayload = {
@@ -1473,24 +1449,11 @@ export class StewardService implements StewardComponent {
     } else {
       this.engine.setSystemPrompt?.(systemPrompt);
     }
-    this.runActive = true; // 幂等（driveAsk 已同步占位——防御直接调用面）
-    this.runLastProgressAt = this.now();
-    this.watchdogFiredAt = undefined;
-    this.manualAbortAt = undefined; // 手动停止批：新 run 清手动锚（上一 run 残锚不残留）
+    this.run.begin(); // 批 2：run 开始赋值块（幂等占位/锚定推进锚/清双锚/重置 runState/清 gate 锚）
     this.logInfo(`管家 run 开始：${item.text.slice(0, 40)}`);
     this.pendingRunAsk = item;
     this.askStreamEvents = item.events;
-    this.runState = {
-      lastAnswerText: "",
-      hardError: undefined,
-      hardErrorKind: undefined,
-      softError: undefined,
-      sawAborted: false,
-      roundLimit: false,
-      toolCalls: 0,
-    };
     this.currentPause = [];
-    this.pausedGateToken = undefined;
     const settled = new Promise<StewardAskResultPayload>((resolve) => {
       this.askSettler = resolve;
     });
@@ -1517,19 +1480,16 @@ export class StewardService implements StewardComponent {
     return settled;
   }
 
-  /** run 收口通知标记（runSettled promise 的 resolve 句柄）。 */
-  private runSettledMark: (() => void) | undefined;
-
   /** 引擎事件入口（persistentListener——trace 出口 + 流式回调转发 + 顺序化投影）。 */
   private onEngineEvent(event: AgentEngineEvent): void {
-    this.runLastProgressAt = this.now(); // 看门狗推进锚（任何引擎事件 = 活跃）
+    this.run.touch(); // 看门狗推进锚（任何引擎事件 = 活跃）
     this.deps.emitEngineEvent?.(event);
     this.forwardStreamCallbacks(event);
     // 轮数熔断（同步判定——async 投影链赶不上无思考工具风暴；abort 越早越省）
     if (event.type === "tool_execution_start") {
-      this.runState.toolCalls += 1;
-      if (this.runState.toolCalls > this.tuningOf().run.maxToolRounds && !this.runState.roundLimit) {
-        this.runState.roundLimit = true;
+      this.run.state.toolCalls += 1;
+      if (this.run.state.toolCalls > this.tuningOf().run.maxToolRounds && !this.run.state.roundLimit) {
+        this.run.state.roundLimit = true;
         this.engine?.abort();
       }
     }
@@ -1574,7 +1534,7 @@ export class StewardService implements StewardComponent {
         await this.projectMessageEnd(event);
         return;
       case "engine_error":
-        if (this.runState.softError === undefined) this.runState.softError = event.message;
+        if (this.run.state.softError === undefined) this.run.state.softError = event.message;
         return;
       case "tool_execution_start":
         return; // 计数与熔断在 onEngineEvent 同步段（见上）
@@ -1620,14 +1580,14 @@ export class StewardService implements StewardComponent {
       });
       return;
     }
-    if (event.stopReason === "aborted") this.runState.sawAborted = true;
+    if (event.stopReason === "aborted") this.run.state.sawAborted = true;
     if (event.stopReason === "error") {
       // 回执文案前缀（与迁移前 streamFn 包装等价——provider 原文随附）；
       // 事故热修批⑦：分类锚定 model-failure（provider 流错误——与工具面
       // aborted / 闸面 terminate 分记，收口日志不再一律记成模型失败）
-      this.runState.hardError =
-        event.text.trim() !== "" ? `模型调用失败：${event.text}` : this.runState.hardError ?? "模型调用失败";
-      this.runState.hardErrorKind = "model-failure";
+      this.run.state.hardError =
+        event.text.trim() !== "" ? `模型调用失败：${event.text}` : this.run.state.hardError ?? "模型调用失败";
+      this.run.state.hardErrorKind = "model-failure";
       return; // error 消息不入 KV（半成品）——错误经回执交代
     }
     const blocks = event.blocks ?? [];
@@ -1637,7 +1597,7 @@ export class StewardService implements StewardComponent {
     const toolCall = blocks.find((b): b is Extract<typeof b, { type: "toolCall" }> => b.type === "toolCall");
     const thinkingBlocks = blocks.filter((b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking");
     const text = toolCall !== undefined || event.text.trim() !== "" ? event.text : "（无回答）";
-    if (toolCall === undefined && event.text.trim() !== "") this.runState.lastAnswerText = event.text;
+    if (toolCall === undefined && event.text.trim() !== "") this.run.state.lastAnswerText = event.text;
     const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
     const signature = thinkingBlocks.find((b) => b.signature !== undefined && b.signature !== "")?.signature;
     await this.pushRecord({
@@ -1671,8 +1631,8 @@ export class StewardService implements StewardComponent {
       // （模型知情续跑）；terminate → resolve 翻译（结果入账 + run 终结）。
       const outcome = gated.outcome;
       if (outcome !== undefined && outcome.kind === "terminate") {
-        this.runState.hardError = outcome.reason;
-        this.runState.hardErrorKind = "engine-error"; // 闸面终止（非模型失败——分记）
+        this.run.state.hardError = outcome.reason;
+        this.run.state.hardErrorKind = "engine-error"; // 闸面终止（非模型失败——分记）
         await this.engine?.resume?.(event.pauseToken, { kind: "resolve", text: outcome.reason });
       } else {
         const text = outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验";
@@ -1693,7 +1653,7 @@ export class StewardService implements StewardComponent {
       // 到活 run 的 pauseToken——回灌链路续活，TTL 重置新确认窗口）
       this.currentPause.length = 0;
       this.currentPause.push({ actionId: proposed.actionId, action: proposed.entry.action });
-      this.pausedGateToken = event.pauseToken;
+      this.run.gate(event.pauseToken);
       this.logInfo(
         `管家确认闸复用在途提案卡：${proposed.actionId}（${gated.action.kind} → ${gated.action.displayTarget}）——同 key 幂等不新弹`,
       );
@@ -1720,7 +1680,7 @@ export class StewardService implements StewardComponent {
     this.logInfo(`管家确认闸暂停：${actionId}（${gated.action.kind} → ${gated.action.displayTarget}）`);
     this.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
     this.currentPause.push({ actionId, action: proposed.entry.action });
-    this.pausedGateToken = event.pauseToken;
+    this.run.gate(event.pauseToken);
     this.settleAsk({
       status: "confirm_required",
       actionId,
@@ -1736,11 +1696,8 @@ export class StewardService implements StewardComponent {
    *  自然收口双发驱动队列）；⑦：error 收口日志与回执携 errorKind 分类
    *  （aborted 与模型失败分记——act 挂闸 60s 后收口不再被误归模型失败）。 */
   private async finishRun(startError?: string): Promise<void> {
-    if (!this.runActive) return; // 幂等守卫（事故热修批④）
-    this.runActive = false;
-    this.runLastProgressAt = undefined;
-    this.watchdogFiredAt = undefined;
-    this.manualAbortAt = undefined; // 手动停止批：run 边界清锚
+    if (!this.run.active) return; // 幂等守卫（事故热修批④）
+    this.run.finish(); // 批 2：收口清块（runActive=false + 三锚复位）
     this.runSettledMark?.();
     this.runSettledMark = undefined;
     const outcome: StewardAskResultPayload =
@@ -1762,7 +1719,7 @@ export class StewardService implements StewardComponent {
     this.disposeRunPendingCards();
     const item = this.pendingRunAsk;
     this.pendingRunAsk = undefined;
-    this.pausedGateToken = undefined;
+    this.run.ungate();
     this.askStreamEvents = {};
     this.settleAsk(outcome);
     item?.deliver?.(outcome);
@@ -1806,32 +1763,32 @@ export class StewardService implements StewardComponent {
   private outcomeOfRun(): StewardAskResultPayload {
     // aborted 优先于一切（半截文本不作终答回执——协议面回执恒 aborted error）；
     // 次之 answer（压缩失败 engine_error 不吞终答——fail-open）；最后 error
-    if (this.runState.roundLimit) {
+    if (this.run.state.roundLimit) {
       return {
         status: "error",
         reason: `工具循环超限（>${this.tuningOf().run.maxToolRounds} 轮熔断）——请缩小问题范围或重试`,
         errorKind: "round-limit",
       };
     }
-    if (this.runState.sawAborted) {
+    if (this.run.state.sawAborted) {
       return {
         status: "error",
         reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）",
         errorKind: "aborted",
       };
     }
-    if (this.runState.hardError !== undefined) {
+    if (this.run.state.hardError !== undefined) {
       return {
         status: "error",
-        reason: this.runState.hardError,
-        ...(this.runState.hardErrorKind !== undefined ? { errorKind: this.runState.hardErrorKind } : {}),
+        reason: this.run.state.hardError,
+        ...(this.run.state.hardErrorKind !== undefined ? { errorKind: this.run.state.hardErrorKind } : {}),
       };
     }
-    if (this.runState.lastAnswerText.trim() !== "") {
-      return { status: "answer", text: this.runState.lastAnswerText };
+    if (this.run.state.lastAnswerText.trim() !== "") {
+      return { status: "answer", text: this.run.state.lastAnswerText };
     }
-    if (this.runState.softError !== undefined) {
-      return { status: "error", reason: this.runState.softError, errorKind: "engine-error" };
+    if (this.run.state.softError !== undefined) {
+      return { status: "error", reason: this.run.state.softError, errorKind: "engine-error" };
     }
     return { status: "answer", text: "（无回答）" };
   }
@@ -1883,60 +1840,48 @@ export class StewardService implements StewardComponent {
     this.checkConfirmTtl(now);
   }
 
-  /** run 看门狗：无事件推进超 tuning.run.watchdogMs（批 0 起 KV 可配）→ abort（复用
-   *  abortInFlight 幂等面——不新造 abort）；abort 宽限窗后仍 runActive
-   *  → 强制收口 + 弃引擎重建（pi EventStream 不竞速 abort signal，挂死流
-   *  abort 后 run promise 仍永悬——弃引擎是唯一恢复路径；下一 run 经
-   *  createEngine 从工作记忆 KV 重建，代际守卫隔离旧引擎残余事件）。 */
+  /** run 看门狗 tick（批 2：判定收编 RunWatchdog 纯函数——六态穷举表驱动，
+   *  domain/steward/run/RunWatchdog；副作用翻译在本方法）。原判定序与文案
+   *  逐分支等价（含 CAND-666 哨兵防御/挂闸等待零通知/手动快进优先于被动轨）。 */
   private checkRunWatchdog(now: number): void {
-    if (!this.runActive || this.engine === undefined) {
-      this.watchdogFiredAt = undefined; // 空闲态复位（下一 run 重计）
-      return;
-    }
-    // 手动停止批：手动 abort 快进轨——abort 打不醒的挂死流不等被动看门狗
-    //（180s），abort 后宽限内仍 runActive 直接强制收口（弃引擎重建恢复队列）。
-    // manualAbortAt 有值 ⇔ abortInFlight 曾返回 true（runActive + engine 双
-    // 在场），锚已定的前提不需要重复检查（置锚时 run 必已开始）。同步清锚
-    // 防重（finishRun 经投影链异步，重复 tick 不二触）。
-    if (this.manualAbortAt !== undefined && now - this.manualAbortAt >= this.tuningOf().run.manualAbortGraceMs) {
-      this.forceRecoverRun(
-        `手动停止快进：abort 后 ${this.tuningOf().run.manualAbortGraceMs / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
-      );
-      return;
-    }
-    if (this.runLastProgressAt === undefined) {
-      // 2026-10-07 事故防御（CAND-666）：runActive=true 但推进锚未锚定（收口
-      // 复位与下一 run 置位之间的竞态窗口）——now-0 会算出 56 年级挂起时长
-      // （Date.now() 毫秒÷1000≈epoch 秒）误触发 + 荒谬文案。未锚定不判挂起。
-      // 哨兵 undefined 而非 0：测试时钟域起点 0 是合法锚定值，0 会被误判未锚定。
-      return;
-    }
-    if (this.watchdogFiredAt === undefined) {
-      if (now - this.runLastProgressAt < this.tuningOf().run.watchdogMs) return;
-      this.watchdogFiredAt = now;
-      const hungSeconds = Math.round((now - this.runLastProgressAt) / 1000);
-      const gatedWait = this.ledger.size > 0; // 挂闸等待：有卡待确认（合法业务态）
-      this.deps.logger?.warn(
-        `管家 run 看门狗触发：挂起 ${hungSeconds}s 无事件推进${gatedWait ? "（挂闸等待中——pending 有卡）" : ""}——abort 在途轮${gatedWait ? "（等待态零通知）" : "并通知"}`,
-      );
-      if (!gatedWait) {
-        // 恢复通知只留给「用户在等答案却被挂死」场景；挂闸等待用户知情
-        // （有卡挂着），「已自动恢复」是惊扰噪音（2026-10-07 事故修订 CAND-666）
-        this.emitLifecycleNotify(
-          "high",
-          "管家已自动恢复",
-          `管家处理挂起 ${hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
+    const verdict = judgeRunWatchdog(this.run.watchdogSnapshot(this.engine !== undefined), this.tuningOf(), now);
+    switch (verdict.kind) {
+      case "idle-reset":
+        // 空闲态复位（下一 run 重计）——容器无独立复位方法：idle 即未触发
+        return;
+      case "unanchored":
+      case "none":
+        return;
+      case "manual-fast-forward": {
+        // 手动 abort 快进轨——abort 打不醒的挂死流不等被动看门狗（180s）
+        this.forceRecoverRun(
+          `手动停止快进：abort 后 ${this.tuningOf().run.manualAbortGraceMs / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
         );
+        return;
       }
-      this.abortInFlight("run 看门狗：挂起超时"); // 挂闸阻塞的 run 被唤醒收口（raceAbort）
-      return;
-    }
-    // 已触发：宽限窗后仍未收口 → 强制收口（abort 丳不醒的挂死流）
-    if (now - this.watchdogFiredAt >= this.tuningOf().run.watchdogAbortGraceMs) {
-      this.watchdogFiredAt = now; // 周期性兜底重置（极端场景下每宽限窗再查）
-      this.forceRecoverRun(
-        `run 看门狗强制收口：abort 宽限 ${this.tuningOf().run.watchdogAbortGraceMs / 1000}s 内 run 未收口——弃引擎重建并恢复队列服务`,
-      );
+      case "arm": {
+        this.run.armWatchdog();
+        const gatedWait = this.ledger.size > 0; // 挂闸等待：有卡待确认（合法业务态）
+        this.deps.logger?.warn(
+          `管家 run 看门狗触发：挂起 ${verdict.hungSeconds}s 无事件推进${gatedWait ? "（挂闸等待中——pending 有卡）" : ""}——abort 在途轮${gatedWait ? "（等待态零通知）" : "并通知"}`,
+        );
+        if (!gatedWait) {
+          // 恢复通知只留给「用户在等答案却被挂死」场景；挂闸等待用户知情
+          // （有卡挂着），「已自动恢复」是惊扰噪音（2026-10-07 事故修订 CAND-666）
+          this.emitLifecycleNotify(
+            "high",
+            "管家已自动恢复",
+            `管家处理挂起 ${verdict.hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
+          );
+        }
+        this.abortInFlight("run 看门狗：挂起超时"); // 挂闸阻塞的 run 被唤醒收口（raceAbort）
+        return;
+      }
+      case "force-recover": {
+        this.run.armWatchdog(); // 周期性兜底重置（极端场景下每宽限窗再查）
+        this.forceRecoverRun(verdict.reason);
+        return;
+      }
     }
   }
 
@@ -1944,9 +1889,9 @@ export class StewardService implements StewardComponent {
    *  与手动停止快进段共用。弃引擎（代际守卫隔离旧引擎残余事件）+ 经投影链
    *  finishRun（队列驱动/deliver 回执/挂闸卡处置全走既有收口面）。 */
   private forceRecoverRun(reason: string): void {
-    this.manualAbortAt = undefined; // 同步清锚防重（finishRun 异步，重复 tick 不二触）
+    this.run.forceRecoverPrepared(); // 同步清锚防重（finishRun 异步，重复 tick 不二触）
     this.engine = undefined; // 弃引擎（下一 run 懒重建；代际守卫隔旧事件）
-    this.pausedGateToken = undefined;
+    this.run.ungate();
     this.deps.logger?.warn(`管家 run 强制收口：${reason}`);
     this.enqueueProjection(() => this.finishRun(reason));
   }
@@ -2044,10 +1989,7 @@ export class StewardService implements StewardComponent {
     //（闸内 raceAbort 唤醒）再弃引用；runActive 复位防新 ask 误判 busy。
     this.engine?.abort();
     this.engine = undefined;
-    this.pausedGateToken = undefined;
-    this.runActive = false;
-    this.runLastProgressAt = undefined;
-    this.watchdogFiredAt = undefined;
+    this.run.clearAll(); // 批 2：run 态全复位
     this.askSettler = undefined;
   }
 
@@ -2078,7 +2020,7 @@ export class StewardService implements StewardComponent {
     }
     // 暂停态旗同步清（B1 两段式窗口防误伤：执行体异步在飞时新 ask 不走
     // abort-再驱动路径——被弃的是确认流而非挂闸 run）
-    if (this.ledger.size === 0) this.pausedGateToken = undefined;
+    if (this.ledger.size === 0) this.run.ungate();
     // 受理时即广播 navigate（deliverSession——sessionId 提案已知，不再等
     // 执行体全轮；createSession 的 navigate 仍在执行体（sessionId 执行后才
     // 产生））。
