@@ -331,13 +331,16 @@ export type OrbPhase = "waking" | "listening" | "thinking" | "speaking" | "closi
 
 /** 光球相位派生输入（duplex = 双工会话活跃；fading = 关麦淡出窗；
  *  welcome = 欢迎语播报期——待机动画驻留标记；userSpeaking = 用户正在
- *  发声（useVoiceInput 保持窗——缺省 true = 旧语义「开麦即倾听」零断兼容）。 */
+ *  发声（useVoiceInput 保持窗——缺省 true = 旧语义「开麦即倾听」零断兼容）；
+ *  notifSpeaking = 通知轨播报占用（speech-floor 镜像——通知语音不驱动
+ *  speaking 相位，光球面由此镜像补说话姿，与 barge-in 门武装面同信号源）。 */
 export interface OrbPhaseInput {
   readonly phase: StewardVoicePhase;
   readonly duplex: boolean;
   readonly fading: boolean;
   readonly welcome: boolean;
   readonly userSpeaking?: boolean;
+  readonly notifSpeaking?: boolean;
 }
 
 /**
@@ -356,6 +359,15 @@ export interface OrbPhaseInput {
 export function deriveOrbPhase(input: OrbPhaseInput): OrbPhase | null {
   if (!input.duplex && !input.fading) return null;
   if (input.fading && !input.duplex) return "closing";
+  // 通知占用镜像（光球说话姿修复）：仅覆盖「待机语义」相位（idle / listening
+  // 未开口——自动续听开麦 ≠ 用户在说话）；用户开口与对话轨相位原样（通知
+  // 播报不覆盖对话在途/倾听姿）。与 barge-in 门武装面（L531 附近镜像）同源。
+  if (
+    input.notifSpeaking === true &&
+    (input.phase === "idle" || (input.phase === "listening" && input.userSpeaking === false))
+  ) {
+    return "speaking";
+  }
   if (input.welcome && (input.phase === "idle" || input.phase === "unsupported")) return "waking";
   switch (input.phase) {
     case "asking":

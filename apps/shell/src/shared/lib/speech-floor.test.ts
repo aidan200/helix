@@ -18,6 +18,7 @@ import {
   endNotificationPlayback,
   micOccupied,
   notificationSpeechActive,
+  onNotificationPlaybackChange,
   registerNotificationSpeech,
   resetSpeechFloorForTest,
   setMicOccupied,
@@ -105,6 +106,27 @@ describe("speech-floor（通知占用 + 麦克占用——打断不灵敏/重叠
     expect(notificationSpeechActive()).toBe(false);
     endNotificationPlayback(); // 幂等
     expect(notificationSpeechActive()).toBe(false);
+  });
+
+  it("通知占用订阅面（光球说话姿镜像驱动）：边沿通知，重复 begin/end 幂等零通知，抛错隔离", () => {
+    const seen: boolean[] = [];
+    const boom = () => {
+      throw new Error("listener boom");
+    };
+    const off = onNotificationPlaybackChange((active) => seen.push(active));
+    onNotificationPlaybackChange(boom);
+    beginNotificationPlayback(); // → true 边沿（首监听者抛错不阻断第二者）
+    expect(seen).toEqual([true]);
+    beginNotificationPlayback(); // 幂等：零通知
+    expect(seen).toEqual([true]);
+    endNotificationPlayback(); // → false 边沿
+    expect(seen).toEqual([true, false]);
+    endNotificationPlayback(); // 幂等：零通知
+    expect(seen).toEqual([true, false]);
+    off();
+    beginNotificationPlayback(); // 退订后零通知
+    expect(seen).toEqual([true, false]);
+    endNotificationPlayback();
   });
 
   it("麦克占用：置位/复位 + true→false 边沿触发通知 resume（收音期延后通知的放行面）", () => {

@@ -111,6 +111,7 @@ import {
   beginDialogueSpeech,
   endDialogueSpeech,
   notificationSpeechActive,
+  onNotificationPlaybackChange,
   setMicOccupied,
   stopNotificationSpeech,
 } from "@/shared/lib/speech-floor";
@@ -229,6 +230,9 @@ export interface UseStewardVoice {
   readonly duplexActive: boolean;
   /** 欢迎语期（duplex 开启后、用户开口前——欢迎语音频在播标记；光球待机驻留）。 */
   readonly welcomeActive: boolean;
+  /** 通知轨播报占用镜像（speech-floor 边沿订阅——光球说话姿驱动；与 barge-in
+   *  门武装面同信号源：通知语音不驱动 speaking 相位，视觉面由此镜像补齐）。 */
+  readonly notifSpeaking: boolean;
   /** 临时静音（D5：listening 点击切换——静音期续听挂起，duplex 会话保持）。 */
   readonly muted: boolean;
   /** D5 点击行为：listening 点击 = 临时静音切换（speaking 停读归 stopSpeaking）。 */
@@ -305,6 +309,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   /** 欢迎语期标记（duplex 开启置位；用户开口录音即压位——光球待机驻留，
    *   deriveOrbPhase welcome 入参消费）。 */
   const [welcomeActive, setWelcomeActive] = useState(false);
+  /** 通知轨播报占用镜像（光球说话姿驱动——speech-floor 边沿订阅转响应式；
+   *   与 barge-in 门武装面（onBargeInLevel 读 notificationSpeechActive）
+   *   同信号源：通知语音不驱动 speaking 相位，光球由此镜像补说话姿）。 */
+  const [notifSpeaking, setNotifSpeaking] = useState(false);
+  useEffect(() => onNotificationPlaybackChange(setNotifSpeaking), []);
   /** B2 临时静音（D5）：静音期续听挂起（自动重听闸），duplex 会话保持。 */
   const [muted, setMuted] = useState(false);
   const mutedRef = useRef(false);
@@ -1177,6 +1186,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     clearVoiceDraft: useCallback(() => setVoiceDraft(null), []),
     duplexActive,
     welcomeActive,
+    notifSpeaking,
     muted,
     toggleMute,
     toggleWake: toggleWakeStable,

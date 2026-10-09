@@ -81,14 +81,40 @@ export function stopNotificationSpeech(): void {
 // 相位语义：阈值 ×2 抬档防自声回灌）。
 let notificationPlaying = false;
 
-/** 通知播报占用开始（useVoiceBroadcast 起播边沿；幂等）。 */
-export function beginNotificationPlayback(): void {
-  notificationPlaying = true;
+/** 通知占用监听者（光球说话姿镜像驱动——useStewardVoice 订阅转响应式 state）。 */
+const notificationListeners = new Set<(active: boolean) => void>();
+
+/** 边沿通知（监听器抛错隔离不阻断其余监听者——speech-mutex notify 同构）。 */
+function notifyNotification(active: boolean): void {
+  for (const l of [...notificationListeners]) {
+    try {
+      l(active);
+    } catch {
+      // 隔离单监听者异常（镜像面绝不断通知链）
+    }
+  }
 }
 
-/** 通知播报占用结束（播毕/停播/清队列边沿；幂等）。 */
+/** 订阅通知占用边沿（返回退订函数）。 */
+export function onNotificationPlaybackChange(listener: (active: boolean) => void): () => void {
+  notificationListeners.add(listener);
+  return () => {
+    notificationListeners.delete(listener);
+  };
+}
+
+/** 通知播报占用开始（useVoiceBroadcast 起播边沿；幂等——重复 begin 零通知）。 */
+export function beginNotificationPlayback(): void {
+  if (notificationPlaying) return;
+  notificationPlaying = true;
+  notifyNotification(true);
+}
+
+/** 通知播报占用结束（播毕/停播/清队列边沿；幂等——重复 end 零通知）。 */
 export function endNotificationPlayback(): void {
+  if (!notificationPlaying) return;
   notificationPlaying = false;
+  notifyNotification(false);
 }
 
 /** 通知播报占用判别（barge-in 门武装面：语音模式 × 占用 → 门开）。 */
@@ -119,5 +145,6 @@ export function resetSpeechFloorForTest(): void {
   dialogueSources.clear();
   notificationControl = null;
   notificationPlaying = false;
+  notificationListeners.clear();
   micOccupiedState = false;
 }

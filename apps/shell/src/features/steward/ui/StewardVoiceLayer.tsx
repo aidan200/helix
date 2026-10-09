@@ -253,6 +253,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     fading,
     welcome: sv.welcomeActive,
     userSpeaking: sv.userSpeaking,
+    notifSpeaking: sv.notifSpeaking,
   });
 
   // 点击（D5）：speaking → 停读；listening/muted → 临时静音切换（恢复）

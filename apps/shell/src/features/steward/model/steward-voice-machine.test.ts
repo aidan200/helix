@@ -490,6 +490,32 @@ describe("deriveOrbPhase 欢迎语期待机驻留（欢迎词固化批）", () =
   });
 });
 
+describe("deriveOrbPhase 通知占用镜像（光球说话姿修复——通知轨不驱动 speaking 相位的视觉面补齐）", () => {
+  it("通知在播 × idle → speaking（TTS 在响但相位待机——镜像补说话姿）", () => {
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false, notifSpeaking: true })).toBe("speaking");
+  });
+
+  it("通知在播 × listening 未开口 → speaking（自动续听开麦≠用户在说话）", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, notifSpeaking: true, userSpeaking: false })).toBe("speaking");
+  });
+
+  it("通知在播 × 用户开口（userSpeaking=true）→ listening（用户说话保持倾听姿）", () => {
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, notifSpeaking: true, userSpeaking: true })).toBe("listening");
+  });
+
+  it("通知在播不压对话轨相位（asking/speaking 原样）与转写延续（transcribing → listening）", () => {
+    expect(deriveOrbPhase({ phase: "asking", duplex: true, fading: false, welcome: false, notifSpeaking: true })).toBe("thinking");
+    expect(deriveOrbPhase({ phase: "speaking", duplex: true, fading: false, welcome: false, notifSpeaking: true })).toBe("speaking");
+    expect(deriveOrbPhase({ phase: "transcribing", duplex: true, fading: false, welcome: false, notifSpeaking: true })).toBe("listening");
+  });
+
+  it("淡出窗压过通知镜像（closing）与缺省零断兼容（notifSpeaking 缺省行为不变）", () => {
+    expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: true, welcome: false, notifSpeaking: true })).toBe("closing");
+    expect(deriveOrbPhase({ phase: "idle", duplex: true, fading: false, welcome: false })).toBe("waking");
+    expect(deriveOrbPhase({ phase: "listening", duplex: true, fading: false, welcome: false, userSpeaking: false })).toBe("waking");
+  });
+});
+
 // ── B2 光球相位派生（OrbPhase：waking→listening→thinking→speaking→closing）──
 
 describe("deriveOrbPhase（B2 光球相位状态机）", () => {
