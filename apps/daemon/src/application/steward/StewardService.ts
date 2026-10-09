@@ -26,6 +26,8 @@
  * 自身对话状态，工作上下文留在各 session/agent）。
  */
 import type { DomainEvent } from "../../domain/events/DomainEvent";
+import { STEWARD_TUNING_DEFAULTS, type StewardTuning } from "../../domain/steward/tuning/StewardTuning";
+import type { StewardComponent } from "./StewardComponent";
 import type {
   AgentCompletedPayload,
   AgentFailedPayload,
@@ -181,40 +183,42 @@ export const STEWARD_COMPACTION_THRESHOLD_TOKENS = 12_288;
 /** L1 件一：压缩尾部滚动窗（条数——TR-47：压的是历史不是工作集）。 */
 export const STEWARD_COMPACTION_KEEP_RECENT = 6;
 
-/** L1 件二：输入缓冲 pending 队列上限（忙碌态入队不拒绝；超限提示）。 */
-export const STEWARD_PENDING_ASKS_MAX = 3;
+/** L1 件二：输入缓冲 pending 队列上限（忙碌态入队不拒绝；超限提示）。
+ *  批 0（DDD 重构）起：缺省单源 StewardTuning（KV steward.tuning.ask.queueMax
+ *  可改）——此处 re-export 兼容既有引用，值不双写。 */
+export const STEWARD_PENDING_ASKS_MAX = STEWARD_TUNING_DEFAULTS.ask.queueMax;
 
-/** ── 管家可靠性根修批（2026-10-06 事故）：三道兜底的时间参数 ──────────
- *  模块常量 + 注释（配置面不做——M4 隐私面板批统一做）。事故链：write 档
- *  挂闸无人确认 → runActive 永真 → finishRun 永不执行 → 后续 ask 永远
- *  queued → 管家对一切输入装死且零日志。三要素对三参数： */
+/** ── 管家可靠性批时间参数（批 0 起全部进 StewardTuning 配置域——KV
+ *  steward.tuning.* 运行期可改、非法静默回退缺省；下列导出为缺省值 re-export
+ *  （兼容既有引用，值不双写）。原「配置面不做——M4 统一做」裁决已被 DDD
+ *  重构批 0 推翻（设计文档 §3.3：语音/文字双场景容忍度不同，阈值须可配）。 ──
+ *  事故链：write 档挂闸无人确认 → runActive 永真 → finishRun 永不执行 →
+ *  后续 ask 永远 queued → 管家对一切输入装死且零日志。三要素对三参数： */
 
 /** run 看门狗阈值：run 内无事件推进持续此时长 → abort 在途轮 + 挂起通知
- *  （180s ——事故中 20 分钟装死的兑底上限；活跃 run 每事件重置计时）。 */
-export const STEWARD_RUN_WATCHDOG_MS = 180_000;
+ *  （缺省 180s——事故中 20 分钟装死的兑底上限；活跃 run 每事件重置计时）。 */
+export const STEWARD_RUN_WATCHDOG_MS = STEWARD_TUNING_DEFAULTS.run.watchdogMs;
 
 /** run 看门狗巡检间隔（生产 interval；测试直接调 reliabilityTick 注入时钟）。 */
-export const STEWARD_RUN_WATCHDOG_TICK_MS = 5_000;
+export const STEWARD_RUN_WATCHDOG_TICK_MS = STEWARD_TUNING_DEFAULTS.run.watchdogTickMs;
 
 /** 看门狗 abort 宽限窗：abort 后仍 runActive 持续此时长 → 强制收口 + 引擎
  *  重建（pi EventStream 不竞速 abort signal——挂死的 provider 流 abort 后
- *  run promise 仍永悬，必须弃引擎重建；180+15=195s < 5 分钟自愈口径）。 */
-export const STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS = 15_000;
+ *  run promise 仍永悬，必须弃引擎重建；缺省 180+15=195s < 5 分钟自愈口径）。 */
+export const STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS = STEWARD_TUNING_DEFAULTS.run.watchdogAbortGraceMs;
 
 /** 手动 abort 快进宽限（手动停止批）：abortInFlight 后此时长仍 runActive
  *  （挂死流 abort 打不醒——E-240 实测）→ 快进强制收口（弃引擎重建）。被动
- *  看门狗 195s 对语音交互太慢（2026-10-09 事故：用户距看门狗触发差 12s 放弃
- *  重启）；手动停止后最长 8s 恢复。正常流 abort 后 1-2s 内即收口，8s 足宽。 */
-export const STEWARD_MANUAL_ABORT_GRACE_MS = 8_000;
+ *  看门狗 195s 对语音交互太慢（2026-10-09 事故）；缺省 8s 恢复。 */
+export const STEWARD_MANUAL_ABORT_GRACE_MS = STEWARD_TUNING_DEFAULTS.run.manualAbortGraceMs;
 
 /** 确认卡 TTL：pending 挂闸无人 confirm/cancel 持续此时长 → 自动作废（复用
- *  cancel 内部语义——删除即作废；300s）。E-206 残项中「超时作废」部分，
- *  跨重启重放不做。 */
-export const STEWARD_CONFIRM_TTL_MS = 300_000;
+ *  cancel 内部语义——删除即作废；缺省 300s）。 */
+export const STEWARD_CONFIRM_TTL_MS = STEWARD_TUNING_DEFAULTS.confirm.ttlMs;
 
 /** 确认卡可达性提醒：confirm_required 发出后无人消费持续此时长 → 提醒帧
- *  （30s——事故中确认卡入口不可见，提醒是第二入口）。 */
-export const STEWARD_CONFIRM_REMIND_AFTER_MS = 30_000;
+ *  （缺省 30s——事故中确认卡入口不可见，提醒是第二入口）。 */
+export const STEWARD_CONFIRM_REMIND_AFTER_MS = STEWARD_TUNING_DEFAULTS.confirm.remindAfterMs;
 
 /** 确认超时作废的 action.completed detail 文案（用户与 LLM 共同可见）。 */
 export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认，已自动作废——如仍需要请重新提出）";
@@ -814,6 +818,10 @@ export interface StewardServiceDeps {
   readonly dialog?: StewardDialogMemory;
   /** 时钟（记录 at 时间戳；缺省 Date.now）。 */
   readonly clock?: () => number;
+  /** 行为阈值现拍面（批 0 配置域：组合根接 resolveStewardTuning(runtimeConfig)
+   *  运行期即热；缺省 = STEWARD_TUNING_DEFAULTS 即原硬编码常量——零注入零
+   *  行为变化）。测试注入字面量免 mock 时钟跳拍。 */
+  readonly tuningOf?: () => StewardTuning;
   /** feed 闸门读面（EventStream 连接级 steward 订阅表窄接口）。 */
   readonly feedGate: { hasStewardSubscribers(): boolean };
   /** feed 帧出口（组合根接 EventStream.broadcastStewardFeed）。 */
@@ -1246,12 +1254,15 @@ export interface StewardEngineAssemblyOptions {
   };
 }
 
-export class StewardService {
+export class StewardService implements StewardComponent {
   private readonly deps: StewardServiceDeps;
   /** 工作记忆 KV（完整记录持久化——thinking/工具/对话全形态；daemon 重启
    *  后懒加载恢复，A1 批取代裸内存数组）。 */
   private readonly dialog: StewardDialogMemory;
   private readonly now: () => number;
+  /** 行为阈值现拍面（批 0：缺省 STEWARD_TUNING_DEFAULTS；组合根接 KV 现拍
+   *  运行期即热——每 tick 消费成本可忽略）。 */
+  private readonly tuningOf: () => StewardTuning;
   /** 待确认写动作（actionId 单次消费；不持久化——过期即失效不跨重启）。 */
   private readonly pending = new Map<string, PendingEntry>();
   /** 提案终局登记簿（key → 最近终局；确认链路修复批：succeeded 拦截重复提案
@@ -1330,6 +1341,7 @@ export class StewardService {
     this.deps = deps;
     this.dialog = deps.dialog ?? new StewardDialogMemory();
     this.now = deps.clock ?? (() => Date.now());
+    this.tuningOf = deps.tuningOf ?? (() => STEWARD_TUNING_DEFAULTS);
     this.registerTools();
   }
 
@@ -1404,10 +1416,10 @@ export class StewardService {
         await this.runSettled;
         return this.driveAsk({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
       }
-      if (this.askQueue.length >= STEWARD_PENDING_ASKS_MAX) {
+      if (this.askQueue.length >= this.tuningOf().ask.queueMax) {
         return {
           status: "error",
-          reason: `管家正在处理中，排队已满（上限 ${STEWARD_PENDING_ASKS_MAX} 条）——请稍后再试`,
+          reason: `管家正在处理中，排队已满（上限 ${this.tuningOf().ask.queueMax} 条）——请稍后再试`,
         };
       }
       this.askQueue.push({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
@@ -1580,7 +1592,7 @@ export class StewardService {
     // 轮数熔断（同步判定——async 投影链赶不上无思考工具风暴；abort 越早越省）
     if (event.type === "tool_execution_start") {
       this.runState.toolCalls += 1;
-      if (this.runState.toolCalls > STEWARD_MAX_TOOL_ROUNDS && !this.runState.roundLimit) {
+      if (this.runState.toolCalls > this.tuningOf().run.maxToolRounds && !this.runState.roundLimit) {
         this.runState.roundLimit = true;
         this.engine?.abort();
       }
@@ -1878,7 +1890,7 @@ export class StewardService {
     if (this.runState.roundLimit) {
       return {
         status: "error",
-        reason: `工具循环超限（>${STEWARD_MAX_TOOL_ROUNDS} 轮熔断）——请缩小问题范围或重试`,
+        reason: `工具循环超限（>${this.tuningOf().run.maxToolRounds} 轮熔断）——请缩小问题范围或重试`,
         errorKind: "round-limit",
       };
     }
@@ -1922,9 +1934,19 @@ export class StewardService {
   /** 启动可靠性巡检定时器（生产面；幂等——stewardMemory.startGcTimer 先例）。 */
   startReliabilityTimers(): void {
     if (this.reliabilityTimer !== undefined) return;
-    const timer = setInterval(() => this.reliabilityTick(), STEWARD_RUN_WATCHDOG_TICK_MS);
+    const timer = setInterval(() => this.reliabilityTick(), this.tuningOf().run.watchdogTickMs);
     timer?.unref?.(); // TR-152 落盘面定时器纪律：不阻进程退出
     this.reliabilityTimer = timer;
+  }
+
+  /** StewardComponent 契约（批 0 生命周期登记表）：start/stop 映射既有
+   *  可靠性巡检定时器面（幂等语义不变）。 */
+  start(): void {
+    this.startReliabilityTimers();
+  }
+
+  stop(): void {
+    this.stopReliabilityTimers();
   }
 
   /** 停巡检定时器（shutdown 链挂点/测试清理）。 */
@@ -1942,7 +1964,7 @@ export class StewardService {
     this.checkConfirmTtl(now);
   }
 
-  /** run 看门狗：无事件推进超 STEWARD_RUN_WATCHDOG_MS → abort（复用
+  /** run 看门狗：无事件推进超 tuning.run.watchdogMs（批 0 起 KV 可配）→ abort（复用
    *  abortInFlight 幂等面——不新造 abort）；abort 宽限窗后仍 runActive
    *  → 强制收口 + 弃引擎重建（pi EventStream 不竞速 abort signal，挂死流
    *  abort 后 run promise 仍永悬——弃引擎是唯一恢复路径；下一 run 经
@@ -1957,9 +1979,9 @@ export class StewardService {
     // manualAbortAt 有值 ⇔ abortInFlight 曾返回 true（runActive + engine 双
     // 在场），锚已定的前提不需要重复检查（置锚时 run 必已开始）。同步清锚
     // 防重（finishRun 经投影链异步，重复 tick 不二触）。
-    if (this.manualAbortAt !== undefined && now - this.manualAbortAt >= STEWARD_MANUAL_ABORT_GRACE_MS) {
+    if (this.manualAbortAt !== undefined && now - this.manualAbortAt >= this.tuningOf().run.manualAbortGraceMs) {
       this.forceRecoverRun(
-        `手动停止快进：abort 后 ${STEWARD_MANUAL_ABORT_GRACE_MS / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
+        `手动停止快进：abort 后 ${this.tuningOf().run.manualAbortGraceMs / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
       );
       return;
     }
@@ -1971,7 +1993,7 @@ export class StewardService {
       return;
     }
     if (this.watchdogFiredAt === undefined) {
-      if (now - this.runLastProgressAt < STEWARD_RUN_WATCHDOG_MS) return;
+      if (now - this.runLastProgressAt < this.tuningOf().run.watchdogMs) return;
       this.watchdogFiredAt = now;
       const hungSeconds = Math.round((now - this.runLastProgressAt) / 1000);
       const gatedWait = this.pending.size > 0; // 挂闸等待：有卡待确认（合法业务态）
@@ -1991,10 +2013,10 @@ export class StewardService {
       return;
     }
     // 已触发：宽限窗后仍未收口 → 强制收口（abort 丳不醒的挂死流）
-    if (now - this.watchdogFiredAt >= STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS) {
+    if (now - this.watchdogFiredAt >= this.tuningOf().run.watchdogAbortGraceMs) {
       this.watchdogFiredAt = now; // 周期性兜底重置（极端场景下每宽限窗再查）
       this.forceRecoverRun(
-        `run 看门狗强制收口：abort 宽限 ${STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS / 1000}s 内 run 未收口——弃引擎重建并恢复队列服务`,
+        `run 看门狗强制收口：abort 宽限 ${this.tuningOf().run.watchdogAbortGraceMs / 1000}s 内 run 未收口——弃引擎重建并恢复队列服务`,
       );
     }
   }
@@ -2018,7 +2040,7 @@ export class StewardService {
     let matured: { actionId: string; entry: PendingEntry } | undefined;
     for (const [actionId, entry] of this.pending) {
       if (entry.remindedAt !== undefined) continue;
-      if (now - entry.createdAt < STEWARD_CONFIRM_REMIND_AFTER_MS) continue;
+      if (now - entry.createdAt < this.tuningOf().confirm.remindAfterMs) continue;
       matured = { actionId, entry };
       break; // 聚合口径：任一成熟即代表全集出一条（文案按全集 N 组装）
     }
@@ -2027,26 +2049,26 @@ export class StewardService {
     for (const entry of this.pending.values()) entry.remindedAt = now; // 覆盖全集
     if (total >= 2) {
       this.logInfo(
-        `管家确认卡可达性提醒（聚合）：pending ${total} 张（首成熟 ${matured.actionId}——${matured.entry.action.displayTarget}）——${STEWARD_CONFIRM_REMIND_AFTER_MS / 1000}s 无人消费`,
+        `管家确认卡可达性提醒（聚合）：pending ${total} 张（首成熟 ${matured.actionId}——${matured.entry.action.displayTarget}）——${this.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
       );
       this.emitLifecycleNotify(
         "normal",
         "待确认操作",
-        `管家有 ${total} 个操作等你确认——打开管家面板处理；${STEWARD_CONFIRM_TTL_MS / 1000}s 内未确认将自动作废`,
+        `管家有 ${total} 个操作等你确认——打开管家面板处理；${this.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
       );
       return;
     }
     this.logInfo(
-      `管家确认卡可达性提醒：${matured.actionId}（${matured.entry.action.displayTarget}）——${STEWARD_CONFIRM_REMIND_AFTER_MS / 1000}s 无人消费`,
+      `管家确认卡可达性提醒：${matured.actionId}（${matured.entry.action.displayTarget}）——${this.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
     );
     this.emitLifecycleNotify(
       "normal",
       "待确认操作",
-      `管家有一个操作等你确认（${matured.entry.action.displayTarget}）——打开管家面板处理；${STEWARD_CONFIRM_TTL_MS / 1000}s 内未确认将自动作废`,
+      `管家有一个操作等你确认（${matured.entry.action.displayTarget}）——打开管家面板处理；${this.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
     );
   }
 
-  /** 确认闸 TTL（语音闭环批 ②聚合版）：pending 卡 STEWARD_CONFIRM_TTL_MS 无
+  /** 确认闸 TTL（语音闭环批 ②聚合版）：pending 卡超 tuning.confirm.ttlMs（批 0 起 KV 可配）无
    *  confirm/cancel → 自动作废（复用 cancel 内部语义——删除即作废，两段式不变
    *  量不动：作废后再 confirm 报已消费）+ 逐卡 action.completed 超时回执广播
    *  （卡栈同步面不聚合）+ **同批用户提醒合并一条**（N=1 现文案 / N≥2「N 个
@@ -2054,14 +2076,14 @@ export class StewardService {
   private checkConfirmTtl(now: number): void {
     const expired: { actionId: string; entry: PendingEntry }[] = [];
     for (const [actionId, entry] of [...this.pending]) {
-      if (now - entry.createdAt < STEWARD_CONFIRM_TTL_MS) continue;
+      if (now - entry.createdAt < this.tuningOf().confirm.ttlMs) continue;
       expired.push({ actionId, entry });
     }
     for (const { actionId, entry } of expired) {
       this.pending.delete(actionId); // cancel 同款作废语义（删除即作废；不清挂闸
       // 旗——挂闸 run 若仍挂着由看门狗/abort-再驱动收口，同 cancel 注释）
       this.deps.logger?.warn(
-        `管家确认卡 TTL 作废：${actionId}（${entry.action.kind} → ${entry.action.displayTarget}）——${STEWARD_CONFIRM_TTL_MS / 1000}s 无人确认自动作废`,
+        `管家确认卡 TTL 作废：${actionId}（${entry.action.kind} → ${entry.action.displayTarget}）——${this.tuningOf().confirm.ttlMs / 1000}s 无人确认自动作废`,
       );
       this.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL, outcome: "timeout" });
       // 终局登记 + 同 key 收敛（确认链路修复批：作废也收敛，零后续连锁通知）
@@ -2072,7 +2094,7 @@ export class StewardService {
       this.emitLifecycleNotify(
         "normal",
         "确认已超时",
-        `${expired.length} 个操作超过 ${STEWARD_CONFIRM_TTL_MS / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+        `${expired.length} 个操作超过 ${this.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
       );
       return;
     }
@@ -2080,7 +2102,7 @@ export class StewardService {
     this.emitLifecycleNotify(
       "normal",
       "确认已超时",
-      `操作「${single.entry.action.displayTarget}」超过 ${STEWARD_CONFIRM_TTL_MS / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+      `操作「${single.entry.action.displayTarget}」超过 ${this.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
     );
   }
 

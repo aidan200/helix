@@ -105,6 +105,8 @@ import { stewardEngineTraceBridge } from "./assembly/stewardEngineTraceBridge";
 import { StewardDiagnosisAdapter } from "../adapters/driven/voice/StewardDiagnosisAdapter";
 import type { StewardDiagnosisPort } from "../application/ports/outbound/StewardDiagnosisPort";
 import { StewardPerceptionService } from "../application/steward/StewardPerceptionService";
+import type { StewardComponent } from "../application/steward/StewardComponent";
+import { resolveStewardTuning } from "../domain/steward/tuning/StewardTuning";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
@@ -1007,9 +1009,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         logger: { warn: (message) => logger.warn(message) },
       });
   })();
-  // 遗忘机制批：记忆 GC 定时器（60s 首跑 + 24h 周期；interval unref 不阻
-  // 进程退出，dispose 挂 shutdown 链双保险——TR-152 落盘面定时器纪律）。
-  stewardMemory?.startGcTimer();
+  // 记忆 GC 定时器：批 0 起收编 stewardComponents 登记表统一启动（下方
+  //  for-of component.start()——60s 首跑 + 24h 周期；TR-152 定时器纪律不变）。
   // 管家引擎模型解析（与 PiStewardLlmAdapter 同一链：steward.model KV →
   // 目录解析 → 缺省 STEWARD_DEFAULT_MODEL——同轨单点）
   const resolveStewardEngineModel = (): ReturnType<typeof resolveModel> =>
@@ -1230,9 +1231,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
   });
   stewardServiceRef = stewardService; // 晚绑闭合（感知服务对话内主动汇报面回填）
-  // 管家可靠性根修批：看门狗/确认闸 TTL/可达性提醒巡检定时器（unref +
-  // shutdown 链双保险——stewardMemory.startGcTimer 同规）
-  stewardService.startReliabilityTimers();
+  // ── 批 0（DDD 重构）生命周期登记表：管家域服务统一启停（原两处手工挂
+  //    点——reliability 定时器/GC 定时器——收编一处；后续新增管家域服务
+  //    实现 StewardComponent 登记即入，不再各自挂 shutdown，排查 #11 根修）──
+  const stewardComponents: readonly StewardComponent[] = [
+    stewardService,
+    ...(stewardMemory !== undefined ? [stewardMemory] : []),
+  ];
+  for (const component of stewardComponents) component.start();
   // 确认链路修复批④：daemon 启动清场广播——此刻内存 pending 必空集（不持久
   //  化），对启动时已在册的订阅连接撤旧卡（通常零连接；主清场路径 =
   //  steward.subscribe 受理回发快照对账——跨重启 shell 重连即收）。
@@ -1606,10 +1612,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
     unsubscribeBrowserStatus,
     ...(mcpShutdown !== undefined ? { stopMcp: mcpShutdown } : {}),
-    // 遗忘机制批：记忆 GC 定时器停面（shutdown 链挂点）
-    ...(stewardMemory !== undefined ? { stopStewardMemoryGc: () => stewardMemory.dispose() } : {}),
-    // 管家可靠性根修批：看门狗/TTL 巡检定时器停面（shutdown 链挂点）
-    stopStewardReliabilityTimers: () => stewardService.stopReliabilityTimers(),
+    // 批 0（DDD 重构）生命周期登记表停面：管家域全部服务统一 stop
+    // （原 stopStewardMemoryGc + stopStewardReliabilityTimers 两挂点收编）
+    stopStewardComponents: () => {
+      for (const component of stewardComponents) component.stop();
+    },
     port: resolvedPort, // 完整解析链（argv > KV > 7333）已定格
     // stale-indicator 批：welcome daemonFreshness 比对基准（进程启动时刻单源）
     daemonStartedAtMs: bootedAtMs,

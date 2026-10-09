@@ -64,6 +64,7 @@ import type {
   StewardDiagnosisResult,
 } from "../ports/outbound/StewardDiagnosisPort";
 import type { TriageJudgeFace } from "./StewardTriageJudge";
+import { STEWARD_TUNING_DEFAULTS, type StewardTuning } from "../../domain/steward/tuning/StewardTuning";
 import type { StewardNotifyPayload, StewardNotifySuggestion, SurfaceEvent, VoiceBroadcastKind } from "@helix/protocol";
 
 /** 任务会话 id 前缀（完成类聚合判别——task:* 会话的 agent.completed 不在
@@ -74,10 +75,10 @@ const TASK_SESSION_PREFIX = "task:";
 /** ring buffer 滚动上限（内存有界——D11 ①层：原始事件流滚动淘汰，不落盘）。 */
 export const PERCEPTION_RING_LIMIT = 200;
 
-/** 激活信号②近期 ask 衰减窗（毫秒——v1 常量起步，brief 实施顺序②；设计⑪
- *  「衰减窗 N 分钟，参数」——未上配置面（范围钳制：不建新配置项），演进
- *  待激活信号升 SurfaceRegistry 后一并评估）。 */
-export const STEWARD_ACTIVE_WINDOW_MS = 5 * 60_000;
+/** 激活信号②近期 ask 衰减窗（毫秒）。批 0 起：缺省单源 StewardTuning
+ *  （KV steward.tuning.activation.windowMs 可改，原「未上配置面」范围钳制
+ *  由 DDD 重构批 0 解除）——此处 re-export 兼容既有引用，值不双写。 */
+export const STEWARD_ACTIVE_WINDOW_MS = STEWARD_TUNING_DEFAULTS.activation.windowMs;
 
 /** notify 呈现轨字数上限（设计⑩：≤60 字口语；超长截断加省略号——LLM
  *  产物防御，与语音播报 80 字符兜底同族）。 */
@@ -240,6 +241,9 @@ export interface StewardPerceptionDeps {
   readonly onRingEntry?: (entry: PerceptionRingEntry) => void;
   /** 时钟（缺省 Date.now——测试注入衰减窗/限流窗步进）。 */
   readonly clock?: () => number;
+  /** 行为阈值现拍面（批 0 配置域：仅消费 activation.windowMs；缺省 =
+   *  STEWARD_TUNING_DEFAULTS 即原硬编码常量——零注入零行为变化）。 */
+  readonly tuningOf?: () => StewardTuning;
   readonly logger?: { warn(message: string): void };
 }
 
@@ -251,6 +255,8 @@ interface DiagnosisFlight {
 export class StewardPerceptionService {
   private readonly deps: StewardPerceptionDeps;
   private readonly now: () => number;
+  /** 行为阈值现拍面（批 0：仅 activation.windowMs）。 */
+  private readonly tuningOf: () => StewardTuning;
   /** ring buffer（原始事件流 + 摄入轨工作记录；内存滚动，不落盘）。 */
   private ring: PerceptionRingEntry[] = [];
   /** 激活信号②：最近一次 ask 时刻（-1 = 从未）。 */
@@ -273,6 +279,7 @@ export class StewardPerceptionService {
   constructor(deps: StewardPerceptionDeps) {
     this.deps = deps;
     this.now = deps.clock ?? (() => Date.now());
+    this.tuningOf = deps.tuningOf ?? (() => STEWARD_TUNING_DEFAULTS);
     this.hydrateWatchFromKv();
   }
 
@@ -310,7 +317,7 @@ export class StewardPerceptionService {
   isActive(): boolean {
     if (!this.deps.feedGate.hasStewardSubscribers()) return false;
     if (this.lastAskAt < 0) return false;
-    return this.now() - this.lastAskAt <= STEWARD_ACTIVE_WINDOW_MS;
+    return this.now() - this.lastAskAt <= this.tuningOf().activation.windowMs;
   }
 
   /** 激活信号②：用户 ask 活动信号（组合根接 StewardService.ask 入口——

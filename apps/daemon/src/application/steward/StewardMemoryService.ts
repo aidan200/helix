@@ -43,6 +43,7 @@
  */
 
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
+import type { StewardComponent } from "./StewardComponent";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../ports/outbound/EmbeddingPort";
 import type { JudgePort } from "../ports/outbound/JudgePort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
@@ -326,7 +327,7 @@ export interface StewardMemoryServiceDeps {
   readonly logger?: { warn(message: string): void };
 }
 
-export class StewardMemoryService {
+export class StewardMemoryService implements StewardComponent {
   private readonly deps: StewardMemoryServiceDeps;
   private readonly now: () => number;
   /** 显式 remember 水位（防双写闸：会话总结器记忆点产物的同轮跳过判据）。
@@ -819,6 +820,16 @@ export class StewardMemoryService {
       clearInterval(this.gcTimer);
       this.gcTimer = undefined;
     }
+  }
+
+  /** StewardComponent 契约（批 0 生命周期登记表）：start/stop 映射既有
+   *  GC 定时器面（幂等语义不变；dispose 即原 shutdown 挂点）。 */
+  start(): void {
+    this.startGcTimer();
+  }
+
+  stop(): void {
+    this.dispose();
   }
 
   /**
