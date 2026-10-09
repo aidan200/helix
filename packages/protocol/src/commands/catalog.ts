@@ -127,6 +127,8 @@ import type {
   StewardMemoryDeleteCommand,
   StewardMemoryPinCommand,
   StewardMemoryRestoreCommand,
+  StewardActivityListCommand,
+  StewardActivityClearCommand,
 } from "./steward";
 import type {
   SurfaceRegisterCommand,
@@ -257,6 +259,8 @@ export type CommandEnvelope =
   | StewardMemoryDeleteCommand
   | StewardMemoryPinCommand
   | StewardMemoryRestoreCommand
+  | StewardActivityListCommand
+  | StewardActivityClearCommand
   | SurfaceRegisterCommand
   | SurfaceUnregisterCommand
   | SurfaceEventCommand
@@ -312,6 +316,9 @@ export const COMMAND_TYPES = [
   // 遗忘机制批：置顶（永不淡忘永不 GC）+ 淡忘恢复（共用 memory_list.result 回执）
   "steward.memory_pin",
   "steward.memory_restore",
+  // 管家活动账批 M3-d1：时间线查询 + 清理（共用 steward.activity.result 回执）
+  "steward.activity.list",
+  "steward.activity.clear",
   // 表面协议地基批（M0）：表面注册/注销/事件上行/动作回执（全局命令——
   // 信封省略 sessionId，E-84；上行 = 表面→daemon）
   "surface.register",

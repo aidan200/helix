@@ -102,6 +102,11 @@ export interface CliAdapterDeps {
   readonly session: SessionPort;
   /** 事件发布器（组合根构造的 StdoutEventPublisher；本适配器不关心实现）。 */
   readonly events: EventPublisherPort;
+  /** M3-d1 感知兑现批：用户输入信号回调（非空非 /exit 对话行触发——组合根
+   *  旁挂感知服务 noteUserActivity（在场信号，现仅认 GUI ask 的补齐）+
+   *  活动账 noteCliSession（cli: 域标签会话来源登记）。**隔离面**：抛错
+   *  被吞不炸主循环；缺席 = 零信号（回归兼容）。 */
+  readonly onUserInput?: () => void;
   /** 输入流（默认 process.stdin；测试注入 PassThrough）。 */
   readonly input?: NodeJS.ReadableStream;
   /** 输出流（默认 process.stdout；测试注入 PassThrough）。 */
@@ -183,6 +188,13 @@ export class CliAdapter {
     if (text === "/exit" || text === "/quit") {
       rl.close();
       return;
+    }
+    // M3-d1：用户在场信号（非空对话行——CLI 终端与 GUI ask 同源点亮感知
+    // 激活窗；回调面异常隔离不炸主循环）
+    try {
+      this.deps.onUserInput?.();
+    } catch {
+      // 感知旁挂面自身异常不阻断对话（组合根侧已 warn）
     }
     try {
       const outcome: SendOutcome = await this.deps.chat.sendMessage(text);

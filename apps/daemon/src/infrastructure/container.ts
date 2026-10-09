@@ -64,6 +64,7 @@ import {
   STEWARD_ENABLED_KEY,
   STEWARD_MODEL_KEY,
   formatDeliverReceipt,
+  SNAPSHOT_ACTIVITY_MAX_ENTRIES,
 } from "../application/steward/StewardService";
 import {
   SessionSummaryService,
@@ -91,6 +92,8 @@ import { makeTriageJudgeFace, resolveTriageJudgeRecord } from "../application/st
 import { makeIntentJudgeFace } from "../application/steward/StewardIntentJudge";
 import { SqliteVecMemoryStore } from "../adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { SqliteStewardDialogStore, migrateStewardDialogKv } from "../adapters/driven/steward-memory/SqliteStewardDialogStore";
+import { SqliteActivityLedgerStore } from "../adapters/driven/steward-memory/SqliteActivityLedgerStore";
+import { StewardActivityService } from "../application/steward/StewardActivityService";
 import { StewardDialogMemory } from "../application/steward/StewardDialogMemory";
 import { resolveVec0Path } from "../adapters/driven/steward-memory/resolve-vec0";
 import { getLoadablePath as sqliteVecLoadablePath } from "sqlite-vec";
@@ -826,6 +829,25 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
   let voiceBroadcastRef: BroadcastService | undefined;
   let stewardServiceRef: StewardService | undefined;
+  // ── M3-d1 感知兑现批：管家活动账（一个账本）────────────────────
+  //    ring 六类条目沉淀 + notify 记账 → 统一条目 {at,domain,attribution,text}
+  //    （白话铁律）→ 三出口：落盘回看/清理（时间线查询面）+ ask 投影
+  //    （StewardService recentActivity）+ 实时帧（broadcastStewardActivity）。
+  //    存储形态（AG-06/TR-20 调研裁决）：steward_memory.db 第三连接行式存储
+  //    （steward_activity 表——管家域单库聚合 B6 先例；避免 helix.db
+  //    runtime_config kv 高频整包重写污染会话/任务热库）；开库失败降级纯
+  //    内存（记录不丢、回看降级——对话存储同构兑底）。
+  let activityLedgerStore: SqliteActivityLedgerStore | undefined;
+  try {
+    activityLedgerStore = new SqliteActivityLedgerStore(paths.stewardMemoryDbPath());
+  } catch (err) {
+    logger.warn(`管家活动账落盘降级（纯内存，重启即失）：${(err as Error).message}`);
+  }
+  const stewardActivity = new StewardActivityService({
+    ...(activityLedgerStore !== undefined ? { store: activityLedgerStore } : {}),
+    emit: (payload) => eventStream.broadcastStewardActivity(payload),
+    logger,
+  });
   const stewardPerception =
     deps.stewardPerceptionOverride ??
     new StewardPerceptionService({
@@ -839,7 +861,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
             ? stewardMemory.recordSessionProgress(sessionId, text)
             : Promise.resolve(false),
       },
-      emitNotify: (payload) => eventStream.broadcastStewardNotify(payload),
+      // M3-d1：notify 发出即旁挂记账（只记不触发——通知链行为零改动）
+      emitNotify: (payload) => {
+        eventStream.broadcastStewardNotify(payload);
+        stewardActivity.recordNotify({ title: payload.title, body: payload.body });
+      },
+      // M3-d1：ring 六类条目沉淀活动账（既有索引的落盘投影——零新采集面）
+      onRingEntry: (entry) => stewardActivity.recordRingEntry(entry),
       // 对话内主动汇报面（M0.5-R：激活态投递面——工作记忆 assistant 记录，
       // 对话回放与 LLM 记忆同源）
       reportDialog: (report) => {
@@ -1094,6 +1122,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 管家感知批（M0.5）：ask 即激活信号②——感知服务衰减窗点亮（一问即
     // 入激活，响应环点亮主动环，D12-⑪）
     onUserActivity: () => stewardPerception.noteUserActivity(),
+    // M3-d1：ask 对话投影——最近活动白话行注入 context_snapshot 活动段
+    recentActivity: () => stewardActivity.recent(SNAPSHOT_ACTIVITY_MAX_ENTRIES),
     // 回合终态感知批：投递成功注册关注——目标会话回合结束命中分诊锚
     onDelivered: (sessionId, text) => stewardPerception.noteDelivered(sessionId, text),
     emitFeed: (payload) => eventStream.broadcastStewardFeed(payload),
@@ -1101,7 +1131,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 订阅闸——多窗卡栈同步收口）+ 用户提醒帧出口（挂起恢复/确认可达性/TTL
     // 作废三提醒）
     emitActionCompleted: (payload) => eventStream.broadcastStewardActionCompleted(payload),
-    emitNotify: (payload) => eventStream.broadcastStewardNotify(payload),
+    // M3-d1：notify 发出即旁挂记账（可靠性提醒同入账——只记不触发）
+    emitNotify: (payload) => {
+      eventStream.broadcastStewardNotify(payload);
+      stewardActivity.recordNotify({ title: payload.title, body: payload.body });
+    },
     // M3-a（CAND-601 闭环）：对话内主动汇报实时帧出口（reportProactive 双写
     // ——开着的面板实时冒条目；与 feed/notify 同订阅闸）
     emitProactive: (payload) => eventStream.broadcastStewardProactive(payload),
@@ -1308,6 +1342,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     sessionService,
     cliInput: deps.cliInput,
     cliOutput: deps.cliOutput,
+    // M3-d1：CLI 对话行 → 用户在场信号 + cli: 域会话登记（当前会话即 CLI
+    // 会话——chatRouter sendMessage 同一解析口径）
+    onCliInput: () => {
+      stewardPerception.noteUserActivity();
+      stewardActivity.noteCliSession(registry.currentSessionId());
+    },
   });
 
   // ── 会话总结器批①：SessionSummaryService（fanout 目标 session-summary-bridge
@@ -1515,6 +1555,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     steward: {
       service: stewardService,
       stream: eventStream,
+      // M3-d1：活动账查询/清理回口（时间线页数据源；未装配 = handler 降级
+      // 空清单——零 unimplemented）
+      activity: stewardActivity,
     },
     // surface 批（M0 表面协议地基）：surface 族四命令回口（SurfaceRegistry
     // ——注册/事件上行/回执只转发不决策）

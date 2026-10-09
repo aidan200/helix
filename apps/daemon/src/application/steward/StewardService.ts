@@ -296,6 +296,29 @@ export const SNAPSHOT_TITLE_MAX_CHARS = 16;
 /** 快照段「最近会话」行数上限。 */
 export const SNAPSHOT_RECENT_SESSIONS = 2;
 
+/** ── M3-d1：ask 对话投影（活动段常量）──────────────────────────
+ *  ring 最近活动条目（账本白话行）→ context_snapshot 活动段；行数在
+ *  brief 建议 8~12 区间取中，字符预算独立于基础段（双预算防截断互他）。 */
+
+/** 活动段条数上限（8~12 建议区间取中——感知现场够用且不挤占上下文）。 */
+export const SNAPSHOT_ACTIVITY_MAX_ENTRIES = 10;
+
+/** 活动段单行截断上限（白话句一行密度面）。 */
+export const SNAPSHOT_ACTIVITY_LINE_MAX_CHARS = 46;
+
+/** 活动段整体字符预算（防御性硬顶——与基础段 600 双预算分轨）。 */
+export const SNAPSHOT_ACTIVITY_MAX_CHARS = 480;
+
+/** 活动域标签（域枚举 → 中文短词——投影行文与时间线同源）。 */
+export const SNAPSHOT_ACTIVITY_DOMAIN_LABELS: Record<string, string> = {
+  task: "任务",
+  session: "会话",
+  agent: "帮手",
+  surface: "界面",
+  cli: "终端",
+  notify: "通知",
+};
+
 /** query_recent_work 单类行数上限（体量自律：A1-hotfix 4000 护栏之外再
  *  自律——多行时尾部「另有 N 个未列出」收口）。 */
 export const RECENT_WORK_LINES_MAX = 8;
@@ -491,14 +514,18 @@ function fmtWhen(iso: string): string {
 const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
 
 /** 快照段行文（纯函数导出供单测）：<context_snapshot> XML 包裹的情景快照。
- *  行序：当前时间 → 活跃 agent → 会话计数 → 最近 1-2 个会话主题。
- *  硬预算：整体字符数 ≤ CONTEXT_SNAPSHOT_MAX_CHARS（防御性截断）。 */
+ *  行序：当前时间 → 活跃 agent → 会话计数 → 最近 1-2 个会话主题 →
+ *  （M3-d1）最近活动白话行。硬预算：基础段与活动段双预算分轨截断
+ *  （CONTEXT_SNAPSHOT_MAX_CHARS / SNAPSHOT_ACTIVITY_MAX_CHARS——防御性
+ *  截断互不挤占；活动段缺席 = 与既有形态逐字节同形）。 */
 export function buildContextSnapshot(input: {
   nowMs: number;
   activeAgents: number;
   totalAgents: number;
   sessionCount: number;
   recentSessions: readonly { title: string; updatedAt: string }[];
+  /** M3-d1：最近活动条目（活动账白话行——最旧→最新；缺席/空 = 零活动段）。 */
+  recentActivity?: readonly { at: number; domain: string; attribution: string; text: string }[];
 }): string {
   const now = new Date(input.nowMs);
   const p2 = (n: number) => String(n).padStart(2, "0");
@@ -513,9 +540,21 @@ export function buildContextSnapshot(input: {
       `最近会话：${recent.map((s) => `「${capChars(s.title, SNAPSHOT_TITLE_MAX_CHARS)}」（${fmtWhen(s.updatedAt).slice(0, 5)}）`).join("、")}`,
     );
   }
-  const body = lines.join("\n");
   const budget = CONTEXT_SNAPSHOT_MAX_CHARS - "<context_snapshot>\n".length - "</context_snapshot>".length;
-  return `<context_snapshot>\n${capChars(body, budget)}\n</context_snapshot>`;
+  let body = capChars(lines.join("\n"), budget);
+  // M3-d1：活动段（独立预算——感知现场投影，失败/缺席零段）
+  const activity = input.recentActivity ?? [];
+  if (activity.length > 0) {
+    const activityLines = [
+      "最近的活动：",
+      ...activity.slice(-SNAPSHOT_ACTIVITY_MAX_ENTRIES).map((e) => {
+        const label = SNAPSHOT_ACTIVITY_DOMAIN_LABELS[e.domain] ?? "动态";
+        return `- ${label}：${capChars(e.text, SNAPSHOT_ACTIVITY_LINE_MAX_CHARS)}`;
+      }),
+    ];
+    body = `${body}\n${capChars(activityLines.join("\n"), SNAPSHOT_ACTIVITY_MAX_CHARS)}`;
+  }
+  return `<context_snapshot>\n${body}\n</context_snapshot>`;
 }
 
 /** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段 +
@@ -827,6 +866,11 @@ export interface StewardServiceDeps {
  *  ——记忆召回与 kg_search/kg_get 缺省范围共用同源，不另造口径判定）；多
  *  项目/未绑定/未注入 → undefined = 召回只 global / kg 缺省聚合兑底。 */
   readonly memoryProject?: () => string | undefined;
+  /** M3-d1 感知兑现批：最近活动条目读面（活动账白话行——组合根接
+   *  StewardActivityService.recent(N)；快照活动段数据源。**静默降级**：
+   *  读面抛错/缺席 → 快照仅基础段（assembleStewardSystemPrompt 附加段
+   *  缺席 = 原样静态段语义），绝不阻塞对话主链路。） */
+  readonly recentActivity?: () => readonly { at: number; domain: string; attribution: string; text: string }[];
   /** 管家感知批（M0.5）：用户 ask 活动信号（感知服务激活衰减窗点亮——
    *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
    *  .noteUserActivity；缺席 = 零信号）。 */
@@ -3085,13 +3129,23 @@ export class StewardService {
   /** 快照段组装（感知查询失败静默降级 = undefined；绝不能挡对话主链路）。
    *  数据源与工具面同源：活跃 agent 数 = orchestration.status()（与
    *  list_instances 同一调用面）；会话计数与主题 = sessions 源（与
-   *  query_recent_work 同一读面）。 */
+   *  query_recent_work 同一读面）；M3-d1 活动段 = recentActivity 读面
+   *  （活动账白话行——**分段降级**：活动面抛错只缺席活动段，基础段照常）。 */
   private async buildSnapshotSafely(): Promise<string | undefined> {
     if (this.deps.sessions === undefined) return undefined;
     try {
       const rows = await this.deps.sessions.listSessionMetadata();
       const statuses = this.deps.orchestration.status();
       const activeAgents = statuses.filter((s) => s.state === "running").length;
+      // M3-d1：活动段读面独立降级（读面抛错 → 零活动段，快照基础段照常——
+      // 现 assembleStewardSystemPrompt 附加段缺席语义）
+      let recentActivity: readonly { at: number; domain: string; attribution: string; text: string }[] | undefined;
+      try {
+        recentActivity = this.deps.recentActivity?.();
+      } catch (err) {
+        this.deps.logger?.warn(`管家快照活动段读面降级（快照仅基础段）：${(err as Error).message}`);
+        recentActivity = undefined;
+      }
       return buildContextSnapshot({
         nowMs: this.now(),
         activeAgents,
@@ -3102,6 +3156,7 @@ export class StewardService {
           title: r.title ?? r.topic ?? r.firstUserText ?? "（无主题会话）",
           updatedAt: r.updatedAt,
         })),
+        ...(recentActivity !== undefined && recentActivity.length > 0 ? { recentActivity } : {}),
       });
     } catch (err) {
       this.deps.logger?.warn(`管家情景快照组装失败（降级为无快照段）：${(err as Error).message}`);

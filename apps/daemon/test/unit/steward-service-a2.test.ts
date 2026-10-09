@@ -29,6 +29,8 @@ import {
   assembleStewardSystemPrompt,
   timeRangeWindow,
   CONTEXT_SNAPSHOT_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_MAX_ENTRIES,
   STEWARD_SYSTEM_PROMPT,
   type StewardSessionMetaRow,
   type TimeRange,
@@ -137,6 +139,7 @@ function makeA2Service(opts: {
   taskEngine?: ReturnType<typeof fakeTaskEngine>;
   hasGitRepo?: (projectRoot: string) => boolean;
   now?: () => number;
+  recentActivity?: () => readonly { at: number; domain: string; attribution: string; text: string }[];
 }) {
   const orchestration = fakeOrchestration([
     { agentId: "agent-1", state: "running", task: "修复登录超时" },
@@ -157,6 +160,7 @@ function makeA2Service(opts: {
     ...(opts.taskEngine !== undefined ? { taskEngine: opts.taskEngine } : {}),
     ...(opts.hasGitRepo !== undefined ? { hasGitRepo: opts.hasGitRepo } : {}),
     ...(opts.now !== undefined ? { clock: opts.now } : {}),
+    ...(opts.recentActivity !== undefined ? { recentActivity: opts.recentActivity } : {}),
   });
   return { svc, orchestration };
 }
@@ -248,6 +252,87 @@ describe("A2-1 动态 prompt：context_snapshot 段", () => {
 
   test("assembleStewardSystemPrompt 纯函数：undefined 快照 → 原样静态段", () => {
     expect(assembleStewardSystemPrompt(undefined)).toBe(STEWARD_SYSTEM_PROMPT);
+  });
+});
+
+// ── M3-d1：ask 对话投影（ring 活动条目 → context_snapshot 活动段） ────────
+
+describe("M3-d1 ask 对话投影：context_snapshot 注入最近活动条目", () => {
+  const activity = [
+    { at: NOW - 90_000, domain: "task" as const, attribution: "system" as const, text: "「登录修复」完成了" },
+    { at: NOW - 60_000, domain: "agent" as const, attribution: "system" as const, text: "后台有个帮手干完了一件事：光球调色改好了" },
+    { at: NOW - 30_000, domain: "cli" as const, attribution: "system" as const, text: "终端里的对话回完了" },
+  ];
+
+  test("投影注入：ask 组装的 systemPrompt 含最近活动白话行（感知第一次闭环）", async () => {
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" }]);
+    const sessions = fakeSessions([sessRow({ sessionId: "s1" })]);
+    const { svc } = makeA2Service({ llm, sessions, now: fixedClock, recentActivity: () => activity });
+    await svc.ask("刚才什么情况？");
+    const prompt = llm.calls[0]!.request.systemPrompt;
+    expect(prompt).toContain("<context_snapshot>");
+    expect(prompt).toContain("最近的活动");
+    expect(prompt).toContain("「登录修复」完成了"); // 任务终态在场
+    expect(prompt).toContain("光球调色改好了"); // agent 摘要在场
+    expect(prompt).toContain("终端里的对话回完了"); // 回合终态在场
+    expect(prompt.indexOf("最近的活动")).toBeGreaterThan(prompt.indexOf("<context_snapshot>"));
+    expect(prompt.indexOf("最近的活动")).toBeLessThan(prompt.indexOf("</context_snapshot>"));
+  });
+
+  test("零投影兼容：recentActivity 缺席/空集 → 快照无活动段（既有行为零变化）", async () => {
+    const snapshot = buildContextSnapshot({ nowMs: NOW, activeAgents: 1, totalAgents: 1, sessionCount: 1, recentSessions: [] });
+    expect(snapshot).not.toContain("最近的活动");
+    const snapshotEmpty = buildContextSnapshot({
+      nowMs: NOW,
+      activeAgents: 1,
+      totalAgents: 1,
+      sessionCount: 1,
+      recentSessions: [],
+      recentActivity: [],
+    });
+    expect(snapshotEmpty).not.toContain("最近的活动");
+    expect(snapshotEmpty).toBe(snapshot); // 空集与缺席同形
+  });
+
+  test("预算截断：活动段超长被截断（防御性硬顶，行数上限 + 字符上限双闸）", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      at: NOW - i * 1000,
+      domain: "session" as const,
+      attribution: "system" as const,
+      text: `这是一条很长很长的活动描述第${i}条，`.repeat(4),
+    }));
+    const snapshot = buildContextSnapshot({
+      nowMs: NOW,
+      activeAgents: 0,
+      totalAgents: 0,
+      sessionCount: 0,
+      recentSessions: [],
+      recentActivity: many,
+    });
+    expect(snapshot).toContain("最近的活动");
+    // 行数上限：SNAPSHOT_ACTIVITY_MAX_ENTRIES 条以内入段
+    const lines = snapshot.split("\n").filter((l) => l.startsWith("- "));
+    expect(lines.length).toBeLessThanOrEqual(SNAPSHOT_ACTIVITY_MAX_ENTRIES);
+    // 整体预算：基础段 + 活动段双预算硬顶
+    expect(snapshot.length).toBeLessThanOrEqual(CONTEXT_SNAPSHOT_MAX_CHARS + SNAPSHOT_ACTIVITY_MAX_CHARS + 40);
+  });
+
+  test("投影失败静默降级：recentActivity 读面抛错 → 快照保留基础段（零异常零阻塞）", async () => {
+    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的" }], stopReason: "stop" }]);
+    const sessions = fakeSessions([sessRow({ sessionId: "s1" })]);
+    const { svc } = makeA2Service({
+      llm,
+      sessions,
+      now: fixedClock,
+      recentActivity: () => {
+        throw new Error("ledger read boom");
+      },
+    });
+    const result = await svc.ask("刚才什么情况？");
+    expect(result.status).toBe("answer");
+    const prompt = llm.calls[0]!.request.systemPrompt;
+    expect(prompt).toContain("<context_snapshot>"); // 基础段仍在
+    expect(prompt).not.toContain("最近的活动"); // 活动段静默缺席
   });
 });
 

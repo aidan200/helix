@@ -26,7 +26,7 @@
  * （A1：隐藏不卸载但全局监听归活跃态）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Brain, ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { Activity, Brain, ChevronDown, ChevronRight, Wrench } from "lucide-react";
 import { useSteward } from "../model/useSteward";
 import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
@@ -42,6 +42,8 @@ interface StewardPanelProps {
   readonly active?: boolean;
   /** B2-④ 入口①：头部记忆钮 → 记忆独立页 /steward/memory（app 层注入）。 */
   readonly onOpenMemory?: () => void;
+  /** M3-d1 感知兑现批：头部活动钮 → 活动时间线页 /steward/activity（app 层注入）。 */
+  readonly onOpenActivity?: () => void;
 }
 
 /** thinking 折叠条目（默认折叠可展开——屏幕通道完整显示，样式对齐主会话
@@ -131,7 +133,7 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
 /** 输入框自动长高上限（px）——主聊天 Composer 同值（超限内滚）。 */
 const TA_MAX_HEIGHT = 160;
 
-const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory }: StewardPanelProps) {
+const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory, onOpenActivity }: StewardPanelProps) {
   const { t } = useI18n();
   const sv = useSteward();
   const [draft, setDraft] = useState("");
@@ -206,6 +208,16 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
           onClick={onOpenMemory}
         >
           <Brain size={14} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="stp-newchat"
+          data-testid="steward-open-activity"
+          title={t("steward.activity.openTitle")}
+          aria-label={t("steward.activity.openTitle")}
+          onClick={onOpenActivity}
+        >
+          <Activity size={14} strokeWidth={1.75} aria-hidden="true" />
         </button>
         <button
           type="button"

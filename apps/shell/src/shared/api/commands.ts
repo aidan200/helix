@@ -145,6 +145,9 @@ import type {
   StewardSetConfigPayload,
   StewardSubscribeCommand,
   StewardUnsubscribeCommand,
+  StewardActivityListCommand,
+  StewardActivityClearCommand,
+  StewardActivityRange,
   EmbeddingDeleteCommand,
   EmbeddingListCommand,
   EmbeddingSetCommand,
@@ -746,6 +749,27 @@ export function stewardMemoryPinCommand(id: number, pinned: boolean): StewardMem
  *  no-op；回执新清单）。 */
 export function stewardMemoryRestoreCommand(id: number): StewardMemoryRestoreCommand {
   return { v: PROTOCOL_VERSION, type: "steward.memory_restore", payload: { id } };
+}
+
+// ── 管家活动账（M3-d1 感知兑现批）：时间线页数据源 ──────────────────
+// 回执 = steward.activity.result（list/clear 两命令共用）；实时帧
+// steward.activity 经 subscribeStewardFrames 消费。
+
+/** steward.activity.list：时间窗查询（range 缺省 today；limit 缺省 200）。 */
+export function stewardActivityListCommand(range?: StewardActivityRange, limit?: number): StewardActivityListCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.activity.list",
+    payload: {
+      ...(range !== undefined ? { range } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    },
+  };
+}
+
+/** steward.activity.clear：落盘条目全清（回执空窗新态；幂等）。 */
+export function stewardActivityClearCommand(): StewardActivityClearCommand {
+  return { v: PROTOCOL_VERSION, type: "steward.activity.clear", payload: {} };
 }
 
 // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（向量模型 tab）──

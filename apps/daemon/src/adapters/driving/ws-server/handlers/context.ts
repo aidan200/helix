@@ -47,6 +47,7 @@ import type { SttStreamService } from "../../../../application/stt/SttStreamServ
 import type { TtsPort } from "../../../../application/ports/outbound/TtsPort";
 import type { TtsStreamService } from "../../../../application/tts/TtsStreamService";
 import type { StewardService } from "../../../../application/steward/StewardService";
+import type { StewardActivityService } from "../../../../application/steward/StewardActivityService";
 import type { SurfaceRegistry } from "../../../../application/surface/SurfaceRegistry";
 import type { EmbeddingConfigService } from "../../../../application/embedding/EmbeddingConfigService";
 import type { CustomProviderService } from "../../../../application/services/CustomProviderService";
@@ -557,6 +558,9 @@ export interface StewardCommandDeps {
   readonly service: StewardService;
   /** EventStream 连接级 steward 订阅面（steward.subscribe/unsubscribe 登记）。 */
   readonly stream: Pick<EventStream, "subscribeSteward" | "unsubscribeSteward" | "sendStewardPendingSnapshot">;
+  /** M3-d1 活动账回口（时间线查询/清理——StewardActivityService 窄面；
+   *  可选：未装配 = handler 零记忆降级（读面空清单/清理 no-op））。 */
+  readonly activity?: Pick<StewardActivityService, "listWindow" | "clear">;
 }
 
 /**

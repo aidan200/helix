@@ -43,6 +43,8 @@ import type {
   SurfaceActionPayload,
   StewardNotifyEvent,
   StewardNotifyPayload,
+  StewardActivityEvent,
+  StewardActivityPayload,
   StewardProactiveEvent,
   StewardProactivePayload,
   StewardPendingSnapshotEvent,
@@ -664,6 +666,32 @@ export class EventStream implements EventPublisherPort {
       sessionId: SYSTEM_SESSION_ID,
       channel: "steward",
       type: "steward.proactive",
+      payload,
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+  }
+
+  /**
+   * steward.activity 实时活动条目广播（M3-d1 感知兑现批）：daemon 级全局帧
+   * （信封 sessionId = SYSTEM_SESSION_ID、channel = "steward"），投递按连接级
+   * steward 订阅位过滤（feed/notify/proactive 同闸门同构）。触发面 =
+   * StewardActivityService.recordRingEntry/recordNotify（活动账落账即发——
+   * ring 六类条目沉淀 + notify 记账同源）。**事件帧非指令帧**（与 notify 同
+   * 通道治理）：时间线呈现面实时冒条目，零播报零语音（TR-250 纯视觉零语音）。
+   */
+  broadcastStewardActivity(payload: StewardActivityPayload): void {
+    const frame: StewardActivityEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.activity",
       payload,
     };
     for (const [sender, conn] of this.connections) {

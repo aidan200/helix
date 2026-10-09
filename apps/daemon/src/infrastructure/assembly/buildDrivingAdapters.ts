@@ -70,6 +70,10 @@ export interface CliDrivingDeps {
   readonly cliInput?: NodeJS.ReadableStream;
   /** CLI 输出流覆盖（缺省 process.stdout；真实启动面）。 */
   readonly cliOutput?: NodeJS.WritableStream;
+  /** M3-d1 感知兑现批：CLI 对话行用户在场信号（组合根旁挂——感知服务
+   *  noteUserActivity + 活动账 noteCliSession(currentSessionId)；缺席 =
+   *  零信号）。 */
+  readonly onCliInput?: () => void;
 }
 
 export interface CliDriving {
@@ -109,6 +113,8 @@ export function buildCliDriving(deps: CliDrivingDeps): CliDriving {
     chat: chatRouter,
     session: deps.sessionService,
     events: stdoutPublisher,
+    // M3-d1：CLI 对话行用户在场信号（组合根旁挂——感知激活 + cli: 域登记）
+    ...(deps.onCliInput !== undefined ? { onUserInput: deps.onCliInput } : {}),
     input: deps.cliInput,
     output: deps.cliOutput,
   });

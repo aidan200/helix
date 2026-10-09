@@ -383,6 +383,12 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.proactive":
       // M3-a 批：对话内主动汇报实时帧（CAND-601 闭环——与 notify 同建议形态，无 urgency）
       return `steward-proactive:${event.payload.title}:${event.payload.seq}`;
+    case "steward.activity.result":
+      // 管家活动账批 M3-d1：时间线查询/清理回执（entries at 降序）
+      return `steward-activity-result:${event.payload.entries.length}`;
+    case "steward.activity":
+      // 管家活动账批 M3-d1：实时活动条目广播（白话一行）
+      return `steward-activity:${event.payload.domain}:${event.payload.seq}`;
     case "surface.action":
       // 表面协议地基批（M0）：统一动作指令帧窄化（verb + risk + seq + 定向面）
       return `surface-action:${event.payload.verb}:${event.payload.risk}:${event.payload.seq}:${event.payload.surfaceIds?.join(",") ?? "-"}`;
@@ -677,6 +683,12 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "kg.triage.create":
       // kg-triage 批：待办面裁决任务发起
       return `kg-triage-create:${cmd.payload.project}`;
+    case "steward.activity.list":
+      // 管家活动账批 M3-d1：时间线查询（range 缺省 today）
+      return `steward-activity-list:${cmd.payload.range ?? "today"}:${cmd.payload.limit ?? 200}`;
+    case "steward.activity.clear":
+      // 管家活动账批 M3-d1：活动账清理（幂等）
+      return "steward-activity-clear";
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

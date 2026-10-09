@@ -376,6 +376,11 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     // WAL 并存、表域不相交无跨面写冲突；本连接仅对话域单写者（端口
     // StewardDialogStorePort 唯一消费面 = StewardDialogMemory），事务写入。
     path.join("adapters", "driven", "steward-memory", "SqliteStewardDialogStore.ts"),
+    // 管家活动账批 M3-d1（同构登记）：steward_memory.db 第三连接写面——活动账
+    // 行式存储（steward_activity 表）与 B1/B6 同库不同表（管家域单库聚合）；
+    // 本连接仅活动账单写者（端口 StewardActivityStorePort 唯一消费面 =
+    // StewardActivityService），append 单行写/时间窗查询/清理，无跨面并发。
+    path.join("adapters", "driven", "steward-memory", "SqliteActivityLedgerStore.ts"),
   ]);
   // T2.1（AF-2）：codegraph.db 只读读点登记（**非写点**）——codegraph-engine
   // 投影面 new Database（mode=ro 系只读连接，零 DML/DDL/写类 PRAGMA，绝不
@@ -714,6 +719,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
             (/\/services\/(kg|workspace|task)\//.test(spec) ||
               /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
               /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec) ||
+              /\/steward\/StewardActivityService$/.test(spec) ||
               /\/surface\/SurfaceRegistry$/.test(spec)) &&
             typeOnly(spec, src);
           // stt 批显式例外：VocabularyBuilder = 纯函数词汇表工具面

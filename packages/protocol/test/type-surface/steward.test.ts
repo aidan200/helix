@@ -107,6 +107,10 @@ type _StewardFamily = Expect<
       | "steward.pending.snapshot"
       | "steward.memory_written"
       | "steward.memory_list.result"
+      // 管家活动账批 M3-d1 +steward.activity.result（查询/清理回执）+
+      // steward.activity（实时活动条目广播）
+      | "steward.activity.result"
+      | "steward.activity"
   >
 >;
 

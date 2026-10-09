@@ -196,6 +196,11 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.pending.snapshot",
   "steward.memory_written",
   "steward.memory_list.result",
+  // 管家活动账批 M3-d1 +steward.activity.result（时间线查询/清理回执）+
+  // steward.activity（实时活动条目广播——落账即发），真消费归活动时间线页
+  // （subscribeStewardFrames 订阅面；与 feed/notify 同订阅闸广播）
+  "steward.activity.result",
+  "steward.activity",
   // 表面协议地基批（M0）：surface 两帧 = 连接私有（action 指令帧定向到已
   // 注册表面连接 + registered 注册回执点对点），真消费归 useStewardNavigate
   //（verb=navigate 建议导航）与 useShellSurface（注册面）——TR-89 双登记

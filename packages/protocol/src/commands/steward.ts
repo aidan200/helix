@@ -234,3 +234,29 @@ export interface StewardInterruptPayload {
 export interface StewardInterruptCommand extends CommandFrame<StewardInterruptPayload> {
   type: "steward.interrupt";
 }
+
+// ── 管家活动账（M3-d1 感知兑现批，additive）────────────────────
+
+/** steward.activity.list 时间窗档位（与 query_recent_work 四档同词表 +
+ *  all 全量档；缺省 today）。 */
+export type StewardActivityRange = "today" | "yesterday" | "this_week" | "all";
+
+/** steward.activity.list 载荷。 */
+export interface StewardActivityListPayload {
+  /** 时间窗档位（缺省 today——本地时区零点窗口）。 */
+  range?: StewardActivityRange;
+  /** 条数上限（缺省 200；防御上限 1000）。 */
+  limit?: number;
+}
+
+/** steward.activity.list：活动账时间窗查询（回执 steward.activity.result
+ *  点对点——管家域「活动」时间线页数据源；零记忆降级 = 空清单）。 */
+export interface StewardActivityListCommand extends CommandFrame<StewardActivityListPayload> {
+  type: "steward.activity.list";
+}
+
+/** steward.activity.clear：活动账清理（回执 steward.activity.result——
+ *  落盘条目全清后回空窗新态；幂等）。 */
+export interface StewardActivityClearCommand extends CommandFrame<Record<string, never>> {
+  type: "steward.activity.clear";
+}

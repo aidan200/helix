@@ -528,3 +528,79 @@ export function handleStewardInterrupt(ctx: StewardCommandContext): void {
   }
   ctx.steward.service.abortInFlight(reason ?? "barge-in");
 }
+
+/** ── M3-d1 感知兑现批：活动账两命令（时间线页数据源）────────────── */
+
+/** 活动查询默认条数上限。 */
+const ACTIVITY_LIST_DEFAULT_LIMIT = 200;
+
+/** 活动查询防御上限（LLM 未接入本命令——纯 UI 面，防御性硬顶）。 */
+const ACTIVITY_LIST_MAX_LIMIT = 1000;
+
+/** 活动查询时间窗档位 → 窗口下界（本地时区零点/周一零点——与
+ *  query_recent_work timeRangeWindow 同口径的档位子集）。 */
+function activityRangeSince(range: string, nowMs: number): number {
+  const d = new Date(nowMs);
+  d.setHours(0, 0, 0, 0);
+  const today0 = d.getTime();
+  if (range === "yesterday") return today0 - 86_400_000;
+  if (range === "this_week") {
+    const day = d.getDay();
+    return today0 - ((day + 6) % 7) * 86_400_000;
+  }
+  if (range === "all") return 0;
+  return today0; // today（缺省）
+}
+
+/** 活动账条目回执（list/clear 两命令共用——clear 后即回空窗新态）。 */
+function respondActivityList(
+  ctx: StewardCommandContext,
+  entries: readonly import("@helix/protocol").StewardActivityEntryView[],
+): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: import("@helix/protocol").StewardActivityResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "steward",
+    type: "steward.activity.result",
+    payload: { entries },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** steward.activity.list（全局命令；M3-d1）：时间窗查询 + 点对点回执
+ *  steward.activity.result。零活动降级：activity 回口缺席 = 空清单（不走
+ *  unimplemented——记忆族先例）。 */
+export function handleStewardActivityList(ctx: StewardCommandContext): void {
+  const rawRange = ctx.payload.range;
+  if (
+    rawRange !== undefined &&
+    rawRange !== "today" &&
+    rawRange !== "yesterday" &&
+    rawRange !== "this_week" &&
+    rawRange !== "all"
+  ) {
+    return ctx.commandError(
+      ctx.type,
+      "command.invalid_payload",
+      'payload.range 应为 "today" | "yesterday" | "this_week" | "all"',
+    );
+  }
+  const rawLimit = ctx.payload.limit;
+  if (rawLimit !== undefined && (typeof rawLimit !== "number" || !Number.isInteger(rawLimit) || rawLimit <= 0)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.limit 应为正整数");
+  }
+  const now = Date.now();
+  const entries = ctx.steward.activity?.listWindow({
+    sinceMs: activityRangeSince(rawRange ?? "today", now),
+    limit: Math.min(rawLimit ?? ACTIVITY_LIST_DEFAULT_LIMIT, ACTIVITY_LIST_MAX_LIMIT),
+  });
+  respondActivityList(ctx, entries ?? []);
+}
+
+/** steward.activity.clear（全局命令；M3-d1）：落盘条目全清 + 回执空窗新态
+ *  （幂等；activity 回口缺席 = no-op 空窗回执）。 */
+export function handleStewardActivityClear(ctx: StewardCommandContext): void {
+  ctx.steward.activity?.clear();
+  respondActivityList(ctx, []);
+}

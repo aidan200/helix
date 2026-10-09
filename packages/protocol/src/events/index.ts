@@ -171,6 +171,8 @@ import type {
   StewardProactiveEvent,
   StewardActionCompletedEvent,
   StewardPendingSnapshotEvent,
+  StewardActivityResultEvent,
+  StewardActivityEvent,
 } from "./steward";
 import type {
   SurfaceActionEvent,
@@ -359,6 +361,8 @@ export type EventEnvelope =
   | StewardNotifyEvent
   | StewardProactiveEvent
   | StewardPendingSnapshotEvent
+  | StewardActivityResultEvent
+  | StewardActivityEvent
   | EmbeddingListResultEvent
   | EmbeddingVerifyResultEvent
   | ProviderListResultEvent
@@ -554,6 +558,10 @@ export const EVENT_TYPES = [
   // 确认链路修复批：steward.pending.snapshot（在途确认卡快照——订阅对账/
   // 跨重启清场帧，E-206 预留帧位落地）
   "steward.pending.snapshot",
+  // 管家活动账批 M3-d1：steward.activity.result（时间线查询/清理回执）+
+  // steward.activity（实时活动条目广播——落账即发，与 feed/notify 同闸门）
+  "steward.activity.result",
+  "steward.activity",
   // 管家记忆 B2：steward 记忆条目清单回执（memory_list/append/update/delete
   // 四命令共用）+ embedding 配置域两帧（新族 channel "embedding"——端点
   // 清单回执与连通测试回执）
@@ -714,6 +722,8 @@ export const EVENT_CHANNELS = {
   "steward.notify": "steward",
   "steward.proactive": "steward",
   "steward.pending.snapshot": "steward",
+  "steward.activity.result": "steward",
+  "steward.activity": "steward",
   "embedding.list.result": "embedding",
   "embedding.verify.result": "embedding",
   "provider.list.result": "provider",

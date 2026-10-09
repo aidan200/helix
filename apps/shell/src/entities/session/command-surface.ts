@@ -67,6 +67,8 @@ import {
   stewardMemoryListCommand,
   stewardMemoryPinCommand,
   stewardMemoryRestoreCommand,
+  stewardActivityListCommand,
+  stewardActivityClearCommand,
   stewardMemoryUpdateCommand,
   stewardSetConfigCommand,
   stewardSubscribeCommand,
@@ -368,6 +370,16 @@ export const COMMAND_SURFACE = {
   /** 淡忘条目恢复（遗忘机制批；active 条目幂等 no-op）。 */
   sendStewardMemoryRestore: (deps) =>
     (id: number): boolean => deps.send(stewardMemoryRestoreCommand(id)),
+  // ── 管家活动账（M3-d1 感知兑现批）：时间线页数据源（回执
+  //    steward.activity.result 两命令共用；实时帧 steward.activity 经
+  //    subscribeStewardFrames 消费）─────────────────────────
+  /** 活动账时间窗查询（range 缺省 today；返回 false = 未连接）。 */
+  sendStewardActivityList: (deps) =>
+    (range?: import("@helix/protocol").StewardActivityRange, limit?: number): boolean =>
+      deps.send(stewardActivityListCommand(range, limit)),
+  /** 活动账清理（回执空窗新态；幂等）。 */
+  sendStewardActivityClear: (deps) =>
+    (): boolean => deps.send(stewardActivityClearCommand()),
   // ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（模型页向量
   //    tab / 管家记忆区下拉数据源）──────────────────────────────
   /** 端点清单读面（回执 embedding.list.result）。 */
@@ -1048,7 +1060,9 @@ export const LISTEN_SURFACE = {
    *  管家感知批 M0.5 主动通知帧（steward.notify——StewardNotifyToast
    *  全局 toast 消费）+ 确认链路修复批在途确认卡快照（steward.pending.
    *  snapshot——useStewardActions 订阅对账/清场撤旧卡）+
-   *  connection.error——面板/设置页/切页钩子/通知 toast/卡栈五消费面；
+   *  管家活动账批 M3-d1 两帧（steward.activity.result 查询/清理回执 +
+   *  steward.activity 实时条目——活动时间线页消费）+
+   *  connection.error——面板/设置页/切页钩子/通知 toast/卡栈/时间线六消费面；
    *  TR-89 双登记纪律）。 */
   subscribeStewardFrames: {
     match: (type) =>
@@ -1067,6 +1081,8 @@ export const LISTEN_SURFACE = {
       type === "steward.pending.snapshot" ||
       type === "steward.memory_written" ||
       type === "steward.memory_list.result" ||
+      type === "steward.activity.result" ||
+      type === "steward.activity" ||
       type === "connection.error",
   },
   /** 订阅 embedding 族帧（管家记忆 B2：list.result 清单回执（list/set/delete

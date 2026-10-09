@@ -28,13 +28,15 @@ export interface StewardDockProps {
   onClose: () => void;
   /** B2-④ 入口①：面板头部记忆钮 → 记忆独立页（透传 StewardPanel）。 */
   onOpenMemory: () => void;
+  /** M3-d1：头部活动钮 → 活动时间线页 /steward/activity（app 层注入）。 */
+  onOpenActivity?: () => void;
 }
 
-const StewardDock = function StewardDock({ open, onClose, onOpenMemory }: StewardDockProps) {
+const StewardDock = function StewardDock({ open, onClose, onOpenMemory, onOpenActivity }: StewardDockProps) {
   useDismissOnOutside(open, ".stp-dock, .rail-steward-btn", onClose, { event: "pointerdown" });
   return (
     <div className={open ? "stp-dock" : "stp-dock stp-dock-hidden"} data-testid="steward-dock" aria-hidden={!open}>
-      <StewardPanel onClose={onClose} active={open} onOpenMemory={onOpenMemory} />
+      <StewardPanel onClose={onClose} active={open} onOpenMemory={onOpenMemory} onOpenActivity={onOpenActivity} />
     </div>
   );
 };

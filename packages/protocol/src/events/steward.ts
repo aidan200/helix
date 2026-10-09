@@ -521,8 +521,59 @@ export interface StewardPendingSnapshotPayload {
 }
 
 /** steward.pending.snapshot：在途确认卡快照帧（channel = "steward"；广播
- *  仅发已订阅连接 + steward.subscribe 受理时点对点回发一次——对账双路）。 */
+ * 仅发已订阅连接 + steward.subscribe 受理时点对点回发一次——对账双路）。 */
 export interface StewardPendingSnapshotEvent extends EventFrame<StewardPendingSnapshotPayload> {
   channel?: "steward";
   type: "steward.pending.snapshot";
+}
+
+// ── 管家活动账（M3-d1 感知兑现批，additive）────────────────────
+
+/** 活动域标签（域归组——时间线呈现/归组用；cli = 终端会话专属归组）。 */
+export type StewardActivityDomain = "task" | "session" | "agent" | "surface" | "cli" | "notify";
+
+/** 活动归因三值：user = 用户动作 / steward = 管家自产动作（CAND-607
+ *  selfRef 并入解决）/ system = 系统机械动作（后台代理/回合收口）。 */
+export type StewardActivityAttribution = "user" | "steward" | "system";
+
+/** 活动账统一条目（{at, domain, attribution, text}——text 恒白话一句，
+ *  TR-249 铁律延伸到呈现/投影面：禁术语/UUID/英文报错原文）。 */
+export interface StewardActivityEntryView {
+  /** 记录时刻（epoch ms）。 */
+  at: number;
+  /** 域标签。 */
+  domain: StewardActivityDomain;
+  /** 归因。 */
+  attribution: StewardActivityAttribution;
+  /** 白话一句话。 */
+  text: string;
+}
+
+/** steward.activity.result payload（M3-d1，additive）：活动账时间窗查询
+ *  回执（steward.activity.list / clear 两命令共用——clear 后即回空窗新态）。 */
+export interface StewardActivityResultPayload {
+  /** 条目清单（at 降序——最新在前；时间窗过滤后取最近 limit 条）。 */
+  entries: readonly StewardActivityEntryView[];
+}
+
+/** steward.activity.result：活动账查询/清理回执（channel = "steward"；
+ *  点对点——发回发起命令的连接）。 */
+export interface StewardActivityResultEvent extends EventFrame<StewardActivityResultPayload> {
+  channel?: "steward";
+  type: "steward.activity.result";
+}
+
+/** steward.activity payload（M3-d1，additive）：实时活动条目广播帧——
+ *  活动账落账即广播（ring 六类条目沉淀 + notify 记账同源），时间线呈现面
+ *  实时冒条目；**事件帧非指令帧**（与 notify 同通道治理）。 */
+export interface StewardActivityPayload extends StewardActivityEntryView {
+  /** 连接内单调顺序号（1 起；shell 侧顺序保障/丢帧检测面）。 */
+  seq: number;
+}
+
+/** steward.activity：实时活动条目广播帧（channel = "steward"；仅发已订阅
+ *  连接——与 feed/notify 同闸门；旧壳缺帧型忽略零破坏）。 */
+export interface StewardActivityEvent extends EventFrame<StewardActivityPayload> {
+  channel?: "steward";
+  type: "steward.activity";
 }

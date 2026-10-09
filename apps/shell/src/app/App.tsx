@@ -44,6 +44,7 @@ import {
   ROUTE_SETTINGS,
   ROUTE_SKILLS,
   ROUTE_STEWARD_MEMORY,
+  ROUTE_STEWARD_ACTIVITY,
   ROUTE_TASKS,
   ROUTE_TRACE,
   ROUTE_WORKBENCH,
@@ -58,6 +59,7 @@ import StewardDock from "@/features/steward/ui/StewardDock";
 import ConfirmStack from "@/features/steward/ui/ConfirmStack";
 import StewardVoiceLayer from "@/features/steward/ui/StewardVoiceLayer";
 import StewardMemoryPage from "@/pages/steward-memory/StewardMemoryPage";
+import StewardActivityPage from "@/pages/steward-activity/StewardActivityPage";
 import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
 import { useShellSurface } from "@/features/surface/model/useShellSurface";
 
@@ -98,6 +100,11 @@ export function AppRoutes() {
   const openStewardMemory = useCallback(() => {
     setStewardOpen(false);
     navigate(ROUTE_STEWARD_MEMORY);
+  }, [navigate]);
+  // M3-d1 感知兑现批：StewardPanel 头部活动钮 → 活动时间线页（关面板 + 导航）
+  const openStewardActivity = useCallback(() => {
+    setStewardOpen(false);
+    navigate(ROUTE_STEWARD_ACTIVITY);
   }, [navigate]);
   // 「打开设置页某分区」信号接线（Bug 修复批：P-3 零可用空态逃生口——
   // features 层发起 shared 信号，本层订阅 navigate + 分区指路；
@@ -188,11 +195,12 @@ export function AppRoutes() {
             <SettingsPage path={ROUTE_SETTINGS} onOpenStewardMemory={() => navigate(ROUTE_STEWARD_MEMORY)} />
           )}
           {route === ROUTE_STEWARD_MEMORY && <StewardMemoryPage path={ROUTE_STEWARD_MEMORY} />}
+          {route === ROUTE_STEWARD_ACTIVITY && <StewardActivityPage path={ROUTE_STEWARD_ACTIVITY} />}
         </div>
       </div>
       {/* 管家全局弹层（管家全局化批）：rail 右缘 fixed 浮动面板，页面域之外
           ——路由切换不卸载（app 生命周期态）；B2-④ 记忆钮注入开页回调 */}
-      <StewardDock open={stewardOpen} onClose={closeSteward} onOpenMemory={openStewardMemory} />
+      <StewardDock open={stewardOpen} onClose={closeSteward} onOpenMemory={openStewardMemory} onOpenActivity={openStewardActivity} />
       {/* B1 确认卡栈（左下角全局 fixed 视口层——E-135 真全屏语义）：多卡并存
           独立于面板开合/光球（纯文本期照常出现）；数据面单实例挂载于此 */}
       <ConfirmStack />

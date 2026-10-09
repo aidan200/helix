@@ -23,6 +23,9 @@ export const ROUTE_SETTINGS = "/settings";
 /** 管家记忆独立页（B2-④：低频不占常驻导航——入口 = StewardPanel 记忆钮 +
  *  设置管家记忆区「管理记忆」链接）。 */
 export const ROUTE_STEWARD_MEMORY = "/steward/memory";
+/** 管家活动时间线页（M3-d1 感知兑现批：活动账回看/清理 + 实时条目——
+ *  低频不占常驻导航，入口 = StewardPanel 头部活动钮）。 */
+export const ROUTE_STEWARD_ACTIVITY = "/steward/activity";
 
 export type AppRoute =
   | typeof ROUTE_WORKBENCH
@@ -31,7 +34,8 @@ export type AppRoute =
   | typeof ROUTE_PROJECT
   | typeof ROUTE_TASKS
   | typeof ROUTE_SETTINGS
-  | typeof ROUTE_STEWARD_MEMORY;
+  | typeof ROUTE_STEWARD_MEMORY
+  | typeof ROUTE_STEWARD_ACTIVITY;
 
 /** pathname → 路由（未知路径——含退役 /models 与旧 /settings/models——回落工作台，F-9 既有语义）；
  * 尾斜杠先行规范化（"/skills/" 与 "/skills" 同路由，不再静默回落工作台）。 */
@@ -52,6 +56,8 @@ export function routeOfPath(pathname: string): AppRoute {
       return ROUTE_SETTINGS;
     case ROUTE_STEWARD_MEMORY:
       return ROUTE_STEWARD_MEMORY;
+    case ROUTE_STEWARD_ACTIVITY:
+      return ROUTE_STEWARD_ACTIVITY;
     default:
       return ROUTE_WORKBENCH;
   }

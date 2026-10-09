@@ -122,6 +122,15 @@ export interface PerceptionRingEntry {
   readonly agentId?: string;
   /** 任务 id（任务级记录）。 */
   readonly jobId?: string;
+  /** 任务标题（任务终态机械字段——M3-d1 additive：活动账白话行文用，
+   *  白话铁律禁 id 入句）。 */
+  readonly title?: string;
+  /** 表面事件来源（E-251 三原语 origin 三值——M3-d1 additive：活动账
+   *  attribution 归一用；缺席 = user（M0 shell 页面事件恒 user））。 */
+  readonly origin?: "user" | "steward" | "system";
+  /** 表面事件 kind 原词（activated/navigated/…——M3-d1 additive：活动账
+   *  白话映射用，避免解析 text 拼接串）。 */
+  readonly surfaceKind?: string;
   /** 一行摘要（agent closure 摘要截断 / 周期 ping 原文 / 终态事实）。 */
   readonly text: string;
   /** 分诊摄入轨全文（仅 task.diagnosed——只活 ring buffer，不进长期记忆）。 */
@@ -224,6 +233,11 @@ export interface StewardPerceptionDeps {
   /** 投递关注持久化 kv（修复②：RuntimeConfigPort 窄面——单键整图快照，跨
    *  重启恢复 + TTL 过滤；缺席 = 纯内存形态（回归兼容）。 */
   readonly kv?: { get(key: string): string | undefined; set(key: string, value: string): Promise<void> };
+  /** 活动账沉淀回调（M3-d1 感知兑现批：ring 六类条目入账——组合根接
+   *  StewardActivityService.recordRingEntry；**隔离面**：回调抛错被吞
+   *  不炸感知主链路；缺席 = 零落账（ring 语义不变）。管道冻结语义保持：
+   *  这是既有 ring 索引的落盘投影，不是新采集面。） */
+  readonly onRingEntry?: (entry: PerceptionRingEntry) => void;
   /** 时钟（缺省 Date.now——测试注入衰减窗/限流窗步进）。 */
   readonly clock?: () => number;
   readonly logger?: { warn(message: string): void };
@@ -345,6 +359,8 @@ export class StewardPerceptionService {
       kind: "task.terminal",
       sessionId,
       jobId,
+      // 任务标题（M3-d1）：活动账白话行文用——白话铁律禁 jobId 入句
+      ...(title !== undefined && title.trim() !== "" ? { title: title.trim().slice(0, 80) } : {}),
       text: `任务 ${jobId} 终态：${status}`,
     });
     // 机械短讯（白话硬约束）：任务状态是机械事实——零 LLM 零判官零分诊，
@@ -389,6 +405,8 @@ export class StewardPerceptionService {
       at: event.at ?? this.now(),
       kind: "surface.event",
       sessionId: event.surfaceId, // 归属表面（ring sessionId 位承载 surfaceId）
+      origin: event.origin, // M3-d1：活动账 attribution 归一（E-251 三原语）
+      surfaceKind: event.kind, // M3-d1：活动账白话映射（免解析拼接串）
       text: `${event.kind}${event.detail !== undefined ? ` ${JSON.stringify(event.detail).slice(0, 120)}` : ""}`,
     });
   }
@@ -413,6 +431,13 @@ export class StewardPerceptionService {
     this.ring.push(entry);
     if (this.ring.length > PERCEPTION_RING_LIMIT) {
       this.ring = this.ring.slice(this.ring.length - PERCEPTION_RING_LIMIT);
+    }
+    // M3-d1：ring 六类条目沉淀活动账（隔离面——回调异常不炸感知主链路）
+    try {
+      this.deps.onRingEntry?.(entry);
+    } catch {
+      // 账本侧自记降级（记账失败不阻断感知；StewardActivityService 内部
+      // 已 warn 可观测——此处二次防御仅防御回调面自身抛错）
     }
   }
 

@@ -12,6 +12,7 @@ import {
   ROUTE_SETTINGS,
   ROUTE_SKILLS,
   ROUTE_STEWARD_MEMORY,
+  ROUTE_STEWARD_ACTIVITY,
   ROUTE_TASKS,
   ROUTE_TRACE,
   ROUTE_WORKBENCH,
@@ -27,6 +28,7 @@ describe("TP-CL4-1 routeOfPath 路径映射", () => {
     expect(routeOfPath("/tasks")).toBe(ROUTE_TASKS);
     expect(routeOfPath("/settings")).toBe(ROUTE_SETTINGS);
     expect(routeOfPath("/steward/memory")).toBe(ROUTE_STEWARD_MEMORY);
+    expect(routeOfPath("/steward/activity")).toBe(ROUTE_STEWARD_ACTIVITY); // M3-d1 活动时间线页
   });
 
   it("尾斜杠规范化：带尾斜杠路径与裸路径同路由（不静默回落工作台）", () => {
