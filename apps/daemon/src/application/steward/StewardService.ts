@@ -35,8 +35,10 @@ import {
   type PendingEntry,
 } from "../../domain/steward/confirmation/ProposalLedger";
 import { StewardRun } from "../../domain/steward/run/StewardRun";
+import { judgeOrFallback } from "../../domain/steward/utterance/JudgePolicy";
 import { judgeRunWatchdog } from "../../domain/steward/run/RunWatchdog";
 import { AskQueue } from "../../domain/steward/run/AskQueue";
+import { StewardToolKit } from "./tools/StewardToolKit";
 
 // 确认闸聚合域 re-export（批 1：定义已迁 domain/steward/confirmation——
 // 兼容既有引用面；行为零变更）
@@ -101,7 +103,7 @@ import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 import { readSummaryConfig } from "../summary/summaryConfig";
 
 /** 挂闸校验上下文（中立——原 GateToolContext 的 application 形态）。 */
-interface GateToolContext {
+export interface GateToolContext {
   readonly runId: string;
   readonly toolCallId: string;
   readonly toolName: string;
@@ -109,12 +111,12 @@ interface GateToolContext {
 }
 
 /** 挂闸校验结果（中立——原 {pause, outcome} 判别：result/terminate 两出口）。 */
-type GateToolOutcome =
+export type GateToolOutcome =
   | { readonly kind: "result"; readonly text: string; readonly isError?: boolean }
   | { readonly kind: "terminate"; readonly reason: string };
 
 /** args 摘要（feed 帧面——JSON 截断 120 字符）。 */
-function summarizeArgsLite(args: unknown): string {
+export function summarizeArgsLite(args: unknown): string {
   try {
     const json = JSON.stringify(args) ?? "null";
     return json.length > 120 ? `${json.slice(0, 120)}…` : json;
@@ -124,7 +126,7 @@ function summarizeArgsLite(args: unknown): string {
 }
 
 /** 豁免旗标嗅探（M2 突变面）：任何「免确认」企图位——闸面整单拒绝。 */
-function hasExemptionAffordance(args: Record<string, unknown>): boolean {
+export function hasExemptionAffordance(args: Record<string, unknown>): boolean {
   for (const key of ["exempt", "auto_confirm", "autoConfirm", "skip_confirmation", "skipConfirm", "confirmed"]) {
     if (args[key] === true) return true;
   }
@@ -132,7 +134,7 @@ function hasExemptionAffordance(args: Record<string, unknown>): boolean {
 }
 
 /** act 回执文本（带序列号回流——D7-1）。 */
-function formatActReceipt(result: { ok: boolean; seq: number; detail: string }): string {
+export function formatActReceipt(result: { ok: boolean; seq: number; detail: string }): string {
   return `动作回执（seq=${result.seq}）：${result.ok ? "成功" : "失败"}——${result.detail}`;
 }
 
@@ -357,7 +359,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 /** 会话显示标题单源（TR-207：title > topic > firstUserText > 兜底——
  *  快照/清单/read_session 三消费面共用，不得另写推导链）。 */
-function displayTitleOf(r: StewardSessionMetaRow): string {
+export function displayTitleOf(r: StewardSessionMetaRow): string {
   return r.title ?? r.topic ?? r.firstUserText ?? "（无主题）";
 }
 
@@ -430,7 +432,7 @@ function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
 }
 
 /** 字段级截断（紧凑投影用；超限截断加省略号）。 */
-function capChars(text: string, maxChars: number): string {
+export function capChars(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
 }
 
@@ -505,7 +507,7 @@ export function timeRangeWindow(range: TimeRange, nowMs: number): { sinceMs: num
 }
 
 /** 查询行时间格式化（MM-DD HH:mm；纯函数）。 */
-function fmtWhen(iso: string): string {
+export function fmtWhen(iso: string): string {
   const t = new Date(iso);
   if (Number.isNaN(t.getTime())) return "?";
   const p2 = (n: number) => String(n).padStart(2, "0");
@@ -906,19 +908,19 @@ export interface StewardServiceDeps {
 // PendingAction 已迁确认闸聚合域（domain/steward/confirmation——批 1）。
 
 /** 工具声明（JSON Schema 面——flash 级模型的 function calling 契约）。 */
-const TOOL_LIST_INSTANCES: StewardLlmTool = {
+export const TOOL_LIST_INSTANCES: StewardLlmTool = {
   name: "list_instances",
   description: "查询全部 agent 实例的状态清单（id、运行态、被指派任务、终态摘要）。",
   parameters: { type: "object", properties: {}, additionalProperties: false },
 };
 
-const TOOL_LIST_TASKS: StewardLlmTool = {
+export const TOOL_LIST_TASKS: StewardLlmTool = {
   name: "list_tasks",
   description: "查询任务清单（标题、状态、进度、错误）。",
   parameters: { type: "object", properties: {}, additionalProperties: false },
 };
 
-const TOOL_PROPOSE_SEND: StewardLlmTool = {
+export const TOOL_PROPOSE_SEND: StewardLlmTool = {
   name: "propose_send",
   description:
     "提案向运行中的 agent 实例递话（写操作——仅提案，系统会请求用户确认后才执行）。agentId 必须是当前运行中的实例。",
@@ -933,7 +935,7 @@ const TOOL_PROPOSE_SEND: StewardLlmTool = {
   },
 };
 
-const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
+export const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
   name: "query_recent_work",
   description:
     "按时间范围查询近期工作（会话清单 + 任务清单；可按项目过滤任务、按标题关键词过滤会话）。会话行携完整 sessionId——可直接用作 deliver_to_session 的 sessionId 参数（不要让用户去界面查 id）。回答「最近在忙什么/今天做了什么/找到某个会话」类问题时先用本工具取数。",
@@ -955,7 +957,7 @@ const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
   },
 };
 
-const TOOL_READ_SESSION: StewardLlmTool = {
+export const TOOL_READ_SESSION: StewardLlmTool = {
   name: "read_session",
   description:
     "读取指定会话的最近消息内容（尾部窗口，旧→新）——回答「那个会话聊到哪了/进展如何/具体说了什么」类问题时深读用；只读不改。sessionId 先用 query_recent_work 查（或用记忆召回行里的 sid）。返回尾部若干条 [user]/[assistant] 消息（长文截断）。",
@@ -972,7 +974,7 @@ const TOOL_READ_SESSION: StewardLlmTool = {
 
 // ── 批A（管家开放 kg 只读工具）：项目知识只读检索二件 ────────
 
-const TOOL_KG_SEARCH: StewardLlmTool = {
+export const TOOL_KG_SEARCH: StewardLlmTool = {
   name: "kg_search",
   description:
     "检索项目知识图谱（只读）。按关键词（节点名/摘要子串匹配，非语义）返回摘要列表，每行含适用场景、摘要与 `kg get <id>` 指针。回答「这个项目的规则/架构/术语/历史决策是什么」类问题时先用本工具取数，命中后用 kg_get 读全文。id 永远取自返回行指针，不要自造。",
@@ -987,7 +989,7 @@ const TOOL_KG_SEARCH: StewardLlmTool = {
   },
 };
 
-const TOOL_KG_GET: StewardLlmTool = {
+export const TOOL_KG_GET: StewardLlmTool = {
   name: "kg_get",
   description:
     "读取项目知识节点全量（只读）：digest/适用场景/正文/锚/关系/supersede 链/变更日志。nodeId 必须取自 kg_search 返回行的「kg get <id>」指针（TR-n / E-n 形态）；结果体量大时先看 digest 与适用场景再引用。",
@@ -1002,7 +1004,7 @@ const TOOL_KG_GET: StewardLlmTool = {
   },
 };
 
-const TOOL_CREATE_SESSION: StewardLlmTool = {
+export const TOOL_CREATE_SESSION: StewardLlmTool = {
   name: "create_session",
   description:
     "提案创建新会话（写操作——仅提案，系统会请求用户确认后才执行）。**只在用户只要一个空会话时使用**；用户话里带着任何要做的事/话题时必须改用 start_session（话题是用户要在新会话里开始的内容，不是标题——塞进 title 会丢）",
@@ -1016,7 +1018,7 @@ const TOOL_CREATE_SESSION: StewardLlmTool = {
   },
 };
 
-const TOOL_START_SESSION: StewardLlmTool = {
+export const TOOL_START_SESSION: StewardLlmTool = {
   name: "start_session",
   description:
     "提案创建新会话并带着话题开局（写操作——仅提案，系统会请求用户确认后才执行）。用户想开新会话且话里带着要做的事/话题时使用：initial_message = 用户原话（不改写、不总结——确认后建成会话即作为首条消息投递并在新会话开启工作，将向用户全文展示以供确认）；话题可另提炼 title",
@@ -1036,7 +1038,7 @@ const TOOL_START_SESSION: StewardLlmTool = {
   },
 };
 
-const TOOL_SPAWN_REVIEW_TASK: StewardLlmTool = {
+export const TOOL_SPAWN_REVIEW_TASK: StewardLlmTool = {
   name: "spawn_review_task",
   description:
     "提案发起评审任务（写操作——仅提案，系统会请求用户确认后才执行）。review_type: code-review（代码评审，需项目有 git 仓）或 kg-review（知识图谱评审，需项目已建 .kg 索引）",
@@ -1052,7 +1054,7 @@ const TOOL_SPAWN_REVIEW_TASK: StewardLlmTool = {
   },
 };
 
-const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
+export const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
   name: "deliver_to_session",
   description:
     "提案向指定会话投递用户输入（写操作——仅提案，系统会请求用户确认后才执行；投递成功后界面自动切到该会话）。sessionId 可先用 query_recent_work 查询（结果含 sessionId）。",
@@ -1067,7 +1069,7 @@ const TOOL_DELIVER_TO_SESSION: StewardLlmTool = {
   },
 };
 
-const TOOL_REMEMBER: StewardLlmTool = {
+export const TOOL_REMEMBER: StewardLlmTool = {
   name: "remember",
   description:
     "沉淀长期记忆（立即静默入库并弹通知卡，无需用户确认）。仅用于跨会话有持久价值的认知增量：用户明确表达的偏好/习惯（kind=preference）或对话中确认的事实（kind=fact）。text 要提炼成一句简单易懂、主题明确的记忆句（不要照搬用户原话口语）。一次性上下文、本轮临时信息、寒暄不记；语义重复会自动覆盖更新原条目。domain 标注记忆的业务领域（缺省按 kind 推导：preference→habit、fact→general）：habit = 关于用户怎么干活（换个团队也成立）；general = 环境与通用工作方式事实（跟项目无关）；project = 绑定具体项目才有意义（换个项目不成立——项目专属事实/约定请显式标注 project）。",
@@ -1090,7 +1092,7 @@ const TOOL_REMEMBER: StewardLlmTool = {
 
 /** surface_list（M2 四泛型工具之一，D4）：动态发现表面与能力——新表面/新
  *  动词靠它发现，不加工具膨胀。 */
-const TOOL_SURFACE_LIST: StewardLlmTool = {
+export const TOOL_SURFACE_LIST: StewardLlmTool = {
   name: "surface_list",
   description:
     "列出当前全部表面（浏览器 tab / helix 页面等）及其能力动词清单——不知道 surfaceId 或想知道能做什么时先用本工具。只读免确认。",
@@ -1098,7 +1100,7 @@ const TOOL_SURFACE_LIST: StewardLlmTool = {
 };
 
 /** snapshot：表面状态快照（只读免确认）。 */
-const TOOL_SNAPSHOT: StewardLlmTool = {
+export const TOOL_SNAPSHOT: StewardLlmTool = {
   name: "snapshot",
   description:
     "读取指定表面的当前状态快照（页面标题/网址/可见文本摘要）——帮用户看页面现状时用。只读免确认；surfaceId 用 surface_list 查（如 browser:xxx）。",
@@ -1113,7 +1115,7 @@ const TOOL_SNAPSHOT: StewardLlmTool = {
 };
 
 /** read：表面内容读取（只读免确认）。 */
-const TOOL_READ: StewardLlmTool = {
+export const TOOL_READ: StewardLlmTool = {
   name: "read",
   description:
     "读取指定表面的页面内容（可见文本全文，可限定元素范围）——需要看页面具体写了什么时用。只读免确认。",
@@ -1130,7 +1132,7 @@ const TOOL_READ: StewardLlmTool = {
 };
 
 /** act：表面动作（risk 三级闸——read 直行 / write·destructive 提案确认后执行）。 */
-const TOOL_ACT: StewardLlmTool = {
+export const TOOL_ACT: StewardLlmTool = {
   name: "act",
   description:
     "在指定表面上执行动作（verb 封闭词汇表：click/type/navigate/scroll/focus）。risk 挂动作：scroll/focus 免确认直行；click/type/navigate 属 write——仅提案，系统会请求用户确认后才执行；destructive 强制确认不可豁免。args 按表面与动词：navigate 在 shell 表面 {sessionId}（会话 id 字符串——切换会话，不是 url）、navigate 在 browser 表面 {url}、click {selector}、type {selector,text}、scroll {y} 或 {direction}（up/down/top/bottom）、focus {selector}。形状不合法会收到即时错误指引。",
@@ -1154,7 +1156,7 @@ const TOOL_ACT: StewardLlmTool = {
 /** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行；
  *  act 为 risk 动态档——read 直行/write·destructive 挂闸，判定在
  *  gateSurfaceAct）。 */
-const GATED_TOOLS: ReadonlySet<string> = new Set([
+export const GATED_TOOLS: ReadonlySet<string> = new Set([
   "propose_send",
   "deliver_to_session",
   "create_session",
@@ -1209,12 +1211,19 @@ export class StewardService implements StewardComponent {
    *  domain/steward/confirmation/ProposalLedger 纯状态机，本服务只做编排
    *  与出站翻译；行为零变更）。 */
   private readonly ledger: ProposalLedger;
-  /** 八工具中立规格（createEngine 装配面——driven 工具桥投影 pi AgentTool）。 */
-  private readonly toolSpecs: StewardToolSpec[] = [];
-  /** 隐藏面板原语名（不进引擎工具面——getProfile 观测面合并显示）。 */
-  private readonly hiddenToolNames: string[] = [];
-  private actionSeq = 0;
+  /** 工具面（批 3a 收编 tools/StewardToolKit——registerTools/挂闸/工具体）。 */
+  private readonly toolKit: StewardToolKit;
   private feedSeq = 0;
+
+  /** 八工具中立规格（createEngine 装配面——委托 toolKit 观测面）。 */
+  private get toolSpecs(): readonly StewardToolSpec[] {
+    return this.toolKit.toolSpecs;
+  }
+
+  /** 隐藏面板原语名（不进引擎工具面——getProfile 观测面合并显示）。 */
+  private get hiddenToolNames(): readonly string[] {
+    return this.toolKit.hiddenToolNames;
+  }
   /** 段B翻转：pi 引擎（懒构造——首问时经 createEngine 唯一配方装配，
    *  dialog 懒加载回填 initialMessages）。 */
   private engine: AgentEnginePort | undefined;
@@ -1258,7 +1267,11 @@ export class StewardService implements StewardComponent {
     this.ledger = new ProposalLedger({ now: () => this.now() });
     this.run = new StewardRun<StewardAskErrorKind>(() => this.now());
     this.askQueue = new AskQueue<StewardAskItem>(() => this.tuningOf().ask.queueMax); // 批 2：上限现拍（KV 即热）
-    this.registerTools();
+    // 批 3a：工具面收编 StewardToolKit（deps 全量透传 + 确认执行体闭包注入）
+    this.toolKit = new StewardToolKit({
+      ...deps,
+      executePending: (action: PendingAction) => this.executePending(action),
+    });
   }
 
   async ask(
@@ -1615,7 +1628,7 @@ export class StewardService implements StewardComponent {
   private async handleEnginePaused(
     event: Extract<AgentEngineEvent, { type: "engine_paused" }>,
   ): Promise<void> {
-    const gated = await this.gateWriteTool({
+    const gated = await this.toolKit.gateWriteTool({
       runId: "",
       toolCallId: event.toolCallId,
       toolName: event.toolName,
@@ -2110,20 +2123,22 @@ export class StewardService implements StewardComponent {
    *  （undefined/关/未配）/ 灰区 / 抛错一律 false = 偏「当聊天」（置信偏置
    *  同向：宁多应答不漏应答，零配置时行为与旧版完全一致）。 */
   private async judgeAddressee(text: string): Promise<boolean> {
-    const judge = this.deps.intentJudge;
-    if (judge === undefined) return false;
-    if (!judge.enabled()) return false; // 开关关：默认态零日志（同款）
-    if (!judge.ready()) {
-      this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——addressee 判定回退当聊天（原样走 LLM）");
-      return false;
-    }
-    try {
-      const score = await judge.noul(`用户这句话：${text}`, STEWARD_ADDRESSEE_QUESTION);
-      return isAmbientSpeech(score);
-    } catch (err) {
-      this.deps.logger?.warn(`addressee 判定失败，回退当聊天：${(err as Error).message}`);
-      return false;
-    }
+    // 批 3a：降级链收编 judgeOrFallback（文案逐字保留——onDegraded 形态）
+    const r = await judgeOrFallback({
+      judge: this.deps.intentJudge,
+      question: STEWARD_ADDRESSEE_QUESTION,
+      text,
+      interpret: isAmbientSpeech,
+      fallback: false, // 灰区/坏值/判官缺席一律偏「当聊天」（置信偏置：宁多应答不漏）
+      onDegraded: (kind, message) => {
+        if (kind === "unready") {
+          this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——addressee 判定回退当聊天（原样走 LLM）");
+        } else {
+          this.deps.logger?.warn(`addressee 判定失败，回退当聊天：${message ?? ""}`);
+        }
+      },
+    });
+    return r.value;
   }
 
   /** stop-intent 语义判定（barge-in 意图窗批）：非词表停止表达（「先别说了/
@@ -2132,20 +2147,24 @@ export class StewardService implements StewardComponent {
    *  error）一律 stop=false 回退照排队（与 addressee 同向保守：宁多应答不
    *  漏——误停丢播报不可回滚，误排队仅延后应答）。 */
   async judgeStopIntent(text: string): Promise<{ stop: boolean; score?: number; degraded?: "off" | "unready" | "error" }> {
-    const judge = this.deps.intentJudge;
-    if (judge === undefined) return { stop: false, degraded: "off" };
-    if (!judge.enabled()) return { stop: false, degraded: "off" }; // 开关关：默认态零日志（同款）
-    if (!judge.ready()) {
-      this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——stop-intent 判定回退不停止（照排队）");
-      return { stop: false, degraded: "unready" };
-    }
-    try {
-      const score = await judge.noul(`用户这句话：${text}`, STEWARD_STOP_QUESTION);
-      return isStopIntent(score) ? { stop: true, score } : { stop: false, score };
-    } catch (err) {
-      this.deps.logger?.warn(`stop-intent 判定失败，回退不停止（照排队）：${(err as Error).message}`);
-      return { stop: false, degraded: "error" };
-    }
+    // 批 3a：降级链收编 judgeOrFallback（文案逐字保留）；stop=true 才真停；
+    // 降级一律 stop=false 回退照排队（与 addressee 同向保守——误停丢播报
+    // 不可回滚，误排队仅延后应答）。
+    const r = await judgeOrFallback<{ stop: boolean; score?: number }>({
+      judge: this.deps.intentJudge,
+      question: STEWARD_STOP_QUESTION,
+      text,
+      interpret: (score) => (isStopIntent(score) ? { stop: true as const, score } : { stop: false as const, score }),
+      fallback: { stop: false },
+      onDegraded: (kind, message) => {
+        if (kind === "unready") {
+          this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——stop-intent 判定回退不停止（照排队）");
+        } else {
+          this.deps.logger?.warn(`stop-intent 判定失败，回退不停止（照排队）：${message ?? ""}`);
+        }
+      },
+    });
+    return r.degraded !== undefined ? { ...r.value, degraded: r.degraded } : r.value;
   }
 
   private async judgePendingIntent(
@@ -2536,524 +2555,8 @@ export class StewardService implements StewardComponent {
 
   // ── helix-loop L0：工具注册表装配（八工具）+ 暂停点挂钩 ──────
 
-  /**
-   * 八工具注册 ToolRegistry（迁移即验证——runTool 大 if-else 链退役）：
-   * - 只读三件（list_instances/list_tasks/query_recent_work）：handler 直查；
-   * - 写注入四件（propose_send/deliver_to_session/create_session/
-   *   spawn_review_task）：挂闸工具——beforeToolCallPause 暂停点（gateWriteTool
-   *   前置校验 + PendingAction 构造），handler 为 approve 决策执行体（L0 管家
-   *   走 confirm→resolve 路径，handler 供注册面完整性与未来自动化面）；
-   * - steward_confirm：hidden 注册（面板确认原语——不进 LLM 工具投影，
-   *   E-46「注册面恒宽、声明面管控谁可见」同构）。
-   */
-  private registerTools(): void {
-    // 只读三件：直查执行体（结果过 capToolResultText 体量护栏）
-    this.toolSpecs.push({
-      ...TOOL_LIST_INSTANCES,
-      execute: async () => {
-        // A1-hotfix：list_instances 走紧凑投影（status() 全量单条可达 537KB）
-        const rows = compactInstanceRows(this.deps.orchestration.status());
-        return { text: capToolResultText(JSON.stringify(rows)) };
-      },
-    });
-    this.toolSpecs.push({
-      ...TOOL_LIST_TASKS,
-      execute: async () => {
-        const rows = this.deps.tasks.listTasks({}).map((t) => ({
-          jobId: t.jobId,
-          title: t.title,
-          status: t.status,
-          progress:
-            t.progress === null
-              ? null
-              : `${t.progress.percent}%（${t.progress.batchesDone}/${t.progress.batchesTotal} 批次）`,
-          error: t.error,
-        }));
-        return { text: capToolResultText(JSON.stringify(rows)) };
-      },
-    });
-    this.toolSpecs.push({
-      ...TOOL_QUERY_RECENT_WORK,
-      execute: async (args) => ({ text: capToolResultText(await this.queryRecentWork(args as Record<string, unknown>)) }),
-    });
-    // progress 批 M3：read_session——只读深读面（与三件只读同族，不挂闸）。
-    // sessions 源缺席 = 引导式降级（与 query_recent_work 同姿态）。
-    this.toolSpecs.push({
-      ...TOOL_READ_SESSION,
-      execute: async (args) => ({ text: capToolResultText(await this.readSession(args as Record<string, unknown>)) }),
-    });
-    // 批A：kg 只读二件（kg_search/kg_get——项目知识问答，与只读族同族不挂
-    // 闸）；全链路零写：注册面不含任何 kg 写原语（写面不进管家工具面）。
-    this.toolSpecs.push({
-      ...TOOL_KG_SEARCH,
-      execute: async (args) => ({ text: capToolResultText(await this.kgSearchOf(args as Record<string, unknown>)) }),
-    });
-    this.toolSpecs.push({
-      ...TOOL_KG_GET,
-      execute: async (args) => ({ text: capToolResultText(await this.kgGetOf(args as Record<string, unknown>)) }),
-    });
-    // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute 为
-    // approve 决策执行体（重新过闸校验 + 执行——与 confirm 的 executePending
-    // 同源动作体；L0 管家走 confirm→resolve 路径，execute 供未来自动化面）
-    for (const [tool, actionOf] of [
-      [TOOL_PROPOSE_SEND, this.pendingActionOfProposeSend.bind(this)],
-      [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
-      [TOOL_CREATE_SESSION, this.pendingActionOfCreateSession.bind(this)],
-      [TOOL_START_SESSION, this.pendingActionOfStartSession.bind(this)],
-      [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
-    ] as const) {
-      void actionOf;
-      this.toolSpecs.push({
-        ...tool,
-        execute: async (args) => {
-          const gated = await this.gateWriteTool({ runId: "", toolCallId: "", toolName: tool.name, args: args as Record<string, unknown> });
-          if (!gated.pause) {
-            const outcome = gated.outcome;
-            if (outcome !== undefined && outcome.kind === "terminate") {
-              return { text: outcome.reason, terminate: true };
-            }
-            return { text: outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验（approve 不可达此路径）" };
-          }
-          const outcome = await this.executePending(gated.action!);
-          return { text: capToolResultText(outcome.detail), ...(outcome.ok ? {} : { isError: true }) };
-        },
-      });
-    }
-    // remember（B5 摘闸）：直接执行体——静默入库 + 通知，回执回灌续轮。
-    this.toolSpecs.push({
-      ...TOOL_REMEMBER,
-      execute: async (args) => {
-        const outcome = await this.directRemember(args as Record<string, unknown>);
-        return outcome.kind === "terminate"
-          ? { text: outcome.reason, terminate: true }
-          : { text: outcome.text, ...(outcome.isError === true ? { isError: true } : {}) };
-      },
-    });
-    // ── M2 四泛型工具（D4）：surface_list / snapshot / read 只读直行；
-    //    act 挂闸（GATED_TOOLS）——read 档经引擎 approve 面直行执行体，
-    //    write/destructive 走确认闸（本执行面不直行——防绕过）。
-    this.toolSpecs.push({
-      ...TOOL_SURFACE_LIST,
-      execute: async () => {
-        if (this.deps.surfaces === undefined) {
-          return { text: "表面能力面未装配（daemon 装配缺 surfaces 源）", isError: true };
-        }
-        try {
-          const rows = await this.deps.surfaces.list();
-          return { text: capToolResultText(JSON.stringify(rows)) };
-        } catch (err) {
-          return { text: `表面清单读取失败：${(err as Error).message}`, isError: true };
-        }
-      },
-    });
-    this.toolSpecs.push({
-      ...TOOL_SNAPSHOT,
-      execute: async (args) => ({
-        text: capToolResultText(await this.surfaceReadOf(args as Record<string, unknown>, "snapshot")),
-      }),
-    });
-    this.toolSpecs.push({
-      ...TOOL_READ,
-      execute: async (args) => ({
-        text: capToolResultText(await this.surfaceReadOf(args as Record<string, unknown>, "read")),
-      }),
-    });
-    this.toolSpecs.push({
-      ...TOOL_ACT,
-      execute: async (args) => {
-        const decision = await this.gateSurfaceAct(args as Record<string, unknown>);
-        if (decision.kind === "refuse") return { text: decision.reason, isError: true };
-        if (decision.kind === "proposal") {
-          // 防绕过：write/destructive 不经用户确认恒不执行（包括自动化面）
-          return {
-            text: "write/destructive 动作须经确认闸（propose→用户确认→执行）——本执行面不直行",
-            isError: true,
-          };
-        }
-        try {
-          const result = await this.deps.surfaces!.act(decision.request);
-          return { text: capToolResultText(formatActReceipt(result)), ...(result.ok ? {} : { isError: true }) };
-        } catch (err) {
-          return { text: `表面动作执行异常：${(err as Error).message}`, isError: true };
-        }
-      },
-    });
-    // steward_confirm：面板确认原语（hidden——不进引擎工具面（LLM 不可见）；
-    // actionId 单次消费语义与 handler 层 steward.confirm 命令等价，面板直调
-    // svc.confirm——引擎轨道零注册）
-    this.hiddenToolNames.push("steward_confirm");
-  }
-
-  // ── 确认闸暂停点（write 类工具挂闸——beforeToolCallPause 实现体） ──────
-
-  /**
-   * 写注入工具挂闸判定（前置校验 + PendingAction 构造——迁移前各 proposeXxx
-   * 逻辑平移）：
-   * - 校验失败（引导类）→ pause:false + outcome（toolResult 回灌循环继续）；
-   * - 防火墙前置拒（propose_send 实例不运行）→ pause:false + terminate
-   *   （run 错误收口直出回执，KV 无痕——与迁移前行为严格等价）；
-   * - 校验通过 → pause:true + action（LoopEngine 发 run.paused，ask 收口
-   *   confirm_required；confirm → resumeWith(resolve) 执行 + 回灌）。
-   */
-  private async gateWriteTool(
-    ctx: GateToolContext,
-  ): Promise<
-    | { pause: true; action: PendingAction }
-    | { pause: false; approve?: true; outcome?: GateToolOutcome }
-  > {
-    const { toolName: name, args } = ctx;
-    if (name === "act") {
-      // M2 表面动作（risk 动态档）：read 直行（approve 放行工具执行）/
-      // write·destructive 挂闸（同一 steward.confirmations 两段式）/
-      // 拒（私造动词/risk 降档/豁免尝试）。
-      const decision = await this.gateSurfaceAct(args);
-      if (decision.kind === "refuse") return { pause: false, outcome: { kind: "result", text: decision.reason, isError: true } };
-      if (decision.kind === "direct") return { pause: false, approve: true };
-      return { pause: true, action: decision.action };
-    }
-    if (name === "propose_send") {
-      const action = await this.pendingActionOfProposeSend(args);
-      if ("guidance" in action) return { pause: false, outcome: action.outcome };
-      if ("terminate" in action) return { pause: false, outcome: { kind: "terminate", reason: action.reason } };
-      return { pause: true, action };
-    }
-    if (name === "deliver_to_session") {
-      const gated = await this.pendingActionOfDeliverToSession(args);
-      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
-      return { pause: true, action: gated };
-    }
-    if (name === "create_session" || name === "start_session") {
-      const gated = await this.pendingActionOfCreateSession(args, {
-        requireInitialMessage: name === "start_session",
-      });
-      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
-      return { pause: true, action: gated };
-    }
-    if (name === "spawn_review_task") {
-      const gated = await this.pendingActionOfSpawnReview(args);
-      if ("guidance" in gated) return { pause: false, outcome: gated.outcome };
-      return { pause: true, action: gated };
-    }
-    return { pause: false };
-  }
-
-  /**
-   * 表面动作闸判定（M2 risk 三级闸——D3 risk 挂动作）：
-   * - 校验面：surfaceId/verb（封闭词汇表——私造动词拒）/risk（只可升档
-   *   不可降档）；豁免旗标（auto_confirm/exempt 类）嗅探 → 闸面整单拒绝
-   *   （【突变验证钉子】destructive 不可豁免）；
-   * - 判定面（SurfaceRiskGate）：read → direct（approve 直行）；write/
-   *   destructive → proposal（同一 steward.confirmations 两段式——
-   *   propose→用户确认→执行）。
-   */
-  private async gateSurfaceAct(
-    args: Record<string, unknown>,
-  ): Promise<
-    | { kind: "direct"; request: StewardSurfaceActRequest }
-    | { kind: "proposal"; action: PendingAction }
-    | { kind: "refuse"; reason: string }
-  > {
-    if (this.deps.surfaces === undefined) {
-      return { kind: "refuse", reason: "表面能力面未装配（daemon 装配缺 surfaces 源）" };
-    }
-    const surfaceId = typeof args.surfaceId === "string" ? args.surfaceId.trim() : "";
-    if (surfaceId === "") {
-      return { kind: "refuse", reason: "参数缺失：surfaceId 必填（先用 surface_list 发现表面）" };
-    }
-    const verbRaw = args.verb;
-    if (!isSurfaceVerb(verbRaw)) {
-      return {
-        kind: "refuse",
-        reason: `动词未注册（verb=${String(verbRaw)}）——封闭词汇表 click/type/navigate/scroll/focus（缺词停下申报，不私造）`,
-      };
-    }
-    const verb = verbRaw;
-    const actionArgs =
-      typeof args.args === "object" && args.args !== null && !Array.isArray(args.args)
-        ? (args.args as Record<string, unknown>)
-        : {};
-    // ── act 参数契约收紧（事故热修批①）：动词 args 形状校验（按命名空间×
-    //    动词——protocol 单源 validateSurfaceActArgs）。形状不合法 → 即时拒
-    //    （模型收到正确形状指引可自纠），不挂闸不派发不等回执超时——治
-    //    2026-10-07 事故「模型发明 url 参数 → shell 静默弃帧 → 60s 挂死」。
-    //    动词注册校验/risk 三级闸不动（E-253 约束面）。──
-    const nsRaw = surfaceId.split(":")[0] ?? "";
-    if (isSurfaceNamespaceKind(nsRaw)) {
-      const argsError = validateSurfaceActArgs(nsRaw, verb, actionArgs);
-      if (argsError !== undefined) return { kind: "refuse", reason: argsError };
-    }
-    const floor = surfaceVerbRisk(verb);
-    let risk: SurfaceRisk = floor;
-    const riskRaw = args.risk;
-    if (riskRaw !== undefined) {
-      if (riskRaw !== "read" && riskRaw !== "write" && riskRaw !== "destructive") {
-        return { kind: "refuse", reason: `risk 非法：${JSON.stringify(riskRaw)}（应为 read/write/destructive）` };
-      }
-      if (surfaceRiskRank(riskRaw) < surfaceRiskRank(floor)) {
-        return {
-          kind: "refuse",
-          reason: `risk 降级拒绝：verb=${verb} 注册档=${floor}，请求=${riskRaw}（D3 risk 挂动作——只可升档）`,
-        };
-      }
-      risk = riskRaw;
-    }
-    // 豁免尝试嗅探（top-level 与 args 内两处）——闸面拒绝不可豁免
-    const exempt = hasExemptionAffordance(args) || hasExemptionAffordance(actionArgs);
-    const decision = evaluateSurfaceRisk(risk, { exempt });
-    if (decision.outcome === "reject") return { kind: "refuse", reason: decision.reason };
-    const request: StewardSurfaceActRequest = { surfaceId, verb, args: actionArgs, risk };
-    if (decision.outcome === "direct") return { kind: "direct", request };
-    return {
-      kind: "proposal",
-      action: {
-        kind: "surfaceAct",
-        displayTarget: surfaceId,
-        message: `表面动作提案：${verb} @ ${surfaceId}（risk=${risk}）：${summarizeArgsLite(actionArgs)}`,
-        toolCall: { id: "", name: "act" },
-        surfaceAct: request,
-      },
-    };
-  }
-
-  /** 只读工具执行体（snapshot/read——免确认直行）。 */
-  private async surfaceReadOf(args: Record<string, unknown>, mode: "snapshot" | "read"): Promise<string> {
-    if (this.deps.surfaces === undefined) return "表面能力面未装配（daemon 装配缺 surfaces 源）";
-    const surfaceId = typeof args.surfaceId === "string" ? args.surfaceId.trim() : "";
-    if (surfaceId === "") return "参数缺失：surfaceId 必填（先用 surface_list 发现表面）";
-    try {
-      const result =
-        mode === "snapshot"
-          ? await this.deps.surfaces.snapshot(surfaceId)
-          : await this.deps.surfaces.read(surfaceId, {
-              ...(typeof args.selector === "string" && args.selector !== "" ? { selector: args.selector } : {}),
-              ...(typeof args.max_chars === "number" && Number.isFinite(args.max_chars) ? { maxChars: args.max_chars } : {}),
-            });
-      return result.ok ? result.text : `读取失败：${result.text}`;
-    } catch (err) {
-      return `表面读取异常：${(err as Error).message}`;
-    }
-  }
-
-  /** propose_send 提案判定（参数校验 → 运行态校验 → PendingAction）。 */
-  private async pendingActionOfProposeSend(
-    args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome } | { terminate: true; reason: string }> {
-    const agentId = typeof args.agentId === "string" ? args.agentId : "";
-    const message = typeof args.message === "string" ? args.message : "";
-    if (agentId === "" || message === "") {
-      return {
-        guidance: true,
-        outcome: {
-          kind: "result",
-          text: capToolResultText("参数缺失：agentId 与 message 必填"),
-          },
-      };
-    }
-    // 提案校验：目标须存在且运行中（防火墙前置——终态实例递话必拒）
-    const running = this.deps.orchestration.status(agentId).some((s) => s.state === "running");
-    if (!running) {
-      return {
-        terminate: true,
-        reason: `实例 ${agentId} 不存在或非运行中——递话提案拒绝（可让用户确认实例 id）`,
-      };
-    }
-    return {
-      kind: "send",
-      displayTarget: agentId,
-      message,
-      toolCall: { id: "", name: "propose_send" },
-      send: { agentId, message },
-    };
-  }
-
-  /** start_session 提案判定（同 create_session 动作体，initial_message 必填兑底）。 */
-  private async pendingActionOfStartSession(
-    args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
-    return this.pendingActionOfCreateSession(args, { requireInitialMessage: true });
-  }
-
-  /** deliver_to_session 提案判定（驾驶舱批逻辑平移：参数 → 装配面 → 会话存在性）。 */
-  private async pendingActionOfDeliverToSession(
-    args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
-    const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"].trim() : "";
-    const text = typeof args["text"] === "string" ? args["text"] : "";
-    if (sessionId === "" || text.trim() === "") {
-      return this.guideOutcome("参数缺失：sessionId 与 text 必填（sessionId 可先用 query_recent_work 查询）");
-    }
-    if (this.deps.sessions === undefined) {
-      return this.guideOutcome("会话投递面未装配——无法投递（请让用户在目标会话页直接输入）");
-    }
-    let exists: boolean;
-    try {
-      exists = await this.deps.sessions.sessionExists(sessionId);
-    } catch (err) {
-      return this.guideOutcome(`会话存在性校验失败：${(err as Error).message}`);
-    }
-    if (!exists) {
-      return this.guideOutcome(
-        `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`,
-      );
-    }
-    // 语音闭环批 ④：提案期查短标题（displayTarget 念人类可读短名——确认卡/
-    // 提醒/口令回执/在途摘要四消费面共用）；查询失败/缺席回退 sessionId。
-    let displayTarget = sessionId;
-    try {
-      const title = await this.deps.sessions.sessionTitleOf?.(sessionId);
-      if (title !== undefined && title !== "") displayTarget = capChars(title, DELIVER_TITLE_MAX_CHARS);
-    } catch {
-      // 标题查询失败是增强面降级（不阻断提案链）
-    }
-    return {
-      kind: "deliverSession",
-      displayTarget,
-      message: text,
-      toolCall: { id: "", name: "deliver_to_session" },
-      deliverSession: { sessionId, text },
-    };
-  }
-
-  /** create_session / start_session 提案判定（项目参数校验 → title 缺省生成 → initial_message 解析；start_session 必填服务端兑底）。 */
-  private async pendingActionOfCreateSession(
-    args: Record<string, unknown>,
-    opts: { readonly requireInitialMessage?: boolean } = {},
-  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
-    const titleRaw = typeof args["title"] === "string" ? args["title"].trim() : "";
-    const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
-    const guidance = this.checkProjectArg(project);
-    if (guidance !== undefined) {
-      return this.guideOutcome(guidance);
-    }
-    if (this.deps.sessions === undefined) {
-      return this.guideOutcome("会话创建面未装配——无法创建会话（请让用户在侧栏新建）");
-    }
-    const now = new Date(this.now());
-    const p2 = (n: number) => String(n).padStart(2, "0");
-    const title =
-      titleRaw !== ""
-        ? titleRaw
-        : `${project !== undefined ? `${project} ` : ""}新会话 ${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}`;
-    // 带着话题开新会话：initial_message 全文进确认卡（确认前用户可审，写安全
-    // 同 deliver_to_session 的「全文展示供确认」惯例）；原文透传零改写。
-    // start_session = 必填兑底（schema required 之外的服务端二次防线——k3 级
-    // 模型可选参数遵从弱，打回重提案而非静默建空会话）。
-    const initialMessageRaw = typeof args["initial_message"] === "string" ? args["initial_message"].trim() : "";
-    const initialMessage = initialMessageRaw !== "" ? initialMessageRaw : undefined;
-    if (initialMessage === undefined && opts.requireInitialMessage === true) {
-      return this.guideOutcome(
-        "start_session 需要 initial_message（用户原话，不改写）——请带上用户想在新会话开始的话题重新提案；用户只要空会话时才用 create_session",
-      );
-    }
-    return {
-      kind: "createSession",
-      displayTarget: "新会话",
-      message:
-        initialMessage !== undefined
-          ? `将创建会话「${title}」并投递初始话题：${initialMessage}`
-          : `将创建会话「${title}」`,
-      toolCall: { id: "", name: "create_session" },
-      createSession: initialMessage !== undefined ? { title, initialMessage } : { title },
-    };
-  }
-
-  /** spawn_review_task 提案判定（review_type → 项目 → git 仓/.kg 索引三道校验）。 */
-  private async pendingActionOfSpawnReview(
-    args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
-    const reviewTypeRaw = args["review_type"];
-    const project = typeof args["project"] === "string" ? args["project"].trim() : "";
-    const params =
-      typeof args["params"] === "object" && args["params"] !== null && !Array.isArray(args["params"])
-        ? (args["params"] as Record<string, unknown>)
-        : {};
-    if (reviewTypeRaw !== "code-review" && reviewTypeRaw !== "kg-review") {
-      return this.guideOutcome(
-        `review_type 非法：${JSON.stringify(reviewTypeRaw)}（应为 "code-review" 或 "kg-review"）`,
-      );
-    }
-    const reviewType = reviewTypeRaw;
-    if (project === "") {
-      return this.guideOutcome("参数缺失：project 必填（目标项目名）");
-    }
-    const root = this.deps.projects?.resolve(project);
-    if (root === undefined) {
-      const known = "（项目解析面未装配，无法校验项目存在性）";
-      return this.guideOutcome(
-        this.deps.projects === undefined
-          ? `无法校验项目 ${project}${known}`
-          : `项目 ${project} 不在当前 workspace——请与用户确认项目名（可用清单中的项目）`,
-      );
-    }
-    if (reviewType === "code-review" && this.deps.hasGitRepo !== undefined && !this.deps.hasGitRepo(root)) {
-      return this.guideOutcome(`项目 ${project} 无 git 仓（${root}）——没有可评审的代码，需先初始化仓库`);
-    }
-    if (reviewType === "kg-review" && this.deps.projects !== undefined && !this.deps.projects.hasIndex(root)) {
-      return this.guideOutcome(`项目 ${project} 未建知识图谱——需先 kg-bootstrap（我可以帮你创建该任务）`);
-    }
-    return {
-      kind: "spawnReview",
-      displayTarget: `${reviewType}@${project}`,
-      message: `将对项目 ${project} 发起 ${reviewType}`,
-      toolCall: { id: "", name: "spawn_review_task" },
-      spawnReview: { reviewType, project, params },
-    };
-  }
-
-  /** remember 直接执行体（B5 摘闸静默化：参数校验 → 可用性闸 → 两段查重
-   *  入库 → memory_written 通知；回执回灌 LLM 续轮）。失败/不可用回执为
-   *  引导文本（LLM 转述用户）——与旧 guideOutcome 语义同构。domain 维度批：
-   *  domain 可选参数（enum habit|general|project），缺省按 kind 推导
-   * （preference→habit、fact→general），显式传优先；入参透传至 remember
-   * （一致性约束在写入单点裁定）。 */
-  private async directRemember(args: Record<string, unknown>): Promise<GateToolOutcome> {
-    const text = typeof args.text === "string" ? args.text.trim() : "";
-    const kindRaw = args.kind;
-    const domainRaw = args.domain;
-    if (text === "") {
-      return this.guideOutcome("参数缺失：text 必填（记忆文本）").outcome;
-    }
-    if (kindRaw !== undefined && kindRaw !== "fact" && kindRaw !== "preference") {
-      return this.guideOutcome(`kind 非法：${JSON.stringify(kindRaw)}（应为 "fact" 或 "preference"）`).outcome;
-    }
-    if (domainRaw !== undefined && domainRaw !== "habit" && domainRaw !== "general" && domainRaw !== "project") {
-      return this.guideOutcome(`domain 非法：${JSON.stringify(domainRaw)}（应为 "habit"、"general" 或 "project"）`).outcome;
-    }
-    const kind = (kindRaw as "fact" | "preference" | undefined) ?? "fact";
-    // domain 维度批：显式传优先；缺省按 kind 推导（preference→habit、fact→general）
-    const domain = (domainRaw as "habit" | "general" | "project" | undefined) ?? (kind === "preference" ? "habit" : "general");
-    const memory = this.deps.memory;
-    if (memory === undefined || !memory.isAvailable()) {
-      return this.guideOutcome(
-        "记忆功能未启用或未配置——本次不沉淀（用户可在 设置 → 通用 → 管家 开启记忆并配置嵌入端点）",
-      ).outcome;
-    }
-    try {
-      // 项目隔离批：项目上下文与召回同源（memoryProject 单项目 workspace
-      // 口径；多项目/未绑定 → 不传）。domain 维度批：仅 domain=project 时
-      // 作项目取名通道（habit/general 一致性约束强制 global——单点裁定）。
-      const project = this.deps.memoryProject?.();
-      const saved = await memory.remember(text, kind, "steward-turn", {
-        domain,
-        ...(project !== undefined ? { project } : {}),
-      });
-      this.deps.emitMemoryWritten?.({ text, mode: saved.updated ? "updated" : "added" });
-      const detail = `${saved.updated ? "已更新记忆（语义重复，覆盖原条目）" : "已沉淀长期记忆"}（#${saved.id}）：${text}`;
-      return { kind: "result", text: capToolResultText(detail) };
-    } catch (err) {
-      const detail = `记忆沉淀失败：${(err as Error).message}`;
-      return { kind: "result", text: capToolResultText(detail) };
-    }
-  }
-
-  /** 引导式工具结果（toolResult 回灌 LLM 循环继续可转述/自纠——迁移前
-   *  toolErrorResult 的校验路径产物）。 */
-  private guideOutcome(guidance: string): { guidance: true; outcome: GateToolOutcome } {
-    return { guidance: true, outcome: { kind: "result", text: capToolResultText(guidance) } };
-  }
-
-  // ── A2：情景快照组装 ────────────────────────────────
-
+  // ── 工具面已收编 tools/StewardToolKit（批 3a）：registerTools/挂闸判定/
+  //    提案构造/工具体全部迁出——加工具只动 StewardToolKit。 ──
   /** 快照段组装（感知查询失败静默降级 = undefined；绝不能挡对话主链路）。
    *  数据源与工具面同源：活跃 agent 数 = orchestration.status()（与
    *  list_instances 同一调用面）；会话计数与主题 = sessions 源（与
@@ -3093,203 +2596,5 @@ export class StewardService implements StewardComponent {
   }
 
   // ── A2：query_recent_work ───────────────────────────
-
-  /** 近期工作查询（文本组装；会话源缺席/失败时降级提示，不抛错）。 */
-  private async queryRecentWork(args: Record<string, unknown>): Promise<string> {
-    const rangeRaw = args["time_range"];
-    const range: TimeRange =
-      rangeRaw === "today" || rangeRaw === "yesterday" || rangeRaw === "last_week" || rangeRaw === "this_week"
-        ? rangeRaw
-        : "this_week";
-    const project = typeof args["project"] === "string" && args["project"] !== "" ? args["project"] : undefined;
-    const titleContains =
-      typeof args["title_contains"] === "string" && args["title_contains"] !== "" ? args["title_contains"] : undefined;
-    const win = timeRangeWindow(range, this.now());
-    const inWindow = (iso: string): boolean => {
-      const t = Date.parse(iso);
-      return !Number.isNaN(t) && t >= win.sinceMs && t < win.untilMs;
-    };
-    const sessionLines: string[] = [];
-    let sessionTotal = 0;
-    let sessionTotalAll = 0; // 窗口内全部会话数（未过 title_contains）——「无记录」短路判据
-    if (this.deps.sessions !== undefined) {
-      try {
-        const rowsAll = (await this.deps.sessions.listSessionMetadata()).filter((r) => inWindow(r.updatedAt));
-        // 显示标题口径（与快照/会话页同语义）：显式标题列优先，旧行 NULL
-        // 回落首条用户消息截断推导（repo 层注释的消费侧兑现——L1 投影修复批）。
-        // displayTitle 单源（displayTitleOf——TR-207 三消费面共用）
-        const displayTitle = (r: StewardSessionMetaRow): string => displayTitleOf(r);
-        // title_contains 过滤在投影前（计数同口径：段头【会话·N】= 过滤后
-        // 剩余数；大小写不敏感包含匹配，判据 = 显示标题）。
-        const rows =
-          titleContains === undefined
-            ? rowsAll
-            : rowsAll.filter((r) => displayTitle(r).toLowerCase().includes(titleContains.toLowerCase()));
-        sessionTotal = rows.length;
-        sessionTotalAll = rowsAll.length;
-        for (const r of rows.slice(0, RECENT_WORK_LINES_MAX)) {
-          const title = capChars(displayTitle(r), RECENT_WORK_TITLE_MAX_CHARS);
-          const scale = r.entryCount === null ? "" : ` · 约${r.entryCount}条消息`;
-          // sid 完整不截断（deliver_to_session 参数源——prompt 路由行承诺
-          // 「结果含 sessionId」由本行兑现；截断的 id 不可复制即不可用）。
-          sessionLines.push(`「${title}」(sid: ${r.sessionId}) ${fmtWhen(r.createdAt)}~${fmtWhen(r.updatedAt)}${scale}`);
-        }
-        if (rows.length > RECENT_WORK_LINES_MAX) {
-          sessionLines.push(`…另有 ${rows.length - RECENT_WORK_LINES_MAX} 个会话未列出`);
-        }
-        // 未命中可区分：有会话但无一匹配关键词时明说（不落入「无记录」误导）。
-        if (titleContains !== undefined && rows.length === 0 && rowsAll.length > 0) {
-          sessionLines.push(`（${rowsAll.length} 个会话均不含关键词「${titleContains}」）`);
-        }
-      } catch (err) {
-        this.deps.logger?.warn(`query_recent_work 会话读面失败：${(err as Error).message}`);
-      }
-    }
-    const taskRows = this.deps.tasks
-      .listTasks({})
-      .filter(
-        (t) =>
-          inWindow((t as unknown as { createdAt?: string }).createdAt ?? "") &&
-          (project === undefined || (t as unknown as { projects?: readonly string[] }).projects?.includes(project)),
-      );
-    const taskLines = taskRows.slice(0, RECENT_WORK_LINES_MAX).map((t) => {
-      const meta = t as unknown as { type?: string; createdAt?: string };
-      const tail = t.error !== null && t.error !== "" ? capChars(t.error, 40) : t.progress === null ? "" : `${t.progress.percent}%`;
-      const type = meta.type ?? "task";
-      return `[${type}] ${capChars(t.title, RECENT_WORK_TITLE_MAX_CHARS)}——${t.status}${tail !== "" ? `（${tail}）` : ""}`;
-    });
-    if (taskRows.length > RECENT_WORK_LINES_MAX) {
-      taskLines.push(`…另有 ${taskRows.length - RECENT_WORK_LINES_MAX} 个任务未列出`);
-    }
-    if (sessionTotalAll === 0 && taskRows.length === 0) {
-      return `${win.zhLabel}（${win.label}）范围内无记录——没有会话与任务活动`;
-    }
-    const parts: string[] = [`【会话·${sessionTotal}】`];
-    parts.push(...(sessionLines.length > 0 ? sessionLines : ["（无）"]));
-    parts.push(`【任务·${taskRows.length}${project !== undefined ? ` · 项目 ${project}` : ""}】`);
-    parts.push(...(taskLines.length > 0 ? taskLines : ["（无）"]));
-    return parts.join("\n");
-  }
-
-  /** 项目参数校验（create_session 的可选 project；undefined = 无参数直过）。 */
-  private checkProjectArg(project: string | undefined): string | undefined {
-    if (project === undefined || this.deps.projects === undefined) return undefined;
-    if (this.deps.projects.resolve(project) === undefined) {
-      return `项目 ${project} 不在当前 workspace——请与用户确认项目名`;
-    }
-    return undefined;
-  }
-
-  // ── 批A：kg_search / kg_get（项目知识只读检索） ─────────
-
-  /** kg scope 解析（E-212 纪律：必填显式 + 服务端兜底打回；缺省 = 当前项目
-   *  口径（memoryProject 同源：workspace 绑定根 + 一级目录扫描的单项目判定
-   *  ——不另造口径）：单项目 workspace → 该项目（与显式 project 同一解析路
-   *  径）；多项目/未绑定/未注入 → 聚合兑底（root 缺省 = kg 项目域聚合，适配
-   *  器逐项目分块带【项目】头））：返回 projectRoot 或引导文案（打回/降级
-   *  均不抛错，与 query_recent_work 降级姿态同族）。 */
-  private resolveKgScope(projectArg: unknown): { root?: string } | { guide: string } {
-    const kg = this.deps.kg;
-    if (kg === undefined) {
-      return { guide: "知识图谱读面不可用（daemon 装配缺 kg 源）——项目知识暂无法检索，可建议用户直接查看项目文档" };
-    }
-    const explicit = typeof projectArg === "string" && projectArg.trim() !== "" ? projectArg.trim() : undefined;
-    // 缺省 = 当前项目口径（memoryProject 同源）：单项目 workspace 解析出项目
-    // 名后与显式 project 走同一解析路径（同一次序/同一引导文案）；多项目/
-    // 未绑定/未注入 → undefined 聚合兑底。
-    const project = explicit ?? this.deps.memoryProject?.();
-    if (project === undefined) {
-      const roots = kg.kgProjects();
-      if (roots.length === 0) {
-        return {
-          guide:
-            "当前 workspace 尚无项目知识索引（.helix-kg/kg.db 缺席）——项目知识检索需先建索引；可引导用户到知识图谱页建立索引，或如实告知查不到",
-        };
-      }
-      // 聚合域（root 缺省）：适配器逐项目分块带【项目】头（空命中项目省略，
-      // 单 kg 项目域原样渲染）——不在此按 kg 域计数窄化伪装「当前项目」。
-      return {};
-    }
-    // 显式 project（或缺省解析出的当前项目）：workspace-scan/scanProjects
-    // 口径解析（deps.projects 同源）
-    if (this.deps.projects === undefined) {
-      const hit = kg.kgProjects().find((root) => root.split("/").pop() === project);
-      return hit !== undefined ? { root: hit } : { guide: `项目 ${project} 不在当前知识域——请与用户确认项目名` };
-    }
-    const root = this.deps.projects.resolve(project);
-    if (root === undefined) return { guide: `项目 ${project} 不在当前 workspace——请与用户确认项目名` };
-    if (!this.deps.projects.hasIndex(root)) {
-      return { guide: `项目 ${project} 尚未建知识索引（.helix-kg 缺席）——可建议用户先建索引后再问，或如实告知查不到` };
-    }
-    return { root };
-  }
-
-  /** kg_search 工具体（只读）：关键词 → digest+指针摘要行；体量过
-   *  capToolResultText 护栏由注册面兜底。 */
-  private async kgSearchOf(args: Record<string, unknown>): Promise<string> {
-    const q = typeof args["q"] === "string" ? args["q"].trim() : "";
-    if (q === "") return "参数缺失：q 必填（关键词——知识节点名/摘要子串匹配）";
-    const scope = this.resolveKgScope(args["project"]);
-    if ("guide" in scope) return scope.guide;
-    try {
-      return await this.deps.kg!.search(q, scope.root);
-    } catch (err) {
-      this.deps.logger?.warn(`kg_search 读面失败：${(err as Error).message}`);
-      return `知识检索失败：${(err as Error).message}`;
-    }
-  }
-
-  /** kg_get 工具体（只读）：节点全量；id 非法/查无节点 = 引导类（实现体
-   *  中文引导原文兜底转文本——不抛错不炸轮）。 */
-  private async kgGetOf(args: Record<string, unknown>): Promise<string> {
-    const nodeId = typeof args["nodeId"] === "string" ? args["nodeId"].trim() : "";
-    if (nodeId === "") return "参数缺失：nodeId 必填（取自 kg_search 返回行的「kg get <id>」指针）";
-    const scope = this.resolveKgScope(args["project"]);
-    if ("guide" in scope) return scope.guide;
-    try {
-      return await this.deps.kg!.get(nodeId, scope.root);
-    } catch (err) {
-      return (err as Error).message;
-    }
-  }
-
-  // ── progress 批 M3：read_session（会话尾部内容深读）────────
-
-  /** 尾部条数缺省与上限（LLM 面体量面：缺省 6 上限 20，repo 层单条已截 300，
-   *  capToolResultText 4000 总护栏兑底）。 */
-  private static readonly READ_SESSION_TAIL_DEFAULT = 6;
-  private static readonly READ_SESSION_TAIL_MAX = 20;
-
-  /** read_session 工具体：meta 行定位（displayTitle 单源）→ 尾窗投影 →
-   *  文本组装；双失败径（meta 缺/尾读 undefined）统一引导回 query_recent_work。 */
-  private async readSession(args: Record<string, unknown>): Promise<string> {
-    const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"] : "";
-    if (sessionId === "") {
-      return "参数缺失：sessionId 必填（可先用 query_recent_work 查询，结果含 sessionId）";
-    }
-    const tailRaw = typeof args["tail"] === "number" ? args["tail"] : StewardService.READ_SESSION_TAIL_DEFAULT;
-    const tail = Math.min(
-      Number.isInteger(tailRaw) && tailRaw > 0 ? tailRaw : StewardService.READ_SESSION_TAIL_DEFAULT,
-      StewardService.READ_SESSION_TAIL_MAX,
-    );
-    if (this.deps.sessions === undefined) {
-      return "会话读面不可用（daemon 装配缺 sessions 源）";
-    }
-    try {
-      const meta = (await this.deps.sessions.listSessionMetadata()).find((r) => r.sessionId === sessionId);
-      const tailRows = await this.deps.sessions.readSessionTail(sessionId, tail);
-      if (meta === undefined || tailRows === undefined) {
-        return `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`;
-      }
-      const lines = [`${tailRows.length === 0 ? "（会话暂无消息）" : `最近 ${tailRows.length} 条消息（旧→新）：`}`];
-      for (const e of tailRows) {
-        lines.push(`[${e.role}] ${e.text}`);
-      }
-      return `会话「${capChars(displayTitleOf(meta), RECENT_WORK_TITLE_MAX_CHARS)}」(sid: ${sessionId})\n${lines.join("\n")}`;
-    } catch (err) {
-      this.deps.logger?.warn(`read_session 读面失败：${(err as Error).message}`);
-      return `会话 ${sessionId} 读取失败：${(err as Error).message}`;
-    }
-  }
 
 }
