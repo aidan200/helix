@@ -188,7 +188,8 @@ export interface MemoryPoint {
 export const SUMMARY_SYSTEM_PROMPT =
   "你是会话轮末总结器。根据当前主题与最近的消息窗口，输出一个 JSON 对象（不要输出 JSON 以外的任何文字）。" +
   "字段规则：topic = 不超过 30 字的名词短语（不带句号/引号），概括会话当前的实际工作内容；" +
-  "progress = 不超过两句的简洁中文进展状态（在做什么/干到哪/待办或结论）；" +
+  "progress = 中文进展总结（在做什么/干到哪/结论或待办），通常两到五句、200 字以内；" +
+  "信息完整优先于简短：写清做了什么、结果与关键细节（文件、数字、提交号），目标是读到此条即可向用户交代会话现状、无需回源对话；" +
   "memoryPoints = 值得跨会话记住的记忆点对象数组（没有则空数组 []），每个对象三个字段：" +
   "text（一句记忆句，主语明确（用户……）、不超过 40 字）；" +
   "kind（二选一：\"preference\" = 用户偏好/习惯/要求；\"fact\" = 事实/环境/纠正）；" +
@@ -217,7 +218,7 @@ export function buildSummaryPrompt(input: {
     fields.push('"topic": "不超过 30 字的名词短语；与当前主题方向一致（未实质漂移）时输出「保持」"');
   }
   if (input.wantProgress) {
-    fields.push('"progress": "不超过两句的进展状态（在做什么/干到哪/待办或结论）"');
+    fields.push('"progress": "进展总结（在做什么/干到哪/结论或待办），通常两到五句、200 字以内，信息完整优先——写清做了什么、结果与关键细节（文件/数字/提交号）"');
   }
   if (input.wantMemoryPoints) {
     fields.push(

@@ -5,7 +5,7 @@
  * 1. store（真库 :memory:）：session_id 列 additive 往返 + findProgressId
  *    精确定位（kind=progress 限定）+ 覆盖更新组合原语；
  * 2. recordSessionProgress：首写全字段（kind=progress/source=session-progress/
- *    sessionId）+ 同 session 覆盖不增条 + 不可用静默 false + 文本卫生（空/截断）；
+ *    sessionId）+ 同 session 覆盖不增条 + 不可用静默 false + 文本卫生（空拒绝/不截断——全文入库）；
  * 3. 召回面：progress 行文 [进展] + sid 锚（LLM 跳 read_session 的凭据——
  *    完整不截断）+ progressQuota 配额（progress 挤占防护）。
  *
@@ -188,14 +188,12 @@ describe("progress 批·StewardMemoryService.recordSessionProgress", () => {
     expect(store.appended).toHaveLength(0);
   });
 
-  test("④ 文本卫生：空文本 false；超 120 字符截断", async () => {
+  test("④ 文本卫生：空文本 false；长文本全文入库不截断（长度约束归 prompt 软范围）", async () => {
     const { service, store } = makeService();
     await expect(service.recordSessionProgress("sess-a", "  ")).resolves.toBe(false);
     const long = "长".repeat(200);
     await expect(service.recordSessionProgress("sess-a", long)).resolves.toBe(true);
-    const text = store.appended[0]!.text;
-    expect([...text].length).toBeLessThanOrEqual(121);
-    expect(text.endsWith("…")).toBe(true);
+    expect(store.appended[0]!.text).toBe(long);
   });
 });
 

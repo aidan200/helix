@@ -151,9 +151,6 @@ export interface MemorySearchHit {
   readonly updatedAt: number;
 }
 
-/** progress 文本上限（Unicode 码点——超限截断加省略号）。 */
-export const STEWARD_MEMORY_PROGRESS_MAX_CHARS = 120;
-
 /** progress 来源标注（轮末联合摘要器写入——溯源展示用）。 */
 export const STEWARD_MEMORY_PROGRESS_SOURCE = "session-progress";
 
@@ -697,9 +694,9 @@ export class StewardMemoryService implements StewardComponent {
     const trimmed = text.trim();
     if (sid === "" || trimmed === "") return false;
     try {
-      const chars = [...trimmed];
-      const capped = chars.length > STEWARD_MEMORY_PROGRESS_MAX_CHARS ? `${chars.slice(0, STEWARD_MEMORY_PROGRESS_MAX_CHARS).join("")}…` : trimmed;
-      const { vectors, dim } = await this.deps.embedding.embed([capped]);
+      // 长度不截断（用户裁决 2026-10-09）：progress 全文入库——管家凭全文
+      // 即可交代会话现状；长度控制归总结器 prompt 软范围，不在存储层硬截。
+      const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
       await this.ensureDim(dim);
       const store = this.deps.store!;
       const attrs = resolveMemoryWriteAttrs({
@@ -710,10 +707,10 @@ export class StewardMemoryService implements StewardComponent {
       });
       const existing = store.findProgressId(sid);
       if (existing !== null) {
-        store.updateEntry(existing, capped, vectors[0]!, this.now(), attrs.projectScope);
+        store.updateEntry(existing, trimmed, vectors[0]!, this.now(), attrs.projectScope);
       } else {
         store.append([
-          { kind: "progress", text: capped, source: STEWARD_MEMORY_PROGRESS_SOURCE, sessionId: sid, createdAt: this.now(), vector: vectors[0]!, projectScope: attrs.projectScope, domain: attrs.domain },
+          { kind: "progress", text: trimmed, source: STEWARD_MEMORY_PROGRESS_SOURCE, sessionId: sid, createdAt: this.now(), vector: vectors[0]!, projectScope: attrs.projectScope, domain: attrs.domain },
         ]);
       }
       return true;
