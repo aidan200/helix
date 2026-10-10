@@ -364,13 +364,12 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   //    状态入字幕——不入 CaptionLine 栈（interim 同构：呈现层实时消费零
   //    历史，生命周期 = askActivity 本体）。退场契约面板同构：流式回答
   //    开始（streamingText 非空）活动行退场——流式文字即反馈；收口
-  //    （askActivity null）即消失。──
+  //    （askActivity null）即消失。工具态醒目面批（用户裁决：当前工具
+  //    一眼可辨）——tool 相位独立分支：accent 亮色 + 工具名 mono 胶囊
+  //    badge（data-tool="on" 驱动；面板仍用 activityTool 整句不变）。──
   const streamingActive = sv.streamingText !== null && sv.streamingText !== "";
   const showActivity = sv.askActivity !== null && !streamingActive;
-  const activityStatus =
-    sv.askActivity !== null && sv.askActivity.phase === "tool" && sv.askActivity.toolName !== null
-      ? t("steward.activityTool", { name: sv.askActivity.toolName })
-      : t("steward.thinking");
+  const showToolActivity = showActivity && sv.askActivity?.phase === "tool" && sv.askActivity.toolName !== null;
   const activityThink =
     sv.askActivity !== null && sv.askActivity.thinkingLines.length > 0
       ? (sv.askActivity.thinkingLines[sv.askActivity.thinkingLines.length - 1] ?? null)
@@ -395,11 +394,22 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
             </div>
           ))}
           {/* 过程活动行（不入栈——最新在下语义：栈行 → 过程状态 → 摘要 →
-              interim（打断新输入时排最下））；aria-live 容器顺带播报状态变化 */}
-          {showActivity && (
-            <div className="stv-line stv-activity" data-kind="activity" data-testid="steward-activity">
-              {activityStatus}
+              interim（打断新输入时排最下））；aria-live 容器顺带播报状态变化。
+              工具态醒目面批：data-tool=on 独立分支——前缀 + mono 胶囊
+              badge（一眼可辨当前工具；app.css accent/glow 段） */}
+          {showToolActivity ? (
+            <div className="stv-line stv-activity" data-kind="activity" data-tool="on" data-testid="steward-activity">
+              {t("steward.activityToolPrefix")}
+              <span className="stv-tool-badge" data-testid="steward-tool-badge">
+                {sv.askActivity?.toolName}
+              </span>
             </div>
+          ) : (
+            showActivity && (
+              <div className="stv-line stv-activity" data-kind="activity" data-testid="steward-activity">
+                {t("steward.thinking")}
+              </div>
+            )
           )}
           {showActivity && activityThink !== null && (
             <div

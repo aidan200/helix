@@ -406,13 +406,32 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("thinking");
   });
 
-  it("过程活动行：tool 相位 → 状态行「正在调用 {name}…」（steward.activityTool 同键）", () => {
+  it("过程活动行：tool 相位 → 醒目面（工具态醒目面批）：前缀「正在调用」+ 工具名 mono 胶囊 badge；data-tool=on", () => {
     svState.duplexActive = true;
     svState.phase = "asking";
     svState.askActivity = { phase: "tool", toolName: "list_tasks", thinkingLines: ["先查任务清单。"] };
     renderLayer();
-    expect(screen.getByTestId("steward-activity").textContent).toBe("正在调用 list_tasks…");
+    const activity = screen.getByTestId("steward-activity");
+    // 独立醒目分支：data-tool 标记驱动 accent 样式面（app.css 醒目段）
+    expect(activity.getAttribute("data-tool")).toBe("on");
+    expect(activity.textContent).toContain("正在调用");
+    // 工具名从句子里抬起——badge 结构（一眼可辨当前工具）
+    const badge = screen.getByTestId("steward-tool-badge");
+    expect(badge.textContent).toBe("list_tasks");
+    expect(badge.className).toContain("stv-tool-badge");
+    // 摘要行同构照常
     expect(screen.getByTestId("steward-activity-think").textContent).toBe("先查任务清单。");
+  });
+
+  it("过程活动行：tool 相位但 toolName 为 null → 退回 thinking 态渲染（防御：无工具名不入醒目分支）", () => {
+    svState.duplexActive = true;
+    svState.phase = "asking";
+    svState.askActivity = { phase: "tool", toolName: null, thinkingLines: [] };
+    renderLayer();
+    const activity = screen.getByTestId("steward-activity");
+    expect(activity.textContent).toBe("思考中…");
+    expect(activity.getAttribute("data-tool")).toBe(null);
+    expect(screen.queryByTestId("steward-tool-badge")).toBeNull();
   });
 
   it("过程活动行：thinkingLines 空 → 摘要行不渲染（纯思考初期零摘要）", () => {

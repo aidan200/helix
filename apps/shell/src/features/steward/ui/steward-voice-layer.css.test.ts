@@ -176,4 +176,27 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
     // reduced-motion：呼吸点关停（静态点）
     expect(seg).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.stv-line\[data-kind="activity"\]::before\s*\{[^}]*animation:\s*none/);
   });
+
+  it("工具态醒目面（工具态醒目面批，用户裁决：当前工具一眼可辨）：accent 唯一彩色行 + 呼吸点加大加亮加速 + badge token 单源", () => {
+    // 工具态行：accent 亮色（字幕内唯一彩色行——与弱区分的 thinking 态拉开）
+    const tool = seg.match(/\.stv-line\[data-kind="activity"\]\[data-tool="on"\]\s*\{[^}]*\}/)![0];
+    expect(tool).toMatch(/color:\s*var\(--accent\)/);
+    expect(tool).toMatch(/opacity:\s*1/);
+    // 呼吸点：加大（8px > 思考态 5px）+ glow token 静态光源（不进 keyframes）+ 加速（1.1s）
+    const dot = seg.match(/\.stv-line\[data-kind="activity"\]\[data-tool="on"\]::before\s*\{[^}]*\}/)![0];
+    expect(dot).toMatch(/width:\s*8px/);
+    expect(dot).toMatch(/box-shadow:\s*var\(--glow-cyan\)/);
+    expect(dot).toMatch(/stv-activity-pulse 1\.1s/);
+    // 工具名胶囊 badge：accent 通道变量模式（零内联 hex）+ mono 字体 + 字号阶梯
+    const badge = seg.match(/\.stv-tool-badge\s*\{[^}]*\}/)![0];
+    expect(badge).toMatch(/color:\s*var\(--accent\)/);
+    expect(badge).toMatch(/background:\s*rgb\(var\(--accent-rgb\) \/ 0\.12\)/);
+    expect(badge).toMatch(/border:\s*1px solid rgb\(var\(--accent-rgb\) \/ 0\.45\)/);
+    expect(badge).toMatch(/font-family:\s*var\(--font-mono\)/);
+    expect(badge).toMatch(/font-size:\s*var\(--text-cap\)/);
+    // reduced-motion：工具态呼吸点同关停（特异性高于通用行的声明序后置）
+    expect(seg).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.stv-line\[data-kind="activity"\]\[data-tool="on"\]::before\s*\{[^}]*animation:\s*none/,
+    );
+  });
 });

@@ -1318,6 +1318,8 @@ export const enUS = {
     thinking: "Thinking…",
     // ── Process-feedback UI batch: activity status text (tool phase) ──
     activityTool: "Running {name}…",
+    // ── Orb tool-badge batch: orb tool line prefix (panel keeps activityTool) ──
+    activityToolPrefix: "Running",
     // ── A1 work-memory batch: process visibility (thinking fold / tool rows / new chat) ──
     thinkingLabel: "Reasoning",
     newChat: "New chat",

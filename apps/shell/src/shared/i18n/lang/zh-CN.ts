@@ -1325,6 +1325,8 @@ export const zhCN = {
     thinking: "思考中…",
     // ── 过程反馈 UI 批：状态区状态文（工具执行期；{name} 单大括号——TR-222）──
     activityTool: "正在调用 {name}…",
+    // ── 工具态醒目面批：光球工具行前缀（badge 结构拆键——面板仍用 activityTool 整句）──
+    activityToolPrefix: "正在调用",
     // ── A1 工作记忆批：过程可见面（thinking 折叠 / 工具行 / 新对话）──
     thinkingLabel: "思考过程",
     newChat: "新对话",

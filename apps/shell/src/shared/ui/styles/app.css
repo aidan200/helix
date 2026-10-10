@@ -1677,6 +1677,27 @@ html.light .stv-caption {
   color: var(--text-faint); font-size: var(--text-cap); opacity: 1;
 }
 .stv-line[data-kind="activity"][data-think="on"]::before { content: none; }
+/* 工具态醒目面（工具态醒目面批，用户裁决：当前工具一眼可辨）：字幕条内
+   唯一 accent 彩色行 + 呼吸点加大加亮加速（8px + glow-cyan + 1.1s）——
+   与 thinking 态弱区分拉开；色全走 token（零内联 hex），glow 静态不进
+   keyframes（E-124 允许面：keyframes 只动 opacity） */
+.stv-line[data-kind="activity"][data-tool="on"] {
+  color: var(--accent); opacity: 1;
+}
+.stv-line[data-kind="activity"][data-tool="on"]::before {
+  width: 8px; height: 8px;
+  box-shadow: var(--glow-cyan);
+  animation: stv-activity-pulse 1.1s ease-in-out infinite;
+}
+/* 工具名 mono 胶囊 badge（accent 微底 + 描边——工具名从句子里抬起，
+   扫一眼即得「正在调用的是谁」） */
+.stv-tool-badge {
+  font-family: var(--font-mono); font-size: var(--text-cap);
+  color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.12);
+  border: 1px solid rgb(var(--accent-rgb) / 0.45);
+  border-radius: 4px; padding: 0 6px; margin-left: 4px;
+}
 @keyframes stv-activity-pulse {
   0% { opacity: 0.35; }
   50% { opacity: 1; }
@@ -1815,4 +1836,5 @@ html.light .stv-caption {
   /* !important 压过相位类高特异性（0-3-0）——关停后落各相位静态代表帧 */
   .stv-sprite { animation: none !important; transition: none; }
   .stv-line[data-kind="activity"]::before { animation: none; } /* 呼吸点静态 */
+  .stv-line[data-kind="activity"][data-tool="on"]::before { animation: none; } /* 工具态呼吸点同关停（特异性高于上行——声明序后置） */
 }
