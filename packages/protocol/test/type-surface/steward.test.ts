@@ -45,6 +45,7 @@ import type {
   StewardMemoryListResultEvent,
   StewardMemoryWrittenEvent,
   StewardNotifyEvent,
+  StewardHealthPayload,
 } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand, familyOf, summarizeEvent } from "./samples/helpers";
@@ -113,8 +114,15 @@ type _StewardFamily = Expect<
       // steward.activity（实时活动条目广播）
       | "steward.activity.result"
       | "steward.activity"
+      // 光球健康角标批 +steward.health（子系统降级/恢复广播）
+      | "steward.health"
   >
 >;
+
+// 光球健康角标批：health 载荷必填字段（component/status/seq）
+type _HealthComponent = Expect<Equal<StewardHealthPayload["component"], "judge" | "tts" | "stt" | "llm">>;
+type _HealthStatus = Expect<Equal<StewardHealthPayload["status"], "degraded" | "ok">>;
+type _HealthSeq = Expect<Equal<StewardHealthPayload["seq"], number>>;
 
 // 管家驾驶舱批：navigate 载荷必填字段（sessionId = shell 切页目标）
 type _NavigateSessionId = Expect<Equal<StewardNavigatePayload["sessionId"], string>>;

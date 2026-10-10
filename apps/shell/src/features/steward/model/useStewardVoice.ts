@@ -229,6 +229,8 @@ export interface UseStewardVoice {
   readonly streamDegraded: boolean;
   /** TTS 朗读中（speaking 态同义布尔——静音钮显隐）。 */
   readonly speaking: boolean;
+  /** TTS 在途队列深度（光球左上角计数徽标：流式在途句 + 一次性回执在播）。 */
+  readonly ttsQueue: number;
   /** 转写/录音侧最近失败原因（toast 消费；null = 无）。 */
   readonly voiceError: string | null;
   /** ask 发送失败的转写文本（面板采纳进输入框后 clearVoiceDraft 清位）。 */
@@ -357,6 +359,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const [legacySpeaking, setLegacySpeaking] = useState(false);
   const [streamSpeaking, setStreamSpeaking] = useState(false);
   const speaking = legacySpeaking || streamSpeaking;
+  // ── TTS 队列计数（光球左上角徽标）：流式在途句（speechOut 深度透出）+
+  //    一次性回执在播（legacy 面 +1）——两面合并单计数。──
+  const [streamQueue, setStreamQueue] = useState(0);
   const speakPendingRef = useRef(false);
   // ── ③ 回执轮次校验（迟到回执弃播）：fallback 发出时记轮次 id，回执到达
   //    时轮次已变（新 ask 已开）→ 弃播（不 new Audio——旧轮音频不覆盖新轮）。
@@ -480,6 +485,8 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       setStreamSpeaking(active);
     });
   }, [speechOut]);
+  // 队列深度透出订阅（光球角标数据源——pending 变化即推）
+  useEffect(() => speechOut.onQueueChange(setStreamQueue), [speechOut]);
 
   /** 一次性回执播放态（legacy Audio）：状态 + 租约 + ① 协调器同点写
    * （播放即持、播毕释放；b 面在播 = 对话发言期）。 */
@@ -1314,6 +1321,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     interim,
     streamDegraded,
     speaking,
+    ttsQueue: streamQueue + (legacySpeaking ? 1 : 0),
     voiceError: voice.error,
     voiceDraft,
     cancelWake,

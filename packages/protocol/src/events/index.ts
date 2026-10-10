@@ -169,6 +169,7 @@ import type {
   StewardMemoryListResultEvent,
   StewardJudgeStopIntentResultEvent,
   StewardNotifyEvent,
+  StewardHealthEvent,
   StewardProactiveEvent,
   StewardActionCompletedEvent,
   StewardPendingSnapshotEvent,
@@ -361,6 +362,7 @@ export type EventEnvelope =
   | SurfaceActionEvent
   | SurfaceRegisteredEvent
   | StewardNotifyEvent
+  | StewardHealthEvent
   | StewardProactiveEvent
   | StewardPendingSnapshotEvent
   | StewardActivityResultEvent
@@ -554,6 +556,9 @@ export const EVENT_TYPES = [
   // 管家感知批 M0.5：steward.notify（主动通知帧——分诊呈现轨载体，与 feed
   // 同订阅闸；事件帧非指令帧）
   "steward.notify",
+  // 光球健康角标批：steward.health（子系统降级/恢复广播——光球呈现面信号
+  // 源；状态变化才发，与 feed 同订阅闸）
+  "steward.health",
   // M3-a 批：steward.proactive（对话内主动汇报实时帧——CAND-601 闭环：
   // reportProactive 写工作记忆同时广播，开着的面板实时冒条目；旧壳忽略零破坏）
   "steward.proactive",
@@ -726,6 +731,7 @@ export const EVENT_CHANNELS = {
   "surface.action": "surface",
   "surface.registered": "surface",
   "steward.notify": "steward",
+  "steward.health": "steward",
   "steward.proactive": "steward",
   "steward.pending.snapshot": "steward",
   "steward.activity.result": "steward",

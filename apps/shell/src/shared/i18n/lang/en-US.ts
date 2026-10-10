@@ -1435,6 +1435,13 @@ export const enUS = {
       orbLabel: "Steward voice",
       orbMuted: "Mic muted; tap to unmute",
       orbStopRead: "Tap to stop reading",
+      // ── Orb health badges batch: top-left TTS queue count + top-right degraded chips ──
+      orbQueueBadge: "TTS queue: {n}",
+      orbHealthJudge: "Judge",
+      orbHealthTts: "TTS",
+      orbHealthStt: "STT",
+      orbHealthLlm: "Model",
+      orbHealthTitle: "Voice chain degraded: {list}",
       cmdConfirmOk: "Confirmed {target}",
       cmdCancelOk: "Cancelled {target}",
       cmdNoCards: "No cards awaiting confirmation",

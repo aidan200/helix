@@ -202,6 +202,23 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
     expect(senders.fallbacks).toEqual(["第一句。"]);
   });
 
+  it("队列深度透出（光球左上角计数徽标数据源）：issue 升 done/error/降级/停读 降", () => {
+    const depths: number[] = [];
+    out.onQueueChange((d) => depths.push(d));
+    out.feedRawDelta("第一句。第二句。");
+    expect(depths).toEqual([1, 2]); // 逐句 issue 递增
+    expect(out.queueDepth).toBe(2);
+    const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+    out.onChunkFrame(id1, "QUJD");
+    out.onDoneFrame(id1);
+    expect(out.queueDepth).toBe(1); // 头句收口（已过闸）→ 1
+    out.onErrorFrame(id2); // 后句死（已出声轮）→ 0
+    expect(out.queueDepth).toBe(0);
+    expect(depths[depths.length - 1]).toBe(0);
+    out.stopSpeaking(); // 空队列停读不重复播报深度
+    expect(out.queueDepth).toBe(0);
+  });
+
   describe("迟到自愈（兜底盲区修复：结果先行判 stream 后链死 → 自动一次性回退）", () => {
     it("结果先行 + 首帧超时 → 自愈一次性整段回退 + onLateFallback 通知消费端开单飞门", () => {
       const onLateFallback = vi.fn();

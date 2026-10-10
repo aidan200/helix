@@ -523,8 +523,9 @@ export interface McpCommandContext {
 export interface VoiceCommandDeps {
   /** TTS 合成面（voice.synthesize 试听合成；provider 当前仅 dashscope；key 缺失由 adapter fail-fast）。 */
   readonly tts: TtsPort;
-  /** EventStream 连接级 voice 订阅面（voice.subscribe/unsubscribe 登记）。 */
-  readonly stream: Pick<EventStream, "subscribeVoice" | "unsubscribeVoice">;
+  /** EventStream 连接级 voice 订阅面（voice.subscribe/unsubscribe 登记）+
+   *  健康上报（光球健康角标批：TTS 合成失败/恢复经此处上报）。 */
+  readonly stream: Pick<EventStream, "subscribeVoice" | "unsubscribeVoice" | "reportStewardHealth">;
   /** 流式合成面（V3b-2 voice.synthesize.stream/stop；未装配 → unimplemented）。 */
   readonly ttsStream?: TtsStreamService;
 }

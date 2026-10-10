@@ -1441,6 +1441,13 @@ export const zhCN = {
       orbLabel: "管家语音",
       orbMuted: "麦克风已静音，点击恢复",
       orbStopRead: "点击停止朗读",
+      // ── 光球健康角标批：左上 TTS 队列计数 + 右上故障组件徽标 ──
+      orbQueueBadge: "TTS 播报队列 {n} 条",
+      orbHealthJudge: "判官",
+      orbHealthTts: "TTS",
+      orbHealthStt: "转写",
+      orbHealthLlm: "模型",
+      orbHealthTitle: "语音链异常：{list}",
       cmdConfirmOk: "已确认 {target}",
       cmdCancelOk: "已取消 {target}",
       cmdNoCards: "没有待确认的卡片",

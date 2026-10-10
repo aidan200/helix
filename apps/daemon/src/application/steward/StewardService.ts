@@ -872,6 +872,14 @@ export interface StewardServiceDeps {
   /** 可靠性批：用户提醒出口（挂起恢复/确认可达性/TTL 作废三提醒帧——组合根
    *  接 EventStream.broadcastStewardNotify；缺席 = 零提醒）。 */
   readonly emitNotify?: (payload: StewardNotifyPayload) => void;
+  /** 光球健康角标批：子系统健康上报出口（组合根接
+   *  EventStream.reportStewardHealth——同态去重在出口把门；缺席 = 零帧）。
+   *  触发面：judge（判官降级/恢复）/ llm（run 级失败/恢复）。 */
+  readonly emitHealth?: (
+    component: "judge" | "tts" | "stt" | "llm",
+    status: "degraded" | "ok",
+    reason?: string,
+  ) => void;
   /** M3-a：对话内主动汇报实时帧出口（CAND-601 闭环——组合根接
    *  EventStream.broadcastStewardProactive；缺席 = 零帧，工作记忆记录照写
    *  ——语义面零降级，仅实时性缺席）。 */
@@ -1738,8 +1746,12 @@ export class StewardService implements StewardComponent {
       this.deps.logger?.warn(
         `管家 run 收口：error（分类：${kind}；原因：${capChars(outcome.reason, 200)}；排队 ${this.askQueue.length} 条）`,
       );
+      // 健康上报（光球角标批）：模型/引擎级失败 = llm 降级；aborted（用户
+      // 手动停止）非故障不上报
+      if (kind !== "aborted") this.deps.emitHealth?.("llm", "degraded", outcome.reason);
     } else {
       this.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.askQueue.length} 条）`);
+      this.deps.emitHealth?.("llm", "ok"); // 正常收口 = llm 恢复
     }
     // ④ 本 run 挂闸卡处置：deliver/send/create/spawnReview 意图不随 run 死
     //    而失效 → 凭据续活到卡终局；destructive 不可续活 → 即时撤除+明示。
@@ -2150,8 +2162,13 @@ export class StewardService implements StewardComponent {
         } else {
           this.deps.logger?.warn(`addressee 判定失败，回退当聊天：${message ?? ""}`);
         }
+        // 健康上报（光球角标批）：判官关闭非故障（ok 清角标）；端点失效/调
+        // 用失败 = judge 降级
+        if (kind === "off") this.deps.emitHealth?.("judge", "ok");
+        else this.deps.emitHealth?.("judge", "degraded", message ?? kind);
       },
     });
+    if (r.degraded === undefined) this.deps.emitHealth?.("judge", "ok"); // 判官正常 = 恢复
     return r.value;
   }
 
@@ -2176,8 +2193,11 @@ export class StewardService implements StewardComponent {
         } else {
           this.deps.logger?.warn(`stop-intent 判定失败，回退不停止（照排队）：${message ?? ""}`);
         }
+        if (kind === "off") this.deps.emitHealth?.("judge", "ok");
+        else this.deps.emitHealth?.("judge", "degraded", message ?? kind);
       },
     });
+    if (r.degraded === undefined) this.deps.emitHealth?.("judge", "ok");
     return r.degraded !== undefined ? { ...r.value, degraded: r.degraded } : r.value;
   }
 
@@ -2196,6 +2216,7 @@ export class StewardService implements StewardComponent {
     if (!judge.ready()) {
       // 开关开但端点未配/已删/非 classifier——值得提醒（用户预期判官生效）
       this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——回退词表后行为（原样走 LLM）");
+      this.deps.emitHealth?.("judge", "degraded", "意图判官端点未配或已失效");
       return undefined;
     }
     const entry = this.ledger.entryOf(latest)!;
@@ -2221,6 +2242,7 @@ export class StewardService implements StewardComponent {
     } catch (err) {
       // 判官抛错即降级不重试（E-214/E-250 同款保守语义）
       this.deps.logger?.warn(`管家意图判官判定失败，回退词表后行为：${(err as Error).message}`);
+      this.deps.emitHealth?.("judge", "degraded", (err as Error).message);
       return undefined;
     }
   }

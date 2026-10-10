@@ -40,6 +40,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStewardVoice } from "../model/useStewardVoice";
+import { useStewardHealth, type StewardHealthComponent } from "../model/useStewardHealth";
 import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
 import { parseVoiceCommand, resolveVoiceCommand, isStopIntentPhrase, type VoiceCardTarget } from "../model/voice-command";
@@ -358,6 +359,11 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     sv.toggleMute();
   }, [sv]);
 
+  // ── 光球角标（健康角标批）：左上 TTS 队列计数 + 右上故障组件徽标（降级
+  //    清单非空才显；语义汇总进按钮 aria-label，角标本体纯视觉）。──
+  //    hook 必须在早退（orbPhase===null）之前——条件早退后挂钩 = hook 数
+  //    跨渲染漂移（React 报错，关麦淡出测试抓过）。
+  const health = useStewardHealth();
   if (orbPhase === null) return null;
   const showInterim = sv.interim !== null && sv.interim !== "";
   // ── 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具
@@ -368,6 +374,15 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   //    一眼可辨）——tool 相位独立分支：accent 亮色 + 工具名 mono 胶囊
   //    badge（data-tool="on" 驱动；面板仍用 activityTool 整句不变）。──
   const streamingActive = sv.streamingText !== null && sv.streamingText !== "";
+  const healthLabelOf: Record<StewardHealthComponent, string> = {
+    judge: t("steward.voice.orbHealthJudge"),
+    tts: t("steward.voice.orbHealthTts"),
+    stt: t("steward.voice.orbHealthStt"),
+    llm: t("steward.voice.orbHealthLlm"),
+  };
+  const healthLabels = health.degraded.map((d) => healthLabelOf[d.component]);
+  const healthTitle =
+    healthLabels.length > 0 ? t("steward.voice.orbHealthTitle", { list: healthLabels.join("·") }) : undefined;
   const showActivity = sv.askActivity !== null && !streamingActive;
   const showToolActivity = showActivity && sv.askActivity?.phase === "tool" && sv.askActivity.toolName !== null;
   const activityThink =
@@ -434,13 +449,33 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
         data-testid="steward-orb"
         data-phase={orbPhase}
         style={{ "--stv-lv": (0.98 + lv * 0.05).toFixed(3) } as React.CSSProperties}
-        aria-label={sv.muted ? t("steward.voice.orbMuted") : sv.speaking ? t("steward.voice.orbStopRead") : t("steward.voice.orbLabel")}
-        title={sv.speaking ? t("steward.voice.orbStopRead") : undefined}
+        aria-label={
+          (sv.muted ? t("steward.voice.orbMuted") : sv.speaking ? t("steward.voice.orbStopRead") : t("steward.voice.orbLabel")) +
+          (healthTitle === undefined ? "" : `；${healthTitle}`)
+        }
+        title={sv.speaking ? t("steward.voice.orbStopRead") : healthTitle}
         onClick={onOrbClick}
       >
         {/* 帧动画雪碧图皮面（单层——orb.png 6×6 网格，相位动画与帧表全在
             app.css .stv 段；纯皮面 aria-hidden）*/}
         <span className="stv-sprite" aria-hidden="true" />
+        {/* 光球角标（健康角标批）：左上 TTS 队列计数（>0 才显）+ 右上故障
+            组件徽标（title 携简因）——纯视觉面，语义并入按钮 aria-label */}
+        {sv.ttsQueue > 0 && (
+          <span
+            className="stv-badge stv-queue"
+            data-testid="steward-tts-queue"
+            title={t("steward.voice.orbQueueBadge", { n: sv.ttsQueue })}
+            aria-hidden="true"
+          >
+            {sv.ttsQueue}
+          </span>
+        )}
+        {healthLabels.length > 0 && (
+          <span className="stv-badge stv-health" data-testid="steward-health-badge" title={health.degraded.map((d) => d.reason ?? healthLabelOf[d.component]).join("；")} aria-hidden="true">
+            {healthLabels.join("·")}
+          </span>
+        )}
       </button>
     </div>
   );

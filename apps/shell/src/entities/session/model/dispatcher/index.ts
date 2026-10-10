@@ -188,6 +188,9 @@ export const PASSTHROUGH_EVENT_TYPES = [
   "steward.thinking",
   "steward.navigate",
   "steward.notify",
+  // 光球健康角标批 +steward.health（子系统降级/恢复广播——真消费归
+  // useStewardHealth 光球角标面，与 feed 同订阅闸广播）
+  "steward.health",
   // M3-a 批 +steward.proactive（对话内主动汇报实时帧——CAND-601 闭环：真
   // 消费归 useSteward 面板条目实时追加；与 notify 同订阅闸广播）
   "steward.proactive",

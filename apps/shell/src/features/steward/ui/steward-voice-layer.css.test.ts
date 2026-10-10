@@ -177,6 +177,22 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
     expect(seg).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.stv-line\[data-kind="activity"\]::before\s*\{[^}]*animation:\s*none/);
   });
 
+  it("光球角标（健康角标批）：左上队列计数 accent 徽标 + 右上故障徽标 warning 通道（token 单源零内联 hex + 零动画）", () => {
+    const badge = seg.match(/\.stv-badge\s*\{[^}]*\}/)![0];
+    expect(badge).toMatch(/position:\s*absolute/);
+    expect(badge).toMatch(/font-family:\s*var\(--font-mono\)/);
+    expect(badge).toMatch(/font-size:\s*var\(--text-cap\)/);
+    expect(badge).not.toMatch(/animation/); // 纯静态信息面（E-124 面外零动画）
+    const queue = seg.match(/\.stv-queue\s*\{[^}]*\}/)![0];
+    expect(queue).toMatch(/left:\s*-6px/); // 左上角
+    expect(queue).toMatch(/color:\s*var\(--accent\)/);
+    expect(queue).toMatch(/background:\s*rgb\(var\(--accent-rgb\) \/ 0\.12\)/);
+    const health = seg.match(/\.stv-health\s*\{[^}]*\}/)![0];
+    expect(health).toMatch(/right:\s*-6px/); // 右上角
+    expect(health).toMatch(/color:\s*var\(--warning\)/);
+    expect(health).toMatch(/border:\s*1px solid rgb\(var\(--warning-rgb\) \/ 0\.45\)/);
+  });
+
   it("工具态醒目面（工具态醒目面批，用户裁决：当前工具一眼可辨）：accent 唯一彩色行 + 呼吸点加大加亮加速 + badge token 单源", () => {
     // 工具态行：accent 亮色（字幕内唯一彩色行——与弱区分的 thinking 态拉开）
     const tool = seg.match(/\.stv-line\[data-kind="activity"\]\[data-tool="on"\]\s*\{[^}]*\}/)![0];

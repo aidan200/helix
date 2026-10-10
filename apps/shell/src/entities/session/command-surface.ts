@@ -1079,6 +1079,7 @@ export const LISTEN_SURFACE = {
       type === "steward.thinking" ||
       type === "steward.navigate" ||
       type === "steward.notify" ||
+      type === "steward.health" ||
       type === "steward.proactive" ||
       type === "steward.pending.snapshot" ||
       type === "steward.memory_written" ||

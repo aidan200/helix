@@ -99,6 +99,7 @@ let svState: {
   items: Array<{ kind: string; text: string }>;
   askActivity: { phase: "thinking" | "tool"; toolName: string | null; thinkingLines: string[] } | null;
   dropNoticeSeq: number;
+  ttsQueue: number;
 } = {
   duplexActive: false,
   welcomeActive: false,
@@ -111,6 +112,7 @@ let svState: {
   items: [],
   askActivity: null,
   dropNoticeSeq: 0,
+  ttsQueue: 0,
 };
 /** 桩捕获的 options.onFinalText（口令拦截面驱动口；ctx = barge-in 意图窗标记）。 */
 let capturedOnFinalText:
@@ -142,6 +144,7 @@ vi.mock("../model/useStewardVoice", () => ({
       interim: svState.interim,
       streamDegraded: false,
       speaking: svState.speaking,
+      ttsQueue: svState.ttsQueue,
       voiceError: null,
       voiceDraft: null,
       startListening: async () => undefined,
@@ -209,6 +212,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
       items: [],
       askActivity: null,
       dropNoticeSeq: 0,
+      ttsQueue: 0,
     };
     localStorage.setItem("helix-lang", "zh-CN");
   });
@@ -477,6 +481,43 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("光球角标（健康角标批）：ttsQueue>0 → 左上队列计数徽标；0 隐藏", () => {
+    svState.duplexActive = true;
+    svState.ttsQueue = 3;
+    renderLayer();
+    expect(screen.getByTestId("steward-tts-queue").textContent).toBe("3");
+    cleanup();
+    svState.ttsQueue = 0;
+    renderLayer();
+    expect(screen.queryByTestId("steward-tts-queue")).toBeNull();
+  });
+
+  it("光球角标（健康角标批）：steward.health 降级帧 → 右上故障徽标（多组件标签 + title 携简因）；ok 帧消失", () => {
+    svState.duplexActive = true;
+    renderLayer();
+    expect(screen.queryByTestId("steward-health-badge")).toBeNull(); // 全健康零徽标
+    act(() => {
+      emitSteward({
+        type: "steward.health",
+        payload: { component: "judge", status: "degraded", reason: "判官 HTTP 451", seq: 1 },
+      } as unknown as EventEnvelope);
+      emitSteward({
+        type: "steward.health",
+        payload: { component: "tts", status: "degraded", reason: "合成失败", seq: 2 },
+      } as unknown as EventEnvelope);
+    });
+    const badge = screen.getByTestId("steward-health-badge");
+    expect(badge.textContent).toBe("判官·TTS");
+    expect(badge.getAttribute("title")).toContain("判官 HTTP 451");
+    act(() => {
+      emitSteward({
+        type: "steward.health",
+        payload: { component: "judge", status: "ok", seq: 3 },
+      } as unknown as EventEnvelope);
+    });
+    expect(screen.getByTestId("steward-health-badge").textContent).toBe("TTS"); // judge 恢复退场
   });
 
   it("语音口令（D3=b）：整句「确认」→ steward.confirm 既有命令 + 回读字幕；无卡零动作回读", async () => {

@@ -358,6 +358,7 @@ describe("LISTEN_SURFACE.subscribeStewardFrames", () => {
       "steward.thinking",
       "steward.navigate",
       "steward.notify",
+      "steward.health",
       "steward.proactive",
       "steward.memory_written",
       "steward.memory_list.result",

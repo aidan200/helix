@@ -317,6 +317,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "steward.notify":
       // 管家感知批 M0.5：主动通知帧窄化（urgency/title/seq + 首条建议 label）
       return `steward-notify:${event.payload.urgency}:${event.payload.title}:${event.payload.seq}`;
+    case "steward.health":
+      // 光球健康角标批：健康帧窄化（component/status/seq + 简因面）
+      return `steward-health:${event.payload.component}:${event.payload.status}:${event.payload.seq}`;
     case "embedding.list.result":
       // embedding 配置域（B2）：端点清单回执窄化（数量 + 首条 name 面）
       return `embedding-list:${event.payload.endpoints.length}:${event.payload.endpoints[0]?.name ?? "-"}`;

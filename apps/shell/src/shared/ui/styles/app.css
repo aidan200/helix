@@ -1721,6 +1721,26 @@ html.light .stv-caption {
 .stv-orb:focus-visible { outline: 2px solid rgb(var(--accent-rgb) / 0.6); outline-offset: 4px; }
 .stv-orb:active { transform: translateY(2px); } /* 像素按压：整球下沉一格（snap 无过渡）*/
 
+/* 光球角标（健康角标批）：左上 = TTS 在途队列计数（accent mono 徽标，
+   0 隐藏）；右上 = 故障组件徽标（warning 通道，降级清单非空才显）。
+   HUD 信息面：token 单源零内联 hex（通道变量模式同工具 badge）、纯静态
+   无动画（E-124 面外）；语义并入按钮 aria-label（角标本体 aria-hidden） */
+.stv-badge {
+  position: absolute; top: -6px;
+  font-family: var(--font-mono); font-size: var(--text-cap); line-height: 1.6;
+  border-radius: 4px; padding: 0 5px; pointer-events: none; white-space: nowrap;
+}
+.stv-queue {
+  left: -6px; color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.12);
+  border: 1px solid rgb(var(--accent-rgb) / 0.45);
+}
+.stv-health {
+  right: -6px; color: var(--warning);
+  background: rgb(var(--warning-rgb) / 0.12);
+  border: 1px solid rgb(var(--warning-rgb) / 0.45);
+}
+
 /* 帧动画雪碧图（orb.png 216²：6×6 网格/36px 帧，硬边放大 image-rendering:
    pixelated；帧满格=background-size 600%（整图缩放到 6 倍容器），帧位
    百分比公式 (列-1)×20% (行-1)×20% 为构建期常量直写 keyframes）*/

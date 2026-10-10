@@ -43,6 +43,8 @@ import type {
   SurfaceActionPayload,
   StewardNotifyEvent,
   StewardNotifyPayload,
+  StewardHealthEvent,
+  StewardHealthPayload,
   StewardActivityEvent,
   StewardActivityPayload,
   StewardProactiveEvent,
@@ -649,6 +651,52 @@ export class EventStream implements EventPublisherPort {
     }
     // 语音闭环批 ⑤：发出即打 INFO（title + seq + 投递连接数——通知行为可观测）
     this.deps.logger?.info?.(`steward.notify 发出：${payload.title}（seq=${payload.seq}，投递 ${recipients} 连接）`);
+  }
+
+  // ── 光球健康角标批：子系统健康状态帧（steward.health）──
+
+  /** 各组件最近上报态（同态去重——连续失败只报一次，恢复才再发）。 */
+  private readonly healthStatus = new Map<StewardHealthPayload["component"], StewardHealthPayload["status"]>();
+  /** 健康帧序（连接内单调）。 */
+  private healthSeq = 0;
+
+  /**
+   * steward.health 报告（光球健康角标批）：组件状态变化才广播（同态去重），
+   * 与 feed 同订阅闸（stewardSubscribed 过滤）。触发面 = 判官降级/恢复
+   * （StewardService judgeOrFallback onDegraded）、TTS 合成失败/恢复
+   * （handlers/voice.ts 回执与流式帧咽喉）、LLM run 失败/恢复（finishRun）。
+   */
+  reportStewardHealth(
+    component: StewardHealthPayload["component"],
+    status: StewardHealthPayload["status"],
+    reason?: string,
+  ): void {
+    if (this.healthStatus.get(component) === status) return; // 同态去重（降级风暴只报首次）
+    this.healthStatus.set(component, status);
+    const payload: StewardHealthPayload = {
+      component,
+      status,
+      seq: (this.healthSeq += 1),
+      ...(reason !== undefined && reason !== "" ? { reason: reason.slice(0, 60) } : {}),
+    };
+    const frame: StewardHealthEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "steward",
+      type: "steward.health",
+      payload,
+    };
+    let recipients = 0;
+    for (const [sender, conn] of this.connections) {
+      if (!conn.stewardSubscribed) continue;
+      try {
+        sender(frame);
+        recipients += 1;
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
+    this.deps.logger?.info?.(`steward.health：${component} → ${status}${reason === undefined ? "" : `（${reason.slice(0, 60)}）`}，投递 ${recipients} 连接`);
   }
 
   /**

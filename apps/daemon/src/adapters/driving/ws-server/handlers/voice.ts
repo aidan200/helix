@@ -45,6 +45,8 @@ export function handleVoiceSynthesize(ctx: VoiceCommandContext): void {
     try {
       result = await ctx.voice.tts.synthesize({ text, ...(voice !== undefined ? { voice } : {}), ...(language !== undefined ? { language } : {}) });
     } catch (err) {
+      // 健康上报（光球角标批）：合成失败 = tts 降级（同态去重由 EventStream 把门）
+      ctx.voice.stream.reportStewardHealth("tts", "degraded", (err as Error).message);
       const frame: VoiceSynthesizeResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -55,6 +57,7 @@ export function handleVoiceSynthesize(ctx: VoiceCommandContext): void {
       ctx.sendNow(sender, frame);
       return;
     }
+    ctx.voice.stream.reportStewardHealth("tts", "ok"); // 合成成功 = tts 恢复
     const frame: VoiceSynthesizeResultEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID,
@@ -124,8 +127,23 @@ export function handleVoiceSynthesizeStream(ctx: VoiceCommandContext): void {
   }
   const voice = typeof ctx.payload.voice === "string" && ctx.payload.voice !== "" ? ctx.payload.voice : undefined;
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  // 全局命令不消费信封 sessionId（voice 族先例）；帧信封章 SYSTEM_SESSION_ID
-  service.utter(sender, { utterId, text, ...(voice !== undefined ? { voice } : {}), sessionId: SYSTEM_SESSION_ID, emit: (frame) => ctx.sendNow(sender, frame) });
+  // 全局命令不消费信封 sessionId（voice 族先例）；帧信封章 SYSTEM_SESSION_ID。
+  // emit 包装兼健康上报咽喉（光球角标批）：error 帧 = tts 降级、done = 恢复。
+  service.utter(sender, {
+    utterId,
+    text,
+    ...(voice !== undefined ? { voice } : {}),
+    sessionId: SYSTEM_SESSION_ID,
+    emit: (frame) => {
+      if (frame.type === "voice.synthesize.error") {
+        const p = (frame as { payload?: { reason?: unknown } }).payload;
+        ctx.voice.stream.reportStewardHealth("tts", "degraded", typeof p?.reason === "string" ? p.reason : "流式合成失败");
+      } else if (frame.type === "voice.synthesize.done") {
+        ctx.voice.stream.reportStewardHealth("tts", "ok");
+      }
+      ctx.sendNow(sender, frame);
+    },
+  });
 }
 
 /** voice.synthesize.stop（全局命令）：中止在途句（utterId 定向；省略 = 全量）。 */

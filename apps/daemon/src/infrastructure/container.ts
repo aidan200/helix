@@ -1137,6 +1137,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       eventStream.broadcastStewardNotify(payload);
       stewardActivity.recordNotify({ title: payload.title, body: payload.body });
     },
+    // 光球健康角标批：子系统健康上报（同态去重/seq 在 EventStream 出口把门）
+    emitHealth: (component, status, reason) => eventStream.reportStewardHealth(component, status, reason),
     // M3-a（CAND-601 闭环）：对话内主动汇报实时帧出口（reportProactive 双写
     // ——开着的面板实时冒条目；与 feed/notify 同订阅闸）
     emitProactive: (payload) => eventStream.broadcastStewardProactive(payload),

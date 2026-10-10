@@ -495,6 +495,28 @@ export interface StewardNotifyEvent extends EventFrame<StewardNotifyPayload> {
   type: "steward.notify";
 }
 
+/** steward.health payload（健康状态帧，additive）：子系统降级/恢复广播——
+ *  光球健康角标呈现面的信号源。**事件帧非指令帧**（与 notify 同通道治理）；
+ *  语义 = 状态变化才发（同状态去重/恢复上行由 daemon 侧把门）。 */
+export interface StewardHealthPayload {
+  /** 故障组件：judge = 意图/称呼判官；tts = 语音合成；stt = 语音转写；
+   *  llm = 管家模型（run 级失败）。 */
+  component: "judge" | "tts" | "stt" | "llm";
+  /** 状态：degraded = 降级（旁路回退可用）；ok = 已恢复。 */
+  status: "degraded" | "ok";
+  /** 故障简因（≤60 字白话——与 notify body 同口径；status=ok 可省）。 */
+  reason?: string;
+  /** 连接内单调顺序号（1 起；shell 侧顺序保障面）。 */
+  seq: number;
+}
+
+/** steward.health：子系统健康广播帧（channel = "steward"；仅发已订阅连接
+ *  ——与 steward.feed 同闸门同构）。 */
+export interface StewardHealthEvent extends EventFrame<StewardHealthPayload> {
+  channel?: "steward";
+  type: "steward.health";
+}
+
 /**
  * steward.proactive payload（M3-a 批，additive——CAND-601 闭环）：对话内
  * 主动汇报实时帧——reportProactive 写工作记忆的同时广播本帧，开着的管

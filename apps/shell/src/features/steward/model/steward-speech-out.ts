@@ -120,6 +120,7 @@ export class StewardSpeechOut {
   private utterSeq = 0;
   private readonly pending = new Map<string, PendingUtter>();
   private speakingListeners = new Set<(speaking: boolean) => void>();
+  private queueListeners = new Set<(depth: number) => void>();
   private disposed = false;
 
   constructor(options: StewardSpeechOutOptions) {
@@ -140,6 +141,24 @@ export class StewardSpeechOut {
     return () => {
       this.speakingListeners.delete(cb);
     };
+  }
+
+  /** 队列深度透出（光球左上角计数徽标——在途句数 = 已发合成/待播/在播）。 */
+  onQueueChange(cb: (depth: number) => void): () => void {
+    this.queueListeners.add(cb);
+    return () => {
+      this.queueListeners.delete(cb);
+    };
+  }
+
+  /** 当前队列深度（pending 在途句数）。 */
+  get queueDepth(): number {
+    return this.pending.size;
+  }
+
+  private emitQueue(): void {
+    const depth = this.pending.size;
+    for (const cb of this.queueListeners) cb(depth);
   }
 
   /** 回答增量喂入（原文 md；仅 answerActive 轮内消费——轮次由消费端经
@@ -213,6 +232,7 @@ export class StewardSpeechOut {
     pending.done = true;
     if (pending.released) this.pending.delete(utterId); // 音频已全量入队
     this.pumpGate();
+    this.emitQueue();
   }
 
   /** error 帧消费：未出声句转回退；已出声句只丢（半句重读会重复）；闸推进。 */
@@ -225,6 +245,7 @@ export class StewardSpeechOut {
     if (pending.gotChunk) {
       this.pending.delete(utterId);
       this.pumpGate(); // 中途断：丢句不降级（V3b-2 语义）——后继句照常放行
+      this.emitQueue();
       return;
     }
     if (!this.anyAudio) {
@@ -237,6 +258,7 @@ export class StewardSpeechOut {
     this.pending.delete(utterId);
     this.fallbackText += pending.text; // 先入缓冲（时序正确——降级废的在途句后到后拼）
     this.pumpGate();
+    this.emitQueue();
     this.maybeLateFallback();
   }
 
@@ -309,6 +331,7 @@ export class StewardSpeechOut {
       if (pending.timer !== null) clearTimeout(pending.timer);
     }
     this.pending.clear();
+    this.emitQueue();
     this.player.stop();
     this.buffer.reset();
     this.clearCutTimer();
@@ -355,6 +378,7 @@ export class StewardSpeechOut {
       this.senders.sendStopFor(utterId);
     }
     this.player.stop();
+    this.emitQueue();
   }
 
   /** 释放（面板卸载）。 */
@@ -433,6 +457,7 @@ export class StewardSpeechOut {
         lastSeq: undefined,
         buffered: [],
       });
+      this.emitQueue();
       this.pumpGate(); // 头句立即过闸（流水线：首 chunk 到达即直通）
     }
   }
@@ -452,6 +477,7 @@ export class StewardSpeechOut {
     this.senders.sendStopFor(utterId);
     this.pumpGate(); // 已出声链：不降级——闸推进，后继句放行
     this.fallbackText += pending.text;
+    this.emitQueue();
     this.maybeLateFallback();
   }
 
@@ -501,6 +527,7 @@ export class StewardSpeechOut {
       this.senders.sendStopFor(utterId);
       if (!pending.gotChunk) this.fallbackText += pending.text;
     }
+    this.emitQueue();
   }
 
   /** 迟到自愈（兜底盲区修复）：结果先行判 stream 后链死且零出声 → 未读句
