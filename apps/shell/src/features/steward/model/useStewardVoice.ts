@@ -439,11 +439,26 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     });
   }
   const bargeInWindow = bargeInWindowRef.current;
+  // ── b 面（一次性回执）让位停播：a×b 互斥反向边（b 起播已停 a，本边补齐
+  //    a 起播/新轮开轮收编 b——单向收编是双声重叠残留缺口）。租约/协调位
+  //    同点收位（幂等——unmount/stopSpeaking 共径零双发）。──
+  const stopLegacyAudio = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio === null) return;
+    audioRef.current = null;
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    setLegacySpeaking(false);
+    endSpeechLease(SPEECH_LEASE_LEGACY);
+    endDialogueSpeech(SPEECH_LEASE_LEGACY);
+  }, []);
   useEffect(() => {
     // ⑥ 播放态边沿 = 租约边沿（首块入队播放 → 发言期；播尽/停 → 释放）
     // ① 同边沿接协调器：a 面在播 = 对话发言期（通知面被压制/收编）
     return speechOut.onSpeakingChange((active) => {
       if (active) {
+        stopLegacyAudio(); // 反向互斥：a 起播收编 b（旧回执不让位就双声）
         beginSpeechLease(SPEECH_LEASE_SPEECH_OUT);
         beginDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
       } else {
@@ -731,9 +746,10 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     // ① 对话发言期开轮（先占面再清在途——防清理边沿瞬时放行通知面）
     beginDialogueSpeech(SPEECH_FLOOR_ROUND);
     answerRoundRef.current += 1; // ③ 轮次 id 递增（旧轮回执自此判为迟到）
+    stopLegacyAudio(); // ② 补边：旧轮一次性回执让位（新轮清在途的 b 面）
     speechOut.resetAnswer(); // ② 新轮清在途（在途句定向 stop + player 旧尾音停 + 闸复位）
     return () => endDialogueSpeech(SPEECH_FLOOR_ROUND); // 收口（含卸载）——a/b 在播仍持面
-  }, [askInFlight, speechOut]);
+  }, [askInFlight, speechOut, stopLegacyAudio]);
 
   // 一次性回退回执 → 播放（单飞门控：仅本面 pending 消费——设置页试听回执
   // 不串台；useVoiceBroadcast 顺序播放是全局订阅面，与本点对点面互不相干）
@@ -1223,9 +1239,12 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       return;
     }
     if (!relistenArmedRef.current || mutedRef.current) return;
+    // 问题 2 裁决 b：通知播报期不续听（播报不叠用户说话）——武装位不清，
+    // 通知收口（notifSpeaking 落）边沿自动续听。
+    if (notifSpeaking) return;
     relistenArmedRef.current = false;
     void guardedBeginListening();
-  }, [duplexActive, phase, muted, guardedBeginListening]);
+  }, [duplexActive, phase, muted, notifSpeaking, guardedBeginListening]);
 
   // 切模式：进 text = 停朗读 + 在录强制停（转写链照常走完；answer 不再朗读）
   const setMode = useCallback(

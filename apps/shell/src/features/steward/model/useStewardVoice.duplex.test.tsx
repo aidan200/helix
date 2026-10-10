@@ -736,4 +736,51 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     expect(r.current.bargeInIntentActive).toBe(false); // 不开意图窗（无需停止词判定）
     expect(r.current.welcomeActive).toBe(false); // 待机驻留标记随让位收位
   });
+
+  it("问题 2 裁决 b：通知播报期不自动续听（idle 不开新流）；通知收口边沿自动续听", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r); // 静音休眠态：phase idle、续听武装待发（muted 拦截中）
+    await waitFor(() => expect(r.current.phase).toBe("idle"));
+    beginNotificationPlayback(); // 通知占用在场（speech-floor 镜像）
+    const startsBefore = sendSttStreamStart.mock.calls.length;
+    act(() => {
+      r.current.toggleMute(); // 解除静音——正常应立即续听，但通知在播（2b 门控）
+    });
+    await tick();
+    await tick();
+    expect(sendSttStreamStart.mock.calls.length).toBe(startsBefore); // 通知在播：不续听（不叠用户说话）
+    endNotificationPlayback(); // 通知收口
+    await waitFor(() => expect(sendSttStreamStart.mock.calls.length).toBeGreaterThan(startsBefore)); // 边沿自动续听
+    await ackLatestStream();
+    await waitFor(() => expect(r.current.phase).toBe("listening"));
+  });
+
+  it("欢迎语 onerror 收位（泄漏修复）：固化音频播放异常 → 租约同点释放（零幽灵租约堵死收音）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const audios: { src: string; onerror: (() => void) | null }[] = [];
+    vi.stubGlobal(
+      "Audio",
+      vi.fn().mockImplementation(function (this: { src: string; volume: number; play: () => Promise<void>; pause: () => void; onended: null; onerror: (() => void) | null }, src: string) {
+        this.src = src;
+        this.volume = 1;
+        this.play = () => Promise.resolve();
+        this.pause = () => {};
+        this.onended = null;
+        this.onerror = null;
+        audios.push(this);
+      }),
+    );
+    localStorage.setItem("helix.steward.welcomeAudio", "data:audio/mp4;base64,FIXED");
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    await pressHotkey(r);
+    await waitFor(() => expect(speechLeaseActive()).toBe(true)); // 欢迎语发言期租约在场
+    const welcome = audios.find((a) => a.src === "data:audio/mp4;base64,FIXED");
+    act(() => {
+      welcome?.onerror?.(); // 播放异常（解码失败/中断）——修复前零收位 → 租约永占堵死收音上行
+    });
+    expect(speechLeaseActive()).toBe(false); // 异常同点收位（与 onended 同径）
+  });
 });

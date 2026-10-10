@@ -333,6 +333,51 @@ describe("useStewardVoice 出声面协调（双声重叠修复批 ①②③④�
     expect(FakeAudio.instances.filter((a) => a.src.startsWith("data:audio/mp4")).length).toBe(0);
   });
 
+  it("T8a b×a 反向互斥（重叠残留修复）：一次性回执在播 → a 起播边沿收编回执（停播 + 租约收位）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    act(() => {
+      r.current.ask("第一轮问题");
+    });
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第一轮答复。" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/mp4;base64,B1" }, "voice"));
+    });
+    const receipt = FakeAudio.instances.find((a) => a.src === "data:audio/mp4;base64,B1");
+    expect(receipt?.paused).toBe(false); // 回执在播
+    expect(speechLeaseActive()).toBe(true); // b 发言期租约在场
+    playerGo(true); // a 起播边沿（新对话始出声）→ 反向收编 b
+    expect(receipt?.paused).toBe(true); // 回执被停（零双声）
+  });
+
+  it("T8b 新轮清在途收编 b：回执在播时新轮 ask → 回执停播 + 租约收位（不叠新轮出声）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    act(() => {
+      r.current.ask("第一轮问题");
+    });
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "第一轮答复。" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/mp4;base64,B2" }, "voice"));
+    });
+    const receipt = FakeAudio.instances.find((a) => a.src === "data:audio/mp4;base64,B2");
+    expect(receipt?.paused).toBe(false);
+    expect(speechLeaseActive()).toBe(true);
+    act(() => {
+      r.current.ask("第二轮问题"); // 新轮开轮（②新轮清在途的 b 面补边）
+    });
+    expect(receipt?.paused).toBe(true); // 旧轮回执收编停播
+    expect(speechLeaseActive()).toBe(false); // 租约同点收位（零幽灵租约）
+  });
+
   it("T2 迟到回执弃播（③）：fallback 发出记轮次 → 新 ask 开轮 → 回执到达零 new Audio；同轮回执照播（对照不误伤）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;

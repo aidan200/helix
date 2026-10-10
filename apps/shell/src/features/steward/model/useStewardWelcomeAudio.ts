@@ -48,6 +48,7 @@ export function useStewardWelcomeAudio(deps: UseStewardWelcomeAudioDeps): {
     if (audio === null) return;
     audioRef.current = null;
     audio.onended = null;
+    audio.onerror = null;
     audio.pause();
     endSpeechLease(SPEECH_LEASE_WELCOME); // ⑥ 欢迎语发言期同占租约（提前停即释放）
     endDialogueSpeech(SPEECH_LEASE_WELCOME); // ① 协调面同点收位（欢迎语 = 管家在跟你说话 → 压通知）
@@ -63,6 +64,13 @@ export function useStewardWelcomeAudio(deps: UseStewardWelcomeAudioDeps): {
         beginSpeechLease(SPEECH_LEASE_WELCOME); // ⑥ 发言期登记（播毕/失败释放）
         beginDialogueSpeech(SPEECH_LEASE_WELCOME); // ① 欢迎语对话源：起播压/停通知
         audio.onended = () => {
+          if (audioRef.current === audio) audioRef.current = null;
+          endSpeechLease(SPEECH_LEASE_WELCOME);
+          endDialogueSpeech(SPEECH_LEASE_WELCOME);
+        };
+        // 泄漏修复：播放异常（解码失败/中断）同点收位——onended 不会来的
+        // 异常路径若不收位，租约/协调位永占（收音上行死 + 通知永延后）。
+        audio.onerror = () => {
           if (audioRef.current === audio) audioRef.current = null;
           endSpeechLease(SPEECH_LEASE_WELCOME);
           endDialogueSpeech(SPEECH_LEASE_WELCOME);
