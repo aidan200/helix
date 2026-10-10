@@ -184,6 +184,15 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
     expect(senders.fallbacks).toEqual(["第一句。"]);
   });
 
+  it("乱序 error（后句先死）→ 回退文本仍按发句序收集", () => {
+    out.feedRawDelta("第一句。第二句。");
+    const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+    out.onErrorFrame(id2); // 后句先死（乱序）——降级收集不得错序
+    expect(out.answerResult("answer", "第一句。第二句。全文")).toBe("fallback");
+    expect(senders.fallbacks).toEqual(["第一句。第二句。全文"]);
+    void id1;
+  });
+
   it("播放面死（enqueue false）→ 降级回退", () => {
     player.enqueue = () => false; // AudioContext 不可用形态
     out.feedRawDelta("第一句。");
@@ -191,6 +200,99 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
     out.onChunkFrame(id1, "QUJD");
     expect(out.answerResult("answer", "第一句。")).toBe("fallback");
     expect(senders.fallbacks).toEqual(["第一句。"]);
+  });
+
+  describe("迟到自愈（兜底盲区修复：结果先行判 stream 后链死 → 自动一次性回退）", () => {
+    it("结果先行 + 首帧超时 → 自愈一次性整段回退 + onLateFallback 通知消费端开单飞门", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("第一句。第二句。");
+      expect(senders.streams.length).toBe(2);
+      expect(o.answerResult("answer", "第一句。第二句。")).toBe("stream"); // 在途判 stream（现状）
+      vi.advanceTimersByTime(6_100); // chunk 永不到达——首帧超时链死
+      expect(senders.fallbacks).toEqual(["第一句。第二句。"]); // 自愈一次性（发句序）
+      expect(onLateFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("结果先行 + error 帧（零出声）→ 自愈一次性回退", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      expect(o.answerResult("answer", "第一句。第二句。")).toBe("stream");
+      o.onErrorFrame(id1); // 结果后才死
+      expect(senders.fallbacks).toEqual(["第一句。第二句。"]);
+      expect(onLateFallback).toHaveBeenCalledTimes(1);
+      o.onErrorFrame(id2); // 幂等——不重复自愈
+      expect(senders.fallbacks).toEqual(["第一句。第二句。"]);
+    });
+
+    it("已出声后链死 → 不自愈（中途失败只丢句，现语义回归）", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0], senders.streams[1]![0]];
+      o.onChunkFrame(id1, "QUJD"); // 句一已出声
+      expect(o.answerResult("answer", "第一句。第二句。")).toBe("stream");
+      o.onErrorFrame(id2); // 句二死——已出声轮不降级不自愈
+      expect(senders.fallbacks).toEqual([]);
+      expect(onLateFallback).not.toHaveBeenCalled();
+    });
+
+    it("stopSpeaking 静音后 → 不自愈（静音轮零出声是用户意志）", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("第一句。");
+      expect(o.answerResult("answer", "第一句。")).toBe("stream");
+      o.stopSpeaking();
+      vi.advanceTimersByTime(6_100);
+      expect(senders.fallbacks).toEqual([]);
+      expect(onLateFallback).not.toHaveBeenCalled();
+    });
+
+    it("结果时已回退/新轮开轮 → 不重复自愈", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("第一句。");
+      const id1 = senders.streams[0]![0];
+      o.onErrorFrame(id1); // 结果前链死——answerResult 将走既有回退
+      expect(o.answerResult("answer", "第一句。")).toBe("fallback");
+      expect(senders.fallbacks).toEqual(["第一句。"]);
+      vi.advanceTimersByTime(6_100);
+      expect(onLateFallback).not.toHaveBeenCalled(); // 不重复
+      o.resetAnswer(); // 新轮清位
+      expect(senders.fallbacks).toEqual(["第一句。"]);
+    });
   });
 
   it("无 delta 的 answer → 一次性路径等价（现行为回归面）", () => {

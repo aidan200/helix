@@ -407,6 +407,12 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         sendFallback: (text, opts) => speechSendersRef.current.sendFallback?.(text, opts) ?? false,
       },
       voiceProvider: () => readTtsVoicePref(),
+      // 兜底盲区修复：结果先行判 stream 后链死自愈回退——消费端开单飞门
+      //（与 answerResult fallback 判决同径：回执到达才播放，轮次校验防旧轮覆盖）
+      onLateFallback: () => {
+        speakPendingRef.current = true;
+        speakRoundRef.current = answerRoundRef.current;
+      },
       ...(options?.createPlayer !== undefined
         ? {
             createPlayer: () => {

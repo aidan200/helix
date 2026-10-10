@@ -61,6 +61,9 @@ export interface StewardSpeechOutOptions {
   readonly firstChunkTimeoutMs?: number;
   /** 强制切空闲窗 ms（缺省 SPEECH_CUT_IDLE_MS；测试注短窗）。 */
   readonly cutIdleMs?: number;
+  /** 迟到自愈回退发出口（兜底盲区修复）：结果先行判 stream 后链死转一次性
+   *  回退时通知消费端开单飞门（speakPending 同径）——否则回执到达被弃播。 */
+  readonly onLateFallback?: () => void;
 }
 
 /** answerResult 裁决：stream = 流式在途/已播（无一次性）；fallback = 已发
@@ -108,6 +111,10 @@ export class StewardSpeechOut {
   private muted = false;
   private fallbackText = "";
   private cutTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 迟到自愈闩锁（兜底盲区修复）：answerResult 判 stream 后链死且零出声 →
+   *  自动一次性回退（只触发一次；新轮/静音/已出声均不触发）。 */
+  private awaitingLateFallback = false;
+  private readonly onLateFallback: (() => void) | undefined;
   /** utterId 单调计数（连接内唯一——跨轮不复位置零，防撞）。 */
   private utterSeq = 0;
   private readonly pending = new Map<string, PendingUtter>();
@@ -120,6 +127,7 @@ export class StewardSpeechOut {
     this.voiceProvider = options.voiceProvider ?? (() => undefined);
     this.firstChunkTimeoutMs = options.firstChunkTimeoutMs ?? SPEECH_FIRST_CHUNK_TIMEOUT_MS;
     this.cutIdleMs = options.cutIdleMs ?? SPEECH_CUT_IDLE_MS;
+    this.onLateFallback = options.onLateFallback;
     this.player.onActiveChange((active) => {
       for (const cb of this.speakingListeners) cb(active);
     });
@@ -190,15 +198,23 @@ export class StewardSpeechOut {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
     if (pending.timer !== null) clearTimeout(pending.timer);
-    this.pending.delete(utterId);
     this.player.drop(utterId);
     if (pending.gotChunk) {
+      this.pending.delete(utterId);
       this.pumpGate(); // 中途断：丢句不降级（V3b-2 语义）——后继句照常放行
       return;
     }
+    if (!this.anyAudio) {
+      // 零出声链死：不预删本句——degrade 按发句序收集全部未出声句（乱序
+      // error 不再错序）
+      this.degrade();
+      this.maybeLateFallback();
+      return;
+    }
+    this.pending.delete(utterId);
     this.fallbackText += pending.text; // 先入缓冲（时序正确——降级废的在途句后到后拼）
-    if (!this.anyAudio) this.degrade();
-    else this.pumpGate();
+    this.pumpGate();
+    this.maybeLateFallback();
   }
 
   /** answer 终态裁决（status = steward.ask.result 判别；text = 全文权威）。 */
@@ -206,6 +222,7 @@ export class StewardSpeechOut {
     if (this.disposed) return "none";
     const wasActive = this.answerActive;
     this.answerActive = false;
+    this.awaitingLateFallback = false; // 本轮终态已收口——迟到自愈闩锁复位（下方 stream 路径重开）
     this.clearCutTimer();
     if (status !== "answer") {
       // error/confirm_required：零朗读零回退（money 纪律；递话不合成）
@@ -239,6 +256,7 @@ export class StewardSpeechOut {
       this.fallbackText = "";
       return this.senders.sendFallback(fallback, { voice: this.voiceProvider() }) ? "fallback" : "none";
     }
+    this.awaitingLateFallback = true; // 兜底盲区修复：在途判 stream——若事后链死且零出声，迟到自愈接管
     return "stream";
   }
 
@@ -262,6 +280,7 @@ export class StewardSpeechOut {
     this.fallbackText = "";
     this.muted = true;
     this.streamDead = true; // 本轮余句全丢（静音后不再流式）
+    this.awaitingLateFallback = false; // 静音轮零出声是用户意志——不自愈
   }
 
   /** 新一轮回答开启（消费端在 ask 发出时调用；answerResult 后迟到 delta
@@ -337,6 +356,7 @@ export class StewardSpeechOut {
     // 空场（无在途句且本轮零出声）零空发：预停读/新开面板不空发 stop 命令。
     if (this.pending.size > 0 || this.anyAudio) this.stopInFlightPlayback();
     this.clearCutTimer();
+    this.awaitingLateFallback = false; // 新轮清自愈闩锁（旧轮迟到死不越轮出声）
     this.rawMd = "";
     this.fedLen = 0;
     this.buffer.reset();
@@ -381,12 +401,18 @@ export class StewardSpeechOut {
   private onFirstChunkTimeout(utterId: string): void {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
+    if (!this.anyAudio) {
+      // 零出声链死：不预删本句——degrade 按发句序收集全部未出声句（含本句）
+      this.degrade();
+      this.maybeLateFallback();
+      return;
+    }
     this.pending.delete(utterId);
     // money 纪律：超时句定向 stop（daemon 侧任务取消），不弃在途任务
     this.senders.sendStopFor(utterId);
-    if (!this.anyAudio) this.degrade();
-    else this.pumpGate(); // 已出声链：不降级——闸推进，后继句放行
+    this.pumpGate(); // 已出声链：不降级——闸推进，后继句放行
     this.fallbackText += pending.text;
+    this.maybeLateFallback();
   }
 
   /** 入队单点：player 拒收（播放面不可用）→ 整链降级回退（回退链第三入口）。 */
@@ -423,7 +449,8 @@ export class StewardSpeechOut {
     }
   }
 
-  /** 链死降级：未出声在途句全废（各自定向 stop——money 零孤儿）。 */
+  /** 链死降级：未出声在途句全废（各自定向 stop——money 零孤儿）；按发句序
+   *  收集未出声句文本入回退缓冲（乱序死不乱序）。 */
   private degrade(): void {
     this.streamDead = true;
     for (const [utterId, pending] of [...this.pending.entries()]) {
@@ -432,6 +459,18 @@ export class StewardSpeechOut {
       this.senders.sendStopFor(utterId);
       if (!pending.gotChunk) this.fallbackText += pending.text;
     }
+  }
+
+  /** 迟到自愈（兜底盲区修复）：结果先行判 stream 后链死且零出声 → 未读句
+   *  一次性整段回退（只触发一次；已出声/静音/已回退/新轮均不触发）。 */
+  private maybeLateFallback(): void {
+    if (!this.awaitingLateFallback || this.disposed || this.muted) return;
+    if (this.anyAudio || !this.streamDead) return;
+    const text = this.fallbackText.slice(0, STEWARD_SPEECH_TEXT_MAX);
+    this.fallbackText = "";
+    this.awaitingLateFallback = false;
+    if (text.trim() === "") return;
+    if (this.senders.sendFallback(text, { voice: this.voiceProvider() })) this.onLateFallback?.();
   }
 
   /** 无边界残余强制切（空闲窗到点 cut——长句不无限滞留）。 */
