@@ -45,10 +45,15 @@ import { deriveOrbPhase } from "../model/steward-voice-machine";
 import { parseVoiceCommand, resolveVoiceCommand, isStopIntentPhrase, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
 import { useI18n } from "@/shared/i18n";
+import { useSession } from "@/entities/session/SessionContext";
 import { getStewardVoiceprintService, type VoiceprintGate } from "../voiceprint/model/steward-voiceprint";
 
 /** 光球淡出时长（ms；reduced-motion 直切不等待）。 */
 export const ORB_FADE_MS = 180;
+
+/** 光球在场信号续报间隔（ms；批 4a——daemon 侧 presence TTL 缺省 90s，
+ *  60s 续报留 30s 余量；断连/崩溃残留靠 TTL 自然过期）。 */
+export const PRESENCE_RENEW_MS = 60_000;
 
 export interface StewardVoiceLayerProps {
   /** app 层 steward-open-signal 接线计数（递增即唤起——app 层订阅信号推进）。 */
@@ -177,6 +182,38 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   );
 
   const sv = useStewardVoice({ onFinalText, welcomeText: t("steward.voice.welcome") });
+  // ── presence 上行（批 4a：光球在场信号——E-250 接点）：duplex 边沿上报 +
+  //    在场期周期续报（daemon 侧 TTL 90s 防断连残留；恒发通道——管家域信号
+  //    不受表面感知开关门）。──
+  const { topology, sendSurfaceEvent } = useSession() as {
+    topology?: { active?: { conn?: string } };
+    sendSurfaceEvent?: (event: {
+      kind: "presence";
+      origin: "user";
+      page: string;
+      detail?: Record<string, unknown>;
+    }) => boolean;
+  };
+  const presenceConn = topology?.active?.conn ?? "connecting";
+  useEffect(() => {
+    if (presenceConn !== "connected") return;
+    sendSurfaceEvent?.({
+      kind: "presence",
+      origin: "user",
+      page: "steward-orb",
+      detail: { component: "orb", visible: sv.duplexActive },
+    });
+    if (!sv.duplexActive) return; // 离场帧后零续报（timer 不启）
+    const timer = setInterval(() => {
+      sendSurfaceEvent?.({
+        kind: "presence",
+        origin: "user",
+        page: "steward-orb",
+        detail: { component: "orb", visible: true },
+      });
+    }, PRESENCE_RENEW_MS);
+    return () => clearInterval(timer);
+  }, [presenceConn, sv.duplexActive, sendSurfaceEvent]);
   sayRef.current = sv.say;
   submitUtteranceRef.current = sv.submitUtterance;
   // 意图窗动作面 ref 转发（onFinalText 定义先于 sv——与 say/submit 同构）

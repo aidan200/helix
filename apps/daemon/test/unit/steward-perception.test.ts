@@ -45,7 +45,7 @@ import {
 } from "../../src/application/steward/StewardPerceptionService";
 import type { TriageJudgeFace } from "../../src/application/steward/StewardTriageJudge";
 import { BroadcastService } from "../../src/application/voice/BroadcastService";
-import type { StewardNotifyPayload, VoiceBroadcastPayload } from "@helix/protocol";
+import type { StewardNotifyPayload, VoiceBroadcastPayload, SurfaceEvent } from "@helix/protocol";
 
 const closure = (summary: string) => ({ status: "done" as const, summary, reportPath: null, findings: null, taskId: null });
 
@@ -245,6 +245,53 @@ describe("激活判定（feed 订阅在场 ∧ 近期 ask 衰减窗）——v2.9
     // 新 ask 重新点亮
     perception.noteUserActivity();
     expect(perception.isActive()).toBe(true);
+  });
+});
+
+describe("激活判定③光球在场信号（批 4a：E-250 升级接点兑现——presence 事件）", () => {
+  function presenceEvent(visible: boolean): SurfaceEvent {
+    return {
+      kind: "presence",
+      origin: "user",
+      surfaceId: "shell:c1:steward-orb",
+      at: Date.now(),
+      detail: { component: "orb", visible },
+    };
+  }
+
+  test("光球在场、面板零订阅 → 激活（E-250 裂缝场景：开光球不开面板）", () => {
+    const { perception } = makeStack({ stewardSubscribed: false, recentAsk: true });
+    expect(perception.isActive()).toBe(false); // 上报前：原判据不激活
+    perception.onSurfaceEvent(presenceEvent(true));
+    expect(perception.isActive()).toBe(true); // 上报后：光球位点亮
+  });
+
+  test("光球显式离场（visible=false）→ 即刻不激活（不等 TTL）", () => {
+    const { perception } = makeStack({ stewardSubscribed: false, recentAsk: true });
+    perception.onSurfaceEvent(presenceEvent(true));
+    perception.onSurfaceEvent(presenceEvent(false));
+    expect(perception.isActive()).toBe(false);
+  });
+
+  test("光球信号 TTL 过期（断连残留防御）→ 不激活", () => {
+    const { perception, advance } = makeStack({ stewardSubscribed: false, recentAsk: true });
+    perception.onSurfaceEvent(presenceEvent(true));
+    expect(perception.isActive()).toBe(true);
+    advance(90_001); // 缺省 presenceTtlMs=90s 过界（ask 衰减窗内推进）
+    expect(perception.isActive()).toBe(false);
+  });
+
+  test("非 shell 命名空间 presence 不点亮（browser/cli 表面非光球）", () => {
+    const { perception } = makeStack({ stewardSubscribed: false, recentAsk: true });
+    perception.onSurfaceEvent({ ...presenceEvent(true), surfaceId: "browser:t1:main" });
+    expect(perception.isActive()).toBe(false);
+  });
+
+  test("detail 形状防御：非布尔 visible 照丢（不写位不清位）", () => {
+    const { perception } = makeStack({ stewardSubscribed: false, recentAsk: true });
+    perception.onSurfaceEvent(presenceEvent(true));
+    perception.onSurfaceEvent({ ...presenceEvent("yes" as unknown as boolean), detail: { visible: "yes" } });
+    expect(perception.isActive()).toBe(true); // 垃圾帧不清在场位
   });
 });
 

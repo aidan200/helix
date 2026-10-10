@@ -32,6 +32,7 @@ export const SURFACE_EVENT_KINDS = [
   "user_input",
   "idle",
   "error",
+  "presence",
 ] as const;
 
 /** SurfaceEvent kind（封闭词汇表成员）。 */

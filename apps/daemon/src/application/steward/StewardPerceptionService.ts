@@ -65,6 +65,7 @@ import type {
 } from "../ports/outbound/StewardDiagnosisPort";
 import type { TriageJudgeFace } from "./StewardTriageJudge";
 import { STEWARD_TUNING_DEFAULTS, type StewardTuning } from "../../domain/steward/tuning/StewardTuning";
+import { computeActivation } from "../../domain/steward/perception/ActivationPolicy";
 import type { StewardNotifyPayload, StewardNotifySuggestion, SurfaceEvent, VoiceBroadcastKind } from "@helix/protocol";
 
 /** 任务会话 id 前缀（完成类聚合判别——task:* 会话的 agent.completed 不在
@@ -266,6 +267,10 @@ export class StewardPerceptionService {
   private ring: PerceptionRingEntry[] = [];
   /** 激活信号②：最近一次 ask 时刻（-1 = 从未）。 */
   private lastAskAt = -1;
+  /** 激活信号③（批 4a E-250 接点）：光球最近在场信号时刻（-1 = 从未/已离场）。
+   *  shell 光球层 duplex 边沿上行 presence 事件（在场期周期续报），断连残留
+   *  靠 ActivationPolicy 侧 TTL 过期防御。 */
+  private orbPresentAt = -1;
   /** in-flight 分诊去重表（事件键 → 调用 promise——BroadcastService content
    *  源与本服务事件入口双触发共用一次调用：归一断言 calls=1 的落点）。 */
   private readonly inflight = new Map<string, DiagnosisFlight>();
@@ -320,9 +325,17 @@ export class StewardPerceptionService {
   /** 主动环激活态读面（v2.9：**投递面判据**——激活=对话内主动汇报；未激活
    *  =toast/语音异步。不再是 LLM 门槛：启用态分诊恒做）。 */
   isActive(): boolean {
-    if (!this.deps.feedGate.hasStewardSubscribers()) return false;
-    if (this.lastAskAt < 0) return false;
-    return this.now() - this.lastAskAt <= this.tuningOf().activation.windowMs;
+    // 批 4a（E-250 升级接点兑现）：ActivationPolicy 纯函数判定——presence
+    //（面板订阅 ∨ 光球 TTL 内）∧ recentAsk（衰减窗）。原判据 feedGate 单腿
+    // 对「光球在场不开面板」恒不激活（人在旁边却没语音告知）。
+    return computeActivation({
+      panelSubscribed: this.deps.feedGate.hasStewardSubscribers(),
+      orbPresentAt: this.orbPresentAt,
+      lastAskAt: this.lastAskAt,
+      now: this.now(),
+      askWindowMs: this.tuningOf().activation.windowMs,
+      presenceTtlMs: this.tuningOf().activation.presenceTtlMs,
+    });
   }
 
   /** 激活信号②：用户 ask 活动信号（组合根接 StewardService.ask 入口——
@@ -413,6 +426,14 @@ export class StewardPerceptionService {
    * 时投影/聚焦摘要）后续批次接）。
    */
   onSurfaceEvent(event: SurfaceEvent): void {
+    // 批 4a：presence 事件 = 光球在场信号（E-250 接点）——visible=true 写位
+    //（续报刷新）、false 即刻清位（显式离场不等 TTL）。恒发通道（管家域
+    // 信号，不受表面感知开关门）。detail 形状防御：非布尔照丢。
+    if (event.kind === "presence" && event.surfaceId.startsWith("shell:")) {
+      const visible = (event.detail as { visible?: unknown } | undefined)?.visible;
+      if (visible === true) this.orbPresentAt = this.now();
+      else if (visible === false) this.orbPresentAt = -1;
+    }
     this.pushRing({
       at: event.at ?? this.now(),
       kind: "surface.event",

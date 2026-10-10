@@ -55,6 +55,7 @@ function emitSteward(e: EventEnvelope): void {
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
     topology: { active: { conn: "connected" } },
+    sendSurfaceEvent,
     sendStewardAsk,
     sendStewardConfirm,
     sendStewardCancel,
@@ -84,6 +85,8 @@ const toggleMute = vi.fn();
 const toggleWake = vi.fn();
 const say = vi.fn();
 const submitUtterance = vi.fn();
+/** presence 上行捕获（批 4a 光球在场信号断言面）。 */
+const sendSurfaceEvent = vi.fn();
 let svState: {
   duplexActive: boolean;
   welcomeActive: boolean;
@@ -153,6 +156,8 @@ vi.mock("../model/useStewardVoice", () => ({
         lastPcmCalls.push(opts);
         return null;
       },
+      executeBargeInStop: vi.fn(),
+      closeBargeInIntentWindow: vi.fn(),
     };
   },
 }));
@@ -533,6 +538,23 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     });
     await waitFor(() => expect(lastPcmCalls.length).toBe(2));
     expect(lastPcmCalls[1]).toEqual({ fromMark: true });
+  });
+
+  it("presence 上行：duplex 边沿报在场/离场（E-250 接点）", () => {
+    sendSurfaceEvent.mockClear();
+    renderLayer();
+    // 挂载即报一次（duplexActive=false 现态 → visible=false 离场帧）
+    expect(sendSurfaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "presence", detail: { component: "orb", visible: false } }),
+    );
+    sendSurfaceEvent.mockClear();
+    // duplex 点亮 → visible=true 在场帧
+    svState.duplexActive = true;
+    const { rerenderLayer } = renderLayer({});
+    rerenderLayer({});
+    expect(sendSurfaceEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "presence", detail: { component: "orb", visible: true } }),
+    );
   });
 
   it("wakeSignal 接线（app 层 steward-open-signal）：递增 → toggleWake 唤起；已在会话幂等零重开", () => {

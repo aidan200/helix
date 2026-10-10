@@ -159,6 +159,7 @@ describe("StewardTuning 解析（表驱动逐键）", () => {
         [STEWARD_TUNING_KEYS.confirmTtlMs]: "600000",
         [STEWARD_TUNING_KEYS.confirmRemindAfterMs]: "60000",
         [STEWARD_TUNING_KEYS.activationWindowMs]: "120000",
+        [STEWARD_TUNING_KEYS.activationPresenceTtlMs]: "120000",
       }),
     );
     expect(t.run.watchdogMs).toBe(60_000);
@@ -170,6 +171,7 @@ describe("StewardTuning 解析（表驱动逐键）", () => {
     expect(t.confirm.ttlMs).toBe(600_000);
     expect(t.confirm.remindAfterMs).toBe(60_000);
     expect(t.activation.windowMs).toBe(120_000);
+    expect(t.activation.presenceTtlMs).toBe(120_000);
   });
 
   test("非法值（非数/负数/小数/零）静默回退缺省 + warn 不抛错", () => {

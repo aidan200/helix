@@ -65,6 +65,8 @@ export interface StewardTuning {
   readonly activation: {
     /** 近期 ask 衰减窗（ms——投递面激活判据）。 */
     readonly windowMs: number;
+    /** 光球在场信号 TTL（ms——批 4a：超时视为离场，断连/崩溃残留防御）。 */
+    readonly presenceTtlMs: number;
   };
 }
 
@@ -79,7 +81,7 @@ export const STEWARD_TUNING_DEFAULTS: StewardTuning = {
   },
   ask: { queueMax: 3 },
   confirm: { ttlMs: 300_000, remindAfterMs: 30_000 },
-  activation: { windowMs: 300_000 },
+  activation: { windowMs: 300_000, presenceTtlMs: 90_000 },
 };
 
 // ── KV 键位（steward.tuning.* 键族，runtime_config 表）─────────
@@ -94,6 +96,7 @@ export const STEWARD_TUNING_KEYS = {
   confirmTtlMs: "steward.tuning.confirm.ttlMs",
   confirmRemindAfterMs: "steward.tuning.confirm.remindAfterMs",
   activationWindowMs: "steward.tuning.activation.windowMs",
+  activationPresenceTtlMs: "steward.tuning.activation.presenceTtlMs",
 } as const;
 
 /** 逐键合法域 [min,max]（边界含端点；域外 = 非法回退）。 */
@@ -107,6 +110,7 @@ export const STEWARD_TUNING_BOUNDS = {
   confirmTtlMs: { min: 30_000, max: 3_600_000 },
   confirmRemindAfterMs: { min: 5_000, max: 600_000 },
   activationWindowMs: { min: 30_000, max: 3_600_000 },
+  activationPresenceTtlMs: { min: 30_000, max: 1_800_000 },
 } as const;
 
 // ── 解析（纯函数，零 IO——窄接口结构类型兼容 RuntimeConfigPort）────
@@ -214,6 +218,13 @@ export function resolveStewardTuning(
         STEWARD_TUNING_DEFAULTS.activation.windowMs,
         STEWARD_TUNING_BOUNDS.activationWindowMs,
         "activation.windowMs",
+        warn,
+      ),
+      presenceTtlMs: resolveNumber(
+        config.get(STEWARD_TUNING_KEYS.activationPresenceTtlMs),
+        STEWARD_TUNING_DEFAULTS.activation.presenceTtlMs,
+        STEWARD_TUNING_BOUNDS.activationPresenceTtlMs,
+        "activation.presenceTtlMs",
         warn,
       ),
     },

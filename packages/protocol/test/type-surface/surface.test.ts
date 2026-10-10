@@ -78,7 +78,7 @@ type _SurfaceFamily = Expect<
 // ── 词汇表封闭性（D2/D3：跨表面通用，封闭不可扩）──
 
 describe("surface 词汇表封闭（D2 kind/origin + D3 risk）", () => {
-  test("kind 词汇表恰六值（activated/navigated/user_click/user_input/idle/error）", () => {
+  test("kind 词汇表恰七值（activated/navigated/user_click/user_input/idle/error/presence——批 4a 光球在场信号 additive）", () => {
     expect([...SURFACE_EVENT_KINDS]).toEqual([
       "activated",
       "navigated",
@@ -86,6 +86,7 @@ describe("surface 词汇表封闭（D2 kind/origin + D3 risk）", () => {
       "user_input",
       "idle",
       "error",
+      "presence",
     ]);
     expect(new Set(SURFACE_EVENT_KINDS).size).toBe(SURFACE_EVENT_KINDS.length); // 无重复
   });
