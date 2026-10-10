@@ -641,9 +641,11 @@ async function main(): Promise<number> {
 
   const root = join(import.meta.dir, "..");
   const shellDir = join(root, "apps/shell");
-  // 落点规范批（2026-10-10）：dev wrapper 暂存迁 workspace/仓内 .helix/tmp
-  //（预绑定 root 优先——「当前目录」语义；.gitignore 已忽略 .helix/）
-  const devStaging = join(workspaceRoot ?? root, ".helix", "tmp");
+  // 落点规范批（2026-10-10）：dev wrapper 暂存落仓内 .helix/tmp——与
+  // install-skeleton stagingRoot 同构。不随 --workspace-root 走：dev-desktop
+  // 是仓内 dev 编排，暂存属仓自身物料；且 workspaceRoot 可能是任意传入值
+  //（含危险根测试的真实 homedir——曾把暂存写进 ~/.helix/tmp，当日修复）
+  const devStaging = join(root, ".helix", "tmp");
   mkdirSync(devStaging, { recursive: true });
   const workDir = mkdtempSync(join(devStaging, "helix-dev-desktop-"));
   let children: Array<{ name: string; proc: Bun.Subprocess }> = [];

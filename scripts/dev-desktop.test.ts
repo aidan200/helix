@@ -910,6 +910,13 @@ test(
       await waitFor(async () => !(await tcpOpen(daemonPort)), 30_000, "daemon 端口释放");
       const leftovers = readdirSync(sandbox).filter((n) => n.startsWith("helix-dev-desktop-"));
       expect(leftovers).toEqual([]);
+      // 回归断言（落点规范批当日修复）：暂存一律仓内 .helix/tmp——危险根
+      //（真实 homedir）作 workspace-root 时不得往 ~/.helix/tmp 写任何暂存
+      const homeStaging = join(homedir(), ".helix", "tmp");
+      const homeLeftovers = existsSync(homeStaging)
+        ? readdirSync(homeStaging).filter((n) => n.startsWith("helix-dev-desktop-"))
+        : [];
+      expect(homeLeftovers).toEqual([]);
     } finally {
       if (proc !== undefined && alive(proc.pid)) {
         const tree = [proc.pid, ...collectDescendantPids(proc.pid, psEdges())];
