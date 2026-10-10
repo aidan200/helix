@@ -9,8 +9,9 @@
  * 2. 存储故障 → toolResult 失败文本回灌 + answer 收口（不炸轮、零通知）；
  * 3. 记忆不可用（未装配/未开启）→ 引导式降级：不挂闸、循环继续、answer
  *    转述（零写入）；
- * 4. 召回注入：记忆可用且有命中 → ask 的 system prompt 含记忆段；
- *    召回失败 → system prompt 无记忆段但对话照常（降级不挡主链路）；
+ * 4. 记忆消费工具化（同轨换轨）：机械召回注入退役——system prompt 恒不含
+ *    记忆段但含长期记忆纪律句；memory_search 工具轮：命中行回灌 + query
+ *    透传（管家提炼重写后的意图）；零命中/降级 → 零命中文案照常作答；
  * 5. 配置面：getConfig 携带 memory 现态（未装配 = 全降级缺省）；
  *    setConfig memory 组委托校验（开启前端点必填错误透传）；
  * 6. 防双写水位闸（explicitRememberedSince 面）：直写成功 → 水位置位
@@ -221,20 +222,39 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
     expect(toolResult!.text).toContain("未启用或未配置");
   });
 
-  test("④ 召回注入：可用且有命中 → system prompt 含记忆段；召回失败 → 无段但对话照常", async () => {
-    // 命中面
-    const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的，简洁作答。" }], stopReason: "stop" }]);
+  test("④ 记忆消费工具化（同轨换轨）：机械注入退役（system prompt 恒不含记忆段但含纪律句）；memory_search 工具轮命中行回灌 + query 透传；零命中文案照常作答", async () => {
+    // 注入退役面：记忆可用且有命中，system prompt 也不含记忆段（消费改走工具，
+    // 零工具调用零检索）
+    const llmA = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "好的，简洁作答。" }], stopReason: "stop" }]);
+    const memoryA = fakeMemory({ recallSection: "## 长期记忆（…）\n- [偏好] 回复要简洁" });
+    const { svc: svcA } = makeService({ llm: llmA, memory: memoryA });
+    const resultA = await svcA.ask("帮我写段话");
+    expect(resultA.status).toBe("answer");
+    expect(llmA.calls[0]!.request.systemPrompt).not.toContain("## 长期记忆");
+    expect(llmA.calls[0]!.request.systemPrompt).toContain("长期记忆纪律（判断前必查）");
+    expect(memoryA.recalls).toEqual([]);
+    // 工具面：LLM 主动 memory_search → 工具结果回灌召回行 + query 透传
+    //（query = 管家提炼重写后的意图，非转写原文）
+    const llm = fakeLlm([
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "memory_search", args: { query: "写作偏好 简洁" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "按你偏好的简洁风格写好了。" }], stopReason: "stop" },
+    ]);
     const memory = fakeMemory({ recallSection: "## 长期记忆（…）\n- [偏好] 回复要简洁" });
     const { svc } = makeService({ llm, memory });
     const result = await svc.ask("帮我写段话");
     expect(result.status).toBe("answer");
-    expect(llm.calls[0]!.request.systemPrompt).toContain("[偏好] 回复要简洁");
-    expect(memory.recalls).toEqual(["帮我写段话"]);
-    // 注：recallSection 服务内部已吞错降级——此处直接验证「无段 = 无注入」
-    const llm2 = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "照常作答。" }], stopReason: "stop" }]);
+    expect(memory.recalls).toEqual(["写作偏好 简洁"]);
+    const toolResult = llm.calls[1]!.request.messages.find((m) => m.role === "toolResult");
+    expect(toolResult!.text).toContain("[偏好] 回复要简洁");
+    // 零命中（recallSection undefined——含服务内部降级）→ 零命中文案回灌，对话照常
+    const llm2 = fakeLlm([
+      { kind: "blocks", blocks: [{ type: "toolCall", id: "call-0", name: "memory_search", args: { query: "别的主题" } }], stopReason: "toolUse" },
+      { kind: "blocks", blocks: [{ type: "text", text: "照常作答。" }], stopReason: "stop" },
+    ]);
     const degraded = makeService({ llm: llm2, memory: fakeMemory({ recallSection: undefined }) });
     expect((await degraded.svc.ask("第二问")).status).toBe("answer");
-    expect(llm2.calls[0]!.request.systemPrompt).not.toContain("## 长期记忆（按本轮输入");
+    const toolResult2 = llm2.calls[1]!.request.messages.find((m) => m.role === "toolResult");
+    expect(toolResult2!.text).toContain("无相关记忆命中");
   });
 
   test("⑤ 配置面：getConfig 携 memory 现态（未装配 = 降级缺省）；setConfig 委托校验透传", async () => {

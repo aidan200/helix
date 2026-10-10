@@ -482,7 +482,10 @@ export class StewardMemoryService implements StewardComponent {
           ? `- [${hitLabel(h.kind, h.domain)}] ${h.text}（sid: ${h.sessionId}）`
           : `- [${hitLabel(h.kind, h.domain)}] ${h.text}`,
       );
-      return `## 长期记忆（按本轮输入语义召回，仅供作答参考——与本轮指令冲突时以本轮指令为准；涉及代码/项目现实以知识图谱约束为准，本段只提供用户偏好与工作状态参考）\n${lines.join("\n")}`;
+      // 记忆批（同轨换轨）：消费面从 system prompt 机械注入改为管家
+      // memory_search 工具结果——query 是管家对用户话语的提炼重写（非转写
+      // 原文），行文措辞同步；progress 配额/sid 锚/domain 标签零变化（E-247）。
+      return `## 长期记忆（按检索意图语义召回，仅供作答参考——与本轮指令冲突时以本轮指令为准；涉及代码/项目现实以知识图谱约束为准，本段只提供用户偏好与工作状态参考）\n${lines.join("\n")}`;
     } catch (err) {
       this.deps.logger?.warn(`steward 记忆召回降级：${(err as Error).message}`);
       return undefined;

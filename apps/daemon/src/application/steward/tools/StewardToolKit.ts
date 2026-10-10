@@ -49,6 +49,7 @@ import {
   TOOL_SPAWN_REVIEW_TASK,
   TOOL_DELIVER_TO_SESSION,
   TOOL_REMEMBER,
+  TOOL_MEMORY_SEARCH,
   TOOL_SURFACE_LIST,
   TOOL_SNAPSHOT,
   TOOL_READ,
@@ -183,6 +184,32 @@ export class StewardToolKit {
         return outcome.kind === "terminate"
           ? { text: outcome.reason, terminate: true }
           : { text: outcome.text, ...(outcome.isError === true ? { isError: true } : {}) };
+      },
+    });
+    // memory_search（记忆批·同轨换轨）：只读直行——机械召回注入退役后的
+    // 管家记忆消费面。query 由管家 LLM 提炼重写（纪律在 STEWARD_SYSTEM_PROMPT
+    // 长期记忆纪律段）；project scope 走 memoryProject 单源（原注入点同源）。
+    // 降级三态：记忆未装配/未启用 → 引导文案；零命中/召回内部降级 → 零命中
+    // 文案；命中 → recallSection 行文原文（header 已改「按检索意图」措辞）。
+    this.specs.push({
+      ...TOOL_MEMORY_SEARCH,
+      execute: async (args) => {
+        const query = (args as { query?: unknown }).query;
+        if (typeof query !== "string" || query.trim() === "") {
+          return { text: "memory_search 需要 query（非空——对用户话语的提炼重写，语义匹配用户偏好与工作状态类记忆）", isError: true };
+        }
+        const memory = this.deps.memory;
+        if (memory === undefined || !memory.isAvailable()) {
+          return {
+            text: "长期记忆未启用或未配置（设置 → 通用 → 长期记忆）——本次无用户偏好/工作状态参考，按本轮指令继续。",
+          };
+        }
+        // 服务层内部吞错降级 undefined（召回绝不炸主链路——原注入面同族纪律）
+        const section = await memory.recallSection(query.trim(), this.deps.memoryProject?.());
+        return {
+          text:
+            section ?? "无相关记忆命中——可换更贴近用户意图的措辞重试一次；确无命中则按本轮指令正常作答。",
+        };
       },
     });
     // ── M2 四泛型工具（D4）：surface_list / snapshot / read 只读直行；

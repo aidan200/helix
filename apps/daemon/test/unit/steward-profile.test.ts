@@ -67,11 +67,12 @@ function makeService(config: RuntimeConfigPort): StewardService {
   createEngine: createEngineFromPort(noopLlm())});
 }
 
-/** 管家注册面十七工具全集（注册序——十六 LLM 可见 + steward_confirm 面板原语；
+/** 管家注册面十八工具全集（注册序——十七 LLM 可见 + steward_confirm 面板原语；
  *  管家记忆 B1 增 remember；start_session 批增带话题开局双工具分工；progress
  *  批 M3 增 read_session 尾部深读；M2 表面批增四泛型工具
  *  surface_list/snapshot/read/act——D4 能力协商不加工具膨胀；批A 增 kg_search/
- *  kg_get 项目知识只读检索二件（只读零写）。 */
+ *  kg_get 项目知识只读检索二件（只读零写）；记忆批（同轨换轨）增 memory_search
+ *  ——机械召回注入退役，管家记忆消费工具化（SOP 纪律驱动）。 */
 const STEWARD_TOOL_NAMES = [
   "list_instances",
   "list_tasks",
@@ -85,6 +86,7 @@ const STEWARD_TOOL_NAMES = [
   "start_session",
   "spawn_review_task",
   "remember",
+  "memory_search",
   "surface_list",
   "snapshot",
   "read",
@@ -100,9 +102,9 @@ describe("StewardService.getProfile（管家只读档案导出面）", () => {
     expect(profile.systemPrompt).toBe(STEWARD_SYSTEM_PROMPT);
   });
 
-  // 【显式契约变更·批A】「十一工具全名」→「十七工具全名」：注册面新增
-  // kg_search/kg_get（只读检索二件）。变更点 = 本断言的全名清单（上表）。
-  test("十七工具全名（注册面全集——十六 LLM 可见 + steward_confirm）+ 每行描述非空", () => {
+  // 【显式契约变更·记忆批】「十七工具全名」→「十八工具全名」：注册面新增
+  // memory_search（管家记忆消费工具化）。变更点 = 本断言的全名清单（上表）。
+  test("十八工具全名（注册面全集——十七 LLM 可见 + steward_confirm）+ 每行描述非空", () => {
     const svc = makeService(fakeConfig());
     const profile = svc.getProfile();
     expect(profile.tools.map((t) => t.name)).toEqual([...STEWARD_TOOL_NAMES]);

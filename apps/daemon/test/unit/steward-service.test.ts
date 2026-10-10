@@ -307,10 +307,10 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
     expect(prompt).toContain("不伪装用户身份");
   });
 
-  // 【显式契约变更·批A】工具面十四个 → 十六个：新增 kg_search/kg_get 项目知识
-  // 只读检索二件（管家开放 kg 只读工具批）。变更点仅此计数/清单断言，理由 =
-  // 管家获得项目知识问答能力（此前「这个项目的规则是什么」无工具可查）。
-  test("工具面恰为十六个（六只读——四状态问答 + kg_search/kg_get 项目知识检索 + 六提案原语 + M2 四泛型表面工具 surface_list/snapshot/read/act——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember；start_session 批扩带话题开局；progress 批 M3 扩 read_session；批A 扩 kg_search/kg_get）——无 spawn/kill 等旁路", async () => {
+  // 【显式契约变更·记忆批（同轨换轨）】工具面十六个 → 十七个：新增 memory_search
+  // ——机械召回注入退役，管家记忆消费工具化（SOP 纪律驱动，与编码 agent
+  // 同轨）。变更点仅此计数/清单断言。
+  test("工具面恰为十七个（七只读——四状态问答 + kg_search/kg_get 项目知识检索 + memory_search 记忆检索 + 六提案原语 + M2 四泛型表面工具 surface_list/snapshot/read/act——A2 扩 query_recent_work/create_session/spawn_review_task；驾驶舱批扩 deliver_to_session；管家记忆 B1 扩 remember；start_session 批扩带话题开局；progress 批 M3 扩 read_session；批A 扩 kg_search/kg_get；记忆批扩 memory_search）——无 spawn/kill 等旁路", async () => {
     const llm = fakeLlm([{ kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" }]);
     const { svc } = makeService({ llm });
     await svc.ask("hi");
@@ -323,6 +323,7 @@ describe("④ 越权拒绝（§2 三分法之三——prompt 骨架落面）", (
       "kg_search",
       "list_instances",
       "list_tasks",
+      "memory_search",
       "propose_send",
       "query_recent_work",
       "read",

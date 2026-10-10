@@ -59,6 +59,21 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     }
   });
 
+  describe("决策点双查（任务中途自主决策——两层依据综合考量，与开工/收口对称）", () => {
+    for (const [label, prompt] of [
+      ["Main", MAIN_SESSION_SYSTEM_PROMPT],
+      ["SubAgent", SUBAGENT_SYSTEM_PROMPT],
+    ] as const) {
+      test(`${label}：决策点双查关键句齐备（未规划到的点 / 两层依据 / 既往习惯综合考量 / 不能只看代码不看用户习惯）`, () => {
+        expect(prompt).toContain("决策点双查");
+        expect(prompt).toContain("未规划到的点");
+        expect(prompt).toContain("用户使用习惯与既往同类问题的处理方案");
+        expect(prompt).toContain("综合考量");
+        expect(prompt).toContain("不能只看代码不看用户习惯");
+      });
+    }
+  });
+
   describe("改后纪律（W-R6 写面收权分叉：Main 直落 / SubAgent findings 申报）", () => {
     test("Main：📎 必读 / kg-update supersede 随改动直落 / createNode scene 必填（收权后 Main 独占即时落账面）", () => {
       const p = MAIN_SESSION_SYSTEM_PROMPT;

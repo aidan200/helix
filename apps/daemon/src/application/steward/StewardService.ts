@@ -331,7 +331,7 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。
 
-长期记忆（若 system prompt 末尾附「长期记忆」段）：那是按本轮输入语义召回的历史沉淀，仅供作答参考——与本轮指令冲突时以本轮指令为准。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
+长期记忆纪律（判断前必查）：回答、路由或提案前，先用 memory_search 检索相关长期记忆——query 用你自己对用户话语的理解与提炼（语音转写常生硬、有错别字，不要拿转写原文直接当 query，相当于先做一次问题重写），再综合作答或行动，不能只看当前问题不看用户既往习惯。命中记忆与本轮指令冲突时以本轮指令为准，涉及代码/项目现实以知识图谱为准；零命中即正常作答。记忆结果中的「[进展]…（sid: xxx）」行可直接作 read_session 的 sessionId。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
 
 /** 会话显示标题单源（TR-207：title > topic > firstUserText > 兜底——
  *  快照/清单/read_session 三消费面共用，不得另写推导链）。 */
@@ -537,15 +537,15 @@ export function buildContextSnapshot(input: {
 }
 
 /** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段 +
- *  记忆召回段（管家记忆 B1）+ 在途提案段（语音闭环批 ①——LLM 路径上下文
- *  增强）；附加段缺席（感知/召回失败静默降级）= 原样静态段。 */
+ *  在途提案段（语音闭环批 ①——LLM 路径上下文增强）；附加段缺席（感知
+ *  失败静默降级）= 原样静态段。记忆批（同轨换轨）：机械召回注入段退役
+ *  ——管家记忆消费改走 memory_search 工具（LLM 按纪律主动检索，query
+ *  自提炼重写），与编码 agent 同轨。 */
 export function assembleStewardSystemPrompt(
   snapshot: string | undefined,
-  memorySection?: string | undefined,
   pendingSection?: string | undefined,
 ): string {
   let prompt = STEWARD_SYSTEM_PROMPT;
-  if (memorySection !== undefined) prompt = `${prompt}\n\n${memorySection}`;
   if (snapshot !== undefined) prompt = `${prompt}\n\n${snapshot}`;
   if (pendingSection !== undefined) prompt = `${prompt}\n\n${pendingSection}`;
   return prompt;
@@ -1066,6 +1066,25 @@ export const TOOL_REMEMBER: StewardLlmTool = {
   },
 };
 
+/** memory_search（记忆批·同轨换轨）：管家长期记忆只读检索——机械注入
+ *  退役后的唯一管家记忆消费面。query = 管家对用户话语的提炼重写（ASR
+ *  转写生硬/错别字，不拿原文直接查）；语义与编码面 memory_search 工具
+ *  同族但分野：管家面 kinds 全类收（progress 走配额 ≤2，E-247）、topK =
+ *  memory.recallTopK 生效值（E-261 配置消费面保留）、幸存者记 markRecalled。 */
+export const TOOL_MEMORY_SEARCH: StewardLlmTool = {
+  name: "memory_search",
+  description:
+    "检索用户长期记忆（偏好/事实/会话进展，只读）。回答、路由或提案前必查：query 用你自己对用户话语的理解与提炼（语音转写常生硬、有错别字，先做一次问题重写再查），再综合作答——不能只看当前问题不看用户既往习惯。返回逐条记忆行，「[进展]…（sid: xxx）」行可直接作 read_session 的 sessionId；命中记忆与本轮指令冲突时以本轮指令为准，零命中即正常作答。",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "检索意图（对用户话语的提炼重写，非转写原文；语义匹配用户偏好与工作状态类记忆）" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+};
+
 /** surface_list（M2 四泛型工具之一，D4）：动态发现表面与能力——新表面/新
  *  动词靠它发现，不加工具膨胀。 */
 export const TOOL_SURFACE_LIST: StewardLlmTool = {
@@ -1412,9 +1431,10 @@ export class StewardService implements StewardComponent {
     this.dialog.ensureLoaded();
     const systemPrompt = assembleStewardSystemPrompt(
       await this.buildSnapshotSafely(),
-      // 项目隔离批：召回视野 = global + 当前项目（memoryProject 解析当前
-      // 活跃项目；缺席/未绑定/多项目 → undefined = 只 global）
-      await this.deps.memory?.recallSection(item.text, this.deps.memoryProject?.()),
+      // 记忆批（同轨换轨）：机械召回注入退役（原 recallSection(item.text)
+      // 注入点）——管家记忆消费改走 memory_search 工具：LLM 按纪律主动
+      // 检索，query 自对用户话语（含 ASR 转写）提炼重写，检索更准；多一次
+      // 工具调用的开销用户已接受。
       // 语音闭环批 ①：在途提案段（LLM 路径上下文增强——pending 非空时引导
       // 把用户补充话语对齐确认/取消/目标修正，对齐失败才按新指令；词表快路径
       //（TR-240）在 ask 入口先行，两者叠加不冲突）

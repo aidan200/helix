@@ -133,12 +133,12 @@ describe("① buildPendingProposalsSection（在途提案段纯函数）", () =>
     expect(section).toContain("不要");
   });
 
-  test("assembleStewardSystemPrompt 第三段 additive（缺席 = 原样两段）", () => {
-    const two = assembleStewardSystemPrompt("snap", "mem");
-    const three = assembleStewardSystemPrompt("snap", "mem", "<pending_proposals>x</pending_proposals>");
-    expect(two).not.toContain("pending_proposals");
-    expect(three).toContain("pending_proposals");
-    expect(three.startsWith(two.slice(0, 20))).toBe(true);
+  test("assembleStewardSystemPrompt 第二段 additive（缺席 = 原样一段；记忆批：召回注入段已退役，本函数只剩快照+在途提案两段）", () => {
+    const one = assembleStewardSystemPrompt("snap");
+    const two = assembleStewardSystemPrompt("snap", "<pending_proposals>x</pending_proposals>");
+    expect(one).not.toContain("pending_proposals");
+    expect(two).toContain("pending_proposals");
+    expect(two.startsWith(one.slice(0, 20))).toBe(true);
   });
 });
 
