@@ -366,6 +366,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const bargeInGateRef = useRef<BargeInGateState>(INITIAL_BARGE_IN_GATE);
   const phaseRef = useRef<StewardVoicePhase>("idle");
   const bargeInRef = useRef<() => void>(() => {});
+  /** cedeWelcome 转发（a/b 起播边沿消费——onSpeakingChange/markLegacySpeaking
+   *   定义在 cedeWelcome 之前，ref 免时序死结（bargeInRef 同构先例）。） */
+  const cedeWelcomeRef = useRef<() => void>(() => {});
   /** executeBargeInStop ref 转发（stt 帧 effect 定义在前——interim 快通道调）。 */
   const executeBargeInStopRef = useRef<() => void>(() => {});
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -459,6 +462,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     return speechOut.onSpeakingChange((active) => {
       if (active) {
         stopLegacyAudio(); // 反向互斥：a 起播收编 b（旧回执不让位就双声）
+        cedeWelcomeRef.current(); // d×a 反向让位：回答起播收编欢迎语（问题 1 让位哲学延伸，零双声）
         beginSpeechLease(SPEECH_LEASE_SPEECH_OUT);
         beginDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
       } else {
@@ -473,6 +477,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
    * （播放即持、播毕释放；b 面在播 = 对话发言期）。 */
   const markLegacySpeaking = useCallback((active: boolean) => {
     if (active) {
+      cedeWelcomeRef.current(); // d×b 反向让位：回执起播收编欢迎语（零双声）
       beginSpeechLease(SPEECH_LEASE_LEGACY);
       beginDialogueSpeech(SPEECH_LEASE_LEGACY);
     } else {
@@ -584,6 +589,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     setWelcomeActive(false);
     stopWelcomeAudio();
   }, [stopWelcomeAudio]);
+  cedeWelcomeRef.current = cedeWelcome; // ref 转发（a/b 起播边沿实时读）
 
   // ── B2 barge-in 门帧消费（耳 meter 回调；armed = 相位派生）──
   // B3：门参数逐帧读偏好（最短发声/静默窗/双参判定/容忍带）+ 门限分档

@@ -126,6 +126,7 @@ export const zhCN = {
       readFail: "音频读取失败，请重试",
       noMime: "浏览器不支持音频录制（MediaRecorder 无可用 mime）",
       transcribeFail: "转写失败",
+      playbackOverlap: "这段录音里混进了管家的说话声，没听清——请再说一遍",
       broadcast: {
         playFail: "播报音频播放失败",
         playBlocked: "播报播放被浏览器策略拒绝",

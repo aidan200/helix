@@ -783,4 +783,59 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     });
     expect(speechLeaseActive()).toBe(false); // 异常同点收位（与 onended 同径）
   });
+
+  it("回答起播收编欢迎语（d×a 反向让位）：固化欢迎语在播 → 流式回答起播边沿 → 欢迎语被停零双声", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const paused: string[] = [];
+    vi.stubGlobal(
+      "Audio",
+      vi.fn().mockImplementation(function (this: { src: string; volume: number; play: () => Promise<void>; pause: () => void; onended: null }, src: string) {
+        this.src = src;
+        this.volume = 1;
+        this.play = () => Promise.resolve();
+        this.pause = () => paused.push(src);
+        this.onended = null;
+      }),
+    );
+    localStorage.setItem("helix.steward.welcomeAudio", "data:audio/mp4;base64,FIXED");
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r);
+    await waitFor(() => expect(speechLeaseActive()).toBe(true)); // 欢迎语在播（固化音频）
+    act(() => {
+      playerActiveCb?.(true); // a 面流式回答首块入队起播
+    });
+    await waitFor(() => expect(paused).toContain("data:audio/mp4;base64,FIXED")); // 欢迎语让位被停
+    expect(r.current.welcomeActive).toBe(false); // 待机标记随让位收位
+  });
+
+  it("一次性回执起播收编欢迎语（d×b 反向让位）：欢迎语在播 → 回执 Audio 起播 → 欢迎语被停零双声", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const paused: string[] = [];
+    vi.stubGlobal(
+      "Audio",
+      vi.fn().mockImplementation(function (this: { src: string; volume: number; play: () => Promise<void>; pause: () => void; onended: null }, src: string) {
+        this.src = src;
+        this.volume = 1;
+        this.play = () => Promise.resolve();
+        this.pause = () => paused.push(src);
+        this.onended = null;
+      }),
+    );
+    localStorage.setItem("helix.steward.welcomeAudio", "data:audio/mp4;base64,FIXED");
+    const r = renderVoice({ createMeter, createPlayer });
+    await pressHotkey(r); // 呼出 → 欢迎语固化音频在播（toggleWake 先 stopSpeaking 置 muted——需真 ask 开轮清位）
+    await waitFor(() => expect(speechLeaseActive()).toBe(true)); // 欢迎语在播
+    await finishUtterance(r, "今天天气如何"); // ask 发出（开轮 resetAnswer 清 muted）
+    // 零 delta 回答 → 一次性回退链（sendFallback → 回执播 legacy Audio）
+    act(() => {
+      emit("steward", frame("steward.ask.result", { status: "answer", text: "回执句。" }, "steward"));
+    });
+    await waitFor(() => expect(sendVoiceSynthesize).toHaveBeenCalledTimes(1));
+    act(() => {
+      emit("voice", frame("voice.synthesize.result", { status: "ok", audio: "data:audio/mp4;base64,RECEIPT" }, "voice"));
+    });
+    await waitFor(() => expect(paused).toContain("data:audio/mp4;base64,FIXED")); // 欢迎语让位被停
+  });
 });

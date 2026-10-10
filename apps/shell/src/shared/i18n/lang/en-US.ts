@@ -119,6 +119,7 @@ export const enUS = {
       readFail: "Audio read failed, please retry",
       noMime: "Browser cannot record audio (MediaRecorder has no usable mime)",
       transcribeFail: "Transcription failed",
+      playbackOverlap: "The recording picked up the steward's own voice — please say it again",
       broadcast: {
         playFail: "Broadcast audio playback failed",
         playBlocked: "Broadcast playback blocked by browser policy",

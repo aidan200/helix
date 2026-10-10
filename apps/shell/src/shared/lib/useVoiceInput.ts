@@ -43,6 +43,7 @@ import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import { createWorkletRmsMeter, type RmsMeterFactory, VOICE_METER_INTERVAL_MS } from "./rms-meter";
 import { createWorkletPcmPump, type PcmPumpFactory } from "./pcm-pump";
 import { isVoiceLikeFrame } from "./voice-gate";
+import { onSpeechMutexChange, speechLeaseActive } from "./speech-mutex";
 import {
   readVoiceCheckPref,
   readVoiceVadSensitivityPref,
@@ -196,6 +197,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   /** 回执单飞门控位（V3b-1）：仅自己发起的上传在途才消费 stt.transcribe.result——
    *  deferred 等终帧期间的外来回执（他面上传结果）不串台。 */
   const uploadInFlightRef = useRef(false);
+  /** 播报撞车标记（问题 3 保险）：录音窗内任一时点播报租约在场 = blob 必混
+   *  TTS 自声（扬声器回灌麦克风）——此录音拒绝转写/回落，宁弃话不混音
+   *（stt.stream 流式上行有租约门控不受影响；blob 通道是唯一残留混音面）。 */
+  const playbackOverlapRef = useRef(false);
   const spokeRef = useRef(false);
   const lastLoudAtRef = useRef(0);
   /** 人声判据帧累计时长（ms，有效发声闸）：连续判据帧按时戳差累计，静音帧
@@ -238,6 +243,14 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       lastVoiceLikeAtRef.current = null;
       setUserSpeaking(false);
     }
+  }, []);
+
+  // 播报撞车采样（问题 3 保险）：租约边沿置位（录音窗内播报起播即标）。
+  //  初始租约（录音开始前已在播）由 start() 现读 speechLeaseActive() 补齐。
+  useEffect(() => {
+    return onSpeechMutexChange((active) => {
+      if (active && stateRef.current === "recording") playbackOverlapRef.current = true;
+    });
   }, []);
 
   // 回执消费（单飞门控：仅自己发起的上传在途才消费——两消费面并存
@@ -300,6 +313,13 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
    *  机）、零 transcribing 复活（否则回执守卫被复活值绕过 → 幽灵转写消费）。 */
   const uploadBlob = useCallback(
     (blob: Blob) => {
+      // 问题 3 保险：撞车录音（blob 含 TTS 自声回灌）不出门——混音转写会把
+      //  管家播报内容混进用户话里发问；宁可弃话重说（error 交代）。
+      if (playbackOverlapRef.current) {
+        setStateSafe("idle");
+        setError(t("chat.voice.playbackOverlap"));
+        return;
+      }
       const gen = cancelGenRef.current;
       const reader = new FileReader();
       reader.onload = () => {
@@ -402,6 +422,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       streamRef.current = stream;
       recorderRef.current = recorder;
       startedAtRef.current = Date.now();
+      playbackOverlapRef.current = speechLeaseActive(); // 问题 3 保险：录音起点已有播报 → 撞车
       spokeRef.current = false;
       speechMsRef.current = 0;
       lastVoiceAtRef.current = null;

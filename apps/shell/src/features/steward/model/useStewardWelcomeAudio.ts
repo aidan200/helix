@@ -55,6 +55,7 @@ export function useStewardWelcomeAudio(deps: UseStewardWelcomeAudioDeps): {
   }, [audioRef]);
 
   const speak = useCallback(() => {
+    stop(); // 重入防御：旧欢迎语仍在播时先停（audioRef 覆盖会孤儿出声→双声重叠）
     const cached = readWelcomeAudioPref();
     if (cached !== null) {
       try {
@@ -86,7 +87,7 @@ export function useStewardWelcomeAudio(deps: UseStewardWelcomeAudioDeps): {
       }
     }
     sayRef.current(readWelcomeTextPref() ?? welcomeTextRef.current ?? fallbackText);
-  }, [audioRef, fallbackText]);
+  }, [audioRef, fallbackText, stop]);
 
   return { stop, speak };
 }

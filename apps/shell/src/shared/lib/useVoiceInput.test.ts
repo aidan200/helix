@@ -44,6 +44,7 @@ import {
   voiceRmsThresholdFromSensitivity,
 } from "./voice-pref";
 import type { MeterFrame, RmsMeter } from "./rms-meter";
+import { beginSpeechLease, endSpeechLease, resetSpeechMutexForTest } from "./speech-mutex";
 
 /** fake MediaRecorder（jsdom 无实现——start/stop/ondataavailable/onstop 时序 stub）。 */
 class FakeMediaRecorder {
@@ -826,5 +827,87 @@ describe("useVoiceInput（收口门共基：灵敏度偏好驱动 + ZCR 双参 +
     expect(result.current.state).toBe("idle"); // 注入阈值拒帧 → 按未开口丢弃
     expect(sendSttTranscribe).not.toHaveBeenCalled();
     restore();
+  });
+});
+
+describe("useVoiceInput（问题 3 保险：播报撞车录音拒转写——blob 通道不混 TTS 自声）", () => {
+  const origMediaDevices = navigator.mediaDevices;
+  const origRecorder = (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    frameListener = null;
+    FakeMediaRecorder.instances = [];
+    resetSpeechMutexForTest();
+    Object.defineProperty(navigator, "mediaDevices", { value: origMediaDevices, configurable: true });
+    if (origRecorder === undefined) delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+    else (globalThis as { MediaRecorder?: unknown }).MediaRecorder = origRecorder;
+  });
+
+  /** 录一段（fake 时钟过最短窗 + 分片落地）到 stop 收口；返回 hook result。 */
+  async function recordAndForceStop(
+    options: Parameters<typeof useVoiceInput>[1],
+    midRecord?: () => void,
+  ) {
+    const restore = installRecorder();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), options), { wrapper: I18nProvider });
+    await act(async () => {
+      await result.current.start();
+    });
+    nowMs += 500; // 过最短录音窗（防误触门出链）
+    await tick(); // 分片落地
+    midRecord?.();
+    act(() => {
+      result.current.stop(); // 强制停（显式收口——宁转写不丢话的既有语义）
+    });
+    await tick();
+    spy.mockRestore();
+    restore();
+    return result;
+  }
+
+  it("录音起始即有播报租约 → 强停后零转写零上行 + error 交代（拒混音宁重说）", async () => {
+    beginSpeechLease("test-playback"); // 播报在播：录音窗与播报撞车（blob 必混 TTS 自声）
+    const result = await recordAndForceStop({ ...deps, createMeter: () => Promise.resolve(makeFakeMeter()) });
+    expect(sendSttTranscribe).not.toHaveBeenCalled(); // 拒转写（混音录音不出门）
+    expect(result.current.state).toBe("idle");
+    expect(result.current.error).not.toBeNull();
+  });
+
+  it("录音中播报起租（边沿）→ 同拒转写", async () => {
+    const result = await recordAndForceStop({ ...deps, createMeter: () => Promise.resolve(makeFakeMeter()) }, () => {
+      beginSpeechLease("test-playback"); // 录音中途播报起播
+    });
+    expect(sendSttTranscribe).not.toHaveBeenCalled();
+    expect(result.current.error).not.toBeNull();
+  });
+
+  it("撞车轮收口后新录音（租约已收）→ 照常转写（标记随轮清零）", async () => {
+    beginSpeechLease("test-playback");
+    await recordAndForceStop({ ...deps, createMeter: () => Promise.resolve(makeFakeMeter()) });
+    endSpeechLease("test-playback"); // 播报播完
+    const result = await recordAndForceStop({ ...deps, createMeter: () => Promise.resolve(makeFakeMeter()) });
+    expect(sendSttTranscribe).toHaveBeenCalledTimes(1); // 新轮干净 → 正常转写
+    expect(result.current.error).toBeNull();
+  });
+
+  it("deferred 回落 transcribeNow 撞车录音 → 拒回落零上传（备用通道不混音）", async () => {
+    beginSpeechLease("test-playback");
+    const result = await recordAndForceStop({
+      ...deps,
+      deferredTranscribe: true,
+      createMeter: () => Promise.resolve(makeFakeMeter()),
+    });
+    expect(result.current.state).toBe("transcribing"); // deferred 持 blob 在途
+    act(() => {
+      result.current.transcribeNow(); // 主流转式失败 → 回落整段转写
+    });
+    await tick();
+    expect(sendSttTranscribe).not.toHaveBeenCalled(); // 撞车录音拒绝回落（混音结果不发问）
+    expect(result.current.state).toBe("idle");
+    expect(result.current.error).not.toBeNull();
   });
 });
