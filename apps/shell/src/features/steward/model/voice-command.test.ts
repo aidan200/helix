@@ -123,8 +123,8 @@ describe("resolveVoiceCommand（整句定稿时卡栈快照绑定）", () => {
 // ── 意图门控打断：停止意图快通道词表（barge-in 意图窗批）──────────────────
 
 describe("isStopIntentPhrase（停止意图快通道——interim/final 两级共用）", () => {
-  it("强停止词全等命中：停/停止/停下/别说了/不用说了/闭嘴", () => {
-    for (const p of ["停", "停止", "停下", "别说了", "不用说了", "闭嘴"]) {
+  it("停止词全量命中（批 3b 起单源 @helix/protocol——14 词全停词表，双端同源）", () => {
+    for (const p of ["停", "停下", "停止", "停一下", "stop", "别说了", "先别说了", "不要说了", "不用说了", "别念了", "别说话了", "闭嘴", "住嘴", "够了"]) {
       expect(isStopIntentPhrase(p)).toBe(true);
     }
   });

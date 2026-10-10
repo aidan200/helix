@@ -1441,8 +1441,7 @@ export const zhCN = {
       cardPending: "有个投递等你确认",
       // ── M3-c 声纹批：授权点拒绝白话（纯语音明示 + 卡保留——TR-243/TR-249）──
       voiceprintReject: "未识别为用户的声音",
-      bargeInQueued: "听到了，播完接着处理",
-      bargeInVerifySkip: "无法确认是不是你在插话，已忽略（注册声纹后自动接入）",
+      // 批 3b 退役：bargeInQueued/bargeInVerifySkip（排队插话与 skip 提示）随裁决 #2 拆除
     },
   },
 };

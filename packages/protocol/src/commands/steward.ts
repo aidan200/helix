@@ -220,10 +220,15 @@ export interface StewardMemoryRestoreCommand extends CommandFrame<StewardMemoryR
   type: "steward.memory_restore";
 }
 
-/** steward.interrupt 载荷（B2 barge-in 批，additive）。 */
+/** steward.interrupt 载荷（B2 barge-in 批，additive；批 3b 两轨停止裁决乙增 scope）。 */
 export interface StewardInterruptPayload {
   /** 中断原因（可选；缺省 daemon 归一 "barge-in"——审计/trace 语义）。 */
   reason?: string;
+  /** 停止范围（批 3b 两轨裁决乙）：缺省 "current" = 轻停（面板停止钮：只停
+   *  当前轮，daemon 队列照常）；"all" = 全停（语音停止词：abort 当前 + 清空
+   *  daemon ask 队列，与 ask 漏斗停止词全停同径）。additive——旧 daemon 忽略
+   *  该字段行为不变（老版本本就只有轻停语义）。 */
+  scope?: "current" | "all";
 }
 
 /** steward.interrupt：在途 steward 轮打断（barge-in 触发面，shell→daemon）——

@@ -158,10 +158,8 @@ const SPEECH_LEASE_WELCOME = "steward-welcome-audio";
 const BARGE_IN_INTENT_DUCK_SCALE = 0.2;
 /** 窗超时（ms）：无 final 兕底关窗（噪音过门后用户实际没说话/ASR 无产出）。 */
 const BARGE_IN_INTENT_WINDOW_MS = 5_000;
-/** 排队插话上限（溢出丢新——防长播报期刷屏）。 */
-const BARGE_IN_QUEUE_MAX = 3;
-/** 语义停止判定超时（ms）：判官无响应/帧丢失 → 回退不停止（照排队）。 */
-const JUDGE_STOP_TIMEOUT_MS = 2_500;
+// 批 3b 退役：BARGE_IN_QUEUE_MAX（排队插话）与 JUDGE_STOP_TIMEOUT_MS（Jev
+// 停止判官慢通道）随裁决 #2 拆除——未命中丢弃，无慢通道无排队。
 
 // ── ① speech-floor 对话源（出声面协调器：播×播互斥——对话 > 通知）：
 //    回答轮在途（askInFlight）/ a 流式播放器在播 / b 一次性回执在播三源
@@ -258,13 +256,8 @@ export interface UseStewardVoice {
   /** 窗收口不真停（噪音/旁人/非停止插话）：恢复音量 + 回收音门控；录音链
    *  照常（自动续听边沿重开）。 */
   closeBargeInIntentWindow(): void;
-  /** 排队插话（非停止意图的真插话——播毕后自动提交为新轮 ask：宁多应答不漏）。
-   *  上限 3 条溢出丢新。 */
-  queueUtterance(text: string): void;
-  /** 语义停止判定（意图窗慢通道：非词表停止表达「先别说了/等一下」类——
-   *  daemon 判官 noul，回执 steward.judge_stop_intent.result）。超时/未连接/
-   *  降级一律 false（照排队不真停）；单飞：新调作废旧调的迟到回执。 */
-  judgeStopIntent(text: string): Promise<boolean>;
+  // 批 3b 退役（裁决 #2）：queueUtterance（排队插话）与 judgeStopIntent
+  // （Jev 停止判官慢通道）拆除——播报期单向广播，词表未命中 = 丢弃关窗。
   /** 临时静音（D5：listening 点击切换——静音期续听挂起，duplex 会话保持）。 */
   readonly muted: boolean;
   /** D5 点击行为：listening 点击 = 临时静音切换（speaking 停读归 stopSpeaking）。 */
@@ -292,7 +285,6 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     subscribeVoiceFrames,
     subscribeStewardFrames,
     sendStewardInterrupt,
-    sendStewardJudgeStopIntent,
   } = useSession() as {
     sendSttTranscribe?: (audio: string, opts?: { language?: string; provider?: string }) => boolean;
     sendSttStreamStart?: (opts?: { language?: string; provider?: string }) => boolean;
@@ -305,8 +297,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     sendVoiceSynthesizeStop?: (utterId?: string) => boolean;
     subscribeVoiceFrames?: (listener: (e: EventEnvelope) => void) => () => void;
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
-    sendStewardInterrupt?: (reason?: string) => boolean;
-    sendStewardJudgeStopIntent?: (text: string) => boolean;
+    sendStewardInterrupt?: (reason?: string, scope?: "current" | "all") => boolean;
   };
   const steward = useSteward(); // B1 订阅解绑：无参（订阅不随面板开合）
 
@@ -383,16 +374,12 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   /** 窗开标记（同步读面——onPcmFrame 豁免/final 分流；state 面向 Layer）。 */
   const bargeInIntentRef = useRef(false);
   const [bargeInIntentActive, setBargeInIntentActive] = useState(false);
-  // ── 语义停止判定（意图窗慢通道：非词表停止表达——daemon 判官 noul）──
-  /** 单飞序列号（新调作废旧调迟到回执）+ 等待队列（回执/超时唤醒）。 */
-  const judgeStopSeqRef = useRef(0);
-  const judgeStopWaitersRef = useRef<((stop: boolean) => void)[]>([]);
   /** 窗超时计时器（无 final 兕底——噪音过门后用户实际没说话）。 */
   const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** duck 前各轨原音量（恢复用——Audio 元素/播放器当前值，非偏好重算）。 */
   const duckedVolumesRef = useRef<{ player: number; legacy: number; welcome: number } | null>(null);
-  /** 排队插话（非停止意图——播毕后自动提交新轮；上限 3 溢出丢新）。 */
-  const queuedUtterancesRef = useRef<string[]>([]);
+  // 批 3b 退役（裁决 #2）：judgeStop 慢通道 refs（单飞序列号+等待队列）与
+  // 排队插话队列（queuedUtterancesRef）拆除——未命中丢弃，无慢通道无排队。
 
   // 发送面 ref 转发（speechOut 单例构造——发送器随连接态重绑，streamSenders 先例）
   const speechSendersRef = useRef({
@@ -746,15 +733,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         speechOut.feedRawDelta(p.delta);
         return;
       }
-      if (event.type === "steward.judge_stop_intent.result") {
-        // 意图窗慢通道回执：单飞守卫（旧调迟到作废）+ 等待队列整体唤醒
-        const p = event.payload as { stop?: unknown };
-        const waiters = judgeStopWaitersRef.current;
-        if (waiters.length === 0) return; // 窗收位后迟到回执（幂等吞）
-        judgeStopWaitersRef.current = [];
-        for (const w of waiters) w(p.stop === true);
-        return;
-      }
+      if (event.type === "steward.judge_stop_intent.result") return; // 批 3b 退役：无本地消费面（幂等吞迟到回执；命令面 daemon 保留 deprecated）
       if (event.type !== "steward.ask.result") return;
       const payload = event.payload as { status?: unknown; text?: unknown };
       const status = String(payload.status ?? "");
@@ -1027,14 +1006,10 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         const stash = typeof p.stash === "string" ? p.stash : "";
         const accumulated = `${prior}${text}${stash}`;
         setInterim(accumulated);
-        // 意图窗快通道（interim 级）：强停止词全等命中即真停——不等 VAD 收口
-        // 与 final（真停延迟从 ~2.5-4s 压到 ~1s 内）；录音继续（用户后续语音
-        // 同轮收口自然衔接）。误停代价可按受（ASR 修正期「停」误现——打断本
-        // 低频且用户确在插话，损失远小于延迟）。
-        if (bargeInIntentRef.current && isStopIntentPhrase(accumulated)) {
-          recordBargeInTrace({ at: Date.now(), rms: 0, zcr: 0, phase: phaseRef.current, fired: true });
-          executeBargeInStopRef.current();
-        }
+        // 批 3b 链路重排（裁决 #2：声纹→ASR→词表）：interim 级停止词快通道
+        // 拆除——它绕过声纹总闸（旁人喊「停」即真停），且新链序停止判定必经
+        // 声纹验后（final 路径 Layer 统一收口）。interim 帧仅上屏（字幕），
+        // 停止判定延迟回到 final 级（VAD 收口+声纹+词表，词表命中即停）。
       } else if (event.type === "stt.stream.final") {
         const p = event.payload as { status?: unknown; streamId?: unknown; text?: unknown };
         if (p.streamId !== streamIdRef.current) return; // 单飞门控
@@ -1094,13 +1069,14 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     }, BARGE_IN_INTENT_WINDOW_MS);
   }, [duckVolume, beginListening, settleBargeInWindow]);
 
-  /** 真停（停止意图确认——Layer 意图判定后调）：三步序①停播全轨②interrupt；
-   *  ③收音不显式开——interim 快通路径录音本就在跑（后续语音同轮收口），
-   *  final 慢通路径靠自动续听（idle 边沿）重开。 */
+  /** 真停（停止意图确认——Layer 意图判定后调）：三步序①停播全轨②interrupt
+   *  携 scope=all 全停（批 3b 裁决乙：语音停止词 = abort 当前 + 清空 daemon
+   *  ask 队列；面板停止钮缺省 current 轻停——两轨分野在此）；③收音不显式
+   *  开——final 慢通路径靠自动续听（idle 边沿）重开。 */
   const executeBargeInStop = useCallback(() => {
     settleBargeInWindow(); // 窗先收（恢复音量——stopSpeaking 面再收幂等）
     stopSpeaking(); // ①（含残响静默窗 + 全轨停止）
-    sendStewardInterrupt?.("barge-in"); // ②（幂等；未连接本地停播即事实）
+    sendStewardInterrupt?.("barge-in", "all"); // ②（幂等；未连接本地停播即事实）
   }, [settleBargeInWindow, stopSpeaking, sendStewardInterrupt]);
   executeBargeInStopRef.current = executeBargeInStop;
 
@@ -1109,38 +1085,8 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     settleBargeInWindow();
   }, [settleBargeInWindow]);
 
-  /** 排队插话（非停止意图的真插话：播毕后自动提交新轮——宁多应答不漏）。 */
-  const queueUtterance = useCallback((text: string) => {
-    const q = queuedUtterancesRef.current;
-    if (text.trim() === "" || q.length >= BARGE_IN_QUEUE_MAX) return; // 上限溢出丢新
-    q.push(text);
-  }, []);
-
-  /** 语义停止判定（意图窗慢通道）：非词表停止表达（「先别说了/等一下」）经
-   *  daemon 判官 noul 判定。回执/超时/未连接（send false）均收敛布尔——
-   *  false = 不停止（照排队，与 daemon 降级链同向保守）；单飞序列号作废
-   *  旧调迟到回执。TR-168：send 返回 false 即时回退不悬挂等待。 */
-  const judgeStopIntent = useCallback(
-    (text: string): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
-        judgeStopSeqRef.current += 1;
-        const seq = judgeStopSeqRef.current;
-        let settled = false;
-        let timer: ReturnType<typeof setTimeout> | null = null;
-        const finish = (stop: boolean) => {
-          if (settled) return;
-          settled = true;
-          if (timer !== null) clearTimeout(timer);
-          judgeStopWaitersRef.current = judgeStopWaitersRef.current.filter((w) => w !== finish);
-          // 单飞：旧调作废 → false（不悬挂——保守回退照排队）
-          resolve(seq === judgeStopSeqRef.current ? stop : false);
-        };
-        judgeStopWaitersRef.current.push(finish);
-        if (sendStewardJudgeStopIntent?.(text) === false) return finish(false); // 未连接/未装配
-        timer = setTimeout(() => finish(false), JUDGE_STOP_TIMEOUT_MS);
-      }),
-    [sendStewardJudgeStopIntent],
-  );
+  // 批 3b 退役（裁决 #2）：queueUtterance（排队插话）与 judgeStopIntent
+  // （Jev 停止判官慢通道）拆除——播报期单向广播，词表未命中 = 丢弃关窗。
 
   const bargeIn = useCallback(() => {
     if (readBargeInIntentPref()) {
@@ -1148,7 +1094,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       return;
     }
     stopSpeaking(); // ①（含残响静默窗）
-    const interruptOk = sendStewardInterrupt?.("barge-in") ?? false; // ②
+    const interruptOk = sendStewardInterrupt?.("barge-in", "all") ?? false; // ②（裁决乙：语音停通道全停——与 executeBargeInStop 同径）
     if (interruptOk === false) {
       // 未连接：打断帧未达 daemon——本地停播即事实（零回滚）；后续 ask
       // 发送失败走 voiceDraft 回填既有降级（零静默丢话）
@@ -1291,25 +1237,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     if (phase === "unsupported") setModeState("text");
   }, [phase]);
 
-  // ── 排队插话 drain（意图窗批 D1=排队）：播毕/无在途轮且用户未在说话时
-  //    自动提交队首（逐条——新 ask 的 asking 相位会压后续 drain 到轮收口）；
-  //    duplex 收口清队列（关会话即弃——上下文已不连续）。──
-  useEffect(() => {
-    if (!duplexActive) {
-      queuedUtterancesRef.current = [];
-      return;
-    }
-    if (legacySpeaking || streamSpeaking || askInFlight) return;
-    // 通知播报中不提交（回归修复：排队回答的 ask 会开 SPEECH_FLOOR_ROUND
-    // 收编截断在播通知——「上一条没播完下一条就开始」体感根源之一；通知
-    // 播毕边沿串行放行）。
-    if (notifSpeaking) return;
-    if (phase === "listening" || phase === "transcribing") return; // 用户在说话/转写在途不打扰
-    const q = queuedUtterancesRef.current;
-    if (q.length === 0) return;
-    const next = q.shift()!;
-    submitUtteranceRef.current(next);
-  }, [duplexActive, legacySpeaking, streamSpeaking, askInFlight, notifSpeaking, phase]);
+  // 批 3b 退役（裁决 #2）：排队插话 drain 拆除——播报期单向广播，词表未命
+  //    中即丢弃，无队列无自动提交（跨端队列不一致 bug 连根消灭：停止词全停
+  //    后 shell 排队不再残留自动开口）。
 
   // interim 出态清理（listening/transcribing 外不残留浮字）
   useEffect(() => {
@@ -1389,8 +1319,6 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     bargeInIntentActive,
     executeBargeInStop,
     closeBargeInIntentWindow,
-    queueUtterance,
-    judgeStopIntent,
     muted,
     toggleMute,
     toggleWake: toggleWakeStable,

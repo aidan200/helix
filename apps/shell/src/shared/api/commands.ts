@@ -690,23 +690,23 @@ export function stewardHistoryCommand(clear?: boolean): StewardHistoryCommand {
   };
 }
 
-/** steward.interrupt：在途轮打断（B2 barge-in 批；payload.reason 可选——缺省
- *  daemon 归一 "barge-in"；无回执帧，事件面 loop.run.interrupted + ask 终态
- *  已够）。 */
-export function stewardInterruptCommand(reason?: string): StewardInterruptCommand {
+/** steward.interrupt：在途轮打断（B2 barge-in 批；批 3b 增 scope——缺省
+ *  current 轻停只停当前轮；all = 全停 abort 当前 + 清空 daemon ask 队列，
+ *  语音停止词通道；无回执帧，事件面 loop.run.interrupted + ask 终态已够）。 */
+export function stewardInterruptCommand(reason?: string, scope?: "current" | "all"): StewardInterruptCommand {
   return {
     v: PROTOCOL_VERSION,
     type: "steward.interrupt",
-    payload: reason === undefined ? {} : { reason },
+    payload: {
+      ...(reason === undefined ? {} : { reason }),
+      ...(scope === undefined ? {} : { scope }),
+    },
   };
 }
 
-/** steward.judge_stop_intent：语义停止判定（barge-in 意图窗慢通道——非词表
- *  停止表达「先别说了/等一下」类经判官 noul 判定；回执
- *  steward.judge_stop_intent.result，降级一律 stop=false 照排队）。 */
-export function stewardJudgeStopIntentCommand(text: string): StewardJudgeStopIntentCommand {
-  return { v: PROTOCOL_VERSION, type: "steward.judge_stop_intent", payload: { text } };
-}
+// 批 3b 退役：stewardJudgeStopIntentCommand（Jev 停止判官慢通道）随裁决 #2
+// 拆除——协议命令与 daemon 处理器保留 deprecated（枚举零变更，见
+// packages/protocol steward.ts 注记）。
 
 // ── 管家记忆 B2：长期记忆条目管理（读/人工新增/重嵌更新/行级删除；四命令
 //    共用回执 steward.memory_list.result——写后即回新清单）────────────

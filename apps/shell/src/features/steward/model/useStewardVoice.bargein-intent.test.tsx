@@ -1,18 +1,20 @@
 // @vitest-environment jsdom
 /**
- * useStewardVoice barge-in 意图窗集成测试（意图门控打断批；TDD 红→绿）。
+ * useStewardVoice barge-in 意图窗集成测试（批 3b 链路重排：声纹→ASR→词表→
+ * 未命中丢弃——裁决 #2 单向广播）。
  *
- * 契约（行为变更：打断从「有人声就打断」收紧为「识别出停止意图才打断」）：
+ * 契约（批 3b 行为变更）：
  * - T1 声学触发 → 开意图窗（不真停）：不停播（零 synthesize.stop）、零
  *   interrupt、duck 播报（player.setVolume 0.2）、开新转写流收插话、
  *   收音门控豁免（租约期 PCM 照上行）；
- * - T2 interim 快通道：窗内 interim 文本全等强停止词 → 立即三步序
- *   （停播 + interrupt + 窗关）；
- * - T3 final 慢通道（非停止意图）：onFinalText 收 ctx.bargeInIntent=true
- *   （Layer 判定分流面）→ queueUtterance 排队 + 播毕自动 drain 提交 ask
- *   （宁多应答不漏）；
- * - T4 窗超时兜底：无 final → 恢复音量关窗，零打断零排队；
- * - T5 偏好关回退：helix.voice.bargeInIntent=0 → 声学直停（原行为零改动）。
+ * - T2 interim 快通道退役：窗内 interim 文本全等停止词不再触发三步序
+ *   （绕声纹总闸的快通道已拆——停止判定必经 final 路径的声纹→词表序）；
+ * - T3 final 分流面：非停止 final → onFinalText 收 ctx.bargeInIntent=true
+ *   （Layer 丢弃裁决）+ 窗收位；零排队零 drain（播毕后零自动 ask——排队
+ *   插话面整体退役，跨端队列不一致 bug 连根消灭）；
+ * - T4 窗收位链：stopSpeaking 同径关窗（手动停读/新轮清在途）；
+ * - T5 偏好关回退：helix.voice.bargeInIntent=0 → 声学直停（携 scope=all
+ *   全停——裁决乙两轨分野）。
  *
  * mock 面与 duplex.test 同构（SessionContext + FakeMediaRecorder + fake
  * meter/player）；耳 meter 帧注入 = 全实例广播（耳门/录音门共享 factory）。
@@ -25,7 +27,6 @@ import type { EventEnvelope } from "@helix/protocol";
 const sendStewardAsk = vi.fn(() => true);
 const sendStewardConfirm = vi.fn(() => true);
 const sendStewardInterrupt = vi.fn(() => true);
-const sendStewardJudgeStopIntent = vi.fn(() => true);
 const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
@@ -64,7 +65,6 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendStewardAsk,
     sendStewardConfirm,
     sendStewardInterrupt,
-    sendStewardJudgeStopIntent,
     sendStewardSubscribe,
     sendStewardUnsubscribe,
     sendStewardGetConfig,
@@ -318,7 +318,7 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     expect(sendSttStreamStart.mock.calls.length).toBeGreaterThan(0);
   });
 
-  it("T2 interim 快通道：窗内 interim 全等强停止词「停」→ 立即三步序（停播+interrupt+窗关）", async () => {
+  it("T2 interim 快通道退役：窗内 interim 全等停止词「停」→ 不再触发三步序（声纹→ASR→词表链——停止判定必经 final 路径声纹验后）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
@@ -336,14 +336,14 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     });
     await tick();
 
-    expect(sendVoiceSynthesizeStop).toHaveBeenCalled(); // ① 停播
-    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in"); // ② interrupt
-    await waitFor(() => expect(r.current.bargeInIntentActive).toBe(false)); // 窗关
-    // 音量恢复（duck 0.2 → restore 1）
-    expect(playerSetVolumeCalls).toEqual([0.2, 1]);
+    // 零三步序：interim 仅上屏，停止判定等 final 路径（声纹→词表）
+    expect(sendVoiceSynthesizeStop).not.toHaveBeenCalled();
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+    expect(r.current.bargeInIntentActive).toBe(true); // 窗仍在（未真停）
+    expect(playerSetVolumeCalls).toEqual([0.2]); // duck 保持（未恢复）
   });
 
-  it("T3 final 慢通道非停止意图：ctx.bargeInIntent 分流 → 排队 + 播毕自动 drain 提交新轮 ask", async () => {
+  it("T3 final 分流面：非停止 final → ctx.bargeInIntent=true + 窗收位；零排队零 drain（播毕零自动 ask——跨端队列 bug 根除）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     const seenCtx: Array<{ bargeInIntent: boolean } | undefined> = [];
@@ -381,9 +381,8 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     await tick();
     expect(seenCtx).toEqual([{ bargeInIntent: true }]);
 
-    // Layer 慢通道动作面（非停止意图）：排队 + 窗收位
+    // Layer 丢弃裁决镜像（裁决 #2：非停止 → 丢弃关窗，无排队面）
     act(() => {
-      r.current.queueUtterance("你说得对但是");
       r.current.closeBargeInIntentWindow();
     });
     expect(r.current.bargeInIntentActive).toBe(false);
@@ -391,13 +390,14 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     expect(sendVoiceSynthesizeStop).not.toHaveBeenCalled();
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
 
-    // 播毕（player active false）→ drain 自动提交排队插话为新轮 ask
+    // 播毕（player active false）→ 零自动 ask（drain 已拆——插话已丢弃，无队列残留）
     sendStewardAsk.mockClear();
     act(() => {
       playerActiveCb?.(false);
     });
     await tick();
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("你说得对但是", "voice-duplex"));
+    await new Promise((res) => setTimeout(res, 40));
+    expect(sendStewardAsk).not.toHaveBeenCalled();
   });
 
   it("T4 窗收位链（stopSpeaking 同径关窗）：手动停读/新轮清在途 → 窗关 + 音量恢复 + 零 interrupt（超时计时器 = 同一 settle 回调另一触发源，T2 已覆盖 settle 链）", async () => {
@@ -436,110 +436,11 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     await voiceBargeInFrames();
 
     await waitFor(() => expect(sendVoiceSynthesizeStop).toHaveBeenCalled()); // ① 直停
-    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in"); // ②
+    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in", "all"); // ② 携 scope=all（裁决乙：语音停止通道全停）
     expect(r.current.bargeInIntentActive).toBe(false); // 零意图窗
     expect(playerSetVolumeCalls).toEqual([]); // 零 duck
   });
-
-  it("T6 drain 通知守卫：通知播报中不提交排队插话（播毕串行）——通知不被排队回答收编截断", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    const r = renderVoice({
-      createMeter: fakeCreateMeter,
-      createPlayer,
-      onFinalText: () => "consumed",
-    });
-    await pressHotkey(r);
-    await stewardSpeaking(r);
-    await voiceBargeInFrames();
-    await waitFor(() => expect(r.current.bargeInIntentActive).toBe(true));
-    await ackLatestStream();
-
-    // 收口 → final（意图窗内，消费方 stub 全 consumed）→ 镜像 Layer 动作面排队
-    let nowMs = Date.now();
-    const stopSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    nowMs += 1_500;
-    act(() => {
-      r.current.stopListening();
-    });
-    await tick();
-    stopSpy.mockRestore();
-    act(() => {
-      emit("stt", frame("stt.stream.final", { status: "ok", streamId: `s${streamSeq}`, text: "回头查下天气" }, "stt"));
-    });
-    await tick();
-    act(() => {
-      r.current.queueUtterance("回头查下天气");
-      r.current.closeBargeInIntentWindow();
-    });
-
-    // 对话播报毕 + 通知轨在播（通知先到——回答等通知播完，不收编截断）
-    sendStewardAsk.mockClear();
-    beginNotificationPlayback();
-    act(() => {
-      playerActiveCb?.(false);
-    });
-    await tick();
-    await new Promise((res) => setTimeout(res, 40));
-    expect(sendStewardAsk).not.toHaveBeenCalled(); // 通知在播 → 不提交
-
-    // 通知播毕 → 串行放行提交
-    endNotificationPlayback();
-    await waitFor(() => expect(sendStewardAsk).toHaveBeenCalledWith("回头查下天气", "voice-duplex"));
-  });
-});
-
-describe("useStewardVoice judgeStopIntent（意图窗慢通道：daemon 判官 RPC 单飞）", () => {
-  let restoreEnv: (() => void) | null = null;
-
-  beforeEach(() => {
-    localStorage.clear();
-    localStorage.setItem("helix-lang", "zh-CN");
-    for (const s of Object.values(listeners)) s.clear();
-    fireWakeHotkey = null;
-    playerSetVolumeCalls.length = 0;
-    meterFrameCbs.length = 0;
-    streamSeq = 0;
-  });
-  afterEach(() => {
-    cleanup();
-    vi.clearAllMocks();
-    FakeMediaRecorder.instances = [];
-    restoreEnv?.();
-    restoreEnv = null;
-  });
-
-  it("T7 回执 stop=true → true；单飞：后调作废前调（前调迟到收敛 false 不悬挂）", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
-    const first = r.current.judgeStopIntent("先别说了");
-    const second = r.current.judgeStopIntent("等一下");
-    act(() => {
-      emit("steward", frame("steward.judge_stop_intent.result", { stop: true, score: 0.9 }, "steward"));
-    });
-    expect(sendStewardJudgeStopIntent).toHaveBeenCalledTimes(2);
-    await expect(second).resolves.toBe(true); // 最新调吃到回执
-    await expect(first).resolves.toBe(false); // 旧调作废 → 保守 false（不悬挂）
-  });
-
-  it("T8 降级回执（stop=false + degraded）→ false 照排队", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
-    const p = r.current.judgeStopIntent("先别说了");
-    act(() => {
-      emit("steward", frame("steward.judge_stop_intent.result", { stop: false, degraded: "unready" }, "steward"));
-    });
-    await expect(p).resolves.toBe(false);
-  });
-
-  it("T9 未连接（send false）→ 立即 false（TR-168：不悬挂等待）", async () => {
-    const env = installEnv();
-    restoreEnv = env.restore;
-    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
-    sendStewardJudgeStopIntent.mockImplementationOnce(() => false);
-    await expect(r.current.judgeStopIntent("先别说了")).resolves.toBe(false);
-    expect(sendStewardJudgeStopIntent).toHaveBeenCalledTimes(1);
-  });
+  // 批 3b 退役：T6 drain 通知守卫（排队插话 drain 面拆除——无队列无自动提交，
+  // 通知守卫随 drain 一同消亡）与 judgeStopIntent describe（T7-T9：Jev 停止
+  // 判官慢通道退役——裁决 #2 词表外丢弃，无语义判定 RPC）。
 });

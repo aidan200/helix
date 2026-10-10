@@ -95,8 +95,6 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const submitUtteranceRef = useRef<(text: string) => void>(() => undefined);
   // 意图窗动作面 ref（onFinalText 异步判定后回调——定义先于 sv，赋值在后）
   const svExecStopRef = useRef<() => void>(() => undefined);
-  const svQueueRef = useRef<(text: string) => void>(() => undefined);
-  const svJudgeStopRef = useRef<(text: string) => Promise<boolean>>(() => Promise.resolve(false));
   const svCloseWindowRef = useRef<() => void>(() => undefined);
   const dispatchAfterGate = useCallback(
     (text: string) => {
@@ -152,46 +150,21 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           setLines((prev) => captionPush(prev, "steward", t("steward.voice.voiceprintReject")));
           return;
         }
-        // 停止词本地消费（回归修复：停止词不当聊天句回灌 LLM——真停后立即又
-        // 开新一轮播报的级联根因）：窗内外同径 executeBargeInStop（幂等——
-        // interim 快通道已真停再停无害；非窗内 asking 期喊停 = 中止在途轮，
-        // idle 空气喊停 = 停播 no-op）。零 submitUtterance 零回读。
+        // 停止词本地消费（链路重排批：机械→声纹→词表——声纹总闸已过，reject
+        // 整轮终止在前）：词表命中即真停。窗内外同径 executeBargeInStop（幂等；
+        // 非窗内 asking 期喊停 = 中止在途轮，idle 空气喊停 = 停播 no-op）。
+        // 零 submitUtterance 零回读。批 3b 起 executeBargeInStop 携 scope=all
+        // 全停（裁决乙：语音停止词全部全停——abort 当前 + 清空 daemon 队列）。
         if (isStopIntentPhrase(text)) {
           svExecStopRef.current();
           return;
         }
         if (ctx?.bargeInIntent) {
-          // 卡栈口令直达（意图窗吞口令盲区修复：确认卡在屏 + 答案/触达语音
-          // 还在播时抢答「取消/确认」——原被无条件归为非停插话排队，播毕后当
-          // 聊天句发 LLM，卡零动作）：口令与停止词表正交（取消≠闭嘴），先于
-          // 排队/判官（机械全等零成本）。真停答案剩余（用户已裁决，剩余无
-          // 意义——executeBargeInStop 内含收窗恢复）+ 窗内外同径
-          // dispatchAfterGate（卡栈动作 + 回读经 speech-floor 收编协调）。
-          // skip 照放——口令非排队特权（本地卡栈动作，声纹 reject 已在总闸挡；
-          // 与非窗内口令路径一致：未注册用户语音取消/确认能力窗内外同权）。
-          if (parseVoiceCommand(text) !== null) {
-            svExecStopRef.current();
-            dispatchAfterGate(text);
-            return;
-          }
-          // 意图窗 final 慢通道：非停止意图 → 排队新轮（播毕自动提交，宁多应
-          // 答不漏）+ 字幕确认 + 窗收位。排队是特权——需声纹正面确认（pass）：
-          // skip（未注册/推断失败）不排队不 ask（自动应答面比直说宽，噪音/
-          // 旁人灰区话语不得经此进 LLM——回归修复：身份判定前置到排队提交前）。
-          if (decision.kind !== "pass") {
-            pushLine("steward", t("steward.voice.bargeInVerifySkip"));
-            svCloseWindowRef.current();
-            return;
-          }
-          // 语义停止判官（daemon noul 慢通道）：非词表停止表达（「先别说了/
-          // 等一下」类）判停才真停；超时/未连接/降级一律 false 照排队（误停
-          // 丢播报不可回滚，误排队仅延后应答——与 daemon 侧同向保守）。
-          if (await svJudgeStopRef.current(text)) {
-            svExecStopRef.current();
-            return;
-          }
-          svQueueRef.current(text);
-          pushLine("steward", t("steward.voice.bargeInQueued"));
+          // 意图窗未命中丢弃（裁决 #2：播报期单向广播，唯一合法打断 = 停止词
+          // ——词表外表达当环境音处理，不排队不插话不判官；用户要插话等播完
+          // 后双工续听正常说。卡栈口令同径：播报中「取消/确认」丢弃，先喊停
+          // 再说口令（卡不随 run 死，播报停后口令照常可用）。零字幕零回读
+          // （用户行已在 pushLine——丢弃无需确认文案）。
           svCloseWindowRef.current();
           return;
         }
@@ -207,8 +180,6 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   submitUtteranceRef.current = sv.submitUtterance;
   // 意图窗动作面 ref 转发（onFinalText 定义先于 sv——与 say/submit 同构）
   svExecStopRef.current = sv.executeBargeInStop;
-  svQueueRef.current = sv.queueUtterance;
-  svJudgeStopRef.current = sv.judgeStopIntent;
   svCloseWindowRef.current = sv.closeBargeInIntentWindow;
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）

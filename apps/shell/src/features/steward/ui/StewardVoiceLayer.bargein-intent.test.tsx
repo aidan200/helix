@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
 /**
- * StewardVoiceLayer barge-in 意图窗判定分支测试（回归修复批：停止词回灌 +
- * 排队身份收紧）。
+ * StewardVoiceLayer barge-in 意图窗判定分支测试（批 3b 链路重排：声纹→词表→
+ * 丢弃——裁决 #2 播报期单向广播）。
  *
- * 契约（回归根因 → 行为）：
- * - R1-A 停止词回灌：非窗内 final 停止词（「别说了」等）→ 本地消费——
- *   executeBargeInStop（幂等三步序）零 submitUtterance（不再把停止词当
- *   聊天句发 LLM——真停后又开新一轮播报的级联根因）；
- * - R2 排队身份收紧：窗内 final 非停止词 → 仅声纹 pass（注册且匹配）才
- *   queueUtterance；skip（未注册/推断失败）→ 不排队不 ask + 关窗 + 白话
- *   提示（排队插话是特权——需正面身份确认；噪音/旁人灰区话语不再进 LLM）；
- * - 回归保护：窗内 pass 非停 → 排队 + 关窗 + 「听到了」字幕；窗内停止词
- *   pass → 真停不排队；窗内 reject → 关窗不排队（旁人防线保持）。
+ * 契约（批 3b 定稿链 → 行为）：
+ * - R1 停止词本地消费保持：非窗内 final 停止词（「别说了/停」等）→
+ *   executeBargeInStop（幂等三步序，批 3b 起携 scope=all 全停）零
+ *   submitUtterance（停止词不当聊天句回灌 LLM——历史级联根因防回归）；
+ * - R2 未命中丢弃（裁决 #2）：窗内 final 非停止词 → 一律丢弃关窗（声纹
+ *   pass/skip 同径——排队插话与 Jev 慢通道已整体退役，播报期单向广播，
+ *   唯一合法打断 = 停止词）；
+ * - 回归保护：窗内停止词 + pass → 真停；窗内 reject（旁人）→ 关窗不真停；
+ *   非窗内普通聊天句 + pass → 照旧 submitUtterance（正常链零劣化）；
+ * - R4 卡栈口令窗内退役：播报中「取消/确认/都不要了」→ 丢弃零卡动作；
+ *   播报停后（非窗内）口令照常可用（卡不随 run 死）。
  */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,14 +54,10 @@ vi.mock("@/shared/lib/wake-hotkey", () => ({
   syncWakeHotkeyRegistration: async () => "ok" as const,
 }));
 
-// ── useStewardVoice 受控桩（同 voiceprint 测试形态 + 意图窗动作面）──
+// ── useStewardVoice 受控桩（批 3b：queueUtterance/judgeStopIntent 已退役）──
 const submitUtterance = vi.fn();
 const executeBargeInStop = vi.fn();
-const queueUtterance = vi.fn();
 const closeBargeInIntentWindow = vi.fn();
-// 语义停止判官桩（意图窗慢通道）：缺省 false（照排队——daemon 降级链同向）；
-// 判停用例 mockResolvedValueOnce(true) 覆写
-const judgeStopIntent = vi.fn((_text: string) => Promise.resolve(false));
 const fakePcm = new Float32Array(16000);
 let capturedOnFinalText:
   | ((text: string, ctx?: { bargeInIntent: boolean }) => "consumed" | "pass")
@@ -99,8 +97,6 @@ vi.mock("../model/useStewardVoice", () => ({
       bargeInIntentActive: false,
       executeBargeInStop,
       closeBargeInIntentWindow,
-      queueUtterance,
-      judgeStopIntent,
       muted: false,
       toggleMute: () => undefined,
       toggleWake: () => undefined,
@@ -131,7 +127,7 @@ function gateReturning(decision: VerifyDecision): VoiceprintGate {
   return { verifyGate: () => Promise.resolve(decision) };
 }
 
-describe("StewardVoiceLayer barge-in 意图判定分支（回归修复：停止词本地消费 + 排队身份收紧）", () => {
+describe("StewardVoiceLayer barge-in 意图判定分支（批 3b 链路重排：声纹→词表→丢弃）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stewardListeners.clear();
@@ -162,71 +158,52 @@ describe("StewardVoiceLayer barge-in 意图判定分支（回归修复：停止�
     expect(submitUtterance).not.toHaveBeenCalled();
   });
 
-  it("R2 窗内非停止词 + 声纹 skip（未注册/推断失败）→ 不排队不 ask + 关窗 + 白话提示", async () => {
+  it("R1-B 扩充词表新词「够了」非窗内同样本地消费真停（批 3b 词表 14 词单源生效）", async () => {
+    renderLayer(gateReturning({ kind: "pass" }));
+    act(() => {
+      expect(capturedOnFinalText?.("够了")).toBe("consumed");
+    });
+    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
+    expect(submitUtterance).not.toHaveBeenCalled();
+  });
+
+  it("R2 窗内非停止词 + 声纹 skip（未注册/推断失败）→ 丢弃关窗：零 submit 零提示零真停（裁决 #2 单向广播）", async () => {
     renderLayer(gateReturning({ kind: "skip", reason: "unregistered" }));
     act(() => {
       expect(capturedOnFinalText?.("顺便帮我查下天气", { bargeInIntent: true })).toBe("consumed");
     });
     await waitFor(() => expect(closeBargeInIntentWindow).toHaveBeenCalledTimes(1));
-    expect(queueUtterance).not.toHaveBeenCalled(); // 排队特权需正面身份
     expect(submitUtterance).not.toHaveBeenCalled();
-    await waitFor(() => {
-      const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
-      expect(Array.from(lines).some((l) => l.textContent?.includes("无法确认"))).toBe(true);
-    });
+    expect(executeBargeInStop).not.toHaveBeenCalled();
   });
 
-  it("保护：窗内非停止词 + 声纹 pass → 排队 + 关窗 +「听到了」字幕（D1 排队路径保持）", async () => {
+  it("R2 窗内非停止词 + 声纹 pass → 同径丢弃关窗（排队特权面整体退役——pass 不再开 LLM 后门）", async () => {
     renderLayer(gateReturning({ kind: "pass" }));
     act(() => {
       expect(capturedOnFinalText?.("顺便帮我查下天气", { bargeInIntent: true })).toBe("consumed");
     });
-    await waitFor(() => expect(queueUtterance).toHaveBeenCalledWith("顺便帮我查下天气"));
     await waitFor(() => expect(closeBargeInIntentWindow).toHaveBeenCalledTimes(1));
+    expect(submitUtterance).not.toHaveBeenCalled(); // 无排队无自动提交
     expect(executeBargeInStop).not.toHaveBeenCalled();
-    expect(submitUtterance).not.toHaveBeenCalled();
   });
 
-  it("保护：窗内停止词 + pass → 真停不排队", async () => {
+  it("保护：窗内停止词 + pass → 真停（词表命中 = 唯一合法打断）", async () => {
     renderLayer(gateReturning({ kind: "pass" }));
     act(() => {
       expect(capturedOnFinalText?.("停止", { bargeInIntent: true })).toBe("consumed");
     });
     await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
-    expect(queueUtterance).not.toHaveBeenCalled();
-  });
-
-  it("R3 语义停止判官判停：窗内非词表停止表达（「先别说了，等一下」）+ pass + 判官 true → 真停不排队", async () => {
-    renderLayer(gateReturning({ kind: "pass" }));
-    judgeStopIntent.mockResolvedValueOnce(true);
-    act(() => {
-      expect(capturedOnFinalText?.("先别说了，等一下", { bargeInIntent: true })).toBe("consumed");
-    });
-    await waitFor(() => expect(judgeStopIntent).toHaveBeenCalledWith("先别说了，等一下"));
-    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
-    expect(queueUtterance).not.toHaveBeenCalled(); // 判停优先于排队
     expect(submitUtterance).not.toHaveBeenCalled();
   });
 
-  it("R3-b 判官不判停（纠正/补充内容）→ 照排队不真停（降级/超时同路径 false）", async () => {
-    renderLayer(gateReturning({ kind: "pass" }));
-    judgeStopIntent.mockResolvedValueOnce(false);
-    act(() => {
-      expect(capturedOnFinalText?.("我想补充一点，参数改成 5", { bargeInIntent: true })).toBe("consumed");
-    });
-    await waitFor(() => expect(judgeStopIntent).toHaveBeenCalledWith("我想补充一点，参数改成 5"));
-    await waitFor(() => expect(queueUtterance).toHaveBeenCalledWith("我想补充一点，参数改成 5"));
-    expect(executeBargeInStop).not.toHaveBeenCalled();
-  });
-
-  it("保护：窗内 reject（旁人）→ 关窗不排队不真停（旁人防线保持）", async () => {
+  it("保护：窗内 reject（旁人）→ 关窗不真停（旁人防线保持——词表也不放行）", async () => {
     renderLayer(gateReturning({ kind: "reject", score: 0.2 }));
     act(() => {
-      expect(capturedOnFinalText?.("随便说点什么", { bargeInIntent: true })).toBe("consumed");
+      expect(capturedOnFinalText?.("停", { bargeInIntent: true })).toBe("consumed");
     });
     await waitFor(() => expect(closeBargeInIntentWindow).toHaveBeenCalledTimes(1));
-    expect(queueUtterance).not.toHaveBeenCalled();
-    expect(executeBargeInStop).not.toHaveBeenCalled();
+    expect(executeBargeInStop).not.toHaveBeenCalled(); // 旁人喊停被声纹总闸挡
+    expect(submitUtterance).not.toHaveBeenCalled();
   });
 
   it("保护：非窗内普通聊天句 + pass → 照旧 submitUtterance（正常链零劣化）", async () => {
@@ -236,48 +213,35 @@ describe("StewardVoiceLayer barge-in 意图判定分支（回归修复：停止�
     });
     await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("今天天气怎么样"));
     expect(executeBargeInStop).not.toHaveBeenCalled();
-    expect(queueUtterance).not.toHaveBeenCalled();
   });
 
-  // ── R4 窗内口令直达（TTS 播报中抢答取消/确认——意图窗吞口令盲区修复）──
-  // 场景：确认卡在屏 + 答案/触达语音还在播 → 用户抢说「取消」→ 声学门开窗
-  // → final 口令应直达卡栈动作（原被无条件归为非停插话排队→播毕发 LLM，卡零动作）。
+  // ── R4 卡栈口令窗内退役（裁决 #2：播报中口令丢弃——先喊停再说口令，
+  //    播报停后口令照常可用（卡不随 run 死））──────────────────────────
 
-  it("R4-A 窗内「取消」+ pass → 真停 + 直达 cancelCard + 零排队零判官零 ask", async () => {
+  it("R4-A 窗内「取消」+ pass → 丢弃零卡动作；播报停后（非窗内）「取消」照常 cancelCard", async () => {
     renderLayer(gateReturning({ kind: "pass" }));
     act(() => {
       stewardListeners.forEach((fn) =>
         fn({ type: "steward.ask.result", payload: { status: "confirm_required", actionId: "a1", agentId: "主会话", message: "m" } } as unknown as EventEnvelope),
       );
     });
+    // 阶段一：播报中（窗内）说「取消」→ 丢弃，零卡动作零真停
     act(() => {
       expect(capturedOnFinalText?.("取消", { bargeInIntent: true })).toBe("consumed");
     });
+    await waitFor(() => expect(closeBargeInIntentWindow).toHaveBeenCalledTimes(1));
+    expect(sendStewardCancel).not.toHaveBeenCalled(); // 窗内口令不直达
+    expect(executeBargeInStop).not.toHaveBeenCalled(); // 口令不是停止词——不真停
+    expect(submitUtterance).not.toHaveBeenCalled();
+    // 阶段二：播报已停（喊过停/自然播完 → 非窗内）再说「取消」→ 卡栈动作照常
+    act(() => {
+      expect(capturedOnFinalText?.("取消")).toBe("consumed");
+    });
     await waitFor(() => expect(sendStewardCancel).toHaveBeenCalledWith("a1"));
-    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1)); // 真停：答案剩余无意义（用户已裁决）
-    expect(queueUtterance).not.toHaveBeenCalled(); // 口令不排队
-    expect(judgeStopIntent).not.toHaveBeenCalled(); // 机械全等先于语义判官（零成本）
-    expect(submitUtterance).not.toHaveBeenCalled(); // 不发 LLM
-    expect(sendStewardAsk).not.toHaveBeenCalled();
+    expect(executeBargeInStop).toHaveBeenCalledTimes(0); // 口令路径本就不真停
   });
 
-  it("R4-B 窗内「确认」+ skip（未注册）→ 照样直达 confirmCard（口令非排队特权——与非窗内口令路径一致）", async () => {
-    renderLayer(gateReturning({ kind: "skip", reason: "unregistered" }));
-    act(() => {
-      stewardListeners.forEach((fn) =>
-        fn({ type: "steward.ask.result", payload: { status: "confirm_required", actionId: "a1", agentId: "主会话", message: "m" } } as unknown as EventEnvelope),
-      );
-    });
-    act(() => {
-      expect(capturedOnFinalText?.("确认", { bargeInIntent: true })).toBe("consumed");
-    });
-    await waitFor(() => expect(sendStewardConfirm).toHaveBeenCalledWith("a1"));
-    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
-    expect(queueUtterance).not.toHaveBeenCalled();
-    expect(closeBargeInIntentWindow).not.toHaveBeenCalled(); // executeBargeInStop 内含收窗（非两段路径）
-  });
-
-  it("R4-C 窗内「全部取消」多卡 → 逐卡 cancel + 真停一次；聊天句仍排队（口令/非口令分野不变）", async () => {
+  it("R4-B 窗内「都不要了」多卡 → 同径丢弃零卡动作（多卡直达面随口令窗内退役）", async () => {
     renderLayer(gateReturning({ kind: "pass" }));
     act(() => {
       stewardListeners.forEach((fn) => {
@@ -288,17 +252,10 @@ describe("StewardVoiceLayer barge-in 意图判定分支（回归修复：停止�
     act(() => {
       expect(capturedOnFinalText?.("都不要了", { bargeInIntent: true })).toBe("consumed");
     });
-    await waitFor(() => {
-      expect(sendStewardCancel).toHaveBeenCalledWith("a1");
-      expect(sendStewardCancel).toHaveBeenCalledWith("a2");
-    });
-    await waitFor(() => expect(executeBargeInStop).toHaveBeenCalledTimes(1));
-    expect(queueUtterance).not.toHaveBeenCalled();
-    // 非口令句窗内行为不变：照排队
-    judgeStopIntent.mockResolvedValueOnce(false);
-    act(() => {
-      expect(capturedOnFinalText?.("参数改成五号", { bargeInIntent: true })).toBe("consumed");
-    });
-    await waitFor(() => expect(queueUtterance).toHaveBeenCalledWith("参数改成五号"));
+    await waitFor(() => expect(closeBargeInIntentWindow).toHaveBeenCalledTimes(1));
+    expect(sendStewardCancel).not.toHaveBeenCalled();
+    expect(sendStewardConfirm).not.toHaveBeenCalled();
+    expect(executeBargeInStop).not.toHaveBeenCalled();
+    expect(submitUtterance).not.toHaveBeenCalled();
   });
 });

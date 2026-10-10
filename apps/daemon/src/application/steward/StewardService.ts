@@ -73,6 +73,7 @@ import type {
   StewardProactivePayload,
   StewardAskSource,
 } from "@helix/protocol";
+import { matchStewardStopPhrase } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
@@ -260,16 +261,11 @@ export const STEWARD_CONFIRM_PHRASES: readonly string[] = [
 /** 取消类口令词表（命中绑定最近 pending 卡作废）。 */
 export const STEWARD_CANCEL_PHRASES: readonly string[] = ["取消", "不要了", "放弃"];
 
-/** 强制停止类口令词表（手动停止批）：在途 run 命中 → 全停（abort 当前 +
- *  清空排队，回执携丢弃条数）；无在途原样走 LLM（词表仅在场路由——TR-240
- *  同款纪律）。与确认口令词表互斥：「取消」是卡作废口令，「停」族是 run 全停
- *  口令，语义分层不互吞。 */
-export const STEWARD_STOP_PHRASES: readonly string[] = ["停", "停下", "停止", "别说了", "闭嘴", "住嘴", "stop"];
-
-/** 停止词判定（归一复用口令面 normalizePhrase；零 LLM 纯函数）。 */
-export function matchStewardStopPhrase(text: string): boolean {
-  return STEWARD_STOP_PHRASES.includes(normalizePhrase(text));
-}
+// 停止词表与判定已单源化至 @helix/protocol stewardPhrases（批 3b：双端词表
+// 漂移修复——daemon 7 词 vs shell 6 词历史分叉收口；14 词全停词表经用户裁决
+// 扩充）。在途 run 命中 → 全停（abort 当前 + 清空排队，回执携丢弃条数）；
+// 无在途原样走 LLM（词表仅在场路由——TR-240 同款纪律）；与确认口令词表
+// 互斥：「取消」是卡作废口令，「停」族是 run 全停口令，语义分层不互吞。
 
 /** 口令归一（trim + 尾部标点剥除——语音转写常带句读；中部不改）。 */ function normalizePhrase(text: string): string {
   return text.trim().replace(/[。．.!！?？?，,、；;～~\s]+$/u, "");
@@ -1366,6 +1362,17 @@ export class StewardService implements StewardComponent {
     this.run.noteAbort(); // 快进锚（手动停止批）
     this.engine.abort();
     return true;
+  }
+
+  /** 全停（批 3b 两轨裁决乙：语音停止词通道，steward.interrupt scope=all）
+   *  ——与 ask 漏斗停止词全停同径：abort 当前 + 清空 ask 队列。与轻停
+   *  （abortInFlight，队列照常）相对；幂等（无在途时清队列照常——队列在场
+   *  即有意义）。返回丢弃条数（日志用）。 */
+  interruptAll(reason: string): number {
+    const dropped = this.askQueue.clearAll();
+    this.abortInFlight(reason);
+    if (dropped > 0) this.logInfo(`管家手动停止（${reason}）：丢弃排队 ${dropped} 条`);
+    return dropped;
   }
 
   /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt

@@ -1138,9 +1138,9 @@ describe("useStewardVoice（B2 barge-in 打断面）", () => {
     humanVoice(8); // 持续超阈（duplex 开场 stopSpeaking 开 300ms 残响窗——前 3 帧窗内吞，其后 4 帧达标触发）
     // ①②③ 时序：停播 → steward.interrupt → stt.stream.start（调用序单计数器钉死）
     expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
-    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in");
+    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in", "all"); // 批 3b 裁决乙：语音停通道携 scope=all 全停
     expect(sendSttStreamStart).toHaveBeenCalledTimes(2); // duplex 开场 1 + 打断新流 1
-    const stopIdx = callOrder.indexOf("stopSpeaking");
+    const stopIdx = callOrder.indexOf("stopSpeaking"); // 打断序用例（批 3b：工具面重写标记）
     const interruptIdx = callOrder.indexOf("interrupt");
     const startIdx = callOrder.lastIndexOf("streamStart"); // 开场流在前——打断新流取末次
     expect(stopIdx).toBeGreaterThanOrEqual(0);
@@ -1307,8 +1307,8 @@ describe("useStewardVoice（B3 回声防线）", () => {
     // 改偏好（灵敏度 100）后继续喂帧：下一轮门判定即用新阈值 → 触发
     localStorage.setItem(VOICE_VAD_SENSITIVITY_PREF_KEY, "100");
     frames(8, 0.05, 0.08);
-    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1);
-    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in");
+    expect(sendStewardInterrupt).toHaveBeenCalledTimes(1); // 灵敏度用例（批 3b：工具面重写标记）
+    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in", "all"); // 批 3b 裁决乙：语音停通道携 scope=all 全停
   });
 
   it("双参判定偏好注入：容忍带外高 ZCR 零触发，调宽容忍带强度后触发", async () => {

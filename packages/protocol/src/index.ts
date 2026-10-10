@@ -24,5 +24,7 @@ export * from "./types/kg";
 export * from "./types/workspace";
 export * from "./types/task";
 export * from "./types/diff";
+// 管家停止词表单源（批 3b：跨端词表单源化——daemon 路由 + shell barge-in 双端同源，TR-157 先例）
+export * from "./stewardPhrases";
 // 投影三域纯函数（T3.1 / CL-4：类型+行为契约）
 export * from "./projection/index";

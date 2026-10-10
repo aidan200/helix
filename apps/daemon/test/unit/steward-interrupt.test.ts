@@ -21,15 +21,21 @@ function ctxOf(payload: Record<string, unknown>, abortReturn = true): {
   frames: EventEnvelope[];
   errors: string[];
   aborts: string[];
+  interruptAlls: string[];
 } {
   const frames: EventEnvelope[] = [];
   const errors: string[] = [];
   const aborts: string[] = [];
+  const interruptAlls: string[] = [];
   const sender = { id: "conn-1" };
   const service = {
     abortInFlight: (reason: string): boolean => {
       aborts.push(reason);
       return abortReturn;
+    },
+    interruptAll: (reason: string): number => {
+      interruptAlls.push(reason);
+      return 0;
     },
   } as unknown as StewardService;
   const ctx = {
@@ -48,7 +54,7 @@ function ctxOf(payload: Record<string, unknown>, abortReturn = true): {
       frames.push(frame);
     },
   } as unknown as StewardCommandContext;
-  return { ctx, frames, errors, aborts };
+  return { ctx, frames, errors, aborts, interruptAlls };
 }
 
 describe("handleStewardInterrupt（ws handler 转发面）", () => {
@@ -81,5 +87,37 @@ describe("handleStewardInterrupt（ws handler 转发面）", () => {
     expect(aborts).toEqual(["barge-in", "barge-in"]);
     expect(frames).toHaveLength(0);
     expect(errors).toHaveLength(0);
+  });
+
+  // ── 批 3b 两轨裁决乙：scope 分野（语音停止词 = all 全停；面板钮缺省 = current 轻停）──
+
+  test("scope=all → interruptAll（abort 当前 + 清空队列）零 abortInFlight 轻停通道", () => {
+    const { ctx, aborts, interruptAlls, errors } = ctxOf({ scope: "all" });
+    handleStewardInterrupt(ctx);
+    expect(interruptAlls).toEqual(["语音停止词全停"]);
+    expect(aborts).toHaveLength(0); // 轻停通道不走（interruptAll 内部自调 service 实现，不回环 handler）
+    expect(errors).toHaveLength(0);
+  });
+
+  test("scope=all + reason 原样透传", () => {
+    const { ctx, interruptAlls } = ctxOf({ scope: "all", reason: "barge-in" });
+    handleStewardInterrupt(ctx);
+    expect(interruptAlls).toEqual(["barge-in"]);
+  });
+
+  test("scope=current 显式 → 轻停（与缺省同径——面板停止钮向后兼容）", () => {
+    const { ctx, aborts, interruptAlls } = ctxOf({ scope: "current" });
+    handleStewardInterrupt(ctx);
+    expect(aborts).toEqual(["barge-in"]);
+    expect(interruptAlls).toHaveLength(0);
+  });
+
+  test("scope 非法值 → command.invalid_payload，零 abort 零 interruptAll", () => {
+    const { ctx, errors, aborts, interruptAlls } = ctxOf({ scope: "everything" });
+    handleStewardInterrupt(ctx);
+    expect(aborts).toHaveLength(0);
+    expect(interruptAlls).toHaveLength(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("payload.scope");
   });
 });

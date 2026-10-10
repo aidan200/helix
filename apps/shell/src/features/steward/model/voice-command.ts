@@ -15,6 +15,8 @@
  * 回读文案归消费端（i18n），本面只返回结构化结果。
  */
 
+import { matchStewardStopPhrase } from "@helix/protocol";
+
 /** 卡栈快照（useStewardActions StewardActionCard 的裁决投影）。 */
 export interface VoiceCardSnapshot {
   readonly actionId: string;
@@ -131,17 +133,16 @@ function project(card: VoiceCardSnapshot): VoiceCardTarget {
   return { actionId: card.actionId, agentId: card.agentId, seq: card.seq };
 }
 
-// ── 意图门控打断：停止意图快通道词表（barge-in 意图窗批）──────────────────
+// ── 意图门控打断：停止意图快通道（批 3b 起单源 @helix/protocol stewardPhrases）──
 // 需求：打断从「有人声就打断」收紧为「识别出停止意图才打断」——快通道是
-// 机械零成本层：强停止词全等命中即真停。与卡栈口令族（parseVoiceCommand）
+// 机械零成本层：停止词全等命中即真停。与卡栈口令族（parseVoiceCommand）
 // 正交：这里只判「这句话是不是让管家闭嘴」，不产生卡栈动作。
+// 词表已与 daemon 路由面单源化（批 3b 前双端 7/6 词分叉）；14 词全停词表
+// 经用户裁决扩充。变体（先停一下/停下来/暂停）仍不收录——宁缺勿滥，误停
+// 代价（打断播报但用户非停止意图）高于漏停（播完短内容）。
 
-/** 强停止词（单源常量——测试直引防漂移）。收录标准：独立成句、语义无歧义、
- *  ASR 稳定（两字以上或高频单字）。变体（先停一下/停下来/暂停）不进快通道
- *  ——宁缺勿滥，误停代价（打断播报但用户非停止意图）高于漏停（播完短内容）。 */
-export const STOP_INTENT_PHRASES: readonly string[] = ["停", "停止", "停下", "别说了", "不用说了", "闭嘴"];
-
-/** 停止意图快通道判定（全等 + 尾句读容忍——parseVoiceCommand 同构主闸）：
- *  interim（流式部分文本）与 final 两级共用；夹带句（「先停一下」）不命中。 */export function isStopIntentPhrase(rawText: string): boolean {
-  return STOP_INTENT_PHRASES.includes(stripTailPunct(rawText.trim()));
+/** 停止意图快通道判定（全等 + 尾句读容忍）：interim（流式部分文本）与
+ *  final 两级共用；夹带句（「先停一下」）不命中。 */
+export function isStopIntentPhrase(rawText: string): boolean {
+  return matchStewardStopPhrase(rawText);
 }

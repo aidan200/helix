@@ -520,12 +520,22 @@ export function handleStewardMemoryRestore(ctx: StewardCommandContext): void {
 /** steward.interrupt（全局命令；B2 barge-in 批）：在途轮打断 →
  *  StewardService.abortInFlight(reason ?? "barge-in")（现成方法，幂等 +
  *  drain 序 + settleAbortedTurn 截断记账——E-198 语义零改动）。
+ *  批 3b 两轨裁决乙：scope="all"（语音停止词）→ interruptAll 全停通道
+ *  （abort 当前 + 清空 ask 队列）；scope 缺省/"current" = 面板轻停。
  *  回执帧省（设计 §3.2：loop.run.interrupted + ask 终态事件面已够）；
  *  无在途时 abortInFlight 返回 false 照常静默（重复触发幂等）。 */
 export function handleStewardInterrupt(ctx: StewardCommandContext): void {
   const reason = ctx.payload.reason;
   if (reason !== undefined && typeof reason !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.reason 应为 string");
+  }
+  const scope = ctx.payload.scope;
+  if (scope !== undefined && scope !== "current" && scope !== "all") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.scope 应为 current|all");
+  }
+  if (scope === "all") {
+    ctx.steward.service.interruptAll(reason ?? "语音停止词全停");
+    return;
   }
   ctx.steward.service.abortInFlight(reason ?? "barge-in");
 }
