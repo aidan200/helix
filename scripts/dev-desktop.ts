@@ -47,8 +47,8 @@
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。
  * 用法：bun run dev:desktop [--workspace-root=<dir>] [--vite-port=<port>]
  */
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { PROTOCOL_VERSION } from "@helix/protocol";
@@ -641,7 +641,11 @@ async function main(): Promise<number> {
 
   const root = join(import.meta.dir, "..");
   const shellDir = join(root, "apps/shell");
-  const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
+  // 落点规范批（2026-10-10）：dev wrapper 暂存迁 workspace/仓内 .helix/tmp
+  //（预绑定 root 优先——「当前目录」语义；.gitignore 已忽略 .helix/）
+  const devStaging = join(workspaceRoot ?? root, ".helix", "tmp");
+  mkdirSync(devStaging, { recursive: true });
+  const workDir = mkdtempSync(join(devStaging, "helix-dev-desktop-"));
   let children: Array<{ name: string; proc: Bun.Subprocess }> = [];
   try {
     // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），

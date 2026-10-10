@@ -81,7 +81,7 @@ const browserParameters = {
       enum: ["down", "up", "top", "bottom"],
       description: "滚动方向（scroll 可选，缺省 down；top/bottom 直达两端）",
     },
-    file: { type: "string", description: "截图落盘路径（screenshot 必填）" },
+    file: { type: "string", description: "截图落盘路径（screenshot 必填；缺省建议 <workspace>/.helix/tmp/ 下命名文件，不落 /tmp 或用户目录）" },
   },
   required: ["action"],
   additionalProperties: false,

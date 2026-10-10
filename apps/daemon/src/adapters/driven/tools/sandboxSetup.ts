@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { parseSandboxConfig } from "../../../domain/sandbox/SandboxPolicy";
 import { buildSeatbeltProfile } from "../../../domain/sandbox/seatbeltProfile";
 import { resolveEnforcer } from "../../../domain/sandbox/ruleFallback";
+import { toolCacheEnvFor } from "../../../infrastructure/workspacePaths";
 import type { SandboxRuntime } from "./SandboxEnvWrap";
 
 /** 自检结果缓存（roots 指纹 → 可用性）。 */
@@ -141,24 +142,12 @@ export function readSandboxRuntime(
     policy,
     profileDir,
     enforcer,
-    cacheEnv: toolCacheEnv(helixHome),
+    // 落点规范批：缓存根随 workspaceRoot（非 helixHome）——沙箱开时与
+    // shellEnv 全时注入（workspaceChildEnv）同值，双覆盖一致。
+    cacheEnv: toolCacheEnvFor(workspaceRoot),
     ...(helperPath !== undefined ? { helperPath } : {}),
   };
 }
 
-/** 工具链缓存重定向清单（A 方案）：env 键 → tool-cache 子目录名。只收「纯缓存」
- * 类（重定向不破坏已有安装面）——CARGO_HOME/GOPATH 类混放 bin/安装物的键不收。 */
-const TOOL_CACHE_DIRS: Record<string, string> = {
-  UV_CACHE_DIR: "uv",
-  npm_config_cache: "npm",
-  PIP_CACHE_DIR: "pip",
-  BUN_INSTALL_CACHE_DIR: "bun",
-};
-
-/** 工具链用户级缓存 env 重定向到 <helixHome>/tool-cache/*（可写根内）——
- * 包管理器项目内 install 的缓存写不再被沙箱误伤；不动 seatbelt profile 一行。 */
-export function toolCacheEnv(helixHome: string): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(TOOL_CACHE_DIRS).map(([key, dir]) => [key, path.join(helixHome, "tool-cache", dir)]),
-  );
-}
+/** 工具链缓存重定向清单已迁 infrastructure/workspacePaths 单点（落点规范批
+ *  2026-10-10：helix 拉起的子进程缓存统一归 <workspace>/.helix/tool-cache）。 */

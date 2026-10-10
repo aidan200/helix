@@ -17,6 +17,14 @@
  *
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。
  */
+
+/** 下载/解压暂存根（落点规范批，2026-10-10）：仓内 `.helix/tmp`——fetch
+ * 暂存不再落系统 /tmp（回收面收窄到仓内可枚举根；.gitignore 已忽略 .helix/）。 */
+function stagingRoot(): string {
+  const dir = join(import.meta.dir, "..", ".helix", "tmp");
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
 import {
   chmodSync,
   copyFileSync,
@@ -29,7 +37,6 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { resolvePlatformArg, type DesktopPlatform } from "./desktop-platform";
@@ -292,7 +299,7 @@ export function makeInstallers(spec: InstallSkeletonSpec): InstallerSet {
         `sha256 校验失败：期望 ${asset.sha256}，实际 ${actual}（${archive} 归调用方处置）`,
       );
     }
-    const extractDir = mkdtempSync(join(tmpdir(), `${spec.tmpPrefix}extract-`));
+    const extractDir = mkdtempSync(join(stagingRoot(), `${spec.tmpPrefix}extract-`));
     try {
       await extractArchive(archive, extractDir);
       const extracted = spec.locateInArchive(extractDir, platform);
@@ -311,7 +318,7 @@ export function makeInstallers(spec: InstallSkeletonSpec): InstallerSet {
       return { skipped: true, path: dest };
     }
     const asset = spec.assetFor(platform);
-    const archive = join(mkdtempSync(join(tmpdir(), `${spec.tmpPrefix}dl-`)), asset.name);
+    const archive = join(mkdtempSync(join(stagingRoot(), `${spec.tmpPrefix}dl-`)), asset.name);
     try {
       await downloadToFile(asset.url, archive, { label: spec.label });
       return await installFromArchive(archive, dest, platform);

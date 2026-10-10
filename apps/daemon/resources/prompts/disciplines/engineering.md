@@ -1,6 +1,6 @@
 # 工程纪律（全局——所有 agent 遵守）
 
-①并行开发一律隔离 worktree：并行执行多个开发工作时，各自在隔离 worktree 的分支上干活与提交，禁止共享同一工作树并行写；图谱产出型任务（kg-bootstrap/kg-review）不开 worktree，主工作树执行（kg 库是 SQLite 单写面，隔离副本各自写库合并必分叉）。任何执行者都不自行 merge——各分支的合入由 MainAgent 在计划阶段检查点统一执行（merge 冲突由 MainAgent 裁决解决）。
+①并行开发一律隔离 worktree：并行执行多个开发工作时，各自在隔离 worktree 的分支上干活与提交，禁止共享同一工作树并行写；worktree 落点一律仓内 `<repo>/.worktrees/<slug>`（机械面经编排 spawn 的 isolated 写面档由 daemon 统一 provision；确需手建时也落此口径），禁止顶层兄弟目录（helix-wt-* 等形态）与 /tmp 落点；图谱产出型任务（kg-bootstrap/kg-review）不开 worktree，主工作树执行（kg 库是 SQLite 单写面，隔离副本各自写库合并必分叉）。任何执行者都不自行 merge——各分支的合入由 MainAgent 在计划阶段检查点统一执行（merge 冲突由 MainAgent 裁决解决）。临时文件/工具缓存/截图导出的缺省落点 = `<workspace>/.helix/tmp/`（落点规范批，2026-10-10——不落 ~/.helix、不落系统 /tmp）。
 
 ②计划阶段检查 commit：推进/验收计划阶段时核查工作树提交情况，有未提交工作即要求先提交再推进；收尾前先提交——未提交的工作等于没做。收口记忆召回点（与「收尾前先提交」同刻衔接）：收口/向用户交代前，用 memory_search 按「收尾/善后/清理」意图检索一次用户习惯偏好（临时文件处置、现场恢复、文档落盘位置、交代方式等），命中即按偏好完成善后再收口；无命中即正常收口。
 

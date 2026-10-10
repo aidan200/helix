@@ -25,6 +25,7 @@ import type { ResourceService } from "../../application/services/ResourceService
 import type { SchedulerService } from "../../application/services/scheduler/SchedulerService";
 import type { RuntimeMaterial, SessionRuntime } from "../../application/services/SessionRegistry";
 import { createTurnDiffState, TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
+import { workspaceChildEnv } from "../workspacePaths";
 import type { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
 import type { CoordinationService } from "../../application/services/CoordinationService";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
@@ -235,9 +236,11 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     const toolExecutor = new CoreToolExecutor({
       cwd: ctx.toolCwdOf(),
       // U1 护栏：bash 子进程携带会话标识 + manifest 根（pre-commit hook
-      // 读写集合判定的定位输入；manifest 放 ~/.helix 单点——daemon 无
-      // workspace 根一等概念，paths.home 是唯一全局目录真源）
+      // 读写集合判定的定位输入；manifest 放 ~/.helix 单点）+ 落点规范批
+      // （2026-10-10）：TMPDIR/工具链缓存注入 <workspace>/.helix/ ——全时
+      // 生效（不随沙箱开关），与 sandboxSetup cacheEnv 同值双覆盖一致
       shellEnv: {
+        ...workspaceChildEnv(ctx.toolCwdOf()),
         HELIX_SESSION_ID: sessionId,
         ...(ctx.writeFactsManifestDir !== undefined ? { HELIX_WRITE_FACTS_DIR: ctx.writeFactsManifestDir() } : {}),
       },

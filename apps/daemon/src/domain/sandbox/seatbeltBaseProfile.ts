@@ -9,7 +9,9 @@
  * - PLATFORM：系统库/框架/特殊文件的读放行（原样搬运——deny default 连
  *   读都禁，缺段即崩）；
  * - SCRATCH：/tmp 系 scratch 目录读写（codex Process 档默认段搬运；
- *   helix 第一版不做 TMPDIR 重定向，系统 tmp 放行）；
+ *   允许面语义——helix 管理的子进程自落点规范批（2026-10-10）起经
+ *   TMPDIR 注入归 <workspace>/.helix/tmp，但沙箱内系统工具硬编码 /tmp
+ *   的兼容性放行保留）；
  * - NETWORK：网络 allow-all（helix 裁决：网络轴全放行——bun install /
  *   git fetch 是高频合法工作流；DNS/TLS 系统服务的 mach-lookup 照 codex
  *   network policy 搬运，否则解析/证书链断）。

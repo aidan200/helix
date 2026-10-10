@@ -22,6 +22,7 @@ import type { ChildOutboundLine, ToolResponseLine, BashFactLineItem } from "./tr
 import { scopedBrowserCall } from "./ScopedBrowserProxy";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import { sanitizeDeprecatedToolNames } from "../tools/deprecated-tool-names";
+import { workspaceChildEnv } from "../../../infrastructure/workspacePaths";
 
 /** T2 turn diff：子进程 file-write 行的父侧回调载荷（→ TurnDiffService.recordExternal）。 */
 export interface SubagentFileWriteMeta {
@@ -422,6 +423,11 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_THINKING_LEVEL: thinkingLevel, // thinking 定格值（字符串透传，无 registry 防重建红线）
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: toolCwd,
+        // 落点规范批（2026-10-10）：子进程 TMPDIR/工具链缓存归位物料根
+        // <toolCwd>/.helix/（isolated 实例 = worktree 内，随 worktree 清理）。
+        // 非 HELIX_* 键（系统标准键重定向，非 env IPC 面新增）；子进程
+        // shellEnv 同值双覆盖一致
+        ...workspaceChildEnv(toolCwd),
         ...(reportDir !== undefined ? { HELIX_REPORT_PATH: join(reportDir, `${id}.md`) } : {}),
         // findings 旁路文件（task-778eb18a 截断兜底）：实例在收口前工具轮预写，
         // 闭包被截断/损坏时 ClosureRecorder 机械读它落账（与报告同目录同 id）

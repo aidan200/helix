@@ -29,6 +29,7 @@ import { parseCustomProviders } from "../../../../application/services/CustomPro
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
 import { readSandboxRuntime } from "../../tools/sandboxSetup";
+import { workspaceChildEnv } from "../../../../infrastructure/workspacePaths";
 import { McpRegistry } from "../../mcp/McpRegistry";
 import { createMcpDiscoverTools, createMcpTools } from "../../mcp/mcp-tool";
 import { McpDeferredHooks } from "../../pi-engine/runtime/hooks/McpDeferredHooks";
@@ -781,8 +782,11 @@ async function main(): Promise<void> {
     process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
       ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd, childSandboxExtraRoots)
       : undefined;
-  // U1 护栏 shellEnv（executor 与提权裸执行面同参双消费——提成常量）
+  // U1 护栏 shellEnv（executor 与提权裸执行面同参双消费——提成常量）+
+  // 落点规范批（2026-10-10）：TMPDIR/工具链缓存注入 <toolCwd>/.helix/（isolated
+  // 实例 = worktree 内物料根，随 worktree 清理；与父进程 spawn env 同值一致）
   const childShellEnv = {
+    ...workspaceChildEnv(toolCwd),
     HELIX_SESSION_ID: process.env.HELIX_SESSION_ID ?? instanceId,
     ...(process.env.HELIX_WRITE_FACTS_DIR !== undefined
       ? { HELIX_WRITE_FACTS_DIR: process.env.HELIX_WRITE_FACTS_DIR }

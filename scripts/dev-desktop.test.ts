@@ -17,7 +17,7 @@
  * 会真实编译并开窗，属预期——窗口/HMR 体感为人工确认项）。
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, createServer } from "node:net";
@@ -740,9 +740,16 @@ test(
         // 三件套②：端口释放
         await waitFor(async () => !(await tcpOpen(daemonPort)), 15_000, `第 ${round} 轮 daemon 端口释放`);
         await waitFor(async () => !(await tcpOpen(vitePort)), 15_000, `第 ${round} 轮 vite 端口释放`);
-        // 三件套③：编排 tmp（wrapper 目录）清理
+        // 三件套③：编排 tmp（wrapper 目录）清理——落点规范批（2026-10-10）
+        // 后 workDir 在 <workspace>/.helix/tmp（预绑定 root 优先）；两处都
+        // 验零残留（sandbox=TMPDIR 旧位置应本就空，workspace 新位置验真清理）
         const leftovers = readdirSync(sandbox).filter((n) => n.startsWith("helix-dev-desktop-"));
         expect(leftovers).toEqual([]);
+        const stagingDir = join(workspace, ".helix", "tmp");
+        const wsLeftovers = existsSync(stagingDir)
+          ? readdirSync(stagingDir).filter((n) => n.startsWith("helix-dev-desktop-"))
+          : [];
+        expect(wsLeftovers).toEqual([]);
       } finally {
         // 失败兜底：整树 SIGKILL，不污染后续轮次/本机
         if (proc !== undefined && alive(proc.pid)) {

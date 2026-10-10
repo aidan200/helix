@@ -5,6 +5,7 @@ import {
   type Tool,
 } from "@earendil-works/pi-mcp";
 import type { McpCallResult, McpServerConfig, McpToolDefinition } from "./types";
+import { workspaceChildEnv } from "../../../infrastructure/workspacePaths";
 
 /**
  * McpClient —— stdio JSON-RPC 常驻客户端薄壳（pi-mcp 驱动层替换批）。
@@ -134,13 +135,25 @@ export class McpClient {
   private async doConnect(): Promise<void> {
     if (this.piClient) return;
     const config = this.config;
+    // 落点规范批（2026-10-10）：uvx/npx 类 server 的用户级缓存散落
+    // （~/.cache/uv、~/.npm）重定向到 <cwd>/.helix/tool-cache；cwd 基准 =
+    // config.cwd 显式值 > daemon 进程 cwd（未绑定 daemon 在不可写 cwd 时
+    // mkdir 失败 → 空注入回落继承，不阻断连接）
+    const injectedEnv = (() => {
+      try {
+        return workspaceChildEnv(config.cwd ?? process.cwd());
+      } catch {
+        return {};
+      }
+    })();
     const transport = new StdioTransport({
       command: config.command,
       args: config.args ?? [],
       cwd: config.cwd ?? process.cwd(),
       // inheritEnv 缺省 true = process.env 合入 config.env（子进程环境继承
-      // 语义，与旧实现 {...process.env, ...config.env} 等价）。
-      env: config.env ?? {},
+      // 语义，与旧实现 {...process.env, ...config.env} 等价）；注入键在
+      // config.env 之下（用户显式配置优先）。
+      env: { ...injectedEnv, ...(config.env ?? {}) },
       onStderr: (chunk) => {
         const text = chunk.trimEnd();
         if (text) this.logger.info(`mcp[${this.name}] stderr: ${text}`);

@@ -37,15 +37,15 @@ describe("readSandboxRuntime（执行器装配）", () => {
     expect(rt?.policy.writableRoots).toContain("/definitely/not/exist-helix-test");
   });
 
-  test("cacheEnv 四键指向 <helixHome>/tool-cache/*（纯缓存类）", () => {
+  test("cacheEnv 四键指向 <workspaceRoot>/.helix/tool-cache/*（纯缓存类；落点规范批迁 workspace）", () => {
     const rt = readSandboxRuntime(true, "/tmp/h", "/tmp/w");
     expect(rt?.cacheEnv).toEqual({
-      UV_CACHE_DIR: path.join("/tmp/h", "tool-cache", "uv"),
-      npm_config_cache: path.join("/tmp/h", "tool-cache", "npm"),
-      PIP_CACHE_DIR: path.join("/tmp/h", "tool-cache", "pip"),
-      BUN_INSTALL_CACHE_DIR: path.join("/tmp/h", "tool-cache", "bun"),
+      UV_CACHE_DIR: path.join("/tmp/w", ".helix", "tool-cache", "uv"),
+      npm_config_cache: path.join("/tmp/w", ".helix", "tool-cache", "npm"),
+      PIP_CACHE_DIR: path.join("/tmp/w", ".helix", "tool-cache", "pip"),
+      BUN_INSTALL_CACHE_DIR: path.join("/tmp/w", ".helix", "tool-cache", "bun"),
     });
-    // off 态无 runtime 即无注入（零侵入）
+    // off 态无 runtime 即无注入（零侵入；全时注入面在 shellEnv workspaceChildEnv）
     expect(readSandboxRuntime(false, "/tmp/h", "/tmp/w")).toBeUndefined();
   });
 });

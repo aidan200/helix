@@ -14,5 +14,9 @@ helix.db
 evidence/
 .worktrees/
 
+# workspace 运行物料根（落点规范批 2026-10-10：<root>/.helix/{tmp,tool-cache}——
+# 暂存/工具链缓存可再生可回收，单项目形态下仓内同构）
+.helix/
+
 # 过程性临时文档（任务 brief / evidence / 设计候选 / 验证记录，仅落 workspace docs/temp，不入库）
 docs/temp/
