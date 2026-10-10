@@ -89,6 +89,11 @@ export const NOTIFY_PRESENT_MAX_CHARS = 60;
  *  detail 缺席回退 present 单轨）。 */
 export const NOTIFY_BODY_MAX_CHARS = 600;
 
+/** 语音详报轨字数上限（语音/视觉分轨：600 是 notify 视觉预算，听 600 字
+ *  只要两分钟——长报告被视觉预算误伤「播到一半戛然而止」；语音轨独立
+ *  放宽到 2000（约 6 分钟白话，超长兑底防御保留）。 */
+export const VOICE_DETAIL_MAX_CHARS = 2000;
+
 /** 投递关注持久化单键（runtime_config kv——无枚举面，单键整图快照形态；
  *  空 Map 写 "{}"，无 delete 面不生残留）。 */
 export const STEWARD_WATCH_KV_KEY = "steward_watch_reply";
@@ -573,6 +578,7 @@ export class StewardPerceptionService {
       const { result, verbose } = await this.diagnoseOrJudge(port, input, userPrompt);
       const present = this.clampPresent(result.present);
       const detail = result.detail !== undefined ? this.clampBody(result.detail) : undefined;
+      const voiceDetail = result.detail !== undefined ? this.clampVoiceDetail(result.detail) : undefined; // 语音轨独立预算（600 视觉预算不误伤长报告）
       if (result.ingest.trim() !== "") {
         this.pushRing({
           at: this.now(),
@@ -582,8 +588,8 @@ export class StewardPerceptionService {
           ingest: result.ingest,
         });
       }
-      // 语音详略轨（白话硬约束——详文归宿是管家语音）
-      let voiceText = verbose && detail !== undefined && detail !== "" ? detail : present;
+      // 语音详略轨（白话硬约束——详文归宿是管家语音；详报用语音轨预算）
+      let voiceText = verbose && voiceDetail !== undefined && voiceDetail !== "" ? voiceDetail : present;
       let notifyBody = input.notifyBody ?? input.fallbackText ?? "那个对话回你了";
       if (voiceText === "") {
         // 空文本兑底：保底白话句（事件不静默——notify 机械短讯照发）
@@ -724,5 +730,14 @@ export class StewardPerceptionService {
     const chars = [...trimmed];
     if (chars.length <= NOTIFY_BODY_MAX_CHARS) return trimmed;
     return `${chars.slice(0, NOTIFY_BODY_MAX_CHARS).join("")}…`;
+  }
+
+  /** 语音详报轨防御截断（≤2000 字 + 省略号——语音/视觉分轨：听 600 字只要
+   *  两分钟，视觉预算不该误伤长报告语音）。 */
+  private clampVoiceDetail(detail: string): string {
+    const trimmed = detail.trim();
+    const chars = [...trimmed];
+    if (chars.length <= VOICE_DETAIL_MAX_CHARS) return trimmed;
+    return `${chars.slice(0, VOICE_DETAIL_MAX_CHARS).join("")}…`;
   }
 }

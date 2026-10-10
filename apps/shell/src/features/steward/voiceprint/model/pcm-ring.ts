@@ -98,28 +98,73 @@ export function selectUtterancePcm(frames: readonly PcmRingFrame[]): Float32Arra
 export interface PcmRing {
   /** 帧入环（pcm-pump ArrayBuffer 形态，1600 Int16）。 */
   push(frame: ArrayBuffer): void;
-  /** 取尾部语音段（null = 无语音/环空；不消费）。 */
-  takeUtterance(): Float32Array | null;
-  /** 清空（duplex 收口——跨会话旧音频不得泄入新会话）。 */
+  /** 取尾部语音段（null = 无语音/环空；不消费）。fromMark = 从最近
+   *  mark 帧位起选（barge-in 声纹防自声污染——duck 期管家自声持续过门限，
+   *  静音边界回溯会扩到窗前独白；开窗点即用户插话起点，锚定后选段不含
+   *  窗前管家声音）。无标记回退常规选取。 */
+  takeUtterance(opts?: { fromMark?: boolean }): Float32Array | null;
+  /** 打标记（当前帧位——barge-in 意图窗开启时；声学触发点 ≈ 插话起点）。 */
+  mark(): void;
+  /** 清空（duplex 收口——跨会话旧音频不得泄入新会话）；标记同步失效。 */
   clear(): void;
+}
+
+/** 标记帧位取样（fromMark 模式）：标记帧（前让 LEAD_PAD 边距）到尾部，
+ *  只跳尾静音、不做静音边界回溯（窗内自声持续无边界可找）；段长上限
+ *  照旧。标记被 FIFO 淘汰/环清空 → null。 */
+function selectMarkedPcm(frames: readonly PcmRingFrame[], markIndex: number): Float32Array | null {
+  if (markIndex < 0 || markIndex >= frames.length) return null;
+  // 尾静音跳过（与常规同则：找最后一个有声帧）
+  let lastLoud = -1;
+  for (let i = frames.length - 1; i >= markIndex; i--) {
+    if (frames[i]!.rms >= PCM_RMS_GATE) {
+      lastLoud = i;
+      break;
+    }
+  }
+  if (lastLoud === -1) return null; // 窗后全静音（噪音过门后没说话）
+  const start = Math.max(markIndex - LEAD_PAD_FRAMES, 0); // 声学触发前的起音边距
+  const maxFrames = UTTERANCE_MAX_SECONDS * FRAMES_PER_SECOND;
+  const end = lastLoud + 1;
+  const clippedStart = end - start > maxFrames ? end - maxFrames : start;
+  const from = frames[clippedStart]!;
+  const total = (end - clippedStart) * from.samples.length;
+  const out = new Float32Array(total);
+  let at = 0;
+  for (let i = clippedStart; i < end; i++) {
+    const s = frames[i]!.samples;
+    for (let k = 0; k < s.length; k++) out[at++] = s[k]!;
+  }
+  return out;
 }
 
 /** 建环（容量 PCM_RING_SECONDS 秒，FIFO 淘汰最旧）。 */
 export function createPcmRing(capacitySeconds: number = PCM_RING_SECONDS): PcmRing {
   const capacity = Math.round(capacitySeconds * FRAMES_PER_SECOND);
   const frames: PcmRingFrame[] = [];
+  let markAt: number | null = null; // 标记时的绝对帧序（FIFO 淘汰位移不变量）
+  let pushed = 0; // 绝对帧计数（mark 换算用）
   return {
     push(frame: ArrayBuffer) {
       if (frame.byteLength < 2 || frame.byteLength % 2 !== 0) return; // 病态帧防御（测试 fake/异构泵）
       const samples = new Int16Array(frame);
       frames.push({ samples, rms: frameRms(samples) });
+      pushed += 1;
       while (frames.length > capacity) frames.shift();
     },
-    takeUtterance() {
+    takeUtterance(opts?: { fromMark?: boolean }) {
+      if (opts?.fromMark === true && markAt !== null) {
+        const markIndex = markAt - (pushed - frames.length); // 绝对序 → 环内位
+        return selectMarkedPcm(frames, markIndex);
+      }
       return selectUtterancePcm(frames);
+    },
+    mark() {
+      markAt = pushed; // 当前帧位（下一帧起算）
     },
     clear() {
       frames.length = 0;
+      markAt = null;
     },
   };
 }

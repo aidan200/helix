@@ -733,12 +733,12 @@ describe("分诊降级保底：LLM/解析失败 → 机械通知（事件不静�
   });
 });
 
-describe("语音详文轨预算：detail（语音可到 600，白话逐项）防御截断", () => {
+describe("语音详文轨预算：detail 语音轨独立预算（2000，长报告不截断）+ notify 视觉面保 600", () => {
   function turnEvent(sessionId: string): DomainEvent {
     return agentEvent("turn.completed", { reason: "done", replyEntryId: "entry-1" }, sessionId);
   }
 
-  test("detail 超长防御：语音轨 >600 字截断加省略号（prompt 约束外兑底）", async () => {
+  test("语音轨 650 字不截断（600 是 notify 视觉预算，不再误伤语音）", async () => {
     const long = "长".repeat(650);
     const { perception, frames } = makeStack({
       stewardSubscribed: true,
@@ -748,7 +748,20 @@ describe("语音详文轨预算：detail（语音可到 600，白话逐项）防
     perception.noteDelivered("sess-target", "问题 A");
     perception.onDomainEvent(turnEvent("sess-target"));
     await broadcast_drain(perception);
-    expect([...frames[frames.length - 1]!.text].length).toBe(601); // 600 字 + 省略号（语音轨兑底）
+    expect([...frames[frames.length - 1]!.text].length).toBe(650); // 语音轨全文上嘴（无截断）
+  });
+
+  test("语音轨超长防御：>2000 字截断加省略号（prompt 约束外兑底）", async () => {
+    const long = "长".repeat(2100);
+    const { perception, frames } = makeStack({
+      stewardSubscribed: true,
+      recentAsk: true,
+      diagnose: fakeDiagnose({ result: { detail: long } }),
+    });
+    perception.noteDelivered("sess-target", "问题 A");
+    perception.onDomainEvent(turnEvent("sess-target"));
+    await broadcast_drain(perception);
+    expect([...frames[frames.length - 1]!.text].length).toBe(2001); // 2000 字 + 省略号（语音轨兑底）
   });
 
   test("白话硬约束：生成提示词明禁术语/英文/变量名/UUID（两段均白话）", async () => {

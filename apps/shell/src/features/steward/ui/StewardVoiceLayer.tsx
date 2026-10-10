@@ -133,9 +133,10 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     (text: string, ctx?: { bargeInIntent: boolean }): "consumed" | "pass" => {
       pushLine("user", text); // 用户行入字幕（final 实——口令句也是说出的话）
       // 声纹总闸（链路重排批：机械→声纹→Jev→LLM）：每轮必验，不区分口令/
-      // 聊天/有无卡；本句 PCM 同步取（final 定稿时点环尾部即本句）。reject
-      // 只上字幕不出声（用户裁决）+ 整轮终止；skip 照旧放行（授权链零劣化）。
-      const pcm = svLastUtterancePcmRef.current?.() ?? null;
+      // 聊天/有无卡；本句 PCM 同步取（final 定稿时点环尾部即本句）。barge-in
+      // 意图窗内 fromMark 取样（开窗锚——duck 期自声污染防御，选段只含插话）。
+      // reject 只上字幕不出声（用户裁决）+ 整轮终止；skip 照旧放行（授权链零劣化）。
+      const pcm = svLastUtterancePcmRef.current?.({ fromMark: ctx?.bargeInIntent === true }) ?? null;
       void (async () => {
         let decision;
         try {

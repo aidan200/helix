@@ -107,11 +107,17 @@ let svState: {
   items: [],
   askActivity: null,
 };
-/** 桩捕获的 options.onFinalText（口令拦截面驱动口）。 */
-let capturedOnFinalText: ((text: string) => "consumed" | "pass") | undefined;
+/** 桩捕获的 options.onFinalText（口令拦截面驱动口；ctx = barge-in 意图窗标记）。 */
+let capturedOnFinalText:
+  | ((text: string, ctx?: { bargeInIntent: boolean }) => "consumed" | "pass")
+  | undefined;
+/** 声纹取样调用记录（fromMark 传递断言用）。 */
+const lastPcmCalls: Array<{ fromMark?: boolean } | undefined> = [];
 
 vi.mock("../model/useStewardVoice", () => ({
-  useStewardVoice: (options?: { onFinalText?: (text: string) => "consumed" | "pass" }) => {
+  useStewardVoice: (options?: {
+    onFinalText?: (text: string, ctx?: { bargeInIntent: boolean }) => "consumed" | "pass";
+  }) => {
     capturedOnFinalText = options?.onFinalText;
     return {
       items: svState.items,
@@ -143,7 +149,10 @@ vi.mock("../model/useStewardVoice", () => ({
       toggleWake,
       say,
       submitUtterance,
-      lastUtterancePcm: () => null,
+      lastUtterancePcm: (opts?: { fromMark?: boolean }) => {
+        lastPcmCalls.push(opts);
+        return null;
+      },
     };
   },
 }));
@@ -179,6 +188,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     vi.clearAllMocks();
     stewardListeners.clear();
     fireWakeHotkey = null;
+    lastPcmCalls.length = 0;
     svState = {
       duplexActive: false,
       welcomeActive: false,
@@ -506,6 +516,23 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     });
     await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("帮我确认一下这件事"));
     expect(sendStewardConfirm).not.toHaveBeenCalled();
+  });
+
+  it("声纹取样锚：barge-in 意图窗 final 带 fromMark（防自声污染），常规 final 不带", async () => {
+    svState.duplexActive = true;
+    renderLayer();
+    // 常规双工句：fromMark 不携带（回退常规选取）
+    act(() => {
+      capturedOnFinalText?.("帮我看看天气");
+    });
+    await waitFor(() => expect(lastPcmCalls.length).toBe(1));
+    expect(lastPcmCalls[0]).toEqual({ fromMark: false }); // 常规句不锚（显式 false = 常规选取）
+    // barge-in 意图窗句：fromMark=true（开窗锚取样）
+    act(() => {
+      capturedOnFinalText?.("停", { bargeInIntent: true });
+    });
+    await waitFor(() => expect(lastPcmCalls.length).toBe(2));
+    expect(lastPcmCalls[1]).toEqual({ fromMark: true });
   });
 
   it("wakeSignal 接线（app 层 steward-open-signal）：递增 → toggleWake 唤起；已在会话幂等零重开", () => {

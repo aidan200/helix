@@ -23,6 +23,68 @@ function frame(loud: boolean, seed = 1): PcmRingFrame {
   return { samples, rms: frameRms(samples) };
 }
 
+describe("mark 取样锚（barge-in 声纹防自声污染）", () => {
+  /** 场景复现：管家 duck 自声持续过门限（无静音边界）+ 尾部用户插话。 */
+  function pushFrame(ring: ReturnType<typeof createPcmRing>, samples: Int16Array): void {
+    const copy = samples.slice().buffer;
+    ring.push(copy);
+  }
+  const loud = (): Int16Array => {
+    const s = new Int16Array(1600);
+    for (let i = 0; i < s.length; i++) s[i] = Math.round(3000 * Math.sin((2 * Math.PI * 440 * i) / 16000));
+    return s;
+  };
+  const quiet = (): Int16Array => new Int16Array(1600);
+
+  it("fromMark：标记前帧不入选（窗前管家独白被排除）", () => {
+    const ring = createPcmRing();
+    for (let i = 0; i < 30; i++) pushFrame(ring, loud()); // 3s 管家独白
+    ring.mark(); // 开窗点
+    for (let i = 0; i < 10; i++) pushFrame(ring, loud()); // 1s 用户插话（自声叠加模拟——同过门限）
+    const seg = ring.takeUtterance({ fromMark: true });
+    expect(seg).not.toBeNull();
+    // 只含标记后 10 帧（+头端边距 2 帧也标记后）→ 约 12 帧× 1600 样本内
+    expect(seg!.length).toBeLessThanOrEqual(12 * 1600);
+    expect(seg!.length).toBeGreaterThanOrEqual(10 * 1600);
+  });
+
+  it("fromMark 无标记：回退常规选取（防御——不炸）", () => {
+    const ring = createPcmRing();
+    for (let i = 0; i < 10; i++) pushFrame(ring, loud());
+    const seg = ring.takeUtterance({ fromMark: true });
+    expect(seg).not.toBeNull();
+  });
+
+  it("mark 后全静音（噪音过门后用户没说话）：null", () => {
+    const ring = createPcmRing();
+    for (let i = 0; i < 20; i++) pushFrame(ring, loud());
+    ring.mark();
+    for (let i = 0; i < 10; i++) pushFrame(ring, quiet());
+    expect(ring.takeUtterance({ fromMark: true })).toBeNull();
+  });
+
+  it("clear 后标记失效：回退常规选取", () => {
+    const ring = createPcmRing();
+    for (let i = 0; i < 10; i++) pushFrame(ring, loud());
+    ring.mark();
+    ring.clear();
+    for (let i = 0; i < 5; i++) pushFrame(ring, loud());
+    const seg = ring.takeUtterance({ fromMark: true });
+    expect(seg).not.toBeNull(); // 回退常规（含全 15 帧）
+    expect(seg!.length).toBeGreaterThanOrEqual(5 * 1600);
+  });
+
+  it("常规取样不受 mark 影响（无参 takeUtterance 行为不变）", () => {
+    const ring = createPcmRing();
+    for (let i = 0; i < 30; i++) pushFrame(ring, loud());
+    ring.mark();
+    for (let i = 0; i < 10; i++) pushFrame(ring, loud());
+    const seg = ring.takeUtterance();
+    // 常规路径：无静音边界 → 扩到 6s 上限（60 帧）
+    expect(seg!.length).toBeLessThanOrEqual(60 * 1600);
+  });
+});
+
 describe("frameRms", () => {
   it("静音=0；正弦定幅≈幅度/√2（Int16 域）", () => {
     expect(frameRms(new Int16Array(1600))).toBe(0);

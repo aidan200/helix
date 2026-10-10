@@ -267,8 +267,10 @@ export interface UseStewardVoice {
   /** B2 主动发言（欢迎语/口令回读同链；money 闸内判——偏好关零合成）。 */
   say(text: string): void;
   /** M3-c 声纹面：取本句音频（授权点专用——尾部语音段 Int16 域 PCM；
-   *  null = 无语音可用。duplex 收口清环，跨会话旧音频不泄入）。 */
-  lastUtterancePcm(): Float32Array | null;
+   *  null = 无语音可用。duplex 收口清环，跨会话旧音频不泄入）。
+   *  fromMark = 从 barge-in 开窗标记帧起选（声纹防自声污染——duck 期管家
+   *  自声持续过门限，常规回溯会扩到窗前独白导致恒 reject）。 */
+  lastUtterancePcm(opts?: { fromMark?: boolean }): Float32Array | null;
 }
 
 export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoice {
@@ -1058,6 +1060,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     if (bargeInIntentRef.current) return; // 窗已开幂等（fired 闩锁外再防线）
     bargeInIntentRef.current = true;
     setBargeInIntentActive(true);
+    pcmRingRef.current?.mark(); // 声纹取样锚（开窗点 ≈ 插话起点）：duck 期自声持续入环无静音边界，常规尾部回溯会扩到窗前独白——fromMark 选段只含插话（防自声污染恒 reject）
     duckVolume(BARGE_IN_INTENT_DUCK_SCALE);
     void beginListening(); // 开麦+开新转写流（收插话）——不 stopSpeaking 不 interrupt
     if (bargeInWindowTimerRef.current !== null) clearTimeout(bargeInWindowTimerRef.current);
@@ -1324,6 +1327,9 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     toggleWake: toggleWakeStable,
     say,
     submitUtterance,
-    lastUtterancePcm: useCallback(() => pcmRingRef.current?.takeUtterance() ?? null, []),
+    lastUtterancePcm: useCallback(
+      (opts?: { fromMark?: boolean }) => pcmRingRef.current?.takeUtterance(opts ?? {}) ?? null,
+      [],
+    ),
   };
 }
