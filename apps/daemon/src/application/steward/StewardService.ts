@@ -1313,21 +1313,28 @@ export class StewardService implements StewardComponent {
     // 抛错 → 回退词表后行为零劣化（judgePendingIntent 内降级链）。挂闸
     // 阻塞中泛化确认 = 面板点卡的等价入口（与口令路由同构）。
     if (phrase === undefined) {
-      // addressee 判定（声纹→Jev 链路批）：双工常开麦收音段的「对谁说」判定
-      // ——词表未命中才判（词表全等 = 机械权威零判定）；声纹闸在 shell 已拦
-      // 非用户，本层只判「用户本人是不是在叫管家」。旁人高置信 → dropped
-      // 静默丢弃；判官缺席/灰区/抛错 → 偏「当聊天」继续（宁多应答不漏）。
-      if (source === "voice-duplex" && (await this.judgeAddressee(text))) {
-        return { status: "dropped", reason: "ambient" };
-      }
+      // 判官泛化层先判（层序修复批：卡在场是最强的「对谁说」证据）——
+      // 原序 addressee 先判，其问句不带卡上下文，确认卡在场期间主人的自然
+      // 回应（「就这么办」「对对对赶紧弄」——词表未命中短句，无称呼无指令
+      // 特征）恒判环境音 dropped，永远轮不到带卡全文的泛化判定（用户实锤）。
+      // 声纹总闸已在 shell 层拦旁人（reject 整轮终止）——本层只防「主人对
+      // 房间里其他人说话」，卡在场时让位：confirm/cancel/revise 分流在前，
+      // 三问皆低才退回 addressee 判定。
       const generalized = await this.judgePendingIntent(text);
-      if (generalized !== undefined) {
-        if (generalized.intent !== "revise") {
+      if (generalized !== undefined && generalized.intent === "revise") {
+        text = generalized.revisedText; // 修正轮输入替换（带卡全文上下文——不再 addressee）
+      } else {
+        if (generalized !== undefined) {
           const routed = this.routeConfirmPhrase(generalized.intent);
           if (routed !== undefined) return routed;
           // 卡在分类与路由间消失（TTL/并发消费）：零差异回退原样走 LLM
-        } else {
-          text = generalized.revisedText; // 修正轮输入替换（下方队列/驱动链零感知）
+        }
+        // addressee 判定（声纹→Jev 链路批）：双工常开麦收音段的「对谁说」
+        // 判定——词表未命中才判（词表全等 = 机械权威零判定）；声纹闸在 shell
+        // 已拦非用户，本层只判「用户本人是不是在叫管家」。旁人高置信 →
+        // dropped 静默丢弃；判官缺席/灰区/抛错 → 偏「当聊天」继续（宁多应答不漏）。
+        if (source === "voice-duplex" && (await this.judgeAddressee(text))) {
+          return { status: "dropped", reason: "ambient" };
         }
       }
     }

@@ -391,15 +391,46 @@ describe("addressee 判定（voice-duplex 才触发；旁人高置信 → droppe
     expect(logger.warns.length).toBe(0);
   });
 
-  test("双工语音旁人话语：卡在场也不消费卡（dropped 先于 intent 判定）", async () => {
-    const llm = fakeLlm([toolCall("deliver_to_session", { sessionId: "s-1", text: "干活" })]);
+  test("卡在场：主人确认回应优先消费卡（addressee 不拦——用户实锤修复）", async () => {
+    const llm = fakeLlm([toolCall("deliver_to_session", { sessionId: "s-1", text: "继续执行部署计划" })]);
     const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0.9, addressee: 0.05 });
-    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
-    await askForCard(svc, "发到会话 s-1");
-    // 旁人说「确认」样的话（词表未命中的长句）→ dropped，卡不消费
+    const { svc, sessions } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+    // 主人自然确认回应（词表未命中短句——addressee 判官无卡上下文恒判低
+    // 分）：卡在场是最强「对谁说」证据，泛化层先判 → confirm 路由执行卡。
     const outcome = await svc.ask("对对对就这个赶紧弄吧", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("answer"); // 确认路由回执（非 dropped）
+    await settle();
+    expect(sessions.deliveries.length).toBe(1); // 卡真执行
+    expect(svc.pendingSnapshot().length).toBe(0); // 卡被消费
+    expect(llm.requests.length).toBe(1); // 零 LLM 新提案
+  });
+
+  test("卡在场 + 三问皆低 + addressee 低分 → 照旧 dropped（主人对旁人说话照丢）", async () => {
+    const llm = fakeLlm([toolCall("deliver_to_session", { sessionId: "s-1", text: "继续执行部署计划" })]);
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0.1, addressee: 0.05 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-1");
+    const outcome = await svc.ask("明天记得帮我带杯咖啡", undefined, undefined, "voice-duplex");
     expect(outcome.status).toBe("dropped");
+    expect((outcome as { reason?: string }).reason).toBe("ambient");
     expect(svc.pendingSnapshot().length).toBe(1); // 卡保留
+  });
+
+  test("卡在场 + revise 高分 + addressee 低分 → 修正轮输入替换（不过 addressee）", async () => {
+    const llm = fakeLlm([
+      toolCall("deliver_to_session", { sessionId: "s-2", text: "继续执行部署计划" }),
+      toolCall("deliver_to_session", { sessionId: "s-1", text: "继续执行部署计划" }),
+    ]);
+    const judge = fakeIntentJudge({ revise: 0.9, cancel: 0, confirm: 0, addressee: 0.05 });
+    const { svc } = makeService({ llm: llm.port, intentJudge: judge });
+    await askForCard(svc, "把部署计划发给会话 s-2");
+    const outcome = await svc.ask("不对，改发 s-1", undefined, undefined, "voice-duplex");
+    expect(outcome.status).toBe("confirm_required"); // 修正轮新开：旧卡撤 + 新提案再弹卡
+    expect(llm.requests.length).toBe(2); // 弹卡一次 + 修正轮一次
+    const revisedInput = JSON.stringify(llm.requests[1]!);
+    expect(revisedInput).toContain("待确认提案"); // 修正轮带卡全文上下文
+    expect(svc.pendingSnapshot().length).toBe(1); // 新卡在栈（旧卡已撤）
   });
 });
 
