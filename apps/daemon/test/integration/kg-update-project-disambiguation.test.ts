@@ -9,6 +9,7 @@ import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/Sqlite
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
 import { KgQueryService } from "../../src/application/services/kg/KgQueryService";
 import { createKgUpdateTool } from "../../src/adapters/driven/tools/kg-update/KgUpdateTool";
+import { createKgTool } from "../../src/adapters/driven/tools/kg/KgTool";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
 import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
@@ -91,22 +92,23 @@ function probe<T>(root: string, sql: string, ...params: (string | number)[]): T[
 const ITER = "iter-20261010-disambig";
 
 /** 种子：指定项目建 confirmed 节点（显式保号 id——撞号测试需要确定 id）。 */
-function seedNode(stack: Stack, proj: string, id: string, name: string): string {
+function seedNode(stack: Stack, proj: string, id: string, name: string, kind: "rule" | "entity" = "rule"): string {
   const r = stack.write.write(proj, {
     kind: "createNode",
     iterationId: ITER,
     id,
-    draft: { kind: "rule", name, digest: `${name}摘要`, scene: "本规则适用于：测试种子", status: "confirmed" },
+    draft: { kind, name, digest: `${name}摘要`, scene: "本规则适用于：测试种子", status: "confirmed" },
   } as KnowledgeWriteOp);
   if (!r.ok) throw new Error(`种子写失败：${r.error.code} ${r.error.message}`);
   if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 
-/** 双栖种子：同一 id 在两项目各建一节点（撞号现场）。 */
+/** 双栖种子：同一 id 在两项目各建一节点（撞号现场；kind 随 id 前缀）。 */
 function seedDualHit(stack: Stack, id: string, nameA: string, nameB: string): void {
-  seedNode(stack, stack.projA, id, nameA);
-  seedNode(stack, stack.projB, id, nameB);
+  const kind = id.startsWith("E-") ? "entity" as const : "rule" as const;
+  seedNode(stack, stack.projA, id, nameA, kind);
+  seedNode(stack, stack.projB, id, nameB, kind);
 }
 
 describe("① addEdge 撞号消歧", () => {
@@ -288,5 +290,49 @@ describe("⑥ 不传 project 的行为保持（不猜语义不变）", () => {
     const tool = makeTool(stack);
     const params = tool.parameters as { properties: { project: { description: string } } };
     expect(params.properties.project.description).toContain("消歧");
+  });
+});
+
+describe("⑦ kg 只读 get 撞号消歧（读面静默首命中 → 显式消歧）", () => {
+  async function kgCall(stack: Stack, params: Record<string, unknown>): Promise<string> {
+    const tool = createKgTool({ query: stack.query });
+    const result = await tool.execute("kg-call-1", params as never, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
+    return result.content
+      .filter((c): c is { type: "text"; text: string } => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+  }
+
+  test("双栖 id + get 无 project → 报错列命中项目（不再静默取首命中）", async () => {
+    const stack = freshStack();
+    seedDualHit(stack, "E-15", "移动域边界A", "移动域边界B");
+    await expect(kgCall(stack, { op: "get", nodeId: "E-15" })).rejects.toThrow("多个项目命中");
+  });
+
+  test("双栖 id + get project=projA → 返回指定项目节点全量", async () => {
+    const stack = freshStack();
+    seedDualHit(stack, "E-15", "移动域边界A", "移动域边界B");
+    const out = await kgCall(stack, { op: "get", nodeId: "E-15", project: "projA" });
+    expect(out).toContain("移动域边界A");
+    expect(out).toContain("projA");
+  });
+
+  test("单栖 id + get 无 project → 照旧成功（单命中零影响）", async () => {
+    const stack = freshStack();
+    seedNode(stack, stack.projA, "TR-888", "独居规则");
+    const out = await kgCall(stack, { op: "get", nodeId: "TR-888" });
+    expect(out).toContain("独居规则");
+  });
+
+  test("get project 过滤后零命中 → 报错含实际命中项目清单", async () => {
+    const stack = freshStack();
+    seedNode(stack, stack.projA, "TR-888", "独居规则");
+    await expect(kgCall(stack, { op: "get", nodeId: "TR-888", project: "projB" })).rejects.toThrow("projB 不存在");
+  });
+
+  test("get project 名未命中任何项目 → 报错含实际命中项目清单（消歧意图不静默忽略）", async () => {
+    const stack = freshStack();
+    seedNode(stack, stack.projA, "TR-888", "独居规则");
+    await expect(kgCall(stack, { op: "get", nodeId: "TR-888", project: "no-such" })).rejects.toThrow("no-such 不存在");
   });
 });

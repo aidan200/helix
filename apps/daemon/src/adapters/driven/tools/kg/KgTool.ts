@@ -37,6 +37,11 @@ const kgParameters = {
     },
     q: { type: "string", description: "search 关键词（name/digest 子串匹配，确定性非语义）" },
     nodeId: { type: "string", description: "get 目标节点 id（TR-n / E-n——永远取自 search 返回行的 kg get 指针）" },
+    project: {
+      type: "string",
+      description:
+        "get 多项目撞号消歧（可选）：多项目 workspace 下同号 id 多命中时传项目目录名过滤到指定项目；缺省多命中报错列项目清单（不静默取首命中）",
+    },
     target: {
       type: "string",
       description: "affected 反查目标：项目相对路径（src/foo.ts）/ 符号名（allocateSeq）/ 复合形态（src/foo.ts#allocateSeq）——改动前反查管辖该代码的知识节点",
@@ -52,7 +57,7 @@ const kgParameters = {
 } as const;
 
 export interface KgToolDeps {
-  readonly query: Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates">;
+  readonly query: Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates" | "locate">;
 }
 
 /** kg 只读工具：注册名 "kg"。 */
@@ -72,7 +77,7 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
     parameters: kgParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { op, q, nodeId, target, status } = params as { op?: string; q?: string; nodeId?: string; target?: string; status?: string };
+      const { op, q, nodeId, target, status, project } = params as { op?: string; q?: string; nodeId?: string; target?: string; status?: string; project?: string };
       if (op === "search") {
         if (typeof q !== "string" || q.trim() === "") {
           throw new Error("kg search 需要 q（非空关键词——name/digest 子串匹配）");
@@ -103,11 +108,25 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
             `nodeId "${nodeId}" 形态非法（合法：TR-n / E-n 或保号复合形态如 TR-AD-47）——id 必须取自 kg search 返回行的指针`,
           );
         }
-        const hit = deps.query.get(nodeId);
-        if (hit === null) {
+        // 多项目撞号消歧（与 kg-update locateUnique 同构，读面版）：单命中零影响；
+        // 多命中不静默取首命中（原 query.get 行为——跨项目同号会拿到错项目数据）。
+        const all = deps.query.locate(nodeId);
+        if (all.length === 0) {
           throw new Error(`节点 ${nodeId} 不存在（id 必须取自 kg search 返回行——先 search 再 get）`);
         }
-        return text(renderDetail(hit.detail, hit.project));
+        const wanted = typeof project === "string" && project !== "" ? project : undefined;
+        const hits = wanted !== undefined ? all.filter((h) => projectName(h.project) === wanted) : all;
+        if (hits.length === 0) {
+          throw new Error(
+            `节点 ${nodeId} 在指定项目 ${wanted} 不存在（实际命中项目：${all.map((h) => projectName(h.project)).join("、")}）`,
+          );
+        }
+        if (hits.length > 1) {
+          throw new Error(
+            `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——可传 project 参数消歧（项目目录名）`,
+          );
+        }
+        return text(renderDetail(hits[0]!.detail, hits[0]!.project));
       }
       throw new Error(`未知 op "${op}"（合法：search / get / affected / candidates）`);
     },

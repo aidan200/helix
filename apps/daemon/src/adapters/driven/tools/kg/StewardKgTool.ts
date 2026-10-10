@@ -39,12 +39,14 @@ export interface StewardKgSourceDeps {
 function scopedQuery(
   query: Pick<KgQueryService, "search" | "get" | "locate">,
   projectRoot: string | undefined,
-): Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates"> {
+): Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates" | "locate"> {
   return {
     search: (q: string): readonly KgHit[] =>
       projectRoot === undefined ? query.search(q) : query.search(q).filter((h) => h.project === projectRoot),
     get: (nodeId: string): KgNodeHit | null =>
       projectRoot === undefined ? query.get(nodeId) : (query.locate(nodeId).find((h) => h.project === projectRoot) ?? null),
+    locate: (nodeId: string): readonly KgNodeHit[] =>
+      projectRoot === undefined ? query.locate(nodeId) : query.locate(nodeId).filter((h) => h.project === projectRoot),
     affected: (): readonly KgAffectedHit[] => [],
     listCandidates: (_query: CandidateListQuery): readonly KgCandidateHit[] => [],
   };
