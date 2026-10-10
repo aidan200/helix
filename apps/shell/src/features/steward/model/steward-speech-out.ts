@@ -29,6 +29,7 @@
  */
 import { createWebAudioSpeechPlayer, type SpeechPlayer, type SpeechPlayerFactory } from "@/shared/lib/pcm-player";
 import { SentenceBuffer, SENTENCE_BOUNDARY_CHARS } from "./sentence-splitter";
+import { recordSpeechDiag } from "./speech-diag";
 import { mdToSpeechText, STEWARD_SPEECH_TEXT_MAX } from "./steward-voice-machine";
 
 /** 单句首帧（chunk）等待上限：超时 = 流式失败（定向 stop + 降级回退）。 */
@@ -144,7 +145,20 @@ export class StewardSpeechOut {
   /** 回答增量喂入（原文 md；仅 answerActive 轮内消费——轮次由消费端经
    * resetAnswer 在 ask 时开启，answerResult 收口后迟到 delta 丢弃）。 */
   feedRawDelta(rawDelta: string): void {
-    if (this.disposed || rawDelta === "" || !this.answerActive || this.muted) return;
+    if (rawDelta === "") return;
+    if (this.disposed) {
+      recordSpeechDiag("gate.drop.feed", "disposed");
+      return;
+    }
+    if (!this.answerActive) {
+      recordSpeechDiag("gate.drop.feed", "!answerActive");
+      return;
+    }
+    if (this.muted) {
+      recordSpeechDiag("gate.drop.feed", "muted");
+      return;
+    }
+    recordSpeechDiag("feed.in", `len=${rawDelta.length}`);
     this.rawMd += rawDelta;
     // 尾部 withhold：仅稳定区（最后句读边界前）喂切句——边界后残余可能随
     // 后续 delta 变换（未闭合 **/`` 等），提前喂会锁进错误形态
@@ -165,7 +179,10 @@ export class StewardSpeechOut {
   onChunkFrame(utterId: string, base64Pcm: string, seq?: number): void {
     if (this.disposed) return;
     const pending = this.pending.get(utterId);
-    if (pending === undefined) return; // 迟到/他面/已收口帧
+    if (pending === undefined) {
+      recordSpeechDiag("chunk.unknown", utterId);
+      return; // 迟到/他面/已收口帧
+    }
     if (pending.timer !== null) {
       clearTimeout(pending.timer);
       pending.timer = null;
@@ -173,9 +190,13 @@ export class StewardSpeechOut {
     pending.gotChunk = true;
     // 句内 seq 单调防御：迟到/重复帧丢弃（迟到帧无法插入已调度的 timeline）
     if (seq !== undefined) {
-      if (pending.lastSeq !== undefined && seq <= pending.lastSeq) return;
+      if (pending.lastSeq !== undefined && seq <= pending.lastSeq) {
+        recordSpeechDiag("chunk.seq-drop", `${utterId} seq=${seq}`);
+        return;
+      }
       pending.lastSeq = seq;
     }
+    recordSpeechDiag("chunk.in", `${utterId}${seq === undefined ? "" : ` seq=${seq}`}${pending.released ? "" : " buffered"}`);
     if (!pending.released) {
       pending.buffered.push(base64Pcm); // 前句未收口——闸住（乱序到达不插队）
       return;
@@ -187,6 +208,7 @@ export class StewardSpeechOut {
   onDoneFrame(utterId: string): void {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
+    recordSpeechDiag("done", utterId);
     if (pending.timer !== null) clearTimeout(pending.timer);
     pending.done = true;
     if (pending.released) this.pending.delete(utterId); // 音频已全量入队
@@ -197,6 +219,7 @@ export class StewardSpeechOut {
   onErrorFrame(utterId: string): void {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
+    recordSpeechDiag("error.frame", `${utterId} gotChunk=${pending.gotChunk}`);
     if (pending.timer !== null) clearTimeout(pending.timer);
     this.player.drop(utterId);
     if (pending.gotChunk) {
@@ -219,6 +242,7 @@ export class StewardSpeechOut {
 
   /** answer 终态裁决（status = steward.ask.result 判别；text = 全文权威）。 */
   answerResult(status: string, text: string): SpeechOutVerdict {
+    recordSpeechDiag("result.in", `status=${status} streamUsed=${this.streamUsed} streamDead=${this.streamDead} anyAudio=${this.anyAudio} muted=${this.muted}`);
     if (this.disposed) return "none";
     const wasActive = this.answerActive;
     this.answerActive = false;
@@ -226,6 +250,7 @@ export class StewardSpeechOut {
     this.clearCutTimer();
     if (status !== "answer") {
       // error/confirm_required：零朗读零回退（money 纪律；递话不合成）
+      recordSpeechDiag("result.verdict", "none(non-answer)");
       this.buffer.reset();
       return "none";
     }
@@ -241,22 +266,31 @@ export class StewardSpeechOut {
     }
     // 静音轮：余句全丢，零回退零出声
     if (this.muted) {
+      recordSpeechDiag("result.verdict", "none(muted)");
       this.fallbackText = "";
       return "none";
     }
     // 纯一次性路径（无 delta 喂入——V3a 现行为等价）
     if (!wasActive || !this.streamUsed) {
       const speech = mdToSpeechText(text);
-      if (speech === "") return "none";
-      return this.senders.sendFallback(speech, { voice: this.voiceProvider() }) ? "fallback" : "none";
+      if (speech === "") {
+        recordSpeechDiag("result.verdict", "none(empty)");
+        return "none";
+      }
+      const sent = this.senders.sendFallback(speech, { voice: this.voiceProvider() });
+      recordSpeechDiag("result.verdict", sent ? "fallback(one-shot)" : "none(send-fail)");
+      return sent ? "fallback" : "none";
     }
     // 流式路径：链死且未读残余 → 一次性整段回退（≤500 截断对齐现行为）
     if (this.streamDead && this.fallbackText.trim() !== "") {
       const fallback = this.fallbackText.slice(0, STEWARD_SPEECH_TEXT_MAX);
       this.fallbackText = "";
-      return this.senders.sendFallback(fallback, { voice: this.voiceProvider() }) ? "fallback" : "none";
+      const sent = this.senders.sendFallback(fallback, { voice: this.voiceProvider() });
+      recordSpeechDiag("result.verdict", sent ? "fallback(dead-stream)" : "none(send-fail)");
+      return sent ? "fallback" : "none";
     }
     this.awaitingLateFallback = true; // 兜底盲区修复：在途判 stream——若事后链死且零出声，迟到自愈接管
+    recordSpeechDiag("result.verdict", "stream");
     return "stream";
   }
 
@@ -269,6 +303,7 @@ export class StewardSpeechOut {
   /** 静音钮：全停在途（stop 命令 + 队列 + 缓冲）+ 本轮静音标记。无在途句
    *（pending 空）时零命令发出——预停读（startListening 先停上轮）不空发帧。 */
   stopSpeaking(): void {
+    recordSpeechDiag("stop.speaking", `pending=${this.pending.size}`);
     if (this.pending.size > 0) this.senders.sendStopAll();
     for (const pending of this.pending.values()) {
       if (pending.timer !== null) clearTimeout(pending.timer);
@@ -295,6 +330,7 @@ export class StewardSpeechOut {
    * 位复位（主动发言不受上轮 stopSpeaking 静音影响）。 */
   sayNow(text: string): void {
     if (this.disposed) return;
+    recordSpeechDiag("sayNow", `len=${text.length}`);
     this.answerActive = false;
     this.muted = false;
     this.streamDead = false; // 上轮 stopSpeaking 链死位复位（主动发言独立开流）
@@ -347,6 +383,7 @@ export class StewardSpeechOut {
   // ── 内部 ────────────────────────────────────────────────
 
   private beginAnswer(): void {
+    recordSpeechDiag("round.begin", `pending=${this.pending.size} anyAudio=${this.anyAudio}`);
     // ② 新轮清在途（重叠触发器根除）：旧轮滞留句（无 done 收口）会卡住播放闸
     // ——新句 chunk 缓冲 6s 首帧超时 → 降级一次性回执 new Audio 整段播，与旧轮
     // player 尾音同时出声（用户报告「两段语音同时播放」病根链）。清在途（逐条
@@ -381,10 +418,12 @@ export class StewardSpeechOut {
       const sent = this.senders.sendStream(utterId, piece, { voice: this.voiceProvider() });
       if (!sent) {
         // 发送失败（未连接等）：链死降级，本句入回退
+        recordSpeechDiag("issue.fail", utterId);
         this.streamDead = true;
         this.fallbackText += piece;
         continue;
       }
+      recordSpeechDiag("issue.sent", `${utterId} len=${piece.length}`);
       this.pending.set(utterId, {
         text: piece,
         gotChunk: false,
@@ -401,6 +440,7 @@ export class StewardSpeechOut {
   private onFirstChunkTimeout(utterId: string): void {
     const pending = this.pending.get(utterId);
     if (pending === undefined) return;
+    recordSpeechDiag("timeout.first-chunk", utterId);
     if (!this.anyAudio) {
       // 零出声链死：不预删本句——degrade 按发句序收集全部未出声句（含本句）
       this.degrade();
@@ -421,6 +461,7 @@ export class StewardSpeechOut {
     if (!ok) {
       // 播放面不可用（AudioContext 构造失败等）：流式音频无处可播——整链
       // 降级，未读句转一次性
+      recordSpeechDiag("play.enqueue-fail", utterId);
       this.pending.delete(utterId);
       this.player.drop(utterId);
       this.degrade();
@@ -452,6 +493,7 @@ export class StewardSpeechOut {
   /** 链死降级：未出声在途句全废（各自定向 stop——money 零孤儿）；按发句序
    *  收集未出声句文本入回退缓冲（乱序死不乱序）。 */
   private degrade(): void {
+    recordSpeechDiag("degrade", `pending=${this.pending.size}`);
     this.streamDead = true;
     for (const [utterId, pending] of [...this.pending.entries()]) {
       if (pending.timer !== null) clearTimeout(pending.timer);
@@ -470,7 +512,9 @@ export class StewardSpeechOut {
     this.fallbackText = "";
     this.awaitingLateFallback = false;
     if (text.trim() === "") return;
-    if (this.senders.sendFallback(text, { voice: this.voiceProvider() })) this.onLateFallback?.();
+    const sent = this.senders.sendFallback(text, { voice: this.voiceProvider() });
+    recordSpeechDiag("fallback.late", sent ? `len=${text.length}` : "send-fail");
+    if (sent) this.onLateFallback?.();
   }
 
   /** 无边界残余强制切（空闲窗到点 cut——长句不无限滞留）。 */

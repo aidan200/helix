@@ -91,6 +91,7 @@ import { useI18n } from "@/shared/i18n";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
 import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
+import { recordSpeechDiag } from "./speech-diag";
 import { createPcmRing, type PcmRing } from "../voiceprint/model/pcm-ring";
 import { BargeInIntentWindow } from "./steward-bargein-window";
 import { useStewardWelcomeAudio } from "./useStewardWelcomeAudio";
@@ -410,6 +411,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       // 兜底盲区修复：结果先行判 stream 后链死自愈回退——消费端开单飞门
       //（与 answerResult fallback 判决同径：回执到达才播放，轮次校验防旧轮覆盖）
       onLateFallback: () => {
+        recordSpeechDiag("fallback.late-gate", "speakPending=on");
         speakPendingRef.current = true;
         speakRoundRef.current = answerRoundRef.current;
       },
@@ -726,7 +728,10 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       if (event.type === "steward.ask.delta") {
         // 流式朗读闸（money 纪律）：语音模式 × 偏好开才喂（文本模式零合成）
         const p = event.payload as { delta?: unknown };
-        if (modeRef.current !== "voice" || !readStewardSpeakReplyPref()) return;
+        if (modeRef.current !== "voice" || !readStewardSpeakReplyPref()) {
+          recordSpeechDiag("gate.drop.frame.steward.ask.delta", `mode=${modeRef.current} pref=${readStewardSpeakReplyPref()}`);
+          return;
+        }
         if (typeof p.delta !== "string" || p.delta === "") return;
         speechOut.feedRawDelta(p.delta);
         return;
@@ -744,6 +749,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         return;
       }
       const verdict = speechOut.answerResult(status, typeof payload.text === "string" ? payload.text : "");
+      recordSpeechDiag("result.consumed", `verdict=${verdict}`);
       if (verdict === "fallback") {
         speakPendingRef.current = true; // 一次性回执单飞门控位
         speakRoundRef.current = answerRoundRef.current; // ③ 记轮次 id（迟到回执弃播判据）
@@ -755,6 +761,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const askInFlight = steward.askInFlight;
   useEffect(() => {
     if (!askInFlight) return;
+    recordSpeechDiag("ask.in-flight", "edge");
     // ① 对话发言期开轮（先占面再清在途——防清理边沿瞬时放行通知面）
     beginDialogueSpeech(SPEECH_FLOOR_ROUND);
     answerRoundRef.current += 1; // ③ 轮次 id 递增（旧轮回执自此判为迟到）
@@ -785,13 +792,20 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         return;
       }
       if (event.type !== "voice.synthesize.result") return;
-      if (!speakPendingRef.current) return;
+      if (!speakPendingRef.current) {
+        recordSpeechDiag("fallback.result-drop", "no-pending");
+        return;
+      }
       speakPendingRef.current = false;
       // ③ 迟到回执弃播：fallback 发出后新 ask 已开轮（轮次 id 已变）→ 旧轮
       // 音频不覆盖新轮——零 new Audio（内容在活动流/toast 可查）
-      if (speakRoundRef.current !== answerRoundRef.current) return;
+      if (speakRoundRef.current !== answerRoundRef.current) {
+        recordSpeechDiag("fallback.result-drop", "round-mismatch");
+        return;
+      }
       const payload = event.payload as { status?: unknown; audio?: unknown };
       if (payload.status !== "ok" || typeof payload.audio !== "string") {
+        recordSpeechDiag("fallback.result-drop", `status=${String(payload.status)}`);
         markLegacySpeaking(false);
         return;
       }
@@ -815,6 +829,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         void audio.play().catch(() => {
           // 自动播放策略拒绝等：跳过（不重试不打扰——面板交互态在场，
           // 下轮用户点击后天然解锁）
+          recordSpeechDiag("fallback.play-reject", "autoplay-or-decode");
           audioRef.current = null;
           markLegacySpeaking(false);
         });
