@@ -59,7 +59,10 @@
  * 失败静默吞，不预热麦克风——隐私/权限语义）；② speakWelcome 移至
  * beginListening 完成后（toggleWake 内错峰——输入会话先建立，欢迎语后
  * 播；错峰窗口内快速关麦由 duplexRef 守卫零补播）。E-208 barge-in 门
- * 参数零改动（欢迎语本就不置 speaking 相位，仅挪播放起点）。
+ * 参数零改动（欢迎语本就不置 speaking 相位，仅挪播放起点）。**欢迎语让位
+ * （cede-on-voice，问题 1 修复）**：固化欢迎语播放期人声过门（barge-in 门
+ * 同源武装、gatePhase=speaking ×2 抬档防自声）= 用户开口 → 停欢迎语让位
+ *（租约/协调面随 stop 收位，收音上行即恢复），不走打断全停/意图窗。
  *
  * B2 双工会话（全局语音批，设计稿 §3.2/§3.3）：挂载点从 StewardPanel 迁
  * 至 StewardVoiceLayer（光球层，app 壳级常驻）——open 参数（面板活跃）退
@@ -558,6 +561,15 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
+  // ── 欢迎语让位（cede-on-voice，问题 1 修复）：固化欢迎语播放期用户开口 →
+  //    停欢迎语让位（stop 同点收租约/协调位 → 收音上行即恢复，当前句剩余部分
+  //    照常流式上行）。与 barge-in（停播报）的边界：欢迎语是伴随声非回复，
+  //    无需打断序/意图窗/停止词判定——让位即停，触发窗自带残响静默窗。──
+  const cedeWelcome = useCallback(() => {
+    setWelcomeActive(false);
+    stopWelcomeAudio();
+  }, [stopWelcomeAudio]);
+
   // ── B2 barge-in 门帧消费（耳 meter 回调；armed = 相位派生）──
   // B3：门参数逐帧读偏好（最短发声/静默窗/双参判定/容忍带）+ 门限分档
   //（phase 抬档防 TTS 自声回灌）——设置面改偏好，下一次门判定即用新值
@@ -573,12 +585,18 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       // 门武装面扩展（打断不灵敏修复）：通知播报（c 面）不驱动 speaking 相位
       //（相位只由对话轨 a/b 派生）——无此扩展时通知播报期相位 idle → 门天。
       // 通知占用在场时等价 speaking 语义：门开 + 阈值 ×2 抬档（自声回灌防
-      // 线同对话轨——通知语音同样从扬声器出）。
+      // 线同对话轨——通知语音同样从扬声器出）。欢迎语让位批：固化欢迎语播放期
+      // 同理武装（gatePhase=speaking 恒抬档防自声），触发走让位分支（下方）。
+      const welcomeSpeaking = welcomeAudioRef.current !== null;
       const notifSpeaking = notificationSpeechActive();
-      const gatePhase = notifSpeaking && phaseRef.current === "idle" ? "speaking" : phaseRef.current;
+      const gatePhase = welcomeSpeaking
+        ? "speaking"
+        : notifSpeaking && phaseRef.current === "idle"
+          ? "speaking"
+          : phaseRef.current;
       const armed =
         isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current }) ||
-        (modeRef.current === "voice" && notifSpeaking);
+        (modeRef.current === "voice" && (notifSpeaking || welcomeSpeaking));
       const atMs = Date.now();
       const out = stepBargeInGate(bargeInGateRef.current, {
         rms: frame.rms,
@@ -595,6 +613,13 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       bargeInGateRef.current = out.state;
       if (out.trigger) {
         recordBargeInTrace({ at: atMs, rms: frame.rms, zcr: frame.zcr, phase: gatePhase, fired: true });
+        // 欢迎语让位（问题 1 修复）：固化欢迎语播放期人声过门 = 用户开口——
+        // 让位停欢迎语（收音上行即恢复），不走 barge-in（打断全停/意图窗是
+        // 对话语音的语义，欢迎语无需停止词判定；触发窗自带残响静默窗）。
+        if (welcomeAudioRef.current !== null && !isBargeInArmed({ mode: modeRef.current, phase: phaseRef.current })) {
+          cedeWelcome();
+          return;
+        }
         bargeInRef.current();
       } else if (out.missed !== null) {
         // ⑦ 双态打点：未触发候选段收口（段内峰值帧特征——档位压制/未达持续
@@ -608,7 +633,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         });
       }
     },
-    [effectiveThreshold],
+    [effectiveThreshold, cedeWelcome],
   );
 
   // 耳帧消费（校准采样前置 + barge-in 门）：采样窗内先收帧入样本集；首帧

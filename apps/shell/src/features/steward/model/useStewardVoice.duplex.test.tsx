@@ -93,7 +93,12 @@ vi.mock("@/shared/lib/wake-hotkey", () => ({
 
 import { useStewardVoice } from "./useStewardVoice";
 import { requestOpenSteward } from "@/shared/lib/steward-open-signal";
-import { beginSpeechLease, endSpeechLease, resetSpeechMutexForTest } from "@/shared/lib/speech-mutex";
+import {
+  beginSpeechLease,
+  endSpeechLease,
+  resetSpeechMutexForTest,
+  speechLeaseActive,
+} from "@/shared/lib/speech-mutex";
 import {
   beginNotificationPlayback,
   endNotificationPlayback,
@@ -522,6 +527,7 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
     nowSpy = null;
     restoreEnv?.();
     restoreEnv = null;
+    vi.unstubAllGlobals();
   });
 
   it("底噪估计（低百分位）抬升 barge-in 门：偏好阈值下会触发的帧（0.04）抬升后不触发；够响帧照常触发", async () => {
@@ -699,5 +705,35 @@ describe("useStewardVoice（底噪校准：duplex 前置采样 → 两门阈值�
       r.current.closeBargeInIntentWindow(); // 收窗（清 5s 超时定时器——测试面不悬挂）
     });
     expect(r.current.bargeInIntentActive).toBe(false);
+  });
+
+  it("欢迎语让位（cede-on-voice）：固化欢迎语播放期人声过门 → 停欢迎语让位 + 租约释放；零打断零意图窗", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    // 固化欢迎语（Audio stub：play/pause 记账）——问题 1 场景：开麦后欢迎语在播
+    const plays: string[] = [];
+    const paused: string[] = [];
+    vi.stubGlobal(
+      "Audio",
+      vi.fn().mockImplementation(function (this: { src: string; volume: number; play: () => Promise<void>; pause: () => void; onended: null }, src: string) {
+        this.src = src;
+        this.volume = 1;
+        this.play = () => (plays.push(src), Promise.resolve());
+        this.pause = () => paused.push(src);
+        this.onended = null;
+      }),
+    );
+    localStorage.setItem("helix.steward.welcomeAudio", "data:audio/mp4;base64,FIXED");
+    const r = renderVoice({ createMeter, createPlayer });
+    await enterDuplexMuted(r); // 门帧驱动面留耳 meter（与同组门测试同构）
+    await waitFor(() => expect(plays).toContain("data:audio/mp4;base64,FIXED")); // 欢迎语固化音频在播（另有挂载期输出预热音频）
+    expect(speechLeaseActive()).toBe(true); // 播报-收音互斥租约在场（此期收音帧被扣）
+    // 用户开口：耳侧人声帧持续过门（欢迎语播放期门武装、×2 抬档防自声）
+    frames(8, 0.2);
+    await waitFor(() => expect(paused).toContain("data:audio/mp4;base64,FIXED")); // 让位：欢迎语被停
+    expect(speechLeaseActive()).toBe(false); // 租约释放 → 后续收音帧恢复上行（零丢话面）
+    expect(sendStewardInterrupt).not.toHaveBeenCalled(); // 让位 ≠ 打断全停（欢迎语非回复）
+    expect(r.current.bargeInIntentActive).toBe(false); // 不开意图窗（无需停止词判定）
+    expect(r.current.welcomeActive).toBe(false); // 待机驻留标记随让位收位
   });
 });
