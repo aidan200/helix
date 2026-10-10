@@ -73,7 +73,7 @@ import type {
   StewardProactivePayload,
   StewardAskSource,
 } from "@helix/protocol";
-import { matchStewardStopPhrase } from "@helix/protocol";
+import { matchStewardStopPhrase, matchStewardConfirmPhrase, matchStewardCancelPhrase } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
@@ -246,37 +246,17 @@ export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认
  * （弹卡出口唯一）、确认口令路由（词表绑定最近 pending 卡）、终局收敛
  * （同 key 其余卡静默撤除）。 */
 
-/** 确认类口令词表（单源；纯文本全等匹配零 LLM——命中绑定最近 pending 卡消费）。 */
-export const STEWARD_CONFIRM_PHRASES: readonly string[] = [
-  "确认",
-  "确认执行",
-  "执行",
-  "执行吧",
-  "做吧",
-  "好的",
-  "行",
-  "可以",
-];
-
-/** 取消类口令词表（命中绑定最近 pending 卡作废）。 */
-export const STEWARD_CANCEL_PHRASES: readonly string[] = ["取消", "不要了", "放弃"];
-
-// 停止词表与判定已单源化至 @helix/protocol stewardPhrases（批 3b：双端词表
-// 漂移修复——daemon 7 词 vs shell 6 词历史分叉收口；14 词全停词表经用户裁决
-// 扩充）。在途 run 命中 → 全停（abort 当前 + 清空排队，回执携丢弃条数）；
-// 无在途原样走 LLM（词表仅在场路由——TR-240 同款纪律）；与确认口令词表
-// 互斥：「取消」是卡作废口令，「停」族是 run 全停口令，语义分层不互吞。
-
-/** 口令归一（trim + 尾部标点剥除——语音转写常带句读；中部不改）。 */ function normalizePhrase(text: string): string {
-  return text.trim().replace(/[。．.!！?？?，,、；;～~\s]+$/u, "");
-}
+// ── 确认类/取消类口令词表已单源化至 @helix/protocol stewardPhrases（闸门
+// 对应修复批：双端词族同源——STEWARD_CONFIRM_PHRASES 8 词 / STEWARD_CANCEL_
+// PHRASES 3 词，历史文案见 git；扩改词表双端同改不再手工同步）。在途 run
+// 命中停止词 → 全停（abort 当前 + 清空排队，回执携丢弃条数）；无在途原样
+// 走 LLM（词表仅在场路由——TR-240 同款纪律）；与确认口令词表互斥：「取消」
+// 是卡作废口令，「停」族是 run 全停口令，语义分层不互吞。
 
 /** 口令判定（极轻纯函数，零 LLM；非词表全等 → undefined 原样走 LLM）。 */
 export function matchStewardCommandPhrase(text: string): "confirm" | "cancel" | undefined {
-  const normalized = normalizePhrase(text);
-  if (normalized === "") return undefined;
-  if (STEWARD_CONFIRM_PHRASES.includes(normalized)) return "confirm";
-  if (STEWARD_CANCEL_PHRASES.includes(normalized)) return "cancel";
+  if (matchStewardConfirmPhrase(text)) return "confirm";
+  if (matchStewardCancelPhrase(text)) return "cancel";
   return undefined;
 }
 

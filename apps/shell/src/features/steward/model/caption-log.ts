@@ -10,10 +10,11 @@
  * 动末尾同 kind 行）。interim 浮字不入栈（呈现层实时消费，零历史）。
  */
 
-/** 字幕行（kind 弱区分用户/管家；id 渲染 key 单调）。 */
+/** 字幕行（kind 弱区分用户/管家/note；id 渲染 key 单调）。note = 闸门略过
+ *  行（dropped 反馈——闸门对应修复批）：非对话内容的淡行，零播报，TTL 同栈。 */
 export interface CaptionLine {
   readonly id: number;
-  readonly kind: "user" | "steward";
+  readonly kind: "user" | "steward" | "note";
   readonly text: string;
   /** 最后更新时刻（epoch ms）：TTL 驻留判据；流式 in-place 更新刷新。 */
   readonly at: number;

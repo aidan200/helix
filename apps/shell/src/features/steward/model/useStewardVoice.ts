@@ -197,6 +197,9 @@ export interface UseStewardVoice {
   readonly feed: ReturnType<typeof useSteward>["feed"];
   readonly askInFlight: boolean;
   readonly config: ReturnType<typeof useSteward>["config"];
+  /** dropped 通知序号（闸门对应修复批：addressee 静默丢弃时递增——光球字幕
+   *  note 淡行消费；零播报零条目不变）。 */
+  readonly dropNoticeSeq: number;
   ask(text: string, source?: StewardAskSource): boolean;
   /** 声纹总闸放行后的 utterance 派发口（StewardVoiceLayer consumed 自派发
    *  专用）：发问 + planTranscript 回退（与 routeToAsk 同构）；source 按

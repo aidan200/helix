@@ -184,12 +184,12 @@ describe("StewardVoiceLayer 声纹总闸（链路重排：机械→声纹→Jev�
     // 字幕上「未识别为用户的声音」（用户裁决文案）
     await waitFor(() => {
       const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
-      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音")).toBe(true);
+      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音（相似度 30%）")).toBe(true); // 闸门对应修复批：附相似度 pct
     });
     expect(sendStewardConfirm).not.toHaveBeenCalled();
     expect(sendStewardCancel).not.toHaveBeenCalled(); // 拒绝不是 cancel——卡保留等重说或 TTL
     // 只上字幕不出声（用户裁决）：say 零 reject 文案回读（弹卡触达播报另算）
-    expect(say).not.toHaveBeenCalledWith("未识别为用户的声音");
+    expect(say).not.toHaveBeenCalledWith("未识别为用户的声音（相似度 30%）");
   });
 
   it("gate 抛错 → 兜底照旧放行（gate 面异常不吞授权）", async () => {
@@ -216,7 +216,7 @@ describe("StewardVoiceLayer 声纹总闸（链路重排：机械→声纹→Jev�
     expect(sendStewardConfirm).not.toHaveBeenCalled();
   });
 
-  it("cancel 口令 reject → 零 cancel（卡保留）", async () => {
+  it("cancel 口令 reject → 零 cancel（卡保留；文案附相似度 10%）", async () => {
     const gate = gateReturning({ kind: "reject", score: 0.1 });
     renderLayer(gate);
     pushCard("act-c2", "会话");
@@ -225,13 +225,13 @@ describe("StewardVoiceLayer 声纹总闸（链路重排：机械→声纹→Jev�
     });
     await waitFor(() => {
       const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
-      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音")).toBe(true);
+      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音（相似度 10%）")).toBe(true);
     });
     expect(sendStewardCancel).not.toHaveBeenCalled();
     expect(gate.calls).toBe(1);
   });
 
-  it("聊天句同样过总闸：reject → 零 submitUtterance（零 ask）", async () => {
+  it("聊天句同样过总闸：reject → 零 submitUtterance（零 ask；文案附相似度 20%）", async () => {
     const gate = gateReturning({ kind: "reject", score: 0.2 });
     renderLayer(gate);
     act(() => {
@@ -239,7 +239,7 @@ describe("StewardVoiceLayer 声纹总闸（链路重排：机械→声纹→Jev�
     });
     await waitFor(() => {
       const lines = document.querySelectorAll('[data-testid="steward-caption"] [data-kind="steward"]');
-      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音")).toBe(true);
+      expect(Array.from(lines).some((l) => l.textContent === "未识别为用户的声音（相似度 20%）")).toBe(true);
     });
     expect(submitUtterance).not.toHaveBeenCalled();
   });

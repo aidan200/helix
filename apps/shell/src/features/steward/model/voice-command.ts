@@ -15,7 +15,13 @@
  * 回读文案归消费端（i18n），本面只返回结构化结果。
  */
 
-import { matchStewardStopPhrase } from "@helix/protocol";
+import {
+  matchStewardStopPhrase,
+  matchStewardConfirmPhrase,
+  matchStewardCancelPhrase,
+  matchStewardCancelAllPhrase,
+  normalizeStewardPhrase,
+} from "@helix/protocol";
 
 /** 卡栈快照（useStewardActions StewardActionCard 的裁决投影）。 */
 export interface VoiceCardSnapshot {
@@ -28,13 +34,19 @@ export interface VoiceCardSnapshot {
   readonly kind?: "action" | "memory";
 }
 
-/** 口令形态（解析产物；kind 与回读动作一一对应）。 */
-export type VoiceCommand =
+/** 口令形态（解析产物；kind 与回读动作一一对应）。alias = 口语应答词命中
+ *  （protocol 单源词族——好的/行/可以/不要了/都不要了等，闸门对应修复批）：
+ *  有待确认卡时当口令消费（与 daemon 漏斗同源词族同径），无卡时由消费方
+ *  （Layer dispatchAfterGate）按聊天句透传——口语词不是显式命令，无卡不当
+ *  「没有待确认的卡片」误报（显式口令「确认/取消/全部取消」仍是 strict，
+ *  无卡照旧明示）。 */
+export type VoiceCommand = { readonly alias?: boolean } & (
   | { readonly kind: "confirm"; readonly target: "top" }
   | { readonly kind: "cancel"; readonly target: "top" }
   | { readonly kind: "confirm"; readonly target: { readonly seq: number } }
   | { readonly kind: "cancel"; readonly target: { readonly seq: number } }
-  | { readonly kind: "cancelAll" };
+  | { readonly kind: "cancelAll" }
+);
 
 /** 口令裁决的动作对象（快照投影——state 对消费端无义，剥离）。 */
 export interface VoiceCardTarget {
@@ -81,12 +93,16 @@ function stripTailPunct(s: string): string {
 
 /**
  * 整句口令解析：非口令句（含夹带「确认」的聊天句、整句「全部确认」）→ null。
+ * strict 显式口令（确认/取消/编号/全部取消）不带 alias；protocol 单源词族
+ * 口语应答词（闸门对应修复批）命中 → 带 alias 的 top 口令（无卡透传归
+ * 消费方，解析层只识别不裁决）。不设「全部确认」（写操作授权禁语音批量
+ * 放行）。
  */
 export function parseVoiceCommand(rawText: string): VoiceCommand | null {
   const text = stripTailPunct(rawText.trim());
   if (text === "") return null;
 
-  if (text === "全部取消" || text === "都不要了" || text === "全都不要了") return { kind: "cancelAll" };
+  if (text === "全部取消") return { kind: "cancelAll" };
   // 不设「全部确认」（写操作授权禁语音批量放行）——不匹配任何口令
   if (text === "全部确认" || text === "都确认") return null;
 
@@ -98,6 +114,15 @@ export function parseVoiceCommand(rawText: string): VoiceCommand | null {
   }
   if (text === "确认") return { kind: "confirm", target: "top" };
   if (text === "取消") return { kind: "cancel", target: "top" };
+
+  // ── 口语应答词（protocol 单源词族——闸门对应修复批）：全等命中即同意图
+  //    口令，带 alias 位（消费方裁决无卡透传）；归一口径与 daemon 路由同源
+  //    （normalizeStewardPhrase——尾部句读容忍）。「确认/取消/全部取消」已
+  //    strict 命中在前，此处只会命中词族其余词，无冲突。──
+  const normalized = normalizeStewardPhrase(text);
+  if (matchStewardConfirmPhrase(normalized)) return { kind: "confirm", target: "top", alias: true };
+  if (matchStewardCancelPhrase(normalized)) return { kind: "cancel", target: "top", alias: true };
+  if (matchStewardCancelAllPhrase(normalized)) return { kind: "cancelAll", alias: true };
   return null;
 }
 

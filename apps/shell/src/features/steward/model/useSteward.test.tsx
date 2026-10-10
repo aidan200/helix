@@ -236,6 +236,20 @@ describe("useSteward（V2.5 文本管家）", () => {
     expect(result.current.items.some((m) => m.kind === "assistant" && m.text.includes("未开启"))).toBe(true);
   });
 
+  it("dropped 回执（addressee 判旁人）→ 零条目零播报不变 + dropNoticeSeq 递增（闸门对应修复批：屏面通知位）", async () => {
+    const { result } = renderSteward();
+    act(() => {
+      result.current.ask("那就这么定了");
+    });
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "dropped", reason: "ambient" }));
+    });
+    await waitFor(() => expect(result.current.askInFlight).toBe(false));
+    await waitFor(() => expect(result.current.dropNoticeSeq).toBe(1));
+    // 静默丢弃口径不变：零条目零播报（历史不留 dropped——仅光球字幕淡行消费通知位）
+    expect(result.current.items.some((m) => m.kind === "assistant")).toBe(false);
+  });
+
   it("feed 文本行追加；超上限截尾（保最新）", async () => {
     const { result } = renderSteward();
     for (let i = 1; i <= STEWARD_FEED_MAX_LINES + 10; i += 1) {

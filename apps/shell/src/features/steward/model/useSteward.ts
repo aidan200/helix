@@ -93,6 +93,10 @@ export interface UseSteward {
   readonly askActivity: StewardAskActivity | null;
   /** 设置现态（null = 未收到 config.result）。 */
   readonly config: StewardConfig | null;
+  /** dropped 通知序号（闸门对应修复批：addressee 判「非对管家说」静默丢弃
+   *  时递增——光球字幕淡行消费（零播报零条目不变，仅屏面一行短驻反馈，
+   *  「没识别到/声纹不匹配/被判旁人」三种静默可辨）。 */
+  readonly dropNoticeSeq: number;
   /** 发送一轮对话（未连接返回 false——零静默丢消息，submit 同语义）。
    *  source = 输入来源（addressee 判定触发面——voice-duplex 判旁人话语）。 */
   ask(text: string, source?: StewardAskSource): boolean;
@@ -204,6 +208,7 @@ export function useSteward(): UseSteward {
   const [askInFlight, setAskInFlight] = useState(false);
   const [askActivity, setAskActivity] = useState<StewardAskActivity | null>(null);
   const [config, setConfig] = useState<StewardConfig | null>(null);
+  const [dropNoticeSeq, setDropNoticeSeq] = useState(0);
   const { t } = useI18n();
 
   const pushItem = useCallback((item: StewardPanelItem) => {
@@ -347,8 +352,10 @@ export function useSteward(): UseSteward {
         setStreamingText(null); // 终态权威覆盖：清流式缓冲（answer/error 同口径）
         setAskActivity(null); // 过程反馈 UI 批：收口状态区收起
         if (payload.status === "dropped") {
-          // 静默丢弃（addressee 判定 = 旁人话语/自言自语）：零字幕零播报零
-          // 条目——收口在途态即完（旧壳对未知判别的防御同构：不 push）
+          // 静默丢弃（addressee 判定 = 旁人话语/自言自语）：零播报零条目不变
+          // ——闸门对应修复批补一个屏面通知位（光球字幕淡行消费）：旁人零出声
+          // 裁决不动，主人被误判时能看出「被判非对管家说」而非没反应。
+          setDropNoticeSeq((n) => n + 1);
           markAskInFlight(false);
           return;
         }
@@ -450,5 +457,5 @@ export function useSteward(): UseSteward {
     return true;
   }, [sendStewardHistory]);
 
-  return { items, streamingText, feed, askInFlight, askActivity, config, ask, stopInFlight, newDialog };
+  return { items, streamingText, feed, askInFlight, askActivity, config, dropNoticeSeq, ask, stopInFlight, newDialog };
 }

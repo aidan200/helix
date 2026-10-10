@@ -98,6 +98,7 @@ let svState: {
   streamingText: string | null;
   items: Array<{ kind: string; text: string }>;
   askActivity: { phase: "thinking" | "tool"; toolName: string | null; thinkingLines: string[] } | null;
+  dropNoticeSeq: number;
 } = {
   duplexActive: false,
   welcomeActive: false,
@@ -109,6 +110,7 @@ let svState: {
   streamingText: null,
   items: [],
   askActivity: null,
+  dropNoticeSeq: 0,
 };
 /** 桩捕获的 options.onFinalText（口令拦截面驱动口；ctx = barge-in 意图窗标记）。 */
 let capturedOnFinalText:
@@ -129,6 +131,7 @@ vi.mock("../model/useStewardVoice", () => ({
       feed: [],
       askInFlight: false,
       config: { enabled: true, model: "x/y" },
+      dropNoticeSeq: svState.dropNoticeSeq,
       ask: () => true,
       newDialog: () => true,
       mode: "voice",
@@ -205,6 +208,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
       streamingText: null,
       items: [],
       askActivity: null,
+      dropNoticeSeq: 0,
     };
     localStorage.setItem("helix-lang", "zh-CN");
   });
@@ -521,6 +525,45 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     });
     await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("帮我确认一下这件事"));
     expect(sendStewardConfirm).not.toHaveBeenCalled();
+  });
+
+  it("口语应答词（alias——闸门对应修复批）：无卡「好的」透传聊天，零 confirm 零口令回读", async () => {
+    svState.duplexActive = true;
+    renderLayer();
+    act(() => {
+      expect(capturedOnFinalText?.("好的")).toBe("consumed"); // 总闸本地消费（gate 异步）
+    });
+    await waitFor(() => expect(submitUtterance).toHaveBeenCalledWith("好的"));
+    expect(sendStewardConfirm).not.toHaveBeenCalled();
+    expect(sendStewardCancel).not.toHaveBeenCalled();
+  });
+
+  it("口语应答词（alias）：有卡「好的」绑定栈顶 awaiting 卡（与 daemon 词族同源同径）", async () => {
+    svState.duplexActive = true;
+    renderLayer();
+    act(() => {
+      emitSteward({
+        type: "steward.ask.result",
+        payload: { status: "confirm_required", actionId: "act-a", agentId: "主会话", message: "m" },
+      } as unknown as EventEnvelope);
+    });
+    act(() => {
+      expect(capturedOnFinalText?.("好的")).toBe("consumed");
+    });
+    await waitFor(() => expect(sendStewardConfirm).toHaveBeenCalledWith("act-a"));
+    expect(submitUtterance).not.toHaveBeenCalled(); // 有卡即口令消费，不透传
+  });
+
+  it("dropped 淡字幕（闸门对应修复批）：dropNoticeSeq 递增 → note 淡行入栈零播报", async () => {
+    svState.duplexActive = true;
+    const { rerenderLayer } = renderLayer();
+    act(() => {
+      svState.dropNoticeSeq = 1;
+      rerenderLayer({});
+    });
+    const note = document.querySelector('[data-testid="steward-caption"] [data-kind="note"]');
+    expect(note?.textContent).toBe("这句不是在对管家说，已略过");
+    expect(say).not.toHaveBeenCalledWith("这句不是在对管家说，已略过"); // 零播报
   });
 
   it("声纹取样锚：barge-in 意图窗 final 带 fromMark（防自声污染），常规 final 不带", async () => {

@@ -460,7 +460,7 @@ export const enUS = {
         stewardHotkeyNeedModifier: "A combo must include a modifier (⌘/⌥/⇧/⌃) plus a main key",
         stewardHotkeyDuplicate: "Same as the current shortcut; press another combo",
         stewardHotkeyRegisterFail: "Failed to register the shortcut (possibly taken by another app)",
-        stewardHotkeyNote: "Global (works while the app is in the background): press to arm the wake standby, then say the wake word to talk to the steward; press again or Esc to exit and close the mic",
+        stewardHotkeyNote: "Global (works while the app is in the background): press to open the mic and start a duplex conversation right away — your speech is transcribed to the steward; press again or Esc to close the mic",
         stewardTriageJudge: "Judge-based triage",
         stewardTriageEndpointPlaceholder: "Select classifier (triage)",
         stewardTriageEndpointNote: "When on, a classifier judge decides whether to notify and whether it's high-risk (calibrated probability ≥0.5), and notices become plain two-paragraph text; off/unset/judge errors fall back to the current path",
@@ -1434,7 +1434,8 @@ export const enUS = {
       // ── ③ Voice outreach (voice-loop batch): short announce on card pop (active voice session only) ──
       cardPending: "A delivery is waiting for your confirmation",
       // ── M3-c voiceprint batch: plain-language reject at the authorization gate ──
-      voiceprintReject: "Not recognized as the registered voice",
+      voiceprintReject: "Not recognized as the registered voice (similarity {pct}%)",
+      droppedNotice: "Not addressed to the steward — skipped",
       // batch 3b retired: bargeInQueued/bargeInVerifySkip (queue interjection + skip notice) per ruling #2
     },
   },

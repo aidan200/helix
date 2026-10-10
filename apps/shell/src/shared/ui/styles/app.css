@@ -1647,6 +1647,7 @@ html.light .stv-caption {
 }
 .stv-line { font-size: var(--text-body); color: var(--text); overflow-wrap: anywhere; }
 .stv-line[data-kind="user"] { color: var(--text-faint); } /* 用户行弱区分（final 实色偏弱） */
+.stv-line[data-kind="note"] { color: var(--text-faint); opacity: 0.75; font-style: italic; } /* 闸门略过行（dropped 反馈——闸门对应修复批）：非对话内容，淡且斜 */
 .stv-interim { font-style: italic; color: var(--text-dim); } /* interim 灰（未定稿） */
 /* 堆叠渐隐：最新在下最实（短驻批：栈上限 2 + 过程活动行 2 + interim 实时行
    ——最多 5 个 .stv-line；旧行更早被 TTL 驱逐，梯度铺四级；纯 opacity，

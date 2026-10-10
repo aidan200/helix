@@ -465,7 +465,7 @@ export const zhCN = {
         stewardHotkeyNeedModifier: "组合键须含修饰键（⌘/⌥/⇧/⌃ 至少其一）+ 主键",
         stewardHotkeyDuplicate: "与当前快捷键相同，请换一组",
         stewardHotkeyRegisterFail: "快捷键注册失败（可能已被其他应用占用）",
-        stewardHotkeyNote: "全局生效（应用在后台也可触发）：按下进入唤醒待命，说出唤醒词即与管家对话；待命中再按或 Esc 退出并关麦",
+        stewardHotkeyNote: "全局生效（应用在后台也可触发）：按下直接开麦进入双工对话，说出的话自动转写给管家；再按或 Esc 关麦退出",
         stewardTriageJudge: "判官判定（分诊）",
         stewardTriageEndpointPlaceholder: "选择分类模型（分诊判定）",
         stewardTriageEndpointNote: "开启后由分类判官判定要不要通知与高危与否（校准概率 ≥0.5），通知文案改纯文本两段；关闭/未配/判官报错自动回退现行判定",
@@ -1439,8 +1439,13 @@ export const zhCN = {
       cmdCancelAllOk: "已取消 {n} 张待确认卡片",
       // ── ③ 语音触达（语音闭环批）：弹卡即播短句（仅双工会话活跃期）──
       cardPending: "有个投递等你确认",
-      // ── M3-c 声纹批：授权点拒绝白话（纯语音明示 + 卡保留——TR-243/TR-249）──
-      voiceprintReject: "未识别为用户的声音",
+      // ── M3-c 声纹批：授权点拒绝白话（纯语音明示 + 卡保留——TR-243/TR-249；
+      //    闸门对应修复批：附相似度 pct——reject 三因（真旁人/阈值未达/取样段
+      //    偏差）可辨）──
+      voiceprintReject: "未识别为用户的声音（相似度 {pct}%）",
+      // ── 闸门对应修复批：addressee 判「非对管家说」静默丢弃的淡字幕行
+      //    （零播报——旁人零出声裁决不动；主人被误判可辨「没反应」之因）──
+      droppedNotice: "这句不是在对管家说，已略过",
       // 批 3b 退役：bargeInQueued/bargeInVerifySkip（排队插话与 skip 提示）随裁决 #2 拆除
     },
   },

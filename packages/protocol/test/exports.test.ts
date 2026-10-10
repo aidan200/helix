@@ -261,6 +261,9 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "MODES", // P1 会话模式批 T2（模式注册表常量；§18 微批）
       "PROTOCOL_VERSION",
       "STEWARD_ASK_ERROR_KINDS", // 事故热修批⑦：steward ask 错误分类封闭词汇表（aborted 与模型失败分记）
+      "STEWARD_CANCEL_ALL_PHRASES", // 闸门对应修复批：全取消词族单源（shell 卡栈口令面消费）
+      "STEWARD_CANCEL_PHRASES", // 闸门对应修复批：取消词族单源（daemon 漏斗 + shell 口令面同源）
+      "STEWARD_CONFIRM_PHRASES", // 闸门对应修复批：确认词族单源（daemon 漏斗 + shell 口令面同源）
       "STEWARD_STOP_PHRASES", // 批 3b：管家停止词表单源（14 词全停词表，双端同源）
       "SURFACE_EVENT_KINDS", // 表面协议地基批（M0）：SurfaceEvent kind 封闭词汇表（D2）
       "SURFACE_EVENT_ORIGINS", // 表面协议地基批（M0）：origin 三值（D7-2 回声过滤基础）
@@ -307,8 +310,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "isSurfaceVerb", // M2 动词注册校验面：私造动词拒收守卫
       "isSurfaceVerbAllowed", // M2 动词注册校验面：跨表面越权注册拒收守卫
       "lastMainAnchorId",
+      "matchStewardCancelAllPhrase", // 闸门对应修复批：全取消词族判定
+      "matchStewardCancelPhrase", // 闸门对应修复批：取消词族判定（daemon 路由 + shell 口令面同源）
+      "matchStewardConfirmPhrase", // 闸门对应修复批：确认词族判定（daemon 路由 + shell 口令面同源）
       "matchStewardStopPhrase", // 批 3b：停止词判定（daemon 路由 + shell barge-in 快通道双端同源）
-      "normalizeStewardPhrase", // 批 3b：停止词归一（trim+尾标点剥除）
+      "normalizeStewardPhrase", // 批 3b：停止词归一（trim+尾标点剥除；确认/取消词族共用）
       // 投影·trace 域（续）
       "normalizeTraceQuery",
       "pageTraceEvents",

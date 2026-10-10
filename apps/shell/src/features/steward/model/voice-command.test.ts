@@ -38,10 +38,26 @@ describe("parseVoiceCommand（整句成句才触发）", () => {
     expect(parseVoiceCommand("确认二十一号。")).toEqual({ kind: "confirm", target: { seq: 21 } });
   });
 
-  it("全部取消族：全部取消 / 都不要了", () => {
+  it("全部取消族：全部取消（strict）/ 都不要了（alias）", () => {
     expect(parseVoiceCommand("全部取消")).toEqual({ kind: "cancelAll" });
-    expect(parseVoiceCommand("都不要了")).toEqual({ kind: "cancelAll" });
-    expect(parseVoiceCommand("全都不要了。")).toEqual({ kind: "cancelAll" });
+    expect(parseVoiceCommand("都不要了")).toEqual({ kind: "cancelAll", alias: true });
+    expect(parseVoiceCommand("全都不要了。")).toEqual({ kind: "cancelAll", alias: true });
+  });
+
+  it("口语应答词（protocol 单源词族——闸门对应修复批）：全等命中 → 带 alias 的 top 口令；无卡透传归消费方", () => {
+    expect(parseVoiceCommand("好的")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("行")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("可以")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("做吧")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("执行")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("执行吧")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("确认执行")).toEqual({ kind: "confirm", target: "top", alias: true });
+    expect(parseVoiceCommand("好的。")).toEqual({ kind: "confirm", target: "top", alias: true }); // 尾句读容忍
+    expect(parseVoiceCommand("不要了")).toEqual({ kind: "cancel", target: "top", alias: true });
+    expect(parseVoiceCommand("放弃")).toEqual({ kind: "cancel", target: "top", alias: true });
+    // strict 对照：「确认/取消」不带 alias（无卡时明示「没有待确认的卡片」）
+    expect(parseVoiceCommand("确认")).toEqual({ kind: "confirm", target: "top" });
+    expect(parseVoiceCommand("取消")).toEqual({ kind: "cancel", target: "top" });
   });
 
   it("聊天句中夹带不触发（主闸）：非整句口令形态一律 null", () => {

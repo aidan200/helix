@@ -108,6 +108,17 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
         submitUtteranceRef.current(text); // 聊天句：发问（voice-duplex 归类在 hook 内）
         return;
       }
+      // 口语应答词（alias——protocol 单源词族，闸门对应修复批）：无待确认卡时
+      // 按聊天句透传（与 daemon 漏斗「无卡原样走 LLM」同径——「好的」不当
+      // 「没有待确认的卡片」误报，顺接对话语境）；有卡才当口令消费（消费面
+      // 与 resolveVoiceCommand 同一快照判定：awaiting 在场即绑定栈顶）。
+      if (command.alias === true) {
+        const hasAwaiting = actionsRef.current.cards.some((c) => c.kind !== "memory" && c.state === "awaiting");
+        if (!hasAwaiting) {
+          submitUtteranceRef.current(text);
+          return;
+        }
+      }
       const result = resolveVoiceCommand(command, actionsRef.current.cards);
       let reply: string;
       if (result.kind === "none") {
@@ -151,9 +162,16 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
         }
         if (decision.kind === "reject") {
           // 旁人/非注册主人：意图窗内也不真停不排队（用户需求：其他人的语音
-          // 不打断）——窗收位恢复音量，字幕沿用声纹拒绝文案。
+          // 不打断）——窗收位恢复音量，字幕沿用声纹拒绝文案（闸门对应修复批：
+          // 附相似度 pct——reject 三因（真旁人/阈值未达/取样段偏差）可辨）。
           if (ctx?.bargeInIntent) svCloseWindowRef.current();
-          setLines((prev) => captionPush(prev, "steward", t("steward.voice.voiceprintReject")));
+          setLines((prev) =>
+            captionPush(
+              prev,
+              "steward",
+              t("steward.voice.voiceprintReject", { pct: Math.round(decision.score * 100) }),
+            ),
+          );
           return;
         }
         // 停止词本地消费（链路重排批：机械→声纹→词表——声纹总闸已过，reject
@@ -221,6 +239,16 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   svCloseWindowRef.current = sv.closeBargeInIntentWindow;
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）
+
+  // ── dropped 淡字幕（闸门对应修复批）：useSteward 的 dropNoticeSeq 递增
+  //    （addressee 判「非对管家说」静默丢弃）→ 一行 note 入栈（零播报——
+  //    旁人零出声裁决不动；淡行短驻 TTL 自清，不占 items 历史不进面板）。──
+  const lastDropNoticeRef = useRef(0);
+  useEffect(() => {
+    if (sv.dropNoticeSeq <= lastDropNoticeRef.current) return;
+    lastDropNoticeRef.current = sv.dropNoticeSeq;
+    setLines((prev) => captionPush(prev, "note", t("steward.voice.droppedNotice")));
+  }, [sv.dropNoticeSeq, t]);
 
   // ── 行 TTL 驱逐（短驻批）：duplex 活跃期周期驱逐静置超时行（captionEvict
   //    无淘汰原引用返回——tick 空转零重渲）；行全空且无 interim 时字幕容器
