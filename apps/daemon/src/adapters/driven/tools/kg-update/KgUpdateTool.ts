@@ -185,7 +185,7 @@ const kgUpdateParameters = {
       description:
         "当前迭代 id（可选——缺省回落目标库最近迭代锚（change_log 末行）；双锚缺失落空不报错（P0 ④：溯源主锚切 taskId）",
     },
-    project: { type: "string", description: "createNode 目标项目目录名（workspace 只有一个项目时可省；多项目必填）" },
+    project: { type: "string", description: "目标项目目录名：createNode/batchCreateNodes（多项目必填）与定位类 op（supersede/updateNode/declareAnchors/addEdge/removeEdge/定向 prune）的多项目撞号消歧（多命中时传它过滤到指定项目；缺省不过滤——多命中仍报错不猜）" },
     taskId: {
       type: "string",
       description: "任务来源 id（可选）：任务批次上下文由接线层机械注入默认值（落 change_log.task_id 记账溯源），仅需显式传参覆盖时才携带",
@@ -246,7 +246,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "prune：物理清理腐烂物化锚（orphan=1 tombstone——符号消亡/声明撤销的保留行；nodeId 定向或缺省全项目，幂等）。" +
       "iterationId 缺省回落目标库最近迭代锚（change_log 末行），无锚落空不报错（P0 ④），显式传参仅作覆盖；" +
-      "多项目 workspace 的 createNode 需 project（项目目录名）。",
+      "多项目 workspace：createNode 需 project（项目目录名）；定位类 op（supersede/updateNode/declareAnchors/addEdge/removeEdge）遇 id 多项目撞号时传 project 消歧（缺省多命中报错不猜）。",
     parameters: kgUpdateParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
@@ -294,8 +294,9 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
 function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行或 📎 附着块指针）") as NodeId;
   const reason = requireString(args, "reason", "（推翻理由入审计链）");
-  // 目标定位：跨项目全命中——写操作不猜（多命中/零命中均结构化报错）
-  const project = locateUnique(deps, nodeId, "节点");
+  // 目标定位：跨项目全命中——写操作不猜（多命中/零命中均结构化报错；
+  // project 参数可选消歧，CAND-710）
+  const project = locateUnique(deps, nodeId, "节点", optionalDisambiguationRoot(deps, args));
   const iterationId = resolveIterationId(deps, args, project);
   const context = deps.taskContext?.();
   const draft = draftOf(args["replacement"]);
@@ -373,7 +374,7 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
  */
 function execUpdateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行 / 附着块指针）") as NodeId;
-  const project = locateUnique(deps, nodeId, "节点");
+  const project = locateUnique(deps, nodeId, "节点", optionalDisambiguationRoot(deps, args));
   const iterationId = resolveIterationId(deps, args, project);
   // patch 整体透传（薄壳零自判——空/未知字段/枚举越界均由服务层校验前置拒绝）
   const patch = args["patch"] as NodePatch;
@@ -388,7 +389,7 @@ function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown
   if (anchors === null || anchors.length === 0) {
     throw new Error("declareAnchors 需要 anchors（非空数组 [{scopeKind, pattern}]——path→glob；symbol→path#symbol；global 不携带 pattern）");
   }
-  const project = locateUnique(deps, nodeId, "节点");
+  const project = locateUnique(deps, nodeId, "节点", optionalDisambiguationRoot(deps, args));
   const iterationId = resolveIterationId(deps, args, project);
   writeOrThrow(deps, project, createOp(deps, args, { kind: "declareAnchors", iterationId, nodeId, anchors }));
   return `已声明锚 ${nodeId}（${anchors.length} 条，幂等去重；审计行已入 change_log）`;
@@ -423,7 +424,7 @@ function execPrune(deps: KgUpdateToolDeps, args: Record<string, unknown>): strin
   const nodeId = optionalString(args, "nodeId") as NodeId | undefined;
   let project: string;
   if (nodeId !== undefined) {
-    project = locateUnique(deps, nodeId, "节点");
+    project = locateUnique(deps, nodeId, "节点", optionalDisambiguationRoot(deps, args));
   } else {
     project = resolveTargetProject(deps, args);
   }
@@ -454,8 +455,11 @@ function execAddEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): str
   const srcId = requireString(args, "srcId", "（边起点节点 id——取自 kg search/kg get 返回行）") as NodeId;
   const dstId = requireString(args, "dstId", "（边终点节点 id——取自 kg search/kg get 返回行）") as NodeId;
   const verb = requireString(args, "verb", `（边动词——封闭词表：${EDGE_VERBS.join(" / ")}）`) as EdgeVerb;
-  const srcProject = locateUnique(deps, srcId, "边起点");
-  const dstProject = locateUnique(deps, dstId, "边终点");
+  // project 可选消歧（CAND-710）：双栖 id 场景两端同根过滤——单端命中于他项目
+  // 时由下方同项目校验结构化报错，不静默改写落库目标
+  const disambig = optionalDisambiguationRoot(deps, args);
+  const srcProject = locateUnique(deps, srcId, "边起点", disambig);
+  const dstProject = locateUnique(deps, dstId, "边终点", disambig);
   if (srcProject !== dstProject) {
     throw new Error(
       `边起点 ${srcId}（${projectName(srcProject)}）与边终点 ${dstId}（${projectName(dstProject)}）不在同一项目——` +
@@ -469,15 +473,24 @@ function execAddEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): str
 }
 
 /** 目标定位唯一化（原 addEdge 端点定位，令全 op 共用）：locate 全命中唯一项目
- * （零命中/多命中均结构化报错，不猜）——label 为报错前缀（节点/边起点/边终点）。 */
-function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string): string {
-  const hits = deps.query.locate(nodeId);
-  if (hits.length === 0) {
+ * （零命中/多命中均结构化报错，不猜）——label 为报错前缀（节点/边起点/边终点）。
+ * onlyProject（CAND-710 消歧通道）：定位类 op 显式传 project 时的过滤根——
+ * 命中按该项目过滤后唯一性校验（过滤后零命中 = 节点不在指定项目，结构化报错
+ * 含实际命中项目清单）；缺省不过滤，行为与历史逐字节一致（不猜语义不变）。 */
+function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string, onlyProject?: string): string {
+  const all = deps.query.locate(nodeId);
+  if (all.length === 0) {
     throw new Error(`${label} ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
+  }
+  const hits = onlyProject !== undefined ? all.filter((h) => h.project === onlyProject) : all;
+  if (onlyProject !== undefined && hits.length === 0) {
+    throw new Error(
+      `${label} ${nodeId} 在指定项目 ${projectName(onlyProject)} 不存在（实际命中项目：${all.map((h) => projectName(h.project)).join("、")}）`,
+    );
   }
   if (hits.length > 1) {
     throw new Error(
-      `${label} ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
+      `${label} ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，可显式传 project 参数消歧（项目目录名）`,
     );
   }
   return hits[0]!.project;
@@ -494,8 +507,9 @@ function execRemoveEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
   const srcId = requireString(args, "srcId", "（边起点节点 id——取自 kg search/kg get 返回行）") as NodeId;
   const dstId = requireString(args, "dstId", "（边终点节点 id——取自 kg search/kg get 返回行）") as NodeId;
   const verb = requireString(args, "verb", `（边动词——封闭词表：${EDGE_VERBS.join(" / ")}）`) as EdgeVerb;
-  const srcProject = locateUnique(deps, srcId, "边起点");
-  const dstProject = locateUnique(deps, dstId, "边终点");
+  const disambig = optionalDisambiguationRoot(deps, args);
+  const srcProject = locateUnique(deps, srcId, "边起点", disambig);
+  const dstProject = locateUnique(deps, dstId, "边终点", disambig);
   if (srcProject !== dstProject) {
     throw new Error(
       `边起点 ${srcId}（${projectName(srcProject)}）与边终点 ${dstId}（${projectName(dstProject)}）不在同一项目——` +
@@ -657,6 +671,22 @@ function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unkno
     `workspace 有 ${scanned.length} 个项目，本 op 需 project 参数指明目标项目` +
       `（可用：${scanned.map(projectName).join("、") || "（无）"}）`,
   );
+}
+
+/** 定位类 op 的可选项目消歧根（CAND-710）：project 缺省返回 undefined（不过滤，
+ * 维持全命中唯一语义）；给了则解析为 projectRoot——名字不在 workspace 即时
+ * 结构化报错（消歧意图不静默忽略——静默等于没传，多命中报错回死胡同）。 */
+function optionalDisambiguationRoot(deps: KgUpdateToolDeps, args: Record<string, unknown>): string | undefined {
+  const given = optionalString(args, "project");
+  if (given === undefined) return undefined;
+  const scanned = deps.scanProjects();
+  const hit = scanned.find((p) => projectName(p) === given);
+  if (hit === undefined) {
+    throw new Error(
+      `project "${given}" 不在 workspace（可用：${scanned.map(projectName).join("、") || "（无）"}）`,
+    );
+  }
+  return hit;
 }
 
 // ── 参数叶子 ────────────────────────────────────────────────
