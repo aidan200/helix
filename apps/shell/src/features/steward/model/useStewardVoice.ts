@@ -89,6 +89,9 @@ import { useVoiceInput } from "@/shared/lib/useVoiceInput";
 import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
 import { createPcmRing, type PcmRing } from "../voiceprint/model/pcm-ring";
+import { BargeInIntentWindow } from "./steward-bargein-window";
+import { useStewardWelcomeAudio } from "./useStewardWelcomeAudio";
+import { NoiseCalibration } from "./steward-ear-calibration";
 import type { SpeechPlayerFactory } from "@/shared/lib/pcm-player";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import {
@@ -120,9 +123,6 @@ import {
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import {
   effectiveRmsThreshold,
-  noiseFloorEstimate,
-  VOICE_NOISE_CALIB_MIN_FRAMES,
-  VOICE_NOISE_CALIB_WINDOW_MS,
 } from "@/shared/lib/voice-gate";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
 import type { EventEnvelope, StewardAskSource } from "@helix/protocol";
@@ -312,25 +312,17 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   //    计环境底噪（P20 低百分位——欢迎语 TTS 回灌是偶发尖峰不拉高估计）；
   //    两门阈值抬升 max(偏好, 底噪×2.5)（effectiveThreshold 单点）。采样帧
   //    不足 → 不校准回落纯偏好值；校准值仅会话期有效（duplex 落清位重采）。──
-  const duplexStartedAtRef = useRef(0);
-  const calibSamplesRef = useRef<number[]>([]);
-  const calibOpenRef = useRef(false);
-  /** 底噪估计（null = 未校准/回落——两门用纯偏好值）。 */
-  const noiseFloorRef = useRef<number | null>(null);
+  /** 底噪校准采样窗（批 4b 收口 steward-ear-calibration——原 4 refs 内联）。 */
+  const calibRef = useRef<NoiseCalibration | null>(null);
+  if (calibRef.current === null) calibRef.current = new NoiseCalibration();
+  const noiseCalib = calibRef.current;
   const markDuplex = useCallback((v: boolean) => {
     duplexRef.current = v;
     setDuplexActive(v);
     if (v) {
-      // 开启即开采样窗（重采）
-      duplexStartedAtRef.current = Date.now();
-      calibSamplesRef.current = [];
-      calibOpenRef.current = true;
-      noiseFloorRef.current = null;
+      noiseCalib.open(Date.now()); // 开启即开采样窗（重采）
     } else {
-      // 落位清校准：下次双工重采（cancelWake/关麦后不携旧底噪）
-      calibOpenRef.current = false;
-      noiseFloorRef.current = null;
-      calibSamplesRef.current = [];
+      noiseCalib.close(); // 落位清校准：下次双工重采（cancelWake/关麦后不携旧底噪）
     }
   }, []);
   /** 欢迎语期标记（duplex 开启置位；用户开口录音即压位——光球待机驻留，
@@ -374,12 +366,12 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   // ── barge-in 意图窗（意图门控打断批）：声学触发后不真停，开窗收插话判
   //    意图（停止词表快通道→声纹→排队）；窗内 duck 播报 + 豁免收音门控。──
   /** 窗开标记（同步读面——onPcmFrame 豁免/final 分流；state 面向 Layer）。 */
-  const bargeInIntentRef = useRef(false);
   const [bargeInIntentActive, setBargeInIntentActive] = useState(false);
-  /** 窗超时计时器（无 final 兕底——噪音过门后用户实际没说话）。 */
-  const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** duck 前各轨原音量（恢复用——Audio 元素/播放器当前值，非偏好重算）。 */
-  const duckedVolumesRef = useRef<{ player: number; legacy: number; welcome: number } | null>(null);
+  /** 音轨 refs 上移（window 实例构造依赖——useRef 零副作用声明序无关行为）。 */
+  const welcomeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const pcmRingRef = useRef<PcmRing | null>(null);
+  /** settle 转发（window 构造时序：onTimeout 经 ref 延绑——commands-surface 先例）。 */
+  const settleRef = useRef<() => void>(() => {});
   // 批 3b 退役（裁决 #2）：judgeStop 慢通道 refs（单飞序列号+等待队列）与
   // 排队插话队列（queuedUtterancesRef）拆除——未命中丢弃，无慢通道无排队。
 
@@ -418,6 +410,29 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     });
   }
   const speechOut = speechOutRef.current;
+
+  // ── barge-in 意图窗状态机（批 4b 收口：duck 三轨记账/超时 timer/mark 锚
+  //    全部内聚纯类 steward-bargein-window.ts）──
+  const bargeInWindowRef = useRef<BargeInIntentWindow | null>(null);
+  if (bargeInWindowRef.current === null) {
+    bargeInWindowRef.current = new BargeInIntentWindow({
+      tracks: {
+        setPlayerVolume: (v) => speechOut.setVolume(v),
+        getLegacyVolume: () => audioRef.current?.volume ?? 1,
+        setLegacyVolume: (v) => {
+          if (audioRef.current !== null) audioRef.current.volume = v;
+        },
+        getWelcomeVolume: () => welcomeAudioRef.current?.volume ?? 1,
+        setWelcomeVolume: (v) => {
+          if (welcomeAudioRef.current !== null) welcomeAudioRef.current.volume = v;
+        },
+      },
+      mark: () => pcmRingRef.current?.mark(),
+      onTimeout: () => settleRef.current(), // 窗超时兜底：不真停，恢复音量关窗回门控
+      windowMs: BARGE_IN_INTENT_WINDOW_MS,
+    });
+  }
+  const bargeInWindow = bargeInWindowRef.current;
   useEffect(() => {
     // ⑥ 播放态边沿 = 租约边沿（首块入队播放 → 发言期；播尽/停 → 释放）
     // ① 同边沿接协调器：a 面在播 = 对话发言期（通知面被压制/收编）
@@ -446,43 +461,13 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     setLegacySpeaking(active);
   }, []);
 
-  // ── barge-in 意图窗：duck/恢复（意图门控打断批）──
-  // duck 目的：播报不停但压低——降低 TTS 自声回灌（豁免门控后插话帧与自声
-  // 同流上行，ASR 抗混音能力有限）+ 用户插话更清晰。恢复写回 duck 前原值
-  //（非偏好重算——中途改偏好不突跳）。欢迎语/通知轨互斥关系下通常不同时
-  // 在播，逐轨各自 duck 各自恢复，未在播轨记原值不动。
-  const duckVolume = useCallback(
-    (scale: number) => {
-      if (duckedVolumesRef.current !== null) return; // 已 duck 幂等
-      const legacy = audioRef.current?.volume ?? 1;
-      const welcome = welcomeAudioRef.current?.volume ?? 1;
-      duckedVolumesRef.current = { player: 1, legacy, welcome };
-      speechOut.setVolume(scale); // player 原值不可读——恢复面恒 1（真体从未设过）
-      if (audioRef.current !== null) audioRef.current.volume = legacy * scale;
-      if (welcomeAudioRef.current !== null) welcomeAudioRef.current.volume = welcome * scale;
-    },
-    [speechOut],
-  );
-  const restoreVolume = useCallback(() => {
-    const v = duckedVolumesRef.current;
-    if (v === null) return; // 未 duck 幂等
-    duckedVolumesRef.current = null;
-    speechOut.setVolume(v.player);
-    if (audioRef.current !== null) audioRef.current.volume = v.legacy;
-    if (welcomeAudioRef.current !== null) welcomeAudioRef.current.volume = v.welcome;
-  }, [speechOut]);
-  /** 窗收位直接操作（stopSpeaking/duplex 收口内联用——不引闭包环）：清标记
-   *  + 恢复音量 + 清超时计时器；录音链不动（自动续听照常）。 */
+  // ── barge-in 意图窗：settle（批 4b：委托状态机——原 duckVolume/restoreVolume/
+  //    settleBargeInWindow 三函数收口：duck 三轨记账恢复/timer 清位/mark 锚内聚）──
   const settleBargeInWindow = useCallback(() => {
-    if (bargeInWindowTimerRef.current !== null) {
-      clearTimeout(bargeInWindowTimerRef.current);
-      bargeInWindowTimerRef.current = null;
-    }
-    if (!bargeInIntentRef.current) return;
-    bargeInIntentRef.current = false;
+    bargeInWindow.settle();
     setBargeInIntentActive(false);
-    restoreVolume();
-  }, [restoreVolume]);
+  }, [bargeInWindow]);
+  settleRef.current = settleBargeInWindow; // ref 转发（window onTimeout 延绑）
 
   const stopSpeaking = useCallback(() => {
     // 停播即开残响静默窗（B2：防 TTS 残响被耳 meter 再触发——静音钮/打断同径；
@@ -527,48 +512,14 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     },
     [speechOut],
   );
-  const welcomeTextRef = useRef(options?.welcomeText);
-  welcomeTextRef.current = options?.welcomeText;
-  // ── 欢迎语固化音频（欢迎词工坊批）：呼出优先播固化解（设置页生成试听
-  //    确认的 TTS 回执原样存——零合成延迟、音色即试听即所得）；未固化
-  //    回退 TTS 现合成（首次使用/清存储）。固化路径不置 speaking（球保持
-  //    待机动画——欢迎语是伴随声非回复）且不占 speechOut 队列。──
-  const welcomeAudioRef = useRef<HTMLAudioElement | null>(null);
-  const stopWelcomeAudio = useCallback(() => {
-    const audio = welcomeAudioRef.current;
-    if (audio === null) return;
-    welcomeAudioRef.current = null;
-    audio.onended = null;
-    audio.pause();
-    endSpeechLease(SPEECH_LEASE_WELCOME); // ⑥ 欢迎语发言期同占租约（提前停即释放）
-    endDialogueSpeech(SPEECH_LEASE_WELCOME); // ① 协调面同点收位（欢迎语 = 管家在跟你说话 → 压通知）
-  }, []);
-  const speakWelcome = useCallback(() => {
-    const cached = readWelcomeAudioPref();
-    if (cached !== null) {
-      try {
-        const audio = new Audio(cached);
-        audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
-        welcomeAudioRef.current = audio;
-        beginSpeechLease(SPEECH_LEASE_WELCOME); // ⑥ 发言期登记（播毕/失败释放）
-        beginDialogueSpeech(SPEECH_LEASE_WELCOME); // ① 欢迎语对话源：起播压/停通知（欢迎语×通知重叠修复）
-        audio.onended = () => {
-          if (welcomeAudioRef.current === audio) welcomeAudioRef.current = null;
-          endSpeechLease(SPEECH_LEASE_WELCOME);
-          endDialogueSpeech(SPEECH_LEASE_WELCOME);
-        };
-        void audio.play().catch(() => {
-          if (welcomeAudioRef.current === audio) welcomeAudioRef.current = null;
-          endSpeechLease(SPEECH_LEASE_WELCOME);
-          endDialogueSpeech(SPEECH_LEASE_WELCOME);
-        });
-        return;
-      } catch {
-        // 固化解损坏/不可播 → 回退 TTS 现合成
-      }
-    }
-    say(readWelcomeTextPref() ?? welcomeTextRef.current ?? t("steward.voice.welcome"));
-  }, [say, t]);
+  // ── 欢迎语固化音频（批 4b：域收口 useStewardWelcomeAudio——行为等价；
+  //    welcomeAudioRef 声明上移 barge-in 区（window tracks 三轨共享））──
+  const { stop: stopWelcomeAudio, speak: speakWelcome } = useStewardWelcomeAudio({
+    audioRef: welcomeAudioRef,
+    say,
+    welcomeText: options?.welcomeText,
+    fallbackText: t("steward.voice.welcome"),
+  });
 
   // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频/孤儿在途句。
   // StrictMode 双效应兼容：cleanup 先跑 close() 毒死 useRef 实例，重挂 setup
@@ -611,7 +562,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   // 底噪校准（语音判定钝感批）：阈值经 effectiveThreshold 单点——与聆听
   // 收口门（useVoiceInput getRmsThreshold 注入）同源，两门一起钝/灵。
   const effectiveThreshold = useCallback(
-    () => effectiveRmsThreshold(voiceRmsThresholdFromSensitivity(readVoiceVadSensitivityPref()), noiseFloorRef.current),
+    () => effectiveRmsThreshold(voiceRmsThresholdFromSensitivity(readVoiceVadSensitivityPref()), noiseCalib.estimate()),
     [],
   );
   const onBargeInLevel = useCallback(
@@ -664,21 +615,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   // 采集路径；meter 合一不在本批。
   const onEarFrame = useCallback(
     (frame: MeterFrame) => {
-      if (calibOpenRef.current) {
-        if (Date.now() - duplexStartedAtRef.current >= VOICE_NOISE_CALIB_WINDOW_MS) {
-          calibOpenRef.current = false; // 采样窗关闭：定稿
-          noiseFloorRef.current =
-            calibSamplesRef.current.length >= VOICE_NOISE_CALIB_MIN_FRAMES
-              ? noiseFloorEstimate(calibSamplesRef.current)
-              : null; // 采样不足 → 回落纯偏好
-        } else if (!speechLeaseActive()) {
-          // 发言租约期帧不入样本（校准污染修复）：欢迎语错峰后恰盖采样窗
-          // 大半，TTS 回灌帧混入会把 P20 底噪抬到焊死位（打不断的候选 B 根
-          // 因）。租约期跳过采样，样本不足 → 回落纯偏好（宁可不校准，不校
-          // 出毒阈值）。
-          calibSamplesRef.current.push(frame.rms);
-        }
-      }
+      // 底噪校准采样窗（批 4b 收口 steward-ear-calibration——定稿/发言期
+      // 排除语义等价迁移：租约期帧不入样本——TTS 回灌帧混入会把 P20 底噪
+      // 抬到焊死位（打不断的候选 B 根因）；样本不足回落纯偏好。）
+      noiseCalib.finalizeIfDue(Date.now());
+      noiseCalib.feed(frame.rms, speechLeaseActive(), Date.now());
       onBargeInLevel(frame);
     },
     [onBargeInLevel],
@@ -854,8 +795,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
 
   // ── M3-c 声纹面：授权点音频环（PCM 帧无条件入环——STT 上行门与环互不
   //    干涉；duplex 收口清环防跨会话泄入）。──
-  const pcmRingRef = useRef<PcmRing | null>(null);
-  if (pcmRingRef.current === null) pcmRingRef.current = createPcmRing();
+  if (pcmRingRef.current === null) pcmRingRef.current = createPcmRing(); // 声明上移 barge-in 区（window mark 依赖）
 
   // PCM 帧 → 声纹环（无条件）+ stt.stream.chunk（仅 armed 且未死；他态零上行——money 纪律）
   // ⑥ 互斥门：播报发言期（任一租约在场）本地暂停上行——流保持开（不重开
@@ -865,7 +805,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     if (!streamArmedRef.current || streamDeadRef.current) return;
     // 发言期暂停上行（意图窗豁免：插话帧与自声同流上行——duck 压低回灌，
     // 窗关回门控）。
-    if (speechLeaseActive() && !bargeInIntentRef.current) return;
+    if (speechLeaseActive() && !bargeInWindow.isActive()) return; // 意图窗豁免（状态机同步读面）
     const send = streamSendersRef.current.sendSttStreamChunk;
     if (typeof send !== "function") return;
     send(pcmFrameToBase64(frame));
@@ -955,7 +895,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       /** 即将 ask 的文本路由：口令拦截（D3=b）优先——consumed 零 ask；
        *  意图窗内 final 传 ctx（Layer 判定分支：停止词表→声纹→排队）。 */
       const routeToAsk = (utterance: string) => {
-        if (onFinalTextRef.current?.(utterance, { bargeInIntent: bargeInIntentRef.current }) === "consumed") return;
+        if (onFinalTextRef.current?.(utterance, { bargeInIntent: bargeInWindow.isActive() }) === "consumed") return;
         submitUtteranceRef.current(utterance);
       };
       routeToAsk(text);
@@ -1057,20 +997,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   // 意图门控批：偏好开（默认）→ 开意图窗（不真停：duck + 收插话判意图——
   // 停止意图才走三步序）；偏好关 → 回退声学直停（原行为零改动）。
   const openBargeInIntentWindow = useCallback(() => {
-    if (bargeInIntentRef.current) return; // 窗已开幂等（fired 闩锁外再防线）
-    bargeInIntentRef.current = true;
-    setBargeInIntentActive(true);
-    pcmRingRef.current?.mark(); // 声纹取样锚（开窗点 ≈ 插话起点）：duck 期自声持续入环无静音边界，常规尾部回溯会扩到窗前独白——fromMark 选段只含插话（防自声污染恒 reject）
-    duckVolume(BARGE_IN_INTENT_DUCK_SCALE);
+    if (bargeInWindow.isActive()) return; // 窗已开幂等（fired 闩锁外再防线）
+    setBargeInIntentActive(true); // 呈现位（状态位/mark/duck/timer 归状态机）
+    bargeInWindow.open(BARGE_IN_INTENT_DUCK_SCALE); // duck+mark 锚+超时 timer 内聚
     void beginListening(); // 开麦+开新转写流（收插话）——不 stopSpeaking 不 interrupt
-    if (bargeInWindowTimerRef.current !== null) clearTimeout(bargeInWindowTimerRef.current);
-    bargeInWindowTimerRef.current = setTimeout(() => {
-      bargeInWindowTimerRef.current = null;
-      // 窗超时兕底：无 final（噪音过门后用户实际没说话/麦克失败/ASR 无产出）
-      // ——不真停不排队，恢复音量关窗回门控（自动续听照常）。
-      settleBargeInWindow();
-    }, BARGE_IN_INTENT_WINDOW_MS);
-  }, [duckVolume, beginListening, settleBargeInWindow]);
+  }, [bargeInWindow, beginListening]);
 
   /** 真停（停止意图确认——Layer 意图判定后调）：三步序①停播全轨②interrupt
    *  携 scope=all 全停（批 3b 裁决乙：语音停止词 = abort 当前 + 清空 daemon
