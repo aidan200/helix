@@ -4,7 +4,8 @@
  *   （主框架文档级导航）→ Registry.observeDirect（surfaceId=`browser:<targetId>`
  *   两段寻址，设计 §1）；
  * - origin 判定：观察者回传恒 user（isTrusted 过滤在观察者/映射层）；CDP 协议
- *   层事件恒 system（协议层不可归因用户/程序——回声过滤安全侧）；
+ *   层事件窗口外恒 system（协议层不可归因用户/程序——回声过滤安全侧；
+ *   act 回声窗口内标 steward——CAND-594）；
  * - frameNavigated 携 errorText → kind=error（真缺触发点判定下的 error 生产面）；
  * - 跨域 iframe 不递归（parentId 在场的子框架零事件）；
  * - targetDestroyed → FocusState 前台清账（零 SurfaceEvent——tab 生命周期
@@ -376,6 +377,25 @@ describe("BrowserSurfaceAdapter：act 回声窗口（CAND-592——窗口内观�
     expect(rig.events[0]!.origin).toBe("user");
     release();
     await pending;
+  });
+
+  test("回声窗口罩 CDP 导航事件：act 期 frameNavigated 标 steward，窗外照常 system（CAND-594）", async () => {
+    const rig = makeActRig();
+    let release: () => void = () => {};
+    rig.override("navigateTab", () => new Promise<void>((r) => (release = r)));
+    const pending = rig.adapter.act("navigate", { url: "https://example.com/next" }, { seq: 1, risk: "write", surfaceId: "browser:t1" });
+    await sleep(5);
+    // act 期间 Page.navigate 触发的主框架导航：窗口内归 steward（agent 自己的导航——
+    // CAND-594 文档级导航归因收口：echoWindow 覆写从观察者路径扩展到 CDP 事件路径）
+    rig.adapter.onCdpEvent("Page.frameNavigated", { frame: { url: "https://example.com/next" } }, { targetId: "t1" });
+    expect(rig.events).toHaveLength(1);
+    expect(rig.events[0]).toMatchObject({ kind: "navigated", origin: "steward" });
+    release();
+    await pending;
+    // 窗口关闭后：用户地址栏导航照常归 system（协议层不可归因用户——安全侧保守，
+    // 用户导航感知由观察者 user_click + SPA history 承载，E-252 origin 规则）
+    rig.adapter.onCdpEvent("Page.frameNavigated", { frame: { url: "https://example.com/user" } }, { targetId: "t1" });
+    expect(rig.events[1]).toMatchObject({ kind: "navigated", origin: "system" });
   });
 });
 

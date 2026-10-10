@@ -182,11 +182,16 @@ export class BrowserSurfaceAdapter implements BrowserAwarenessSink, SurfaceLocal
     if (targetId === undefined) return;
     const url = typeof frame.url === "string" ? frame.url : "";
     const errorText = typeof frame.errorText === "string" ? frame.errorText : "";
+    // 回声窗口（CAND-594）：act 期间 agent 自己的 Page.navigate 触发的导航（含
+    // 失败 error 帧）归 steward——与观察者路径同口径（onBindingCalled 覆写）；
+    // 窗口外用户地址栏/链接导航仍归 system（协议层不可归因用户/程序，安全侧
+    // 保守——用户导航感知由观察者 user_click + SPA history 承载）。
+    const origin = this.echoWindows.has(targetId) ? "steward" : "system";
     if (errorText !== "") {
-      this.emit(targetId, { kind: "error", origin: "system", detail: { url, errorText } });
+      this.emit(targetId, { kind: "error", origin, detail: { url, errorText } });
       return;
     }
-    this.emit(targetId, { kind: "navigated", origin: "system", detail: { url } });
+    this.emit(targetId, { kind: "navigated", origin, detail: { url } });
   }
 
   // ── 内部：归一投递 ──────────────────────────────────────
