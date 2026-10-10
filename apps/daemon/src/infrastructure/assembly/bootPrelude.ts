@@ -144,9 +144,10 @@ export async function migrateLegacyRuntimeConfig(ctx: LegacyMigrationCtx): Promi
 
 /**
  * 沙箱开关批一次性迁移（幂等）：旧 `<home>/sandbox.json`（第一版文件开关）
- * 存在 → 读 enabled 写 KV sandbox_config → 改名 sandbox.json.migrated（保留
- * 原文退路，不删除）。文件不存在/已迁移 → 无操作。仅当 KV 无既有值时写入
- *（避免覆盖用户已在新面设置过的值）。
+ * 存在 → 读 enabled 写 KV sandbox_config → 改名 sandbox.json.migrated（改名
+ * 仅为防每次启动重读；KV sandbox_config 为沙箱唯一配置源，.migrated 标记无
+ * 回退语义，可随时清理）。文件不存在/已迁移 → 无操作。仅当 KV 无既有值时
+ * 写入（避免覆盖用户已在新面设置过的值）。
  */
 async function migrateLegacySandboxConfig(paths: HelixPaths, persistence: PersistenceStack, logger: Logger): Promise<void> {
   const legacyPath = path.join(paths.home, "sandbox.json");
