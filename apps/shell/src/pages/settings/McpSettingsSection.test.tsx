@@ -21,6 +21,7 @@ import type { EventEnvelope } from "@helix/protocol";
 
 const sendMcpServersList = vi.fn();
 const sendMcpServersAdd = vi.fn();
+const sendMcpServersUpdate = vi.fn();
 const sendMcpServersRemove = vi.fn();
 const sendMcpServersTest = vi.fn();
 /** 域订阅捕获面：listener 直通（测试驱动回执/广播帧）。 */
@@ -35,6 +36,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       topology: { modelConfig: null, list: [] },
       sendMcpServersList,
       sendMcpServersAdd,
+      sendMcpServersUpdate,
       sendMcpServersRemove,
       sendMcpServersTest,
       subscribeMcpFrames: (listener: (e: EventEnvelope) => void) => {
@@ -197,6 +199,56 @@ describe("MCP 设置分区", () => {
     expect(document.querySelector('[data-mcp-delete="shadcn"]')!.textContent).toContain("确认删除");
     fireEvent.click(document.querySelector('[data-mcp-delete="shadcn"]')!);
     expect(sendMcpServersRemove).toHaveBeenCalledWith({ name: "shadcn" });
+  });
+});
+
+describe("MCP 设置分区：编辑 server（update 接线批，CAND-705）", () => {
+  it("⑨ 编辑：回填 + name 锁定 + 保存走 sendMcpServersUpdate + applied 收起重拉", async () => {
+    ui();
+    feed("mcp.servers.list.result", LIST_FRAME);
+    await waitFor(() => screen.getByText("shadcn"));
+    fireEvent.click(document.querySelector('[data-mcp-edit="shadcn"]')!);
+    // 回填：name/command/args 预填 + name 锁定（update 按 name 定位，改名 = 删了重加）
+    const nameInput = document.querySelector("[data-mcp-name]") as HTMLInputElement;
+    expect(nameInput.value).toBe("shadcn");
+    expect(nameInput.disabled).toBe(true);
+    expect((document.querySelector("[data-mcp-command]") as HTMLInputElement).value).toBe("npx");
+    expect((document.querySelector("[data-mcp-args]") as HTMLInputElement).value).toBe("shadcn@latest mcp");
+    // 改命令提交 → update 命令面（name 原值 + 新 command + enabled/deferred 原样）
+    fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "uvx" } });
+    fireEvent.click(document.querySelector("[data-mcp-submit]")!);
+    expect(sendMcpServersUpdate).toHaveBeenCalledWith({
+      name: "shadcn",
+      command: "uvx",
+      args: ["shadcn@latest", "mcp"],
+      enabled: true,
+      deferred: true,
+    });
+    feed("mcp.servers.update.result", { status: "applied", server: { name: "shadcn", state: "running" } });
+    await waitFor(() => {
+      expect(document.querySelector("[data-mcp-form]")).toBeNull();
+      expect(sendMcpServersList).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("⑩ 编辑：connect_failed 行内错误保留表单；取消收起复位新增态", async () => {
+    ui();
+    feed("mcp.servers.list.result", LIST_FRAME);
+    await waitFor(() => screen.getByText("shadcn"));
+    fireEvent.click(document.querySelector('[data-mcp-edit="shadcn"]')!);
+    fireEvent.click(document.querySelector("[data-mcp-submit]")!);
+    feed("mcp.servers.update.result", { status: "connect_failed", server: { name: "shadcn", state: "error" }, error: "spawn boom" });
+    await waitFor(() => {
+      expect(document.querySelector("[data-mcp-form-error]")!.textContent).toContain("spawn boom");
+      expect(document.querySelector("[data-mcp-form]")!).toBeTruthy();
+    });
+    // 取消：收起 + 复位（再开 = 新增态：name 可编辑、字段清空）
+    fireEvent.click(document.querySelector("[data-mcp-cancel]")!);
+    await waitFor(() => expect(document.querySelector("[data-mcp-form]")).toBeNull());
+    fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
+    const nameInput = document.querySelector("[data-mcp-name]") as HTMLInputElement;
+    expect(nameInput.disabled).toBe(false);
+    expect(nameInput.value).toBe("");
   });
 });
 

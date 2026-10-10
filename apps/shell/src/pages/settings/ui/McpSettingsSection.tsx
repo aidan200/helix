@@ -10,18 +10,22 @@
  * 三功能块：
  * - server 列表：name + command 摘要 + 五态徽标（idle/connecting/running/
  *   error/stopped）+ 工具数 + lastError（error 态展开）；两段式行内删除
- *   （armed 2.5s 超时复原——ModelsSettings key 删除先例）；
- * - 新增表单：name/command 必填 + args（空格分隔转数组）+ enabled 缺省开；
- *   提交 = mcp.servers.add（connect_failed 时行内错误提示、配置保留可重试）；
+ *   （armed 2.5s 超时复原——ModelsSettings key 删除先例）+ 行内编辑入口
+ *   （update 接线批，CAND-705）；
+ * - 新增/编辑表单：name/command 必填 + args（空格分隔转数组）+ enabled
+ *   缺省开；提交 = mcp.servers.add / mcp.servers.update（编辑态 name 锁定
+ *   ——update 按 name 定位，改名 = 删除后重加；connect_failed 时行内错误
+ *   提示、配置保留可重试）；
  * - 测试连接：表单现值 mcp.servers.test（不落盘不接入）applied/failed
  *   两判别行内反馈。
  *
  * 状态模型：servers 行[]（list.result 回填 / status.changed 单行合并）；
- * 表单 open|closed；删除 normal|armed（单值超时复原）；testIdle|testing|
- * ok|fail 四态互斥（重测先清旧态）。
+ * 表单 open|closed + mode add|edit；删除 normal|armed（单值超时复原）；
+ * testIdle|testing|ok|fail 四态互斥（重测先清旧态）；savePending
+ * add/update 共用在途位。
  */
 import { useEffect, useRef, useState } from "react";
-import { Plug, PlugZap, Trash2, FileDown } from "lucide-react";
+import { Plug, PlugZap, Pencil, Trash2, FileDown } from "lucide-react";
 /** 卡头按钮图标统一拖参（项目全局部件 strokeWidth=1.75 + 装饰性图标 aria-hidden）。 */
 const ICON_PROPS = { size: 14, strokeWidth: 1.75, "aria-hidden": true } as const;
 import type {
@@ -53,14 +57,24 @@ const McpSettingsSection = function McpSettingsSection() {
   const {
     sendMcpServersList,
     sendMcpServersAdd,
+    sendMcpServersUpdate,
     sendMcpServersRemove,
     sendMcpServersTest,
     subscribeMcpFrames,
   } = useSession();
 
   const [servers, setServers] = useState<readonly McpServerRow[] | null>(null);
-  /** 表单 open|closed（首版仅新增形态；编辑 = 删除后重加）。 */
+  /** 表单 open|closed + mode：add 新增（空表单）/ edit 编辑（预填 + name 锁定
+   *  ——update 按 name 定位，改名 = 删除后重加）。 */
   const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<"add" | "edit">("add");
+  // 族A（TR-173）：listener 闭包读最新 mode 的镜像 ref——写入走 markFormMode
+  // setter 包装（ref.current 与 setState 同点写），禁渲染体裸写。
+  const formModeRef = useRef<"add" | "edit">("add");
+  const markFormMode = (v: "add" | "edit") => {
+    formModeRef.current = v;
+    setFormMode(v);
+  };
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   /** args 单行空格分隔（协议 string[]；表单内字符串化）。 */
@@ -71,13 +85,14 @@ const McpSettingsSection = function McpSettingsSection() {
   /** 导入提示（多 server 发现计数；导入结果行内反馈，不弹 toast）。 */
   const [importNote, setImportNote] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const [addPending, setAddPending] = useState(false);
+  // save 在途位（add/update 共用）：addPending 更名泛化——提交钮防重 + 回执对账。
+  const [savePending, setSavePending] = useState(false);
   // 在途位同步 ref：订阅 effect 真挂载一次（listener 读 ref 不进 deps——
-  // addPending 翻转不再退订重订，add.result 回执无窗口丢失面）
-  const addPendingRef = useRef(false);
-  const markAddPending = (v: boolean) => {
-    addPendingRef.current = v;
-    setAddPending(v);
+  // savePending 翻转不再退订重订，add/update.result 回执无窗口丢失面）
+  const savePendingRef = useRef(false);
+  const markSavePending = (v: boolean) => {
+    savePendingRef.current = v;
+    setSavePending(v);
   };
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   // 族A：testing 在途位 ref 镜像（订阅 effect 真挂载一次——listener 读 ref 不进 deps）
@@ -117,20 +132,24 @@ const McpSettingsSection = function McpSettingsSection() {
         ) {
           // CRUD 回执：重拉对账（回执只带单行；list 全量简单可靠）
           sendMcpServersList();
-          if (type === "mcp.servers.add.result") {
+          if (type !== "mcp.servers.remove.result") {
             const payload = frame.payload as { status: string; error?: string };
-            markAddPending(false);
+            markSavePending(false);
             if (payload.status === "connect_failed") {
               setFormError(payload.error ?? t("chat.settings.mcp.connectFailed"));
             } else {
-              // 成功：收起表单 + 清空（配置已落盘运行）
+              // 成功：收起表单 + 复位新增态 + 清空（配置已落盘运行；update
+              //  路径后端断旧连重连，新状态经 mcp.status.changed 广播接管）
               setFormOpen(false);
+              markFormMode("add");
               setName("");
               setCommand("");
               setArgs("");
               setEnabled(true);
+              setDeferred(true);
               setFormError("");
               setTest({ kind: "idle" });
+              setImportNote("");
             }
           }
           return;
@@ -152,9 +171,13 @@ const McpSettingsSection = function McpSettingsSection() {
           const message = p?.message ?? "connection.error";
           const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
           if (cmd !== undefined && !cmd.startsWith("mcp.servers.")) return; // 非本族不消费
-          if (addPendingRef.current) {
-            markAddPending(false);
-            setFormError(t("chat.settings.mcp.addFailed"));
+          if (savePendingRef.current) {
+            markSavePending(false);
+            setFormError(
+              formModeRef.current === "edit"
+                ? t("chat.settings.mcp.updateFailed")
+                : t("chat.settings.mcp.addFailed"),
+            );
             return;
           }
           if (testingRef.current) {
@@ -250,19 +273,51 @@ function parseArgs(input: string): string[] {
     };
   };
 
-  const submitAdd = (): void => {
+  /** 表单收起 + 复位新增态 + 清空字段（成功回执/编辑取消两路径；新增态
+   *  toggle 收起不清字段——填一半收起再展开不丢，导入用例依赖）。 */
+  const closeForm = (): void => {
+    setFormOpen(false);
+    markFormMode("add");
+    setName("");
+    setCommand("");
+    setArgs("");
+    setEnabled(true);
+    setDeferred(true);
+    setFormError("");
+    setTest({ kind: "idle" });
+    setImportNote("");
+  };
+
+  /** 行内编辑：预填现值展开表单（enabled/deferred 按「缺省 true」语义还原）。 */
+  const openEdit = (row: McpServerRow): void => {
+    markFormMode("edit");
+    setName(row.config.name);
+    setCommand(row.config.command);
+    setArgs(serializeArgs(row.config.args ?? []));
+    setEnabled(row.config.enabled !== false);
+    setDeferred(row.config.deferred !== false);
+    setFormError("");
+    setImportNote("");
+    setTest({ kind: "idle" });
+    setFormOpen(true);
+  };
+
+  const submitSave = (): void => {
     setFormError("");
     if (name.trim() === "" || command.trim() === "") {
       setFormError(t("chat.settings.mcp.formInvalid"));
       return;
     }
-    // code-review H9：send false（未发出）→ 不置 addPending（钮不永锁，
-    // 可修正重提）+ 行内错误交代；仅发出成功才入在途对账
-    if (sendMcpServersAdd(formInput()) === false) {
+    // code-review H9（TR-168/169：=== false 严格判）：send false（未发出）→
+    // 不置在途（钮不永锁，可修正重提）+ 行内错误交代；仅发出成功才入在途对账。
+    // 编辑态走 update（后端同名幂等：断旧连 → 重连 → 重新发现，无需重启 daemon）
+    const input = formInput();
+    const sent = formMode === "edit" ? sendMcpServersUpdate(input) : sendMcpServersAdd(input);
+    if (sent === false) {
       setFormError(t("chat.settings.mcp.sendFail"));
       return;
     }
-    markAddPending(true);
+    markSavePending(true);
   };
 
   const submitTest = (): void => {
@@ -297,7 +352,15 @@ function parseArgs(input: string): string[] {
             type="button"
             className={cn("hud-btn sm", formOpen ? "hud-btn-ghost" : "hud-btn-cyan")}
             data-mcp-add-toggle
-            onClick={() => setFormOpen((v) => !v)}
+            onClick={() => {
+              // 编辑态收起 = 复位（字段清）；新增态收起保留现值（导入/半填场景）
+              if (formOpen) {
+                if (formMode === "edit") closeForm();
+                else setFormOpen(false);
+              } else {
+                setFormOpen(true);
+              }
+            }}
           >
             <PlugZap {...ICON_PROPS} />
             {t("chat.settings.mcp.addServer")}
@@ -340,6 +403,8 @@ function parseArgs(input: string): string[] {
                 data-mcp-name
                 onChange={(e) => setName(e.target.value)}
                 placeholder="shadcn"
+                disabled={formMode === "edit"}
+                title={formMode === "edit" ? t("chat.settings.mcp.editNameLocked") : undefined}
               />
             </div>
             <div className="fld">
@@ -389,11 +454,23 @@ function parseArgs(input: string): string[] {
                 type="button"
                 className="hud-btn hud-btn-cyan"
                 data-mcp-submit
-                disabled={addPending}
-                onClick={submitAdd}
+                disabled={savePending}
+                onClick={submitSave}
               >
-                {addPending ? t("chat.settings.mcp.adding") : t("chat.settings.mcp.addConfirm")}
+                {savePending
+                  ? t(formMode === "edit" ? "chat.settings.mcp.saving" : "chat.settings.mcp.adding")
+                  : t(formMode === "edit" ? "chat.settings.mcp.editConfirm" : "chat.settings.mcp.addConfirm")}
               </button>
+              {formMode === "edit" && (
+                <button
+                  type="button"
+                  className="hud-btn hud-btn-ghost"
+                  data-mcp-cancel
+                  onClick={closeForm}
+                >
+                  {t("chat.settings.mcp.cancel")}
+                </button>
+              )}
               <button
                 type="button"
                 className="hud-btn hud-btn-ghost"
@@ -462,6 +539,15 @@ function parseArgs(input: string): string[] {
                 <code className="mcp-cmd">
                   {[row.config.command, ...(row.config.args ?? [])].join(" ")}
                 </code>
+                <button
+                  type="button"
+                  className="hud-btn sm hud-btn-ghost"
+                  data-mcp-edit={row.config.name}
+                  onClick={() => openEdit(row)}
+                >
+                  <Pencil {...ICON_PROPS} />
+                  {t("chat.settings.mcp.edit")}
+                </button>
                 <button
                   type="button"
                   className={cn("hud-btn sm", armedDelete === row.config.name ? "hud-btn-danger" : "hud-btn-ghost")}

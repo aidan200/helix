@@ -417,6 +417,12 @@ export const enUS = {
         deferredBadge: "Lazy",
         addConfirm: "Add",
         adding: "Adding…",
+        /** update wiring batch (CAND-705): edit-mode form copy. */
+        edit: "Edit",
+        editConfirm: "Save Changes",
+        saving: "Saving…",
+        cancel: "Cancel",
+        editNameLocked: "Name is the update key and cannot be changed (rename = remove + re-add)",
         test: "Test Connection",
         testing: "Testing…",
         testOk: "Connected, {count} tools discovered",
@@ -425,6 +431,7 @@ export const enUS = {
         sendFail: "Not connected to daemon; action not sent",
         connectFailed: "Connection failed (config kept, retry available)",
         addFailed: "Add failed",
+        updateFailed: "Save failed",
 
         removeFailed: "Remove failed · {message}",
         loading: "Loading…",
