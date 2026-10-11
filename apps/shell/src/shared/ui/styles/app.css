@@ -1645,6 +1645,26 @@ html.light .stp-msg-steward code.inline { color: var(--accent); }
 html.light .stv-caption {
   backdrop-filter: blur(10px) saturate(115%); -webkit-backdrop-filter: blur(10px) saturate(115%);
 }
+/* 左侧输入流水（光球分区批，用户裁决：拟输入不与管家输出混排——上方气泡
+   = 管家输出，左侧 = 用户输入判定流水）：右缘对齐光球左侧（orb 96 + gap 10）
+   同底玻璃面；行色态 = 判定链推进（hearing 灰 → confirmed 白 → done 主题
+   成功色 / failed 主题错误色 / rejected 警示色）；纯 opacity/颜色零动画。 */
+.stv-input {
+  position: absolute; right: 106px; bottom: 0;
+  max-width: 260px; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px;
+  background: var(--popover-fill);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+  box-shadow: var(--shadow-pop);
+  text-align: right;
+}
+.stv-inrow { font-size: var(--text-body); color: var(--text); overflow-wrap: anywhere; }
+.stv-inrow[data-state="hearing"] { color: var(--text-dim); font-style: italic; }
+.stv-inrow[data-state="confirmed"] { color: var(--text); }
+.stv-inrow[data-state="done"] { color: var(--success); }
+.stv-inrow[data-state="failed"] { color: var(--error); }
+.stv-inrow[data-state="rejected"] { color: var(--warning); }
+.stv-inote { display: block; font-size: var(--text-cap); color: var(--text-faint); font-style: italic; }
 .stv-line { font-size: var(--text-body); color: var(--text); overflow-wrap: anywhere; }
 .stv-line[data-kind="user"] { color: var(--text-faint); } /* 用户行弱区分（final 实色偏弱） */
 .stv-line[data-kind="note"] { color: var(--text-faint); opacity: 0.75; font-style: italic; } /* 闸门略过行（dropped 反馈——闸门对应修复批）：非对话内容，淡且斜 */
@@ -1698,6 +1718,10 @@ html.light .stv-caption {
   border: 1px solid rgb(var(--accent-rgb) / 0.45);
   border-radius: 4px; padding: 0 6px; margin-left: 4px;
 }
+/* 工具行完成态（分区批）：running 醒目态退为 done 弱化（呼吸点停、badge 淡） */
+.stv-line[data-kind="activity"][data-tool="done"] { color: var(--text-dim); }
+.stv-line[data-kind="activity"][data-tool="done"]::before { content: none; }
+.stv-line[data-kind="activity"][data-tool="done"] .stv-tool-badge { opacity: 0.6; }
 @keyframes stv-activity-pulse {
   0% { opacity: 0.35; }
   50% { opacity: 1; }

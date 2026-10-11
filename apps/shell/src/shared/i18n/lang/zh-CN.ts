@@ -1459,10 +1459,11 @@ export const zhCN = {
       // ── M3-c 声纹批：授权点拒绝白话（纯语音明示 + 卡保留——TR-243/TR-249；
       //    闸门对应修复批：附相似度 pct——reject 三因（真旁人/阈值未达/取样段
       //    偏差）可辨）──
-      voiceprintReject: "未识别为用户的声音（相似度 {pct}%）",
-      // ── 闸门对应修复批：addressee 判「非对管家说」静默丢弃的淡字幕行
-      //    （零播报——旁人零出声裁决不动；主人被误判可辨「没反应」之因）──
-      droppedNotice: "这句不是在对管家说，已略过",
+      // ── 光球分区批：左侧输入流水闸门注记（零播报——旁人零出声裁决不动；
+      //    声纹未过附相似度与阈值、非交流意图、转写失败三种可辨）──
+      inputVoiceprintReject: "声纹未过（相似度 {pct}%，阈值 {th}%）",
+      inputJudgeReject: "非交流意图",
+      inputAsrFail: "转写失败",
       // 批 3b 退役：bargeInQueued/bargeInVerifySkip（排队插话与 skip 提示）随裁决 #2 拆除
     },
   },

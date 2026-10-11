@@ -45,8 +45,10 @@ import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
 import { parseVoiceCommand, resolveVoiceCommand, isStopIntentPhrase, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
+import { inputAnnotate, inputConfirm, inputEvict, inputHearing, inputResolve, type InputNote, type InputRow } from "../model/input-pipeline";
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
+import { readVoiceprintThresholdPref } from "@/shared/lib/voice-pref";
 import { getStewardVoiceprintService, type VoiceprintGate } from "../voiceprint/model/steward-voiceprint";
 
 /** 光球淡出时长（ms；reduced-motion 直切不等待）。 */
@@ -72,11 +74,16 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
-  // ── 字幕行栈（呈现面数据；interim 实时行不入栈）──
+  // ── 字幕行栈（呈现面数据；管家输出区——用户输入归左侧输入流水）──
   const [lines, setLines] = useState<readonly CaptionLine[]>([]);
   const pushLine = useCallback((kind: CaptionLine["kind"], text: string) => {
     setLines((prev) => captionPush(prev, kind, text));
   }, []);
+
+  // ── 输入流水（光球分区批，用户裁决：左侧=用户输入流水）——每句一行随
+  //    判定链推进色态（hearing 灰→confirmed 白→done 绿/failed 红/rejected
+  //    警示色带闸门注记），短驻驱逐。──
+  const [inputRows, setInputRows] = useState<readonly InputRow[]>([]);
 
   // ── 语音口令（D3=b）：final 整句拦截——口令本地解析 + 卡栈快照裁决 +
   //    动作执行（既有命令）+ 回读（say + 字幕）；非口令句 submitUtterance
@@ -104,6 +111,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const svCloseWindowRef = useRef<() => void>(() => undefined);
   const dispatchAfterGate = useCallback(
     (text: string) => {
+      setInputRows((prev) => inputResolve(prev, { state: "done" })); // 确认输入→成功色（转写成功短驻消失）
       const command = parseVoiceCommand(text);
       if (command === null) {
         submitUtteranceRef.current(text); // 聊天句：发问（voice-duplex 归类在 hook 内）
@@ -148,7 +156,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   );
   const onFinalText = useCallback(
     (text: string, ctx?: { bargeInIntent: boolean }): "consumed" | "pass" => {
-      pushLine("user", text); // 用户行入字幕（final 实——口令句也是说出的话）
+      setInputRows((prev) => inputConfirm(prev, text)); // 用户行入左侧输入流水（确认输入=白色态）
       // 声纹总闸（链路重排批：机械→声纹→Jev→LLM）：每轮必验，不区分口令/
       // 聊天/有无卡；本句 PCM 同步取（final 定稿时点环尾部即本句）。barge-in
       // 意图窗内 fromMark 取样（开窗锚——duck 期自声污染防御，选段只含插话）。
@@ -166,12 +174,15 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           // 不打断）——窗收位恢复音量，字幕沿用声纹拒绝文案（闸门对应修复批：
           // 附相似度 pct——reject 三因（真旁人/阈值未达/取样段偏差）可辨）。
           if (ctx?.bargeInIntent) svCloseWindowRef.current();
-          setLines((prev) =>
-            captionPush(
-              prev,
-              "steward",
-              t("steward.voice.voiceprintReject", { pct: Math.round(decision.score * 100) }),
-            ),
+          setInputRows((prev) =>
+            inputResolve(prev, {
+              state: "rejected",
+              note: {
+                kind: "voiceprint-reject",
+                pct: Math.round(decision.score * 100),
+                th: Math.round(readVoiceprintThresholdPref()),
+              },
+            }),
           );
           return;
         }
@@ -241,23 +252,36 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）
 
-  // ── dropped 淡字幕（闸门对应修复批）：useSteward 的 dropNoticeSeq 递增
-  //    （addressee 判「非对管家说」静默丢弃）→ 一行 note 入栈（零播报——
-  //    旁人零出声裁决不动；淡行短驻 TTL 自清，不占 items 历史不进面板）。──
+  // ── dropped 输入流水注记（光球分区批）：useSteward 的 dropNoticeSeq 递增
+  //    （addressee 判「非对管家说」静默丢弃）→ 最近已发问行翻 rejected 贴
+  //    「非交流意图」注记（零播报——旁人零出声裁决不动；短驻 TTL 自清）。──
   const lastDropNoticeRef = useRef(0);
   useEffect(() => {
-    if (sv.dropNoticeSeq <= lastDropNoticeRef.current) return;
+    if (typeof sv.dropNoticeSeq !== "number" || sv.dropNoticeSeq <= lastDropNoticeRef.current) return;
     lastDropNoticeRef.current = sv.dropNoticeSeq;
-    setLines((prev) => captionPush(prev, "note", t("steward.voice.droppedNotice")));
-  }, [sv.dropNoticeSeq, t]);
+    setInputRows((prev) => inputAnnotate(prev, { kind: "judge-reject" }));
+  }, [sv.dropNoticeSeq]);
 
-  // ── 行 TTL 驱逐（短驻批）：duplex 活跃期周期驱逐静置超时行（captionEvict
-  //    无淘汰原引用返回——tick 空转零重渲）；行全空且无 interim 时字幕容器
-  //    整面隐藏（渲染面 captionVisible——气泡只在事件发生期可见）。──
+  // ── 输入流水驱动（光球分区批）：interim → hearing 原位推进；voiceError
+  //    （转写失败）→ failed 红色态贴 asr-fail 注记。──
+  useEffect(() => {
+    if (sv.interim === null || sv.interim === "") return;
+    setInputRows((prev) => inputHearing(prev, sv.interim ?? ""));
+  }, [sv.interim]);
+  const lastVoiceErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof sv.voiceError !== "string" || sv.voiceError === "" || sv.voiceError === lastVoiceErrorRef.current) return;
+    lastVoiceErrorRef.current = sv.voiceError;
+    setInputRows((prev) => inputResolve(prev, { state: "failed", note: { kind: "asr-fail" } }));
+  }, [sv.voiceError]);
+
+  // ── 行 TTL 驱逐（短驻批 + 分区批）：duplex 活跃期周期驱逐静置超时行
+  //    （captionEvict/inputEvict 无淘汰原引用返回——tick 空转零重渲）。──
   useEffect(() => {
     if (!sv.duplexActive) return;
     const timer = setInterval(() => {
       setLines((prev) => captionEvict(prev, Date.now()));
+      setInputRows((prev) => inputEvict(prev, Date.now()));
     }, CAPTION_EVICT_TICK_MS);
     return () => clearInterval(timer);
   }, [sv.duplexActive]);
@@ -365,7 +389,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   //    跨渲染漂移（React 报错，关麦淡出测试抓过）。
   const health = useStewardHealth();
   if (orbPhase === null) return null;
-  const showInterim = sv.interim !== null && sv.interim !== "";
+  // 分区批：interim 由左侧输入流水 hearing 行承载（不重复渲染）
   // ── 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具
   //    状态入字幕——不入 CaptionLine 栈（interim 同构：呈现层实时消费零
   //    历史，生命周期 = askActivity 本体）。退场契约面板同构：流式回答
@@ -374,6 +398,30 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   //    一眼可辨）——tool 相位独立分支：accent 亮色 + 工具名 mono 胶囊
   //    badge（data-tool="on" 驱动；面板仍用 activityTool 整句不变）。──
   const streamingActive = sv.streamingText !== null && sv.streamingText !== "";
+  void streamingActive; // （分区批：流式不再影响过程行显隐——保留判定供后续发言态样式复用）
+  // ── 回合过程行（分区批，用户裁决「回合中的过程输出也要显示」）：本回合
+  //    （最近 user 条目之后）thinking/tool 过程条目投影——思考摘要行 +
+  //    工具行（running=醒目态 / done=弱化态）；流式发言开始不退场（推翻旧
+  //    「流式即反馈」退场契约——过程输出全程可见，非只显终态）；回合在途
+  //    （askActivity 在）才显——光球只显当前发生的。──
+  const turnRows = (() => {
+    if (sv.askActivity === null) return [] as ReturnType<typeof sv.items.slice>;
+    let start = 0;
+    for (let i = sv.items.length - 1; i >= 0; i -= 1) {
+      if (sv.items[i]!.kind === "user") {
+        start = i + 1;
+        break;
+      }
+    }
+    return sv.items
+      .slice(start)
+      .filter((it) => it.kind === "thinking" || it.kind === "tool")
+      .slice(-4);
+  })();
+  const thinkSummary = (text: string): string => {
+    const line = text.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+    return line.length <= 60 ? line : `${line.slice(0, 60)}…`;
+  };
   const healthLabelOf: Record<StewardHealthComponent, string> = {
     judge: t("steward.voice.orbHealthJudge"),
     tts: t("steward.voice.orbHealthTts"),
@@ -383,15 +431,16 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const healthLabels = health.degraded.map((d) => healthLabelOf[d.component]);
   const healthTitle =
     healthLabels.length > 0 ? t("steward.voice.orbHealthTitle", { list: healthLabels.join("·") }) : undefined;
-  const showActivity = sv.askActivity !== null && !streamingActive;
-  const showToolActivity = showActivity && sv.askActivity?.phase === "tool" && sv.askActivity.toolName !== null;
-  const activityThink =
-    sv.askActivity !== null && sv.askActivity.thinkingLines.length > 0
-      ? (sv.askActivity.thinkingLines[sv.askActivity.thinkingLines.length - 1] ?? null)
-      : null;
-  // 短驻批：行全空且无 interim → 字幕容器不渲染（事件发生期外零气泡面）；
-  // 活动行在场则驻留（长工具期用户行被 TTL 驱逐后过程反馈不断流）
-  const captionVisible = lines.length > 0 || showInterim || showActivity;
+  const showActivity = sv.askActivity !== null;
+  const hasRunningTool = turnRows.some((r) => r.kind === "tool" && r.resultSummary === null);
+  // 短驻批：行全空且无活动无回合行 → 字幕容器不渲染（事件发生期外零气泡面）
+  const captionVisible = lines.length > 0 || showActivity || turnRows.length > 0;
+  const noteTextOf = (note: InputNote): string =>
+    note.kind === "voiceprint-reject"
+      ? t("steward.voice.inputVoiceprintReject", { pct: note.pct, th: note.th })
+      : note.kind === "judge-reject"
+        ? t("steward.voice.inputJudgeReject")
+        : t("steward.voice.inputAsrFail");
   // RMS 微缩放系数（E-124：calc 乘法不进 CSS——组件端预计算成现成 scale
   // 值，CSS 只吃 --stv-lv；与 P1 均衡嘴三变量同源同 clamp）
   const lv = Math.max(0.15, sv.level);
@@ -412,35 +461,64 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
               interim（打断新输入时排最下））；aria-live 容器顺带播报状态变化。
               工具态醒目面批：data-tool=on 独立分支——前缀 + mono 胶囊
               badge（一眼可辨当前工具；app.css accent/glow 段） */}
-          {showToolActivity ? (
-            <div className="stv-line stv-activity" data-kind="activity" data-tool="on" data-testid="steward-activity">
-              {t("steward.activityToolPrefix")}
-              <span className="stv-tool-badge" data-testid="steward-tool-badge">
-                {sv.askActivity?.toolName}
-              </span>
-            </div>
-          ) : (
-            showActivity && (
-              <div className="stv-line stv-activity" data-kind="activity" data-testid="steward-activity">
-                {t("steward.thinking")}
+          {/* 回合过程行（分区批：上方气泡=管家输出——思考/工具/发言全程可见；
+              工具行 running=accent 醒目态（data-tool=on）/done=弱化态（data-tool=done），
+              与错误提示面无关——错误只走输入流水红色态与健康徽标） */}
+          {turnRows.map((row, i) =>
+            row.kind === "tool" ? (
+              <div
+                key={`turn-tool-${row.toolCallId}`}
+                className="stv-line stv-activity"
+                data-kind="activity"
+                data-tool={row.resultSummary === null ? "on" : "done"}
+                data-testid="steward-activity"
+              >
+                {row.resultSummary === null ? t("steward.activityToolPrefix") : ""}
+                <span className="stv-tool-badge" data-testid="steward-tool-badge">
+                  {row.name}
+                </span>
               </div>
-            )
+            ) : (
+              <div
+                key={`turn-think-${i}`}
+                className="stv-line stv-activity-think"
+                data-kind="activity"
+                data-think="on"
+                data-testid="steward-activity-think"
+              >
+                {thinkSummary(row.text)}
+              </div>
+            ),
           )}
-          {showActivity && activityThink !== null && (
+          {showActivity && (sv.askActivity?.phase === "thinking" || !hasRunningTool) && (
+            <div className="stv-line stv-activity" data-kind="activity" data-testid="steward-activity">
+              {t("steward.thinking")}
+            </div>
+          )}
+        </div>
+      )}
+      {/* 左侧输入流水（分区批，用户裁决：拟输入不与管家输出混排）——每句
+          一行随判定链推进色态：hearing 灰（实时解析）→ confirmed 白（确认
+          输入）→ done 主题成功色 / failed 主题错误色 / rejected 警示色+闸门
+          注记（声纹未过带相似度与阈值、非交流意图、转写失败）；短驻消失。 */}
+      {inputRows.length > 0 && (
+        <div className="stv-input" data-testid="steward-input" aria-live="polite">
+          {inputRows.map((row) => (
             <div
-              className="stv-line stv-activity-think"
-              data-kind="activity"
-              data-think="on"
-              data-testid="steward-activity-think"
+              key={row.id}
+              className="stv-inrow"
+              data-state={row.state}
+              data-interim={row.state === "hearing" ? "on" : "off"}
+              data-testid="steward-input-row"
             >
-              {activityThink}
+              {row.text}
+              {row.note !== null && (
+                <span className="stv-inote" data-note={row.note.kind} data-testid="steward-input-note">
+                  {noteTextOf(row.note)}
+                </span>
+              )}
             </div>
-          )}
-          {showInterim && (
-            <div className="stv-line stv-interim" data-kind="user" data-interim="on" data-testid="steward-interim">
-              {sv.interim}
-            </div>
-          )}
+          ))}
         </div>
       )}
       <button

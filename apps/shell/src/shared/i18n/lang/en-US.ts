@@ -1451,8 +1451,9 @@ export const enUS = {
       // ── ③ Voice outreach (voice-loop batch): short announce on card pop (active voice session only) ──
       cardPending: "A delivery is waiting for your confirmation",
       // ── M3-c voiceprint batch: plain-language reject at the authorization gate ──
-      voiceprintReject: "Not recognized as the registered voice (similarity {pct}%)",
-      droppedNotice: "Not addressed to the steward — skipped",
+      inputVoiceprintReject: "Voiceprint not matched (similarity {pct}%, threshold {th}%)",
+      inputJudgeReject: "Not directed at the steward",
+      inputAsrFail: "Transcription failed",
       // batch 3b retired: bargeInQueued/bargeInVerifySkip (queue interjection + skip notice) per ruling #2
     },
   },
