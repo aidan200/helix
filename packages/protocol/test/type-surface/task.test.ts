@@ -54,7 +54,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     const first = COMMAND_TYPES.indexOf(TASK_COMMANDS[0]!);
     expect(COMMAND_TYPES.slice(first, first + TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]); // 连续登记（diff/mcp 批后不再尾段）
-    expect(COMMAND_TYPES.length).toBe(125); // M3-d1 感知兑现批 +2（steward.activity 两命令）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）+ P2 审计批 +1（kg.auto.audit）后当前值；此前：遗忘机制批 +2 / B1 +1 / B2 +1 / 动态主题批 +2 / channels 惰性化批 +1
+    expect(COMMAND_TYPES.length).toBe(126); // 默认 embedding 端点批（批1）+1（embedding.set_default）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两命令）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）+ P2 审计批 +1（kg.auto.audit）后当前值；此前：遗忘机制批 +2 / B1 +1 / B2 +1 / 动态主题批 +2 / channels 惰性化批 +1
   });
 
   test("零干预断言（AD-2）：task.* 命令清单恰为十命令，无 steer/内容编辑/批次重试语义命令", () => {

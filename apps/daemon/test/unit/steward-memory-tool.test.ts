@@ -79,7 +79,6 @@ function fakeMemory(
     getMemoryState: (): StewardMemoryState => ({
       enabled: true,
       available: opts.available ?? true,
-      endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
       judgeEndpoint: null,
       entryCount: state.remembers.length,
       dim: 1024,
@@ -107,7 +106,7 @@ function fakeMemory(
     setMemoryConfig: async (patch: Record<string, unknown>) => {
       state.configPatches.push(patch);
       // 模拟存储层故障（写面无前置校验——错误透传路径用中性故障形态验证）
-      if (patch.enabled === true && patch.endpointId === "ep-fail") {
+      if (patch.enabled === true && patch.judgeEndpointId === "ep-fail") {
         return { ok: false as const, error: "嵌入端点写入失败（存储异常）" };
       }
       return { ok: true as const };
@@ -258,20 +257,20 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
   });
 
   test("⑤ 配置面：getConfig 携 memory 现态（未装配 = 降级缺省）；setConfig 委托校验透传", async () => {
-    // 未装配 → 降级缺省
+    // 未装配 → 降级缺省（批1：endpoint 摘除——回执不回 endpointId）
     const bare = makeService({ llm: fakeLlm([]) });
     const bareCfg = bare.svc.getConfig();
-    expect(bareCfg.memory).toEqual({ enabled: false, available: false, endpoint: null, judgeEndpoint: null, entryCount: 0, dim: null });
+    expect(bareCfg.memory).toEqual({ enabled: false, available: false, judgeEndpoint: null, entryCount: 0, dim: null });
     // 装配 → 真实现态透传
     const memory = fakeMemory();
     const { svc } = makeService({ llm: fakeLlm([]), memory });
     expect(svc.getConfig().memory.available).toBe(true);
-    expect(svc.getConfig().memory.endpoint!.model).toBe("bge-m3");
-    // setConfig memory 组委托（B2 瘦身形态 {enabled,endpointId}——服务层错误原样透传）
-    const denied = await svc.setConfig({ memory: { enabled: true, endpointId: "ep-fail" } });
+    expect(svc.getConfig().memory.dim).toBe(1024);
+    // setConfig memory 组委托（批1 收编形态 {enabled,judgeEndpointId,…}——服务层错误原样透传）
+    const denied = await svc.setConfig({ memory: { enabled: true, judgeEndpointId: "ep-fail" } });
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error).toContain("存储异常");
-    const ok = await svc.setConfig({ memory: { enabled: true, endpointId: "ep-1" } });
+    const ok = await svc.setConfig({ memory: { enabled: true } });
     expect(ok.ok).toBe(true);
     expect(memory.configPatches.length).toBe(2);
   });

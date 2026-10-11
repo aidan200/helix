@@ -160,6 +160,7 @@ import {
   handleEmbeddingDelete,
   handleEmbeddingList,
   handleEmbeddingSet,
+  handleEmbeddingSetDefault,
   handleEmbeddingVerify,
 } from "./handlers/embedding";
 import {
@@ -935,6 +936,10 @@ export class WsServerAdapter {
         return this.deps.embedding === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleEmbeddingDelete(this.contexts.embeddingContext(ws, type, payload));
+      case "embedding.set_default":
+        return this.deps.embedding === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleEmbeddingSetDefault(this.contexts.embeddingContext(ws, type, payload));
       case "embedding.verify":
         return this.deps.embedding === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)

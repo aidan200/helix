@@ -66,6 +66,7 @@ function fakeLookup(): EmbeddingConfigLookup {
       endpointId === "ep-bge"
         ? { id: "ep-bge", name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "bge-m3" }
         : null,
+    resolveDefault: () => ({ baseUrl: "http://localhost:11434/v1", model: "bge-m3" }),
   };
 }
 
@@ -150,17 +151,17 @@ const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 5));
 // ── 五键写入端到端 ─────────────────────────────────────────
 
 describe("长期记忆组写路径端到端（steward.set_config memory 组 → memory.* 生效值回显）", () => {
-  test("① 五键写入：payload.memory → memory.* KV 落值 + 回执 memory 组携带生效值", async () => {
+  test("① 四键写入：payload.memory → memory.* KV 落值 + 回执 memory 组携带生效值（批1：endpointId 退役）", async () => {
     const config = fakeConfig();
     const { ctx, frames, errors } = stewardCtxOf(makeService(config), {
-      memory: { enabled: true, endpointId: "ep-bge", judgeEndpointId: "ep-jev-x", recallTopK: 8, recallPool: 32 },
+      memory: { enabled: true, judgeEndpointId: "ep-jev-x", recallTopK: 8, recallPool: 32 },
     });
     handleStewardSetConfig(ctx);
     await settle();
     expect(errors).toHaveLength(0);
     // KV 落值（memoryConfig 键位单源）
     expect(config.kv.get(MEMORY_ENABLED_KEY)).toBe("1");
-    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBe("ep-bge");
+    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBeUndefined(); // 退役键零写入
     expect(config.kv.get(MEMORY_JUDGE_ENDPOINT_ID_KEY)).toBe("ep-jev-x");
     expect(config.kv.get(MEMORY_RECALL_TOP_K_KEY)).toBe("8");
     expect(config.kv.get(MEMORY_RECALL_POOL_KEY)).toBe("32");
@@ -174,6 +175,21 @@ describe("长期记忆组写路径端到端（steward.set_config memory 组 → 
     expect(frame.payload.memory.enabled).toBe(true);
     expect(frame.payload.memory.recallTopK).toBe(8);
     expect(frame.payload.memory.recallPool).toBe(32);
+  });
+
+  test("①b memory 组 endpointId 退役兼容（批1）：旧传值静默忽略（含非法类型不拒答）+ 回执不回 endpointId", async () => {
+    const config = fakeConfig();
+    const { ctx, frames, errors } = stewardCtxOf(makeService(config), {
+      memory: { enabled: true, endpointId: 42 },
+    });
+    handleStewardSetConfig(ctx);
+    await settle();
+    expect(errors).toHaveLength(0); // 静默忽略（additive 兼容，不拒答）
+    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBeUndefined(); // 不落值
+    expect(config.kv.get(MEMORY_ENABLED_KEY)).toBe("1"); // 其余字段照常
+    const frame = frames[0] as { payload: { memory: Record<string, unknown> } };
+    expect("endpoint" in frame.payload.memory).toBe(false); // 回执不再回 endpointId
+    expect("endpointId" in frame.payload.memory).toBe(false);
   });
 
   test("② 类型闸：judgeEndpointId 非字符串 → invalid_payload 拒答零写入（闸漏键回归）", async () => {
@@ -190,10 +206,9 @@ describe("长期记忆组写路径端到端（steward.set_config memory 组 → 
     expect(frames).toHaveLength(0);
   });
 
-  test("③ 其余四键类型闸照旧：非法类型 → invalid_payload（逐键）", async () => {
+  test("③ 其余三键类型闸照旧：非法类型 → invalid_payload（逐键；endpointId 不在此列——退役静默忽略）", async () => {
     for (const [payload, needle] of [
       [{ memory: { enabled: "yes" } }, "memory.enabled"],
-      [{ memory: { endpointId: 42 } }, "memory.endpointId"],
       [{ memory: { recallTopK: "8" } }, "memory.recallTopK"],
       [{ memory: { recallPool: null } }, "memory.recallPool"],
     ] as [Record<string, unknown>, string][]) {

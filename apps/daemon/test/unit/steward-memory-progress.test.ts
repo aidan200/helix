@@ -47,7 +47,10 @@ function ObjectEntries(r: Record<string, string>): [string, string][] {
 }
 
 function fakeLookup(): EmbeddingConfigLookup {
-  return { resolveRecord: (endpointId) => (endpointId === ENDPOINT_RECORD.id ? ENDPOINT_RECORD : null) };
+  return {
+    resolveRecord: (endpointId) => (endpointId === ENDPOINT_RECORD.id ? ENDPOINT_RECORD : null),
+    resolveDefault: () => ({ baseUrl: ENDPOINT_RECORD.baseUrl, model: ENDPOINT_RECORD.model }),
+  };
 }
 
 function fakeEmbedding(): EmbeddingPort {

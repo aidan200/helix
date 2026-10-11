@@ -264,27 +264,29 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   if (model !== undefined && typeof model !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string");
   }
-  // 管家记忆 B2：memory 组瘦身校验（{enabled?,endpointId?}——透传前最后一道
+  // 管家记忆 B2：memory 组瘦身校验（{enabled?}——透传前最后一道
   // TR-159 逐字段透传纪律）；批B +召回量 {recallTopK?,recallPool?} + B4a
   // judgeEndpointId + 资格阈值 {recallMinScore?}（类型闸在此、值语义由
-  // daemon 读面 resolver 静默回退缺省——非法值不拒写不抛错）
+  // daemon 读面 resolver 静默回退缺省——非法值不拒写不抛错）。
+  // 批1：memory.endpointId 退役——向量端点选择收编 embedding.defaultEndpointId
+  // （embedding.set_default），旧壳传值**静默忽略**（additive 兼容，不拒答）。
+  const mem =
+    memory === undefined || typeof memory !== "object" || memory === null
+      ? undefined
+      : (memory as {
+          enabled?: unknown;
+          endpointId?: unknown;
+          judgeEndpointId?: unknown;
+          recallTopK?: unknown;
+          recallPool?: unknown;
+          recallMinScore?: unknown;
+        });
   if (memory !== undefined) {
-    if (typeof memory !== "object" || memory === null) {
+    if (mem === undefined) {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory 应为 object");
     }
-    const mem = memory as {
-      enabled?: unknown;
-      endpointId?: unknown;
-      judgeEndpointId?: unknown;
-      recallTopK?: unknown;
-      recallPool?: unknown;
-      recallMinScore?: unknown;
-    };
     if (mem.enabled !== undefined && typeof mem.enabled !== "boolean") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.enabled 应为 boolean");
-    }
-    if (mem.endpointId !== undefined && typeof mem.endpointId !== "string") {
-      return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.endpointId 应为 string（空串 = 清除引用）");
     }
     if (mem.judgeEndpointId !== undefined && typeof mem.judgeEndpointId !== "string") {
       return ctx.commandError(ctx.type, "command.invalid_payload", "payload.memory.judgeEndpointId 应为 string（空串 = 清除引用）");
@@ -317,15 +319,15 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     .setConfig({
       ...(enabled !== undefined ? { enabled } : {}),
       ...(model !== undefined ? { model } : {}),
-      ...(memory !== undefined
+      ...(mem !== undefined
         ? {
-            memory: memory as {
-              enabled?: boolean;
-              endpointId?: string;
-              judgeEndpointId?: string;
-              recallTopK?: number;
-              recallPool?: number;
-              recallMinScore?: number;
+            // 逐字段显式透传（TR-159）：endpointId 退役字段不进转发面（静默忽略）
+            memory: {
+              ...(mem.enabled !== undefined ? { enabled: mem.enabled as boolean } : {}),
+              ...(mem.judgeEndpointId !== undefined ? { judgeEndpointId: mem.judgeEndpointId as string } : {}),
+              ...(mem.recallTopK !== undefined ? { recallTopK: mem.recallTopK as number } : {}),
+              ...(mem.recallPool !== undefined ? { recallPool: mem.recallPool as number } : {}),
+              ...(mem.recallMinScore !== undefined ? { recallMinScore: mem.recallMinScore as number } : {}),
             },
           }
         : {}),

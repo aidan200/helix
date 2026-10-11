@@ -18,7 +18,7 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { EmbeddingCommandContext } from "./context";
 
-/** 清单回执（list/set/delete 共用形态）。 */
+/** 清单回执（list/set/delete/set_default 共用形态）。 */
 function respondList(ctx: EmbeddingCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const frame: EmbeddingListResultEvent = {
@@ -26,7 +26,11 @@ function respondList(ctx: EmbeddingCommandContext): void {
     sessionId: SYSTEM_SESSION_ID,
     channel: "embedding",
     type: "embedding.list.result",
-    payload: { endpoints: ctx.embedding.service.listView().map((e) => ({ ...e })) },
+    payload: {
+      endpoints: ctx.embedding.service.listView().map((e) => ({ ...e })),
+      // 批1：全局默认端点引用态透出（悬空/null = 向量面不可用）
+      defaultEndpointId: ctx.embedding.service.resolveDefaultRecord()?.id ?? null,
+    },
   };
   ctx.sendNow(sender, frame);
 }
@@ -95,6 +99,27 @@ export function handleEmbeddingDelete(ctx: EmbeddingCommandContext): void {
       respondList(ctx);
     })
     .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.delete 执行失败：${(err as Error).message}`));
+}
+
+/**
+ * embedding.set_default（全局命令，批1）：设置全局默认 embedding 端点 →
+ * 回执清单（defaultEndpointId 即时更新）。校验三拒（不存在 / kind≠embedding /
+ * 未 verify）→ invalid_payload（错误文本含定位）。
+ */
+export function handleEmbeddingSetDefault(ctx: EmbeddingCommandContext): void {
+  const { id } = ctx.payload;
+  if (typeof id !== "string" || id === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string");
+  }
+  void ctx.embedding.service
+    .setDefault(id)
+    .then((outcome) => {
+      if (!outcome.ok) {
+        return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+      }
+      respondList(ctx);
+    })
+    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.set_default 执行失败：${(err as Error).message}`));
 }
 
 /** embedding.verify（全局命令）：连通测试 → 两判别回执（fail 是正常结果非 error）。 */

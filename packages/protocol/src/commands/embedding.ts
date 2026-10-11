@@ -64,6 +64,23 @@ export interface EmbeddingDeleteCommand extends CommandFrame<EmbeddingDeletePayl
   type: "embedding.delete";
 }
 
+/** embedding.set_default 载荷（批1：全局默认 embedding 端点）。 */
+export interface EmbeddingSetDefaultPayload {
+  /** 目标端点 id（须为 kind=embedding 且已 verify 的条目——daemon 校验三拒）。 */
+  id: string;
+}
+
+/**
+ * embedding.set_default：设置全局默认 embedding 端点（单选语义——写
+ * embedding.defaultEndpointId 引用态 KV，换默认 = 改引用，无级联清理）。
+ * 校验：条目存在 ∧ kind=embedding ∧ 已 verify，任一不满足回
+ * invalid_payload（错误文本含定位）。点对点回执 embedding.list.result 新
+ * 清单（payload.defaultEndpointId 即时更新）。
+ */
+export interface EmbeddingSetDefaultCommand extends CommandFrame<EmbeddingSetDefaultPayload> {
+  type: "embedding.set_default";
+}
+
 /** embedding.verify 载荷。 */
 export interface EmbeddingVerifyPayload {
   /** 目标端点 id。 */

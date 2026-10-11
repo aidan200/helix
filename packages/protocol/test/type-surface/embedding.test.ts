@@ -108,6 +108,7 @@ const listResult: EmbeddingListResultEvent = {
   channel: "embedding",
   type: "embedding.list.result",
   payload: {
+    defaultEndpointId: "ep-1",
     endpoints: [
       {
         id: "ep-1",

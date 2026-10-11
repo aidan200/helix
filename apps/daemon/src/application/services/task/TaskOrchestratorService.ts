@@ -112,6 +112,13 @@ export interface TaskOrchestratorServiceDeps {
    * subagent-kg-writer，其余 subagent-worker）透传 scheduler.spawn 登记。
    */
   readonly rawSpawn: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome;
+  /**
+   * kg-bootstrap 硬闸（D2，批1）：默认 embedding 端点在场判据（全消费面
+   *  resolveDefault 单点的窄投影；false = 向量面不可用）——kg-bootstrap
+   *  任务开工前检查，缺席即任务失败并提示去配置（构建知识库必须有向量
+   *  端点：节点向量化是基建单点依赖）。可选——测试/非 kg 场景不注入零影响。
+   */
+  readonly hasDefaultEmbeddingEndpoint?: () => boolean;
   /** 实例终态读面（调度器 status 映射）。 */
   readonly instanceOutcome: (agentId: string) => InstanceOutcomeFace;
   /** 在跑批次 SIGTERM（cancel 通路收口在调度器 kill）。 */
@@ -234,6 +241,18 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     const job = this.deps.store.getJob(jobId);
     if (job === undefined || (job.status !== "pending" && job.status !== "running")) {
       return; // paused 不自动续（恢复归显式 resume）；终态不驱动
+    }
+    // D2 kg-bootstrap 硬闸（批1）：任务开工检查默认 embedding 端点——
+    // null（未设/悬空）→ 任务失败并提示配置（与记忆同理：构建知识库
+    // 必须有向量端点）；不装配编排会话、不进 kickoff。
+    if (
+      job.type === "kg-bootstrap" &&
+      this.deps.hasDefaultEmbeddingEndpoint !== undefined &&
+      !this.deps.hasDefaultEmbeddingEndpoint()
+    ) {
+      await this.deps.taskEngine.failJob(jobId, "请先配置默认 embedding 端点（设置 → 模型配置 → 向量模型：连通验证后「设为默认」，再发起知识创建任务）");
+      this.info(`kg-bootstrap 任务开工被硬闸拒绝（任务 ${jobId}）：未配置默认 embedding 端点，任务已失败收口`);
+      return;
     }
     const existing = this.loops.get(jobId);
     if (existing !== undefined && !existing.stopped) {

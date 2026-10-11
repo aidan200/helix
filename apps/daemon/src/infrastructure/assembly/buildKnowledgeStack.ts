@@ -3,6 +3,8 @@ import type { CodegraphEnginePort } from "../../application/ports/outbound/Codeg
 import type { KnowledgeGraphPort } from "../../application/ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../application/ports/outbound/KnowledgeStorePort";
 import { KgWriteService } from "../../application/services/kg/KgWriteService";
+import { KgVectorService } from "../../application/services/kg/KgVectorService";
+import { nodeVectorContentHash } from "../../adapters/driven/sqlite-kg/node-vector-codec";
 import { KgAttachmentService } from "../../application/services/kg/KgAttachmentService";
 import { KgQueryService } from "../../application/services/kg/KgQueryService";
 import { KgVerifyService } from "../../application/services/kg/KgVerifyService";
@@ -102,11 +104,30 @@ export function buildKnowledgeStack(deps: {
   hasRunningCodeReviewJob?: (projectName: string) => boolean;
   /** 非终态 kg-triage job 探测（P2；hasRunningReviewJob 同规）。 */
   hasRunningTriageJob?: (projectName: string) => boolean;
+  /** 批1 WP-B 向量联动面（可选——缺席零动作）：嵌入端口工厂 + 默认端点解析
+   *  （resolveDefault 单点窄投影；随栈建 KgVectorService——写入口挂钩增量
+   *  重嵌 + rebuild 顺带修复缺失向量）。生产 = OpenAiCompatEmbeddingAdapter
+   *  + EmbeddingConfigService.resolveDefault（组合根注入）。 */
+  makeEmbedding?: () => import("../../application/ports/outbound/EmbeddingPort").EmbeddingPort;
+  resolveEmbeddingEndpoint?: () =>
+    | import("../../application/ports/outbound/EmbeddingPort").EmbeddingEndpointConfig
+    | null;
 }): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
   const graph = new SqliteKnowledgeGraph({ database });
-  const writeService = new KgWriteService({ store });
+  // 批1 WP-B：向量联动面（随栈建——store 同栈同库；可选件：缺工厂 = 不挂）
+  const vectors =
+    deps.makeEmbedding !== undefined && deps.resolveEmbeddingEndpoint !== undefined
+      ? new KgVectorService({
+          store,
+          embedding: deps.makeEmbedding(),
+          resolveEndpoint: deps.resolveEmbeddingEndpoint,
+          contentHash: nodeVectorContentHash,
+          ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
+        })
+      : undefined;
+  const writeService = new KgWriteService({ store, ...(vectors !== undefined ? { vectorSync: vectors } : {}) });
   // 三级解析全 miss ≠ 装配失败：引擎面定格为不可用（binaryPath=null），
   // ensureIndex 抛 EngineUnavailable → 上层标 degraded（AF-2；exportSymbols
   // 与二进制解耦，已建索引照常投影）。
@@ -160,6 +181,7 @@ export function buildKnowledgeStack(deps: {
     report: reportService,
     write: writeService,
     sync: syncService,
+    ...(vectors !== undefined ? { vectorSync: vectors } : {}),
   });
   return {
     writeService,

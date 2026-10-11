@@ -53,7 +53,9 @@ import { KgDatabase } from "../../sqlite-kg/KgDatabase";
 import type { AgentEngineEvent } from "../../../../application/ports/outbound/AgentEnginePort";
 import { SqliteKnowledgeGraph } from "../../sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
+import { nodeVectorContentHash } from "../../sqlite-kg/node-vector-codec";
 import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
+import { KgVectorService } from "../../../../application/services/kg/KgVectorService";
 import { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import { kgReadProjects, scanWorkspaceProjects } from "../../workspace-scan";
 import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
@@ -77,6 +79,7 @@ import { StewardMemoryService } from "../../../../application/steward/StewardMem
 import { parseRecords } from "../../../../application/embedding/EmbeddingConfigService";
 import type { RuntimeConfigPort } from "../../../../application/ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointRecord } from "../../../../application/embedding/EmbeddingConfigService";
+import type { EmbeddingEndpointConfig } from "../../../../application/ports/outbound/EmbeddingPort";
 import type { MemorySearchServiceFace } from "../../tools/memory-search/MemorySearchTool";
 
 // ── argv/env 解析 ──────────────────────────────────────────
@@ -399,7 +402,11 @@ function buildLocalKgStack(
   // W-R3 读穿透（D8）：toolCwd 在 .worktrees 下 → 读面只读直读主仓 kg.db
   //（kgReadProjects 归一）；写面 scanProjects 仍原口径（kg-update 行为本任务不改）。
   const query = new KgQueryService({ graph, projects: () => kgReadProjects(workspaceRoot) });
-  const write = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
+  const store = new SqliteKnowledgeStore({ database });
+  // 批1 WP-B：写入口向量联动挂钩（子进程同款——SubAgent 建点/改点同样
+  //  增量重嵌；默认端点缺失 = 向量面降级 warn 不阻塞写，父进程回填可修复）
+  const vectorSync = buildLocalVectorSync(store);
+  const write = new KgWriteService({ store, ...(vectorSync !== undefined ? { vectorSync } : {}) });
   return {
     tools: {
       query,
@@ -410,6 +417,50 @@ function buildLocalKgStack(
     },
     database,
   };
+}
+
+/**
+ * 子进程本地向量联动（批1）：默认 embedding 端点只读直连 helix.db 解析
+ * （embedding.defaultEndpointId → embedding_endpoints——与
+ * EmbeddingConfigService.resolveDefault 同判）；端点缺失/库缺席 → undefined
+ * （向量联动不挂——写入照常，可选件纪律）。
+ */
+function buildLocalVectorSync(store: SqliteKnowledgeStore): KgVectorService | undefined {
+  const dbPath = process.env["HELIX_DB_PATH"];
+  if (dbPath === undefined) return undefined;
+  try {
+    const db = openTaskLedgerDatabase(dbPath);
+    try {
+      const readKey = (key: string): string | undefined => {
+        const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
+          | { value: string }
+          | null;
+        return row === null ? undefined : row.value;
+      };
+      const resolveDefault = (): EmbeddingEndpointConfig | null => {
+        const id = readKey("embedding.defaultEndpointId");
+        if (id === undefined || id.trim() === "") return null;
+        const record = parseRecords(readKey("embedding_endpoints")).find((r) => r.id === id);
+        if (record === undefined || (record.kind ?? "embedding") !== "embedding") return null;
+        return {
+          baseUrl: record.baseUrl,
+          model: record.model,
+          ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
+        };
+      };
+      return new KgVectorService({
+        store,
+        embedding: new OpenAiCompatEmbeddingAdapter({ getConfig: () => resolveDefault() }),
+        resolveEndpoint: () => resolveDefault(),
+        contentHash: nodeVectorContentHash,
+        logger: { warn: (message) => console.warn(message) },
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    return undefined; // 库不可开/形态异常 → 向量联动不挂（写入照常）
+  }
 }
 
 // ── 任务归属解析器（T4.2，AD-10 衔接面的接线层兑现） ──────────
@@ -606,20 +657,23 @@ export function buildLocalMemorySearchStack(
     };
     const resolveRecord = (endpointId: string): EmbeddingEndpointRecord | null =>
       parseRecords(readKey("embedding_endpoints")).find((r) => r.id === endpointId) ?? null;
+    // 批1：向量端点取用改走全局默认端点单点（embedding.defaultEndpointId——
+    // 与父进程 EmbeddingConfigService.resolveDefault 同判：悬空/非 embedding →
+    // null；memory.endpointId 已退役不再读）
+    const resolveDefault = (): { baseUrl: string; apiKey?: string; model: string } | null => {
+      const id = readKey("embedding.defaultEndpointId");
+      if (id === undefined || id.trim() === "") return null;
+      const record = resolveRecord(id);
+      if (record === null || (record.kind ?? "embedding") !== "embedding") return null;
+      return { baseUrl: record.baseUrl, ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}), model: record.model };
+    };
     const embedding = new OpenAiCompatEmbeddingAdapter({
-      getConfig: () => {
-        const endpointId = readKey("memory.endpointId");
-        if (endpointId === undefined || endpointId === "") return null;
-        const record = resolveRecord(endpointId);
-        return record === null
-          ? null
-          : { baseUrl: record.baseUrl, apiKey: record.apiKey, model: record.model };
-      },
+      getConfig: () => resolveDefault(),
     });
     return new StewardMemoryService({
       config,
       embedding,
-      embeddingConfig: { resolveRecord },
+      embeddingConfig: { resolveRecord, resolveDefault },
       store,
       // 子进程只读消费（检索 + markRecalled 复习强化回写归 store）——不挂
       // GC 定时器（遗忘机制归管家父进程单点）、不挂判官（写入面归管家）

@@ -152,32 +152,33 @@ describe("voice 流式两命令构造器（V3b-2：管家朗读流式接线）",
 
 // ── 管家记忆 B2：steward.set_config 构造器 memory 槽位透传（回归：修复前构造器
 //    签名只收 enabled/model，memory 字段被静默丢弃——UI 开关勾不上）+
-//    memory 组瘦身形态 {enabled?,endpointId?}（B1 三字段形态退役）──
+//    memory 组瘦身形态 {enabled?,judgeEndpointId?,recall*}（批1：endpointId
+//    退役——向量端点选择收编全局默认 embedding 端点）──
 
-describe("stewardSetConfigCommand 槽位透传（管家记忆 B2 瘦身形态）", () => {
+describe("stewardSetConfigCommand 槽位透传（批1 收编形态）", () => {
   it("memory 槽位携带 → payload.memory 透传（修复前被丢弃）", () => {
     const cmd = stewardSetConfigCommand({ memory: { enabled: true } });
     expect(cmd.type).toBe("steward.set_config");
     expect(cmd.payload).toEqual({ memory: { enabled: true } });
   });
 
-  it("三槽位共存：enabled + model + memory（endpointId 引用）同时携带互不覆盖", () => {
-    const cmd = stewardSetConfigCommand({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, endpointId: "ep-1" } });
-    expect(cmd.payload).toEqual({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, endpointId: "ep-1" } });
+  it("三槽位共存：enabled + model + memory（judgeEndpointId 引用）同时携带互不覆盖", () => {
+    const cmd = stewardSetConfigCommand({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, judgeEndpointId: "ep-1" } });
+    expect(cmd.payload).toEqual({ enabled: true, model: "openai/gpt-5-mini", memory: { enabled: true, judgeEndpointId: "ep-1" } });
   });
 
   it("单槽位最小帧：只携带传入位，缺省不携带键（帧噪音最小化）", () => {
     expect(stewardSetConfigCommand({ enabled: false }).payload).toEqual({ enabled: false });
     expect(stewardSetConfigCommand({}).payload).toEqual({});
-    // endpointId 空串 = 清除引用（显式解绑）
-    expect(stewardSetConfigCommand({ memory: { endpointId: "" } }).payload).toEqual({ memory: { endpointId: "" } });
+    // judgeEndpointId 空串 = 清除引用（显式解绑）
+    expect(stewardSetConfigCommand({ memory: { judgeEndpointId: "" } }).payload).toEqual({ memory: { judgeEndpointId: "" } });
   });
 
-  it("B4a：judgeEndpointId 槽位透传（classifier 端点引用；与 endpointId 共存）", () => {
+  it("B4a：judgeEndpointId 槽位透传（classifier 端点引用）", () => {
     const cmd = stewardSetConfigCommand({ memory: { judgeEndpointId: "ep-9" } });
     expect(cmd.payload).toEqual({ memory: { judgeEndpointId: "ep-9" } });
-    const both = stewardSetConfigCommand({ memory: { endpointId: "ep-1", judgeEndpointId: "ep-9" } });
-    expect(both.payload.memory).toEqual({ endpointId: "ep-1", judgeEndpointId: "ep-9" });
+    const both = stewardSetConfigCommand({ memory: { enabled: true, judgeEndpointId: "ep-9" } });
+    expect(both.payload.memory).toEqual({ enabled: true, judgeEndpointId: "ep-9" });
   });
 
   // ── 总结器独立化批①：summary/sessionMemory 组已摘除（协议契约变更）——

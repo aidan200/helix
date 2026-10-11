@@ -18,6 +18,7 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 const sendEmbeddingList = vi.fn(() => true);
 const sendEmbeddingSet = vi.fn(() => true);
 const sendEmbeddingDelete = vi.fn(() => true);
+const sendEmbeddingSetDefault = vi.fn(() => true);
 const sendEmbeddingVerify = vi.fn(() => true);
 let embeddingListeners: ((e: EventEnvelope) => void)[] = [];
 
@@ -29,6 +30,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       sendEmbeddingList,
       sendEmbeddingSet,
       sendEmbeddingDelete,
+      sendEmbeddingSetDefault,
       sendEmbeddingVerify,
       subscribeEmbeddingFrames: (listener: (e: EventEnvelope) => void) => {
         embeddingListeners.push(listener);
@@ -58,14 +60,14 @@ const ENDPOINTS = [
   { id: "ep-3", name: "Jev", baseUrl: "https://api.typesafe.ai/v1", model: "jev-latest", kind: "classifier" as const, hasApiKey: true, keyMasked: "····9c2d", verifiedAt: null },
 ];
 
-function feedList(endpoints: typeof ENDPOINTS) {
+function feedList(endpoints: typeof ENDPOINTS, defaultEndpointId: string | null = null) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
     channel: "embedding",
     type: "embedding.list.result",
     ts: 1,
-    payload: { endpoints },
+    payload: { endpoints, defaultEndpointId },
   } as unknown as EventEnvelope;
   act(() => {
     for (const l of embeddingListeners) l(frame);
@@ -198,5 +200,39 @@ describe("向量模型 tab（B2-③）", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("全局默认 embedding 端点（批1 WP-A）", () => {
+  it("「默认」徽标只挂默认端点行；「设为默认」动作在非默认行，点击发 embedding.set_default", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-1"));
+    expect(container.querySelector("[data-emb-default=ep-1]")!.textContent).toContain("默认");
+    expect(container.querySelector("[data-emb-default=ep-2]")).toBeNull();
+    expect(container.querySelector("[data-emb-set-default=ep-1]")).toBeNull(); // 默认行不再提供设默认
+    const setDefault = container.querySelector<HTMLButtonElement>("[data-emb-set-default=ep-2]")!;
+    fireEvent.click(setDefault);
+    expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-2");
+  });
+
+  it("无默认端点 → tab 顶部引导条（记忆/知识库向量面不可用）；设默认后消失", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, null));
+    const hint = container.querySelector("[data-emb-no-default]")!;
+    expect(hint.textContent).toMatch(/未设置默认 embedding 端点/);
+    act(() => feedList(ENDPOINTS, "ep-1"));
+    expect(container.querySelector("[data-emb-no-default]")).toBeNull();
+  });
+
+  it("默认端点删除（armed 态）→ 补充确认提示「删除后记忆与知识库向量面将不可用」", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-1"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-delete=ep-1]")!);
+    const hint = container.querySelector("[data-emb-delete-default-hint=ep-1]")!;
+    expect(hint.textContent).toMatch(/默认 embedding 端点/);
+    expect(hint.textContent).toMatch(/不可用/);
+    // 非默认端点 armed 无该提示
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-delete=ep-2]")!);
+    expect(container.querySelector("[data-emb-delete-default-hint=ep-2]")).toBeNull();
   });
 });

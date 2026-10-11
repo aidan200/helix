@@ -1,6 +1,12 @@
 import { Database } from "bun:sqlite";
 import type { KgDatabase } from "./KgDatabase";
 import { META_KEYS, KG_TABLES } from "./schema";
+import { float32ToBlob } from "./node-vector-codec";
+import type {
+  NodeEmbedTarget,
+  NodeVectorMeta,
+  NodeVectorRow,
+} from "../../../application/ports/outbound/NodeVectorStorePort";
 import type { KgPurgeSummary } from "../../../application/ports/outbound/KnowledgeStorePort";
 import { formatCandidateId, formatNodeId, parseCandidateId, parseMigrationId } from "../../../domain/kg/node-id";
 import { supersedeTransition } from "../../../domain/kg/supersede";
@@ -125,6 +131,7 @@ export class SqliteKnowledgeStore {
       return err("KG_E_SCHEMA", "batchCreateNodes nodes 不能为空数组", "op.nodes");
     }
     let lastId: string | null = null;
+    const createdIds: string[] = [];
     for (let i = 0; i < op.nodes.length; i += 1) {
       const payload = op.nodes[i]!;
       const result = this.applyCreateNode(
@@ -160,8 +167,9 @@ export class SqliteKnowledgeStore {
         this.appendChangeLog(db, op.iterationId, "declareAnchors", result.nodeId, null, null, op.taskId);
       }
       lastId = result.nodeId;
+      createdIds.push(result.nodeId);
     }
-    return { ok: true, nodeId: lastId! }; // 空批已前置拒绝，此处恒非空
+    return { ok: true, nodeId: lastId!, nodeIds: createdIds }; // 空批已前置拒绝，此处恒非空
   }
 
   private applyCreateNode(
@@ -685,6 +693,78 @@ export class SqliteKnowledgeStore {
       this.rollbackQuietly(db);
       throw error instanceof Error ? error : new Error(String(error));
     }
+  }
+
+  // ── node_vectors（批1 WP-B 向量缓存面——NodeVectorStorePort 实现）──
+  // 向量是可再生缓存（文本唯一真源）；BLOB = float32[dim] 序列化；同
+  // node_id 单行覆盖写（upsert）；blob 不出 meta 读面。
+
+  upsertNodeVector(projectRoot: string, row: NodeVectorRow): void {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    db.prepare(
+      "INSERT INTO node_vectors (node_id, content_hash, model, dim, embedded_at, embedding) VALUES (?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(node_id) DO UPDATE SET content_hash = excluded.content_hash, model = excluded.model, " +
+        "dim = excluded.dim, embedded_at = excluded.embedded_at, embedding = excluded.embedding",
+    ).run(row.nodeId, row.contentHash, row.model, row.dim, row.embeddedAt, float32ToBlob(row.embedding));
+  }
+
+  deleteNodeVector(projectRoot: string, nodeId: string): void {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    db.prepare("DELETE FROM node_vectors WHERE node_id = ?").run(nodeId);
+  }
+
+  getNodeVectorMeta(projectRoot: string, nodeId: string): NodeVectorMeta | null {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const row = db
+      .prepare("SELECT node_id, content_hash, model, dim, embedded_at FROM node_vectors WHERE node_id = ?")
+      .get(nodeId) as
+      | { node_id: string; content_hash: string; model: string; dim: number; embedded_at: number }
+      | null;
+    return row === null
+      ? null
+      : {
+          nodeId: row.node_id,
+          contentHash: row.content_hash,
+          model: row.model,
+          dim: row.dim,
+          embeddedAt: row.embedded_at,
+        };
+  }
+
+  getNodeEmbedTarget(projectRoot: string, nodeId: string): NodeEmbedTarget | null {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const node = db
+      .prepare("SELECT id, name, scene, digest, body FROM nodes WHERE id = ? AND status != 'superseded'")
+      .get(nodeId) as { id: string; name: string; scene: string; digest: string; body: string } | null;
+    if (node === null) return null;
+    return {
+      nodeId: node.id,
+      name: node.name,
+      scene: node.scene,
+      digest: node.digest,
+      body: node.body,
+      vector: this.getNodeVectorMeta(projectRoot, nodeId),
+    };
+  }
+
+  listEmbedTargets(projectRoot: string): readonly NodeEmbedTarget[] {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const rows = db
+      .prepare("SELECT id, name, scene, digest, body FROM nodes WHERE status != 'superseded' ORDER BY id")
+      .all() as { id: string; name: string; scene: string; digest: string; body: string }[];
+    return rows.map((node) => ({
+      nodeId: node.id,
+      name: node.name,
+      scene: node.scene,
+      digest: node.digest,
+      body: node.body,
+      vector: this.getNodeVectorMeta(projectRoot, node.id),
+    }));
+  }
+
+  countNodeVectors(projectRoot: string): number {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    return (db.prepare("SELECT COUNT(*) AS n FROM node_vectors").get() as { n: number }).n;
   }
 
   // ── 内部：发号 / 日志 / 行访问 ────────────────────────────

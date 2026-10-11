@@ -17,6 +17,10 @@
  *   概率）。ok 落 verifiedAt，fail 回定位信息；
  * - resolve：endpointId → EmbeddingEndpointConfig（条目完整才可用；
  *   条目已删/不存在 → null——记忆可用性闸的输入）；
+ * - setDefault / resolveDefault（批1 全局默认 embedding 端点）：
+ *   embedding.defaultEndpointId 引用态 KV 单点——setDefault 校验
+ *   （条目存在 ∧ kind=embedding ∧ 已 verify），resolveDefault 为全消费面
+ *   （记忆 / kg 向量 / 未来模块）唯一取用单点，悬空/非 embedding → null；
  * - migrateLegacyStewardEndpoint：一次性迁移——旧 KV
  *   steward.memory.embedding（B1 三字段）存在且 embedding_endpoints 为空
  *   → 迁成首条端点（name="默认端点"）+ steward.memory.endpointId 指向 +
@@ -32,6 +36,12 @@ import type { JudgePort } from "../ports/outbound/JudgePort";
 
 /** 端点清单 KV 键（JSON 数组）。 */
 export const EMBEDDING_ENDPOINTS_KEY = "embedding_endpoints";
+
+/** 全局默认 embedding 端点引用 KV 键（批1：引用态指向 embedding_endpoints
+ *  条目 id——独立 KV 引用态而非端点记录加 isDefault 字段（与
+ *  memory.endpointId 引用态同构先例）：端点删除时引用自然悬空 = 无默认，
+ *  各消费面按「无默认」降级，不需要级联清理；端点记录 schema 零改动）。 */
+export const EMBEDDING_DEFAULT_ENDPOINT_ID_KEY = "embedding.defaultEndpointId";
 
 /** 端点用途维度（B4a）：embedding = 向量嵌入（记忆主链路）；classifier =
  *  分类判官（Jev 等单步判别——自动沉淀写入闸判定面）。同域不同用途，
@@ -301,6 +311,55 @@ export class EmbeddingConfigService {
       model: record.model,
       ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
     };
+  }
+
+  /**
+   * 设置全局默认 embedding 端点（批1）。校验三拒：条目不存在 / kind≠embedding
+   * （判官端点不进向量语义）/ 未 verify（未连通验证过的端点不当默认——
+   * 默认端点是全 helix 向量面的单点依赖，须过连通关）。
+   */
+  async setDefault(endpointId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const record = this.resolveRecord(endpointId);
+    if (record === null) return { ok: false, error: `端点不存在：${endpointId}` };
+    if ((record.kind ?? "embedding") !== "embedding") {
+      return { ok: false, error: `端点 ${record.name} 不是向量端点（kind=${record.kind}）——默认端点仅限 kind=embedding` };
+    }
+    if (record.verifiedAt === undefined) {
+      return { ok: false, error: `端点 ${record.name} 尚未通过连通验证——请先测试连通再设为默认` };
+    }
+    await this.deps.config.set(EMBEDDING_DEFAULT_ENDPOINT_ID_KEY, endpointId);
+    return { ok: true };
+  }
+
+  /**
+   * 默认端点解析（批1）：全消费面唯一取用单点——记忆 / kg 向量 / 未来模块
+   * 一律经本方法取 embedding 端点。未设默认 / 引用悬空（条目已删）/ 条目
+   * 不完整 / 误指非 embedding 条目 → null = 「向量面不可用」，各消费面按
+   * 自己的降级纪律处理（记忆拒开、kg 嵌入降级 warn）。
+   */
+  resolveDefault(): EmbeddingEndpointConfig | null {
+    const record = this.resolveDefaultRecord();
+    if (record === null) return null;
+    return {
+      baseUrl: record.baseUrl,
+      model: record.model,
+      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
+    };
+  }
+
+  /** 默认端点记录（含 id/name 等元数据；悬空/非 embedding/不完整 → null）。 */
+  resolveDefaultRecord(): EmbeddingEndpointRecord | null {
+    const id = this.defaultEndpointId();
+    if (id === null) return null;
+    const record = this.resolveRecord(id);
+    if (record === null || (record.kind ?? "embedding") !== "embedding") return null;
+    return record;
+  }
+
+  /** 默认端点引用 id（未设 = null；引用悬空判定归 resolveDefaultRecord）。 */
+  private defaultEndpointId(): string | null {
+    const raw = this.deps.config.get(EMBEDDING_DEFAULT_ENDPOINT_ID_KEY);
+    return raw !== undefined && raw.trim() !== "" ? raw : null;
   }
 
   /**

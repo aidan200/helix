@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 124 个 type（… + M3-d1 感知兑现批 steward.activity 两命令）", () => {
+  test("命令目录恰为 125 个 type（… + 默认 embedding 端点批 embedding.set_default）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -198,6 +198,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "embedding.delete",
         "embedding.list",
         "embedding.set",
+        "embedding.set_default",
         "embedding.verify",
         "kg.auto.audit",
         "kg.bootstrap.create",
@@ -699,11 +700,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（确认链路修复批后）：EVENT_TYPES 153 / EVENT_CHANNELS 153 键 / COMMAND_TYPES 124", () => {
+  test("目录计数（确认链路修复批后）：EVENT_TYPES 153 / EVENT_CHANNELS 153 键 / COMMAND_TYPES 125", () => {
     expect(EVENT_TYPES.length).toBe(155); // 光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两帧）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：确认链路修复批 +1（steward.pending.snapshot）// 管家感知批 M0.5 +1（steward.notify）// 表面协议地基批 +2（surface.action/registered）// P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）// P2 审计批 +1（kg.auto.audit.result）// B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
     expect(new Set(EVENT_TYPES).size).toBe(155); // 光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2 后当前值；此前：无重复 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：无重复
     expect(Object.keys(EVENT_CHANNELS).length).toBe(155); // 光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2 后当前值；此前：登记目录恰等 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(125); // M3-d1 感知兑现批 +2（steward.activity 两命令）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit）// 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
+    expect(COMMAND_TYPES.length).toBe(126); // 默认 embedding 端点批（批1）+1（embedding.set_default）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两命令）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit）// 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });
