@@ -520,7 +520,7 @@ export function handleStewardMemoryRestore(ctx: StewardCommandContext): void {
 /** steward.interrupt（全局命令；B2 barge-in 批）：在途轮打断 →
  *  StewardService.abortInFlight(reason ?? "barge-in")（现成方法，幂等 +
  *  drain 序 + settleAbortedTurn 截断记账——E-198 语义零改动）。
- *  批 3b 两轨裁决乙：scope="all"（语音停止词）→ interruptAll 全停通道
+ *  批 3b 两轨裁决乙：scope="all"（语音停止判定）→ interruptAll 全停通道
  *  （abort 当前 + 清空 ask 队列）；scope 缺省/"current" = 面板轻停。
  *  回执帧省（设计 §3.2：loop.run.interrupted + ask 终态事件面已够）；
  *  无在途时 abortInFlight 返回 false 照常静默（重复触发幂等）。 */
@@ -534,17 +534,17 @@ export function handleStewardInterrupt(ctx: StewardCommandContext): void {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.scope 应为 current|all");
   }
   if (scope === "all") {
-    ctx.steward.service.interruptAll(reason ?? "语音停止词全停");
+    ctx.steward.service.interruptAll(reason ?? "语音停止判定全停");
     return;
   }
   ctx.steward.service.abortInFlight(reason ?? "barge-in");
 }
 
-/** steward.judge_stop_intent（全局命令；barge-in 意图窗批）：语义停止判定
+/** steward.judge_stop_intent（全局命令；Jev 停止判定单轨批）：停止意图判定
  *  → StewardService.judgeStopIntent（判官 noul + 降级链）→ 点对点回执
  *  steward.judge_stop_intent.result。异步判定、回执后置（不阻塞命令分发
- *  ——ask 流式同构先例）；单飞语义：意图窗至多一判，迟到回执由 shell 侧
- *  序列守卫吞。 */
+ *  ——ask 流式同构先例）；停止词表退役后停止判定单源（shell 打断链与
+ *  daemon ask 漏斗共用本判定面），迟到回执由 shell 侧幂等吞。 */
 export function handleStewardJudgeStopIntent(ctx: StewardCommandContext): void {
   const text = ctx.payload.text;
   if (typeof text !== "string" || text.trim() === "") {

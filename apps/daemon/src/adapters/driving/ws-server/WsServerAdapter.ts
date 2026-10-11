@@ -861,7 +861,7 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardInterrupt(this.contexts.stewardContext(ws, type, payload));
-      // ── barge-in 意图窗批：语义停止判定（非词表停止表达；回执 judge_stop_intent.result）──
+      // ── Jev 停止判定单轨：停止意图判定（停止词表退役后单源；回执 judge_stop_intent.result）──
       case "steward.judge_stop_intent":
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)

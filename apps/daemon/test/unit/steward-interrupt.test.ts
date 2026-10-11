@@ -89,12 +89,12 @@ describe("handleStewardInterrupt（ws handler 转发面）", () => {
     expect(errors).toHaveLength(0);
   });
 
-  // ── 批 3b 两轨裁决乙：scope 分野（语音停止词 = all 全停；面板钮缺省 = current 轻停）──
+  // ── 批 3b 两轨裁决乙：scope 分野（语音停止判定 = all 全停；面板钮缺省 = current 轻停）──
 
   test("scope=all → interruptAll（abort 当前 + 清空队列）零 abortInFlight 轻停通道", () => {
     const { ctx, aborts, interruptAlls, errors } = ctxOf({ scope: "all" });
     handleStewardInterrupt(ctx);
-    expect(interruptAlls).toEqual(["语音停止词全停"]);
+    expect(interruptAlls).toEqual(["语音停止判定全停"]);
     expect(aborts).toHaveLength(0); // 轻停通道不走（interruptAll 内部自调 service 实现，不回环 handler）
     expect(errors).toHaveLength(0);
   });

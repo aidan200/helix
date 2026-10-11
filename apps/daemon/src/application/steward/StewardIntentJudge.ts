@@ -52,8 +52,8 @@ export function isAmbientSpeech(addresseeScore: number): boolean {
   return clamp(addresseeScore) < STEWARD_ADDRESSEE_DROP_THRESHOLD;
 }
 
-/** stop-intent 判定问句（barge-in 意图窗批：非词表停止表达的判官慢通道——
- *  词表快通道 0ms 之后的语义兜底，shell 意图窗排队前调）。单源常量同纪律。 */
+/** stop-intent 判定问句（Jev 停止判定单轨——停止词表退役后停止判定单源，
+ *  shell 打断链与 daemon ask 漏斗共用）。单源常量同纪律。 */
 export const STEWARD_STOP_QUESTION =
   "用户这句话是在要求 AI 语音助手停止说话吗？（叫停、示意先别说了、嫌吵、让它停下 = 是；提问、纠正、补充信息、提出新要求、与助手无关的闲聊 = 不是）";
 

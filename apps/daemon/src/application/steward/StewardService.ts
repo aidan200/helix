@@ -73,7 +73,7 @@ import type {
   StewardProactivePayload,
   StewardAskSource,
 } from "@helix/protocol";
-import { matchStewardStopPhrase, matchStewardConfirmPhrase, matchStewardCancelPhrase } from "@helix/protocol";
+import { matchStewardConfirmPhrase, matchStewardCancelPhrase } from "@helix/protocol";
 import { StewardDialogMemory } from "./StewardDialogMemory";
 import type { StewardMemoryService } from "./StewardMemoryService";
 import type { TriageJudgeFace, TriageJudgeState } from "./StewardTriageJudge";
@@ -249,9 +249,10 @@ export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认
 // ── 确认类/取消类口令词表已单源化至 @helix/protocol stewardPhrases（闸门
 // 对应修复批：双端词族同源——STEWARD_CONFIRM_PHRASES 8 词 / STEWARD_CANCEL_
 // PHRASES 3 词，历史文案见 git；扩改词表双端同改不再手工同步）。在途 run
-// 命中停止词 → 全停（abort 当前 + 清空排队，回执携丢弃条数）；无在途原样
-// 走 LLM（词表仅在场路由——TR-240 同款纪律）；与确认口令词表互斥：「取消」
-// 是卡作废口令，「停」族是 run 全停口令，语义分层不互吞。
+// 判官判停 → 全停（abort 当前 + 清空排队，回执携丢弃条数；停止判定单源
+// = Jev 停止意图判官——停止词表已退役）；无在途原样走 LLM（停止判定仅
+// 在场触发——TR-240 同款纪律）；与确认口令词表互斥：「取消」是卡作废口令，
+// 判官判停是 run 全停，语义分层不互吞。
 
 /** 口令判定（极轻纯函数，零 LLM；非词表全等 → undefined 原样走 LLM）。 */
 export function matchStewardCommandPhrase(text: string): "confirm" | "cancel" | undefined {
@@ -1303,15 +1304,21 @@ export class StewardService implements StewardComponent {
       const routed = this.routeConfirmPhrase(phrase);
       if (routed !== undefined) return routed;
     }
-    // 强制停止词（手动停止批）：在途 run 命中 → 全停（abort 当前 + 清空排队，
-    // 回执携丢弃条数）；无在途原样走 LLM（用户闲聊可能带「停」字——词表仅在
-    // 场路由，TR-240 同款纪律）。挂闸阻塞态同样全停（旧逻辑会把停止词当新
-    // ask abort-再驱动——语义错位）；pending 卡不动（卡生命周期 TTL 域独立）。
-    if (this.run.active && matchStewardStopPhrase(text)) {
-      const dropped = this.askQueue.clearAll();
-      this.abortInFlight("停止词全停");
-      this.logInfo(`管家手动停止（停止词）：丢弃排队 ${dropped} 条`);
-      return { status: "stopped", reason: "已停止当前处理", dropped };
+    // 强制停止判定（Jev 单轨——停止词表退役批）：在途 run 时停止意图判官
+    // 判停 → 全停（abort 当前 + 清空排队，回执携丢弃条数）；判不出（判官
+    // 缺席/抛错/降级）照常走队列（fail-open 归漏斗面——不吞用户提问、不动
+    // 队列序不变量；shell 打断链的 fail-stop 归其消费面）；无在途原样走 LLM
+    // （停止判定仅在场触发，TR-240 同款纪律）。挂闸阻塞态判停同样全停（旧
+    // 逻辑会把停止表达当新 ask abort-再驱动——语义错位）；pending 卡不动
+    //（卡生命周期 TTL 域独立）。
+    if (this.run.active) {
+      const stopVerdict = await this.judgeStopIntent(text);
+      if (stopVerdict.stop && this.run.active) {
+        const dropped = this.askQueue.clearAll();
+        this.abortInFlight("停止判定全停");
+        this.logInfo(`管家手动停止（停止判定判停）：丢弃排队 ${dropped} 条`);
+        return { status: "stopped", reason: "已停止当前处理", dropped };
+      }
     }
     // 判官泛化层（M3-a：三级漏斗第二级）：词表未命中 ∧ pending 卡在场 →
     // 判官 noul 三问分流「确认/取消/修正」。确认/取消复用口令路由执行面
@@ -1378,8 +1385,8 @@ export class StewardService implements StewardComponent {
     return true;
   }
 
-  /** 全停（批 3b 两轨裁决乙：语音停止词通道，steward.interrupt scope=all）
-   *  ——与 ask 漏斗停止词全停同径：abort 当前 + 清空 ask 队列。与轻停
+  /** 全停（批 3b 两轨裁决乙：语音停止判定通道，steward.interrupt scope=all）
+   *  ——与 ask 漏斗停止判定全停同径：abort 当前 + 清空 ask 队列。与轻停
    *  （abortInFlight，队列照常）相对；幂等（无在途时清队列照常——队列在场
    *  即有意义）。返回丢弃条数（日志用）。 */
   interruptAll(reason: string): number {
@@ -2172,15 +2179,15 @@ export class StewardService implements StewardComponent {
     return r.value;
   }
 
-  /** stop-intent 语义判定（barge-in 意图窗批）：非词表停止表达（「先别说了/
-   *  等一下」类）的判官判定面——shell 意图窗 final 慢通道在排队前调（协议
-   *  面 steward.judge_stop_intent）。stop=true 才真停；降级链（off/unready/
-   *  error）一律 stop=false 回退照排队（与 addressee 同向保守：宁多应答不
-   *  漏——误停丢播报不可回滚，误排队仅延后应答）。 */
+  /** stop-intent 停止判定（Jev 单轨——停止词表退役批）：停止意图判官判定面
+   *  ——shell 打断链与 daemon ask 漏斗的停止判定单源（协议面
+   *  steward.judge_stop_intent）。**原始判定语义**：stop=true 才判停；判不出
+   *  （off/unready/error）一律 stop=false + degraded 标记，fail-stop 归消费面
+   *  ——shell 意图窗判不出=真停（用户裁决②：宁误停不漏停），ask 漏斗判不出
+   *  =照常走队列（不吞用户提问、不动队列序不变量）。 */
   async judgeStopIntent(text: string): Promise<{ stop: boolean; score?: number; degraded?: "off" | "unready" | "error" }> {
-    // 批 3a：降级链收编 judgeOrFallback（文案逐字保留）；stop=true 才真停；
-    // 降级一律 stop=false 回退照排队（与 addressee 同向保守——误停丢播报
-    // 不可回滚，误排队仅延后应答）。
+    // 批 3a：降级链收编 judgeOrFallback（文案逐字保留）；stop=true 才判停；
+    // 判不出携 degraded 标记（原始判定面——fail-stop 归消费面）。
     const r = await judgeOrFallback<{ stop: boolean; score?: number }>({
       judge: this.deps.intentJudge,
       question: STEWARD_STOP_QUESTION,
@@ -2189,9 +2196,9 @@ export class StewardService implements StewardComponent {
       fallback: { stop: false },
       onDegraded: (kind, message) => {
         if (kind === "unready") {
-          this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——stop-intent 判定回退不停止（照排队）");
+          this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——stop-intent 判不出（fail-stop 归消费面）");
         } else {
-          this.deps.logger?.warn(`stop-intent 判定失败，回退不停止（照排队）：${message ?? ""}`);
+          this.deps.logger?.warn(`stop-intent 判定失败（判不出）：${message ?? ""}`);
         }
         if (kind === "off") this.deps.emitHealth?.("judge", "ok");
         else this.deps.emitHealth?.("judge", "degraded", message ?? kind);

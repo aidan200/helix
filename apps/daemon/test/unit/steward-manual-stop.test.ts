@@ -9,16 +9,18 @@
  * 1. interrupt 快进强制收口：手动 abort 后 8s 仍 runActive（挂死流 abort
  *    打不醒——E-240 实测事实）→ 直接弃引擎强制收口 + 队列驱动恢复（对比
  *    被动看门狗 195s）；8s 前零强制；正常收口后手动锚复位（不误伤下一 run）。
- * 2. 强制停止词（TR-240 口令纪律同款：词表单源全等匹配 + 归一剥尾标点，
- *    仅 runActive 在场时路由）：命中 → 全停（abort 当前 + 清空排队 + stopped
- *    回执携丢弃条数）；空闲态命中不吞（原样走 LLM）；确认口令（「取消」）
- *    优先于停止词路由（卡语义不被吞）；挂闸阻塞态命中 → 全停且 pending 卡
- *    保留（卡生命周期 TTL 域独立）。
+ * 2. 强制停止判定（Jev 停止意图判官单轨——停止词表已整体退役）：仅
+ *    runActive 在场时路由判官判定（判官缺席/抛错 = 判不出照常走队列，
+ *    fail-open 归漏斗面）：判停 → 全停（abort 当前 + 清空排队 + stopped
+ *    回执携丢弃条数）；空闲态不吞（原样走 LLM）；确认口令（「取消」）
+ *    优先于停止判定路由（卡语义不被吞）；挂闸阻塞态判停 → 全停且 pending
+ *    卡保留（卡生命周期 TTL 域独立）。③行为兼容回归：纯停止文本
+ *    （「停/别说了」族）经判官仍真停。
  *
- * 约束（kg 切片）：E-240 askQueue/runActive/finishRun 行为等价（本批只加
- * 快进轨与入口路由，不动队列语义）；TR-240 确认口令路由序在前（停止词后
- * 于确认口令检查）；E-278 判定序不动（停止词在 ask 入口 LLM/执行层，非
- * 语音判定链）。
+ * 约束（kg 切片）：E-240 askQueue/runActive/finishRun 行为等价（本批只改
+ * 入口停止判定的判定源，不动队列语义）；TR-240 确认口令路由序在前（停止
+ * 判定后于确认口令检查）；E-278 判定序不动（停止判定在 ask 入口
+ * LLM/执行层，非语音判定链）。
  */
 import { describe, expect, test } from "bun:test";
 import { createEngineFromPort } from "../helpers/steward/portScriptEngine";
@@ -32,11 +34,17 @@ import type { RuntimeConfigPort } from "../../src/application/ports/outbound/Run
 import type { StewardAskResultPayload } from "@helix/protocol";
 import { StewardService } from "../../src/application/steward/StewardService";
 import { StewardDialogMemory } from "../../src/application/steward/StewardDialogMemory";
+import type { IntentJudgeFace } from "../../src/application/steward/StewardIntentJudge";
 import { fakeDialogStore } from "./helpers/fake-steward-dialog-store";
 
 // ── fakes（对齐 steward-reliability.test.ts 装配——探针：abort 计数/日志） ──
 
-function makeStopService(opts: { llm: StewardLlmPort; nowRef: { now: number }; runningAgents?: readonly string[] }) {
+function makeStopService(opts: {
+  llm: StewardLlmPort;
+  nowRef: { now: number };
+  runningAgents?: readonly string[];
+  intentJudge?: IntentJudgeFace;
+}) {
   const aborts: number[] = [];
   const logger = fakeLogger();
   const running = opts.runningAgents ?? ["agent-1"];
@@ -60,6 +68,7 @@ function makeStopService(opts: { llm: StewardLlmPort; nowRef: { now: number }; r
     feedGate: { hasStewardSubscribers: () => false },
     emitFeed: () => {}, // 零订阅测试形态（类型闭合——本批不断言 feed 帧）
     logger,
+    ...(opts.intentJudge !== undefined ? { intentJudge: opts.intentJudge } : {}),
     createEngine: (engineOpts) => {
       const inner = innerCreate(engineOpts);
       return {
@@ -129,6 +138,27 @@ function fakeLogger() {
     warns,
     info: (m: string) => infos.push(m),
     warn: (m: string) => warns.push(m),
+  };
+}
+
+/** Jev 停止意图判官 fake（语义模拟——零生成 token 分类判定的测试替身）：
+ *  纯停止文本（「停/别说了」族）→ 0.9（判停）；其余 → 0.1（判非停）。
+ *  noulCalls 记录被判定的 state（断言「经判官」而非本地词表）。 */
+function fakeStopJudge(
+  opts: { enabled?: boolean; ready?: boolean; throwErr?: Error } = {},
+): IntentJudgeFace & { noulCalls: string[] } {
+  const noulCalls: string[] = [];
+  const stopTexts = new Set(["停", "停下", "停止", "停一下", "stop", "别说了", "先别说了", "不要说了", "不用说了", "别念了", "别说话了", "闭嘴", "住嘴", "够了"]);
+  return {
+    noulCalls,
+    enabled: () => opts.enabled ?? true,
+    ready: () => opts.ready ?? true,
+    async noul(state: string, _question: string): Promise<number> {
+      noulCalls.push(state);
+      if (opts.throwErr !== undefined) throw opts.throwErr;
+      const text = state.replace(/^用户这句话：/u, "").trim().replace(/[。．.!！?？?，,、；;～~\s]+$/u, "");
+      return stopTexts.has(text) ? 0.9 : 0.1;
+    },
   };
 }
 
@@ -216,13 +246,14 @@ describe("手动停止①：interrupt 快进强制收口（挂死流 8s 恢复�
   });
 });
 
-// ── ② 强制停止词（全停：abort 当前 + 清空排队） ──────────────
+// ── ② 强制停止判定（Jev 判官单轨：全停 = abort 当前 + 清空排队） ─────────
 
-describe("手动停止②：强制停止词（在途全停 + 空闲不吞 + 确认口令优先 + 挂闸卡保留）", () => {
-  test("挂死 run + 排队 2 条 → 停止词（尾标点归一）→ stopped 回执携丢弃数 + abort 被调 + 快进收口后队列恢复", async () => {
+describe("手动停止②：强制停止判定（判官单轨——在途全停 + 空闲不吞 + 确认口令优先 + 挂闸卡保留）", () => {
+  test("挂死 run + 排队 2 条 → 判官判停（尾标点归一由判官语义承接）→ stopped 回执携丢弃数 + abort 被调 + 快进收口后队列恢复", async () => {
     const nowRef = { now: 0 };
     const llm = fakeLlm([answer("（挂死轮占位——永不返回）"), answer("恢复后答")], new Set([0]));
-    const { svc, aborts } = makeStopService({ llm, nowRef });
+    const judge = fakeStopJudge();
+    const { svc, aborts } = makeStopService({ llm, nowRef, intentJudge: judge });
 
     const hung = svc.ask("第一问");
     await settle(6);
@@ -232,12 +263,13 @@ describe("手动停止②：强制停止词（在途全停 + 空闲不吞 + 确�
     const q2 = await svc.ask("排队二");
     expect(q2.status).toBe("queued");
 
-    // 语音转写常带句读：「别说了。」→ 归一命中停止词
+    // 停止判定单源 = Jev 判官（停止词表已退役）：「别说了。」→ 判官判停
     const stopped = await svc.ask("别说了。");
     expect(stopped.status).toBe("stopped");
     if (stopped.status !== "stopped") throw new Error("unreachable");
     expect(stopped.dropped).toBe(2);
     expect(aborts.length).toBeGreaterThanOrEqual(1);
+    expect(judge.noulCalls.length).toBeGreaterThanOrEqual(1); // 经判官判定（非本地词表）
 
     // 快进轨收口挂死 run（stopped 回执即刻返回，收口由 8s 轨异步完成）
     nowRef.now = 8_000;
@@ -253,18 +285,20 @@ describe("手动停止②：强制停止词（在途全停 + 空闲不吞 + 确�
     expect(after.text).toBe("恢复后答");
   });
 
-  test("空闲态停止词不吞：无在途 run 时原样走 LLM（TR-240 同款纪律——词表仅在场路由）", async () => {
+  test("空闲态不吞：无在途 run 时原样走 LLM 且零判官调用（词表仅在场路由纪律平移——停止判定仅 run 在场时触发）", async () => {
     const nowRef = { now: 0 };
     const llm = fakeLlm([answer("闲聊答")]);
-    const { svc } = makeStopService({ llm, nowRef });
+    const judge = fakeStopJudge();
+    const { svc } = makeStopService({ llm, nowRef, intentJudge: judge });
 
     const r = await svc.ask("停");
     expect(r.status).toBe("answer");
     if (r.status !== "answer") throw new Error("unreachable");
     expect(r.text).toBe("闲聊答");
+    expect(judge.noulCalls.length).toBe(0); // 空闲态零判定
   });
 
-  test("确认口令优先于停止词：pending 卡在场「取消」走卡作废路由（不被停止词吞）", async () => {
+  test("确认口令优先于停止判定：pending 卡在场「取消」走卡作废路由（不被停止判定吞）", async () => {
     const nowRef = { now: 0 };
     const llm = fakeLlm([toolCall("propose_send", { agentId: "agent-1", message: "递话" }), answer("后续答")]);
     const { svc, orchestration } = makeStopService({ llm, nowRef });
@@ -273,7 +307,7 @@ describe("手动停止②：强制停止词（在途全停 + 空闲不吞 + 确�
     expect(first.status).toBe("confirm_required");
     if (first.status !== "confirm_required") throw new Error("unreachable");
 
-    // 「取消」是确认口令（TR-240 词表）——不是停止词，走卡作废
+    // 「取消」是确认口令（TR-240 词表）——判非停止意图，走卡作废
     const cancelled = await svc.ask("取消");
     expect(cancelled.status).not.toBe("stopped");
 
@@ -283,24 +317,24 @@ describe("手动停止②：强制停止词（在途全停 + 空闲不吞 + 确�
     expect(orchestration.sends.length).toBe(0);
   });
 
-  test("挂闸阻塞态停止词全停：abort + 清队列 + pending 卡保留（卡生命周期 TTL 域独立，confirm 仍可消费）", async () => {
+  test("挂闸阻塞态停止判定全停：abort + 清队列 + pending 卡保留（卡生命周期 TTL 域独立，confirm 仍可消费）", async () => {
     const nowRef = { now: 0 };
     const llm = fakeLlm([toolCall("propose_send", { agentId: "agent-1", message: "递话" }), answer("后续答")]);
-    const { svc, orchestration, aborts } = makeStopService({ llm, nowRef });
+    const { svc, orchestration, aborts } = makeStopService({ llm, nowRef, intentJudge: fakeStopJudge() });
 
     const first = await svc.ask("递话给 agent-1");
     expect(first.status).toBe("confirm_required");
     if (first.status !== "confirm_required") throw new Error("unreachable");
     const actionId = first.actionId;
 
-    // 挂闸态（runActive=true + pausedGateToken 在场）：停止词全停
+    // 挂闸态（runActive=true + pausedGateToken 在场）：判官判停 → 全停
     const stopped = await svc.ask("别说了");
     expect(stopped.status).toBe("stopped");
     if (stopped.status !== "stopped") throw new Error("unreachable");
     expect(stopped.dropped).toBe(0); // 挂闸态没有排队（挂闸 ask 本会 abort-再驱动）
     expect(aborts.length).toBeGreaterThanOrEqual(1);
 
-    // 快进轨收口后：卡仍在（不被停止词撤卡）——confirm 照常消费执行
+    // 快进轨收口后：卡仍在（不被停止判定撤卡）——confirm 照常消费执行
     nowRef.now = 8_000;
     svc.reliabilityTick();
     await settle();
@@ -309,5 +343,55 @@ describe("手动停止②：强制停止词（在途全停 + 空闲不吞 + 确�
     expect(confirmed.status).toBe("accepted");
     await settle();
     expect(orchestration.sends.length).toBe(1);
+  });
+
+  test("③ 行为兼容回归：纯停止文本「停/停止」经判官仍真停（原词表口令族经判官语义判定）", async () => {
+    const nowRef = { now: 0 };
+    const llm = fakeLlm([answer("（挂死轮占位——永不返回）"), answer("恢复后答")], new Set([0]));
+    const judge = fakeStopJudge();
+    const { svc, aborts } = makeStopService({ llm, nowRef, intentJudge: judge });
+
+    const hung = svc.ask("第一问");
+    await settle(6);
+
+    const stopped = await svc.ask("停");
+    expect(stopped.status).toBe("stopped");
+    expect(aborts.length).toBeGreaterThanOrEqual(1);
+    expect(judge.noulCalls.some((s) => s.includes("停"))).toBe(true); // 经判官判定（非本地词表）
+    // 快进轨收口挂死 run（stopped 回执即刻返回，收口由 8s 轨异步完成）
+    nowRef.now = 8_000;
+    svc.reliabilityTick();
+    await settle();
+    expect((await hung).status).toBe("error");
+  });
+
+  test("判官缺席/抛错 → 判不出照常走队列（漏斗 fail-open——停止判定缺席只影响喊停灵敏度，不吞用户提问/不动队列序不变量）", async () => {
+    const nowRef = { now: 0 };
+    // 判官缺席（零配置）
+    const llm = fakeLlm([answer("（挂死轮占位——永不返回）"), answer("恢复后答")], new Set([0]));
+    const noJudge = makeStopService({ llm, nowRef });
+    const hung = noJudge.svc.ask("第一问");
+    await settle(6);
+    const queued = await noJudge.svc.ask("别说了");
+    expect(queued.status).toBe("queued"); // 判不出 ≠ 停止——照常排队（队列序不变量）
+    noJudge.svc.abortInFlight("测试收口");
+    nowRef.now = 8_000;
+    noJudge.svc.reliabilityTick();
+    await settle();
+    expect((await hung).status).toBe("error");
+
+    // 判官抛错（判定面降级）
+    nowRef.now = 0;
+    const llm2 = fakeLlm([answer("（挂死轮占位——永不返回）"), answer("恢复后答")], new Set([0]));
+    const boom = makeStopService({ llm: llm2, nowRef, intentJudge: fakeStopJudge({ throwErr: new Error("judge boom") }) });
+    const hung2 = boom.svc.ask("第一问");
+    await settle(6);
+    const queued2 = await boom.svc.ask("别说了");
+    expect(queued2.status).toBe("queued");
+    boom.svc.abortInFlight("测试收口");
+    nowRef.now = 8_000;
+    boom.svc.reliabilityTick();
+    await settle();
+    expect((await hung2).status).toBe("error");
   });
 });

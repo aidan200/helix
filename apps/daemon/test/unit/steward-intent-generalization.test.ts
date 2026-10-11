@@ -172,7 +172,8 @@ describe("M3-a 确认意图泛化（noul≥0.5 → 消费在途卡）", () => {
     await settle();
     expect(sessions.deliveries.length).toBe(1); // 卡真执行
     expect(svc.pendingSnapshot().length).toBe(0); // 卡已消费
-    expect(judge.noulCalls.length).toBe(3); // 三问并发各一次
+    expect(judge.noulCalls.length).toBe(4); // 停止判定 1 次（Jev 单轨前置）+ 三问并发各一次
+    expect(judge.noulCalls[0]!.question).toContain("停止说话"); // 停止意图判定在三问之前
     expect(llm.requests.length).toBe(1); // 零 LLM 新提案（只有弹卡轮）
   });
 
@@ -210,7 +211,7 @@ describe("M3-a 无关新任务（三问皆 <0.5 → 原样走 LLM）", () => {
     const outcome = await svc.ask("顺便帮我查一下今天有哪些任务在跑");
     expect(outcome.status).toBe("answer");
     expect(svc.pendingSnapshot().length).toBe(1); // 卡保留（未误消费）
-    expect(judge.noulCalls.length).toBe(3);
+    expect(judge.noulCalls.length).toBe(4); // 停止判定 1 次（Jev 单轨前置）+ 三问并发各一次
     expect(llm.requests.length).toBe(2); // 第二轮 LLM 原样收到用户话
   });
 });
@@ -455,10 +456,10 @@ describe("isAmbientSpeech（置信偏置：显著低分才丢，灰区/坏值偏
   });
 });
 
-// ── stop-intent 判定面（barge-in 意图窗慢通道：非词表停止表达 → 判官 noul）──
+// ── stop-intent 判定面（Jev 停止判定单轨：shell 判定链 + daemon ask 漏斗单源）──
 
-describe("stop-intent 判定（judgeStopIntent：shell 意图窗排队前调用）", () => {
-  test("判官判停止（≥0.5）→ {stop:true}（词表未命中的「先别说了/等一下」类）", async () => {
+describe("stop-intent 判定（judgeStopIntent：Jev 停止判定单源——原始判定面）", () => {
+  test("判官判停止（≥0.5）→ {stop:true}（「先别说了/等一下」类自然停止表达）", async () => {
     const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.9, stop: 0.8 });
     const { svc } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
     const res = await svc.judgeStopIntent("先别说了，等一下");
@@ -468,7 +469,7 @@ describe("stop-intent 判定（judgeStopIntent：shell 意图窗排队前调用�
     expect(judge.noulCalls[0]!.state).toContain("先别说了");
   });
 
-  test("判官判非停止（<0.5）→ {stop:false}（纠正/补充内容照排队）", async () => {
+  test("判官判非停止（<0.5）→ {stop:false}（纠正/补充内容不打断）", async () => {
     const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.9, stop: 0.2 });
     const { svc } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
     const res = await svc.judgeStopIntent("我想补充一点，那个参数改成 5");
@@ -476,7 +477,7 @@ describe("stop-intent 判定（judgeStopIntent：shell 意图窗排队前调用�
     expect(res.score).toBe(0.2);
   });
 
-  test("开关关（默认态）→ {stop:false, degraded:'off'} 零调用零日志", async () => {
+  test("开关关（默认态）→ {stop:false, degraded:'off'} 零调用零日志（原始判定面语义：判不出携 degraded，fail-stop 归消费面）", async () => {
     const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, stop: 0.9 }, { enabled: false });
     const { svc, logger } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
     const res = await svc.judgeStopIntent("先别说了");
@@ -495,7 +496,7 @@ describe("stop-intent 判定（judgeStopIntent：shell 意图窗排队前调用�
     expect(logger.warns.some((w) => w.includes("stop-intent"))).toBe(true);
   });
 
-  test("判官抛错 → {stop:false, degraded:'error'} + WARN 不重试（保守回退照排队）", async () => {
+  test("判官抛错 → {stop:false, degraded:'error'} + WARN 不重试（判不出携 degraded——shell 意图窗判不出=真停，ask 漏斗判不出=照常走队列）", async () => {
     const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, stop: 0.9 }, { throwErr: new Error("judge boom") });
     const { svc, logger } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
     const res = await svc.judgeStopIntent("先别说了");
@@ -509,5 +510,15 @@ describe("stop-intent 判定（judgeStopIntent：shell 意图窗排队前调用�
     const res = await svc.judgeStopIntent("先别说了");
     expect(res.stop).toBe(false);
     expect(res.degraded).toBe("off");
+  });
+
+  test("③ 行为兼容回归：纯停止文本「停/停止」经判官仍真停（原词表口令族经判官语义判定）", async () => {
+    const judge = fakeIntentJudge({ revise: 0, cancel: 0, confirm: 0, addressee: 0.9, stop: 0.95 });
+    const { svc } = makeService({ llm: fakeLlm([]).port, intentJudge: judge });
+    for (const text of ["停", "停止", "别说了"]) {
+      const res = await svc.judgeStopIntent(text);
+      expect(res.stop).toBe(true);
+    }
+    expect(judge.noulCalls.length).toBe(3); // 逐句经判官（零本地词表短路）
   });
 });
