@@ -412,10 +412,12 @@ export const COMMAND_SURFACE = {
   /** 端点删除（回执 embedding.list.result 新清单）。 */
   sendEmbeddingDelete: (deps) =>
     (id: string): boolean => deps.send(embeddingDeleteCommand(id)),
-  /** 设为全局默认 embedding 端点（批1：单选语义——写 embedding.defaultEndpointId；
-   *  校验三拒（不存在/kind≠embedding/未 verify）→ error 帧；回执清单刷新）。 */
+  /** 设为全局默认端点（批1 向量默认；D1 泛化 kind——缺省 embedding，
+   *  "classifier" = 默认分类端点；单选语义——写 embedding.defaultEndpointId /
+   *  classifier.defaultEndpointId；校验三拒（不存在/kind 不吻合/未 verify）→
+   *  error 帧；回执清单刷新）。 */
   sendEmbeddingSetDefault: (deps) =>
-    (id: string): boolean => deps.send(embeddingSetDefaultCommand(id)),
+    (id: string, kind?: "embedding" | "classifier"): boolean => deps.send(embeddingSetDefaultCommand(id, kind)),
   /** 连通测试（回执 embedding.verify.result 两判别，id 回携）。 */
   sendEmbeddingVerify: (deps) =>
     (id: string): boolean => deps.send(embeddingVerifyCommand(id)),

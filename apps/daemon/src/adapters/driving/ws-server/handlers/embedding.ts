@@ -28,8 +28,10 @@ function respondList(ctx: EmbeddingCommandContext): void {
     type: "embedding.list.result",
     payload: {
       endpoints: ctx.embedding.service.listView().map((e) => ({ ...e })),
-      // 批1：全局默认端点引用态透出（悬空/null = 向量面不可用）
+      // 批1：全局默认端点引用态透出（悬空/null = 向量面不可用）；
+      // D1：默认分类端点同构透出（null = 判官缺席，消费面维持现状降级）
       defaultEndpointId: ctx.embedding.service.resolveDefaultRecord()?.id ?? null,
+      defaultClassifierEndpointId: ctx.embedding.service.resolveDefaultRecord("classifier")?.id ?? null,
     },
   };
   ctx.sendNow(sender, frame);
@@ -102,17 +104,21 @@ export function handleEmbeddingDelete(ctx: EmbeddingCommandContext): void {
 }
 
 /**
- * embedding.set_default（全局命令，批1）：设置全局默认 embedding 端点 →
- * 回执清单（defaultEndpointId 即时更新）。校验三拒（不存在 / kind≠embedding /
+ * embedding.set_default（全局命令，批1；D1 泛化 kind 维度）：设置全局默认
+ * 端点（kind 缺省 = embedding）→ 回执清单（defaultEndpointId /
+ * defaultClassifierEndpointId 即时更新）。校验三拒（不存在 / kind 不吻合 /
  * 未 verify）→ invalid_payload（错误文本含定位）。
  */
 export function handleEmbeddingSetDefault(ctx: EmbeddingCommandContext): void {
-  const { id } = ctx.payload;
+  const { id, kind } = ctx.payload;
   if (typeof id !== "string" || id === "") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string");
   }
+  if (kind !== undefined && kind !== "embedding" && kind !== "classifier") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.kind 应为 \"embedding\" | \"classifier\"（缺省 = embedding）");
+  }
   void ctx.embedding.service
-    .setDefault(id)
+    .setDefault(id, kind ?? "embedding")
     .then((outcome) => {
       if (!outcome.ok) {
         return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);

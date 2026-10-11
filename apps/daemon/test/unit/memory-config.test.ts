@@ -82,6 +82,7 @@ function fakeLookup(): EmbeddingConfigLookup {
     resolveRecord: (endpointId) =>
       endpointId === EP_ID ? ENDPOINT_RECORD : endpointId === JUDGE_RECORD.id ? JUDGE_RECORD : null,
     resolveDefault: () => ({ baseUrl: ENDPOINT_RECORD.baseUrl, model: ENDPOINT_RECORD.model }),
+    resolveDefaultClassifierRecord: () => null,
   };
 }
 

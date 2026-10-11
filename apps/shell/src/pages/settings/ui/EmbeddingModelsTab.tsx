@@ -239,6 +239,30 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
         </div>
       </div>
 
+      {/* D1：全局默认向量模型工具卡（对话 tab F(3.4).6 同构——顶部只读展示
+          当前默认端点名/model；未设默认弱化提示；改默认在下方列表行「设为默认」） */}
+      <div className="hud-card" data-emb-global-default>
+        <div className="toolbar">
+          <div className="toolbar-row">
+            <div className="fld">
+              <span className="hud-label">{t("chat.settings.general.embGlobalDefault")}</span>
+              {(() => {
+                const def = (endpoints ?? []).find((ep) => ep.id === defaultEndpointId);
+                return def !== undefined ? (
+                  <span className="default-model" data-emb-global-default-value>
+                    {def.name} · {def.model}
+                  </span>
+                ) : (
+                  <span className="ag-note" data-emb-global-default-unset role="note">
+                    {t("chat.settings.general.embGlobalDefaultUnset")}
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 批1：无默认端点引导条（记忆/知识库向量面不可用——与服务闸同判据） */}
       {endpoints !== null && defaultEndpointId === null && (
         <p className="ag-note" data-emb-no-default role="note">

@@ -92,6 +92,7 @@ import {
 } from "../application/memory/memoryConfig";
 import {
   EmbeddingConfigService,
+  resolveJudgeRecord,
 } from "../application/embedding/EmbeddingConfigService";
 import { CustomProviderService } from "../application/services/CustomProviderService";
 import { OpenAiCompatEmbeddingAdapter } from "../adapters/driven/embedding/OpenAiCompatEmbeddingAdapter";
@@ -1039,16 +1040,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         resolveSessionProject: (sessionId) =>
           singleProjectDirOf(sessionStack.writeFacts.projectFootprint(sessionId)),
         // B4a 判官真体（分类模型注册表分派，variant 区分实现）：
-        // judgeEndpointId 惰性解析 + kind 校验（误指 embedding 端点 →
-        // null → noul 抛错降级——判官与召回端点不串用）；judge 挂在
-        // 同一 service 上语义正确：vec0 缺席时判了也存不了，不如不判。
-        judge: makeJudgeAdapter(() => {
-          const judgeEndpointId = persistence.runtimeConfig.get(MEMORY_JUDGE_ENDPOINT_ID_KEY);
-          if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
-          const record = embeddingConfig.resolveRecord(judgeEndpointId);
-          if (record === null || record.kind !== "classifier") return null;
-          return record;
-        }, judgeServices),
+        // judgeEndpointId 惰性解析 + D1 判官端点兑底层单点（resolveJudgeRecord
+        // ——显式引用优先，未配置兑底全局默认分类端点；误指 embedding 端点 /
+        // 悬空 / 无默认 → null → noul 抛错降级——判官与召回端点不串用）；
+        // judge 挂在同一 service 上语义正确：vec0 缺席时判了也存不了，不如不判。
+        judge: makeJudgeAdapter(
+          () => resolveJudgeRecord(persistence.runtimeConfig.get(MEMORY_JUDGE_ENDPOINT_ID_KEY), embeddingConfig),
+          judgeServices,
+        ),
         logger: { warn: (message) => logger.warn(message) },
       });
   })();

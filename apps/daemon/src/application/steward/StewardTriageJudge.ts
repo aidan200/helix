@@ -4,11 +4,12 @@
  * 分诊判定面的判官域收口（E-199 JudgeAdapterFactory 第四消费面）：
  * - 配置面：steward.triage.judgeEnabled（bool，缺省 false）+
  *   judgeEndpointId（string，指向 embedding 域 kind=classifier 端点；空串 =
- *   清除引用）——经 steward.set_config {triage} 组写入（E-263 先例：管家卡
- *   {model} / 记忆 {memory} 转发同款形态）；
- * - 端点解析单源：resolveTriageJudgeRecord 纯函数（KV id → embedding 域记录；
- *   未配/悬空/非 classifier → null——端点被删后读面视为未配，UI 显示「未
- *   选择」；kind 校验防判官与向量端点串用，与管家记忆判官闭包同款）；
+ *   清除引用 → D1 兑底全局默认分类端点）——经 steward.set_config {triage} 组
+ *   写入（E-263 先例：管家卡 {model} / 记忆 {memory} 转发同款形态）；
+ * - 端点解析单源：resolveTriageJudgeRecord 纯函数（D1 判官端点兑底层
+ *   resolveJudgeRecord——显式引用优先，未配置兑默认分类端点；悬空/非
+ *   classifier → null——端点被删后读面视为未配；kind 校验防判官与向量端点
+ *   串用，与管家记忆判官闭包同款）；
  * - 判定面：noul 透传注入的判官面（组合根经 makeJudgeAdapter 构造——注册表
  *   唯一姿势，本模块不直 new 适配器，也不 import driven 面——防腐：判定域
  *   只依赖 JudgePort.noul 契约）。
@@ -19,18 +20,20 @@
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { JudgePort } from "../ports/outbound/JudgePort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
+import { resolveJudgeRecord, type JudgeEndpointLookup } from "../embedding/EmbeddingConfigService";
 
 /** 分诊判官开关 KV 键（缺省 false——判官是可选增强，关闭回退现行 LLM 路径）。 */
 export const STEWARD_TRIAGE_JUDGE_ENABLED_KEY = "steward.triage.judgeEnabled";
 
-/** 分诊判官端点引用 KV 键（指向 embedding 域 kind=classifier 端点；空串 = 未配）。 */
+/** 分诊判官端点引用 KV 键（指向 embedding 域 kind=classifier 端点；空串 =
+ *  清除引用 → D1 兑底全局默认分类端点——键位保留不退役）。 */
 export const STEWARD_TRIAGE_JUDGE_ENDPOINT_ID_KEY = "steward.triage.judgeEndpointId";
 
 /** 配置面导出现态（凭据卫生：judgeEndpoint 只回 id/name/model/hasApiKey）。 */
 export interface TriageJudgeState {
   /** 判官开关现态（默认 false）。 */
   readonly judgeEnabled: boolean;
-  /** 当前判官端点引用（引用态；未引用/悬空/非 classifier = null——读面视为未配）。 */
+  /** 当前判官端点引用（引用态；D1 兑底默认分类端点后回生效端点——未引用且无默认/悬空/非 classifier = null，读面视为未配）。 */
   readonly judgeEndpoint: { readonly id: string; readonly name: string; readonly model: string; readonly hasApiKey: boolean } | null;
 }
 
@@ -54,24 +57,22 @@ export interface TriageJudgeFace {
 
 /**
  * 端点记录解析（单源纯函数——face 与组合根判官闭包共用）：
- * judgeEndpointId 未设/空串 → null；条目已删 → null（读面视为未配）；
- * kind ≠ classifier → null（判官与向量端点不串用）。
+ * 经 D1 判官端点兑底层（resolveJudgeRecord 单点）——judgeEndpointId 显式
+ * 引用优先（未设/空串 = 未配 → 兑底全局默认分类端点；悬空/非 classifier →
+ * null，读面视为未配，不静默落默认）；无默认 = 判官缺席（维持现状降级）。
+ * kind 校验防判官与向量端点串用，与管家记忆判官闭包同款。
  */
 export function resolveTriageJudgeRecord(
   config: RuntimeConfigPort,
-  embeddingConfig: { resolveRecord(endpointId: string): EmbeddingEndpointRecord | null },
+  embeddingConfig: JudgeEndpointLookup,
 ): EmbeddingEndpointRecord | null {
-  const endpointId = config.get(STEWARD_TRIAGE_JUDGE_ENDPOINT_ID_KEY);
-  if (endpointId === undefined || endpointId === "") return null;
-  const record = embeddingConfig.resolveRecord(endpointId);
-  if (record === null || record.kind !== "classifier") return null;
-  return record;
+  return resolveJudgeRecord(config.get(STEWARD_TRIAGE_JUDGE_ENDPOINT_ID_KEY), embeddingConfig);
 }
 
 export interface StewardTriageJudgeDeps {
   readonly config: RuntimeConfigPort;
-  /** embedding 配置域查询面（endpointId → 端点条目）。 */
-  readonly embeddingConfig: { resolveRecord(endpointId: string): EmbeddingEndpointRecord | null };
+  /** embedding 配置域查询面（endpointId → 端点条目；D1 判官兑底 lookup 形状）。 */
+  readonly embeddingConfig: JudgeEndpointLookup;
   /** 判官 noul 面（组合根注入 makeJudgeAdapter(resolve, judgeServices) 真体——
    *  E-199 注册表分派，换端点/换变体零重启跟随）。 */
   readonly judge: Pick<JudgePort, "noul">;

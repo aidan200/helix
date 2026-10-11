@@ -21,6 +21,7 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 const sendEmbeddingList = vi.fn(() => true);
 const sendEmbeddingSet = vi.fn(() => true);
 const sendEmbeddingDelete = vi.fn(() => true);
+const sendEmbeddingSetDefault = vi.fn(() => true);
 const sendEmbeddingVerify = vi.fn(() => true);
 let embeddingListeners: ((e: EventEnvelope) => void)[] = [];
 
@@ -32,6 +33,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       sendEmbeddingList,
       sendEmbeddingSet,
       sendEmbeddingDelete,
+      sendEmbeddingSetDefault,
       sendEmbeddingVerify,
       subscribeEmbeddingFrames: (listener: (e: EventEnvelope) => void) => {
         embeddingListeners.push(listener);
@@ -61,14 +63,14 @@ const ENDPOINTS = [
   { id: "ep-4", name: "目录判官", baseUrl: "", model: "typesafe/jev-latest", kind: "classifier" as const, variant: "pi-ai", hasApiKey: false, keyMasked: undefined, verifiedAt: 1_760_000_000_000 },
 ];
 
-function feedList(endpoints: typeof ENDPOINTS) {
+function feedList(endpoints: typeof ENDPOINTS, defaultClassifierEndpointId: string | null = null) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
     channel: "embedding",
     type: "embedding.list.result",
     ts: 1,
-    payload: { endpoints },
+    payload: { endpoints, defaultClassifierEndpointId },
   } as unknown as EventEnvelope;
   act(() => {
     for (const l of embeddingListeners) l(frame);
@@ -204,5 +206,30 @@ describe("分类模型 tab（判官 pi-ai 批）", () => {
     expect(sendEmbeddingDelete).not.toHaveBeenCalled();
     fireEvent.click(del);
     expect(sendEmbeddingDelete).toHaveBeenCalledWith("ep-3");
+  });
+});
+
+describe("D1 全局默认分类模型（渐进收编 UI 契约）", () => {
+  it("全局默认卡：未设默认 → 弱化提示 + 无默认引导条；设默认 → 展示 name·model 且引导条消失", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS));
+    expect(container.querySelector("[data-clf-global-default]")).not.toBeNull();
+    expect(container.querySelector("[data-clf-global-default-unset]")).not.toBeNull();
+    expect(container.querySelector("[data-clf-global-default-value]")).toBeNull();
+    expect(container.querySelector("[data-clf-no-default]")).not.toBeNull();
+    act(() => feedList(ENDPOINTS, "ep-4"));
+    expect(container.querySelector("[data-clf-global-default-value]")!.textContent).toBe("目录判官 · typesafe/jev-latest");
+    expect(container.querySelector("[data-clf-global-default-unset]")).toBeNull();
+    expect(container.querySelector("[data-clf-no-default]")).toBeNull();
+  });
+
+  it("行内「设为默认」按钮 + 默认徽标：点击发 set_default(kind=classifier)；徽标只挂默认行、按钮只在非默认行", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-3"));
+    expect(container.querySelector("[data-clf-default=ep-3]")).not.toBeNull();
+    expect(container.querySelector("[data-clf-default=ep-4]")).toBeNull();
+    expect(container.querySelector("[data-clf-set-default=ep-3]")).toBeNull(); // 默认行不显按钮
+    fireEvent.click(container.querySelector("[data-clf-set-default=ep-4]")!);
+    expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-4", "classifier");
   });
 });

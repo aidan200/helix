@@ -18,7 +18,7 @@
  */
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { JudgePort } from "../ports/outbound/JudgePort";
-import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
+import type { JudgeEndpointLookup } from "../embedding/EmbeddingConfigService";
 import { resolveTriageJudgeRecord, STEWARD_TRIAGE_JUDGE_ENABLED_KEY } from "./StewardTriageJudge";
 
 /** 意图判官阈值（noul 校准概率 ≥ 此值 = 命中该意图——E-250 记忆查重/详略 0.5 同款）。 */
@@ -120,8 +120,9 @@ export interface IntentJudgeFace {
 
 export interface StewardIntentJudgeDeps {
   readonly config: RuntimeConfigPort;
-  /** embedding 配置域查询面（endpointId → 端点条目——与分诊判官同源单点）。 */
-  readonly embeddingConfig: { resolveRecord(endpointId: string): EmbeddingEndpointRecord | null };
+  /** embedding 配置域查询面（endpointId → 端点条目——与分诊判官同源单点；
+   *  D1 判官端点兑底 lookup 形状）。 */
+  readonly embeddingConfig: JudgeEndpointLookup;
   /** 判官 noul 面（组合根注入 makeJudgeAdapter(resolve, judgeServices) 真体——
    *  E-199 注册表分派，换端点/换变体零重启跟随；Pick 窄注入）。 */
   readonly judge: Pick<JudgePort, "noul">;
