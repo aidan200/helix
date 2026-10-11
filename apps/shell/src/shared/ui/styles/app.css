@@ -1651,7 +1651,9 @@ html.light .stv-caption {
    成功色 / failed 主题错误色 / rejected 警示色）；纯 opacity/颜色零动画。 */
 .stv-input {
   position: absolute; right: 106px; bottom: 0;
-  max-width: 260px; display: flex; flex-direction: column; gap: 2px;
+  /* 宽度锚（用户裁决「宽度太小」）：至少输出气泡一半宽（380 / 2 = 190）
+     ——短句不再缩成一小条；长句仍可伸至 260 不过度换行 */
+  min-width: 190px; max-width: 260px; display: flex; flex-direction: column; gap: 2px;
   padding: 8px 12px;
   background: var(--popover-fill);
   backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
@@ -1679,11 +1681,11 @@ html.light .stv-caption {
 .stv-line:nth-last-child(2) { opacity: 0.9; }
 .stv-line:nth-last-child(1) { opacity: 1; }
 /* 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具状态行
-   + 最近 thinking 摘要——不入 CaptionLine 栈（interim 同构实时消费）。弱区分
-   两级：状态行 text-dim + 呼吸点，摘要行 text-faint + --text-cap；显式
-   opacity 盖堆叠渐隐（声明序后置压 nth-last-child 同特异性——活动行是
-   过程现场而非历史行，不随栈位褪色）；呼吸点 keyframes 只动 opacity
-   （E-124 允许面），animation 简写全常量 */
+   ——不入 CaptionLine 栈（interim 同构实时消费）。弱区分：状态行 text-dim
+   + 呼吸点；思考内容不上气泡（用户裁决：只显「思考中」状态行，摘要面已
+   退役）；显式 opacity 盖堆叠渐隐（声明序后置压 nth-last-child
+   同特异性——活动行是过程现场而非历史行，不随栈位褪色）；呼吸点 keyframes
+   只动 opacity（E-124 允许面），animation 简写全常量 */
 .stv-line[data-kind="activity"] {
   color: var(--text-dim); opacity: 1;
   display: flex; align-items: center; justify-content: flex-end; gap: 6px;
@@ -1693,10 +1695,6 @@ html.light .stv-caption {
   background: currentColor;
   animation: stv-activity-pulse 1.6s ease-in-out infinite;
 }
-.stv-line[data-kind="activity"][data-think="on"] {
-  color: var(--text-faint); font-size: var(--text-cap); opacity: 1;
-}
-.stv-line[data-kind="activity"][data-think="on"]::before { content: none; }
 /* 工具态醒目面（工具态醒目面批，用户裁决：当前工具一眼可辨）：字幕条内
    唯一 accent 彩色行 + 呼吸点加大加亮加速（8px + glow-cyan + 1.1s）——
    与 thinking 态弱区分拉开；色全走 token（零内联 hex），glow 静态不进

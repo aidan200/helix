@@ -411,7 +411,7 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
   // ── 过程活动行（过程可见语音面批；TR-241 语音版）：ask 在途期思考/工具
   //    状态入字幕——不入 CaptionLine 栈（interim 同构实时消费零历史）。──
 
-  it("过程活动行：thinking 态 → 状态行「思考中…」+ 本回合 thinking 摘要行（items 投影）；data-kind=activity", () => {
+  it("过程活动行：thinking 态 → 状态行「思考中…」；思考内容不显（用户裁决：输出气泡只显状态）；data-kind=activity", () => {
     svState.duplexActive = true;
     svState.phase = "asking";
     svState.items = [
@@ -423,9 +423,8 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     const activity = screen.getByTestId("steward-activity");
     expect(activity.textContent).toBe("思考中…");
     expect(activity.getAttribute("data-kind")).toBe("activity");
-    // 摘要行来自本回合 thinking 条目投影（首行摘要，分区批：过程输出全程可见）
-    const think = screen.getByTestId("steward-activity-think");
-    expect(think.textContent).toBe("先查任务清单。");
+    // 思考摘要行退役（用户裁决：气泡不显思考内容，只显「思考中」状态）
+    expect(screen.queryByTestId("steward-activity-think")).toBeNull();
     // 光球相位照常 thinking（动画面不受活动行影响）
     expect(screen.getByTestId("steward-orb").getAttribute("data-phase")).toBe("thinking");
   });
@@ -448,8 +447,8 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     const badge = screen.getByTestId("steward-tool-badge");
     expect(badge.textContent).toBe("list_tasks");
     expect(badge.className).toContain("stv-tool-badge");
-    // 摘要行同构照常
-    expect(screen.getByTestId("steward-activity-think").textContent).toBe("先查任务清单。");
+    // 思考摘要行不显（用户裁决）——工具行是气泡里唯一的过程行
+    expect(screen.queryByTestId("steward-activity-think")).toBeNull();
   });
 
   it("过程活动行：tool 相位但无运行中工具行 → 状态行回退 thinking 态渲染（防御：无工具名不入醒目分支）", () => {
@@ -463,13 +462,18 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     expect(screen.queryByTestId("steward-tool-badge")).toBeNull();
   });
 
-  it("过程活动行：thinkingLines 空 → 摘要行不渲染（纯思考初期零摘要）", () => {
+  it("过程活动行：思考摘要行永不出现在输出气泡（用户裁决：只显「思考中」状态，内容留在左侧面板可展开）", () => {
     svState.duplexActive = true;
     svState.phase = "asking";
-    svState.askActivity = { phase: "thinking", toolName: null, thinkingLines: [] };
+    svState.items = [
+      { kind: "user", text: "问题" },
+      { kind: "thinking", text: "任何思考内容" },
+    ];
+    svState.askActivity = { phase: "thinking", toolName: null, thinkingLines: ["任何思考内容"] };
     renderLayer();
     expect(screen.getByTestId("steward-activity").textContent).toBe("思考中…");
     expect(screen.queryByTestId("steward-activity-think")).toBeNull();
+    expect(screen.getByTestId("steward-caption").textContent).not.toContain("任何思考内容");
   });
 
   it("过程活动行全程可见（分区批：推翻退场契约——回合中的过程输出不随流式开始退场）；收口（askActivity null）→ 消失", () => {

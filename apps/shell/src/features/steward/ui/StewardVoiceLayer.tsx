@@ -19,7 +19,7 @@
  *   2 行 + TTL 6s 驻留——静置自动移除，流式更新刷新保活；行全空且无
  *   interim 时容器整面隐藏，气泡只在事件发生期可见）；**过程活动行**
  *   （过程可见语音面批：ask 在途期 askActivity 投影——思考中/正在调用
- *   {tool} 状态行 + 最近 thinking 摘要行，interim 同构不入栈零历史；
+ *   {tool} 状态行（思考仅「思考中」状态行——用户裁决不显思考内容），interim 同构不入栈零历史；
  *   流式回答开始即退场（面板同构）；活动行在场容器驻留——长工具期
  *   用户行被 TTL 驱逐后反馈不断流）；纯 fixed 文本层
  *   零滚动容器（E-124 WKWebView sticky 坑）；
@@ -46,6 +46,7 @@ import { deriveOrbPhase } from "../model/steward-voice-machine";
 import { parseVoiceCommand, resolveVoiceCommand, isStopIntentPhrase, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
 import { inputAnnotate, inputConfirm, inputEvict, inputHearing, inputResolve, type InputNote, type InputRow } from "../model/input-pipeline";
+import type { StewardPanelItem } from "../model/steward-store";
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { readVoiceprintThresholdPref } from "@/shared/lib/voice-pref";
@@ -400,12 +401,13 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   const streamingActive = sv.streamingText !== null && sv.streamingText !== "";
   void streamingActive; // （分区批：流式不再影响过程行显隐——保留判定供后续发言态样式复用）
   // ── 回合过程行（分区批，用户裁决「回合中的过程输出也要显示」）：本回合
-  //    （最近 user 条目之后）thinking/tool 过程条目投影——思考摘要行 +
-  //    工具行（running=醒目态 / done=弱化态）；流式发言开始不退场（推翻旧
-  //    「流式即反馈」退场契约——过程输出全程可见，非只显终态）；回合在途
+  //    （最近 user 条目之后）tool 过程条目投影——工具行（running=醒目态 /
+  //    done=弱化态）；思考只显「思考中」状态行（用户裁决：思考内容不上
+  //    气泡，留在左侧面板可展开）；流式发言开始不退场（推翻旧「流式即
+  //    反馈」退场契约——过程输出全程可见，非只显终态）；回合在途
   //    （askActivity 在）才显——光球只显当前发生的。──
-  const turnRows = (() => {
-    if (sv.askActivity === null) return [] as ReturnType<typeof sv.items.slice>;
+  const turnRows = ((): Extract<StewardPanelItem, { kind: "tool" }>[] => {
+    if (sv.askActivity === null) return [];
     let start = 0;
     for (let i = sv.items.length - 1; i >= 0; i -= 1) {
       if (sv.items[i]!.kind === "user") {
@@ -415,13 +417,9 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     }
     return sv.items
       .slice(start)
-      .filter((it) => it.kind === "thinking" || it.kind === "tool")
+      .filter((it): it is Extract<StewardPanelItem, { kind: "tool" }> => it.kind === "tool")
       .slice(-4);
   })();
-  const thinkSummary = (text: string): string => {
-    const line = text.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
-    return line.length <= 60 ? line : `${line.slice(0, 60)}…`;
-  };
   const healthLabelOf: Record<StewardHealthComponent, string> = {
     judge: t("steward.voice.orbHealthJudge"),
     tts: t("steward.voice.orbHealthTts"),
@@ -461,35 +459,24 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
               interim（打断新输入时排最下））；aria-live 容器顺带播报状态变化。
               工具态醒目面批：data-tool=on 独立分支——前缀 + mono 胶囊
               badge（一眼可辨当前工具；app.css accent/glow 段） */}
-          {/* 回合过程行（分区批：上方气泡=管家输出——思考/工具/发言全程可见；
+          {/* 回合过程行（分区批：上方气泡=管家输出——思考状态/工具/发言全程可见；
+              思考内容不上气泡（用户裁决：只显「思考中」）；
               工具行 running=accent 醒目态（data-tool=on）/done=弱化态（data-tool=done），
               与错误提示面无关——错误只走输入流水红色态与健康徽标） */}
-          {turnRows.map((row, i) =>
-            row.kind === "tool" ? (
-              <div
-                key={`turn-tool-${row.toolCallId}`}
-                className="stv-line stv-activity"
-                data-kind="activity"
-                data-tool={row.resultSummary === null ? "on" : "done"}
-                data-testid="steward-activity"
-              >
-                {row.resultSummary === null ? t("steward.activityToolPrefix") : ""}
-                <span className="stv-tool-badge" data-testid="steward-tool-badge">
-                  {row.name}
-                </span>
-              </div>
-            ) : (
-              <div
-                key={`turn-think-${i}`}
-                className="stv-line stv-activity-think"
-                data-kind="activity"
-                data-think="on"
-                data-testid="steward-activity-think"
-              >
-                {thinkSummary(row.text)}
-              </div>
-            ),
-          )}
+          {turnRows.map((row) => (
+            <div
+              key={`turn-tool-${row.toolCallId}`}
+              className="stv-line stv-activity"
+              data-kind="activity"
+              data-tool={row.resultSummary === null ? "on" : "done"}
+              data-testid="steward-activity"
+            >
+              {row.resultSummary === null ? t("steward.activityToolPrefix") : ""}
+              <span className="stv-tool-badge" data-testid="steward-tool-badge">
+                {row.name}
+              </span>
+            </div>
+          ))}
           {showActivity && (sv.askActivity?.phase === "thinking" || !hasRunningTool) && (
             <div className="stv-line stv-activity" data-kind="activity" data-testid="steward-activity">
               {t("steward.thinking")}

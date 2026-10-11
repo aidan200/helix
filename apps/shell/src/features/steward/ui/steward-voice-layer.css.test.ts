@@ -162,10 +162,8 @@ describe("管家全局光球层 CSS 纪律（Cyber HUD token 合规 + 帧动画�
     const status = seg.match(/\.stv-line\[data-kind="activity"\]\s*\{[^}]*\}/)![0];
     expect(status).toMatch(/color:\s*var\(--text-dim\)/);
     expect(status).toMatch(/opacity:\s*1/);
-    // 摘要行更弱（text-faint + --text-cap 字号阶梯）
-    const think = seg.match(/\.stv-line\[data-kind="activity"\]\[data-think="on"\]\s*\{[^}]*\}/)![0];
-    expect(think).toMatch(/color:\s*var\(--text-faint\)/);
-    expect(think).toMatch(/font-size:\s*var\(--text-cap\)/);
+    // 思考摘要面退役（用户裁决：气泡只显「思考中」状态）——data-think 规则不复活
+    expect(seg).not.toMatch(/data-think/);
     // 呼吸点：keyframes 只动 opacity（E-124 允许面）+ animation 简写全常量
     const pulse = seg.match(/@keyframes stv-activity-pulse\s*\{[\s\S]*?\n\}/)![0];
     expect(pulse).toMatch(/opacity/);
