@@ -119,6 +119,22 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     });
   });
 
+  describe("批5 产线文本清扫：写面持有者条款式口径 + 编排收口锚对账点", () => {
+    test("Main：新节点 body/digest 条款式口径进写面持有者提示（条款式 / ≤500 字 / 禁计数快照 / 检索关键词——与 SubAgent findings 申报口径同规）", () => {
+      const p = MAIN_SESSION_SYSTEM_PROMPT;
+      expect(p).toContain("新节点 body/digest 按 kg 写作规范条款式模板");
+      expect(p).toContain("≤500 字");
+      expect(p).toContain("禁计数快照");
+      expect(p).toContain("检索关键词");
+    });
+
+    test("Orchestrator：申报完成前同刻收口锚对账 + 机械处置/人审边界不混装", () => {
+      const p = ORCHESTRATOR_SYSTEM_PROMPT;
+      expect(p).toContain("申报完成前同刻做收口锚对账");
+      expect(p).toContain("不混入机械处置");
+    });
+  });
+
   describe("SubAgent 专属：闭环纪律（R2 候选单点重申）", () => {
     test("sediment 经 findings 文件上报 + 禁止直接调候选 op", () => {
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("闭环纪律");

@@ -148,6 +148,38 @@ describe("SOP 五节锚 + 写作规范八条（CL-2-T10；批3 WP-F 条款式化
   });
 });
 
+describe("批5 产线文本清扫：task SKILL 对照知识库治理新现实（双轨检索/查重闸处置/收口锚对账）", () => {
+  const bodyOf = async (type: string) =>
+    (await readFile(path.join(builtinSkillsDir(), "task", type, "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+
+  test("kg-bootstrap：kg search 双轨口径（关键词+向量双轨并集 / 端点缺失回落纯关键词）", async () => {
+    const text = await bodyOf("kg-bootstrap");
+    expect(text).toContain("关键词+向量双轨并集");
+    expect(text).toContain("端点缺失回落纯关键词");
+  });
+
+  test("kg-bootstrap：建点段查重闸软警告就近处置指引（相似警告 → 确认 updateNode/合并，不硬落新节点）", async () => {
+    const text = await bodyOf("kg-bootstrap");
+    expect(text).toContain("已存在相似节点");
+    expect(text).toContain("updateNode/合并");
+  });
+
+  test("kg-bootstrap：完成判定含收口锚对账条目（机械项当场处置 / 残量直接交代 / 内容判断走人审）", async () => {
+    const text = await bodyOf("kg-bootstrap");
+    expect(text).toContain("收口锚对账");
+    expect(text).toContain("不混入机械处置");
+  });
+
+  test("kg-review：kg search 双轨口径（同基准）", async () => {
+    const text = await bodyOf("kg-review");
+    expect(text).toContain("关键词+向量双轨并集");
+    expect(text).toContain("端点缺失回落纯关键词");
+  });
+});
+
 describe("坏 manifest 防线（CL-2-T9）", () => {
   test("⑦ 坏 fixture（缺 paramsSchema）→ 不入注册表 + warning 不炸装载", async () => {
     const builtin = tmpDir("helix-t23-bad-");

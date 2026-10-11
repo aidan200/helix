@@ -23,7 +23,7 @@ task:
 
 **worktree 豁免（W-R5）：本任务类型不开 worktree，主工作树执行**——kg 库是 SQLite 单写面，隔离副本各自写库合并必分叉；批次 SubAgent 不适用通用开发任务的 worktree 隔离纪律。
 
-产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）。锚声明在建点时直接携带：单条 createNode 的 `anchors` 参数与批量 batchCreateNodes 逐项的 `anchors` 字段同形态（`{scopeKind: global|path|symbol, pattern}`；global 不携带 pattern）——批量建点直接带锚，不需要也不应该「先建无锚→supersede→重建」（锚非法会整批拒绝零落库，逐项检查后再提交）。其中 `taskId`（本任务 jobId，落 change_log.task_id）与 `origin_batchId` 由接线层机械注入（批次子进程上下文默认值，LLM 无需透传；显式传参仅用于覆盖）——任务→kg 审计链不再依赖 LLM 自觉。`layer`、`status=confirmed` 与 `scene`（适用场景，R23 必填）仍为 LLM 必带的内容属性——`scene` 缺了写不进去（createNode/batchCreateNodes 机械拒绝，整批被拒）。这些元数据是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
+产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）。锚声明在建点时直接携带：单条 createNode 的 `anchors` 参数与批量 batchCreateNodes 逐项的 `anchors` 字段同形态（`{scopeKind: global|path|symbol, pattern}`；global 不携带 pattern）——批量建点直接带锚，不需要也不应该「先建无锚→supersede→重建」（锚非法会整批拒绝零落库，逐项检查后再提交）。其中 `taskId`（本任务 jobId，落 change_log.task_id）与 `origin_batchId` 由接线层机械注入（批次子进程上下文默认值，LLM 无需透传；显式传参仅用于覆盖）——任务→kg 审计链不再依赖 LLM 自觉。`layer`、`status=confirmed` 与 `scene`（适用场景，R23 必填）仍为 LLM 必带的内容属性——`scene` 缺了写不进去（createNode/batchCreateNodes 机械拒绝，整批被拒）。建点回执可能附写入口查重闸软警告（「⚠ 已存在相似节点」+ similarTo 连线，近似重复自动落疑似重复候选——落库先行不阻塞批量）：收到警告当场确认，确属近似重复的改用 updateNode/合并语义处置（或 supersede 本次新节点并入既有节点），不把近似内容硬落成新节点。这些元数据是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
 
 关系边（实体间关联、规则约束实体）经 kg-update `addEdge`（srcId + verb + dstId）落库：两端 id 取自建点回执或 kg get 返回行（不猜号），verb 走封闭词表（dependsOn / partOf / governs / references / affects / changed / supersedes——越界机械拒绝）；边要求两端节点已存在，**批次内先建点拿到 id 再连边**；复合主键（src+verb+dst）幂等去重，同边重声明安全无副作用。
 
@@ -35,7 +35,7 @@ task:
 - **L1 领域层**（以 L0 为锚）：按领域分批探索，产出领域模型（领域实体群/领域规则/领域服务边界），每批引用 L0 的架构事实锚定，不重新发现已确立的架构。
 - **L2 实体层**（以 L0+L1 为锚）：按模块分批，产出具体业务实体、接口契约、实体关联与关联测试，锚定上层已产知识。
 
-上层为下层提供探索上下文的具体机制：下层批次开工前，把上层已产节点的 digest 与 kg get 指针注入批次 brief 的锚定段；下层遇到「这是谁的职责/归哪个域」的判断，先查上层产出再下结论。探索数据源两路：codegraph 代码索引与下层已产节点。批次 SubAgent 持 `codegraph` 只读工具——`search` 按名定位符号、`node` 读符号/文件源码、`callers`/`callees` 查调用关系、`impact` 查改动影响面（索引缺失时工具会返回提示，此时降级用 read/grep，不要尝试自建索引）；符号级锚的物化形态（`path#symbol`）以 `kg get` 返回的物化锚清单为准。已确立的事实查 kg（`kg search` 关键词检索 → `kg get` 节点全量）。
+上层为下层提供探索上下文的具体机制：下层批次开工前，把上层已产节点的 digest 与 kg get 指针注入批次 brief 的锚定段；下层遇到「这是谁的职责/归哪个域」的判断，先查上层产出再下结论。探索数据源两路：codegraph 代码索引与下层已产节点。批次 SubAgent 持 `codegraph` 只读工具——`search` 按名定位符号、`node` 读符号/文件源码、`callers`/`callees` 查调用关系、`impact` 查改动影响面（索引缺失时工具会返回提示，此时降级用 read/grep，不要尝试自建索引）；符号级锚的物化形态（`path#symbol`）以 `kg get` 返回的物化锚清单为准。已确立的事实查 kg（`kg search` 检索——关键词+向量双轨并集，端点缺失回落纯关键词 → `kg get` 节点全量）。
 
 **重跑幂等**：重跑一个批次（自动重试或失败重派）时，先按该批次 `origin_batchId` 检出旧产出逐个 supersede（理由如实记录），再产新节点——不许原地改旧节点（审计链断裂）；实例 plan 的 note 产物指针标明哪些探索步骤已完成，可跳过不重做。supersede 的 replacement 节点（含批次内自我修正）同样是本批产出——批次上下文内 `taskId`/`origin_batchId` 由接线层机械注入且 replacement 默认 `status=confirmed`（不会落 draft）；`layer` 仍需 LLM 携带。
 
@@ -107,5 +107,6 @@ task:
 1. **三层产出齐**：L0/L1/L2 各层均有节点落库（confirmed + layer + origin_batchId 元数据完整）。
 2. **各批 closure resolve**：每个批次实例 plan 全部 resolve（done 或 abandoned 带理由）+ closure status 成功；失败批次在重试上限内收敛。
 3. **阶段产物聚合完成**：每阶段 stage.artifact 已写——阶段摘要（人类可读：本层建了什么、覆盖哪些域/模块、有什么已知缺口），这是任务页「任务结果」tab 与产出审阅视图的数据源。
+4. **收口锚对账完成**（工程纪律②收口锚对账点，与收尾提交同刻）：对本任务产出节点的锚声明做健康核对（声明 vs 物化、orphan 状态）——机械确定性可判项当场处置，残量（符号消亡后节点去留等需内容判断的）进收口报告直接交代用户，不留台账等体检；凡涉及「节点内容还对不对」的走 findings→候选人审，不混入机械处置。
 
 三层中任一层无产出（如项目过小无 L2 实体可建），在阶段摘要中如实说明空层理由后按实际完成收口——「空但说清了为什么空」是完成，「没查就说没有」不是。

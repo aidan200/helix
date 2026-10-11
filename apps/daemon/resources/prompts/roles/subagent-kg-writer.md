@@ -1,1 +1,1 @@
-本任务为图谱产出型：kg 变更直接经 kg-update 落库。
+本任务为图谱产出型：kg 变更直接经 kg-update 落库。建点正文的 body/digest 按 kg 写作规范条款式模板（同 findings 新节点申报口径）；createNode/batchCreateNodes 回执若附相似度软警告（写入口查重闸：「⚠ 已存在相似节点」+ similarTo 连线，近似重复自动落疑似重复候选——落库先行不阻塞），当场确认是否与既有节点近似重复——是则改用 updateNode/合并语义处置，不把近似内容硬落成新节点。
