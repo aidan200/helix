@@ -158,7 +158,7 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
       const sessionId = snap0.sessionId!;
 
       //  spawn 一个运行中 SubAgent（调度链真体 + 挂起 runner）
-      const spawned = rig.daemon.orchestration.spawn("子代理任务");
+      const spawned = await rig.daemon.orchestration.spawn("子代理任务");
       expect(spawned.status).toBe("run");
       const agentId = (spawned as { agentId: string }).agentId;
 
@@ -206,7 +206,7 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
   test("恢复重放：定向干预重启后完整（主轴尾窗 + 实例 channel 双处可见）", async () => {
     const home = tmpHome();
     const rig1 = await makeRig(home);
-    const spawned = rig1.daemon.orchestration.spawn("会被重启打断的任务");
+    const spawned = await rig1.daemon.orchestration.spawn("会被重启打断的任务");
     const agentId = (spawned as { agentId: string }).agentId;
     // 经会话路由面定向注入（chatRouter → ChatService → send 链）
     await rig1.daemon.chat.steer("重启前注入的干预", undefined, agentId);
@@ -273,7 +273,7 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
       expect((errUnknown.payload as { message: string }).message).toContain("不存在");
 
       // completed 目标（spawn → 强制自然收口）
-      const s1 = rig.daemon.orchestration.spawn("将完成的任务");
+      const s1 = await rig.daemon.orchestration.spawn("将完成的任务");
       const doneId = (s1 as { agentId: string }).agentId;
       rig.runner.forceClosure(doneId, {
         result: "done",
@@ -284,10 +284,10 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
       expect((errDone.payload as { message: string }).message).toContain("已终态");
 
       // queued 目标（占满 maxConcurrent=3 后第 4 个入队；前序 completed 已释放一席）
-      rig.daemon.orchestration.spawn("占用一");
-      rig.daemon.orchestration.spawn("占用二");
-      rig.daemon.orchestration.spawn("占用三");
-      const s4 = rig.daemon.orchestration.spawn("排队中的任务");
+      await rig.daemon.orchestration.spawn("占用一");
+      await rig.daemon.orchestration.spawn("占用二");
+      await rig.daemon.orchestration.spawn("占用三");
+      const s4 = await rig.daemon.orchestration.spawn("排队中的任务");
       expect(s4.status).toBe("queued");
       const queuedId = (s4 as { agentId: string }).agentId;
       steerTo(queuedId, "给排队实例");
@@ -307,3 +307,4 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
     }
   }, 15000);
 });
+

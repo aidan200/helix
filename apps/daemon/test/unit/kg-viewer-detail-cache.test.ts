@@ -106,6 +106,15 @@ class CountingGraph implements KnowledgeGraphPort {
     }));
   }
 
+  getDigestRows(_root: string, ids: readonly string[]): readonly NodeDigestRow[] {
+    return ids.flatMap((id) => {
+      const d = this.details.get(id);
+      return d === undefined
+        ? []
+        : [{ id: d.node.id, kind: d.node.kind, name: d.node.name, digest: d.node.digest, scene: d.node.scene, status: d.node.status, domain: d.node.domain }];
+    });
+  }
+
   getSyncBaseline(): SyncBaselineView {
     return { files: [], symbols: [], activeAnchors: [], anchorDeclarations: [] };
   }

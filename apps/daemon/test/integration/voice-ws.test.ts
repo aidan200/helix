@@ -150,7 +150,7 @@ afterEach(async () => {
 
 /** spawn → 等 spawned 帧拿 agentId → forceClosure done → 返回 agentId。 */
 async function spawnAndComplete(rig: Rig, summary: string): Promise<string> {
-  const spawn = rig.daemon.orchestration.spawn(summary);
+  const spawn = await rig.daemon.orchestration.spawn(summary);
   expect(spawn.status === "run" || spawn.status === "queued").toBe(true);
   const spawned = await rig.client.expect("agent.spawned", 5000);
   const agentId = String(spawned.instanceId);
@@ -237,3 +237,4 @@ describe("voice.synthesize：试听合成命令", () => {
     expect(String(err.payload.message)).toContain("payload.text");
   });
 });
+

@@ -9,9 +9,12 @@ import { isValidNodeRef } from "../../../../domain/kg/node-id";
 /**
  * kg 工具（T3.3，CL-4 F4.1，AD-16）——单工具四操作只读薄壳：
  *
- * - search(q)：name/digest LIKE 确定性匹配（无 embedding，F-6）→ 摘要列表
- *   （digest+指针形态：粗体 name + kind 徽章 + digest + `kg get <id>` 指针；
- *   无裸 id 主展示）。重名多行共存靠 digest 区分。
+ * - search(q)：**关键词+语义双轨并集**（检索语义化批）——关键词轨（name/
+ *   digest LIKE 确定性匹配，原序在前）∪ 向量轨（query 整段向量化语义召回
+ *   top-K 且 ≥ 阈值，score 降序追加；两轨同节点去重置关键词轨位；向量面
+ *   缺席/失败降级纯关键词）→ 摘要列表（digest+指针形态：粗体 name + kind
+ *   徽章 + digest + `kg get <id>` 指针；无裸 id 主展示）。重名多行共存靠
+ *   digest 区分。
  * - get(nodeId)：节点全量聚合（节点/锚/关系/supersede 链/变更日志）。
  * - candidates(status?)：candidates 台账列表读面（读面三件套之一——agent
  *   清台判读通道；行含 id/title/status/kind/target_node/defer_age/
@@ -35,7 +38,7 @@ const kgParameters = {
       enum: ["search", "get", "affected", "candidates"],
       description: "操作：search 关键词检索 / get 节点全量 / affected 锚反查（文件或符号 → 管辖节点）/ candidates 候选台账列表（status 可选四态过滤）",
     },
-    q: { type: "string", description: "search 关键词（name/digest 子串匹配，确定性非语义）" },
+    q: { type: "string", description: "search 查询词（关键词子串 + 语义双轨并集——用词不一致也能命中；空命中回 无命中）" },
     nodeId: { type: "string", description: "get 目标节点 id（TR-n / E-n——永远取自 search 返回行的 kg get 指针）" },
     project: {
       type: "string",
@@ -57,7 +60,7 @@ const kgParameters = {
 } as const;
 
 export interface KgToolDeps {
-  readonly query: Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates" | "locate">;
+  readonly query: Pick<KgQueryService, "searchUnion" | "get" | "affected" | "listCandidates" | "locate">;
 }
 
 /** kg 只读工具：注册名 "kg"。 */
@@ -66,8 +69,8 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
     name: "kg",
     label: "kg",
     description:
-      "查询项目知识图谱（.kg，只读）。两步用法：先 search(q) 按关键词（名称/摘要子串）" +
-      "检索得到摘要列表（每行含 scene 适用场景、digest 与 `kg get <id>` 指针，重名靠 digest 区分），" +
+      "查询项目知识图谱（.kg，只读）。两步用法：先 search(q) 检索（关键词+语义双轨并集——" +
+      "子串匹配 ∪ 向量语义召回，用词不一致也能命中）得到摘要列表（每行含 scene 适用场景、digest 与 `kg get <id>` 指针，重名靠 digest 区分），" +
       "再用返回行指针中的 id 调 get(nodeId) 取节点全量（描述/锚/关系/supersede 链/变更日志）。" +
       "改动代码前用 affected(target) 锚反查：target 为项目相对路径或符号名（或 path#symbol），" +
       "返回管辖该代码的节点列表（意图先经 codegraph 落地成符号，再反查——比关键词盲搜准）。" +
@@ -80,9 +83,9 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
       const { op, q, nodeId, target, status, project } = params as { op?: string; q?: string; nodeId?: string; target?: string; status?: string; project?: string };
       if (op === "search") {
         if (typeof q !== "string" || q.trim() === "") {
-          throw new Error("kg search 需要 q（非空关键词——name/digest 子串匹配）");
+          throw new Error("kg search 需要 q（非空查询词——关键词+语义双轨）");
         }
-        const hits = deps.query.search(q);
+        const hits = await deps.query.searchUnion(q);
         return text(renderSearch(q, hits));
       }
       if (op === "affected") {

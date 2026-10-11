@@ -293,7 +293,7 @@ export interface BuildSessionStackDeps {
     task: string,
     audience: "main" | "worker",
     projectRoots: readonly string[],
-  ) => string;
+  ) => string | Promise<string>;
   /**
    * findings 落账管道（F3.0，T4.1）：透传 SchedulerService→ClosureRecorder
    * （组合根接 kg 栈 KgWriteService；测试工厂可注入替身）。缺省不注入

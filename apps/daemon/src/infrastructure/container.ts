@@ -74,6 +74,8 @@ import {
 import { SummaryConfigStore } from "../adapters/driven/sqlite-session/SummaryConfigStore";
 import { KgConfigStore } from "../adapters/driven/sqlite-session/KgConfigStore";
 import {
+  KG_SEMANTIC_MINSCORE_DEFAULT,
+  KG_SEMANTIC_TOPK_DEFAULT,
   KG_SIMILARITY_DUP_DEFAULT,
   KG_SIMILARITY_WARN_DEFAULT,
 } from "../application/services/kg/kgConfig";
@@ -454,6 +456,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         //  KgConfigStore.current；未建前回缺省对）
         resolveKgThresholds: () =>
           kgConfigRef?.current() ?? { warn: KG_SIMILARITY_WARN_DEFAULT, dup: KG_SIMILARITY_DUP_DEFAULT },
+        // 检索语义化批：语义召回对生效值（kg.semanticTopK/MinScore 读面裁决
+        //  单点——KgConfigStore.current；未建前回缺省对）
+        resolveKgSemantic: () => {
+          const current = kgConfigRef?.current();
+          return current !== undefined
+            ? { topK: current.semanticTopK, minScore: current.semanticMinScore }
+            : { topK: KG_SEMANTIC_TOPK_DEFAULT, minScore: KG_SEMANTIC_MINSCORE_DEFAULT };
+        },
       }),
     // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
     // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。
@@ -712,13 +722,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 安全）；执行成功后装配层广播 session.plan.changed + 快照附 plan 读面
     //（SubAgent 子进程本地栈不受影响——两栈独立）
     mainPlan: {},
-    // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
-    // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）。
+    // spawn 派发任务切片注入（F1.3；检索语义化批双轨 async 化）：任务文本
+    //  → 图查询（关键词轨 ∪ 向量轨）→ digest+指针切片拼入 task 约束区；
+    // 注入后 markInjected 入跨通道去重注册表（T3.2 同源）。嵌入往返（超时
+    // 上限 800ms）随链落定，失败降级纯关键词轨。
     // W1：未绑定 → 空切片（无图查询面，零副作用）。audience（D8 W-R6）：
     // SubAgent spawn 链传 "worker"（协议行 findings 申报措辞），主会话
     // ChatService 链传/缺省 "main"（kg-update 直落措辞）——buildSessionStack 按消费链分叉。
-    taskInjector: (sessionId, task, audience, projectRoots) =>
-      workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience, projectRoots) ?? "",
+    taskInjector: async (sessionId, task, audience, projectRoots) =>
+      (await workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience, projectRoots)) ?? "",
     // findings 落账管道（F3.0，T4.1）：findings 文件 canonical → KgWriteService 唯一
     // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
     // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。

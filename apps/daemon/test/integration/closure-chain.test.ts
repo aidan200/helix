@@ -163,7 +163,7 @@ describe("① closure 注入驱动主线新 turn（idle 语义）", () => {
     const rig = (current = await makeRig());
     expect(rig.daemon.system.getStatus().agentState).toBe("idle");
 
-    const outcome = rig.daemon.orchestration.spawn("调研调度器现状");
+    const outcome = await rig.daemon.orchestration.spawn("调研调度器现状");
     expect(outcome.status).toBe("run");
     if (outcome.status !== "run") throw new Error("unreachable");
     const agentId = outcome.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
@@ -187,7 +187,7 @@ describe("① closure 注入驱动主线新 turn（idle 语义）", () => {
 describe("② agent.completed 五字段 ClosureDto + O-5 双产物", () => {
   test("收口 → 事件落盘（closure 显式 null/值齐备）+ closure_records 行 + 报告文件可读", async () => {
     const rig = (current = await makeRig());
-    const spawn2 = rig.daemon.orchestration.spawn("生成报告的任务");
+    const spawn2 = await rig.daemon.orchestration.spawn("生成报告的任务");
     if (spawn2.status !== "run") throw new Error("unreachable");
     const agentId = spawn2.agentId; // T10a：agent-<唯一串>
     rig.runner.forceClosure(agentId, { result: "done", closure: DONE("报告任务完成") });
@@ -263,7 +263,7 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
 
     void daemon.chat.sendMessage("开始调研").catch(() => undefined);
     await until(() => engine.isStreaming(), 3000, "主线 run 开始");
-    const spawn3 = rig.daemon.orchestration.spawn("并行调研任务"); // SubAgent 出卡（与主线 run 并行）
+    const spawn3 = await rig.daemon.orchestration.spawn("并行调研任务"); // SubAgent 出卡（与主线 run 并行）
     if (spawn3.status !== "run") throw new Error("unreachable");
     const agentId = spawn3.agentId; // T10a：agent-<唯一串>
 
@@ -304,7 +304,7 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
 describe("④ SubAgent 实例事件进 per-instance 面（AD-8 → AD-3 演进，T2.1）", () => {
   test("工具事件挂 instanceId 落盘广播 + 会话投影落记录；主线 turn 与 MainAgent 上下文零混入", async () => {
     const rig = (current = await makeRig());
-    const spawn4 = rig.daemon.orchestration.spawn("用工具调研");
+    const spawn4 = await rig.daemon.orchestration.spawn("用工具调研");
     if (spawn4.status !== "run") throw new Error("unreachable");
     const agentId = spawn4.agentId; // T10a：agent-<唯一串>
     expect(rig.runner.launched.length).toBe(1);
@@ -352,7 +352,7 @@ describe("④ SubAgent 实例事件进 per-instance 面（AD-8 → AD-3 演进�
 describe("⑤ kill 全链（FB-3：runner.kill 先行 + closure failed 注入主线）", () => {
   test("port.kill → runner.kill 收到 → agent.killed(closure failed) → 注入主线新 turn", async () => {
     const rig = (current = await makeRig());
-    const spawn5 = rig.daemon.orchestration.spawn("会被终止的任务");
+    const spawn5 = await rig.daemon.orchestration.spawn("会被终止的任务");
     if (spawn5.status !== "run") throw new Error("unreachable");
     const agentId = spawn5.agentId; // T10a：agent-<唯一串>
 
@@ -390,7 +390,7 @@ describe("⑥ F3.0 注入行带 reportPath 指针 + 自报路径透传不覆盖�
     const reportPath = path.join(rig.home, "sub-self-report.md");
     writeFileSync(reportPath, "# SubAgent 原始报告\n\nSENTINEL-FULLTEXT-9f3a\n", "utf8");
 
-    const spawn6 = rig.daemon.orchestration.spawn("带自报报告的任务");
+    const spawn6 = await rig.daemon.orchestration.spawn("带自报报告的任务");
     if (spawn6.status !== "run") throw new Error("unreachable");
     const agentId = spawn6.agentId; // T10a：agent-<唯一串>
     rig.runner.forceClosure(agentId, {
@@ -421,7 +421,7 @@ describe("⑥ F3.0 注入行带 reportPath 指针 + 自报路径透传不覆盖�
 
   test("无自报 reportPath：兜底落盘保留（<home>/reports/<session>/<agentId>.md）且注入行带指针", async () => {
     const rig = (current = await makeRig());
-    const spawn6b = rig.daemon.orchestration.spawn("无自报报告的任务");
+    const spawn6b = await rig.daemon.orchestration.spawn("无自报报告的任务");
     if (spawn6b.status !== "run") throw new Error("unreachable");
     const agentId = spawn6b.agentId;
     rig.runner.forceClosure(agentId, {
@@ -499,7 +499,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       home,
     ));
     try {
-      const spawn7 = rig.daemon.orchestration.spawn("带 findings 的任务");
+      const spawn7 = await rig.daemon.orchestration.spawn("带 findings 的任务");
       if (spawn7.status !== "run") throw new Error("unreachable");
       const agentId = spawn7.agentId;
       rig.runner.forceClosure(agentId, {
@@ -585,7 +585,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       },
       home,
     ));
-    const spawn7b = rig.daemon.orchestration.spawn("空 findings 任务");
+    const spawn7b = await rig.daemon.orchestration.spawn("空 findings 任务");
     if (spawn7b.status !== "run") throw new Error("unreachable");
     rig.runner.forceClosure(spawn7b.agentId, {
       result: "done",
@@ -632,7 +632,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
     try {
       // ① 新协议形态：信封 findings=null（协议已退役该字段）+ findings 文件在
       //    → 文件落账 + closure_records 行记 findings_file 指针
-      const spawnA = rig.daemon.orchestration.spawn("文件 canonical 任务");
+      const spawnA = await rig.daemon.orchestration.spawn("文件 canonical 任务");
       if (spawnA.status !== "run") throw new Error("unreachable");
       const reportsDir = path.join(home, "reports", rig.sessionId);
       mkdirSync(reportsDir, { recursive: true });
@@ -654,7 +654,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       // ② 文件优先：同一实例形态下信封也带 findings（旧格式实例）→ 只落文件
       //    一份（文件是唯一事实源，信封携带被忽略，不双落）
       writes.length = 0;
-      const spawnB = rig.daemon.orchestration.spawn("文件优先任务");
+      const spawnB = await rig.daemon.orchestration.spawn("文件优先任务");
       if (spawnB.status !== "run") throw new Error("unreachable");
       const findingsPathB = path.join(reportsDir, `${spawnB.agentId}.findings.json`);
       writeFileSync(
@@ -672,7 +672,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
 
       // ③ 旧格式兼容回退：文件缺 + 信封 findings 非空 → 落信封、不记指针
       writes.length = 0;
-      const spawnC = rig.daemon.orchestration.spawn("兼容回退任务");
+      const spawnC = await rig.daemon.orchestration.spawn("兼容回退任务");
       if (spawnC.status !== "run") throw new Error("unreachable");
       rig.runner.forceClosure(spawnC.agentId, {
         result: "done",
@@ -700,7 +700,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       },
       home,
     ));
-    const spawn7c = rig.daemon.orchestration.spawn("落账会失败的任务");
+    const spawn7c = await rig.daemon.orchestration.spawn("落账会失败的任务");
     if (spawn7c.status !== "run") throw new Error("unreachable");
     const agentId = spawn7c.agentId;
     rig.runner.forceClosure(agentId, {
@@ -768,7 +768,7 @@ describe("⑧ F3.0 e2e：真子进程闭环 → 注入行含指针（真 Bun.spa
       cliOutput: new PassThrough(),
     });
     try {
-      const spawn8 = daemon.orchestration.spawn("真子进程任务");
+      const spawn8 = await daemon.orchestration.spawn("真子进程任务");
       if (spawn8.status !== "run") throw new Error("unreachable");
       const agentId = spawn8.agentId;
 
@@ -812,3 +812,4 @@ describe("mapFindingsToOps 空壳防御（CAND-251）", () => {
     expect(richMod.op.kind).toBe("proposeCandidate");
   });
 });
+

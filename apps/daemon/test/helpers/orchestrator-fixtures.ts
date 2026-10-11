@@ -198,7 +198,7 @@ export interface OrchestratorEnvOverrides {
   /** 编排 LLM 剧本（跨 drive 共享队列）。 */
   readonly script: readonly ScriptEntry[];
   /** spawn 面覆盖（预算测试注入真调度器绑定形态）。 */
-  readonly rawSpawn?: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome;
+  readonly rawSpawn?: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome | Promise<SpawnOutcome>;
   /** 实例终态读面覆盖（预算测试注入 scheduler.status）。 */
   readonly instanceOutcome?: (agentId: string) => { state: string; summary?: string } | undefined;
   /** manifest plan 档位（缺省 enforced）。 */
@@ -333,7 +333,7 @@ export async function withOrchestratorEnv(
       cwd: dir,
       orchestration,
       kg: {
-        query: { search: () => [], get: () => null, locate: () => [], affected: () => [], listCandidates: () => [] },
+        query: { search: () => [], searchUnion: async () => [], get: () => null, locate: () => [], affected: () => [], listCandidates: () => [] },
         workspaceRoot: dir,
         scanProjects: () => [],
       },

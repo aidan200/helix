@@ -83,7 +83,7 @@ describe("T2 SchedulerService 终态钩子（owner 回收接缝）", () => {
       onInstanceTerminal: (agentId) => reclaimed.push(agentId),
     });
     try {
-      const outcome = scheduler.spawn("s-t2", "任务", "subagent-worker");
+      const outcome = await scheduler.spawn("s-t2", "任务", "subagent-worker");
       expect(outcome.status).toBe("run");
       if (outcome.status === "rejected") return;
 
@@ -107,7 +107,7 @@ describe("T2 SchedulerService 终态钩子（owner 回收接缝）", () => {
       clock,
     });
     try {
-      const outcome = scheduler.spawn("s-t2", "任务", "subagent-worker");
+      const outcome = await scheduler.spawn("s-t2", "任务", "subagent-worker");
       expect(outcome.status).toBe("run");
       if (outcome.status === "rejected") return;
       fire(outcome.agentId); // 不抛错
@@ -117,3 +117,4 @@ describe("T2 SchedulerService 终态钩子（owner 回收接缝）", () => {
     }
   });
 });
+

@@ -113,9 +113,9 @@ describe("F1.3/T12 spawn 透传模型不作用子进程（真子进程 + 剧本�
     // 首个直跑；后两个排队——三者 spawn 透传不同模型 id
     //（旧链下会作为会话快照进子进程；T12 后仅填充 AgentInstanceDto.model）
     // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
-    const spawn1 = scheduler.spawn(SESSION_ID, "任务一", undefined, "fake/session-a");
-    const spawn2 = scheduler.spawn(SESSION_ID, "任务二", undefined, "fake/session-b");
-    const spawn3 = scheduler.spawn(SESSION_ID, "任务三", undefined, "fake/session-c");
+    const spawn1 = await scheduler.spawn(SESSION_ID, "任务一", undefined, "fake/session-a");
+    const spawn2 = await scheduler.spawn(SESSION_ID, "任务二", undefined, "fake/session-b");
+    const spawn3 = await scheduler.spawn(SESSION_ID, "任务三", undefined, "fake/session-c");
     expect(spawn1.status).toBe("run");
     expect(spawn2.status).toBe("queued");
     expect(spawn3.status).toBe("queued");
@@ -144,3 +144,4 @@ describe("F1.3/T12 spawn 透传模型不作用子进程（真子进程 + 剧本�
     expect(snapshot.find((i) => i.instanceId === ids[2])?.model).toBe("fake/session-c");
   }, 30000);
 });
+

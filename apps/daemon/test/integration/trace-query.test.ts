@@ -175,9 +175,9 @@ async function seedMixedSession(rig: Rig): Promise<{ agent1: string; agent2: str
     "首轮对话收口",
   );
 
-  const s1 = daemon.orchestration.spawn("任务一");
+  const s1 = await daemon.orchestration.spawn("任务一");
   expect(s1.status === "run" || s1.status === "queued").toBe(true);
-  const s2 = daemon.orchestration.spawn("任务二");
+  const s2 = await daemon.orchestration.spawn("任务二");
   expect(s2.status === "run" || s2.status === "queued").toBe(true);
   const agent1 = s1.status === "run" || s1.status === "queued" ? s1.agentId : "";
   const agent2 = s2.status === "run" || s2.status === "queued" ? s2.agentId : "";
@@ -591,3 +591,4 @@ describe("⑤ 重启回填（F5.8 / F5.7 锚 3）：恢复实例 model 非缺失
     }
   });
 });
+

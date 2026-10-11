@@ -5,9 +5,13 @@ import type { KnowledgeStorePort } from "../../application/ports/outbound/Knowle
 import { KgWriteService } from "../../application/services/kg/KgWriteService";
 import { KgVectorService } from "../../application/services/kg/KgVectorService";
 import { KgDedupService } from "../../application/services/kg/KgDedupService";
+import { KgSemanticRecallService } from "../../application/services/kg/KgSemanticRecallService";
 import {
+  KG_SEMANTIC_MINSCORE_DEFAULT,
+  KG_SEMANTIC_TOPK_DEFAULT,
   KG_SIMILARITY_DUP_DEFAULT,
   KG_SIMILARITY_WARN_DEFAULT,
+  type KgSemanticRecallSettings,
   type KgSimilarityThresholds,
 } from "../../application/services/kg/kgConfig";
 import { nodeVectorContentHash } from "../../adapters/driven/sqlite-kg/node-vector-codec";
@@ -124,6 +128,9 @@ export function buildKnowledgeStack(deps: {
   /** 查重阈值生效对（批2 WP-C：运行期即热——每次查重前实时读；缺省 =
    *  kgConfig 缺省对 0.80/0.92）。生产接 KgConfigStore.current（容器注入）。 */
   resolveKgThresholds?: () => KgSimilarityThresholds;
+  /** 语义召回对生效值（检索语义化批：kg.semanticTopK/MinScore 运行期即热；
+   *  缺省 = 5/0.35）。生产接 KgConfigStore.current 投影（容器注入）。 */
+  resolveKgSemantic?: () => KgSemanticRecallSettings;
 }): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
@@ -140,6 +147,21 @@ export function buildKnowledgeStack(deps: {
         })
       : undefined;
   const writeService = new KgWriteService({ store, ...(vectors !== undefined ? { vectorSync: vectors } : {}) });
+  // 检索语义化批：语义召回轨（可选件——嵌入面在场才挂；端点缺失/嵌入失败/
+  //  超时服务内降级纯关键词轨，queryService 零感知差异）
+  const semantic =
+    deps.makeEmbedding !== undefined && deps.resolveEmbeddingEndpoint !== undefined
+      ? new KgSemanticRecallService({
+          embedding: deps.makeEmbedding(),
+          resolveEndpoint: deps.resolveEmbeddingEndpoint,
+          vectors: store,
+          digestRows: (projectRoot, ids) => graph.getDigestRows(projectRoot, ids),
+          settings:
+            deps.resolveKgSemantic ??
+            (() => ({ topK: KG_SEMANTIC_TOPK_DEFAULT, minScore: KG_SEMANTIC_MINSCORE_DEFAULT })),
+          ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
+        })
+      : undefined;
   // 批2 WP-C：写入口语义查重闸（向量面在场才挂——可选件纪律；阈值运行期
   //  即热，缺省对 = kgConfig 缺省 0.80/0.92）
   const dedupService =
@@ -186,6 +208,8 @@ export function buildKnowledgeStack(deps: {
     // kg.db（kgReadProjects 归一；主仓无库空集，读面绝不新建库文件）。
     projects: () => kgReadProjects(deps.workspaceRoot),
     attachment: attachmentService,
+    // 检索语义化批：向量轨（缺席 = 纯关键词轨，行为零变化）
+    ...(semantic !== undefined ? { semantic: (text: string, projects: readonly string[]) => semantic.recall(text, projects) } : {}),
   });
   const verifyService = new KgVerifyService({ graph });
   const reportService = new KgReportService({ graph, verify: verifyService });

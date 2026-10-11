@@ -137,6 +137,10 @@ class StubGraph implements KnowledgeGraphPort {
     return [];
   }
 
+  getDigestRows(): readonly NodeDigestRow[] {
+    return [];
+  }
+
   getNode(): NodeDetail | null {
     return null;
   }

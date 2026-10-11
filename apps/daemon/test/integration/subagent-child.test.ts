@@ -479,7 +479,7 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
         stalledPollMs: 100,
     });
 
-    const outcome = scheduler.spawn(SESSION_ID, "调度组装任务");
+    const outcome = await scheduler.spawn(SESSION_ID, "调度组装任务");
     expect(outcome.status).toBe("run");
     if (outcome.status !== "run") throw new Error("unreachable");
     const agentId = outcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
@@ -883,3 +883,4 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
     }
   });
 });
+

@@ -48,6 +48,13 @@ export interface KnowledgeGraphPort {
   search(projectRoot: string, q: string): readonly NodeDigestRow[];
 
   /**
+   * 批量摘要行解析（语义召回轨向量行 → NodeDigestRow）：按 id 集合取
+   * 节点摘要行（含 status——superseded 判定留给消费面排除）；返回序 =
+   * ids 入参序（确定性），缺失 id 静默缺席。
+   */
+  getDigestRows(projectRoot: string, ids: readonly string[]): readonly NodeDigestRow[];
+
+  /**
    * 锚反查（R20 affected op 数据面）：target（相对路径 / 符号名 / path#symbol
    * 复合形态）→ materialized_anchors 反查管辖节点摘要（orphan=0 且非
    *   superseded；失效即静默与附着快照同纪律）；物化零命中的节点退查

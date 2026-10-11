@@ -71,7 +71,7 @@ describe("F1.2 锚 2 抽样：兜底 summary 单源直通消费面（reports md 
       stalledPollMs: 100,
     });
     try {
-      const outcome = scheduler.spawn("s-t12", "错误轮任务");
+      const outcome = await scheduler.spawn("s-t12", "错误轮任务");
       if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
       const agentId = outcome.agentId;
       expect(outcome.status).toBe("run");
@@ -101,3 +101,4 @@ describe("F1.2 锚 2 抽样：兜底 summary 单源直通消费面（reports md 
     }
   });
 });
+

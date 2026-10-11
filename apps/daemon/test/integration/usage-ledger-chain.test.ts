@@ -111,7 +111,7 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       });
 
       await d1.chat.sendMessage("问一");
-      const spawnOutcome = d1.orchestration.spawn("统计文件");
+      const spawnOutcome = await d1.orchestration.spawn("统计文件");
       expect(spawnOutcome.status).toBe("run");
       if (spawnOutcome.status !== "run") throw new Error("unreachable");
       const agentId = spawnOutcome.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
@@ -215,3 +215,4 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
     }
   }, 30000);
 });
+

@@ -343,7 +343,7 @@ describe("SubAgent spawn 快照容器级（生产 launcher，M6 T2 acceptance �
       // 统一启停批：user 技能显式启用制——先启用 hello-skill（组装快照缓存重算后进技能段）
       await daemon.resource.toggle("subagent-worker", "skill", "hello-skill", true);
       // spawn #1：subagent 生效集默认全集 + 技能段
-      daemon.orchestration.spawn("任务一");
+      await daemon.orchestration.spawn("任务一");
       expect(calls).toHaveLength(1);
       expect(JSON.parse(calls[0]!.env["HELIX_TOOLS_JSON"]!)).toEqual(SUB_TOOLS);
       expect(calls[0]!.env["HELIX_SYSTEM_PROMPT"]).toContain("- name: hello-skill");
@@ -351,12 +351,12 @@ describe("SubAgent spawn 快照容器级（生产 launcher，M6 T2 acceptance �
 
       // subagent kind toggle 关 grep → 新 spawn 代际生效
       await daemon.resource.toggle("subagent-worker", "tool", "grep", false);
-      daemon.orchestration.spawn("任务二");
+      await daemon.orchestration.spawn("任务二");
       expect(JSON.parse(calls[1]!.env["HELIX_TOOLS_JSON"]!)).toEqual(SUB_TOOLS.filter((t) => t !== "grep"));
 
       // main kind toggle 不动 subagent 快照（kind 隔离；已 spawn 实例 env 已定格）
       await daemon.resource.toggle("main-session", "tool", "grep", false);
-      daemon.orchestration.spawn("任务三");
+      await daemon.orchestration.spawn("任务三");
       expect(JSON.parse(calls[2]!.env["HELIX_TOOLS_JSON"]!)).toEqual(SUB_TOOLS.filter((t) => t !== "grep"));
       expect(calls[2]!.env["HELIX_SYSTEM_PROMPT"]).toBe(calls[1]!.env["HELIX_SYSTEM_PROMPT"]);
       // 定格面：spawn #1 的 env 历史值不受后续任何 toggle 影响
@@ -367,3 +367,4 @@ describe("SubAgent spawn 快照容器级（生产 launcher，M6 T2 acceptance �
     }
   });
 });
+

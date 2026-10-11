@@ -146,17 +146,22 @@ export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
 
 /**
  * config.set_kg 载荷：知识库配置（部分更新语义：携带项写入，未携带项保留
- * 现值；查重阈值 = kg.similarityWarn / kg.similarityDup）。值域 [0,1]——写面
- * 只做类型闸（有限数），值语义（非法/颠倒整对回退缺省 0.80/0.92）读面
- * 单点裁决（memoryConfig 哲学）；回执恒回**生效值**（所见即所得）。后续
- * kg 新增可配置项落本组（D4 归宿纪律——「知识库」配置组是 kg 展面配置
- * 的归宿）。
+ * 现值；查重阈值 = kg.similarityWarn / kg.similarityDup，语义召回 =
+ * kg.semanticTopK / kg.semanticMinScore）。查重阈值值域 [0,1]、semanticTopK
+ * 为正整数、semanticMinScore 值域 [0,1]——写面只做类型闸（有限数），值
+ * 语义（非法/颠倒回退缺省）读面单点裁决（memoryConfig 哲学）；回执恒回
+ * **生效值**（所见即所得）。后续 kg 新增可配置项落本组（D4 归宿纪律
+ * ——「知识库」配置组是 kg 展面配置的归宿）。
  */
 export interface ConfigSetKgPayload {
   /** 查重软警告阈值（+similarTo 连线触发线；缺省 0.80）。 */
   similarityWarn?: number;
   /** 疑似重复阈值（+自动疑似重复候选触发线；缺省 0.92）。 */
   similarityDup?: number;
+  /** 语义召回轨 top-K（向量轨最多贡献命中数；缺省 5，合法整数 [1,50]——读面裁决）。 */
+  semanticTopK?: number;
+  /** 语义召回最低相似度（余弦；缺省 0.35，值域 [0,1]——读面裁决）。 */
+  semanticMinScore?: number;
 }
 export interface ConfigSetKgCommand extends CommandFrame<ConfigSetKgPayload> {
   type: "config.set_kg";

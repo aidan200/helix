@@ -456,7 +456,7 @@ export interface SessionRuntimeFactoryCtx {
   readonly codegraphTool?: CodegraphToolDeps | (() => CodegraphToolDeps | undefined);
   readonly taskCreate?: TaskCreateToolDeps;
   readonly taskReport?: TaskReportToolDeps;
-  readonly taskInjector?: (sessionId: string, task: string, audience?: "main" | "worker") => string;
+  readonly taskInjector?: (sessionId: string, task: string, audience?: "main" | "worker") => string | Promise<string>;
   readonly mainSessionLlmOverride?: MainSessionLlmOverride;
   /** 提权申请批：instantiatedSnapshot 的 permissionRequest 旗标源（与 engineFor 同源）。 */
   readonly askService?: Pick<import("../../application/services/AskService").AskService, "request">;
@@ -559,7 +559,10 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       // 空间时容器注入面回 ""）视为空命中原文透传。D8 W-R6：主会话链恒
       // main 受众（协议行 kg-update 直落措辞——与 spawn 链 worker 版分叉）。
       ...(ctx.taskInjector !== undefined
-        ? { taskSliceInjector: (sid: string, text: string) => ctx.taskInjector!(sid, text, "main") || text }
+        ? {
+            taskSliceInjector: async (sid: string, text: string) =>
+              (await ctx.taskInjector!(sid, text, "main")) || text,
+          }
         : {}),
       // T2 turn diff：轮次挂点（开轮重置/收轮冻结——挂点在编排层，不改
       // Session 聚合；endTurn fire-and-forget，冻结流水线后台完成）

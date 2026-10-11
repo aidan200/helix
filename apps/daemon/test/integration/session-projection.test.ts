@@ -127,7 +127,7 @@ function until(cond: () => boolean, timeoutMs: number, label: string): Promise<v
 describe("T2.1 ① 会话投影：SubAgent thinking/message/tool 进聚合（instanceId 归属）", () => {
   test("spawn 完成后聚合含 instanceId=agent-N 的三类条目；落库快照同构；主线时间轴不被污染", async () => {
     const rig = await makeRig();
-    const outcome = rig.daemon.orchestration.spawn("调研事件分发");
+    const outcome = await rig.daemon.orchestration.spawn("调研事件分发");
     expect(outcome.status).toBe("run");
     if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
     const agentId = outcome.agentId; // T10a：agent-<唯一串>（非纯数字序号）
@@ -202,7 +202,7 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
     };
     const d1 = await mk();
     const sessionId = d1.system.getStatus().sessionId;
-    const spawn1 = d1.orchestration.spawn("调研事件分发");
+    const spawn1 = await d1.orchestration.spawn("调研事件分发");
     if (spawn1.status === "rejected") throw new Error(`spawn 被拒：${spawn1.error}`);
     const agentId = spawn1.agentId;
     await until(() => d1.orchestration.status(agentId)![0]!.state === "done", 5000, "SubAgent 收口");
@@ -231,7 +231,7 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
   test("快照 DTO instances[].channels 反映 SubAgent 同构内容（AD-1 分组）", async () => {
     const { toSnapshotDto } = await import("../../src/adapters/driving/ws-server/DtoMapper");
     const rig = await makeRig();
-    const spawn2 = rig.daemon.orchestration.spawn("调研事件分发");
+    const spawn2 = await rig.daemon.orchestration.spawn("调研事件分发");
     if (spawn2.status === "rejected") throw new Error(`spawn 被拒：${spawn2.error}`);
     const agentId = spawn2.agentId;
     await until(() => rig.daemon.orchestration.status(agentId)![0]!.state === "done", 5000, "SubAgent 收口");
@@ -325,7 +325,7 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       expect(snap.channel).toBe("session");
 
       // 订阅中：SubAgent 运行 → 帧全量章印
-      const spawn3 = rig.daemon.orchestration.spawn("调研事件分发");
+      const spawn3 = await rig.daemon.orchestration.spawn("调研事件分发");
       if (spawn3.status === "rejected") throw new Error(`spawn 被拒：${spawn3.error}`);
       const agentId = spawn3.agentId;
       const spawned = await client.expect("agent.spawned");
@@ -376,7 +376,7 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       const baseline = client.frames.length;
       client.send({ v: 0, type: "session.unsubscribe", payload: {} });
       await new Promise((r) => setTimeout(r, 150));
-      const spawn4 = rig.daemon.orchestration.spawn("第二个任务");
+      const spawn4 = await rig.daemon.orchestration.spawn("第二个任务");
       if (spawn4.status === "rejected") throw new Error(`spawn 被拒：${spawn4.error}`);
       const agent2Id = spawn4.agentId;
       await new Promise((r) => setTimeout(r, 400));
@@ -514,3 +514,4 @@ describe("F3 并发实例 toolCallId 重号：投影复合键隔离不串号", (
 function client_framesAfter(client: WsClient, afterIndex: number) {
   return client.frames.slice(afterIndex);
 }
+

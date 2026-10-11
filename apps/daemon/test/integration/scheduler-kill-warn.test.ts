@@ -96,7 +96,7 @@ afterEach(async () => {
 describe("TP-1.3a #3 scheduler.kill 终止信号异步失败 → logger.warn", () => {
   test("runner.kill reject → warn 含 [scheduler] + 实例 id + 错误信息；收口继续（killed=true）", async () => {
     const h = (current = makeHarness());
-    const spawnOutcome = h.scheduler.spawn(SESSION_ID, "可被 kill 的任务");
+    const spawnOutcome = await h.scheduler.spawn(SESSION_ID, "可被 kill 的任务");
     expect(spawnOutcome.status).toBe("run");
     if (spawnOutcome.status !== "run") throw new Error("unreachable");
     const agentId = spawnOutcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
@@ -114,3 +114,4 @@ describe("TP-1.3a #3 scheduler.kill 终止信号异步失败 → logger.warn", (
     expect(msg!.includes("终止信号发送失败（注入）")).toBe(true);
   });
 });
+

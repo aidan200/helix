@@ -260,12 +260,12 @@ describe("B1 spawn 闸：job 非 pending/running 时编排口 spawn 被拒", () 
       await env.until(() => env.portOf(jobId) !== undefined);
       const port = env.portOf(jobId)!;
       await env.engine.pause(jobId);
-      const rejected = port.spawn(BRIEF_1);
+      const rejected = await port.spawn(BRIEF_1);
       expect(rejected.status).toBe("rejected");
       if (rejected.status === "rejected") expect(rejected.error).toContain("不可派发批次实例");
       expect(env.recorder.calls).toHaveLength(1); // 仅批次 1 接线实例，无新 spawn
       await env.engine.resume(jobId);
-      const ok = port.spawn(BRIEF_1);
+      const ok = await port.spawn(BRIEF_1);
       expect(ok.status === "run").toBe(true);
       expect(env.recorder.calls).toHaveLength(2);
       // 静默锚：全部 drive 回合落定后再退场（dispose 关库不撞异步回合）
@@ -590,3 +590,4 @@ describe("code-review M：收口判据读面异常并入 try（兜底 failBatch 
     });
   }, 30000);
 });
+

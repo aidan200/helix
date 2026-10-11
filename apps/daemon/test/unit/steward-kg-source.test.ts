@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import type { KgQueryService } from "../../src/application/services/kg/KgQueryService";
 import { createStewardKgSource } from "../../src/adapters/driven/tools/kg/StewardKgTool";
 
-type QueryFace = Pick<KgQueryService, "search" | "get" | "locate">;
+type QueryFace = Pick<KgQueryService, "search" | "searchUnion" | "get" | "locate">;
 
 function row(id: string, name: string) {
   return { id, kind: "rule", name, digest: `${name} 摘要`, scene: "适用：测试", status: "active", domain: null };
@@ -44,12 +44,15 @@ function fakeQuery(): QueryFace & { searches: string[] } {
     ["E-2", [{ project: "/w/beta", detail: detailOf("E-2", "Beta 实体") }]],
   ]);
   const searches: string[] = [];
+  const filter = (q: string) => {
+    searches.push(q);
+    return hits.filter((h) => (h as unknown as { row: { name: string; digest: string } }).row.name.includes(q) || (h as unknown as { row: { name: string; digest: string } }).row.digest.includes(q));
+  };
   return {
     searches,
-    search: (q: string) => {
-      searches.push(q);
-      return hits.filter((h) => (h as unknown as { row: { name: string; digest: string } }).row.name.includes(q) || (h as unknown as { row: { name: string; digest: string } }).row.digest.includes(q));
-    },
+    search: (q: string) => filter(q),
+    // 双轨并集替身（检索语义化批）：向量轨缺席 → 关键词轨命中原样（测试适配不改断言语义）
+    searchUnion: async (q: string) => filter(q),
     get: (nodeId: string) => (details.get(nodeId)?.[0] ?? null) as never,
     locate: (nodeId: string) => (details.get(nodeId) ?? []) as never,
   };

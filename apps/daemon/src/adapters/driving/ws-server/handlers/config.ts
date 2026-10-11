@@ -238,9 +238,10 @@ export function handleConfigSetSandbox(ctx: WsCommandContext): void {
 
 // ── config.kg 族（批2 WP-C「知识库」配置组：查重阈值——部分更新语义；
 //    值域 [0,1] 写面类型闸，值语义读面单点裁决（非法/颠倒回退缺省对），
-//    回执恒回生效值所见即所得）──
+//    回执恒回生效值所见即所得；检索语义化批 additive 扩语义召回对
+//    semanticTopK/semanticMinScore——同款类型闸 + 读面裁决）──
 
-/** config.get_kg：知识库配置读面（点对点回执——查重阈值生效对）。 */
+/** config.get_kg：知识库配置读面（点对点回执——查重阈值对 + 语义召回对）。 */
 export function handleConfigGetKg(ctx: WsCommandContext): void {
   if (ctx.kgConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（kgConfig）");
@@ -252,31 +253,51 @@ export function handleConfigGetKg(ctx: WsCommandContext): void {
     sessionId: SYSTEM_SESSION_ID,
     channel: "model",
     type: "config.get_kg.result",
-    payload: { similarityWarn: t.warn, similarityDup: t.dup },
+    payload: { similarityWarn: t.warn, similarityDup: t.dup, semanticTopK: t.semanticTopK, semanticMinScore: t.semanticMinScore },
   };
   ctx.sendNow(sender, frame);
 }
 
-/** config.set_kg：查重阈值写面（点对点回执；类型闸——有限数，值语义读面兑底）。 */
+/** config.set_kg：查重阈值/语义召回写面（点对点回执；类型闸——有限数，值语义读面兑底）。 */
 export function handleConfigSetKg(ctx: WsCommandContext): void {
   if (ctx.kgConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（kgConfig）");
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { similarityWarn, similarityDup } = ctx.payload as { similarityWarn?: unknown; similarityDup?: unknown };
-  if (similarityWarn === undefined && similarityDup === undefined) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload 至少携带一项（similarityWarn/similarityDup）");
+  const { similarityWarn, similarityDup, semanticTopK, semanticMinScore } = ctx.payload as {
+    similarityWarn?: unknown;
+    similarityDup?: unknown;
+    semanticTopK?: unknown;
+    semanticMinScore?: unknown;
+  };
+  if (
+    similarityWarn === undefined &&
+    similarityDup === undefined &&
+    semanticTopK === undefined &&
+    semanticMinScore === undefined
+  ) {
+    return ctx.commandError(
+      ctx.type,
+      "command.invalid_payload",
+      "payload 至少携带一项（similarityWarn/similarityDup/semanticTopK/semanticMinScore）",
+    );
   }
-  if (similarityWarn !== undefined && (typeof similarityWarn !== "number" || !Number.isFinite(similarityWarn))) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.similarityWarn 应为有限数");
-  }
-  if (similarityDup !== undefined && (typeof similarityDup !== "number" || !Number.isFinite(similarityDup))) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.similarityDup 应为有限数");
+  for (const [key, value] of [
+    ["similarityWarn", similarityWarn],
+    ["similarityDup", similarityDup],
+    ["semanticTopK", semanticTopK],
+    ["semanticMinScore", semanticMinScore],
+  ] as const) {
+    if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", `payload.${key} 应为有限数`);
+    }
   }
   void ctx.kgConfig
     .set({
       ...(similarityWarn !== undefined ? { similarityWarn: similarityWarn as number } : {}),
       ...(similarityDup !== undefined ? { similarityDup: similarityDup as number } : {}),
+      ...(semanticTopK !== undefined ? { semanticTopK: semanticTopK as number } : {}),
+      ...(semanticMinScore !== undefined ? { semanticMinScore: semanticMinScore as number } : {}),
     })
     .then((t) => {
       const frame: ConfigSetKgResultEvent = {
@@ -284,7 +305,7 @@ export function handleConfigSetKg(ctx: WsCommandContext): void {
         sessionId: SYSTEM_SESSION_ID,
         channel: "model",
         type: "config.set_kg.result",
-        payload: { similarityWarn: t.warn, similarityDup: t.dup },
+        payload: { similarityWarn: t.warn, similarityDup: t.dup, semanticTopK: t.semanticTopK, semanticMinScore: t.semanticMinScore },
       };
       ctx.sendNow(sender, frame);
     })

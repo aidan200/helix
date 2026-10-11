@@ -95,7 +95,10 @@ export interface AgentInspection {
 
 export interface AgentOrchestrationPort {
   /**
-   * spawn 一个 SubAgent 实例（同步秒回：不等执行收口，AD-8 异步交付）。
+   * spawn 一个 SubAgent 实例（受理秒回：不等执行收口，AD-8 异步交付；
+   * 返回 Awaitable——任务切片注入的嵌入往返（超时上限 800ms）可能使判定
+   * 异步落定，消费端一律 await；未装注入器的实现可同步落定。检索语义化批
+   * async 化，用户裁决：延迟预算放开）。
    * rejected 时调用方（agent_spawn 工具/WS）把错误字符串回 LLM/前端。
    *
    * reportIntervalMs（T3-A 过程监督）：周期进展报告间隔毫秒——>0 启用
@@ -112,7 +115,7 @@ export interface AgentOrchestrationPort {
     profileKind?: string,
     reportIntervalMs?: number,
     options?: { writes?: WriteMode },
-  ): SpawnOutcome;
+  ): SpawnOutcome | Promise<SpawnOutcome>;
   /**
    * 向运行中实例注入消息（AD-7⑤：SchedulerService.send → runner.send →
    * transport → 子进程 stdin → Agent.steer()，turn 边界 drain 生效）。

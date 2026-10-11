@@ -249,7 +249,7 @@ describe("T2.2 并发预算：共享池 ≤3 + 编排不占 SubAgent 预算（CL
           expect(queued.length).toBe(1); // 第 4 个排队
 
           // 编排运行 + 3 批次在跑时，chat 侧 spawn 仍按既有预算语义排队（共享预算池）
-          const chatSpawn = scheduler.spawn("s-chat", "chat 侧任务");
+          const chatSpawn = await scheduler.spawn("s-chat", "chat 侧任务");
           expect(chatSpawn.status).toBe("queued");
           scheduler.kill((chatSpawn as { agentId: string }).agentId); // 摘队收尾，不干扰后续断言
 
@@ -780,3 +780,4 @@ describe("AF-T1.5.2：TaskEngineService onTaskChanged 出站钩子", () => {
     });
   });
 });
+

@@ -114,7 +114,7 @@ export function createAgentSpawnTool(
         reportIntervalMs?: number;
         writes?: "readonly" | "shared" | "isolated";
       };
-      const outcome = orchestration.spawn(task, profileKind, reportIntervalMs, { writes });
+      const outcome = await orchestration.spawn(task, profileKind, reportIntervalMs, { writes });
       if (outcome.status === "rejected") {
         // 队列满报错回 LLM（reject 通路汇流）：以异常表达失败（pi 工具
         // 惯例），CoreToolExecutor 转结构化 error 结果，文案即调度器中文说明
