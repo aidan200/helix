@@ -307,8 +307,9 @@ export const COMMAND_TYPES = [
   "steward.history",
   // B2 barge-in 批：在途轮打断（V3b-3 全双工触发面；无回执——事件面已够）
   "steward.interrupt",
-  // barge-in 意图窗批：语义停止判定（非词表停止表达「先别说了/等一下」类——
-  // 回执 steward.judge_stop_intent.result；降级一律 stop=false 照排队）
+  // Jev 停止意图判定单轨（停止词表退役批）：停止意图语义判定（零生成
+  // token 分类判定——停止判定单源）；回执 steward.judge_stop_intent.result
+  // （原始判定：stop/score/degraded——判不出携 degraded，fail-stop 归消费面）
   "steward.judge_stop_intent",
   // B1 两段式确认批：确认卡作废（无回执——放弃是本地即时收场，作废是
   // daemon 侧簿记同步，interrupt 同构先例）

@@ -240,17 +240,19 @@ export interface StewardInterruptCommand extends CommandFrame<StewardInterruptPa
   type: "steward.interrupt";
 }
 
-/** steward.judge_stop_intent 载荷（barge-in 意图窗批，additive）。 */
+/** steward.judge_stop_intent 载荷（Jev 停止判定单轨批，additive）。 */
 export interface StewardJudgeStopIntentPayload {
-  /** 待判定文本（意图窗插话 final——词表未命中的非停止表达疑似句）。 */
+  /** 待判定文本（意图窗插话 final / ask 漏斗停止判定——停止词表已退役，
+   *  停止判定单源全走判官）。 */
   text: string;
 }
 
-/** steward.judge_stop_intent：语义停止判定（barge-in 意图窗慢通道，shell→
- *  daemon）——非词表停止表达（「先别说了/等一下」类）经判官 noul 判定，
+/** steward.judge_stop_intent：停止意图判定（Jev 单轨，shell→daemon）——
+ *  「停/别说了」类纯停止文本与自然停止表达统一经判官 noul 语义判定，
  *  回执 steward.judge_stop_intent.result（{stop, score?, degraded?}）。
- *  降级（开关关/端点未配/抛错）一律 stop=false——shell 照排队不真停（误停
- *  丢播报不可回滚，误排队仅延后应答）。 */
+ *  **原始判定语义**：判不出（开关关/端点未配/抛错）stop=false + degraded
+ *  标记；fail-stop 归消费面——shell 打断链判不出=真停（宁误停不漏停），
+ *  daemon ask 漏斗判不出=照常走队列（不吞用户提问）。 */
 export interface StewardJudgeStopIntentCommand extends CommandFrame<StewardJudgeStopIntentPayload> {
   type: "steward.judge_stop_intent";
 }

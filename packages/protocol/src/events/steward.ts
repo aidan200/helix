@@ -609,20 +609,22 @@ export interface StewardActivityEvent extends EventFrame<StewardActivityPayload>
   type: "steward.activity";
 }
 
-/** steward.judge_stop_intent.result payload（barge-in 意图窗批，additive）。 */
+/** steward.judge_stop_intent.result payload（Jev 停止判定单轨批，additive）。 */
 export interface StewardJudgeStopIntentResultPayload {
   /** 判定结论：true = 停止意图确认（shell 走真停三步序）。 */
   stop: boolean;
   /** 判官校准概率（degraded 时缺席）。 */
   score?: number;
   /** 降级标记（off = 开关关/判官缺席；unready = 端点未配；error = 判定抛错）。
-   *  降级一律 stop = false——shell 回退照排队（宁多应答不漏）。 */
+   *  **原始判定语义**：降级一律 stop=false + degraded 标记（判不出）——
+   *  fail-stop 归消费面（shell 打断链判不出=真停宁误停不漏停；daemon ask
+   *  漏斗判不出=照常走队列）。 */
   degraded?: "off" | "unready" | "error";
 }
 
-/** steward.judge_stop_intent.result：语义停止判定回执（channel = "steward"；
- *  点对点——发回发起命令的连接；单飞语义：意图窗至多一判，窗收位后迟到
- *  回执由 shell 侧序列守卫吞）。 */
+/** steward.judge_stop_intent.result：停止意图判定回执（channel = "steward"；
+ *  点对点——发回发起命令的连接；Jev 停止判定单轨，停止词表退役后停止判定
+ *  唯一回执面——shell 打断链消费，迟到回执幂等吞）。 */
 export interface StewardJudgeStopIntentResultEvent extends EventFrame<StewardJudgeStopIntentResultPayload> {
   channel?: "steward";
   type: "steward.judge_stop_intent.result";

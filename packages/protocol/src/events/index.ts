@@ -573,8 +573,8 @@ export const EVENT_TYPES = [
   // 四命令共用）+ embedding 配置域两帧（新族 channel "embedding"——端点
   // 清单回执与连通测试回执）
   "steward.memory_list.result",
-  // barge-in 意图窗批：语义停止判定回执（steward.judge_stop_intent 命令
-  // 专属——非词表停止表达「先别说了/等一下」类判官 noul 判定）
+  // Jev 停止判定单轨批：停止意图判定回执（steward.judge_stop_intent 命令
+  // 专属——判官 noul 语义判定；停止词表退役后停止判定单源）
   "steward.judge_stop_intent.result",
   "embedding.list.result",
   "embedding.verify.result",
