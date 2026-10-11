@@ -458,3 +458,55 @@ describe("useSteward（过程反馈 UI 批——进行中态投影）", () => {
     }
   });
 });
+
+// ── 同源批（面板/语音层共享单例）：语音层视角发问，面板视角全程可见——
+//    中间过程（流式/工具）与用户问句行同源，不再只落终态结果。──
+describe("useSteward 同源共享（语音轮过程全程可见）", () => {
+  it("语音层实例 ask 后，另一实例（面板）见流式增量与用户问句行——终态前中间过程不缺失", async () => {
+    const voiceSide = renderSteward();
+    const panelSide = renderSteward();
+    await waitFor(() => expect(sendStewardHistoryMock).toHaveBeenCalled());
+    act(() => {
+      expect(voiceSide.result.current.ask("今天天气怎么样", "voice-duplex")).toBe(true);
+    });
+    // 双实例同源：askInFlight/用户行同时可见（旧分叉：面板实例全不见）
+    expect(panelSide.result.current.askInFlight).toBe(true);
+    expect(panelSide.result.current.items).toContainEqual({ kind: "user", text: "今天天气怎么样" });
+    // 流式增量：回合中途可见（不是终态一次性出现）
+    act(() => {
+      frameListener?.(frame("steward.ask.delta", { delta: "今天" }));
+    });
+    expect(panelSide.result.current.streamingText).toBe("今天");
+    act(() => {
+      frameListener?.(frame("steward.ask.delta", { delta: "晴。" }));
+    });
+    expect(voiceSide.result.current.streamingText).toBe("今天晴。");
+    // 过程帧：工具态中途双侧同源（光球工具显示与面板一致的前置）
+    act(() => {
+      frameListener?.(frame("steward.tool", { phase: "start", name: "query_weather", argsSummary: "{}" }));
+    });
+    expect(panelSide.result.current.askActivity).toMatchObject({ phase: "tool", toolName: "query_weather" });
+    // 终态收口：双侧同步落权威条目
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "answer", text: "今天晴。" }));
+    });
+    expect(panelSide.result.current.askInFlight).toBe(false);
+    expect(panelSide.result.current.items).toContainEqual({ kind: "assistant", text: "今天晴。" });
+    expect(voiceSide.result.current.items).toContainEqual({ kind: "assistant", text: "今天晴。" });
+  });
+
+  it("双实例同挂共享单份状态（非各持一份）——任一实例 newDialog 双侧同清", async () => {
+    const a = renderSteward();
+    const b = renderSteward();
+    await waitFor(() => expect(sendStewardHistoryMock).toHaveBeenCalled());
+    act(() => {
+      frameListener?.(frame("steward.ask.result", { status: "answer", text: "好" }));
+    });
+    expect(a.result.current.items.length).toBeGreaterThan(0);
+    expect(b.result.current.items).toEqual(a.result.current.items);
+    act(() => {
+      b.result.current.newDialog();
+    });
+    expect(a.result.current.items).toEqual([]);
+  });
+});
