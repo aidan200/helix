@@ -20,6 +20,7 @@ import type { SchedulingConfigPort } from "../../../application/ports/outbound/S
 import type { PortConfigPort } from "../../../application/ports/outbound/PortConfigPort";
 import type { SandboxConfigPort } from "../../../application/ports/outbound/SandboxConfigPort";
 import type { SummaryConfigPort } from "../../../application/ports/outbound/SummaryConfigPort";
+import type { KgConfigPort } from "../../../application/ports/outbound/KgConfigPort";
 import type { VoiceModelConfigPort } from "../../../application/ports/outbound/VoiceModelConfigPort";
 import type { AskService } from "../../../application/services/AskService";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
@@ -112,6 +113,8 @@ export interface WsServerAdapterDeps {
   /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域；
    * 未装配 → undefined，handler 回 unimplemented）。 */
   readonly summaryConfig?: SummaryConfigPort;
+  /** 知识库配置读写面（config.get/set_kg 命令族——查重阈值，批2 WP-C）。 */
+  readonly kgConfig?: KgConfigPort;
   /** ASR/TTS 模型配置读写面（config.get/set_voice_models 命令族——
    *  模型配置接入 P0；未装配 → undefined，handler 回 unimplemented）。 */
   readonly voiceModelConfig?: VoiceModelConfigPort;
@@ -364,6 +367,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       portConfig: deps.portConfig,
       sandboxConfig: deps.sandboxConfig,
       summaryConfig: deps.summaryConfig,
+      kgConfig: deps.kgConfig,
       voiceModelConfig: deps.voiceModelConfig,
       askService: deps.askService,
       system: deps.system,

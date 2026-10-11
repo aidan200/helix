@@ -72,6 +72,11 @@ import {
   recentTurnPairsOf,
 } from "../application/services/session-summary/SessionSummaryService";
 import { SummaryConfigStore } from "../adapters/driven/sqlite-session/SummaryConfigStore";
+import { KgConfigStore } from "../adapters/driven/sqlite-session/KgConfigStore";
+import {
+  KG_SIMILARITY_DUP_DEFAULT,
+  KG_SIMILARITY_WARN_DEFAULT,
+} from "../application/services/kg/kgConfig";
 import { migrateLegacySummaryKeys, readSummaryConfig } from "../application/summary/summaryConfig";
 import type { DomainEvent } from "../domain/events/DomainEvent";import {
   StewardMemoryService,
@@ -419,6 +424,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 批1 WP-B：embedding 配置域晚绑引用（其构造在下方——buildStack 惰性闭包
   //  经此读现值；向量面解析恒走 resolveDefault 单点，构造窗口零调用）
   let embeddingConfigRef: EmbeddingConfigService | undefined;
+  // 批2 WP-C：知识库配置域晚绑引用（KgConfigStore 构造在下方——buildStack
+  //  惰性闭包经此读查重阈值生效对，运行期即热）
+  let kgConfigRef: KgConfigStore | undefined;
   const workspace = new WorkspaceService({
     kv: persistence.runtimeConfig, // KV 底座（AG-06 单写通道；不进 config.json，TR-AD-6）
     fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
@@ -442,6 +450,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         makeEmbedding: () =>
           new OpenAiCompatEmbeddingAdapter({ getConfig: () => embeddingConfigRef?.resolveDefault() ?? null }),
         resolveEmbeddingEndpoint: () => embeddingConfigRef?.resolveDefault() ?? null,
+        // 批2 WP-C：查重阈值生效对（kg.similarityWarn/Dup 读面裁决单点——
+        //  KgConfigStore.current；未建前回缺省对）
+        resolveKgThresholds: () =>
+          kgConfigRef?.current() ?? { warn: KG_SIMILARITY_WARN_DEFAULT, dup: KG_SIMILARITY_DUP_DEFAULT },
       }),
     // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
     // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。
@@ -640,6 +652,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
             write: stack.writeService,
             workspaceRoot: root,
             scanProjects: () => scanWorkspaceProjects(root),
+            // 批2 WP-C：写入口语义查重闸（向量面在场才挂——可选件纪律）
+            ...(stack.dedupService !== undefined ? { dedup: stack.dedupService } : {}),
           }
         : undefined;
     },
@@ -1387,6 +1401,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    锚点幂等重试。判官（漂移判定）随「只出标题」降级形态评估退役——
   //    「保持」哨兵在 topic 字段内自带判别（findings：TR-234 supersede）。──
   const summaryConfig = new SummaryConfigStore(persistence.runtimeConfig);
+  // ── 知识库配置组（批2 WP-C「知识库」配置组：config.get/set_kg 回口——
+  //    查重阈值 kg.similarityWarn/kg.similarityDup；KV 单源 + 读面裁决单点
+  //    application/services/kg/kgConfig.ts，运行期即热；**后续 kg 新增可配置
+  //    项归宿同组**（D4））。──
+  const kgConfig = new KgConfigStore(persistence.runtimeConfig);
+  kgConfigRef = kgConfig;
   const sessionSummaryService =
     deps.sessionSummaryOverride ??
     new SessionSummaryService({
@@ -1540,6 +1560,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
     summaryConfig, // config.get/set_summary 回口（总结配置组；同容器单例，与 SessionSummaryService 同源）
+    kgConfig, // config.get/set_kg 回口（知识库配置组；批2 查重闸——同容器单例）
     askService, // ask.answer 命令回口（提权申请批；同容器单例，与工具装配同源）
     registry,
     scheduler,

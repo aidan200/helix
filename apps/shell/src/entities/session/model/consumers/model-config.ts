@@ -39,6 +39,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "config.set_sandbox.result",
   "config.get_summary.result",
   "config.set_summary.result",
+  "config.get_kg.result",
+  "config.set_kg.result",
   "config.get_voice_models.result",
   "config.set_voice_models.result",
   "auth.list.result",
@@ -156,6 +158,11 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
     case "config.set_sandbox.result":
       // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）
       next = { ...mc, sandbox: { enabled: frame.payload.enabled, extraRoots: frame.payload.extraRoots ?? [] } };
+      break;
+    case "config.get_kg.result":
+    case "config.set_kg.result":
+      // 知识库配置读/写回执（批2 WP-C；回执恒回生效值——回填不乐观）
+      next = { ...mc, kg: { similarityWarn: frame.payload.similarityWarn, similarityDup: frame.payload.similarityDup } };
       break;
     case "config.get_summary.result":
       // 总结配置读回执（总结器独立化批①；get = summary.* 现态）

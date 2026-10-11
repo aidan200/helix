@@ -326,6 +326,8 @@ export interface ModelConfigState {
   sandbox: SandboxConfigState | null;
   /** 总结配置（null = 未请求；config.get/set_summary 帧驱动，总结器独立化批①） */
   summary: SummaryConfigState | null;
+  /** 知识库配置（null = 未请求；config.get/set_kg 帧驱动，批2 WP-C「知识库」配置组） */
+  kg: KgConfigState | null;
   /** ASR/TTS 模型配置（null = 未请求；config.get/set_voice_models 帧驱动，模型配置接入 P0） */
   voiceModels: VoiceModelConfigState | null;
 }
@@ -365,6 +367,13 @@ export interface SummaryConfigState {
   task: { enabled: boolean; model: string | null };
 }
 
+/** 知识库配置（与协议 KgConfigStatePayload 同构——查重阈值生效对；
+ *  回执恒回生效值（读面裁决后），批2 WP-C「知识库」配置组）。 */
+export interface KgConfigState {
+  similarityWarn: number;
+  similarityDup: number;
+}
+
 /** ASR/TTS 模型配置（与协议 VoiceModelConfigStatePayload 同构；5 槽位全量
  *  生效态含默认值填充；模型配置接入 P0）。 */
 export interface VoiceModelConfigState {
@@ -394,6 +403,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     port: null,
     sandbox: null,
     summary: null,
+    kg: null,
     voiceModels: null,
   };
 }

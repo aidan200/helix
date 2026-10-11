@@ -87,6 +87,28 @@ export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandbox
   type: "config.set_sandbox.result";
 }
 
+// ── config.kg 族（批2 WP-C「知识库」配置组——查重阈值） ──
+
+/**
+ * config.get_kg / config.set_kg 回执同形载荷（查重阈值生效对——读面裁决后
+ * 的真实取数口径，非法/颠倒已回退缺省对，所见即所得；KV kg.* 为底层存储
+ * 单源）。
+ */
+export interface KgConfigStatePayload {
+  /** 查重软警告阈值生效值（+similarTo 连线触发线；缺省 0.80）。 */
+  similarityWarn: number;
+  /** 疑似重复阈值生效值（+自动候选触发线；缺省 0.92）。 */
+  similarityDup: number;
+}
+export interface ConfigGetKgResultEvent extends EventFrame<KgConfigStatePayload> {
+  channel?: "model";
+  type: "config.get_kg.result";
+}
+export interface ConfigSetKgResultEvent extends EventFrame<KgConfigStatePayload> {
+  channel?: "model";
+  type: "config.set_kg.result";
+}
+
 // ── config.summary 族（会话总结器独立化批①；总结配置组，全局命令）──
 
 /**

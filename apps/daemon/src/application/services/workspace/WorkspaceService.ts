@@ -38,6 +38,7 @@ import type { KgSyncService } from "../kg/KgSyncService";
 import type { KgFsWatchService } from "../kg/KgFsWatchService";
 import type { KgViewerService } from "../kg/KgViewerService";
 import type { KgWriteService } from "../kg/KgWriteService";
+import type { KgDedupService } from "../kg/KgDedupService";
 
 /** KV 键（helix.db runtime_config 表；不进 config.json——TR-AD-6）。 */
 export const WORKSPACE_KV_CURRENT = "workspace.current";
@@ -66,6 +67,8 @@ export interface WorkspaceStack {
   /** 验证期三检查（kg-triage P1：待办面 dead_anchor 残量计数读面）。 */
   readonly verifyService: KgVerifyService;
   readonly writeService: KgWriteService;
+  /** 写入口语义查重闸（批2 WP-C，可选——向量面未挂 = 缺席零查重）。 */
+  readonly dedupService?: KgDedupService;
   readonly syncService: KgSyncService;
   readonly attachmentService: KgAttachmentService;
   /** per-project 目录文件监控（B3 fs-watch：startSync 接缝补齐挂接的消费面）。 */

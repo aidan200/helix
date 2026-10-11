@@ -33,7 +33,7 @@ import { createEditTool, type EditToolDeps } from "./edit/EditTool";
 import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
 import { createKgTool } from "./kg/KgTool";
-import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
+import { createKgUpdateTool, type KgUpdateToolDeps } from "./kg-update/KgUpdateTool";
 import { createCodegraphTool, type CodegraphToolDeps } from "./codegraph/CodegraphTool";
 import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
 import { createTaskReportTool, type TaskReportToolDeps } from "./task-report/TaskReportTool";
@@ -131,6 +131,13 @@ export interface KgToolOptions {
    * 主会话/子进程注入 write 则双工具全注册（既有行为不变）。
    */
   readonly write?: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
+  /**
+   * 写入口语义查重闸（批2 WP-C，可选件——缺席零查重）：createNode/
+   * batchCreateNodes 成功后软警告 + similarTo 连线 + 疑似重复候选；
+   * updateNode 不触发。实现 = KgDedupService（主会话/子进程两装配面同源注入），
+   * 结构面 = KgUpdateToolDeps["dedup"]（同形透传）。
+   */
+  readonly dedup?: KgUpdateToolDeps["dedup"];
   readonly workspaceRoot: string;
   readonly scanProjects: () => readonly string[];
   /**
@@ -383,6 +390,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
             workspaceRoot: options.kg.workspaceRoot,
             scanProjects: options.kg.scanProjects,
             ...(options.kg.taskContext !== undefined ? { taskContext: options.kg.taskContext } : {}),
+            ...(options.kg.dedup !== undefined ? { dedup: options.kg.dedup } : {}),
           }),
         );
       }

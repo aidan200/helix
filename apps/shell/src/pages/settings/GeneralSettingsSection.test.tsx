@@ -28,6 +28,10 @@ const requestSummaryConfig = vi.fn();
 const setSummaryConfig = vi.fn(() => true);
 type SummaryStateMock = { enabled: boolean; everyTurns: number; model: string | null; task: { enabled: boolean; model: string | null } };
 let mockSummary: SummaryStateMock | null = null;
+/** 批2 知识库组：config.kg 族命令面 mock（查重阈值——回执对账驱动）。 */
+const requestKgConfig = vi.fn();
+const setKgConfig = vi.fn(() => true);
+let mockKg: { similarityWarn: number; similarityDup: number } | null = null;
 /** 总结器批①：模型目录拉取 mock（总结模型下拉数据源）。 */
 const requestModelConfig = vi.fn();
 /** auth.list 拉取 mock（主题模型下拉可用性过滤——管家模型选择同款）。 */
@@ -71,7 +75,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [], daemonFreshness: mockDaemonFreshness },
-      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, summary: mockSummary, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
+      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, summary: mockSummary, kg: mockKg, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
       requestSchedulingConfig,
@@ -81,6 +85,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setSandboxConfig,
       requestSummaryConfig,
       setSummaryConfig,
+      requestKgConfig,
+      setKgConfig,
       requestModelConfig,
       requestAuthList,
       setPortConfig,
@@ -134,6 +140,7 @@ afterEach(() => {
   cleanup();
   mockCompaction = null;
   mockSandbox = null;
+  mockKg = null;
   mockDaemonFreshness = null;
   configListeners = [];
   stewardListeners = [];
@@ -1059,5 +1066,116 @@ describe("管家组分诊判官（管家分诊判官接入批：开关 + 分类�
     feedStewardConfig(true, undefined, { judgeEnabled: false, judgeEndpoint: null });
     fireEvent.click(container.querySelector<HTMLInputElement>("[data-steward-triage-enabled] > input")!);
     expect(container.querySelector("[data-steward-save-error]")!.textContent).toContain("未连接");
+  });
+});
+
+describe("知识库组（批2 WP-C：查重阈值两输入——config.get/set_kg，回执对账驱动）", () => {
+  const kgInputs = () => ({
+    warn: document.querySelector<HTMLInputElement>("[data-kg-warn-input]")!,
+    dup: document.querySelector<HTMLInputElement>("[data-kg-dup-input]")!,
+  });
+
+  it("进入分区拉取现值：requestKgConfig 在场调用；两阈值输入框在场", () => {
+    const { container } = ui();
+    expect(requestKgConfig).toHaveBeenCalled();
+    expect(container.querySelector("[data-kg-card]")).not.toBeNull();
+    expect(kgInputs().warn).not.toBeNull();
+    expect(kgInputs().dup).not.toBeNull();
+  });
+
+  it("现值回填；改值失焦/回车提交部分更新 {similarityWarn}/{similarityDup}", () => {
+    mockKg = { similarityWarn: 0.8, similarityDup: 0.92 };
+    try {
+      const { container } = ui();
+      const { warn, dup } = kgInputs();
+      expect(warn.value).toBe("0.8");
+      expect(dup.value).toBe("0.92");
+      fireEvent.change(warn, { target: { value: "0.75" } });
+      fireEvent.blur(warn);
+      expect(setKgConfig).toHaveBeenCalledWith({ similarityWarn: 0.75 });
+      fireEvent.change(dup, { target: { value: "0.95" } });
+      fireEvent.keyDown(dup, { key: "Enter" }); // 回车也提交
+      expect(setKgConfig).toHaveBeenCalledWith({ similarityDup: 0.95 });
+    } finally {
+      mockKg = null;
+    }
+  });
+
+  it("非法值（1.5/-0.1/空串）回落最近已提交值零命令", () => {
+    mockKg = { similarityWarn: 0.8, similarityDup: 0.92 };
+    try {
+      const view = ui();
+      const { warn } = kgInputs();
+      for (const bad of ["1.5", "-0.1", ""]) {
+        setKgConfig.mockClear();
+        fireEvent.change(warn, { target: { value: bad } });
+        fireEvent.blur(warn);
+        expect(setKgConfig).not.toHaveBeenCalled();
+        view.rerender(
+          <I18nProvider>
+            <ToastProvider>
+              <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
+            </ToastProvider>
+          </I18nProvider>,
+        );
+        expect(kgInputs().warn.value).toBe("0.8"); // 回落最近已提交值
+      }
+    } finally {
+      mockKg = null;
+    }
+  });
+
+  it("「已保存」由 config.set_kg.result 回执对账驱动（非乐观置位）", () => {
+    mockKg = { similarityWarn: 0.8, similarityDup: 0.92 };
+    try {
+      const view = ui();
+      const { warn } = kgInputs();
+      fireEvent.change(warn, { target: { value: "0.7" } });
+      fireEvent.blur(warn);
+      expect(setKgConfig).toHaveBeenCalledWith({ similarityWarn: 0.7 });
+      // 结果帧未达：不出现「已保存」（禁乐观假反馈，TR-84）
+      expect(document.querySelector("[data-kg-saved]")).toBeNull();
+      mockKg = { similarityWarn: 0.7, similarityDup: 0.92 };
+      view.rerender(
+        <I18nProvider>
+          <ToastProvider>
+            <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
+          </ToastProvider>
+        </I18nProvider>,
+      );
+      expect(document.querySelector("[data-kg-saved]")!.textContent).toContain("已保存");
+    } finally {
+      mockKg = null;
+    }
+  });
+
+  it("send false（未发出）→ 行内错误交代 + 不置「已保存」（send 返回值必消费，TR-84）", () => {
+    mockKg = { similarityWarn: 0.8, similarityDup: 0.92 };
+    setKgConfig.mockReturnValueOnce(false);
+    try {
+      const { container } = ui();
+      const { warn } = kgInputs();
+      fireEvent.change(warn, { target: { value: "0.7" } });
+      fireEvent.blur(warn);
+      expect(container.querySelector("[data-kg-save-error]")).not.toBeNull();
+      expect(container.querySelector("[data-kg-saved]")).toBeNull();
+    } finally {
+      mockKg = null;
+    }
+  });
+
+  it("在途 connection.error 收口：行内错误交代 + 不假「已保存」（M10-② 通道）", () => {
+    mockKg = { similarityWarn: 0.8, similarityDup: 0.92 };
+    try {
+      const { container } = ui();
+      const { warn } = kgInputs();
+      fireEvent.change(warn, { target: { value: "0.7" } });
+      fireEvent.blur(warn);
+      feedConnError("config.set_kg: 阈值非法（命令 config.set_kg）");
+      expect(container.querySelector("[data-kg-save-error]")).not.toBeNull();
+      expect(container.querySelector("[data-kg-saved]")).toBeNull();
+    } finally {
+      mockKg = null;
+    }
   });
 });

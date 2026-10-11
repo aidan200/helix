@@ -114,6 +114,8 @@ import {
   configSetSandboxCommand,
   configGetSummaryCommand,
   configSetSummaryCommand,
+  configGetKgCommand,
+  configSetKgCommand,
   configGetVoiceModelsCommand,
   configSetVoiceModelsCommand,
   configSetPortCommand,
@@ -707,6 +709,17 @@ export const COMMAND_SURFACE = {
       model?: string | null;
       task?: { enabled?: boolean; model?: string | null };
     }): boolean => deps.send(configSetSummaryCommand(patch)),
+  /** 知识库配置拉取（通用配置分区进入；未请求态才发；批2 WP-C「知识库」配置组）。 */
+  requestKgConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.kg === null) {
+        deps.send(configGetKgCommand());
+      }
+    },
+  /** 查重阈值写入（运行期即热——下一次建点查重按新阈值执行）。
+   *  部分更新语义：携带项写入，未携带项保留现值。send 返回值透传（code-review H8）。 */
+  setKgConfig: (deps) =>
+    (patch: { similarityWarn?: number; similarityDup?: number }): boolean => deps.send(configSetKgCommand(patch)),
   /** ASR/TTS 模型配置拉取（语音设置分区进入；未请求态才发；模型配置接入 P0）。 */
   requestVoiceModelConfig: (deps) =>
     () => {

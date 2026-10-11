@@ -185,7 +185,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
-import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetSummary, handleConfigSetSummary, handleConfigGetVoiceModels, handleConfigSetVoiceModels } from "./handlers/config";
+import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetKg, handleConfigSetKg, handleConfigGetSummary, handleConfigSetSummary, handleConfigGetVoiceModels, handleConfigSetVoiceModels } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleAskAnswer } from "./handlers/ask";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
@@ -1016,6 +1016,11 @@ export class WsServerAdapter {
         return handleConfigGetSandbox(this.contexts.commandContext(ws, type, payload, envelope));
       case "config.set_sandbox":
         return handleConfigSetSandbox(this.contexts.commandContext(ws, type, payload, envelope));
+      // ── 知识库配置组（批2 WP-C：config.kg 族——查重阈值）──
+      case "config.get_kg":
+        return handleConfigGetKg(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.set_kg":
+        return handleConfigSetKg(this.contexts.commandContext(ws, type, payload, envelope));
       // ── 动态主题批（config.topic 族）──
       case "config.get_summary":
         return handleConfigGetSummary(this.contexts.commandContext(ws, type, payload, envelope));

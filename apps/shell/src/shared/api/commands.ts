@@ -41,6 +41,8 @@ import type {
   ConfigGetSandboxCommand,
   ConfigGetSummaryCommand,
   ConfigSetSummaryCommand,
+  ConfigGetKgCommand,
+  ConfigSetKgCommand,
   ConfigGetVoiceModelsCommand,
   ConfigSetVoiceModelsCommand,
   ConfigSetSandboxCommand,
@@ -386,6 +388,20 @@ export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?:
 /** config.get_summary：总结配置读面（全局命令；总结器独立化批①）。 */
 export function configGetSummaryCommand(): ConfigGetSummaryCommand {
   return { v: PROTOCOL_VERSION, type: "config.get_summary", payload: {} };
+}
+
+/** config.get_kg：知识库配置读面（全局命令；批2 WP-C「知识库」配置组——查重阈值）。 */
+export function configGetKgCommand(): ConfigGetKgCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_kg", payload: {} };
+}
+
+/** config.set_kg：查重阈值写面（全局命令；运行期即热）。
+ * 部分更新语义：携带项写入，未携带项保留现值；回执恒回生效值。 */
+export function configSetKgCommand(patch: {
+  similarityWarn?: number;
+  similarityDup?: number;
+}): ConfigSetKgCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_kg", payload: patch };
 }
 
 /** config.set_summary：总结配置写面（全局命令；运行期即热）。
