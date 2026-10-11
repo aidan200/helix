@@ -110,7 +110,8 @@ export function writeStewardSpeakReplyPref(on: boolean): void {
 }
 
 // ── barge-in 意图门控开关（意图窗批：打断从「有人声就打断」收紧为「识别出
-// 停止意图才打断」——强停止词快通道 + 声纹 + 排队新轮；关闭回退声学直停）──
+// 停止意图才打断」——声纹 + Jev 停止判定（判停真停/判不出窗内真停）；
+// 关闭回退声学直停）──
 
 /** barge-in 意图门控存储键（"0"=关回退声学直停；缺省/其它 = 开——新行为）。 */
 export const BARGE_IN_INTENT_PREF_KEY = "helix.voice.bargeInIntent";

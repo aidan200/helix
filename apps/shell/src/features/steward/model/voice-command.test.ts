@@ -7,7 +7,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  isStopIntentPhrase,
   parseVoiceCommand,
   resolveVoiceCommand,
   type VoiceCardSnapshot,
@@ -136,27 +135,5 @@ describe("resolveVoiceCommand（整句定稿时卡栈快照绑定）", () => {
   });
 });
 
-// ── 意图门控打断：停止意图快通道词表（barge-in 意图窗批）──────────────────
-
-describe("isStopIntentPhrase（停止意图快通道——interim/final 两级共用）", () => {
-  it("停止词全量命中（批 3b 起单源 @helix/protocol——14 词全停词表，双端同源）", () => {
-    for (const p of ["停", "停下", "停止", "停一下", "stop", "别说了", "先别说了", "不要说了", "不用说了", "别念了", "别说话了", "闭嘴", "住嘴", "够了"]) {
-      expect(isStopIntentPhrase(p)).toBe(true);
-    }
-  });
-
-  it("尾句读容忍：句尾标点剥除后命中（说出口令常带收尾语气）", () => {
-    expect(isStopIntentPhrase("停。")).toBe(true);
-    expect(isStopIntentPhrase("别说了！")).toBe(true);
-    expect(isStopIntentPhrase(" 不用说了， ")).toBe(true);
-  });
-
-  it("夹带/变体不命中：全等主闸——聊天句夹「停」、非停止表达零触发", () => {
-    expect(isStopIntentPhrase("先停一下")).toBe(false);
-    expect(isStopIntentPhrase("停下来")).toBe(false); // 变体不进快通道（宁缺勿滥——交慢通道/不打断）
-    expect(isStopIntentPhrase("暂停")).toBe(false);
-    expect(isStopIntentPhrase("你说到哪了")).toBe(false);
-    expect(isStopIntentPhrase("")).toBe(false);
-    expect(isStopIntentPhrase("  ")).toBe(false);
-  });
-});
+// 停止意图词表判定（isStopIntentPhrase）已随停止词库退役——停止判定单源
+// 全走 Jev 停止意图判官（shell 判官接线归 useStewardVoice，分支归 Layer）。

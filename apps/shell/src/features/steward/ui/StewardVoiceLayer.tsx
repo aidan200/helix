@@ -43,7 +43,7 @@ import { useStewardVoice } from "../model/useStewardVoice";
 import { useStewardHealth, type StewardHealthComponent } from "../model/useStewardHealth";
 import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
-import { parseVoiceCommand, resolveVoiceCommand, isStopIntentPhrase, type VoiceCardTarget } from "../model/voice-command";
+import { parseVoiceCommand, resolveVoiceCommand, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
 import { inputAnnotate, inputConfirm, inputEvict, inputHearing, inputResolve, type InputNote, type InputRow } from "../model/input-pipeline";
 import type { StewardPanelItem } from "../model/steward-store";
@@ -110,6 +110,9 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   // 意图窗动作面 ref（onFinalText 异步判定后回调——定义先于 sv，赋值在后）
   const svExecStopRef = useRef<() => void>(() => undefined);
   const svCloseWindowRef = useRef<() => void>(() => undefined);
+  const svJudgeStopIntentRef = useRef<(text: string) => Promise<"stop" | "other" | "unjudged">>(
+    async () => "unjudged",
+  );
   const dispatchAfterGate = useCallback(
     (text: string) => {
       setInputRows((prev) => inputResolve(prev, { state: "done" })); // 确认输入→成功色（转写成功短驻消失）
@@ -187,27 +190,36 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           );
           return;
         }
-        // 停止词本地消费（链路重排批：机械→声纹→词表——声纹总闸已过，reject
-        // 整轮终止在前）：词表命中即真停。窗内外同径 executeBargeInStop（幂等；
-        // 非窗内 asking 期喊停 = 中止在途轮，idle 空气喊停 = 停播 no-op）。
-        // 零 submitUtterance 零回读。批 3b 起 executeBargeInStop 携 scope=all
-        // 全停（裁决乙：语音停止词全部全停——abort 当前 + 清空 daemon 队列）。
-        if (isStopIntentPhrase(text)) {
+        // 停止意图判定（Jev 单轨——停止词表退役批）：声纹总闸已过（reject
+        // 整轮终止在前），停止判定单源全走判官（零生成 token 分类判定）。
+        // 三态映射：判 stop → 真停（窗内外同径 executeBargeInStop，幂等；
+        // 非窗内 asking 期喊停 = 中止在途轮，idle 空气喊停 = 停播 no-op）；
+        // 判不出（判官报错/超时/不可达/降级）→ 意图窗内真停（②宁误停不漏
+        // 停）/ 非窗内照常派发（正常链零劣化——判不出不吞用户正常发言）；
+        // 判非 stop → 同现状未命中语义（窗内丢弃 / 非窗内照常派发）。
+        // 真停零 submitUtterance 零回读，携 scope=all 全停（裁决乙）。
+        let verdict: "stop" | "other" | "unjudged";
+        try {
+          verdict = await svJudgeStopIntentRef.current(text);
+        } catch {
+          verdict = "unjudged"; // 判官面异常防御：判不出归一（fail-stop 归窗内）
+        }
+        if (verdict === "stop" || (verdict === "unjudged" && ctx?.bargeInIntent === true)) {
           svExecStopRef.current();
           return;
         }
         if (ctx?.bargeInIntent) {
-          // 意图窗未命中丢弃（裁决 #2：播报期单向广播，唯一合法打断 = 停止词
-          // ——词表外表达当环境音处理，不排队不插话不判官；用户要插话等播完
-          // 后双工续听正常说。卡栈口令同径：播报中「取消/确认」丢弃，先喊停
-          // 再说口令（卡不随 run 死，播报停后口令照常可用）。零字幕零回读
+          // 判非 stop 丢弃（裁决 #2：播报期单向广播，唯一合法打断 = 判官判停
+          // ——非停止插话当环境音处理，不排队不插话；用户要插话等播完后双工
+          // 续听正常说。卡栈口令同径：播报中「取消/确认」丢弃，先喊停再说
+          // 口令（卡不随 run 死，播报停后口令照常可用）。零字幕零回读
           // （用户行已在 pushLine——丢弃无需确认文案）。
           svCloseWindowRef.current();
           return;
         }
         dispatchAfterGate(text);
       })();
-      return "consumed"; // 一律本地消费（意图窗插话不直发 ask——排队面处理；聊天句由 dispatch 自派发）
+      return "consumed"; // 一律本地消费（意图窗插话不直发 ask——判定后丢弃/真停；聊天句由 dispatch 自派发）
     },
     [pushLine, t, dispatchAfterGate],
   );
@@ -250,6 +262,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   // 意图窗动作面 ref 转发（onFinalText 定义先于 sv——与 say/submit 同构）
   svExecStopRef.current = sv.executeBargeInStop;
   svCloseWindowRef.current = sv.closeBargeInIntentWindow;
+  svJudgeStopIntentRef.current = sv.judgeStopIntent;
   const svLastUtterancePcmRef = useRef(sv.lastUtterancePcm);
   svLastUtterancePcmRef.current = sv.lastUtterancePcm; // 授权点取本句音频（onFinalText 定义先于 sv——ref 转发）
 

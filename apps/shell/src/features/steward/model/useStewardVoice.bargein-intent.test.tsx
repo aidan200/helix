@@ -1,20 +1,22 @@
 // @vitest-environment jsdom
 /**
- * useStewardVoice barge-in 意图窗集成测试（批 3b 链路重排：声纹→ASR→词表→
- * 未命中丢弃——裁决 #2 单向广播）。
+ * useStewardVoice barge-in 意图窗集成测试（Jev 停止意图判官单轨：声纹→ASR→
+ * 判官判定→stop 真停/非 stop 丢弃——停止词表已整体退役）。
  *
- * 契约（批 3b 行为变更）：
+ * 契约（行为变更）：
  * - T1 声学触发 → 开意图窗（不真停）：不停播（零 synthesize.stop）、零
  *   interrupt、duck 播报（player.setVolume 0.2）、开新转写流收插话、
  *   收音门控豁免（租约期 PCM 照上行）；
- * - T2 interim 快通道退役：窗内 interim 文本全等停止词不再触发三步序
- *   （绕声纹总闸的快通道已拆——停止判定必经 final 路径的声纹→词表序）；
- * - T3 final 分流面：非停止 final → onFinalText 收 ctx.bargeInIntent=true
- *   （Layer 丢弃裁决）+ 窗收位；零排队零 drain（播毕后零自动 ask——排队
- *   插话面整体退役，跨端队列不一致 bug 连根消灭）；
+ * - T2 interim 快通道保持退役：窗内 interim 文本不再触发三步序（绕声纹
+ *   总闸的快通道不复辟——停止判定必经 final 路径的声纹→判官序）；
+ * - T3 final 分流面（丢弃语义改判官路径）：非停止 final → onFinalText 收
+ *   ctx.bargeInIntent=true（Layer 经 judgeStopIntent 判定后丢弃）；判官
+ *   RPC 回执判非 stop → 窗收位；零排队零 drain（播毕后零自动 ask）；
  * - T4 窗收位链：stopSpeaking 同径关窗（手动停读/新轮清在途）；
  * - T5 偏好关回退：helix.voice.bargeInIntent=0 → 声学直停（携 scope=all
- *   全停——裁决乙两轨分野）。
+ *   全停——裁决乙两轨分野）；
+ * - T6-T8 judgeStopIntent 判官接线：回执分流 / 判不出归一（报错/降级/
+ *   不可达/超时）——判不出=真停语义归消费面（窗内宁误停不漏停）。
  *
  * mock 面与 duplex.test 同构（SessionContext + FakeMediaRecorder + fake
  * meter/player）；耳 meter 帧注入 = 全实例广播（耳门/录音门共享 factory）。
@@ -38,6 +40,7 @@ const sendSttStreamStart = vi.fn(() => true);
 const sendSttStreamChunk = vi.fn(() => true);
 const sendSttStreamFinish = vi.fn(() => true);
 const sendSttStreamStop = vi.fn(() => true);
+const sendStewardJudgeStopIntent = vi.fn(() => true);
 
 const listeners: Record<string, Set<(e: EventEnvelope) => void>> = {
   steward: new Set(),
@@ -79,6 +82,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendVoiceSynthesizeStream,
     sendVoiceSynthesizeStop,
     subscribeVoiceFrames,
+    sendStewardJudgeStopIntent,
   }),
 }));
 
@@ -318,7 +322,7 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     expect(sendSttStreamStart.mock.calls.length).toBeGreaterThan(0);
   });
 
-  it("T2 interim 快通道退役：窗内 interim 全等停止词「停」→ 不再触发三步序（声纹→ASR→词表链——停止判定必经 final 路径声纹验后）", async () => {
+  it("T2 interim 快通道保持退役：窗内 interim 全等停止文本「停」→ 不触发三步序（声纹→ASR→判官链——停止判定必经 final 路径声纹验后）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
@@ -336,14 +340,14 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     });
     await tick();
 
-    // 零三步序：interim 仅上屏，停止判定等 final 路径（声纹→词表）
+    // 零三步序：interim 仅上屏，停止判定等 final 路径（声纹→判官）
     expect(sendVoiceSynthesizeStop).not.toHaveBeenCalled();
     expect(sendStewardInterrupt).not.toHaveBeenCalled();
     expect(r.current.bargeInIntentActive).toBe(true); // 窗仍在（未真停）
     expect(playerSetVolumeCalls).toEqual([0.2]); // duck 保持（未恢复）
   });
 
-  it("T3 final 分流面：非停止 final → ctx.bargeInIntent=true + 窗收位；零排队零 drain（播毕零自动 ask——跨端队列 bug 根除）", async () => {
+  it("T3 final 分流面（丢弃语义改判官路径）：非停止 final → ctx.bargeInIntent=true + 判官判非 stop 丢弃；零排队零 drain", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
     const seenCtx: Array<{ bargeInIntent: boolean } | undefined> = [];
@@ -381,7 +385,15 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     await tick();
     expect(seenCtx).toEqual([{ bargeInIntent: true }]);
 
-    // Layer 丢弃裁决镜像（裁决 #2：非停止 → 丢弃关窗，无排队面）
+    // 判官判定面（停止判定单源 = Jev）：RPC 发出 + 回执判非 stop → 丢弃
+    const verdict = r.current.judgeStopIntent("你说得对但是");
+    expect(sendStewardJudgeStopIntent).toHaveBeenCalledWith("你说得对但是");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: false, score: 0.1 }, "steward"));
+    });
+    await expect(verdict).resolves.toBe("other");
+
+    // Layer 丢弃裁决镜像（裁决 #2：判非 stop → 丢弃关窗，无排队面）
     act(() => {
       r.current.closeBargeInIntentWindow();
     });
@@ -441,6 +453,104 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     expect(playerSetVolumeCalls).toEqual([]); // 零 duck
   });
   // 批 3b 退役：T6 drain 通知守卫（排队插话 drain 面拆除——无队列无自动提交，
-  // 通知守卫随 drain 一同消亡）与 judgeStopIntent describe（T7-T9：Jev 停止
-  // 判官慢通道退役——裁决 #2 词表外丢弃，无语义判定 RPC）。
+  // 通知守卫随 drain 一同消亡）；judge describe 随判官单轨复归（Jev 停止判定
+  // 慢通道→单轨判定面，见下方 describe）。
+});
+
+describe("useStewardVoice judgeStopIntent（Jev 停止判定单轨：RPC 判定面 + 判不出归一）", () => {
+  let restoreEnv: (() => void) | null = null;
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    for (const s of Object.values(listeners)) s.clear();
+    fireWakeHotkey = null;
+    playerSetVolumeCalls.length = 0;
+    meterFrameCbs.length = 0;
+    streamSeq = 0;
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  it("T6 回执分流：stop=true → \"stop\"；stop=false → \"other\"；stop=false+degraded → \"unjudged\"（判官报错/降级判不出）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+
+    const first = r.current.judgeStopIntent("先别说了");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: true, score: 0.9 }, "steward"));
+    });
+    await expect(first).resolves.toBe("stop");
+
+    const second = r.current.judgeStopIntent("现在说到哪了");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: false, score: 0.1 }, "steward"));
+    });
+    await expect(second).resolves.toBe("other");
+
+    const third = r.current.judgeStopIntent("先别说了");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: false, degraded: "error" }, "steward"));
+    });
+    await expect(third).resolves.toBe("unjudged");
+  });
+
+  it("T7 未连接/未装配（send false）→ \"unjudged\"（不可达判不出——不悬挂等待）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+    sendStewardJudgeStopIntent.mockImplementationOnce(() => false);
+    await expect(r.current.judgeStopIntent("先别说了")).resolves.toBe("unjudged");
+    expect(sendStewardJudgeStopIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it("T8 判官超时 → \"unjudged\"（判不出归一——真停语义归消费面）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    vi.useFakeTimers();
+    try {
+      const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+      const p = r.current.judgeStopIntent("先别说了");
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(p).resolves.toBe("unjudged");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T9 判 stop → 真停同径携 scope=all（executeBargeInStop：全轨停播 + interrupt all）；判非 stop → 丢弃镜像零 interrupt", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+
+    // 判 stop → Layer 调 executeBargeInStop（判官单轨命中语义）
+    const stopVerdict = r.current.judgeStopIntent("停");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: true, score: 0.95 }, "steward"));
+    });
+    await expect(stopVerdict).resolves.toBe("stop");
+    sendStewardInterrupt.mockClear();
+    act(() => {
+      r.current.executeBargeInStop();
+    });
+    expect(sendStewardInterrupt).toHaveBeenCalledWith("barge-in", "all");
+
+    // 判非 stop → 丢弃（窗收位镜像）零 interrupt
+    sendStewardInterrupt.mockClear();
+    const otherVerdict = r.current.judgeStopIntent("现在说到哪了");
+    act(() => {
+      emit("steward", frame("steward.judge_stop_intent.result", { stop: false, score: 0.1 }, "steward"));
+    });
+    await expect(otherVerdict).resolves.toBe("other");
+    act(() => {
+      r.current.closeBargeInIntentWindow();
+    });
+    expect(sendStewardInterrupt).not.toHaveBeenCalled();
+  });
 });

@@ -16,7 +16,6 @@
  */
 
 import {
-  matchStewardStopPhrase,
   matchStewardConfirmPhrase,
   matchStewardCancelPhrase,
   matchStewardCancelAllPhrase,
@@ -158,16 +157,6 @@ function project(card: VoiceCardSnapshot): VoiceCardTarget {
   return { actionId: card.actionId, agentId: card.agentId, seq: card.seq };
 }
 
-// ── 意图门控打断：停止意图快通道（批 3b 起单源 @helix/protocol stewardPhrases）──
-// 需求：打断从「有人声就打断」收紧为「识别出停止意图才打断」——快通道是
-// 机械零成本层：停止词全等命中即真停。与卡栈口令族（parseVoiceCommand）
-// 正交：这里只判「这句话是不是让管家闭嘴」，不产生卡栈动作。
-// 词表已与 daemon 路由面单源化（批 3b 前双端 7/6 词分叉）；14 词全停词表
-// 经用户裁决扩充。变体（先停一下/停下来/暂停）仍不收录——宁缺勿滥，误停
-// 代价（打断播报但用户非停止意图）高于漏停（播完短内容）。
-
-/** 停止意图快通道判定（全等 + 尾句读容忍）：interim（流式部分文本）与
- *  final 两级共用；夹带句（「先停一下」）不命中。 */
-export function isStopIntentPhrase(rawText: string): boolean {
-  return matchStewardStopPhrase(rawText);
-}
+// 停止意图快通道（isStopIntentPhrase 词表判定）已随停止词库整体退役——
+// 停止判定单源全走 Jev 停止意图判官（shell 判官接线归 useStewardVoice
+// judgeStopIntent，分支归 StewardVoiceLayer onFinalText）。

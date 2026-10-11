@@ -95,6 +95,9 @@ vi.mock("../model/useStewardVoice", () => ({
       say,
       submitUtterance,
       lastUtterancePcm,
+      judgeStopIntent: async () => "other" as const, // 停止判定桩：本套件不断言停止分支（判非停→照常派发）
+      executeBargeInStop: () => undefined,
+      closeBargeInIntentWindow: () => undefined,
     };
   },
 }));

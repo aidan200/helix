@@ -173,6 +173,8 @@ vi.mock("../model/useStewardVoice", () => ({
       },
       executeBargeInStop: vi.fn(),
       closeBargeInIntentWindow: vi.fn(),
+      judgeStopIntent: async (text: string) =>
+        new Set(["停", "停止", "别说了"]).has(text) ? ("stop" as const) : ("other" as const),
     };
   },
 }));

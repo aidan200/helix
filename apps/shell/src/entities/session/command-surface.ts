@@ -62,6 +62,7 @@ import {
   stewardHistoryCommand,
   stewardCancelCommand,
   stewardInterruptCommand,
+  stewardJudgeStopIntentCommand,
   stewardMemoryAppendCommand,
   stewardMemoryDeleteCommand,
   stewardMemoryListCommand,
@@ -328,11 +329,16 @@ export const COMMAND_SURFACE = {
   sendStewardHistory: (deps) =>
     (clear?: boolean): boolean => deps.send(stewardHistoryCommand(clear)),
   /** 在途轮打断（B2 barge-in 批；批 3b 增 scope——缺省 current 轻停，all =
-   *  语音停止词全停；daemon abortInFlight/interruptAll 幂等；无回执——事件面
+   *  语音停止判定全停；daemon abortInFlight/interruptAll 幂等；无回执——事件面
    *  loop.run.interrupted + ask 终态已够；返回 false = 未连接）。 */
   sendStewardInterrupt: (deps) =>
     (reason?: string, scope?: "current" | "all"): boolean =>
       deps.send(stewardInterruptCommand(reason, scope)),
+  /** 停止意图判定（Jev 单轨——停止词表退役批；回执
+   *  steward.judge_stop_intent.result 点对点；返回 false = 未连接——消费方
+   *  按「判不出」语义收口（打断链 fail-stop）。 */
+  sendStewardJudgeStopIntent: (deps) =>
+    (text: string): boolean => deps.send(stewardJudgeStopIntentCommand(text)),
 
   // ── surface 面（M0 表面协议地基批）：注册/事件上行/动作回执 ─────────
   /** 表面自述注册（连接就绪恒发——navigate 收编不依赖感知开关；重连重放
