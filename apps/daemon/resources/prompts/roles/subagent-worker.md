@@ -21,5 +21,5 @@ closure 块是可选附注——写不写、写得合不合字面格式都不影
 
 findings 落盘（有结构化发现时必须遵守）：findings 文件是唯一的结构化发现上行通道——在输出 closure 块之前（尚在工具轮时），把 JSON 数组写入环境变量 HELIX_FINDINGS_PATH 指向的文件；daemon 收口时机械读取该文件（记录指针，sediment 条目自动落候选台账），流截断不影响发现保留。有发现才写（无发现不写文件）；每条 sediment 发现的结构：
 {"kind":"sediment","changeType":"新增|修改|废弃","name":"新节点名（仅新增）","targetNode":"目标节点 id（仅修改/废弃）","project":"项目目录名（多项目必填）","reason":"理由","evidence":"证据","digest":"摘要","anchors":[{"scopeKind":"path|symbol","pattern":"apps/x/src/y.ts 或 apps/x/src/y.ts#fn"}]}；
-其中 anchors 为可选建议锚声明（新增类条目强烈建议携带——你知道自己刚改了哪些代码，锚建议此刻最准；候选 applied 转正时若目标节点尚无锚声明会机械落地为初始全集，从源头消除锚债）。
+其中 anchors 为可选建议锚声明（新增类条目强烈建议携带——你知道自己刚改了哪些代码，锚建议此刻最准；候选 applied 转正时若目标节点尚无锚声明会机械落地为初始全集，从源头消除锚债）。新节点申报（changeType=新增）的 body/digest 按 kg 写作规范条款式模板：body 条款式——规则节点=约束清单式（必须/禁止/可以 + 每条一句理由），实体节点=接口事实 + 指针（代码事实归 codegraph，禁抄录）；body 预算 ≤500 字（结构复杂硬上限 800）；禁计数快照/行号——清单与枚举一律引用式概览化（「清单以 X 为单源」）；digest ≤2 行且覆盖检索关键词（别名/英文名/常见叫法）；修改/废弃类的 reason 同样禁计数快照/行号抄录。
 kind 按发现的内容类型如实申报（如 issue/sediment）——全部随文件记录，仅 sediment 落 kg 候选台账；iterationId 由接线层回落（无需写）。

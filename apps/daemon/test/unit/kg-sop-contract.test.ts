@@ -96,6 +96,29 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     });
   });
 
+  describe("改后纪律补语义：kg 写入口查重闸（批3 WP-F 全触点同步）", () => {
+    for (const [label, prompt] of [
+      ["Main", MAIN_SESSION_SYSTEM_PROMPT],
+      ["SubAgent", SUBAGENT_SYSTEM_PROMPT],
+    ] as const) {
+      test(`${label}：查重闸语义关键句齐备（写入口查重闸 / 相似警告 / 确认改用 updateNode/合并）`, () => {
+        expect(prompt).toContain("kg 写入口查重闸");
+        expect(prompt).toContain("已存在相似节点");
+        expect(prompt).toContain("updateNode/合并");
+      });
+    }
+  });
+
+  describe("SubAgent findings 新节点申报条款式模板（kg 写作规范新口径）", () => {
+    test("四要素齐备（条款式 / 预算 ≤500 字 / 禁计数快照 / digest 检索关键词）", () => {
+      const p = SUBAGENT_SYSTEM_PROMPT;
+      expect(p).toContain("条款式");
+      expect(p).toContain("≤500 字");
+      expect(p).toContain("禁计数快照");
+      expect(p).toContain("检索关键词");
+    });
+  });
+
   describe("SubAgent 专属：闭环纪律（R2 候选单点重申）", () => {
     test("sediment 经 findings 文件上报 + 禁止直接调候选 op", () => {
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("闭环纪律");

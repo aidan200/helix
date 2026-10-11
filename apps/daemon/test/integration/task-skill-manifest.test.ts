@@ -108,7 +108,7 @@ describe("kg-bootstrap skill 装载（CL-2-T10）", () => {
   });
 });
 
-describe("SOP 五节锚 + 写作规范六条（CL-2-T10；R23 升六条后锚同步）", () => {
+describe("SOP 五节锚 + 写作规范八条（CL-2-T10；批3 WP-F 条款式化升八条后锚同步）", () => {
   let body: string;
 
   test("④ 五节主题锚齐（产出目标与验收/批次划分/brief 模板/写作规范/完成判定）", async () => {
@@ -116,21 +116,25 @@ describe("SOP 五节锚 + 写作规范六条（CL-2-T10；R23 升六条后锚同
     expect(body).toContain("各层产出目标与验收");
     expect(body).toContain("批次划分原则");
     expect(body).toContain("brief 装配模板");
-    expect(body).toContain("写作规范六条");
+    expect(body).toContain("写作规范八条");
     expect(body).toContain("完成判定");
   });
 
-  test("⑤ 写作规范六条逐条独立编号可 grep（AD-4①）", () => {
-    for (const n of ["规范 1", "规范 2", "规范 3", "规范 4", "规范 5", "规范 6"]) {
+  test("⑤ 写作规范八条逐条独立编号可 grep（AD-4①；批3 WP-F 新口径四锚）", () => {
+    for (const n of ["规范 1", "规范 2", "规范 3", "规范 4", "规范 5", "规范 6", "规范 7", "规范 8"]) {
       expect(body.includes(n), `正文缺少可 grep 编号「${n}」`).toBe(true);
     }
-    // 六条关键内容锚（TR-AD-65① + R23 scene 必填）
+    // 八条关键内容锚（TR-AD-65① + R23 scene 必填 + 批3 WP-F 写作规范新口径）
     expect(body).toContain("自然语言");
     expect(body).toContain("digest");
     expect(body).toContain("为什么存在");
     expect(body).toContain("符号域锚");
     expect(body).toContain("只看正文");
     expect(body).toContain("scene 必填");
+    expect(body).toContain("条款式");
+    expect(body).toContain("≤500 字");
+    expect(body).toContain("禁计数快照");
+    expect(body).toContain("检索关键词");
   });
 
   test("⑥ 分层拓扑节：L0→L1→L2 + 层间传递探索上下文 + supersede 重跑幂等（origin_batchId）", () => {
@@ -305,6 +309,17 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
     expect(body).toContain("kg search");
     expect(body).toContain("codegraph");
     expect(body).toContain("锚反查");
+  });
+
+  test("③b body 合规第四问随写作规范新口径（条款式 / ≤500 字 / 禁计数快照 / 检索关键词）", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "kg-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    expect(body).toContain("条款式");
+    expect(body).toContain("≤500 字");
+    expect(body).toContain("禁计数快照");
+    expect(body).toContain("检索关键词");
   });
 
   test("④ 产出纪律硬锚：内容问题只提 candidate / scene 缺失可 updateNode / 禁直改禁 supersede / 不带 layer", async () => {
