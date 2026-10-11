@@ -55,6 +55,7 @@ import type { Logger } from "../logging";
 import type { PersistenceStack } from "./buildPersistence";
 import type { SandboxConfigPort } from "../../application/ports/outbound/SandboxConfigPort";
 import type { SummaryConfigPort } from "../../application/ports/outbound/SummaryConfigPort";
+import type { KgConfigPort } from "../../application/ports/outbound/KgConfigPort";
 import type { PortConfigPort } from "../../application/ports/outbound/PortConfigPort";
 import type { ModelStack } from "./buildModelStack";
 import type { TaskStack } from "./buildTaskStack";
@@ -174,6 +175,9 @@ export interface WsDrivingDeps {
   readonly sandboxConfig?: SandboxConfigPort;
   /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域）。 */
   readonly summaryConfig?: SummaryConfigPort;
+  /** 知识库配置读写面（config.get/set_kg 命令族——查重阈值，批2 WP-C
+   *  「知识库」配置组；后续 kg 可配置项归宿同组）。 */
+  readonly kgConfig?: KgConfigPort;
   /** 提权申请仲裁面（ask.answer 命令回口；permission_request 批）。 */
   readonly askService?: AskService;
   readonly modelStack: ModelStack;
@@ -366,6 +370,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
     ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}), // config 族命令回口（沙箱开关；沙箱开关批）
     ...(deps.summaryConfig !== undefined ? { summaryConfig: deps.summaryConfig } : {}), // config 族命令回口（总结配置组；总结器独立化批①）
+    ...(deps.kgConfig !== undefined ? { kgConfig: deps.kgConfig } : {}), // config 族命令回口（知识库配置组；批2 查重闸）
     ...(deps.askService !== undefined ? { askService: deps.askService } : {}), // ask.answer 命令回口（提权申请批）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）

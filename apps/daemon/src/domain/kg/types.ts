@@ -53,8 +53,10 @@ export interface KnowledgeNode {
 
 /**
  * 知识边封闭词表（v1 kg DDL「核心封闭词表」继承：supersedes | changed |
- * dependsOn | partOf | governs | affects | references）。写入校验唯一来源
- * （AD-9 校验即防线：越界 verb → KG_E_VERB）。
+ * dependsOn | partOf | governs | affects | references；批2 WP-C D3 扩员
+ * +similarTo——语义相似/疑似重复 ≠ 引用，不复用 references 防污染图谱导航，
+ * 查重闸机械产生 + LLM 可经 addEdge/removeEdge 手工建/删）。写入校验唯一
+ * 来源（AD-9 校验即防线：越界 verb → KG_E_VERB）。
  */
 export const EDGE_VERBS = [
   "supersedes",
@@ -64,6 +66,7 @@ export const EDGE_VERBS = [
   "governs",
   "affects",
   "references",
+  "similarTo",
 ] as const;
 
 export type EdgeVerb = (typeof EDGE_VERBS)[number];

@@ -218,6 +218,7 @@ describe("④ 工具词表与 description 同步", () => {
       "governs",
       "affects",
       "references",
+      "similarTo", // 批2 WP-C D3：语义相似/疑似重复 ≠ 引用（查重闸机械产生 + LLM 手工建/删）
     ]);
     expect(tool.description).toContain("addEdge");
   });

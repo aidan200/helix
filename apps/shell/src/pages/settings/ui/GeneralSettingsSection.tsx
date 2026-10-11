@@ -20,6 +20,9 @@
  * 模型下拉 + 任务总结两项——写面 config.set_summary（summary.* 通用域），
  * config.get/set_summary.result 回填不乐观；管家配置零总结项。总结模型显式
  * 配才产进展+记忆点（无默认纪律），标题回落默认模型。
+ * 知识库（批2 WP-C「知识库」配置组）：查重阈值两输入（警告阈值/重复阈值）
+ * ——写面 config.set_kg，config.get/set_kg.result 回填不乐观；**kg 展面配置
+ * 的归宿**（后续 kg 新增可配置项落此组，不散落他组，D4）。
  * 工作空间：原独立分区撤项并入（单配置独占一页浪费），卡片本体在
  * WorkspaceSettingsSection（当前绑定 + 切换入口，F2 活跃禁用语义不变）。
  * 压缩参数数据面：topology.modelConfig.compaction（config.get/set_compaction
@@ -79,7 +82,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenModelsEmbeddingTab: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestSummaryConfig, setSummaryConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
+  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestSummaryConfig, setSummaryConfig, requestKgConfig, setKgConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -101,6 +104,14 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [reserve = "", keepRecent = ""] = compactionField.inputs;
   const [maxConcurrent = "", maxQueued = ""] = schedulingField.inputs;
   const portInput = portField.inputs[0] ?? "";
+  // 知识库组（批2 WP-C「知识库」配置组）：查重阈值两输入——useConfigField
+  // 单点承载回执对账（TR-84：「已保存」结果帧驱动不乐观置位 / send false
+  // 必消费 / connection.error 在途收口）；提交时机同长期记忆组：失焦/回车，
+  // 非法值回落最近已提交值零命令
+  const kgCfg = topology.modelConfig.kg;
+  const kgField = useConfigField(kgCfg, (c) => [String(c.similarityWarn), String(c.similarityDup)]);
+  const kgWarnDraft = kgField.inputs[0] ?? "";
+  const kgDupDraft = kgField.inputs[1] ?? "";
   /** 沙箱开关 send 失败交代（code-review H8：断线窗口不静默——结果帧驱动的开关无在途态，行内错误即全部反馈面）。 */
   const [sandboxError, setSandboxError] = useState<string | null>(null);
 
@@ -323,6 +334,22 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     setSandboxError(null);
   };
 
+  // 查重阈值提交（失焦/回车）：Number 严校验（parseInt("2.5") 会截成 2 误当
+  // 合法——小数/空串必须回落）；值域 [0,1]；非法/未变回落最近已提交值零命令
+  const commitKgThreshold = (which: "warn" | "dup"): void => {
+    const index = which === "warn" ? 0 : 1;
+    const raw = which === "warn" ? kgWarnDraft : kgDupDraft;
+    const committed = kgCfg !== null ? String(which === "warn" ? kgCfg.similarityWarn : kgCfg.similarityDup) : "";
+    const parsed = Number(raw);
+    const valid = raw.trim() !== "" && Number.isFinite(parsed) && parsed >= 0 && parsed <= 1;
+    if (!valid) {
+      kgField.setInput(index, committed); // 非法回落最近已提交值零命令（长期记忆组同款）
+      return;
+    }
+    if (String(parsed) === raw && String(parsed) === committed) return; // 未变零命令
+    kgField.submit(() => setKgConfig(which === "warn" ? { similarityWarn: parsed } : { similarityDup: parsed }));
+  };
+
   const { auth, authLoaded } = topology.modelConfig;
   // 总结模型下拉（总结器独立化批①：管家模型选择同款口径——filterAvailableModels
   // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
@@ -422,9 +449,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     requestPortConfig();
     requestSandboxConfig();
     requestSummaryConfig();
+    requestKgConfig();
     requestModelConfig();
     requestAuthList();
-  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestSummaryConfig, requestModelConfig, requestAuthList]);
+  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig, requestSummaryConfig, requestKgConfig, requestModelConfig, requestAuthList]);
 
   // 本地校验失败行内提示（code-review 低危：空串/非整数/越界不再静默
   // return）；三卡各自独立位——提示随本卡输入变更/保存成功清，与
@@ -1132,6 +1160,67 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               {t("chat.settings.general.memoryManage")}
             </button>
           </div>
+        )}
+      </div>
+
+      {/* 知识库（批2 WP-C「知识库」配置组）：查重阈值两输入——写面
+          config.set_kg，回执对账驱动（TR-84：「已保存」结果帧驱动不乐观置位 /
+          send false 必消费 / connection.error 在途收口——useConfigField 单点）。
+          **配置组归宿纪律（D4）**：本组是 kg 展面配置的归宿——后续 kg 新增
+          可配置项（不限于查重阈值）一律落此组，不散落他组。 */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupKg")}</h3>
+      <div className="hud-card" data-kg-card>
+        <div className="fld" data-kg-warn>
+          <label className="hud-label" htmlFor="kg-warn-input">
+            {t("chat.settings.general.kgWarnLabel")}
+          </label>
+          <input
+            id="kg-warn-input"
+            className="hud-input"
+            type="number"
+            min={0}
+            max={1}
+            step={0.01}
+            data-kg-warn-input
+            value={kgWarnDraft}
+            onChange={(e) => kgField.setInput(0, e.target.value)}
+            onBlur={() => commitKgThreshold("warn")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitKgThreshold("warn");
+            }}
+          />
+          <span className="ag-note">{t("chat.settings.general.kgWarnNote")}</span>
+        </div>
+        <div className="fld" data-kg-dup>
+          <label className="hud-label" htmlFor="kg-dup-input">
+            {t("chat.settings.general.kgDupLabel")}
+          </label>
+          <input
+            id="kg-dup-input"
+            className="hud-input"
+            type="number"
+            min={0}
+            max={1}
+            step={0.01}
+            data-kg-dup-input
+            value={kgDupDraft}
+            onChange={(e) => kgField.setInput(1, e.target.value)}
+            onBlur={() => commitKgThreshold("dup")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitKgThreshold("dup");
+            }}
+          />
+          <span className="ag-note">{t("chat.settings.general.kgDupNote")}</span>
+        </div>
+        {kgField.saved && (
+          <span className="ag-note" data-kg-saved>
+            {t("chat.settings.general.saved")}
+          </span>
+        )}
+        {kgField.saveError !== null && (
+          <span className="mcp-err" data-kg-save-error role="alert">
+            {kgField.saveError}
+          </span>
         )}
       </div>
 

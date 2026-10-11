@@ -56,6 +56,8 @@ import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
 import { nodeVectorContentHash } from "../../sqlite-kg/node-vector-codec";
 import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import { KgVectorService } from "../../../../application/services/kg/KgVectorService";
+import { KgDedupService } from "../../../../application/services/kg/KgDedupService";
+import { resolveKgSimilarityThresholds } from "../../../../application/services/kg/kgConfig";
 import { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import { kgReadProjects, scanWorkspaceProjects } from "../../workspace-scan";
 import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
@@ -405,8 +407,23 @@ function buildLocalKgStack(
   const store = new SqliteKnowledgeStore({ database });
   // 批1 WP-B：写入口向量联动挂钩（子进程同款——SubAgent 建点/改点同样
   //  增量重嵌；默认端点缺失 = 向量面降级 warn 不阻塞写，父进程回填可修复）
-  const vectorSync = buildLocalVectorSync(store);
-  const write = new KgWriteService({ store, ...(vectorSync !== undefined ? { vectorSync } : {}) });
+  const vectorStack = buildLocalVectorStack(store);
+  const write = new KgWriteService({
+    store,
+    ...(vectorStack.vectorSync !== undefined ? { vectorSync: vectorStack.vectorSync } : {}),
+  });
+  // 批2 WP-C：写入口语义查重闸（子进程同款——向量面在场才挂，可选件纪律；
+  //  阈值 helix.db KV 运行期即热，查重失败降级 warn 不阻塞写）
+  const dedup =
+    vectorStack.vectorSync !== undefined
+      ? new KgDedupService({
+          vectors: vectorStack.vectorSync,
+          store,
+          write,
+          thresholds: vectorStack.resolveThresholds,
+          logger: { warn: (message) => console.warn(message) },
+        })
+      : undefined;
   return {
     tools: {
       query,
@@ -414,53 +431,69 @@ function buildLocalKgStack(
       workspaceRoot,
       scanProjects: () => scanWorkspaceProjects(workspaceRoot),
       ...(taskContext !== undefined ? { taskContext } : {}),
+      ...(dedup !== undefined ? { dedup } : {}),
     },
     database,
   };
 }
 
 /**
- * 子进程本地向量联动（批1）：默认 embedding 端点只读直连 helix.db 解析
- * （embedding.defaultEndpointId → embedding_endpoints——与
- * EmbeddingConfigService.resolveDefault 同判）；端点缺失/库缺席 → undefined
- * （向量联动不挂——写入照常，可选件纪律）。
+ * 子进程本地向量联动 + 查重阈值（批1 + 批2）：默认 embedding 端点与
+ * kg.similarity* 阈值均只读直连 helix.db runtime_config 解析（与
+ * EmbeddingConfigService.resolveDefault / KgConfigStore.current 同判）；
+ * 端点缺失/库缺席 → vectorSync = undefined（向量联动与查重闸不挂——
+ * 写入照常，可选件纪律）。
+ *
+ * helix.db 读面**逐次开合短连接**（批1 缺陷修正）：原实现构造期开库、
+ * 返回前 close，闭包内 readKey 在库关闭后调用必抛（「database is closed」）
+ * ——子进程增量重嵌全部退化 failed warn。配置运行期即热（设置页保存后
+ * 下一次嵌入生效）也要求读面新鲜，逐次开合天然满足；频率 = 每次嵌入/
+ * 查重中之阈值读，远低于写面。
  */
-function buildLocalVectorSync(store: SqliteKnowledgeStore): KgVectorService | undefined {
+function buildLocalVectorStack(store: SqliteKnowledgeStore): {
+  readonly vectorSync: KgVectorService | undefined;
+  readonly resolveThresholds: () => { warn: number; dup: number };
+} {
   const dbPath = process.env["HELIX_DB_PATH"];
-  if (dbPath === undefined) return undefined;
-  try {
-    const db = openTaskLedgerDatabase(dbPath);
+  const readKey = (key: string): string | undefined => {
+    if (dbPath === undefined) return undefined;
+    let db: ReturnType<typeof openTaskLedgerDatabase> | undefined;
     try {
-      const readKey = (key: string): string | undefined => {
-        const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
-          | { value: string }
-          | null;
-        return row === null ? undefined : row.value;
-      };
-      const resolveDefault = (): EmbeddingEndpointConfig | null => {
-        const id = readKey("embedding.defaultEndpointId");
-        if (id === undefined || id.trim() === "") return null;
-        const record = parseRecords(readKey("embedding_endpoints")).find((r) => r.id === id);
-        if (record === undefined || (record.kind ?? "embedding") !== "embedding") return null;
-        return {
-          baseUrl: record.baseUrl,
-          model: record.model,
-          ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-        };
-      };
-      return new KgVectorService({
-        store,
-        embedding: new OpenAiCompatEmbeddingAdapter({ getConfig: () => resolveDefault() }),
-        resolveEndpoint: () => resolveDefault(),
-        contentHash: nodeVectorContentHash,
-        logger: { warn: (message) => console.warn(message) },
-      });
+      db = openTaskLedgerDatabase(dbPath);
+      const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
+        | { value: string }
+        | null;
+      return row === null ? undefined : row.value;
+    } catch {
+      return undefined; // 库不可开/形态异常 → 按未配置态（读面兑底，不抛）
     } finally {
-      db.close();
+      db?.close();
     }
-  } catch {
-    return undefined; // 库不可开/形态异常 → 向量联动不挂（写入照常）
-  }
+  };
+  const resolveThresholds = (): { warn: number; dup: number } =>
+    resolveKgSimilarityThresholds({ get: readKey }, (message) => console.warn(message));
+  if (dbPath === undefined) return { vectorSync: undefined, resolveThresholds };
+  const resolveDefault = (): EmbeddingEndpointConfig | null => {
+    const id = readKey("embedding.defaultEndpointId");
+    if (id === undefined || id.trim() === "") return null;
+    const record = parseRecords(readKey("embedding_endpoints")).find((r) => r.id === id);
+    if (record === undefined || (record.kind ?? "embedding") !== "embedding") return null;
+    return {
+      baseUrl: record.baseUrl,
+      model: record.model,
+      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
+    };
+  };
+  return {
+    vectorSync: new KgVectorService({
+      store,
+      embedding: new OpenAiCompatEmbeddingAdapter({ getConfig: () => resolveDefault() }),
+      resolveEndpoint: () => resolveDefault(),
+      contentHash: nodeVectorContentHash,
+      logger: { warn: (message) => console.warn(message) },
+    }),
+    resolveThresholds,
+  };
 }
 
 // ── 任务归属解析器（T4.2，AD-10 衔接面的接线层兑现） ──────────

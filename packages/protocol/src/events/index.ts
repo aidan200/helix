@@ -93,9 +93,11 @@ import type {
   ConfigGetPortResultEvent,
   ConfigSetPortResultEvent,
   ConfigGetSandboxResultEvent,
+  ConfigGetKgResultEvent,
   ConfigGetSummaryResultEvent,
   ConfigGetVoiceModelsResultEvent,
   ConfigSetSandboxResultEvent,
+  ConfigSetKgResultEvent,
   ConfigSetSummaryResultEvent,
   ConfigSetVoiceModelsResultEvent,
 } from "./config";
@@ -280,8 +282,10 @@ export type EventEnvelope =
   | ConfigGetPortResultEvent
   | ConfigSetPortResultEvent
   | ConfigGetSandboxResultEvent
+  | ConfigGetKgResultEvent
   | ConfigGetSummaryResultEvent
   | ConfigSetSandboxResultEvent
+  | ConfigSetKgResultEvent
   | ConfigSetSummaryResultEvent
   | ConfigGetVoiceModelsResultEvent
   | ConfigSetVoiceModelsResultEvent
@@ -439,6 +443,8 @@ export const EVENT_TYPES = [
   "config.set_port.result",
   "config.get_sandbox.result",
   "config.set_sandbox.result",
+  "config.get_kg.result",
+  "config.set_kg.result",
   "config.get_summary.result",
   "config.set_summary.result",
   "config.get_voice_models.result",
@@ -648,6 +654,8 @@ export const EVENT_CHANNELS = {
   "config.set_port.result": "model",
   "config.get_sandbox.result": "model",
   "config.set_sandbox.result": "model",
+  "config.get_kg.result": "model",
+  "config.set_kg.result": "model",
   "config.get_summary.result": "model",
   "config.set_summary.result": "model",
   "config.get_voice_models.result": "model",

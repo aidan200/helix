@@ -401,6 +401,10 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "surface.registered":
       // 表面协议地基批（M0）：注册回执窄化（namespace + connId）
       return `surface-registered:${event.payload.namespace}:${event.payload.connId}`;
+    case "config.get_kg.result":
+    case "config.set_kg.result":
+      // 知识库查重闸批（批2）：查重阈值生效对回执
+      return `config-kg:${event.payload.similarityWarn}:${event.payload.similarityDup}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -701,6 +705,12 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.activity.clear":
       // 管家活动账批 M3-d1：活动账清理（幂等）
       return "steward-activity-clear";
+    case "config.get_kg":
+      // 知识库查重闸批（批2）：查重阈值读面
+      return "config-get-kg";
+    case "config.set_kg":
+      // 知识库查重闸批（批2）：查重阈值部分更新写面
+      return `config-set-kg:${cmd.payload.similarityWarn ?? "-"}:${cmd.payload.similarityDup ?? "-"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

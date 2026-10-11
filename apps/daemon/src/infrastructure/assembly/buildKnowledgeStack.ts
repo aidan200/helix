@@ -4,6 +4,12 @@ import type { KnowledgeGraphPort } from "../../application/ports/outbound/Knowle
 import type { KnowledgeStorePort } from "../../application/ports/outbound/KnowledgeStorePort";
 import { KgWriteService } from "../../application/services/kg/KgWriteService";
 import { KgVectorService } from "../../application/services/kg/KgVectorService";
+import { KgDedupService } from "../../application/services/kg/KgDedupService";
+import {
+  KG_SIMILARITY_DUP_DEFAULT,
+  KG_SIMILARITY_WARN_DEFAULT,
+  type KgSimilarityThresholds,
+} from "../../application/services/kg/kgConfig";
 import { nodeVectorContentHash } from "../../adapters/driven/sqlite-kg/node-vector-codec";
 import { KgAttachmentService } from "../../application/services/kg/KgAttachmentService";
 import { KgQueryService } from "../../application/services/kg/KgQueryService";
@@ -83,6 +89,9 @@ export interface KnowledgeStack {
   /** per-project 目录文件监控（B3 fs-watch 重新挂接：watchProject 挂接 /
    *  stopWatching index-delete 接缝 / dispose 全停）。 */
   readonly fsWatch: KgFsWatchService;
+  /** 写入口语义查重闸（批2 WP-C，可选——向量面未挂 = 缺席：零查重）：
+   *  createNode/batchCreateNodes 成功后软警告 + similarTo 连线 + 疑似重复候选。 */
+  readonly dedupService?: KgDedupService;
   /** 关闭全部 per-project 连接（daemon 退出/测试清理；库文件保留）。 */
   readonly dispose: () => void;
 }
@@ -112,6 +121,9 @@ export function buildKnowledgeStack(deps: {
   resolveEmbeddingEndpoint?: () =>
     | import("../../application/ports/outbound/EmbeddingPort").EmbeddingEndpointConfig
     | null;
+  /** 查重阈值生效对（批2 WP-C：运行期即热——每次查重前实时读；缺省 =
+   *  kgConfig 缺省对 0.80/0.92）。生产接 KgConfigStore.current（容器注入）。 */
+  resolveKgThresholds?: () => KgSimilarityThresholds;
 }): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
@@ -128,6 +140,20 @@ export function buildKnowledgeStack(deps: {
         })
       : undefined;
   const writeService = new KgWriteService({ store, ...(vectors !== undefined ? { vectorSync: vectors } : {}) });
+  // 批2 WP-C：写入口语义查重闸（向量面在场才挂——可选件纪律；阈值运行期
+  //  即热，缺省对 = kgConfig 缺省 0.80/0.92）
+  const dedupService =
+    vectors !== undefined
+      ? new KgDedupService({
+          vectors,
+          store,
+          write: writeService,
+          thresholds:
+            deps.resolveKgThresholds ??
+            (() => ({ warn: KG_SIMILARITY_WARN_DEFAULT, dup: KG_SIMILARITY_DUP_DEFAULT })),
+          ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
+        })
+      : undefined;
   // 三级解析全 miss ≠ 装配失败：引擎面定格为不可用（binaryPath=null），
   // ensureIndex 抛 EngineUnavailable → 上层标 degraded（AF-2；exportSymbols
   // 与二进制解耦，已建索引照常投影）。
@@ -196,6 +222,7 @@ export function buildKnowledgeStack(deps: {
     projectService,
     viewerService,
     fsWatch,
+    ...(dedupService !== undefined ? { dedupService } : {}),
     dispose: () => {
       fsWatch.dispose(); // B3：全部 watcher 先停（事件源截断）再收 sync 定时器/连接
       syncService.dispose();

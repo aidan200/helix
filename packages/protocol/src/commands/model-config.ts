@@ -142,6 +142,31 @@ export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_sandbox";
 }
 
+// ── config.kg 族（批2 WP-C「知识库」配置组——查重阈值；全局命令） ──
+
+/**
+ * config.set_kg 载荷：知识库配置（部分更新语义：携带项写入，未携带项保留
+ * 现值；查重阈值 = kg.similarityWarn / kg.similarityDup）。值域 [0,1]——写面
+ * 只做类型闸（有限数），值语义（非法/颠倒整对回退缺省 0.80/0.92）读面
+ * 单点裁决（memoryConfig 哲学）；回执恒回**生效值**（所见即所得）。后续
+ * kg 新增可配置项落本组（D4 归宿纪律——「知识库」配置组是 kg 展面配置
+ * 的归宿）。
+ */
+export interface ConfigSetKgPayload {
+  /** 查重软警告阈值（+similarTo 连线触发线；缺省 0.80）。 */
+  similarityWarn?: number;
+  /** 疑似重复阈值（+自动疑似重复候选触发线；缺省 0.92）。 */
+  similarityDup?: number;
+}
+export interface ConfigSetKgCommand extends CommandFrame<ConfigSetKgPayload> {
+  type: "config.set_kg";
+}
+
+/** config.get_kg 载荷：全局命令。 */
+export interface ConfigGetKgCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_kg";
+}
+
 // ── config.summary 族（会话总结器独立化批①；总结配置组独立收口）──
 
 /**

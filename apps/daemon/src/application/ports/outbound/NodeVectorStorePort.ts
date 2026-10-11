@@ -30,6 +30,18 @@ export interface NodeVectorRow extends NodeVectorMeta {
   readonly embedding: Float32Array;
 }
 
+/**
+ * 查重邻居行（批2 WP-C 查重闸比对面）：活跃节点向量 + 警告/候选数据源
+ * （name = 软警告文案，digest = 疑似重复候选双方对照）——blob 只出此读面
+ *（meta 读面仍不携 blob；全量余弦场景在此开面，端口演进按批2 兑现）。 */
+export interface NodeVectorNeighbor {
+  readonly nodeId: string;
+  readonly name: string;
+  readonly digest: string;
+  /** float32[dim] 反序列化向量（BLOB 读面出此形）。 */
+  readonly embedding: Float32Array;
+}
+
 /** 嵌入目标（活跃节点文本投影 + 现有向量 meta——回填/修复路径取数面）。 */
 export interface NodeEmbedTarget {
   readonly nodeId: string;
@@ -52,6 +64,10 @@ export interface NodeVectorStorePort {
   getNodeEmbedTarget(projectRoot: string, nodeId: string): NodeEmbedTarget | null;
   /** 活跃节点全集（status ≠ superseded——superseded 留史不参与相似度）。 */
   listEmbedTargets(projectRoot: string): readonly NodeEmbedTarget[];
+  /** 查重邻居面（批2 WP-C）：活跃节点（status ≠ superseded）的向量全量
+   *  读面（含 name/digest——软警告与疑似重复候选对照数据源；仅已嵌入
+   *  节点在面，缺失向量不参与比对（回填修复后自然入面））。 */
+  listActiveNodeVectors(projectRoot: string): readonly NodeVectorNeighbor[];
   /** 向量行计数（回填报告/测试判据）。 */
   countNodeVectors(projectRoot: string): number;
 }

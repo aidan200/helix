@@ -5,6 +5,11 @@ import type {
 } from "../../../../adapters/driven/tools/vendor/pi-harness";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import type { KgWriteService } from "../../../../application/services/kg/KgWriteService";
+import type {
+  KgDedupCheckResult,
+  KgDedupContext,
+  KgDedupFinding,
+} from "../../../../application/services/kg/KgDedupService";
 import { EDGE_VERBS } from "../../../../domain/kg/types";
 import type {
   AnchorDeclaration,
@@ -223,6 +228,15 @@ export interface KgUpdateToolDeps {
    * task_id 保持 NULL（kg 更新不强制关联任务），行为与现状逐字节一致。
    */
   readonly taskContext?: () => { readonly taskId: string; readonly originBatchId: string } | undefined;
+  /**
+   * 写入口语义查重闸（批2 WP-C，可选件——缺席零查重）：createNode/
+   * batchCreateNodes 成功后逐条查重（软警告 + similarTo 连线 + 疑似重复
+   * 候选三件套，updateNode 不触发）；查重失败/端点缺失降级 warn 不阻塞写。
+   * 实现 = KgDedupService（落库先行不回滚——查重只是工具结果的附加告知）。
+   */
+  readonly dedup?: {
+    check(projectRoot: string, nodeIds: readonly NodeId[], ctx?: KgDedupContext): Promise<KgDedupCheckResult>;
+  };
 }
 
 /** kg-update 即时落账工具：注册名 "kg-update"。 */
@@ -245,6 +259,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "prune：物理清理腐烂物化锚（orphan=1 tombstone——符号消亡/声明撤销的保留行；nodeId 定向或缺省全项目，幂等）。" +
+      "createNode/batchCreateNodes 成功后自动语义查重（软闸不阻塞）：与库内活跃节点比对相似度，高相似自动建 similarTo 连线并在结果里附软警告（请确认是否应改为 updateNode/合并）、疑似重复自动落候选入台账人审——警告仅供参考，落库不受影响。" +
       "iterationId 缺省回落目标库最近迭代锚（change_log 末行），无锚落空不报错（P0 ④），显式传参仅作覆盖；" +
       "多项目 workspace：createNode 需 project（项目目录名）；定位类 op（supersede/updateNode/declareAnchors/addEdge/removeEdge）遇 id 多项目撞号时传 project 消歧（缺省多命中报错不猜）。",
     parameters: kgUpdateParameters as any,
@@ -259,10 +274,10 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
         return text(execUpdateNode(deps, args));
       }
       if (op === "createNode") {
-        return text(execCreateNode(deps, args));
+        return text(await execCreateNode(deps, args));
       }
       if (op === "batchCreateNodes") {
-        return text(execBatchCreateNodes(deps, args));
+        return text(await execBatchCreateNodes(deps, args));
       }
       if (op === "declareAnchors") {
         return text(execDeclareAnchors(deps, args));
@@ -319,7 +334,7 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>): s
     : `已 supersede：${nodeId} → 新节点 ${result.nodeId}（理由已入 change_log，链上双侧可见）`;
 }
 
-function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+async function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): Promise<string> {
   // kind 枚举外值报错（schema 已拦截——此处是 LLM 违规 enum 时的防御层，
   // 不静默归一 rule：笔误静默落账比报错更糟）
   const kind = requireString(args, "kind", "（rule / entity）");
@@ -362,7 +377,8 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
     }
     summary += `；锚声明 ${anchors.length} 条`;
   }
-  return summary;
+  // 查重闸（批2 WP-C）：落库先行不回滚——查重只是附加告知（软闸）
+  return summary + (await runDedupCheck(deps, project, [result.nodeId], iterationId, args));
 }
 
 /**
@@ -398,7 +414,7 @@ function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown
 /** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）；
  * ok 恒携带 nodeId——prune 全项目形态（无受影响单节点）不经本辅助
  * （execPrune 直调 deps.write 并只消费 prunedCount）。 */
-function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId; warning?: string; prunedCount?: number } {
+function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId; warning?: string; prunedCount?: number; nodeIds?: readonly NodeId[] } {
   const result = deps.write.write(project, op);
   if (!result.ok) {
     const path = result.error.path !== undefined ? `（${result.error.path}）` : "";
@@ -411,6 +427,7 @@ function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWrit
     nodeId: result.nodeId,
     ...(result.warning !== undefined ? { warning: result.warning } : {}),
     ...(result.prunedCount !== undefined ? { prunedCount: result.prunedCount } : {}),
+    ...(result.nodeIds !== undefined ? { nodeIds: result.nodeIds } : {}),
   };
 }
 
@@ -613,7 +630,7 @@ function createOp<T extends KnowledgeWriteOp>(deps: KgUpdateToolDeps, args: Reco
  * 同源（任务批次产出的批量落账形态，T4.1）。P1 ②：逐项可携带 anchors
  * （形态同单条；非法锚薄壳直拒——任何写入前拒绝，整批零落库）。
  */
-function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+async function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>): Promise<string> {
   const value = args["nodes"];
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("nodes 必填且为非空数组（批量建点：[{kind, name, digest, …}]）");
@@ -638,7 +655,71 @@ function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unkno
   const iterationId = resolveIterationId(deps, args, project);
   const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "batchCreateNodes", iterationId, nodes }));
   const anchorNote = anchorTotal > 0 ? `；锚声明 ${anchorTotal} 条` : "";
-  return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}${anchorNote}）`;
+  const summary = `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}${anchorNote}）`;
+  // 查重闸（批2 WP-C）：逐条查重但警告合并回工具结果（每对恰一行，不逐条刷屏）
+  const ids = result.nodeIds ?? [result.nodeId];
+  return summary + (await runDedupCheck(deps, project, ids, iterationId, args));
+}
+
+/**
+ * 查重闸调用（批2 WP-C）：软闸总兑底——任何异常降级为附加 warn 文案，
+ * 绝不影响已成功的落库与工具结果主文案。缺 dedup 可选件 = 零查重零文案。
+ */
+async function runDedupCheck(
+  deps: KgUpdateToolDeps,
+  project: string,
+  nodeIds: readonly NodeId[],
+  iterationId: string | null,
+  args: Record<string, unknown>,
+): Promise<string> {
+  if (deps.dedup === undefined) return "";
+  const context = deps.taskContext?.();
+  const taskId = optionalString(args, "taskId") ?? context?.taskId;
+  const originBatchId = optionalString(args, "originBatchId") ?? context?.originBatchId;
+  const ctx: KgDedupContext = {
+    iterationId,
+    ...(taskId !== undefined ? { taskId } : {}),
+    ...(originBatchId !== undefined ? { originBatchId } : {}),
+  };
+  try {
+    const outcome = await deps.dedup.check(project, nodeIds, ctx);
+    return formatDedupNotice(outcome, nodeIds.length > 1);
+  } catch (err) {
+    return `\n查重降级：${(err as Error).message}——本次跳过查重（落库不受影响）`;
+  }
+}
+
+/**
+ * 查重软警告文案（§5.1）：每对恰一行「⚠ 已存在相似节点 X《名称》（相似度
+ * 0.8x）——请确认是否应改为 updateNode/合并」；dup 档附自动候选号；批量
+ * 场景多新节点时按新节点分组（合并回同一结果，不逐条刷屏）。
+ */
+function formatDedupNotice(outcome: KgDedupCheckResult, multiNode: boolean): string {
+  const lines: string[] = [];
+  if (outcome.findings.length > 0) {
+    lines.push("查重提示（软警告——落库不受影响）：");
+    let lastNew: NodeId | null = null;
+    for (const finding of outcome.findings) {
+      if (multiNode && finding.newNodeId !== lastNew) {
+        lines.push(`新节点 ${finding.newNodeId}《${finding.newNodeName}》：`);
+        lastNew = finding.newNodeId;
+      }
+      lines.push(formatDedupFinding(finding));
+    }
+  }
+  for (const warning of outcome.warnings) lines.push(warning);
+  return lines.length === 0 ? "" : `\n${lines.join("\n")}`;
+}
+
+function formatDedupFinding(finding: KgDedupFinding): string {
+  const link = finding.edgeLinked ? "已建 similarTo 连线" : "similarTo 连线未落成（见降级说明）";
+  const dup =
+    finding.level === "dup"
+      ? finding.candidateId !== undefined
+        ? ` + 已自动落疑似重复候选 ${finding.candidateId}`
+        : " + 疑似重复候选落账失败（见降级说明）"
+      : "";
+  return `⚠ 已存在相似节点 ${finding.existingNodeId}《${finding.existingNodeName}》（相似度 ${finding.similarity.toFixed(2)}）——请确认是否应改为 updateNode/合并（${link}${dup}）`;
 }
 
 /**

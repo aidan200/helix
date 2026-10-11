@@ -33,6 +33,7 @@ import type { SchedulingConfigPort } from "../../../../application/ports/outboun
 import type { PortConfigPort } from "../../../../application/ports/outbound/PortConfigPort";
 import type { SandboxConfigPort } from "../../../../application/ports/outbound/SandboxConfigPort";
 import type { SummaryConfigPort } from "../../../../application/ports/outbound/SummaryConfigPort";
+import type { KgConfigPort } from "../../../../application/ports/outbound/KgConfigPort";
 import type { VoiceModelConfigPort } from "../../../../application/ports/outbound/VoiceModelConfigPort";
 import type { AskService } from "../../../../application/services/AskService";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
@@ -118,6 +119,9 @@ export interface WsCommandContext {
   /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域；
    * 未装配 → unimplemented）。 */
   readonly summaryConfig?: SummaryConfigPort;
+  /** 知识库配置读写面（config.get/set_kg 命令族——查重阈值，批2 WP-C
+   *  「知识库」配置组；未装配 → unimplemented）。 */
+  readonly kgConfig?: KgConfigPort;
   /** ASR/TTS 模型配置读写面（config.get/set_voice_models 命令族——
    *  模型配置接入 P0；未装配 → unimplemented）。 */
   readonly voiceModelConfig?: VoiceModelConfigPort;

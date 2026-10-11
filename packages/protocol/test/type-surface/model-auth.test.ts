@@ -27,6 +27,8 @@ type _ModelFamily = Expect<
     | "config.set_port.result"
     | "config.get_sandbox.result"
     | "config.set_sandbox.result"
+    | "config.get_kg.result"
+    | "config.set_kg.result"
     | "config.get_summary.result"
     | "config.set_summary.result"
     | "config.get_voice_models.result"

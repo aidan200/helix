@@ -1,9 +1,10 @@
 import { Database } from "bun:sqlite";
 import type { KgDatabase } from "./KgDatabase";
 import { META_KEYS, KG_TABLES } from "./schema";
-import { float32ToBlob } from "./node-vector-codec";
+import { blobToFloat32, float32ToBlob } from "./node-vector-codec";
 import type {
   NodeEmbedTarget,
+  NodeVectorNeighbor,
   NodeVectorMeta,
   NodeVectorRow,
 } from "../../../application/ports/outbound/NodeVectorStorePort";
@@ -765,6 +766,23 @@ export class SqliteKnowledgeStore {
   countNodeVectors(projectRoot: string): number {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     return (db.prepare("SELECT COUNT(*) AS n FROM node_vectors").get() as { n: number }).n;
+  }
+
+  listActiveNodeVectors(projectRoot: string): readonly NodeVectorNeighbor[] {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const rows = db
+      .prepare(
+        "SELECT v.node_id AS nodeId, v.embedding AS embedding, n.name AS name, n.digest AS digest " +
+          "FROM node_vectors v JOIN nodes n ON n.id = v.node_id " +
+          "WHERE n.status != 'superseded' ORDER BY v.node_id",
+      )
+      .all() as { nodeId: string; embedding: Uint8Array; name: string; digest: string }[];
+    return rows.map((row) => ({
+      nodeId: row.nodeId,
+      name: row.name,
+      digest: row.digest,
+      embedding: blobToFloat32(row.embedding),
+    }));
   }
 
   // ── 内部：发号 / 日志 / 行访问 ────────────────────────────

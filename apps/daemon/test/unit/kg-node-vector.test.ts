@@ -67,6 +67,19 @@ function fakeVectorStore() {
     countNodeVectors() {
       return vectors.size;
     },
+    listActiveNodeVectors(_projectRoot: string) {
+      return [...vectors.entries()]
+        .filter(([id]) => {
+          const node = nodes.get(id);
+          return node !== undefined && !node.superseded;
+        })
+        .map(([id, row]) => ({
+          nodeId: id,
+          name: nodes.get(id)!.name,
+          digest: nodes.get(id)!.digest,
+          embedding: row.embedding,
+        }));
+    },
   };
   return store;
 }
