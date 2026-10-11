@@ -81,6 +81,7 @@ function fakeLookup(): EmbeddingConfigLookup {
   return {
     resolveRecord: (endpointId) =>
       endpointId === EP_ID ? ENDPOINT_RECORD : endpointId === JUDGE_RECORD.id ? JUDGE_RECORD : null,
+    resolveDefault: () => ({ baseUrl: ENDPOINT_RECORD.baseUrl, model: ENDPOINT_RECORD.model }),
   };
 }
 
@@ -308,7 +309,7 @@ describe("批B·旧键一次性迁移（steward.memory.* → memory.* 命名域�
     expect(conflict.kv.get(LEGACY_STEWARD_MEMORY_ENDPOINT_ID_KEY)).toBe("");
   });
 
-  test("⑥ 迁移后 getMemoryState/配置读面正确（enabled/endpoint/judgeEndpoint 走新域）", async () => {
+  test("⑥ 迁移后 getMemoryState/配置读面正确（enabled/judgeEndpoint 走新域；批1：endpoint 不再回显）", async () => {
     const config = fakeConfig({
       [LEGACY_STEWARD_MEMORY_ENABLED_KEY]: "1",
       [LEGACY_STEWARD_MEMORY_ENDPOINT_ID_KEY]: EP_ID,
@@ -324,7 +325,7 @@ describe("批B·旧键一次性迁移（steward.memory.* → memory.* 命名域�
     const state = service.getMemoryState();
     expect(state.enabled).toBe(true);
     expect(state.available).toBe(true);
-    expect(state.endpoint?.id).toBe(EP_ID);
+    expect("endpoint" in state).toBe(false); // 批1：回执不回 endpointId
     expect(state.judgeEndpoint?.id).toBe(JUDGE_RECORD.id);
   });
 });
@@ -387,11 +388,11 @@ describe("批B·steward.set_config memory 组（转发 memory.* 域）", () => {
     const badPool = setConfigCtx({ memory: { recallPool: null } });
     expect(badPool.errors.length).toBe(1);
     expect(badPool.errors[0]).toContain("recallPool");
-    // 既有槽位不受影响
+    // 退役槽位静默忽略（批1：endpointId 旧传值不拒答、不落值、不透传）
     const legacy = setConfigCtx({ memory: { endpointId: "ep-1" } });
     expect(legacy.errors).toEqual([]);
     await Bun.sleep(0);
-    expect(legacy.patches).toEqual([{ memory: { endpointId: "ep-1" } }]);
+    expect(legacy.patches).toEqual([{ memory: {} }]);
   });
 
   test("⑨ recallMinScore additive：number 透传；非 number → invalid_payload", async () => {

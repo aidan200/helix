@@ -37,10 +37,13 @@ export interface EmbeddingEndpointView {
   verifiedAt: number | null;
 }
 
-/** embedding.list.result payload：端点清单（list/set/delete 共用回执形态）。 */
+/** embedding.list.result payload：端点清单（list/set/delete/set_default 共用回执形态）。 */
 export interface EmbeddingListResultPayload {
   /** 端点全集（daemon 权威现态）。 */
   endpoints: readonly EmbeddingEndpointView[];
+  /** 全局默认 embedding 端点 id（批1；未设/引用悬空 = null——消费面按
+   *  「向量面不可用」降级：记忆拒开、kg 嵌入降级 warn）。 */
+  defaultEndpointId: string | null;
 }
 
 /** embedding.list.result：端点清单回执（channel = "embedding"；点对点）。 */

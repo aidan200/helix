@@ -2432,11 +2432,11 @@ export class StewardService implements StewardComponent {
       model: this.deps.config.get(STEWARD_MODEL_KEY) ?? this.deps.llm.modelId,
       // 总结配置组回显（summary.* 通用域生效值——所见即所得）
       summary: readSummaryConfig(this.deps.config),
-      // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/端点空/零条目）
+      // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/零条目；批1：
+      //  endpoint 摘除——向量端点恒为全局默认端点，回执不回 endpointId）
       memory: this.deps.memory?.getMemoryState() ?? {
         enabled: false,
         available: false,
-        endpoint: null,
         judgeEndpoint: null,
         entryCount: 0,
         dim: null,
@@ -2512,9 +2512,10 @@ export class StewardService implements StewardComponent {
   }
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
-   *  memory 组 {enabled?,endpointId?,judgeEndpointId?} + 批B 召回量
+   *  memory 组 {enabled?,judgeEndpointId?} + 批B 召回量
    *  {recallTopK?,recallPool?} + 阈值 {recallMinScore?}——组内字段整体转发
-   *  通用记忆配置域 memory.*；
+   *  通用记忆配置域 memory.*；批1：memory.endpointId 退役（向量端点选择
+   *  收编 embedding.defaultEndpointId），旧壳传值由 handler 静默忽略；
    *  triage 组 {judgeEnabled?,judgeEndpointId?} 转发分诊判官配置域
    *  （分诊判官接入批）。
    *  **summary/sessionMemory 组已摘除**（会话总结器独立化批①——总结配置
@@ -2523,7 +2524,7 @@ export class StewardService implements StewardComponent {
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
-    memory?: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number };
+    memory?: { enabled?: boolean; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number };
     triage?: { judgeEnabled?: boolean; judgeEndpointId?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.memory !== undefined) {

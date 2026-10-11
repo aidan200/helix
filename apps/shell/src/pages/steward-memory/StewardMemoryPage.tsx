@@ -115,7 +115,6 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   const [memoryState, setMemoryState] = useState<{
     enabled: boolean;
     available: boolean;
-    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
   } | null>(null);
@@ -162,8 +161,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
             memory?: {
               enabled: boolean;
               available: boolean;
-              endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
-              entryCount: number;
+                        entryCount: number;
               dim: number | null;
             };
           };
@@ -474,11 +472,6 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
                   {t("steward.memory.stats", { count: memoryState.entryCount, dim: memoryState.dim ?? 0 })}
                   {stats !== null && stats.faded > 0 && ` · ${t("steward.memory.statsFaded", { count: stats.faded })}`}
                   {stats !== null && stats.pinned > 0 && ` · ${t("steward.memory.statsPinned", { count: stats.pinned })}`}
-                </span>
-              )}
-              {memoryState?.endpoint !== null && memoryState !== null && (
-                <span className="conn hud-badge hud-badge-cyan" data-memory-endpoint-badge>
-                  {`${memoryState.endpoint?.name ?? ""} · ${memoryState.endpoint?.model ?? ""}`}
                 </span>
               )}
             </div>

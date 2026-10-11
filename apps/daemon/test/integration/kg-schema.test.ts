@@ -27,7 +27,7 @@ afterAll(() => {
 });
 
 describe("kg 冷启动建库（CL-2.A1 存储半；AD-9/AD-13）", () => {
-  test("① .helix-kg 缺失的 projectRoot 首次打开 → 建库建表（9 张域表 + meta）且 WAL 生效", () => {
+  test("① .helix-kg 缺失的 projectRoot 首次打开 → 建库建表（9 张域表 + meta + node_vectors 向量缓存表）且 WAL 生效", () => {
     const { root, database } = freshProject();
     expect(existsSync(kgDbPath(root))).toBe(false); // 前置：库不存在
     database.knowledgeConnection(root); // 首次打开（懒建）
@@ -51,6 +51,7 @@ describe("kg 冷启动建库（CL-2.A1 存储半；AD-9/AD-13）", () => {
         "files",
         "materialized_anchors",
         "meta",
+        "node_vectors",
         "nodes",
         "symbols",
       ]);

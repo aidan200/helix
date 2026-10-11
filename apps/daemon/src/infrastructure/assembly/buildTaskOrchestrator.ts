@@ -68,6 +68,9 @@ export interface BuildTaskOrchestratorDeps {
   readonly stewardPerception?: { onJobTerminal(jobId: string, status: string, title?: string): void };
   /** 编排会话 LLM 覆盖（T4.1 E 层测试接缝；缺省生产形态）。 */
   readonly llmOverride?: Parameters<typeof createOrchestratorSessionFactory>[0]["llmOverride"];
+  /** kg-bootstrap 硬闸（D2，批1）：默认 embedding 端点在场判据（组合根
+   *  接 EmbeddingConfigService.resolveDefault 单点；缺席 = 闸不生效）。 */
+  readonly hasDefaultEmbeddingEndpoint?: () => boolean;
 }
 
 export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrchestratorService {
@@ -128,6 +131,8 @@ export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrch
       logger,
     }),
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    // D2 kg-bootstrap 硬闸（批1）：开工前默认 embedding 端点检查透传
+    ...(deps.hasDefaultEmbeddingEndpoint !== undefined ? { hasDefaultEmbeddingEndpoint: deps.hasDefaultEmbeddingEndpoint } : {}),
     // D6：任务报告目录（kickoff 起跑信息携带——与 SubagentLauncher reportDirFor /
     // ClosureRecorder reportsDirFor 同源同式 <home>/reports/<sessionId>）
     reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),

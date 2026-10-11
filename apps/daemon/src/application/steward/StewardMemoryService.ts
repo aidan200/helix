@@ -49,7 +49,6 @@ import type { JudgePort } from "../ports/outbound/JudgePort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
 import {
   MEMORY_ENABLED_KEY,
-  MEMORY_ENDPOINT_ID_KEY,
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
   MEMORY_RECALL_MIN_SCORE_KEY,
   MEMORY_RECALL_POOL_KEY,
@@ -277,19 +276,21 @@ export function pickPurgeCandidates(entries: readonly StewardMemoryEntry[], now:
   return entries.filter((e) => e.fadedAt !== 0 && now - e.fadedAt > STEWARD_MEMORY_FADE_OBSERVE_MS);
 }
 
-/** embedding 配置域窄查询面（EmbeddingConfigService 结构性满足；测试注入 fake）。 */
+/** embedding 配置域窄查询面（EmbeddingConfigService 结构性满足；测试注入 fake）。
+ *  批1：向量端点取用改走 resolveDefault（全局默认端点单点——记忆不再自持
+ *  endpointId 选择）；resolveRecord 保留判官引用（judgeEndpointId）消费面。 */
 export interface EmbeddingConfigLookup {
   resolveRecord(endpointId: string): EmbeddingEndpointRecord | null;
+  resolveDefault(): EmbeddingEndpointConfig | null;
 }
 
-/** 配置面导出现态（B2 引用态：endpoint 只回 id/name/model/hasApiKey）。 */
+/** 配置面导出现态（B2 引用态；批1 端点选择退役——不再回 endpoint，向量
+ *  端点恒为全局默认端点（embedding.defaultEndpointId），回执面不回 endpointId）。 */
 export interface StewardMemoryState {
   /** 记忆开关现态（默认 false）。 */
   readonly enabled: boolean;
-  /** 综合可用性（开关开 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配——召回/写入真实门槛）。 */
+  /** 综合可用性（开关开 ∧ 默认端点在场 ∧ 条目完整 ∧ 存储已装配——召回/写入真实门槛）。 */
   readonly available: boolean;
-  /** 当前引用端点（引用态；未引用或条目已删 = null）。 */
-  readonly endpoint: { readonly id: string; readonly name: string; readonly model: string; readonly hasApiKey: boolean } | null;
   /** 召回注入条数上限生效值（批B 配置驱动——非法 KV 回退缺省 5；可选 =
    *  旧壳缺席忽略，additive）。 */
   readonly recallTopK?: number;
@@ -337,29 +338,20 @@ export class StewardMemoryService implements StewardComponent {
     this.now = deps.clock ?? Date.now;
   }
 
-  /** 当前引用的端点配置（endpointId 未设/条目已删 → null）。 */
+  /** 当前引用的端点配置（批1：全局默认 embedding 端点单点——未设默认/
+   *  悬空/非 embedding → null）。 */
   endpointConfig(): EmbeddingEndpointConfig | null {
-    const endpointId = this.deps.config.get(MEMORY_ENDPOINT_ID_KEY);
-    if (endpointId === undefined || endpointId === "") return null;
-    return this.deps.embeddingConfig.resolveRecord(endpointId) === null
-      ? null
-      : this.deps.embeddingConfig.resolveRecord(endpointId)!;
-  }
-
-  /** 当前引用的端点记录（含 name——回执引用态数据源；null = 未引用/悬空）。 */
-  private endpointRecord(): EmbeddingEndpointRecord | null {
-    const endpointId = this.deps.config.get(MEMORY_ENDPOINT_ID_KEY);
-    if (endpointId === undefined || endpointId === "") return null;
-    return this.deps.embeddingConfig.resolveRecord(endpointId);
+    return this.deps.embeddingConfig.resolveDefault();
   }
 
   isEnabled(): boolean {
     return this.deps.config.get(MEMORY_ENABLED_KEY) === "1";
   }
 
-  /** 综合可用性（召回/写入统一门槛）。 */
+  /** 综合可用性（召回/写入统一门槛；批1 判据：enabled ∧ 默认端点在场 ∧
+   *  条目完整 ∧ 存储装配——原「引用有效」判据换「默认端点在场」单点）。 */
   isAvailable(): boolean {
-    return this.isEnabled() && this.endpointRecord() !== null && this.deps.store !== undefined;
+    return this.isEnabled() && this.deps.embeddingConfig.resolveDefault() !== null && this.deps.store !== undefined;
   }
 
   /** 当前判官端点记录（B4a：未引用/悬空/非 classifier → null——kind 校验
@@ -385,9 +377,9 @@ export class StewardMemoryService implements StewardComponent {
 
   /** 配置面导出现态（凭据卫生：apiKey/baseUrl 不出库；recallTopK/recallPool/
    *  recallMinScore 为读面 resolver 回退后生效值——非法 KV 回显缺省，调用
-   *  方所见即所得）。 */
+   *  方所见即所得。批1：endpoint 摘除——向量端点恒为全局默认端点，回执
+   *  不再回 endpointId）。 */
   getMemoryState(): StewardMemoryState {
-    const record = this.endpointRecord();
     const judgeRecord = this.judgeEndpointRecord();
     const recall = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
     return {
@@ -396,10 +388,6 @@ export class StewardMemoryService implements StewardComponent {
       recallTopK: recall.topK,
       recallPool: recall.pool,
       recallMinScore: recall.minScore,
-      endpoint:
-        record === null
-          ? null
-          : { id: record.id, name: record.name, model: record.model, hasApiKey: record.apiKey !== undefined },
       entryCount: this.deps.store?.count() ?? 0,
       dim: this.deps.store?.storedDim() ?? null,
       judgeEndpoint:
@@ -410,25 +398,21 @@ export class StewardMemoryService implements StewardComponent {
   }
 
   /**
-   * 配置写面（开关 + 端点引用 + 召回量可选更新；无前置校验——引用悬空
-   * 自然降级：endpointId 指向不存在的条目 → endpointRecord() null →
-   * isAvailable() 假即整体降级待命。先开后配是合法路径（endpointId 是记忆
-   * 开启后才展开的从属项——写面拦截会造成死锁）。召回量同款：写面只落值，
-   * 值语义（正整数/topK≤pool/pool≤200）由 resolveMemoryRecallParams 在
-   * 读面单点裁决——非法值静默回退缺省 + warn，不挡配置写入）。
+   * 配置写面（开关 + 判官端点引用 + 召回量可选更新；无前置校验——判官
+   *  引用悬空自然降级：judgeEndpointId 指向不存在的条目 → judgeEndpointRecord()
+   *  null → 精判静默不挂。批1：endpointId 参数退役——向量端点选择收编
+   *  embedding.defaultEndpointId（setDefault），本写面不再接受；协议层旧壳
+   *  传值静默忽略（additive 兼容）。召回量同款：写面只落值，值语义由
+   *  resolveMemoryRecallParams 在读面单点裁决——非法值静默回退缺省 + warn，
+   *  不挡配置写入）。
    */
   async setMemoryConfig(patch: {
     enabled?: boolean;
-    endpointId?: string;
     judgeEndpointId?: string;
     recallTopK?: number;
     recallPool?: number;
     recallMinScore?: number;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (patch.endpointId !== undefined) {
-      // 空串 = 清除引用（显式解绑）
-      await this.deps.config.set(MEMORY_ENDPOINT_ID_KEY, patch.endpointId);
-    }
     if (patch.judgeEndpointId !== undefined) {
       await this.deps.config.set(MEMORY_JUDGE_ENDPOINT_ID_KEY, patch.judgeEndpointId);
     }

@@ -6,7 +6,7 @@
  * （IF NOT EXISTS），无迁移框架（守护式列级演进见 KgDatabase.ensureSchemaEvolved；
  * v1→v2 存量保号一次性迁移管道已随 v1 残留清除退役）。
  *
- * 表清单（9 张域表 + meta）：
+ * 表清单（9 张域表 + meta + node_vectors 向量缓存表）：
  * - nodes：知识节点（id 主键 TR-n/E-n；name 非唯一——重名合法靠 digest 区分，
  *   AD-16；domain tech/business 降为属性；scene 为适用场景独立列（R23：
  *   「本规则适用于改动 X 类文件 / 做 Y 类决策前」——沉淀必填由 KgWriteService
@@ -152,6 +152,15 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS node_vectors (
+  node_id      TEXT PRIMARY KEY,
+  content_hash TEXT NOT NULL,
+  model        TEXT NOT NULL,
+  dim          INTEGER NOT NULL,
+  embedded_at  INTEGER NOT NULL,
+  embedding    BLOB NOT NULL
+);
 `;
 
 /** meta 键约定（发号计数器/基准戳/降级标记）。 */
@@ -161,8 +170,10 @@ export const META_KEYS = {
   degraded: "sync:degraded",
 } as const;
 
-/** .kg 库内全部域表名（9 张域表 + meta；测试/守护断言用，purgeAll 维护面
- *  消费——新增表改此处即全清面自动覆盖）。 */
+/** .kg 库内全部域表名（10 张域表 + meta；测试/守护断言用，purgeAll 维护面
+ *  消费——新增表改此处即全清面自动覆盖）。node_vectors（批1 WP-B）：节点
+ *  向量可再生缓存（文本唯一真源，hash/model 判据增量重嵌），随库生命周期
+ *  联动（purge/reset 同库同域，无跨项目 id 撞号问题）。 */
 export const KG_TABLES = [
   "nodes",
   "anchor_decl",
@@ -174,4 +185,5 @@ export const KG_TABLES = [
   "materialized_anchors",
   "candidates",
   "meta",
+  "node_vectors",
 ] as const;

@@ -75,8 +75,10 @@ export interface StewardUnsubscribeCommand extends CommandFrame<Record<string, n
 }
 
 /** steward.set_config 载荷（槽位均可选——只更新携带位；管家记忆 B2
- *  memory 组瘦身：端点 CRUD 收编 embedding 配置域（模型页向量 tab），
- *  此处只留开关 + 端点引用（endpointId——指向 embedding.* 域条目）。
+ *  memory 组瘦身：端点 CRUD 收编 embedding 配置域（模型页向量 tab）。
+ *  批1：memory.endpointId 字段退役——向量端点选择收编全局默认端点
+ *  （embedding.defaultEndpointId，写面 embedding.set_default）；旧壳传值
+ *  daemon 静默忽略（additive 兼容，不拒答）故本型不再携带该位。
  *  **总结配置组已摘除**（会话总结器独立化批①）：summary/sessionMemory 两组
  *  迁 config.set_summary（summary.* 通用域）——携带这两组的载荷回
  *  invalid_payload（协议契约变更，版本严格握手下无版本偏斜窗口）。 */
@@ -90,8 +92,6 @@ export interface StewardSetConfigPayload {
   memory?: {
     /** 记忆开关（默认关——记忆是可选项，零依赖开箱）。 */
     enabled?: boolean;
-    /** 嵌入端点引用（embedding.* 域端点 id；指向向量 tab 配置的条目）。 */
-    endpointId?: string;
     /** 判官端点引用（B4a 自动沉淀：embedding.* 域 kind=classifier 端点 id；
      *  未配置 = 自动沉淀静默不挂——对话主链路零影响）。 */
     judgeEndpointId?: string;

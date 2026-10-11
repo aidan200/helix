@@ -246,7 +246,7 @@ const configResult: StewardConfigResultEvent = {
     enabled: false,
     model: "deepseek/deepseek-v4-flash",
     summary: { enabled: false, everyTurns: 3, model: null, task: { enabled: false, model: null } },
-    memory: { enabled: false, available: false, endpoint: null, judgeEndpoint: null, entryCount: 0, dim: null },
+    memory: { enabled: false, available: false, judgeEndpoint: null, entryCount: 0, dim: null },
   },
 };
 
@@ -436,7 +436,7 @@ describe("管家驾驶舱批：steward.navigate 页面切换帧 additive", () =>
 const memorySetCommand: StewardSetConfigCommand = {
   v: PROTOCOL_VERSION,
   type: "steward.set_config",
-  payload: { memory: { enabled: true, endpointId: "ep-1" } },
+  payload: { memory: { enabled: true } },
 };
 
 const memoryConfigResult: StewardConfigResultEvent = {
@@ -451,7 +451,6 @@ const memoryConfigResult: StewardConfigResultEvent = {
     memory: {
       enabled: true,
       available: true,
-      endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
       judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
       entryCount: 3,
       dim: 1024,
@@ -499,19 +498,14 @@ const memoryListResult: StewardMemoryListResultEvent = {
   },
 };
 
-describe("管家记忆 B2：memory 组瘦身（endpointId 引用态）", () => {
-  test("set_config.memory 两槽位可选（enabled/endpointId——baseUrl/apiKey/model 退役）", () => {
+describe("管家记忆配置组（批1：endpointId 退役——恒用全局默认 embedding 端点）", () => {
+  test("set_config.memory 槽位可选（enabled——向量端点选择收编 embedding.set_default）", () => {
     expect(dispatchCommand(memorySetCommand)).toBe("steward-set_config:undefined:-");
-    expect(memorySetCommand.payload.memory?.endpointId).toBe("ep-1");
+    expect(memorySetCommand.payload.memory?.enabled).toBe(true);
   });
 
-  test("config.result.memory.endpoint 引用态窄化（id/name/model/hasApiKey——无 baseUrl）", () => {
-    const endpoint = memoryConfigResult.payload.memory.endpoint;
-    if (endpoint === null) throw new Error("endpoint 引用态窄化失败");
-    expect(endpoint.id).toBe("ep-1");
-    expect(endpoint.model).toBe("bge-m3");
-    expect(endpoint.hasApiKey).toBe(false);
-    expect("baseUrl" in endpoint).toBe(false);
+  test("config.result.memory 不再回 endpointId（批1：回执摘除 endpoint 引用）", () => {
+    expect("endpoint" in memoryConfigResult.payload.memory).toBe(false);
     expect(memoryConfigResult.payload.memory.available).toBe(true);
   });
 });
@@ -579,7 +573,6 @@ describe("管家记忆 B5：judgeEndpointId 引用 + memory_written 通知帧", 
       payload: { memory: { judgeEndpointId: "ep-9" } },
     };
     expect(cmd.payload.memory?.judgeEndpointId).toBe("ep-9");
-    expect(cmd.payload.memory?.endpointId).toBeUndefined();
   });
 
   test("config.result.memory.judgeEndpoint 引用态窄化（id/name/model/hasApiKey）", () => {

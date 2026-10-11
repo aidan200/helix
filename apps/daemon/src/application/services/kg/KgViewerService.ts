@@ -172,6 +172,10 @@ export interface KgViewerServiceDeps {
   readonly report: KgReportService;
   readonly write: KgWriteService;
   readonly sync: Pick<KgSyncService, "getStatus" | "triggerManual" | "isBuilding">;
+  /** 批1 WP-B：向量联动面（可选——缺席零动作）：rebuild 成功后顺带重算
+   *  缺失向量（§4.3 修复路径：hash 判据跳过未变，天然幂等；fire-and-forget
+   *  不阻塞索引构建回执）。 */
+  readonly vectorSync?: { syncAll(projectRoot: string): Promise<unknown> };
 }
 
 /** change_log op → 事件叙述（确定性中文标签 + reason；无裸 id，AD-16）。 */
@@ -403,6 +407,9 @@ export class KgViewerService {
           },
         };
       }
+      // 批1 WP-B：缺失向量修复路径——rebuild 顺带重算（hash 判据跳过未变；
+      //  fire-and-forget，不阻塞索引状态回执；失败由 KgVectorService warn 留档）
+      void this.deps.vectorSync?.syncAll(projectRoot);
       // W2-D R14：手动 sync 后 orphan>0 附一行体检提示（只提示不处置——
       // 体检清单归 kg.health 面板；hasIndex 判定同健康面读纪律）
       const rebuilt = this.statusView(projectRoot);

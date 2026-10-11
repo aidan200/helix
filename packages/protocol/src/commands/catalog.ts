@@ -141,6 +141,7 @@ import type {
   EmbeddingListCommand,
   EmbeddingSetCommand,
   EmbeddingDeleteCommand,
+  EmbeddingSetDefaultCommand,
   EmbeddingVerifyCommand,
 } from "./embedding";
 import type {
@@ -270,6 +271,7 @@ export type CommandEnvelope =
   | EmbeddingListCommand
   | EmbeddingSetCommand
   | EmbeddingDeleteCommand
+  | EmbeddingSetDefaultCommand
   | EmbeddingVerifyCommand
   | ProviderListCommand
   | ProviderSetCommand
@@ -332,10 +334,12 @@ export const COMMAND_TYPES = [
   "surface.event",
   "surface.action.result",
   // embedding 配置域（管家记忆 B2）：向量端点 CRUD + 连通测试（独立配置域，
-  // 模型页向量 tab 消费；apiKey 只进不出）
+  // 模型页向量 tab 消费；apiKey 只进不出）；批1 + set_default（全局默认
+  // embedding 端点——全消费面 resolveDefault 单点）
   "embedding.list",
   "embedding.set",
   "embedding.delete",
+  "embedding.set_default",
   "embedding.verify",
   "provider.list",
   "provider.set",

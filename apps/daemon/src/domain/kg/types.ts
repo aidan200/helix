@@ -420,6 +420,9 @@ export type WriteResult =
       readonly warning?: string;
       /** prune op 物理删除的 tombstone 行数（其余 op 缺省）。 */
       readonly prunedCount?: number;
+      /** batchCreateNodes 产出节点 id 全集（批1 向量挂钩逐个重嵌消费面；
+       *  其余 op 缺省——nodeId 单值语义不变）。 */
+      readonly nodeIds?: readonly NodeId[];
     }
   | { readonly ok: false; readonly error: KgWriteError };
 

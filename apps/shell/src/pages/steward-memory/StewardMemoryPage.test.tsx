@@ -95,7 +95,6 @@ function feedConfig(available: boolean) {
       memory: {
         enabled: true,
         available,
-        endpoint: available ? { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false } : null,
         entryCount: ENTRIES.length,
         dim: 1024,
       },
@@ -117,14 +116,13 @@ function ui() {
 }
 
 describe("管家记忆独立页（B2-④）", () => {
-  it("进入拉取：memory_list + get_config；头部统计 + 端点徽标 + 条目渲染", () => {
+  it("进入拉取：memory_list + get_config；头部统计 + 条目渲染", () => {
     const { container } = ui();
     expect(sendStewardMemoryList).toHaveBeenCalledTimes(1);
     expect(sendStewardGetConfig).toHaveBeenCalledTimes(1);
     feedConfig(true);
     act(() => feedList(ENTRIES));
     expect(container.querySelector("[data-memory-stats]")!.textContent).toContain("1024");
-    expect(container.querySelector("[data-memory-endpoint-badge]")!.textContent).toContain("bge-m3");
     expect(container.querySelector('[data-memory-item-text="1"]')!.textContent).toBe("用户偏好简洁回复");
     expect(container.querySelector('[data-memory-item-kind="1"]')!.textContent).toContain("偏好");
     expect(container.querySelector('[data-memory-item-kind="2"]')!.textContent).toContain("事实");
@@ -140,7 +138,7 @@ describe("管家记忆独立页（B2-④）", () => {
     expect(container.querySelector('[data-memory-item="2"]')).not.toBeNull();
   });
 
-  it("不可用态：新增/编辑禁用 + 提示行（endpoint null → available false）", () => {
+  it("不可用态：新增/编辑禁用 + 提示行（available false——批1：无默认端点即不可用）", () => {
     const { container } = ui();
     feedConfig(false);
     act(() => feedList(ENTRIES));

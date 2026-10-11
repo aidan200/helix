@@ -109,9 +109,11 @@ function EmbConnBadge({ verify, endpoint }: { verify: VerifyState | undefined; e
 const EmbeddingModelsTab = function EmbeddingModelsTab() {
   const { t } = useI18n();
   const toast = useToast();
-  const { sendEmbeddingList, sendEmbeddingSet, sendEmbeddingDelete, sendEmbeddingVerify, subscribeEmbeddingFrames } = useSession();
+  const { sendEmbeddingList, sendEmbeddingSet, sendEmbeddingDelete, sendEmbeddingSetDefault, sendEmbeddingVerify, subscribeEmbeddingFrames } = useSession();
 
   const [endpoints, setEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
+  /** 全局默认 embedding 端点 id（批1：list.result 驱动——徽标/引导条/删除提示判据）。 */
+  const [defaultEndpointId, setDefaultEndpointId] = useState<string | null>(null);
   /** 连通态本地聚合（id → verify 三态；verifiedAt 持久态兜底展示）。 */
   const [verifyStates, setVerifyStates] = useState<Record<string, VerifyState>>({});
   /** 新增/编辑弹层（open|closed；校验 clean|error）。 */
@@ -128,6 +130,7 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
       subscribeEmbeddingFrames((e) => {
         if (e.type === "embedding.list.result") {
           setEndpoints(e.payload.endpoints);
+          setDefaultEndpointId(e.payload.defaultEndpointId ?? null);
           return;
         }
         if (e.type === "embedding.verify.result") {
@@ -218,6 +221,13 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
     });
   };
 
+  /** 设为默认（单选语义——daemon 校验三拒：不存在/kind≠embedding/未 verify）。 */
+  const onSetDefault = (id: string): void => {
+    if (sendEmbeddingSetDefault(id) === false) {
+      toast.push("err", t("chat.modelsConfig.sendFailToast"));
+    }
+  };
+
   return (
     <div data-embedding-tab>
       <div className="toolbar">
@@ -228,6 +238,13 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
           </button>
         </div>
       </div>
+
+      {/* 批1：无默认端点引导条（记忆/知识库向量面不可用——与服务闸同判据） */}
+      {endpoints !== null && defaultEndpointId === null && (
+        <p className="ag-note" data-emb-no-default role="note">
+          {t("chat.settings.general.embNoDefaultHint")}
+        </p>
+      )}
 
       {endpoints !== null && endpoints.filter((ep) => (ep.kind ?? "embedding") === "embedding").length === 0 && (
         <p className="ag-note" data-emb-empty>
@@ -247,6 +264,11 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                         <span className="prov-name" data-emb-name={ep.id}>
                           {ep.name}
                         </span>
+                        {defaultEndpointId === ep.id && (
+                          <span className="hud-badge hud-badge-ok" data-emb-default={ep.id}>
+                            {t("chat.settings.general.embDefaultBadge")}
+                          </span>
+                        )}
                         <span className="catalog-meta" data-emb-url={ep.id}>
                           {ep.baseUrl} · {ep.model}
                         </span>
@@ -271,6 +293,16 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                         >
                           {t("chat.modelsConfig.test")}
                         </button>
+                        {defaultEndpointId !== ep.id && (
+                          <button
+                            className="hud-btn hud-btn-ghost sm"
+                            type="button"
+                            data-emb-set-default={ep.id}
+                            onClick={() => onSetDefault(ep.id)}
+                          >
+                            {t("chat.settings.general.embSetDefault")}
+                          </button>
+                        )}
                         <button className="hud-btn hud-btn-ghost sm" type="button" data-emb-edit={ep.id} onClick={() => openForm(ep)}>
                           {t("chat.settings.general.embEdit")}
                         </button>
@@ -284,6 +316,15 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                           {armedDelete === ep.id ? t("chat.modelsConfig.confirmDelete") : t("chat.settings.general.embDelete")}
                         </button>
                       </div>
+                      {/* 批1：默认端点删除确认提示（两段式 armed 确认的补充告知——
+                          删后记忆与知识库向量面不可用） */}
+                      {armedDelete === ep.id && defaultEndpointId === ep.id && (
+                        <div className="toolbar-row" data-emb-delete-default-hint={ep.id}>
+                          <span className="ag-note" role="note">
+                            {t("chat.settings.general.embDeleteDefaultHint")}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

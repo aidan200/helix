@@ -102,9 +102,25 @@ export class KgDatabase {
  *   重建后索引原位恢复、AUTOINCREMENT 计数器随 max(seq) 续号不回卷）。
  *   已是新形状 → no-op。
  *
+ * - materialized_anchors.evidence（T2.2 锚失效检测）：断链快照列——缺列 →
+ *   ALTER ADD COLUMN（存量行 '' = 无快照不判）。
+ * - node_vectors（批1 WP-B 向量基建）：老库补表（KG_SCHEMA_SQL additive 同款
+ *   DDL；新库直建时已建——本守卫幂等 no-op，双保险）。
+ *
  * 不做迁移框架（与 sqlite-session 同口径）：无版本表、无回滚——检测即修。
  */
 function ensureSchemaEvolved(db: Database): void {
+  if (!hasTable(db, "node_vectors")) {
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS node_vectors (" +
+        "node_id TEXT PRIMARY KEY, " +
+        "content_hash TEXT NOT NULL, " +
+        "model TEXT NOT NULL, " +
+        "dim INTEGER NOT NULL, " +
+        "embedded_at INTEGER NOT NULL, " +
+        "embedding BLOB NOT NULL)",
+    );
+  }
   if (!hasColumn(db, "nodes", "origin_batch_id")) {
     db.exec("ALTER TABLE nodes ADD COLUMN origin_batch_id TEXT");
   }
@@ -177,6 +193,14 @@ function relaxChangeLogIterationNotNull(db: Database): void {
     }
     throw error instanceof Error ? error : new Error(String(error));
   }
+}
+
+/** 表存在性（node_vectors 老库补表守卫用）。 */
+function hasTable(db: Database, table: string): boolean {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as
+    | { name: string }
+    | undefined;
+  return row !== undefined;
 }
 
 /** 列存在性（调用时序上 KG_SCHEMA_SQL 直建在前、表恒存在；cols 为空的

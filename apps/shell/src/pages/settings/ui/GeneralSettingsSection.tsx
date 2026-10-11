@@ -118,13 +118,14 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const turnsCommitted = useRef<number>(3);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   // 记忆（设置页长期记忆组批）：daemon 权威现态（steward.config.result 回执
-  // 回填，不乐观）；端点选择 = embedding 配置域引用（下拉写 endpointId/。
-  // judgeEndpointId，回执引用态回填）；recallTopK/recallPool 为批B additive
-  // 生效值（旧 daemon 缺席 → 缺省兑底）——独立组不级联管家启用（通用域）
+  // 回填，不乐观）；批1：向量端点选择退役（恒用全局默认 embedding 端点——
+  // embedding.defaultEndpointId，向量 tab 内「设为默认」），回执不再回
+  // endpoint；判官端点下拉不动（judgeEndpointId，D1）；recallTopK/recallPool
+  // 为批B additive 生效值（旧 daemon 缺席 → 缺省兑底）——独立组不级联管家
+  // 启用（通用域）
   const [memoryCfg, setMemoryCfg] = useState<{
     enabled: boolean;
     available: boolean;
-    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
@@ -142,6 +143,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [scoreDraft, setScoreDraft] = useState<string>("");
   const scoreCommitted = useRef<number | null>(null);
   const [embeddingEndpoints, setEmbeddingEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
+  // 全局默认 embedding 端点（批1：embedding.list.result.defaultEndpointId——
+  //  记忆开关准入判据：无默认 → 开启置灰 + 引导去向量 tab 设默认）
+  const [defaultEmbeddingEndpointId, setDefaultEmbeddingEndpointId] = useState<string | null>(null);
   // 分诊判官（分诊判官接入批）：daemon 权威现态（steward.config.result triage
   // 组回执回填，不乐观）；开关 + 分类端点下拉（数据源 = 模型页分类 tab 已
   // 配端点 embedding.list kind=classifier）
@@ -161,7 +165,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
           memory?: {
             enabled: boolean;
             available: boolean;
-            endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
             judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
             entryCount: number;
             dim: number | null;
@@ -189,6 +192,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       subscribeEmbeddingFrames?.((e) => {
         if (e.type === "embedding.list.result") {
           setEmbeddingEndpoints(e.payload.endpoints);
+          setDefaultEmbeddingEndpointId(e.payload.defaultEndpointId ?? null);
           return;
         }
       }),
@@ -203,8 +207,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   };
   // ── 长期记忆组写面（设置页长期记忆组批）：steward.set_config {memory}
   // 部分更新（批B 转发写面裁决）；开关/下拉点击即发；召回量失焦/回车提交；
-  // 空串 = 清除端点引用回未配置态；回执驱动回填不乐观
-  const sendMemory = (patch: { enabled?: boolean; endpointId?: string; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number }): void => {
+  // 空串 = 清除判官端点引用回未配置态；回执驱动回填不乐观。批1：
+  // endpointId 退役（向量端点恒为全局默认——写面不传该位）
+  const sendMemory = (patch: { enabled?: boolean; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number }): void => {
     if (sendStewardSetConfig({ memory: patch }) === false) {
       setMemoryError(t("chat.settings.general.sendFail"));
       return;
@@ -212,7 +217,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     setMemoryError(null);
   };
   const toggleMemory = (enabled: boolean): void => sendMemory({ enabled });
-  const selectMemoryEndpoint = (endpointId: string): void => sendMemory({ endpointId });
   const selectJudgeEndpoint = (judgeEndpointId: string): void => sendMemory({ judgeEndpointId });
   // 分诊判官写面（分诊判官接入批）：steward.set_config {triage} 部分更新
   //（管家卡内同帧命令——send 失败归管家组行内错误位）；空串 = 清除端点引用；
@@ -973,6 +977,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               className={cn("hud-btn sm", memoryCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
               data-memory-option="on"
               aria-pressed={memoryCfg?.enabled === true}
+              disabled={defaultEmbeddingEndpointId === null}
               onClick={() => toggleMemory(true)}
             >
               {t("chat.settings.general.sandboxOn")}
@@ -987,6 +992,13 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               {t("chat.settings.general.sandboxOff")}
             </button>
           </div>
+          {/* 批1：无默认 embedding 端点 → 记忆不可开启（开关置灰 + 引导去向量
+              tab 设默认——与服务闸同判据：默认端点在场才可用） */}
+          {defaultEmbeddingEndpointId === null && (
+            <span className="ag-note" data-memory-no-default role="note">
+              {t("chat.settings.general.memoryNoDefaultEndpoint")}
+            </span>
+          )}
           {memoryError !== null && (
             <span className="mcp-err" data-memory-save-error role="alert">
               {memoryError}
@@ -995,39 +1007,6 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         </div>
         {memoryCfg?.enabled === true && (
           <>
-            {/* 向量端点（记忆写入与检索的 embedding 端点——embedding.list 驱动，
-                空列表引导跳模型页向量 tab） */}
-            <div className="fld fld-sub" data-memory-endpoint>
-              {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => (ep.kind ?? "embedding") === "embedding").length > 0 ? (
-                <div className="sel-wrap">
-                  <select
-                    className="hud-input"
-                    data-memory-endpoint-select
-                    value={memoryCfg.endpoint?.id ?? ""}
-                    onChange={(e) => selectMemoryEndpoint(e.target.value)}
-                  >
-                    <option value="">{t("chat.settings.general.memoryEndpointPlaceholder")}</option>
-                    {embeddingEndpoints
-                      .filter((ep) => (ep.kind ?? "embedding") === "embedding")
-                      .map((ep) => (
-                        <option key={ep.id} value={ep.id}>
-                          {`${ep.name} (${ep.model})`}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="hud-btn hud-btn-ghost sm"
-                  data-memory-go-config
-                  onClick={onOpenModelsEmbeddingTab}
-                >
-                  {t("chat.settings.general.memoryGoConfig")}
-                </button>
-              )}
-              <span className="ag-note">{t("chat.settings.general.memoryEndpointNote")}</span>
-            </div>
             {/* 判官端点（B4a：kind=classifier 端点——查重精判；未配 = 精判静默
                 回退纯向量高阈值） */}
             <div className="fld fld-sub" data-memory-judge>

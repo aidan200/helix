@@ -31,16 +31,26 @@
  * 旧键迁移（migrateLegacyStewardMemoryKeys，一次性、幂等可重跑）：
  * steward.memory.{enabled,endpointId,judgeEndpointId} → memory.* 同名键；
  * 新域已有值不覆盖（新域优先），旧键无条件清空（空串 = 未配置态）。
+ *
+ * memory.endpointId 退役（批1：全局默认 embedding 端点收编）：向量端点
+ * 选择从记忆配置面删除，全 helix 恒用 embedding.defaultEndpointId（单点
+ * 语义见 EmbeddingConfigService.resolveDefault）。本域保留该键位常量仅作
+ * 迁移输入：migrateMemoryEndpointToDefault（一次性、幂等）把它迁为默认
+ * 端点（所指条目存在 ∧ kind=embedding 才迁，否则丢弃 warn 留档）后清键。
  */
 
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
+import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
+import { EMBEDDING_DEFAULT_ENDPOINT_ID_KEY } from "../embedding/EmbeddingConfigService";
 import { STEWARD_MEMORY_RECALL_MIN_SCORE } from "../steward/StewardMemoryService";
 
 // ── memory.* 键位（通用记忆配置域）────────────────────────────────
 
 /** 记忆开关 KV 键。 */
 export const MEMORY_ENABLED_KEY = "memory.enabled";
-/** 向量端点引用 KV 键（指向 embedding_endpoints 配置域条目 id）。 */
+/** 向量端点引用 KV 键（批1 起**退役**——全局默认 embedding 端点收编
+ *  embedding.defaultEndpointId，全 helix 恒用默认端点；本键位仅作一次性
+ *  迁移输入（migrateMemoryEndpointToDefault 迁后清空），不再有任何读面）。 */
 export const MEMORY_ENDPOINT_ID_KEY = "memory.endpointId";
 /** 判官端点引用 KV 键（kind=classifier 条目；未配置 = 查重精判静默不挂）。 */
 export const MEMORY_JUDGE_ENDPOINT_ID_KEY = "memory.judgeEndpointId";
@@ -170,4 +180,40 @@ export async function migrateLegacyStewardMemoryKeys(config: RuntimeConfigPort):
     }
   }
   return migrated;
+}
+
+/**
+ * memory.endpointId 退役迁移（批1，一次性、幂等可重跑；与
+ * migrateLegacyStewardMemoryKeys / migrateLegacyStewardEndpoint 同链挂载，
+ * 序在两者之后——端点迁移（B1 三字段 → 首条端点 + memory.endpointId）的
+ * 产物也要被本次收编）：
+ *
+ * - embedding.defaultEndpointId 为空 ∧ memory.endpointId 有值：所指条目
+ *   存在 ∧ kind=embedding → 迁为默认端点；否则丢弃（warn 留档可手工回迁）；
+ * - memory.endpointId 无条件清空（有旧值才写——二次启动零改写）。
+ */
+export async function migrateMemoryEndpointToDefault(
+  config: RuntimeConfigPort,
+  embedding: { resolveRecord(endpointId: string): EmbeddingEndpointRecord | null },
+  warn?: (message: string) => void,
+): Promise<"migrated" | "discarded" | "none"> {
+  const raw = config.get(MEMORY_ENDPOINT_ID_KEY);
+  const legacyValue = raw !== undefined && raw.trim() !== "" ? raw.trim() : undefined;
+  if (legacyValue === undefined) return "none"; // 无旧值：零改写（幂等判据）
+  const current = config.get(EMBEDDING_DEFAULT_ENDPOINT_ID_KEY);
+  const defaultEmpty = current === undefined || current.trim() === "";
+  let outcome: "migrated" | "discarded" = "discarded";
+  if (!defaultEmpty) {
+    warn?.(`已有默认 embedding 端点（${current!.trim()}）——memory.endpointId（${legacyValue}）丢弃不迁移`);
+  } else {
+    const record = embedding.resolveRecord(legacyValue);
+    if (record !== null && (record.kind ?? "embedding") === "embedding") {
+      await config.set(EMBEDDING_DEFAULT_ENDPOINT_ID_KEY, legacyValue);
+      outcome = "migrated";
+    } else {
+      warn?.(`memory.endpointId 所指端点不存在或非向量端点（${legacyValue}）——丢弃，未迁为默认端点`);
+    }
+  }
+  await config.set(MEMORY_ENDPOINT_ID_KEY, "");
+  return outcome;
 }

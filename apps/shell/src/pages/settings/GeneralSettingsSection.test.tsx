@@ -168,15 +168,19 @@ function ui() {
   );
 }
 
-/** embedding.list.result 回执注入（管家记忆 B2：下拉数据源）。 */
-function feedEmbeddingList(endpoints: { id: string; name: string; model: string; hasApiKey?: boolean; kind?: "embedding" | "classifier" }[]) {
+/** embedding.list.result 回执注入（管家记忆 B2：下拉数据源；批1 +
+ *  defaultEndpointId——记忆开关准入判据）。 */
+function feedEmbeddingList(
+  endpoints: { id: string; name: string; model: string; hasApiKey?: boolean; kind?: "embedding" | "classifier" }[],
+  defaultEndpointId: string | null = null,
+) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
     channel: "embedding",
     type: "embedding.list.result",
     ts: 1,
-    payload: { endpoints },
+    payload: { endpoints, defaultEndpointId },
   } as unknown as EventEnvelope;
   act(() => {
     for (const l of embeddingListeners) l(frame);
@@ -191,7 +195,6 @@ function feedStewardConfig(
   memory?: {
     enabled: boolean;
     available: boolean;
-    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     judgeEndpoint?: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
@@ -696,7 +699,6 @@ describe("管家组瘦身（设置页长期记忆组批：记忆区迁出管家�
   const MEMORY_ON = {
     enabled: true,
     available: true,
-    endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
     judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
     entryCount: 7,
     dim: 1024,
@@ -731,7 +733,6 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
   const MEMORY_ON = {
     enabled: true,
     available: true,
-    endpoint: { id: "ep-1", name: "Ollama 本地", model: "bge-m3", hasApiKey: false },
     judgeEndpoint: { id: "ep-9", name: "Jev", model: "jev-latest", hasApiKey: true },
     entryCount: 7,
     dim: 1024,
@@ -756,6 +757,7 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
 
   it("开关双按钮：点击 → sendStewardSetConfig({memory:{enabled}}) 不乐观翻转；回执回填", () => {
     const { container } = ui();
+    feedEmbeddingList([{ id: "ep-1", name: "Ollama 本地", model: "bge-m3" }], "ep-1"); // 默认端点在场 → on 可点
     feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
     const on = container.querySelector<HTMLElement>('[data-memory-option="on"]')!;
     on.click();
@@ -766,31 +768,41 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
     expect(container.querySelector<HTMLElement>('[data-memory-option="off"]')!.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("enabled=true → 从属五项展开：向量端点下拉 + 判官下拉 + 召回量两输入框 + 资格阈值输入框（fld-sub 缩进）", () => {
+  it("enabled=true → 从属四项展开：判官下拉 + 召回量两输入框 + 资格阈值输入框（fld-sub 缩进；批1 向量端点下拉已删）", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);
-    for (const sel of ["[data-memory-endpoint]", "[data-memory-judge]", "[data-memory-topk]", "[data-memory-pool]", "[data-memory-score]"]) {
+    for (const sel of ["[data-memory-judge]", "[data-memory-topk]", "[data-memory-pool]", "[data-memory-score]"]) {
       const el = container.querySelector(sel)!;
       expect(el).not.toBeNull();
       expect(el.className).toContain("fld-sub");
     }
   });
 
-  it("向量端点下拉：仅 kind=embedding 端点可选（classifier 过滤），现引用选中；切换写 {memory:{endpointId}}；空选项 = 清除引用（空串）", () => {
+  it("向量端点下拉已删（批1 收编）：data-memory-endpoint 全不在场——向量端点恒用全局默认（向量 tab「设为默认」）", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);
-    feedEmbeddingList([
-      { id: "ep-1", name: "Ollama 本地", model: "bge-m3" },
-      { id: "ep-2", name: "OpenAI", model: "text-embedding-3-small", hasApiKey: true },
-      { id: "ep-9", name: "Jev", model: "jev-latest", kind: "classifier", hasApiKey: true },
-    ]);
-    const select = container.querySelector<HTMLSelectElement>("[data-memory-endpoint-select]")!;
-    expect(select.value).toBe("ep-1"); // 现引用端点选中
-    expect([...select.options].map((o) => o.value)).not.toContain("ep-9"); // classifier 端点不进向量下拉
-    fireEvent.change(select, { target: { value: "ep-2" } });
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { endpointId: "ep-2" } });
-    fireEvent.change(select, { target: { value: "" } });
-    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { endpointId: "" } }); // 空选项 = 清除引用
+    feedEmbeddingList(
+      [
+        { id: "ep-1", name: "Ollama 本地", model: "bge-m3" },
+        { id: "ep-2", name: "OpenAI", model: "text-embedding-3-small", hasApiKey: true },
+        { id: "ep-9", name: "Jev", model: "jev-latest", kind: "classifier", hasApiKey: true },
+      ],
+      "ep-1",
+    );
+    expect(container.querySelector("[data-memory-endpoint]")).toBeNull();
+    expect(container.querySelector("[data-memory-endpoint-select]")).toBeNull();
+    // set_config memory 组不再发 endpointId（写面退役）
+    expect(sendStewardSetConfig).not.toHaveBeenCalledWith({ memory: { endpointId: expect.anything() } });
+  });
+
+  it("无默认 embedding 端点 → 开关置灰 + 引导提示（记忆不可开启，批1 服务闸同判据）", () => {
+    const { container } = ui();
+    feedEmbeddingList([], null);
+    feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
+    const on = container.querySelector<HTMLButtonElement>('[data-memory-option="on"]')!;
+    expect(on.disabled).toBe(true);
+    const hint = container.querySelector("[data-memory-no-default]")!;
+    expect(hint.textContent).toMatch(/默认 embedding 端点|default embedding endpoint/);
   });
 
   it("判官端点下拉：仅 kind=classifier 端点可选（embedding 过滤），现引用回填；切换写 {memory:{judgeEndpointId}}", () => {
@@ -893,7 +905,7 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
 
   it("观测与入口迁入：条目计数行 + 待命提示（enabled ∧ !available）+ 管理记忆链接", () => {
     const { container } = ui();
-    feedStewardConfig(true, { ...MEMORY_ON, available: false, endpoint: null, entryCount: 0 });
+    feedStewardConfig(true, { ...MEMORY_ON, available: false, entryCount: 0 });
     expect(container.querySelector("[data-memory-pending]")!.textContent).toContain("暂未生效");
     expect(container.querySelector("[data-memory-count]")).toBeNull(); // 零条目不显示计数
     feedStewardConfig(true, MEMORY_ON);
@@ -903,12 +915,12 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
     expect(onOpenMemory).toHaveBeenCalledTimes(1);
   });
 
-  it("空端点列表：显示引导链接（跳模型页向量 tab）", () => {
+  it("空端点列表（判官）：显示引导链接（跳模型页向量 tab）——judgeEndpointId 下拉不动（D1）", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);
-    feedEmbeddingList([]);
-    expect(container.querySelector("[data-memory-endpoint-select]")).toBeNull();
-    const goConfig = container.querySelector<HTMLButtonElement>("[data-memory-go-config]")!;
+    feedEmbeddingList([], "ep-1");
+    expect(container.querySelector("[data-memory-judge-select]")).toBeNull();
+    const goConfig = container.querySelector<HTMLButtonElement>("[data-memory-judge-go-config]")!;
     expect(goConfig.textContent).toMatch(/去模型页|models page/);
     fireEvent.click(goConfig);
     expect(onOpenModelsEmbeddingTab).toHaveBeenCalledTimes(1);
@@ -917,6 +929,7 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
   it("send 失败（未连接）→ 行内错误交代（data-memory-save-error）", () => {
     sendStewardSetConfig.mockReturnValueOnce(false);
     const { container } = ui();
+    feedEmbeddingList([{ id: "ep-1", name: "Ollama 本地", model: "bge-m3" }], "ep-1");
     feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
     fireEvent.click(container.querySelector<HTMLElement>('[data-memory-option="on"]')!);
     expect(container.querySelector("[data-memory-save-error]")!.textContent).toContain("未连接");
@@ -924,6 +937,7 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
 
   it("daemon 拒答（connection.error 尾缀 steward.set_config）→ 记忆组行内错误交代", () => {
     const { container } = ui();
+    feedEmbeddingList([{ id: "ep-1", name: "Ollama 本地", model: "bge-m3" }], "ep-1");
     feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
     fireEvent.click(container.querySelector<HTMLElement>('[data-memory-option="on"]')!);
     feedConnectionError("记忆配置非法（命令 steward.set_config）");

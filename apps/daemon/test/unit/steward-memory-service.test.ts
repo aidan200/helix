@@ -69,11 +69,16 @@ function fakeConfig(initial: Record<string, string> = {}): RuntimeConfigPort & {
   };
 }
 
-/** 配置域查询面 fake（可撤条目——悬空引用测试面）。 */
+/** 配置域查询面 fake（可撤条目——悬空引用测试面；批1：resolveDefault =
+ *  全局默认端点单点——record 在场即视为默认在场）。 */
 function fakeLookup(record: EmbeddingEndpointRecord | null = ENDPOINT_RECORD): EmbeddingConfigLookup & { drop(): void } {
   let current = record;
   return {
     resolveRecord: (endpointId) => (current !== null && current.id === endpointId ? current : null),
+    resolveDefault: () =>
+      current === null
+        ? null
+        : { baseUrl: current.baseUrl, model: current.model, ...(current.apiKey !== undefined ? { apiKey: current.apiKey } : {}) },
     drop: () => {
       current = null;
     },
@@ -229,6 +234,7 @@ function judgeLookup(): EmbeddingConfigLookup {
       if (endpointId === EP_ID) return { id: EP_ID, name: "Ollama", baseUrl: "http://localhost:11434", model: "bge-m3" };
       return null;
     },
+    resolveDefault: () => ({ baseUrl: "http://localhost:11434", model: "bge-m3" }),
   };
 }
 
@@ -268,15 +274,15 @@ describe("StewardMemoryService", () => {
       store: fakeStore(),
     });
     expect(await off.recallSection("x")).toBeUndefined();
-    // endpointId 未设
+    // 默认端点未设（批1：向量端点取用走 resolveDefault——null = 向量面不可用）
     const noRef = new StewardMemoryService({
       config: fakeConfig({ [MEMORY_ENABLED_KEY]: "1" }),
       embedding,
-      embeddingConfig: fakeLookup(),
+      embeddingConfig: fakeLookup(null),
       store: fakeStore(),
     });
     expect(await noRef.recallSection("x")).toBeUndefined();
-    // endpointId 悬空（引用的条目已删——B2 引用态降级面）
+    // 默认端点悬空（引用的条目已删——引用态降级面）
     const lookup = fakeLookup();
     const dangling = new StewardMemoryService({
       config: fakeConfig(ENABLED_KV),
@@ -340,26 +346,24 @@ describe("StewardMemoryService", () => {
     expect(embedding.calls.some((c) => c.join() === "旧条目甲,旧条目乙")).toBe(true);
   });
 
-  test("⑤ 配置写面（B2）：开关 + endpointId 引用（空串 = 清除）；先开后配合法", async () => {
+  test("⑤ 配置写面（批1 收编）：开关写面放行；endpointId 参数退役——向量端点选择归 embedding.defaultEndpointId", async () => {
     const config = fakeConfig();
-    const svc = new StewardMemoryService({ config, embedding: fakeEmbedding(), embeddingConfig: fakeLookup(), store: fakeStore() });
-    // 先开开关（endpointId 未配）——写面放行，可用性待命
+    const lookup = fakeLookup(null);
+    const svc = new StewardMemoryService({ config, embedding: fakeEmbedding(), embeddingConfig: lookup, store: fakeStore() });
+    // 先开开关（默认端点未配）——写面放行，可用性待命
     const turnedOn = await svc.setMemoryConfig({ enabled: true });
     expect(turnedOn.ok).toBe(true);
     expect(config.kv.get(MEMORY_ENABLED_KEY)).toBe("1");
-    expect(svc.getMemoryState().available).toBe(false); // 待命：引用未配
-    // endpointId 补齐 → 自动生效（available 翻真）
-    const ok = await svc.setMemoryConfig({ endpointId: EP_ID });
+    expect(svc.getMemoryState().available).toBe(false); // 待命：默认端点不在场
+    // 默认端点在场（resolveDefault 非 null）→ 自动生效（available 翻真）——
+    // 记忆不再自持 endpointId，setMemoryConfig 无该参数
+    const ok = await svc.setMemoryConfig({ judgeEndpointId: "" });
     expect(ok.ok).toBe(true);
-    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBe(EP_ID);
-    expect(svc.getMemoryState().available).toBe(true);
-    // 空串 = 清除引用（显式解绑）
-    await svc.setMemoryConfig({ endpointId: "" });
-    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBe("");
     expect(svc.getMemoryState().available).toBe(false);
+    expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBeUndefined(); // 退役键零写入
   });
 
-  test("⑥ 凭据卫生（B2 引用态）：getMemoryState 只回 id/name/model/hasApiKey", () => {
+  test("⑥ 凭据卫生（批1）：getMemoryState 不再回 endpoint（向量端点归全局默认，回执不回 endpointId）", () => {
     const svc = new StewardMemoryService({
       config: fakeConfig(ENABLED_KV),
       embedding: fakeEmbedding(),
@@ -368,10 +372,7 @@ describe("StewardMemoryService", () => {
     });
     const state = svc.getMemoryState();
     expect(state.available).toBe(true);
-    expect(state.endpoint!.id).toBe(EP_ID);
-    expect(state.endpoint!.name).toBe("Ollama 本地");
-    expect(state.endpoint!.model).toBe("bge-m3");
-    expect(state.endpoint!.hasApiKey).toBe(true);
+    expect("endpoint" in state).toBe(false);
     expect(JSON.stringify(state)).not.toContain("sk-x");
     expect(JSON.stringify(state)).not.toContain("baseUrl");
     expect(state.dim).toBe(3);
@@ -556,6 +557,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
         if (endpointId === ENDPOINT_RECORD.id) return ENDPOINT_RECORD;
         return null;
       },
+      resolveDefault: () => ({ baseUrl: ENDPOINT_RECORD.baseUrl, model: ENDPOINT_RECORD.model }),
     };
   }
 

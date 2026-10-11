@@ -81,6 +81,7 @@ import {
   MEMORY_ENDPOINT_ID_KEY,
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
   migrateLegacyStewardMemoryKeys,
+  migrateMemoryEndpointToDefault,
 } from "../application/memory/memoryConfig";
 import {
   EmbeddingConfigService,
@@ -415,6 +416,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // P0① kg.projects 行 bootstrapRunning 数据源：任务栈在 workspace 之后建——
   // 晚绑回填（buildStack 闭包读取现值；kg.projects 调用必在 boot 完成后）
   let taskStoreForProjectRows: TaskStorePort | undefined;
+  // 批1 WP-B：embedding 配置域晚绑引用（其构造在下方——buildStack 惰性闭包
+  //  经此读现值；向量面解析恒走 resolveDefault 单点，构造窗口零调用）
+  let embeddingConfigRef: EmbeddingConfigService | undefined;
   const workspace = new WorkspaceService({
     kv: persistence.runtimeConfig, // KV 底座（AG-06 单写通道；不进 config.json，TR-AD-6）
     fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
@@ -433,6 +437,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "code-review", projectName),
         hasRunningTriageJob: (projectName) =>
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-triage", projectName),
+        // 批1 WP-B：kg 向量联动面（嵌入经全局默认 embedding 端点单点——
+        //  端点缺失/失效 = 嵌入降级 warn 不阻塞写，可选件纪律）
+        makeEmbedding: () =>
+          new OpenAiCompatEmbeddingAdapter({ getConfig: () => embeddingConfigRef?.resolveDefault() ?? null }),
+        resolveEmbeddingEndpoint: () => embeddingConfigRef?.resolveDefault() ?? null,
       }),
     // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
     // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。
@@ -780,6 +789,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 区分实现）——与 createProbe 同构（按目标端点现配一次性构造，探测完即弃）
     createJudgeProbe: (cfg) => makeJudgeAdapter(() => cfg, judgeServices),
   });
+  embeddingConfigRef = embeddingConfig; // 晚绑闭合（kg 向量面 buildStack 闭包读现值）
 
   // 分诊器 LLM 面（管家感知批 M0.5 归一）：任务总结子功能专用槽位沿用
   //（summary.task.model，**无默认模型**——未配置 = 分诊面不可用，语音
@@ -916,6 +926,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     })
     .then((migrated) => {
       if (migrated !== null) logger.info(`管家记忆迁移：旧端点配置已收编为 embedding 配置域首条端点（${migrated}）`);
+      // 批1：memory.endpointId 退役迁移（序在键位/端点两级之后——② 产出的
+      // memory.endpointId 也要被收编为全局默认端点）；幂等，二次启动零改写
+      return migrateMemoryEndpointToDefault(persistence.runtimeConfig, embeddingConfig, (m) => logger.warn(m));
+    })
+    .then((outcome) => {
+      if (outcome === "migrated") logger.info("默认 embedding 端点迁移：memory.endpointId 已收编为 embedding.defaultEndpointId（旧键已清）");
     })
     .catch((err) => logger.warn(`管家记忆迁移失败（旧配置保留，可重试）：${(err as Error).message}`));
   // 总结配置域迁移（一次性幂等；topic_config JSON + steward.sessionmemory.* +
@@ -978,9 +994,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         // B2：端点配置经 EmbeddingConfigService 解析（endpointId → 条目——
         // 换端点零重建，下一次调用自动跟随）
         getConfig: () => {
-          const endpointId = persistence.runtimeConfig.get(MEMORY_ENDPOINT_ID_KEY);
-          if (endpointId === undefined || endpointId === "") return null;
-          return embeddingConfig.resolve(endpointId);
+          // 批1：向量端点取用改走全局默认端点单点（embedding.defaultEndpointId
+          //  ——resolveDefault 全消费面唯一取用；悬空/未设 → null → embed 抛错
+          //  降级，与旧 endpointId 引用同款失败语义）
+          return embeddingConfig.resolveDefault();
         },
       });
       return new StewardMemoryService({
@@ -1259,6 +1276,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
   orchestratorService = buildTaskOrchestrator({
     stewardPerception, // 管家感知批（M0.5）：job 终态回调第二消费者（任务级完成锚，title 机械字段 M0.5-R）
+    // D2 kg-bootstrap 硬闸（批1）：任务开工检查默认 embedding 端点（resolveDefault 单点）
+    hasDefaultEmbeddingEndpoint: () => embeddingConfig.resolveDefault() !== null,
     orchestratorCore: taskStack.orchestratorCore,
     scheduler,
     resolveSubagentModelId,

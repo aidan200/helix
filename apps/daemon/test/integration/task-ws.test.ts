@@ -616,6 +616,6 @@ describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
     // task.retry 为白名单例外：job 级生命周期人工复活，非批次重试/内容干预（AD-2 保持）
     const forbidden = family.filter((t) => t !== "task.retry" && /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
     expect(forbidden).toEqual([]);
-    expect(COMMAND_TYPES.length).toBe(125); // barge-in 意图窗批 +1（steward.judge_stop_intent）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity.list/clear）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）+ P2 审计批 +1（kg.auto.audit）；此前：遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
+    expect(COMMAND_TYPES.length).toBe(126); // 默认 embedding 端点批（批1）+1（embedding.set_default）后当前值；此前：barge-in 意图窗批 +1（steward.judge_stop_intent）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity.list/clear）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）+ P2 审计批 +1（kg.auto.audit）；此前：遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）后当前值；动态主题批 +2（config.get/set_topic）；channels 惰性化批 +1（session.instanceChannels）
   });
 });

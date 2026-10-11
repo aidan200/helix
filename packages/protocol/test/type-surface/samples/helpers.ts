@@ -652,6 +652,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "embedding.delete":
       // embedding 配置域（B2）：删除
       return `embedding-delete:${cmd.payload.id}`;
+    case "embedding.set_default":
+      // 默认 embedding 端点批（批1）：设为全局默认（单选语义）
+      return `embedding-set-default:${cmd.payload.id}`;
     case "embedding.verify":
       // embedding 配置域（B2）：连通测试
       return `embedding-verify:${cmd.payload.id}`;

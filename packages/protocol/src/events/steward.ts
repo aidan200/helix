@@ -221,16 +221,15 @@ export interface StewardConfigResultPayload {
    *  写面在 config.set_summary，管家配置零总结项；形状与
    *  SummaryConfigStatePayload 同源）。 */
   summary: SummaryConfigStatePayload;
-  /** 长期记忆面现态（管家记忆 B2 瘦身：endpoint 为引用态——只回 id/name/
-   *  model/hasApiKey，baseUrl 不再回传；端点全集经 embedding.list 读）。 */
+  /** 长期记忆面现态（管家记忆 B2 瘦身；批1：向量端点选择退役——恒用全局
+   *  默认 embedding 端点（embedding.defaultEndpointId），回执不再回
+   *  endpointId/endpoint 引用；端点管理面归 embedding.list）。 */
   memory: {
     /** 记忆开关现态（默认 false——可选项，零依赖开箱）。 */
     enabled: boolean;
-    /** 综合可用性（开关开 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配——
+    /** 综合可用性（开关开 ∧ 默认端点在场 ∧ 条目完整 ∧ 存储已装配——
      *  召回/写入真实门槛）。 */
     available: boolean;
-    /** 当前引用端点（引用态：id/name/model/hasApiKey；未引用或条目已删 = null）。 */
-    endpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     /** 当前判官端点引用（B4a 自动沉淀；kind=classifier 引用态；未引用/条目已删/非 classifier = null）。 */
     judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     /** 记忆条目总数。 */

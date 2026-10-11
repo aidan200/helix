@@ -28,6 +28,12 @@ import { parseCandidateId, parseMigrationId } from "../../../domain/kg/node-id";
  */
 export interface KgWriteServiceDeps {
   readonly store: KnowledgeStorePort;
+  /** 批1 WP-B 向量联动挂钩（可选——缺席零动作；实现 = KgVectorService：
+   *  createNode/batchCreateNodes/updateNode 成功后异步嵌入 upsert、supersede
+   *  删被推翻节点向量。fire-and-forget：嵌入失败 WARN 不阻塞知识写入）。 */
+  readonly vectorSync?: {
+    onWriteSuccess(projectRoot: string, op: KnowledgeWriteOp, result: Extract<WriteResult, { ok: true }>): void;
+  };
 }
 
 export class KgWriteService {
@@ -37,11 +43,14 @@ export class KgWriteService {
     this.deps = deps;
   }
 
-  /** 唯一写入口：schema 校验（前置）→ 透传 port（事务内发号/落库）。 */
+  /** 唯一写入口：schema 校验（前置）→ 透传 port（事务内发号/落库）→
+   *  成功后向量联动（批1 WP-B，fire-and-forget 不阻塞）。 */
   write(projectRoot: string, op: KnowledgeWriteOp): WriteResult {
     const error = validateKnowledgeWriteOp(op);
     if (error !== null) return { ok: false, error };
-    return this.deps.store.writeKnowledge(projectRoot, op);
+    const result = this.deps.store.writeKnowledge(projectRoot, op);
+    if (result.ok) this.deps.vectorSync?.onWriteSuccess(projectRoot, op, result);
+    return result;
   }
 }
 
