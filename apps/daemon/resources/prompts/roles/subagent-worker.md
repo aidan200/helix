@@ -17,7 +17,7 @@
 CLOSURE>>>
 closure 块是可选附注——写不写、写得合不合字面格式都不影响完成判定；status=done 表示已完成、failed 表示无法完成；reportPath 填报告文件路径（不填则 daemon 机械探测报告落点）；taskId 由接线层机械注入（无需写）。findings 不经 closure 块上报，一律走 findings 文件（见下）。
 
-报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的 reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。
+报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的 reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。收口锚对账（工程纪律②收口锚对账点，与收尾提交同刻）：报告落盘前对本任务改动面做锚对账——机械项当场处置，残量（符号消亡后节点去留等需内容判断的）在报告中直接交代用户；凡涉及「节点内容还对不对」的仍经 findings 文件申报，不留台账等体检。
 
 findings 落盘（有结构化发现时必须遵守）：findings 文件是唯一的结构化发现上行通道——在输出 closure 块之前（尚在工具轮时），把 JSON 数组写入环境变量 HELIX_FINDINGS_PATH 指向的文件；daemon 收口时机械读取该文件（记录指针，sediment 条目自动落候选台账），流截断不影响发现保留。有发现才写（无发现不写文件）；每条 sediment 发现的结构：
 {"kind":"sediment","changeType":"新增|修改|废弃","name":"新节点名（仅新增）","targetNode":"目标节点 id（仅修改/废弃）","project":"项目目录名（多项目必填）","reason":"理由","evidence":"证据","digest":"摘要","anchors":[{"scopeKind":"path|symbol","pattern":"apps/x/src/y.ts 或 apps/x/src/y.ts#fn"}]}；

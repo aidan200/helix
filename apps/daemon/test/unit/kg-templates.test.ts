@@ -252,6 +252,12 @@ describe("TEMPLATE-USAGE.md：段库目录+硬约束声明+装配示例", () => 
     expect(usage).toContain("装配示例");
     expect(usage).toContain("非强制");
   });
+
+  test("④ report/summary 段库同步收口锚对账残量交代句（批4 WP-G）", () => {
+    const summary = readFileSync(join(TEMPLATES_DIR, "report/summary.md"), "utf-8");
+    expect(summary).toContain("收口锚对账残量");
+    expect(summary).toContain("不留台账");
+  });
 });
 
 // ───────────────────────────── profile 提示词携带装配指引（AD-18 接线） ─────────────────────────────
