@@ -60,7 +60,7 @@ const kgUpdateParameters = {
     body: {
       type: "string",
       description:
-        "createNode 正文（可选，全文详情）。写作规范（全产线统一，bootstrap SOP 提升）：完整自然语言禁电报体；markdown 结构自由组织（推荐「## 这是什么 / ## 为什么存在」段式）；必含「为什么存在」——来源与存在理由（解决什么问题/约束什么），缺 why 的知识无法支撑「改动前该看什么」判断。proposeCandidate 复用本参数且必填非空——reason/evidence 内嵌换行分段（顶层 reason 对该 op 无效；空 body 候选被写面拒绝，TR-147）",
+        "createNode 正文（可选，全文详情）。写作规范（TR-41，全产线统一）：body 条款式——规则节点=约束清单（必须/禁止/可以+每条一句理由）、实体节点=接口事实+指针（代码事实禁抄录）；预算 ≤500 字目标/≤800 字硬上限；禁计数快照与行号（引用式「清单以 X 为单源」）；必含「为什么存在」（≤2 句）。digest ≤2 行且覆盖检索关键词（别名/常见叫法）。proposeCandidate 复用本参数且必填非空——reason/evidence 内嵌换行分段（顶层 reason 对该 op 无效；空 body 候选被写面拒绝，TR-147）",
     },
     domain: { type: "string", enum: ["tech", "business"], description: "createNode 作用域（可选）" },
     layer: { type: "string", enum: ["L0", "L1", "L2"], description: "createNode 分层（可选，AD-11）" },
@@ -94,7 +94,7 @@ const kgUpdateParameters = {
           name: { type: "string", description: "节点名（重名合法，靠 digest 区分）" },
           digest: { type: "string", description: "摘要（≤2 行）" },
           scene: { type: "string", description: "适用场景（必填：「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）" },
-          body: { type: "string", description: "正文（可选）。写作规范同单条 createNode：完整自然语言 + markdown 结构 + 必含「为什么存在」段" },
+          body: { type: "string", description: "正文（可选）。写作规范同单条 createNode（TR-41：条款式/预算 ≤500 目标 ≤800 硬上限/禁计数行号/「为什么存在」≤2 句）" },
           domain: { type: "string", enum: ["tech", "business"], description: "作用域（可选）" },
           layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（可选，AD-11）" },
           anchors: {
