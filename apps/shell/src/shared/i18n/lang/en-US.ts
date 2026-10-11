@@ -533,7 +533,7 @@ export const enUS = {
         kgDupLabel: "Dedup duplicate threshold",
         kgDupNote: "Similarity at/above this value auto-files a suspected-duplicate candidate for review (0-1, default 0.92; must be ≥ warning threshold — invalid combos fall back to defaults)",
         modelsTabChat: "Chat models",
-        modelsTabEmbedding: "Other models",
+        modelsTabEmbedding: "Vector models",
         modelsTabClassifier: "Classifiers",
         modelsTabProvider: "Custom platforms",
         embNote: "Embedding endpoints for semantic recall (steward memory) — classifiers live in the Classifiers tab",
