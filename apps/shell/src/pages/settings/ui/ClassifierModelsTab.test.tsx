@@ -232,4 +232,23 @@ describe("D1 全局默认分类模型（渐进收编 UI 契约）", () => {
     fireEvent.click(container.querySelector("[data-clf-set-default=ep-4]")!);
     expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-4", "classifier");
   });
+
+  it("修改口交互：点「设置默认模型」开面板 → 选端点即 set_default(kind=classifier) + 关面板；默认项带 sel+chip", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-3"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-change-default]")!);
+    expect(container.querySelector("[data-clf-default-picker]")).not.toBeNull();
+    expect(container.querySelector("[data-clf-default-picker-item=ep-3]")!.className).toContain("sel");
+    expect(container.querySelector("[data-clf-default-picker-item=ep-4]")).not.toBeNull();
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-default-picker-item=ep-4]")!);
+    expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-4", "classifier");
+    expect(container.querySelector("[data-clf-default-picker]")).toBeNull(); // 成功关面板
+  });
+
+  it("修改口空态：无 classifier 端点 → 面板内空态提示", () => {
+    const { container } = ui();
+    act(() => feedList([], null));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-change-default]")!);
+    expect(container.querySelector("[data-clf-default-picker-empty]")).not.toBeNull();
+  });
 });

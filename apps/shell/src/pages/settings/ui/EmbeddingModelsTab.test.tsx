@@ -238,17 +238,38 @@ describe("全局默认 embedding 端点（批1 WP-A）", () => {
 });
 
 describe("D1 全局默认向量模型卡（F(3.4).6 同构 UI 契约）", () => {
-  it("未设默认 → 弱化提示；设默认 → 只读展示 name·model（改默认在下方列表行「设为默认」）", () => {
+  it("未设默认 → 弱化提示；设默认 → 只读展示 name·model；卡内「设置默认模型」修改口 + 列表行辅助入口", () => {
     const { container } = ui();
     act(() => feedList(ENDPOINTS));
     expect(container.querySelector("[data-emb-global-default]")).not.toBeNull();
     expect(container.querySelector("[data-emb-global-default-unset]")).not.toBeNull();
     expect(container.querySelector("[data-emb-global-default-value]")).toBeNull();
-    // 卡内无改默认入口（只读展示——改默认走下方列表行）
-    expect(container.querySelector("[data-emb-global-default] [data-emb-set-default]")).toBeNull();
+    // 卡内修改口（LLM F(3.4).6 同构：按钮点开选择器）
+    expect(container.querySelector<HTMLButtonElement>("[data-emb-change-default]")).not.toBeNull();
     act(() => feedList(ENDPOINTS, "ep-1"));
     expect(container.querySelector("[data-emb-global-default-value]")!.textContent).toBe("Ollama 本地 · bge-m3");
     expect(container.querySelector("[data-emb-global-default-unset]")).toBeNull();
-    expect(container.querySelector<HTMLButtonElement>("[data-emb-set-default=ep-2]")).not.toBeNull(); // 列表行改默认入口保留
+    expect(container.querySelector<HTMLButtonElement>("[data-emb-set-default=ep-2]")).not.toBeNull(); // 列表行辅助入口保留
+  });
+
+  it("修改口交互：点「设置默认模型」开面板 → 选端点即 set_default + 关面板；默认项带 sel+chip", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-1"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-change-default]")!);
+    const panel = container.querySelector("[data-emb-default-picker]")!;
+    expect(panel).not.toBeNull();
+    // 默认项 sel + 默认 chip；两项齐列
+    expect(container.querySelector("[data-emb-default-picker-item=ep-1]")!.className).toContain("sel");
+    expect(container.querySelector("[data-emb-default-picker-item=ep-2]")).not.toBeNull();
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-default-picker-item=ep-2]")!);
+    expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-2");
+    expect(container.querySelector("[data-emb-default-picker]")).toBeNull(); // 成功关面板
+  });
+
+  it("修改口空态：无向量端点 → 面板内空态提示", () => {
+    const { container } = ui();
+    act(() => feedList([], null));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-change-default]")!);
+    expect(container.querySelector("[data-emb-default-picker-empty]")).not.toBeNull();
   });
 });

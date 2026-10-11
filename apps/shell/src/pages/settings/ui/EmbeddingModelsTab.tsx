@@ -119,6 +119,8 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
   /** 新增/编辑弹层（open|closed；校验 clean|error）。 */
   const [form, setForm] = useState<EndpointForm | null>(null);
   const [formErr, setFormErr] = useState<string | null>(null);
+  /** 全局默认修改口面板（LLM 页 dms-panel 同构——点开选端点即设默认）。 */
+  const [defaultPickerOpen, setDefaultPickerOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
@@ -221,11 +223,14 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
     });
   };
 
-  /** 设为默认（单选语义——daemon 校验三拒：不存在/kind≠embedding/未 verify）。 */
-  const onSetDefault = (id: string): void => {
+  /** 设为默认（单选语义——daemon 校验三拒：不存在/kind≠embedding/未 verify）。
+   *  返回 send 是否已发出（LLM 同构：成功才关修改口面板）。 */
+  const onSetDefault = (id: string): boolean => {
     if (sendEmbeddingSetDefault(id) === false) {
       toast.push("err", t("chat.modelsConfig.sendFailToast"));
+      return false;
     }
+    return true;
   };
 
   return (
@@ -239,8 +244,9 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
         </div>
       </div>
 
-      {/* D1：全局默认向量模型工具卡（对话 tab F(3.4).6 同构——顶部只读展示
-          当前默认端点名/model；未设默认弱化提示；改默认在下方列表行「设为默认」） */}
+      {/* D1：全局默认向量模型工具卡（对话 tab F(3.4).6 同构——顶部展示
+          当前默认端点名/model + 「设置默认模型」修改口；列表行「设为默认」
+          为辅助入口） */}
       <div className="hud-card" data-emb-global-default>
         <div className="toolbar">
           <div className="toolbar-row">
@@ -259,8 +265,52 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
                 );
               })()}
             </div>
+            <button
+              className="hud-btn hud-btn-ghost sm"
+              type="button"
+              data-emb-change-default
+              aria-expanded={defaultPickerOpen}
+              onClick={() => setDefaultPickerOpen(!defaultPickerOpen)}
+            >
+              {t("chat.settings.general.embChangeDefault")}
+            </button>
           </div>
         </div>
+        {/* 修改口面板（LLM dms-panel 同构：选中即设默认，成功关面板） */}
+        {defaultPickerOpen && (
+          <div className="dms-panel" data-emb-default-picker>
+            <div className="dms-list" data-emb-default-picker-list>
+              {(() => {
+                const list = (endpoints ?? []).filter((ep) => (ep.kind ?? "embedding") === "embedding");
+                if (list.length === 0) {
+                  return (
+                    <p className="ag-note" data-emb-default-picker-empty>
+                      {t("chat.settings.general.embDefaultPickerEmpty")}
+                    </p>
+                  );
+                }
+                return list.map((ep) => {
+                  const isDefault = defaultEndpointId === ep.id;
+                  return (
+                    <button
+                      key={ep.id}
+                      className={cn("dms-item", isDefault && "sel")}
+                      type="button"
+                      data-emb-default-picker-item={ep.id}
+                      onClick={() => {
+                        if (onSetDefault(ep.id)) setDefaultPickerOpen(false);
+                      }}
+                    >
+                      <span className="dms-name">{ep.name}</span>
+                      {isDefault && <span className="hud-chip">{t("chat.settings.general.embDefaultBadge")}</span>}
+                      <span className="hud-chip">{ep.model}</span>
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 批1：无默认端点引导条（记忆/知识库向量面不可用——与服务闸同判据） */}

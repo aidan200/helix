@@ -114,6 +114,8 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
   /** 新增/编辑弹层（open|closed；校验 clean|error）。 */
   const [form, setForm] = useState<ClfForm | null>(null);
   const [formErr, setFormErr] = useState<string | null>(null);
+  /** 全局默认修改口面板（LLM 页 dms-panel 同构——点开选端点即设默认）。 */
+  const [defaultPickerOpen, setDefaultPickerOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
@@ -221,11 +223,14 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
     });
   };
 
-  /** 设为默认分类端点（D1 单选语义——daemon 校验三拒：不存在/kind≠classifier/未 verify）。 */
-  const onSetDefault = (id: string): void => {
+  /** 设为默认分类端点（D1 单选语义——daemon 校验三拒：不存在/kind≠classifier/未 verify）。
+   *  返回 send 是否已发出（LLM 同构：成功才关修改口面板）。 */
+  const onSetDefault = (id: string): boolean => {
     if (sendEmbeddingSetDefault(id, "classifier") === false) {
       toast.push("err", t("chat.modelsConfig.sendFailToast"));
+      return false;
     }
+    return true;
   };
 
   /** 本 tab 管理面（只 classifier 端点——向量端点在向量 tab）。 */
@@ -242,8 +247,8 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
         </div>
       </div>
 
-      {/* D1：全局默认分类模型工具卡（与向量 tab 全局默认卡同构——只读展示；
-          改默认在下方列表行「设为默认」） */}
+      {/* D1：全局默认分类模型工具卡（与向量 tab 全局默认卡同构——展示 +
+          「设置默认模型」修改口；列表行「设为默认」为辅助入口） */}
       <div className="hud-card" data-clf-global-default>
         <div className="toolbar">
           <div className="toolbar-row">
@@ -262,8 +267,48 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
                 );
               })()}
             </div>
+            <button
+              className="hud-btn hud-btn-ghost sm"
+              type="button"
+              data-clf-change-default
+              aria-expanded={defaultPickerOpen}
+              onClick={() => setDefaultPickerOpen(!defaultPickerOpen)}
+            >
+              {t("chat.settings.general.clfChangeDefault")}
+            </button>
           </div>
         </div>
+        {/* 修改口面板（LLM dms-panel 同构：选中即设默认，成功关面板） */}
+        {defaultPickerOpen && (
+          <div className="dms-panel" data-clf-default-picker>
+            <div className="dms-list" data-clf-default-picker-list>
+              {rows.length === 0 ? (
+                <p className="ag-note" data-clf-default-picker-empty>
+                  {t("chat.settings.general.clfDefaultPickerEmpty")}
+                </p>
+              ) : (
+                rows.map((ep) => {
+                  const isDefault = defaultClassifierId === ep.id;
+                  return (
+                    <button
+                      key={ep.id}
+                      className={cn("dms-item", isDefault && "sel")}
+                      type="button"
+                      data-clf-default-picker-item={ep.id}
+                      onClick={() => {
+                        if (onSetDefault(ep.id)) setDefaultPickerOpen(false);
+                      }}
+                    >
+                      <span className="dms-name">{ep.name}</span>
+                      {isDefault && <span className="hud-chip">{t("chat.settings.general.clfDefaultBadge")}</span>}
+                      <span className="hud-chip">{ep.model}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* D1：无默认引导条（判官缺席——各判定面维持现状降级） */}
