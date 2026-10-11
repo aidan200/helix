@@ -19,7 +19,7 @@ task:
 
 你在执行一个 kg-triage 任务：对**恰好一个项目**（`projectRoot`）的知识图谱**待办面**做即时裁决——把「事实判断类待办」从人审通道迁入自动裁决，人只兜底真正的例外。按固定两阶段推进——待办面聚合与分派决策 → 条目裁决与落库。阶段行已由引擎按本文件 frontmatter 冻结，不议、不增删。
 
-与 kg-review（全库体检，O(全库)）、kg-bootstrap（一次性建库）不同：triage 是**待办面驱动**的 O(待办条目) 轻任务，允许反复发起（待办面非空即可）。L0 机械重定位（E-228）已在 sync 管道内消化了 rename 类孤儿锚——**你的裁决对象只是它消化不了的残量**。
+与 kg-review（全库体检，O(全库)）、kg-bootstrap（一次性建库）不同：triage 是**待办面驱动**的 O(待办条目) 轻任务，允许反复发起（待办面非空即可）。两层前置消化把待办面压到了低频兜底水位：L0 机械重定位（E-228）在 sync 管道内消化 rename 类孤儿锚；收口锚对账（TR-260）在任务收口时机械处置任务改动面的锚债、残量直接交代用户（不经台账）——**你的裁决对象是这两层消化不了的残量**（以非任务态漂移与存量为主）。
 
 **worktree 豁免（W-R5 同款）：本任务类型不开 worktree，主工作树执行**——裁决对象是主仓 kg 库与代码现实，隔离副本各持一套库会裁错对象。
 
@@ -29,7 +29,7 @@ task:
 
 1. **四路查询合并待办面**：
    - 候选台账：`kg.candidates.list`（status=pending）+（status=deferred）——deferred 条目重复裁决合法（defer_age 递增）；
-   - 孤儿锚残量：体检三检查的 findOrphans dead_anchor 清单（`/project` 页体检面板同源）——每条含 tombstone 四元组 + evidence 断链快照 + 节点 digest；
+   - 孤儿锚残量：体检三检查的 findOrphans dead_anchor 清单（`/project` 页体检面板同源）——每条含 tombstone 四元组 + evidence 断链快照 + 节点 digest；任务改动面的锚债已由收口锚对账（TR-260）收口时机械处置并直接交代用户，不经本路——本路输入以非任务态漂移（外部改码、符号消亡）与存量残量为主；
    - 无锚节点（P3 ③ 路）：findOrphans 的 orphan_node/unanchored_node 清单（节点出生未挂锚的锚债；draft 宽限 7 天内不列）；
    - 草稿待裁决（P3 ④ 路）：findDrafts 的 ready/stale 清单（锚定就绪——≥1 活锚或仅 global 刻意锚定——只差裁决动作的 draft；stale = 超 7 天宽限的积压）。
    - findDrafts 的 anchor-debt 清单（锚定未就绪）随 ③ 路挂锚处置：无声明类经 ②③ draft 宽限（7 天）后自然浮现，已含在无锚节点清单（按节点 id 去重）；带声明但全死/未物化类 ②③ 按声明豁免**不会报**——须从 anchor-debt 清单直接并入 ③ 路（同为 declareAnchors 处置，重挂后下轮走 ④）。
