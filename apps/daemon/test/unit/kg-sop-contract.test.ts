@@ -187,6 +187,36 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     });
   });
 
+  describe("收口锚对账点（工程纪律②衔接——批4 WP-G 任务收口锚对账闭环）", () => {
+    for (const [label, prompt] of [
+      ["Main", MAIN_SESSION_SYSTEM_PROMPT],
+      ["SubAgent", SUBAGENT_SYSTEM_PROMPT],
+    ] as const) {
+      test(`${label}：收口锚对账点关键句齐备（改动面锚对账链 / 机械项当场处置 / 残量进收口报告直接交代 / 不留台账等体检）`, () => {
+        expect(prompt).toContain("收口锚对账点");
+        expect(prompt).toContain("改动文件 → kg affected 反查 → 锚健康检查");
+        expect(prompt).toContain("机械项当场处置");
+        expect(prompt).toContain("残量（符号消亡后节点去留等需内容判断的）进收口报告直接交代用户，不留台账等体检");
+      });
+
+      test(`${label}：边界条款——「节点内容还对不对」走 findings→候选人审通道，内容人审边界与锚机械维护严格分开`, () => {
+        expect(prompt).toContain("凡涉及「节点内容还对不对」的（supersede/正文修订）仍走 findings→候选人审通道");
+        expect(prompt).toContain("内容人审边界与锚机械维护严格分开");
+      });
+    }
+
+    test("同刻衔接：锚对账点紧随收口记忆召回点（「无命中即正常收口。收口锚对账点」）", () => {
+      for (const prompt of [MAIN_SESSION_SYSTEM_PROMPT, SUBAGENT_SYSTEM_PROMPT]) {
+        expect(prompt).toContain("无命中即正常收口。收口锚对账点");
+      }
+    });
+
+    test("SubAgent 收口 SOP 同步句齐备（subagent-worker.md 报告落盘前锚对账 + 残量直接交代）", () => {
+      expect(SUBAGENT_SYSTEM_PROMPT).toContain("报告落盘前对本任务改动面做锚对账");
+      expect(SUBAGENT_SYSTEM_PROMPT).toContain("残量（符号消亡后节点去留等需内容判断的）在报告中直接交代用户");
+    });
+  });
+
   describe("Orchestrator：只加 brief 派发提示一句（AD-10 不挂写面）", () => {
     test("派发提示句齐备（codegraph → kg affected → kg get）", () => {
       expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain("派发提示");
