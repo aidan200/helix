@@ -194,7 +194,7 @@ describe("memory_search 工具化·组装链接线（container E2E）", () => {
   test("② SubAgent spawn：快照 tools 含 memory_search（worker 家族声明面）；提示零静态段", async () => {
     const rig = await makeRig();
     const sid = rig.daemon.system.getStatus().sessionId;
-    const spawned = rig.daemon.orchestration.spawn("工具面声明验证", "subagent-worker");
+    const spawned = await rig.daemon.orchestration.spawn("工具面声明验证", "subagent-worker");
     if (spawned.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(spawned)}`);
     const snap = await snapshotOf(rig.home, sid, (p) => (p as { instanceId?: string }).instanceId === spawned.agentId);
 
@@ -221,3 +221,4 @@ describe("memory_search 工具化·组装链接线（container E2E）", () => {
     expect(snap.systemPrompt).not.toContain(RETIRED_SECTION_HEADER);
   }, 20000);
 });
+

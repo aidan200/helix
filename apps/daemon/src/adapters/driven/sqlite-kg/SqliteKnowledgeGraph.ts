@@ -153,15 +153,28 @@ export class SqliteKnowledgeGraph {
           "WHERE name LIKE ? ESCAPE '\\' OR digest LIKE ? ESCAPE '\\' ORDER BY id",
       )
       .all(like, like) as DigestRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind as NodeKind,
-      name: row.name,
-      digest: row.digest,
-      scene: row.scene,
-      status: row.status as NodeStatus,
-      domain: (row.domain as NodeDomain | null) ?? null,
-    }));
+    return rows.map(digestRowOf);
+  }
+
+  /**
+   * 批量摘要行解析（语义召回轨消费）：按 id 集合取摘要行（含 status）；
+   * 返回序 = ids 入参序（确定性），缺失 id 静默缺席；只读 SELECT（AG-06）。
+   */
+  getDigestRows(projectRoot: string, ids: readonly string[]): readonly NodeDigestRow[] {
+    const db = this.readDb(projectRoot);
+    if (db === null || ids.length === 0) return [];
+    const unique = [...new Set(ids)];
+    const placeholders = unique.map(() => "?").join(", ");
+    const rows = db
+      .prepare(`SELECT id, kind, name, digest, scene, status, domain FROM nodes WHERE id IN (${placeholders})`)
+      .all(...unique) as DigestRow[];
+    const byId = new Map(rows.map((row) => [row.id, digestRowOf(row)]));
+    const out: NodeDigestRow[] = [];
+    for (const id of ids) {
+      const hit = byId.get(id);
+      if (hit !== undefined) out.push(hit);
+    }
+    return out;
   }
 
   /**
@@ -764,6 +777,19 @@ interface DigestRow {
   scene: string;
   status: string;
   domain: string | null;
+}
+
+/** 摘要行投影单点（search/getDigestRows 共用——返回形状变更只动此处）。 */
+function digestRowOf(row: DigestRow): NodeDigestRow {
+  return {
+    id: row.id,
+    kind: row.kind as NodeKind,
+    name: row.name,
+    digest: row.digest,
+    scene: row.scene,
+    status: row.status as NodeStatus,
+    domain: (row.domain as NodeDomain | null) ?? null,
+  };
 }
 
 interface DeclRow {

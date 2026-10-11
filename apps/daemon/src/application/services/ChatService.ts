@@ -65,15 +65,16 @@ interface ChatServiceDepsBase {
   readonly ask?: Pick<AskService, "request">;
   /**
    * 主会话任务切片注入器（W2-D R9/R10，设计 D2 段①）：idle 分支真实用户
-   * 消息（source 缺省）首轮开工前一次性过 kg 约束切片注入——返回引擎实际
-   * 收到的文本；空命中/失败须原文透传（宁可沉默）。steer/closure 注入
-   *（source 携带）不经过——不每轮注入。跨通道去重由注入器内 markInjected
-   *（sessionId 维）保证（orchestrator 派发路径同键）。缺省不注入。
-   * 契约：实现必须不抛——注入是增强不是阻断（F3 修复：调用点在 lifecycle
-   * 已置 running 后同步调用，异常逃逸无 settleRunEnd 会卡死会话；调用点
-   * 另有 try/catch 兜底回退原文，双保险）。
+   * 消息（source 缺省）首轮开工前一次性过 kg 约束切片注入（双轨并集——
+   * 检索语义化批）——返回引擎实际收到的文本；空命中/失败须原文透传
+   *（宁可沉默）。steer/closure 注入（source 携带）不经过——不每轮注入。
+   * 跨通道去重由注入器内 markInjected（sessionId 维）保证（orchestrator
+   * 派发路径同键）。缺省不注入。
+   * 契约：实现必须不抛——注入是增强不是阻断（F3 修复：调用点另有
+   * try/catch 兜底回退原文，双保险）。异步落定（嵌入往返超时上限 800ms
+   * ——检索语义化批 async 化，用户裁决：延迟预算放开）。
    */
-  readonly taskSliceInjector?: (sessionId: string, text: string) => string;
+  readonly taskSliceInjector?: (sessionId: string, text: string) => string | Promise<string>;
   /**
    * 轮次 diff 挂点（T2 turn diff 数据链，照 editDeps 先例可选注入容缺空
    * 操作）：开轮（sendMessage 空闲路径/steer drain dequeueSteer 后的
@@ -294,8 +295,12 @@ export class ChatService implements ChatPort {
         // 仅引擎收到的文本注入，聚合 Entry 恒为用户原文（注入是瞬时提示上下文）。
         // F3 修复：注入器异常兜底回退原文——此处 lifecycle 已置 running，异常
         // 逃逸将无 settleRunEnd（会话卡死 running）；注入是增强，绝不阻断轮次。
-        const engineText = source === undefined ? this.injectTaskSlice(text) : text;
+        // 检索语义化批 async 化：注入链可含嵌入往返（超时上限 800ms）——注入
+        // 移入 run 体先于 engine.start（顺序语义不变：注入完成先于引擎驱动）；
+        // activeRun 登记仍在 sendMessage 同步前缀内落定（TP-1.4a 捕获语义不变式
+        // ——whenSettled 取调用时刻 activeRun，登记不得让位给 await）。
         const run = (async () => {
+          const engineText = source === undefined ? await this.injectTaskSlice(text) : text;
           try {
             await this.deps.engine.start(engineText, (e) => this.onEngineEvent(e), images);
           } catch (err) {
@@ -358,9 +363,9 @@ export class ChatService implements ChatPort {
 
   /** 切片注入防御面（F3）：契约要求注入器不抛（增强不是阻断），此处仍兜底——
    * 调用点 lifecycle 已置 running，异常逃逸无 settleRunEnd 会卡死会话；抛错回退原文。 */
-  private injectTaskSlice(text: string): string {
+  private async injectTaskSlice(text: string): Promise<string> {
     try {
-      return this.deps.taskSliceInjector?.(this.session.id, text) ?? text;
+      return (await this.deps.taskSliceInjector?.(this.session.id, text)) ?? text;
     } catch {
       return text;
     }

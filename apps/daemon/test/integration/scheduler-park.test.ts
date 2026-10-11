@@ -112,8 +112,8 @@ function makeHarness(policy?: SchedulingPolicy, clock?: ClockPort): Harness {
   };
 }
 
-function spawnId(h: Harness, task = "任务"): string {
-  const outcome = h.scheduler.spawn(SESSION_ID, task);
+async function spawnId(h: Harness, task = "任务"): Promise<string> {
+  const outcome = await h.scheduler.spawn(SESSION_ID, task);
   if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
   return outcome.agentId;
 }
@@ -160,9 +160,9 @@ afterAll(() => {
 });
 
 describe("① park → parked（非终态：不写 closure、不收口、不注入主线）", () => {
-  test("park 请求经 steer 通道注入协议指令；parked 上行后状态 parked + 事件 + 投影行", () => {
+  test("park 请求经 steer 通道注入协议指令；parked 上行后状态 parked + 事件 + 投影行", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     expect(h.scheduler.instance(a1)?.state).toBe("running");
 
     const outcome = h.scheduler.park(a1, "taskPause");
@@ -187,15 +187,15 @@ describe("① park → parked（非终态：不写 closure、不收口、不注�
 
   test("agent_lifecycle 投影补 parked 行（park/resume 状态落盘）", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     parkTo(h, a1);
     const rows = await lifecycleRows(h);
     expect(rows).toContainEqual({ instanceId: a1, state: "parked" });
   });
 
-  test("park 幂等：pending 期重复请求不重发指令；已 parked 再 park 为 no-op", () => {
+  test("park 幂等：pending 期重复请求不重发指令；已 parked 再 park 为 no-op", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     expect(h.scheduler.park(a1)).toEqual({ parked: true });
     expect(h.scheduler.park(a1)).toEqual({ parked: true });
     expect(h.runner.sent).toHaveLength(1); // 不重发
@@ -207,28 +207,28 @@ describe("① park → parked（非终态：不写 closure、不收口、不注�
     expect(payloadsOf(h, "agent.parked", a1)).toHaveLength(1);
   });
 
-  test("park 拒绝面：未知/排队中/终态/主会话 kind", () => {
+  test("park 拒绝面：未知/排队中/终态/主会话 kind", async () => {
     const h = (current = makeHarness());
     expect(h.scheduler.park("agent-不存在").parked).toBe(false);
 
     const policy = new SchedulingPolicy({ maxConcurrent: 1, maxQueued: 4 });
     const h2 = (current = makeHarness(policy));
-    spawnId(h2, "任务A");
-    const second = h2.scheduler.spawn(SESSION_ID, "任务B");
+    await spawnId(h2, "任务A");
+    const second = await h2.scheduler.spawn(SESSION_ID, "任务B");
     if (second.status !== "queued") throw new Error("预期 queued");
     expect(h2.scheduler.park(second.agentId).parked).toBe(false); // 排队中无执行载体
 
     const h3 = (current = makeHarness());
-    const a = spawnId(h3);
+    const a = await spawnId(h3);
     h3.runner.reportClosure(a, { result: "done", closure: DONE_CLOSURE("完成") });
     expect(h3.scheduler.park(a).parked).toBe(false); // 终态：park 迟到作废（终态赢）
   });
 });
 
 describe("② resume → running（预算满则排队，空位后恢复不重新 launch）", () => {
-  test("预算内：parked → running + agent.resumed + RESUME 指令注入 + 投影行", () => {
+  test("预算内：parked → running + agent.resumed + RESUME 指令注入 + 投影行", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     parkTo(h, a1);
     const outcome = h.scheduler.resume(a1);
     expect(outcome).toEqual({ resumed: true, queued: false });
@@ -237,23 +237,23 @@ describe("② resume → running（预算满则排队，空位后恢复不重新
     expect(payloadsOf(h, "agent.resumed", a1)).toMatchObject([{ agentId: a1 }]);
   });
 
-  test("预算释放（P3）：3 running 挂起 1 个后第 4 个 spawn 直跑", () => {
+  test("预算释放（P3）：3 running 挂起 1 个后第 4 个 spawn 直跑", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h, "任务1");
-    spawnId(h, "任务2");
-    spawnId(h, "任务3");
+    const a1 = await spawnId(h, "任务1");
+    await spawnId(h, "任务2");
+    await spawnId(h, "任务3");
     parkTo(h, a1); // 释放一个运行位
-    const fourth = h.scheduler.spawn(SESSION_ID, "任务4");
+    const fourth = await h.scheduler.spawn(SESSION_ID, "任务4");
     expect(fourth.status).toBe("run"); // parked 不占 maxConcurrent
   });
 
-  test("resume 预算满：与重派同队排队（状态保持 parked）+ 位次；空位释放后恢复而非重新 launch", () => {
+  test("resume 预算满：与重派同队排队（状态保持 parked）+ 位次；空位释放后恢复而非重新 launch", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h, "挂起者");
-    spawnId(h, "任务2");
-    spawnId(h, "任务3");
+    const a1 = await spawnId(h, "挂起者");
+    await spawnId(h, "任务2");
+    await spawnId(h, "任务3");
     parkTo(h, a1); // 释放 1 位
-    spawnId(h, "任务4"); // 补占释放的位——3 位重新满
+    await spawnId(h, "任务4"); // 补占释放的位——3 位重新满
     const outcome = h.scheduler.resume(a1);
     expect(outcome).toEqual({ resumed: true, queued: true, position: 1 });
     expect(h.scheduler.instance(a1)?.state).toBe("parked"); // 排队期间仍 parked
@@ -271,10 +271,10 @@ describe("② resume → running（预算满则排队，空位后恢复不重新
     expect(h.runner.launched).toHaveLength(launchedBefore); // 不重新 launch（执行载体还活着）
   });
 
-  test("resume 拒绝面：未挂起实例 / 未知 / 终态", () => {
+  test("resume 拒绝面：未挂起实例 / 未知 / 终态", async () => {
     const h = (current = makeHarness());
     expect(h.scheduler.resume("agent-不存在").resumed).toBe(false);
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     expect(h.scheduler.resume(a1).resumed).toBe(false); // running 未挂起
     parkTo(h, a1);
     h.runner.reportClosure(a1, { result: "done", closure: DONE_CLOSURE("自然收口") });
@@ -283,9 +283,9 @@ describe("② resume → running（预算满则排队，空位后恢复不重新
 });
 
 describe("③ 挂起期语义（steer 暂存 / 收口竞态 / parked kill）", () => {
-  test("挂起期 steer 照常投递（子进程 steer 队列暂存，resume 时送达）", () => {
+  test("挂起期 steer 照常投递（子进程 steer 队列暂存，resume 时送达）", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     parkTo(h, a1);
     const outcome = h.scheduler.send(a1, "补充指示：改用方案 B");
     expect(outcome.delivered).toBe(true);
@@ -293,9 +293,9 @@ describe("③ 挂起期语义（steer 暂存 / 收口竞态 / parked kill）", (
     expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: "补充指示：改用方案 B" });
   });
 
-  test("收口竞态：closure 先到 → 终态赢，迟到 parked 上行作废（幂等）", () => {
+  test("收口竞态：closure 先到 → 终态赢，迟到 parked 上行作废（幂等）", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     expect(h.scheduler.park(a1)).toEqual({ parked: true }); // 指令已注入
     // 子进程自然收口（PARK 输出竞态输了）：closure 先到
     h.runner.reportClosure(a1, { result: "done", closure: DONE_CLOSURE("已按任务完成") });
@@ -306,18 +306,18 @@ describe("③ 挂起期语义（steer 暂存 / 收口竞态 / parked kill）", (
     expect(payloadsOf(h, "agent.parked", a1)).toHaveLength(0);
   });
 
-  test("防御位：parked 后到达 done 收口不崩（补记 running 再收口，任意序列无非法半态）", () => {
+  test("防御位：parked 后到达 done 收口不崩（补记 running 再收口，任意序列无非法半态）", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     parkTo(h, a1);
     h.runner.reportClosure(a1, { result: "done", closure: DONE_CLOSURE("挂起后仍自然完成") });
     expect(h.scheduler.instance(a1)?.state).toBe("done");
     expect(h.scheduler.status(a1)[0]).toMatchObject({ summary: "挂起后仍自然完成" });
   });
 
-  test("parked 期间 kill 正常：failed 终态 + killed 收口链", () => {
+  test("parked 期间 kill 正常：failed 终态 + killed 收口链", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     parkTo(h, a1);
     const outcome = h.scheduler.kill(a1);
     expect(outcome).toEqual({ killed: true });
@@ -329,9 +329,9 @@ describe("③ 挂起期语义（steer 暂存 / 收口竞态 / parked kill）", (
 });
 
 describe("④ 观测面：agent_status parked 状态 + 原因 + parkedAt", () => {
-  test("parked 实例输出 parkedReason/parkedAt；resume 后清除", () => {
+  test("parked 实例输出 parkedReason/parkedAt；resume 后清除", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     parkTo(h, a1, "user");
     expect(h.scheduler.status(a1)[0]).toMatchObject({
       agentId: a1,
@@ -354,9 +354,9 @@ describe("⑤ 在途竞态修复：park 已注入未确认 → resume 取消 pen
    * （末条 assistant 不再是 PARK 标记 → 不进挂起等待），即使极端路径仍
    * 输出标记上行，防御性受理照旧可达（可再 resume，不失控）。
    */
-  test("park 在途 → resume：取消等待 + RESUME 抵消注入，实例保持 running", () => {
+  test("park 在途 → resume：取消等待 + RESUME 抵消注入，实例保持 running", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     expect(h.scheduler.park(a1)).toEqual({ parked: true }); // 指令已注入、确认未上行
     expect(h.scheduler.instance(a1)?.state).toBe("running");
 
@@ -377,9 +377,9 @@ describe("⑤ 在途竞态修复：park 已注入未确认 → resume 取消 pen
     expect(h.runner.sent.filter((s) => s.text === PARK_INSTRUCTION_TEXT)).toHaveLength(2);
   });
 
-  test("取消后子进程仍输出 PARK 标记（极端路径）：防御性受理照旧 parked，可再 resume 不失控", () => {
+  test("取消后子进程仍输出 PARK 标记（极端路径）：防御性受理照旧 parked，可再 resume 不失控", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h);
+    const a1 = await spawnId(h);
     h.scheduler.park(a1);
     expect(h.scheduler.resume(a1)).toEqual({ resumed: true, queued: false });
 
@@ -395,12 +395,13 @@ describe("⑤ 在途竞态修复：park 已注入未确认 → resume 取消 pen
     expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: RESUME_INSTRUCTION_TEXT });
   });
 
-  test("无 pending 的 running 实例 resume 仍拒（回归：未挂起无需 resume）", () => {
+  test("无 pending 的 running 实例 resume 仍拒（回归：未挂起无需 resume）", async () => {
     const h = (current = makeHarness());
-    const a1 = spawnId(h); // 从未 park
+    const a1 = await spawnId(h); // 从未 park
     const outcome = h.scheduler.resume(a1);
     expect(outcome.resumed).toBe(false);
     expect((outcome as { error: string }).error).toContain("未挂起");
     expect(h.runner.sent).toHaveLength(0); // 不注入任何指令
   });
 });
+

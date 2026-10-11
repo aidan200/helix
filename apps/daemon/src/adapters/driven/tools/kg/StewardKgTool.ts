@@ -28,21 +28,24 @@ import { createKgTool } from "./KgTool";
 
 export interface StewardKgSourceDeps {
   /** KgQueryService 现值读口（workspace 重绑跟随——组合根晚绑惰性）。 */
-  readonly queryOf: () => Pick<KgQueryService, "search" | "get" | "locate"> | undefined;
+  readonly queryOf: () => Pick<KgQueryService, "search" | "searchUnion" | "get" | "locate"> | undefined;
   /** 当前 kg 项目域（已建 .helix-kg 的项目根列表——workspace-scan/
    *  scanProjects 口径；空集 = absent）。 */
   readonly kgProjects: () => readonly string[];
 }
 
 /** 范围化查询门面（createKgTool 消费面同形——affected/candidates 两 op
- *  管家工具不暴露，空集占位保类型闭合）。 */
+ *  管家工具不暴露，空集占位保类型闭合；searchUnion = 双轨并集（检索语义化
+ *  批）——与 createKgTool 语义复用同源，范围化过滤作用于并集命中行）。 */
 function scopedQuery(
-  query: Pick<KgQueryService, "search" | "get" | "locate">,
+  query: Pick<KgQueryService, "search" | "searchUnion" | "get" | "locate">,
   projectRoot: string | undefined,
-): Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates" | "locate"> {
+): Pick<KgQueryService, "searchUnion" | "get" | "affected" | "listCandidates" | "locate"> {
   return {
-    search: (q: string): readonly KgHit[] =>
-      projectRoot === undefined ? query.search(q) : query.search(q).filter((h) => h.project === projectRoot),
+    searchUnion: async (q: string): Promise<readonly KgHit[]> => {
+      const hits = await query.searchUnion(q);
+      return projectRoot === undefined ? hits : hits.filter((h) => h.project === projectRoot);
+    },
     get: (nodeId: string): KgNodeHit | null =>
       projectRoot === undefined ? query.get(nodeId) : (query.locate(nodeId).find((h) => h.project === projectRoot) ?? null),
     locate: (nodeId: string): readonly KgNodeHit[] =>

@@ -13,7 +13,7 @@ import { KgQueryService } from "../../src/application/services/kg/KgQueryService
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { ATTACHMENT_PROTOCOL_LINE } from "../../src/domain/kg/attachment/render";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
-import type { WriteResult } from "../../src/domain/kg/types";
+import type { NodeDigestRow, WriteResult } from "../../src/domain/kg/types";
 import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
 
 /**
@@ -54,7 +54,13 @@ afterAll(() => {
   fixtures.length = 0;
 });
 
-function makeFixture(): Fixture {
+/** 语义召回替身（kg search 双轨——fake 注入保确定性）。 */
+type SemanticFake = (
+  q: string,
+  projects: readonly string[],
+) => Promise<readonly { project: string; row: NodeDigestRow; score: number }[]>;
+
+function makeFixture(semantic?: SemanticFake): Fixture {
   const root = mkdtempSync(path.join(tmpdir(), "kg-tools-it-"));
   const proj = path.join(root, "proj");
   mkdirSync(proj, { recursive: true });
@@ -69,7 +75,7 @@ function makeFixture(): Fixture {
       return write.write(projectRoot, op);
     },
   };
-  const query = new KgQueryService({ graph, projects: () => [proj] });
+  const query = new KgQueryService({ graph, projects: () => [proj], ...(semantic !== undefined ? { semantic } : {}) });
   const env = new NodeExecutionEnv({ cwd: root });
   const executor = new CoreToolExecutor({
     cwd: root,
@@ -304,5 +310,57 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
 
   test("⑦ 协议行复用（AD-14 同源）：附着协议行常量不因本任务引入第二定义", () => {
     expect(ATTACHMENT_PROTOCOL_LINE).toContain("supersede");
+  });
+});
+
+describe("kg search 双轨并集（语义轨，检索语义化批）", () => {
+  function fakeRow(id: string, name: string, digest: string): NodeDigestRow {
+    return { id, kind: "rule", name, digest, scene: "测试场景", status: "confirmed", domain: null };
+  }
+
+  test("⑧ 并轨：关键词命中原序在前，语义新命中按相似度降序追加；同节点去重置关键词位", async () => {
+    const f = makeFixture(async () => [
+      { project: f.proj, row: fakeRow("TR-101", "重试语义规则", "用词不一致但语义相关一"), score: 0.88 },
+      { project: f.proj, row: fakeRow("TR-102", "缓存语义规则", "用词不一致但语义相关二"), score: 0.72 },
+    ]);
+    const a = mustId(seed(f, { kind: "createNode", iterationId: "it-sem", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义", scene: "测试场景" } }));
+    const r = await run(f.kg, { op: "search", q: "handler" }, f.env);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // 关键词命中在前 + 语义新命中按 score 降序追加在后
+    const order = [...r.text.matchAll(/kg get (TR-[\w-]+)/g)].map((m) => m[1]!);
+    expect(order[0]).toBe(a);
+    expect(order.slice(1)).toEqual(["TR-101", "TR-102"]);
+    // 语义命中行同渲染形态（digest+指针）
+    expect(r.text).toContain("用词不一致但语义相关一");
+  });
+
+  test("⑨ 同节点去重置关键词轨位 + 语义降级回退纯关键词（抛错/空集）", async () => {
+    // 语义轨命中 = 关键词已命中节点（最高分）+ 语义独占节点 → 去重后置关键词轨位
+    const f2 = makeFixture(async () => [
+      { project: f2.proj, row: fakeRow("TR-1", "handler 幂等规则", "handler 编辑必须保持幂等语义"), score: 0.99 },
+      { project: f2.proj, row: fakeRow("TR-201", "语义独占规则", "语义独占摘要"), score: 0.95 },
+    ]);
+    const a2 = mustId(seed(f2, { kind: "createNode", iterationId: "it-sem2", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义", scene: "测试场景" } }));
+    expect(a2).toBe("TR-1"); // 发号前提钉死（去重断言数据源）
+    const r2 = await run(f2.kg, { op: "search", q: "handler" }, f2.env);
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    const order2 = [...r2.text.matchAll(/kg get (TR-[\w-]+)/g)].map((m) => m[1]!);
+    expect(order2.filter((x) => x === a2)).toHaveLength(1);
+    expect(order2.indexOf(a2)).toBeLessThan(order2.indexOf("TR-201"));
+    // 降级：语义召回抛错 → 纯关键词轨（与无 semantic 对照逐字节全等）
+    const broken = makeFixture(async () => {
+      throw new Error("embedding endpoint 500");
+    });
+    mustId(seed(broken, { kind: "createNode", iterationId: "it-sem3", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义", scene: "测试场景" } }));
+    const plain = makeFixture();
+    mustId(seed(plain, { kind: "createNode", iterationId: "it-sem3", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义", scene: "测试场景" } }));
+    const rBroken = await run(broken.kg, { op: "search", q: "handler" }, broken.env);
+    const rPlain = await run(plain.kg, { op: "search", q: "handler" }, plain.env);
+    expect(rBroken.ok && rPlain.ok).toBe(true);
+    if (rBroken.ok && rPlain.ok) {
+      expect(rBroken.text).toBe(rPlain.text); // 同种子同发号——逐字节一致
+    }
   });
 });

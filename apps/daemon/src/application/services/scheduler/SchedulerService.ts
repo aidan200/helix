@@ -155,12 +155,15 @@ export interface SchedulerServiceDeps {
     readonly thinkingLevel: string | undefined;
   };
   /**
-   * 任务文本切片注入器（T3.3，CL-1 F1.3）：spawn 派发时任务文本 → 图
-   * 查询 → digest+指针切片拼入 task 约束区（组合根接 KgQueryService.
-   * injectTaskSlice——sessionId 即跨通道去重键）。返回值 = 子进程实际收到
-   * 的 task；注入器抛错/缺席 → 原文透传（注入是增强，绝不阻断 spawn）。
+   * 任务文本切片注入器（T3.3，CL-1 F1.3；检索语义化批 async 化）：spawn
+   * 派发时任务文本 → 图查询（关键词轨 ∪ 向量轨）→ digest+指针切片拼入
+   * task 约束区（组合根接 KgQueryService.injectTaskSlice——sessionId 即
+   * 跨通道去重键）。返回值 = 子进程实际收到的 task；注入器抛错/缺席 →
+   * 原文透传（注入是增强，绝不阻断 spawn）。异步落定（嵌入往返超时上限
+   * 800ms——用户裁决：延迟可接受不预热缓存）；无嵌入往返的注入器可同步
+   * 落定（Awaitable，与 spawn 返回口径同构）。
    */
-  readonly taskInjector?: (sessionId: string, task: string) => string;
+  readonly taskInjector?: (sessionId: string, task: string) => string | Promise<string>;
   /**
    * 实例终态钩子（CDP 地基）：done/failed/killed 收口链完成后回调——
    * 组合根接 `browserPort.reclaimOwner`（回收该 owner 全部 managed tabs，
@@ -416,8 +419,13 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   // ── 编排入口 ──────────────────────────────────────────────
 
   /**
-   * spawn：预算判定 → 直跑/入队/拒绝。同步秒回（不等执行收口，AD-8 异步交付）。
-   * rejected 时调用方（agent_spawn 工具/WS）把错误字符串回 LLM/前端。
+   * spawn：预算判定 → 直跑/入队/拒绝。受理秒回（不等执行收口，AD-8 异步
+   * 交付）。返回 Awaitable（检索语义化批 async 化）：未装 taskInjector =
+   * 同步落定（行为与历史逐字节一致）；装了 taskInjector（含嵌入往返，
+   * 超时上限 800ms）= 异步落定——消费端一律 await。reject 不注入
+   * （预算判定先于注入）；实例登记（预算占位）先于注入 await——并发
+   * spawn 不超卖预算。rejected 时调用方（agent_spawn 工具/WS）把错误
+   * 字符串回 LLM/前端。
    *
    * sessionId 显式入参（AD-4 多会话：实例归属会话；组合根经当前会话
    * 门面/会话绑定工具注入，全局预算不随会话数分裂——TR-AD-11/16）。
@@ -429,7 +437,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     model?: string,
     reportIntervalMs?: number,
     options?: { writes?: WriteMode },
-  ): SpawnOutcome {
+  ): SpawnOutcome | Promise<SpawnOutcome> {
     const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return {
@@ -452,58 +460,63 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       ...(options?.writes !== undefined ? { writeMode: options.writes } : {}),
     });
     this.registry.registerInstance(instance);
+    // 后半程（注入后的登记/出卡/派发）——注入器缺席时同步直通（行为零变化）
+    const completeSpawn = (effectiveTask: string): SpawnOutcome => {
+      this.tasks.set(agentId, effectiveTask);
+      if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传解析后模型 id（DTO 填充）
+      // T3-A：报告间隔校验（>0 且有限才启用；负数/NaN/0 视为不报告）
+      if (typeof reportIntervalMs === "number" && Number.isFinite(reportIntervalMs) && reportIntervalMs > 0) {
+        this.reportIntervals.set(agentId, Math.floor(reportIntervalMs));
+      }
+      // 契约 v0.3 §1 规则②：spawn 时刻锚计算一次（聚合内最后一条
+      // main/compaction entry；无 → null 流首），内存携带——后续快照组装不按
+      // 当前尾部重算；不落盘（派生值，重启后按规则①重建/createdAt 截断推导边界）
+      if (this.deps.spawnAnchorFor !== undefined) {
+        this.spawnAnchors.set(agentId, this.deps.spawnAnchorFor(sessionId));
+      }
+      // 出卡事件：预算内直跑也会先发 spawned（卡片进入），再由 started 转 running
+      this.publish(instance, "agent.spawned", {
+        agentId,
+        task: effectiveTask,
+        profileKind: instance.profileKind,
+        ...(model !== undefined ? { model } : {}),
+      } satisfies AgentSpawnedPayload);
+      // 同批发布实例化快照（紧随其后）——（AD-5，契约 v0.4 §2）
+      // 快照 model = 两级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
+      // 模型同源）；只落盘不广播（DtoMapper 无 case）。
+      if (this.deps.subagentSnapshotFor !== undefined) {
+        const snapshot = this.deps.subagentSnapshotFor(instance.profileKind, instance.sessionId);
+        this.publish(instance, "agent.instantiated", {
+          instanceId: agentId,
+          profileKind: instance.profileKind,
+          thinkingLevel: snapshot.thinkingLevel, // spawn 解析快照（AD-4④；只落盘不广播）
+          profileSnapshot: snapshot.profileSnapshot,
+        } satisfies AgentInstantiatedPayload);
+      }
+
+      if (decision.action === "run") {
+        this.startInstance(instance);
+        return { status: "run", agentId };
+      }
+
+      const position = this.deps.policy().nextPosition(this.queue.length);
+      this.queue.push(agentId);
+      this.persistLifecycle(instance); // queued 投影（重启 cancelled 收口语义的读面）
+      this.publish(instance, "agent.queued", { agentId, position } satisfies AgentQueuedPayload);
+      return { status: "queued", agentId, position };
+    };
     // 任务文本切片注入（F1.3）：task 文本成形后、传给 launcher 前单点挂接
     // ——预算判定通过才注入（reject 不注入）；注入失败原文透传（不阻断）
-    let effectiveTask = task;
-    if (this.deps.taskInjector !== undefined) {
+    if (this.deps.taskInjector === undefined) return completeSpawn(task);
+    return (async () => {
+      let effectiveTask = task;
       try {
-        effectiveTask = this.deps.taskInjector(sessionId, task);
+        effectiveTask = await this.deps.taskInjector!(sessionId, task);
       } catch {
         // 注入器异常：原文透传（增强面静默降级——调度语义不受 kg 状态影响）
       }
-    }
-    this.tasks.set(agentId, effectiveTask);
-    if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传解析后模型 id（DTO 填充）
-    // T3-A：报告间隔校验（>0 且有限才启用；负数/NaN/0 视为不报告）
-    if (typeof reportIntervalMs === "number" && Number.isFinite(reportIntervalMs) && reportIntervalMs > 0) {
-      this.reportIntervals.set(agentId, Math.floor(reportIntervalMs));
-    }
-    // 契约 v0.3 §1 规则②：spawn 时刻锚计算一次（聚合内最后一条
-    // main/compaction entry；无 → null 流首），内存携带——后续快照组装不按
-    // 当前尾部重算；不落盘（派生值，重启后按规则①重建/createdAt 截断推导边界）
-    if (this.deps.spawnAnchorFor !== undefined) {
-      this.spawnAnchors.set(agentId, this.deps.spawnAnchorFor(sessionId));
-    }
-    // 出卡事件：预算内直跑也会先发 spawned（卡片进入），再由 started 转 running
-    this.publish(instance, "agent.spawned", {
-      agentId,
-      task: effectiveTask,
-      profileKind: instance.profileKind,
-      ...(model !== undefined ? { model } : {}),
-    } satisfies AgentSpawnedPayload);
-    // 同批发布实例化快照（紧随其后）——（AD-5，契约 v0.4 §2）
-    // 快照 model = 两级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
-    // 模型同源）；只落盘不广播（DtoMapper 无 case）。
-    if (this.deps.subagentSnapshotFor !== undefined) {
-      const snapshot = this.deps.subagentSnapshotFor(instance.profileKind, instance.sessionId);
-      this.publish(instance, "agent.instantiated", {
-        instanceId: agentId,
-        profileKind: instance.profileKind,
-        thinkingLevel: snapshot.thinkingLevel, // spawn 解析快照（AD-4④；只落盘不广播）
-        profileSnapshot: snapshot.profileSnapshot,
-      } satisfies AgentInstantiatedPayload);
-    }
-
-    if (decision.action === "run") {
-      this.startInstance(instance);
-      return { status: "run", agentId };
-    }
-
-    const position = this.deps.policy().nextPosition(this.queue.length);
-    this.queue.push(agentId);
-    this.persistLifecycle(instance); // queued 投影（重启 cancelled 收口语义的读面）
-    this.publish(instance, "agent.queued", { agentId, position } satisfies AgentQueuedPayload);
-    return { status: "queued", agentId, position };
+      return completeSpawn(effectiveTask);
+    })();
   }
 
   /**

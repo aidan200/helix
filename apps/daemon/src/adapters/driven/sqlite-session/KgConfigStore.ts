@@ -1,10 +1,13 @@
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { KgConfigPatch, KgConfigPort } from "../../../application/ports/outbound/KgConfigPort";
 import {
+  KG_SEMANTIC_MINSCORE_KEY,
+  KG_SEMANTIC_TOPK_KEY,
   KG_SIMILARITY_DUP_KEY,
   KG_SIMILARITY_WARN_KEY,
+  resolveKgSemanticRecallSettings,
   resolveKgSimilarityThresholds,
-  type KgSimilarityThresholds,
+  type KgConfigEffective,
 } from "../../../application/services/kg/kgConfig";
 
 /**
@@ -24,18 +27,31 @@ export class KgConfigStore implements KgConfigPort {
     this.runtimeConfig = runtimeConfig;
   }
 
-  /** 当前配置（生效值读面——非法/颠倒已由读面裁决回退）。 */
-  current(): KgSimilarityThresholds {
-    return resolveKgSimilarityThresholds(this.runtimeConfig);
+  /** 当前配置（生效值读面——非法/颠倒已由读面裁决回退；两对同框）。 */
+  current(): KgConfigEffective {
+    const similarity = resolveKgSimilarityThresholds(this.runtimeConfig);
+    const semantic = resolveKgSemanticRecallSettings(this.runtimeConfig);
+    return {
+      warn: similarity.warn,
+      dup: similarity.dup,
+      semanticTopK: semantic.topK,
+      semanticMinScore: semantic.minScore,
+    };
   }
 
   /** 部分更新写入（携带项写入，未携带项保留现值；落盘完成即返回 + 回读新生效值）。 */
-  async set(patch: KgConfigPatch): Promise<KgSimilarityThresholds> {
+  async set(patch: KgConfigPatch): Promise<KgConfigEffective> {
     if (patch.similarityWarn !== undefined) {
       await this.runtimeConfig.set(KG_SIMILARITY_WARN_KEY, String(patch.similarityWarn));
     }
     if (patch.similarityDup !== undefined) {
       await this.runtimeConfig.set(KG_SIMILARITY_DUP_KEY, String(patch.similarityDup));
+    }
+    if (patch.semanticTopK !== undefined) {
+      await this.runtimeConfig.set(KG_SEMANTIC_TOPK_KEY, String(patch.semanticTopK));
+    }
+    if (patch.semanticMinScore !== undefined) {
+      await this.runtimeConfig.set(KG_SEMANTIC_MINSCORE_KEY, String(patch.semanticMinScore));
     }
     return this.current();
   }

@@ -122,7 +122,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("① reportIntervalMs=20 → 信封周期注入，一行机械数据格式 + 序号递增", async () => {
     h = makeHarness();
-    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const out = await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     expect(out.status).toBe("run");
     const agentId = (out as { agentId: string }).agentId;
 
@@ -141,7 +141,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("② Δ 正确性：两报告间 2 工具完成 + 5 字符输出 + 1 轮次 → 下一封 Δ=+2/+5/+1", async () => {
     h = makeHarness();
-    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const out = await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     const agentId = (out as { agentId: string }).agentId;
     await waitEnvelopes(h.envelopes, 1);
     expect(h.envelopes).toHaveLength(1);
@@ -166,7 +166,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("②b 未预留帧不计 Δ（乱序/非 assistant 的 message_update 丢弃——计数在预留检查之后，code-review 低危）", async () => {
     h = makeHarness();
-    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const out = await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     const agentId = (out as { agentId: string }).agentId;
     await waitEnvelopes(h.envelopes, 1);
 
@@ -183,7 +183,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("③ 终态清定时器：done 收口后信封数冻结", async () => {
     h = makeHarness();
-    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const out = await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     const agentId = (out as { agentId: string }).agentId;
     await waitEnvelopes(h.envelopes, 1);
     h.runner.forceClosure(agentId, doneOutcome());
@@ -196,7 +196,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("③b kill 收口同样清定时器", async () => {
     h = makeHarness();
-    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const out = await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     const agentId = (out as { agentId: string }).agentId;
     await waitEnvelopes(h.envelopes, 1);
     h.scheduler.kill(agentId);
@@ -207,16 +207,16 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("④ 缺省 0 / 负数 / NaN → 不报告", async () => {
     h = makeHarness();
-    h.scheduler.spawn(SESSION_ID, "a"); // 缺省
-    h.scheduler.spawn(SESSION_ID, "b", undefined, undefined, -5); // 负数视为 0
-    h.scheduler.spawn(SESSION_ID, "c", undefined, undefined, Number.NaN); // NaN 视为 0
+    await h.scheduler.spawn(SESSION_ID, "a"); // 缺省
+    await h.scheduler.spawn(SESSION_ID, "b", undefined, undefined, -5); // 负数视为 0
+    await h.scheduler.spawn(SESSION_ID, "c", undefined, undefined, Number.NaN); // NaN 视为 0
     await sleep(70);
     expect(h.envelopes).toHaveLength(0);
   });
 
   test("⑤ stop() 清全部报告定时器", async () => {
     h = makeHarness();
-    h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     await waitEnvelopes(h.envelopes, 1);
     h.scheduler.stop();
     const frozen = h.envelopes.length;
@@ -226,7 +226,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("⑤b stop() 同段清三计数 Map（reportIntervals/reportSeqs/lastReportedMetrics → size 0）", async () => {
     h = makeHarness();
-    h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     await waitEnvelopes(h.envelopes, 1);
     // T8-M2 断言面：报告面四个私有 Map（运行时可达；与 clearProgressReporting 全清语义对齐）
     const internals = h.scheduler as unknown as {
@@ -251,7 +251,7 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
 
   test("⑥ 注入失败吞进 engine.error 可观测，定时器继续", async () => {
     h = makeHarness({ injectThrows: true });
-    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const out = await h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
     const agentId = (out as { agentId: string }).agentId;
     // 第一次注入抛错 → engine.error 事件可观测；后续信封照常到达
     await waitEnvelopes(h.envelopes, 1);
@@ -290,3 +290,4 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
     expect(h.envelopes.length).toBeGreaterThanOrEqual(1);
   });
 });
+

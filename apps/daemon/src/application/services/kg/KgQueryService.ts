@@ -1,26 +1,29 @@
 /**
  * KgQueryService —— kg 读面应用服务 + 任务层切片注入（T3.3，CL-4 F4.1 +
- * CL-1 F1.3，AD-16）。
+ * CL-1 F1.3，AD-16；检索语义化批双轨）。
  *
  * 两件事：
  * 1. **跨项目读聚合**（kg 工具消费）：search/get 按 workspace 多项目聚合
- *    ——search 汇总各已建 .kg 项目的 LIKE 命中行（project 伴随）；get 按
+ *    ——search 汇总各已建 .kg 项目的 LIKE 命中行（project 伴随）；
+ *    searchUnion = 关键词轨 ∪ 向量轨（检索语义化批）；get 按
  *    项目排序确定性首命中。项目列表经 deps.projects 注入（已建 .kg 过滤
  *    ——读面绝不新建库文件）。
  * 2. **任务层切片注入**（spawn 派发与主会话首轮双链消费同一注入器，
-   *    SchedulerService / ChatService）：任务文本 → extractIdentifiers
-   *    （与 edit 附着同源分词）→ 会话足迹过滤后的各项目 search 同源匹配
-   *    （U7 并轨：空足迹不注入）→ selectTaskSlice（排除+去重+预算）→
-   *    digest+指针切片追加进 task 文本尾部（约束区语义）。注入成功后经
-   *    attachment.markInjected 登记
- *    会话注册表（与 edit 附着跨通道共享去重，F1.2）。任何失败静默返回
- *    原文——注入是增强，绝不阻断 spawn。
+ *    SchedulerService / ChatService）：任务文本 → **双轨并集**——关键词轨
+ *    （extractTaskTerms 词条序匹配，行为零变化）∪ 向量轨（任务文本整段
+ *    向量化语义召回 top-K 且 ≥ 阈值，score 降序追加；两轨同节点去重后置
+ *    关键词轨位）→ 会话足迹过滤（U7 并轨：空足迹不注入）→ selectTaskSlice
+ *    （排除+去重+预算）→ digest+指针切片追加进 task 文本尾部（约束区
+ *    语义）。注入成功后经 attachment.markInjected 登记
+ *    会话注册表（与 edit 附着跨通道共享去重，F1.2）。向量轨任何失败/
+ *    缺席降级纯关键词轨（与历史行为逐字节一致）——注入是增强，绝不阻断。
  */
 
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import type { AnchorReverseHit, CandidateListQuery, CandidateRow, NodeDigestRow, NodeDetail } from "../../../domain/kg/types";
 import { ATTACHMENT_PROTOCOL_LINE_WORKER } from "../../../domain/kg/attachment/render";
 import { extractTaskTerms } from "../../../domain/kg/attachment/task-slice";
+import { seenKeyOf } from "../../../domain/kg/attachment/budget";
 import {
   renderTaskSlice,
   selectTaskSlice,
@@ -28,6 +31,7 @@ import {
   type TaskSliceRow,
 } from "../../../domain/kg/attachment/task-slice";
 import { renderResidentRules, type ResidentRuleRow } from "../../../domain/kg/attachment/resident-rules";
+import type { SemanticHit } from "../../../domain/kg/semantic-recall";
 import { resolveMainRepoPath } from "../../../domain/kg/project-discovery";
 
 /** 足迹/项目根归一（形态差异消除：尾斜杠剥离 + worktree 归主仓——比对两侧同形）。 */
@@ -59,6 +63,12 @@ export interface KgQueryServiceDeps {
   readonly projects: () => readonly string[];
   /** 会话去重注册表（可选——子进程本地栈无注册表，注入不去重）。 */
   readonly attachment?: SessionSeenRegistry;
+  /**
+   * 语义召回轨（可选件，检索语义化批）：query 文本 → 向量轨命中行
+   * （score 降序）；缺席/失败/超时 → 纯关键词轨（行为与历史逐字节一致）。
+   * 生产接 KgSemanticRecallService.recall（超时/降级在服务内收口）。
+   */
+  readonly semantic?: (queryText: string, projects: readonly string[]) => Promise<readonly SemanticHit[]>;
 }
 
 /** search 命中行（project 伴随——多项目指针行携带项目名）。 */
@@ -97,13 +107,31 @@ export class KgQueryService {
     this.deps = deps;
   }
 
-  /** 跨项目 search 聚合（项目序 + 项目内 id 序，确定性）。 */
+  /** 跨项目 search 聚合（项目序 + 项目内 id 序，确定性；关键词轨）。 */
   search(q: string): readonly KgHit[] {
     const out: KgHit[] = [];
     for (const project of this.deps.projects()) {
       for (const row of this.deps.graph.search(project, q)) {
         out.push({ project, row });
       }
+    }
+    return out;
+  }
+
+  /**
+   * 双轨并集 search（kg search 工具消费，检索语义化批）：关键词轨原序
+   * 在前 ∪ 向量轨新命中按相似度降序追加在后；两轨同节点（project+nodeId
+   * 复合键）去重后置关键词轨位；向量轨缺席/失败 → 纯关键词轨。
+   */
+  async searchUnion(q: string): Promise<readonly KgHit[]> {
+    const keyword = this.search(q);
+    const seen = new Set(keyword.map((h) => seenKeyOf(h.project, h.row.id)));
+    const out: KgHit[] = [...keyword];
+    for (const hit of await this.collectSemanticHits(q, this.deps.projects())) {
+      const key = seenKeyOf(hit.project, hit.row.id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ project: hit.project, row: hit.row });
     }
     return out;
   }
@@ -190,8 +218,10 @@ export class KgQueryService {
   }
 
   /**
-   * 任务层切片注入（F1.3）：返回注入后的 task 文本（命中追加切片段；
-   * 空命中/失败返回原文逐字节不变——空段省略不占位，AD-18）。
+   * 任务层切片注入（F1.3；检索语义化批双轨并集）：返回注入后的 task
+   * 文本（命中追加切片段；空命中/失败返回原文逐字节不变——空段省略不
+   * 占位，AD-18）。候选序 = 关键词轨原序（任务文本词条序+项目序+id 序）
+   * + 向量轨新命中（score 降序追加在后；两轨同节点去重后置关键词轨位）。
    * 注入的 id 即时 markInjected（跨通道去重闭环）。audience（W-R6）：
    * worker 受众协议行改 findings 申报措辞（组合根 spawn 链传 "worker"，
    * 主会话 ChatService 链传 "main"）。
@@ -200,13 +230,16 @@ export class KgQueryService {
    * 补齐，U7 去全扫化并轨 residentRulesSection 口径）：空足迹 → 原文透传
    * 不注入——「感知不到项目时的默认行为，不该比注入错误项目规则更差」；
    * 足迹经 normalizeRoot 归一（worktree 归主仓）后过滤 deps.projects()。
+   *
+   * 同步性（用户裁决 2026-10-11，解法 a）：注入链 async 化——嵌入往返
+   * （超时上限 800ms）进注入链；超时/失败降级纯关键词轨，绝不挂死派发。
    */
-  injectTaskSlice(
+  async injectTaskSlice(
     sessionId: string,
     taskText: string,
     audience: TaskSliceAudience,
     projectRoots: readonly string[],
-  ): string {
+  ): Promise<string> {
     try {
       if (taskText.trim() === "") return taskText;
       const wanted = projectRoots
@@ -222,9 +255,15 @@ export class KgQueryService {
         ...(audience === "worker" ? { protocolLine: ATTACHMENT_PROTOCOL_LINE_WORKER } : {}),
       };
       const candidates = this.collectCandidates(taskText, projects);
-      if (candidates.length === 0) return taskText;
+      // 向量轨新命中追加在关键词轨后（同节点去重归 selectTaskSlice——首见保留即关键词轨位）
+      const semanticRows: TaskSliceRow[] = (await this.collectSemanticHits(taskText, projects)).map((hit) => ({
+        project: hit.project,
+        row: hit.row,
+      }));
+      const all = [...candidates, ...semanticRows];
+      if (all.length === 0) return taskText;
       const exclude = this.deps.attachment?.seenInSession(sessionId) ?? new Set<string>();
-      const picked = selectTaskSlice(candidates, exclude, renderOptions);
+      const picked = selectTaskSlice(all, exclude, renderOptions);
       if (picked.length === 0) return taskText;
       const block = renderTaskSlice(picked, renderOptions);
       this.deps.attachment?.markInjected(
@@ -237,7 +276,7 @@ export class KgQueryService {
     }
   }
 
-  /** 任务文本 → 词条集合 → 各项目 search 同源匹配 → 候选（确定性序）。 */
+  /** 任务文本 → 词条集合 → 各项目 search 同源匹配 → 候选（确定性序；关键词轨）。 */
   private collectCandidates(taskText: string, projects: readonly string[]): TaskSliceRow[] {
     const terms = extractTaskTerms(taskText);
     const candidates: TaskSliceRow[] = [];
@@ -249,5 +288,15 @@ export class KgQueryService {
       }
     }
     return candidates;
+  }
+
+  /** 向量轨命中（缺席/失败 → []——降级纯关键词轨，绝不抛）。 */
+  private async collectSemanticHits(queryText: string, projects: readonly string[]): Promise<readonly SemanticHit[]> {
+    if (this.deps.semantic === undefined) return [];
+    try {
+      return await this.deps.semantic(queryText, projects);
+    } catch {
+      return [];
+    }
   }
 }

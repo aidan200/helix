@@ -111,7 +111,7 @@ afterEach(async () => {
 describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生效集", () => {
   test("subagent-code-reviewer 快照 = worker 生效集 − write/edit/edit-lines + 评审纪律后缀", async () => {
     const rig = (current = await makeRig());
-    const outcome = rig.daemon.orchestration.spawn("评审 demo 项目", "subagent-code-reviewer");
+    const outcome = await rig.daemon.orchestration.spawn("评审 demo 项目", "subagent-code-reviewer");
     if (outcome.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(outcome)}`);
     const snap = await snapshotOf(rig, outcome.agentId);
     // 代码写面机械关闭：write/edit/edit-lines 恒不在生效集（F4 接通批 edit-lines 同摘）
@@ -132,8 +132,8 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
 
   test("subagent-worker / subagent-kg-writer 派发不回归（worker 含 write/edit；kg-writer 含 kg-update）", async () => {
     const rig = (current = await makeRig());
-    const worker = rig.daemon.orchestration.spawn("普通任务", "subagent-worker");
-    const kgw = rig.daemon.orchestration.spawn("图谱产出任务", "subagent-kg-writer");
+    const worker = await rig.daemon.orchestration.spawn("普通任务", "subagent-worker");
+    const kgw = await rig.daemon.orchestration.spawn("图谱产出任务", "subagent-kg-writer");
     if (worker.status !== "run" || kgw.status !== "run") throw new Error("spawn 被拒");
     const workerSnap = await snapshotOf(rig, worker.agentId);
     const kgwSnap = await snapshotOf(rig, kgw.agentId);
@@ -146,3 +146,4 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
     expect(workerSnap.systemPrompt).not.toContain("项目常驻规则");
   });
 });
+

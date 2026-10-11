@@ -110,7 +110,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
         if ("type" in event && event.type === "usage.recorded") usageEvents.push(event as DomainEvent);
       });
 
-      const outcome = d.orchestration.spawn("会触发引擎错误的任务");
+      const outcome = await d.orchestration.spawn("会触发引擎错误的任务");
       expect(outcome.status).toBe("run");
       if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
       const agentId = outcome.agentId;
@@ -153,7 +153,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
         if ("type" in event && event.type === "agent.failed") failedEvents.push(event as DomainEvent);
       });
 
-      const outcome = d.orchestration.spawn("先收口后迟到错误的任务");
+      const outcome = await d.orchestration.spawn("先收口后迟到错误的任务");
       expect(outcome.status).toBe("run");
       await awaitIdle(d);
 
@@ -170,3 +170,4 @@ describe("T1.1 engine_error 透传（container 级）", () => {
     }
   }, 30000);
 });
+

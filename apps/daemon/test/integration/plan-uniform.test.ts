@@ -226,7 +226,7 @@ describe("③ 子进程级：两域派发路 → todo_write 落同一 work_item 
   test("chat 域（SchedulerService.spawn）与 task 域（launcher.launch）各自 todo_write 成功落同一表", async () => {
     const h = (current = makeHarness());
     // chat 域派发路：chat MainAgent 经编排工具族 → SchedulerService.spawn
-    const chatSpawn = h.scheduler.spawn(SESSION_ID, "chat 域实例：建清单");
+    const chatSpawn = await h.scheduler.spawn(SESSION_ID, "chat 域实例：建清单");
     expect(chatSpawn.status).toBe("run");
     if (chatSpawn.status !== "run") throw new Error("unreachable");
     const chatId = chatSpawn.agentId;
@@ -268,3 +268,4 @@ describe("③ 子进程级：两域派发路 → todo_write 落同一 work_item 
     await until(() => h.events.some((e) => e.type === "agent.completed"), 5000, "等待 agent.completed");
   }, 40000);
 });
+

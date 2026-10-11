@@ -253,6 +253,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
           throw new Error("snapshot read fault");
         },
         search: () => [],
+        getDigestRows: () => [],
         reverseAnchorLookup: () => [],
         getNode: () => null,
         getIndexStatus: () => ({ baseline: "1", symbolCount: 3, degraded: false }),

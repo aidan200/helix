@@ -323,7 +323,7 @@ class ScriptedSubagentRunner implements InstanceRunner {
 // （首个工具调用必然发生在 daemon 装配完成后）。 ────────────────────
 let orchestrationRef: AgentOrchestrationPort | undefined;
 const lazyOrchestration: AgentOrchestrationPort = {
-  spawn(task, profileKind): SpawnOutcome {
+  spawn(task, profileKind): SpawnOutcome | Promise<SpawnOutcome> {
     return orchestrationRef!.spawn(task, profileKind);
   },
   send(agentId, message): SendOutcome {

@@ -139,7 +139,7 @@ describe("TP-1.3a #1 container injectClosure 冷会话补投吞错 → logger.wa
     const registry = rig.daemon.registry;
 
     // ① 当前会话上 spawn 挂起 SubAgent（orchestration 面绑定当前会话）
-    const outcome = rig.daemon.orchestration.spawn("触发冷补投的任务");
+    const outcome = await rig.daemon.orchestration.spawn("触发冷补投的任务");
     expect(outcome.status).toBe("run");
     if (outcome.status !== "run") throw new Error("unreachable");
     const agentId = outcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
@@ -167,3 +167,4 @@ describe("TP-1.3a #1 container injectClosure 冷会话补投吞错 → logger.wa
     expect(rig.daemon.orchestration.status(agentId)[0]?.state).toBeDefined();
   });
 });
+

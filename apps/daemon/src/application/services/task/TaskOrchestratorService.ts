@@ -111,7 +111,7 @@ export interface TaskOrchestratorServiceDeps {
    * 第三参 profileKind（D8 W-R6 分流产物：kg-bootstrap/kg-review →
    * subagent-kg-writer，其余 subagent-worker）透传 scheduler.spawn 登记。
    */
-  readonly rawSpawn: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome;
+  readonly rawSpawn: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome | Promise<SpawnOutcome>;
   /**
    * kg-bootstrap 硬闸（D2，批1）：默认 embedding 端点在场判据（全消费面
    *  resolveDefault 单点的窄投影；false = 向量面不可用）——kg-bootstrap
@@ -620,7 +620,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       loop.briefs.get(prevId),
       prevId === "" ? [] : this.deps.ledger.getPlan(prevId),
     );
-    const outcome = this.spawnBatch(loop.jobId, brief);
+    const outcome = await this.spawnBatch(loop.jobId, brief);
     if (outcome.status === "rejected") {
       this.warn(`重派被拒（任务 ${loop.jobId} 批次 ${batch.id}）：${outcome.error}`);
       return null;
@@ -798,7 +798,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
    * 调度器 spawn（占预算；D8 W-R6：profileKind 按任务类型分流——图谱产出型
    * kg-bootstrap/kg-review 走 subagent-kg-writer，其余缺省 subagent-worker）。
    */
-  private spawnBatch(jobId: string, brief: string): SpawnOutcome {
+  private async spawnBatch(jobId: string, brief: string): Promise<SpawnOutcome> {
     const job = this.deps.store.getJob(jobId);
     if (job === undefined) return { status: "rejected", error: `任务 ${jobId} 不存在` };
     // B1 派发闸：非 pending/running（paused/failed/cancelled/done）拒绝——停摆/
@@ -809,7 +809,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     }
     const enforced = this.deps.skills.getTaskType(job.type)?.plan === "enforced";
     const effective = enforced && this.deps.planHardConstraint !== "" ? `${brief}\n\n${this.deps.planHardConstraint}` : brief;
-    const outcome = this.deps.rawSpawn(taskSessionIdOf(jobId), effective, dispatchProfileKindOf(job.type));
+    const outcome = await this.deps.rawSpawn(taskSessionIdOf(jobId), effective, dispatchProfileKindOf(job.type));
     if (outcome.status !== "rejected") {
       this.loops.get(jobId)?.briefs.set(outcome.agentId, effective); // 重派接力源
     }

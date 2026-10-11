@@ -252,8 +252,8 @@ describe("T2.2 ③ 删除取消链（顺序硬约束）+ list_changed 三类推"
       const engineA = rig.engineOf(a.sessionId);
       await until(() => engineA.events.some((e) => e.type === "agent_end"), 5000, "A 首轮完成");
       // SubAgent 挂起 running + queued（预算 3 内两个直跑——改用一跑一队：直接 spawn 两个均 running）
-      const spawn1 = rig.daemon.orchestration.spawn("运行中的任务");
-      const spawn2 = rig.daemon.orchestration.spawn("排队的任务");
+      const spawn1 = await rig.daemon.orchestration.spawn("运行中的任务");
+      const spawn2 = await rig.daemon.orchestration.spawn("排队的任务");
       if (spawn1.status !== "run" || spawn2.status !== "run") throw new Error("unreachable");
       const agentIds = [spawn1.agentId, spawn2.agentId]; // T10a：agent-<唯一串>，捕获而非硬编码
       await until(() => rig.runner.launched.length === 2, 3000, "两 SubAgent launch");
@@ -349,7 +349,7 @@ describe("T2.2 ④ 尾窗切法（AD-1：主轴尾窗 30 + per-instance 完整 +
       await until(() => engineA.events.filter((e) => e.type === "agent_end").length === 16, 20000, "16 轮全部完成");
 
       // SubAgent channel M 条（thinking + message + tool × N，经投影进聚合）
-      const spawnSub = rig.daemon.orchestration.spawn("通道历史任务");
+      const spawnSub = await rig.daemon.orchestration.spawn("通道历史任务");
       if (spawnSub.status !== "run") throw new Error("unreachable");
       const agentId = spawnSub.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
       await until(() => rig.runner.launched.length === 1, 3000, "SubAgent launch");
@@ -466,13 +466,13 @@ describe("T2.2 ⑤ 后台会话续跑（切换后 turn 推进 + 事件落库）+
 
       // 全局预算共享（maxConcurrent=3）：A、B 各 spawn 后第 4 个排队（不随会话分裂）
       const spawnOutcomes = [
-        rig.daemon.orchestration.spawn("A 任务 1"),
-        rig.daemon.orchestration.spawn("A 任务 2"),
+        await rig.daemon.orchestration.spawn("A 任务 1"),
+        await rig.daemon.orchestration.spawn("A 任务 2"),
       ];
       void spawnOutcomes;
       // B 当前会话：spawn 2 个 + 第 5 个全局排队判定（3 running + 1 queued）
-      const s3 = rig.daemon.orchestration.spawn("B 任务 1");
-      const s4 = rig.daemon.orchestration.spawn("B 任务 2");
+      const s3 = await rig.daemon.orchestration.spawn("B 任务 1");
+      const s4 = await rig.daemon.orchestration.spawn("B 任务 2");
       expect(s3.status).toBe("run");
       expect(s4.status).toBe("queued"); // 全局 3 个 running 已满 → 排队（预算 daemon 级）
       expect(rig.runner.launched).toHaveLength(3); // 只 launch 了 3 个
@@ -528,3 +528,4 @@ describe("T2.2 ⑥ 重启后全部会话元数据可见（restoreLatest 末位�
     }
   }, 25000);
 });
+

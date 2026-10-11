@@ -10,6 +10,7 @@ export function kgToolsStub(workspaceRoot: string): KgToolOptions {
   return {
     query: {
       search: () => [],
+      searchUnion: async () => [],
       get: () => null,
       locate: () => [],
       affected: () => [],

@@ -78,7 +78,7 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
       clock: { now: () => new Date(0).toISOString(), nowMs: () => 0 },
       });
     try {
-      const outcome = scheduler.spawn(SESSION_ID, "统计一下文件数");
+      const outcome = await scheduler.spawn(SESSION_ID, "统计一下文件数");
       expect(outcome.status).toBe("run");
       if (outcome.status !== "run") throw new Error("unreachable");
       const agentId = outcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
@@ -125,3 +125,4 @@ async function waitFor(cond: () => boolean, timeoutMs: number): Promise<void> {
     await new Promise((r) => setTimeout(r, 10));
   }
 }
+

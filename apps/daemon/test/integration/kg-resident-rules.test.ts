@@ -282,7 +282,7 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
     try {
       // ③ U7 断言翻转：新会话零足迹 → spawn 快照无常驻段（去全扫化）
       const sid = daemon.system.getStatus().sessionId;
-      const cold = daemon.orchestration.spawn("零足迹验证", "subagent-worker");
+      const cold = await daemon.orchestration.spawn("零足迹验证", "subagent-worker");
       if (cold.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(cold)}`);
       const coldPrompt = await snapshotSystemPrompt(home, sid, cold.agentId);
       expect(coldPrompt).not.toContain("项目常驻规则");
@@ -296,7 +296,7 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
         at: Date.now(),
         confidence: "precise",
       });
-      const warm = daemon.orchestration.spawn("足迹验证任务", "subagent-worker");
+      const warm = await daemon.orchestration.spawn("足迹验证任务", "subagent-worker");
       if (warm.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(warm)}`);
       const prompt = await snapshotSystemPrompt(home, sid, warm.agentId);
       expect(prompt).toContain("项目常驻规则（kg 触发面索引）：");
@@ -323,3 +323,4 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
     }
   }, 20000);
 });
+

@@ -195,7 +195,7 @@ describe("SchedulerService.spawn：agent.instantiated payload 携带 thinkingLev
       }),
     });
     try {
-      const outcome = scheduler.spawn("s-t13-thinking", "快照任务");
+      const outcome = await scheduler.spawn("s-t13-thinking", "快照任务");
       expect(outcome.status).toBe("run");
       const instantiated = published.find((e) => e.type === "agent.instantiated");
       expect(instantiated).toBeDefined();
@@ -208,3 +208,4 @@ describe("SchedulerService.spawn：agent.instantiated payload 携带 thinkingLev
     }
   });
 });
+

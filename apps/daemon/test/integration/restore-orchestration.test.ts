@@ -128,7 +128,7 @@ describe("T2.4 ① running → failed 收口（AD-10：D-1 同构）", () => {
     try {
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      const spawn1 = d1.orchestration.spawn("正在运行中的任务");
+      const spawn1 = await d1.orchestration.spawn("正在运行中的任务");
       if (spawn1.status !== "run") throw new Error("unreachable");
       const agentId = spawn1.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
       expect(runner1.launched).toHaveLength(1);
@@ -177,7 +177,7 @@ describe("T2.4 ①b parked → failed 收口（park/resume 批：重启矩阵补
       // 置位模拟停机前已挂起，恢复契约不变：行说 parked → failed 收口）
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      const spawn1 = d1.orchestration.spawn("挂起中的任务");
+      const spawn1 = await d1.orchestration.spawn("挂起中的任务");
       if (spawn1.status !== "run") throw new Error("unreachable");
       const agentId = spawn1.agentId;
       await d1.shutdown();
@@ -216,11 +216,11 @@ describe("T2.4 ② queued → cancelled（队列不落盘，重启清队；无 c
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
       const ids: string[] = [];
       for (const t of ["任务一", "任务二", "任务三"]) {
-        const o = d1.orchestration.spawn(t);
+        const o = await d1.orchestration.spawn(t);
         if (o.status !== "run") throw new Error("unreachable");
         ids.push(o.agentId); // T10a：agent-<唯一串>，捕获而非硬编码
       }
-      const queuedOutcome = d1.orchestration.spawn("排队中的任务四"); // maxConcurrent=3 → 第 4 个入队
+      const queuedOutcome = await d1.orchestration.spawn("排队中的任务四"); // maxConcurrent=3 → 第 4 个入队
       expect(queuedOutcome).toMatchObject({ status: "queued", position: 1 });
       if (queuedOutcome.status !== "queued") throw new Error("unreachable");
       ids.push(queuedOutcome.agentId);
@@ -255,7 +255,7 @@ describe("T2.4 ② queued → cancelled（队列不落盘，重启清队；无 c
         `${ids[2]} closure: failed — ${RESTART_SUMMARY}`,
       ]);
       // T10a：唯一串 id 无序号基线——重启后新 spawn 仍得 agent-<唯一串> 且与历史互异（无撞号概念）
-      const next = d2.orchestration.spawn("重启后的新任务");
+      const next = await d2.orchestration.spawn("重启后的新任务");
       expect(next.status).toBe("run");
       if (next.status !== "run") throw new Error("unreachable");
       expect(next.agentId).toMatch(/^agent-[0-9a-f]+$/);
@@ -273,7 +273,7 @@ describe("T2.4 ③ done 终态实例卡片恢复 + closure 完整（R1 进程内
     try {
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      const spawn3 = d1.orchestration.spawn("生成报告的任务");
+      const spawn3 = await d1.orchestration.spawn("生成报告的任务");
       if (spawn3.status !== "run") throw new Error("unreachable");
       const agentId = spawn3.agentId; // T10a：agent-<唯一串>
       runner1.forceClosure(agentId, {
@@ -322,12 +322,12 @@ describe("T2.4 ④ 混态重建一致性（注册表/账目/closure：快照字�
       // 首个 done（释放位→首个 queued 出队转 running，第二个仍 queued）
       const ids: string[] = [];
       for (const t of ["完成的任务", "崩溃的任务", "运行中的任务"]) {
-        const o = d1.orchestration.spawn(t);
+        const o = await d1.orchestration.spawn(t);
         if (o.status !== "run") throw new Error("unreachable");
         ids.push(o.agentId); // T10a：agent-<唯一串>，捕获而非硬编码
       }
       for (const t of ["排队的任务四", "排队的任务五"]) {
-        const o = d1.orchestration.spawn(t);
+        const o = await d1.orchestration.spawn(t);
         expect(o).toMatchObject({ status: "queued" });
         if (o.status !== "queued") throw new Error("unreachable");
         ids.push(o.agentId);
@@ -388,3 +388,4 @@ describe("T2.4 ④ 混态重建一致性（注册表/账目/closure：快照字�
     }
   }, 20000);
 });
+
