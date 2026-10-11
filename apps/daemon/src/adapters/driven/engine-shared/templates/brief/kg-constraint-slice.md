@@ -1,6 +1,6 @@
 <!--
 段库：brief/kg-constraint-slice（用途与 catalog.ts 同步）
-任务层切片注入区（F1.3）：spawn 派发时按任务文本匹配实体/规则（search 同源），
+任务层切片注入区（F1.3）：spawn 派发时按任务文本匹配实体/规则（search 同源：关键词+向量双轨并集，端点缺失回落纯关键词），
 以 digest+指针切片注入本区——与附着渲染同格式（domain/kg/attachment/render.ts；
 W3-G 同步：条目带 scene 适用行（R23 索引面必带，空 scene 兑底省略），要点补
 kg affected 主动反查路径（R20）。

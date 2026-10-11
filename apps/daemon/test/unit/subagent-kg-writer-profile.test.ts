@@ -58,6 +58,12 @@ describe("W-R6 豁免面：subagent-kg-writer profile", () => {
     expect(SUBAGENT_KG_WRITER_PROMPT_SUFFIX).toContain("本任务为图谱产出型");
     expect(SUBAGENT_KG_WRITER_PROMPT_SUFFIX).toContain("kg-update");
   });
+
+  test("图谱产出型后缀补建点主力面指引（批5：条款式口径指针 + 查重闸软警告处置——建点主力面就近处置）", () => {
+    expect(SUBAGENT_KG_WRITER_PROMPT_SUFFIX).toContain("kg 写作规范条款式模板");
+    expect(SUBAGENT_KG_WRITER_PROMPT_SUFFIX).toContain("查重闸");
+    expect(SUBAGENT_KG_WRITER_PROMPT_SUFFIX).toContain("updateNode/合并");
+  });
 });
 
 describe("W-R6 编排分流：任务类型 → 批次实例 profileKind", () => {

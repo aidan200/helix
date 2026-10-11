@@ -258,6 +258,12 @@ describe("TEMPLATE-USAGE.md：段库目录+硬约束声明+装配示例", () => 
     expect(summary).toContain("收口锚对账残量");
     expect(summary).toContain("不留台账");
   });
+
+  test("⑤ kg 约束切片注入区双轨口径（批5：search 同源匹配面改关键词+向量双轨并集，端点缺失回落纯关键词）", () => {
+    const slice = readFileSync(join(TEMPLATES_DIR, "brief/kg-constraint-slice.md"), "utf-8");
+    expect(slice).toContain("关键词+向量双轨并集");
+    expect(slice).toContain("端点缺失回落纯关键词");
+  });
 });
 
 // ───────────────────────────── profile 提示词携带装配指引（AD-18 接线） ─────────────────────────────
