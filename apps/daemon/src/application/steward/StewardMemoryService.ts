@@ -47,6 +47,7 @@ import type { StewardComponent } from "./StewardComponent";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../ports/outbound/EmbeddingPort";
 import type { JudgePort } from "../ports/outbound/JudgePort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
+import { resolveJudgeRecord, type JudgeEndpointLookup } from "../embedding/EmbeddingConfigService";
 import {
   MEMORY_ENABLED_KEY,
   MEMORY_JUDGE_ENDPOINT_ID_KEY,
@@ -278,8 +279,10 @@ export function pickPurgeCandidates(entries: readonly StewardMemoryEntry[], now:
 
 /** embedding 配置域窄查询面（EmbeddingConfigService 结构性满足；测试注入 fake）。
  *  批1：向量端点取用改走 resolveDefault（全局默认端点单点——记忆不再自持
- *  endpointId 选择）；resolveRecord 保留判官引用（judgeEndpointId）消费面。 */
-export interface EmbeddingConfigLookup {
+ *  endpointId 选择）；resolveRecord/resolveDefaultClassifierRecord 保留判官
+ *  引用（judgeEndpointId）消费面——D1 判官端点兜底层（resolveJudgeRecord）
+ *  的 lookup 形状。 */
+export interface EmbeddingConfigLookup extends JudgeEndpointLookup {
   resolveRecord(endpointId: string): EmbeddingEndpointRecord | null;
   resolveDefault(): EmbeddingEndpointConfig | null;
 }
@@ -303,7 +306,8 @@ export interface StewardMemoryState {
   readonly entryCount: number;
   /** 当前向量维度（未初始化 = null）。 */
   readonly dim: number | null;
-  /** 当前判官端点引用（B4a 引用态；未引用/悬空/非 classifier = null）。 */
+  /** 当前判官端点引用（B4a 引用态；D1 兑底：未引用时取全局默认分类端点
+   *  ——回执面反映生效判官端点；未引用/无默认/悬空/非 classifier = null）。 */
   readonly judgeEndpoint: { readonly id: string; readonly name: string; readonly model: string; readonly hasApiKey: boolean } | null;
 }
 
@@ -354,17 +358,15 @@ export class StewardMemoryService implements StewardComponent {
     return this.isEnabled() && this.deps.embeddingConfig.resolveDefault() !== null && this.deps.store !== undefined;
   }
 
-  /** 当前判官端点记录（B4a：未引用/悬空/非 classifier → null——kind 校验
-   *  保证判官端点与召回端点不串用；kind 缺席 = embedding 同判不适用）。 */
+  /** 当前判官端点记录（B4a 引用态 + D1 渐进收编兑底——resolveJudgeRecord
+   *  单点：显式 memory.judgeEndpointId 优先（悬空/非 classifier → null 不落
+   *  默认）；未配置 → 全局默认分类端点（有默认 = 判官在场）；无默认 →
+   *  null（判官缺席，查重回退 0.92 纯向量——E-214 降级语义不变）。 */
   private judgeEndpointRecord(): EmbeddingEndpointRecord | null {
-    const judgeEndpointId = this.deps.config.get(MEMORY_JUDGE_ENDPOINT_ID_KEY);
-    if (judgeEndpointId === undefined || judgeEndpointId === "") return null;
-    const record = this.deps.embeddingConfig.resolveRecord(judgeEndpointId);
-    if (record === null || record.kind !== "classifier") return null;
-    return record;
+    return resolveJudgeRecord(this.deps.config.get(MEMORY_JUDGE_ENDPOINT_ID_KEY), this.deps.embeddingConfig);
   }
 
-  /** 自动沉淀可用性（B4a 遗留命名——B5 起判官用途为查重精判：记忆开关 ∧ 判官端点有效(classifier) ∧ judge port 已注入）。 */
+  /** 自动沉淀可用性（B4a 遗留命名——B5 起判官用途为查重精判：记忆开关 ∧ 判官端点有效(classifier，D1 含默认兑底) ∧ judge port 已注入）。 */
   judgeSedimentAvailable(): boolean {
     return this.isEnabled() && this.judgeEndpointRecord() !== null && this.deps.judge !== undefined;
   }

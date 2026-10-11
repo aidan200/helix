@@ -700,13 +700,19 @@ export function buildLocalMemorySearchStack(
       if (record === null || (record.kind ?? "embedding") !== "embedding") return null;
       return { baseUrl: record.baseUrl, ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}), model: record.model };
     };
+    const resolveDefaultClassifierRecord = (): EmbeddingEndpointRecord | null => {
+      const id = readKey("classifier.defaultEndpointId");
+      if (id === undefined || id.trim() === "") return null;
+      const record = resolveRecord(id);
+      return record !== null && record.kind === "classifier" ? record : null;
+    };
     const embedding = new OpenAiCompatEmbeddingAdapter({
       getConfig: () => resolveDefault(),
     });
     return new StewardMemoryService({
       config,
       embedding,
-      embeddingConfig: { resolveRecord, resolveDefault },
+      embeddingConfig: { resolveRecord, resolveDefault, resolveDefaultClassifierRecord },
       store,
       // 子进程只读消费（检索 + markRecalled 复习强化回写归 store）——不挂
       // GC 定时器（遗忘机制归管家父进程单点）、不挂判官（写入面归管家）

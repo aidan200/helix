@@ -104,9 +104,11 @@ function ClfConnBadge({ verify, endpoint }: { verify: VerifyState | undefined; e
 const ClassifierModelsTab = function ClassifierModelsTab() {
   const { t } = useI18n();
   const toast = useToast();
-  const { sendEmbeddingList, sendEmbeddingSet, sendEmbeddingDelete, sendEmbeddingVerify, subscribeEmbeddingFrames } = useSession();
+  const { sendEmbeddingList, sendEmbeddingSet, sendEmbeddingDelete, sendEmbeddingSetDefault, sendEmbeddingVerify, subscribeEmbeddingFrames } = useSession();
 
   const [endpoints, setEndpoints] = useState<readonly EmbeddingEndpointView[] | null>(null);
+  /** 全局默认分类端点 id（D1 渐进收编：list.result 驱动——卡片/徽标/引导条/按钮判据）。 */
+  const [defaultClassifierId, setDefaultClassifierId] = useState<string | null>(null);
   /** 连通态本地聚合（id → verify 三态；verifiedAt 持久态兜底展示）。 */
   const [verifyStates, setVerifyStates] = useState<Record<string, VerifyState>>({});
   /** 新增/编辑弹层（open|closed；校验 clean|error）。 */
@@ -123,6 +125,7 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
       subscribeEmbeddingFrames((e) => {
         if (e.type === "embedding.list.result") {
           setEndpoints(e.payload.endpoints);
+          setDefaultClassifierId(e.payload.defaultClassifierEndpointId ?? null);
           return;
         }
         if (e.type === "embedding.verify.result") {
@@ -218,6 +221,13 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
     });
   };
 
+  /** 设为默认分类端点（D1 单选语义——daemon 校验三拒：不存在/kind≠classifier/未 verify）。 */
+  const onSetDefault = (id: string): void => {
+    if (sendEmbeddingSetDefault(id, "classifier") === false) {
+      toast.push("err", t("chat.modelsConfig.sendFailToast"));
+    }
+  };
+
   /** 本 tab 管理面（只 classifier 端点——向量端点在向量 tab）。 */
   const rows = (endpoints ?? []).filter((ep) => ep.kind === "classifier");
 
@@ -232,6 +242,37 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
         </div>
       </div>
 
+      {/* D1：全局默认分类模型工具卡（与向量 tab 全局默认卡同构——只读展示；
+          改默认在下方列表行「设为默认」） */}
+      <div className="hud-card" data-clf-global-default>
+        <div className="toolbar">
+          <div className="toolbar-row">
+            <div className="fld">
+              <span className="hud-label">{t("chat.settings.general.clfGlobalDefault")}</span>
+              {(() => {
+                const def = rows.find((ep) => ep.id === defaultClassifierId);
+                return def !== undefined ? (
+                  <span className="default-model" data-clf-global-default-value>
+                    {def.name} · {def.model}
+                  </span>
+                ) : (
+                  <span className="ag-note" data-clf-global-default-unset role="note">
+                    {t("chat.settings.general.clfGlobalDefaultUnset")}
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* D1：无默认引导条（判官缺席——各判定面维持现状降级） */}
+      {endpoints !== null && defaultClassifierId === null && (
+        <p className="ag-note" data-clf-no-default role="note">
+          {t("chat.settings.general.clfNoDefaultHint")}
+        </p>
+      )}
+
       {endpoints !== null && rows.length === 0 && (
         <p className="ag-note" data-clf-empty>
           {t("chat.settings.general.clfEmpty")}
@@ -245,6 +286,11 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
               <span className="prov-name" data-clf-name={ep.id}>
                 {ep.name}
               </span>
+              {defaultClassifierId === ep.id && (
+                <span className="hud-badge hud-badge-ok" data-clf-default={ep.id}>
+                  {t("chat.settings.general.clfDefaultBadge")}
+                </span>
+              )}
               <span className="catalog-meta" data-clf-model={ep.id}>
                 {ep.model}
               </span>
@@ -272,6 +318,16 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
               >
                 {t("chat.modelsConfig.test")}
               </button>
+              {defaultClassifierId !== ep.id && (
+                <button
+                  className="hud-btn hud-btn-ghost sm"
+                  type="button"
+                  data-clf-set-default={ep.id}
+                  onClick={() => onSetDefault(ep.id)}
+                >
+                  {t("chat.settings.general.clfSetDefault")}
+                </button>
+              )}
               <button className="hud-btn hud-btn-ghost sm" type="button" data-clf-edit={ep.id} onClick={() => openForm(ep)}>
                 {t("chat.settings.general.embEdit")}
               </button>

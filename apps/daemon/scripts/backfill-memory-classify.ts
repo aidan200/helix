@@ -47,7 +47,7 @@ import { resolveMemoryWriteAttrs, MEMORY_SCOPE_GLOBAL } from "../src/application
 import { SqliteVecMemoryStore } from "../src/adapters/driven/steward-memory/SqliteVecMemoryStore";
 import { resolveVec0Path } from "../src/adapters/driven/steward-memory/resolve-vec0";
 import { makeJudgeAdapter } from "../src/adapters/driven/embedding/JudgeAdapterFactory";
-import { parseRecords, type EmbeddingEndpointRecord } from "../src/application/embedding/EmbeddingConfigService";
+import { parseRecords, resolveJudgeRecord, type JudgeEndpointLookup } from "../src/application/embedding/EmbeddingConfigService";
 import { createPaths } from "../src/infrastructure/paths";
 import { AuthStore } from "../src/infrastructure/auth-store";
 import { ModelCatalog, createModelsBase } from "../src/adapters/driven/llm";
@@ -292,9 +292,10 @@ interface JudgeResolution {
   readonly reason: string;
 }
 
-/** 从 helix.db KV 解析判官端点（memory.judgeEndpointId → embedding_endpoints
- *  记录，kind=classifier 校验——与 StewardMemoryService.judgeEndpointRecord
- *  同判）；经 makeJudgeAdapter 注册表分派（jev 直连 / pi-ai 目录双通道）。 */
+/** 从 helix.db KV 解析判官端点（D1 判官端点兑底层 resolveJudgeRecord 单点
+ *  ——memory.judgeEndpointId 显式优先，未配置兑底 classifier.defaultEndpointId
+ *  默认分类端点；与 StewardMemoryService.judgeEndpointRecord 同判）；经
+ *  makeJudgeAdapter 注册表分派（jev 直连 / pi-ai 目录双通道）。 */
 function resolveJudge(dbPath: string, paths: ReturnType<typeof createPaths>): JudgeResolution {
   const db = openTaskLedgerDatabase(dbPath);
   try {
@@ -302,16 +303,19 @@ function resolveJudge(dbPath: string, paths: ReturnType<typeof createPaths>): Ju
       const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as { value: string } | undefined;
       return row === undefined ? undefined : row.value;
     };
-    const judgeEndpointId = readKey("memory.judgeEndpointId");
-    if (judgeEndpointId === undefined || judgeEndpointId === "") {
-      return { judge: null, reason: "memory.judgeEndpointId 未配置" };
-    }
-    const record = parseRecords(readKey("embedding_endpoints")).find((r) => r.id === judgeEndpointId) as EmbeddingEndpointRecord | undefined;
-    if (record === undefined) {
-      return { judge: null, reason: `判官端点记录不存在（${judgeEndpointId}）` };
-    }
-    if (record.kind !== "classifier") {
-      return { judge: null, reason: `端点 ${record.name} 不是 classifier（kind=${record.kind ?? "embedding(缺席)"}）` };
+    const records = parseRecords(readKey("embedding_endpoints"));
+    const lookup: JudgeEndpointLookup = {
+      resolveRecord: (endpointId) => records.find((r) => r.id === endpointId) ?? null,
+      resolveDefaultClassifierRecord: () => {
+        const id = readKey("classifier.defaultEndpointId");
+        if (id === undefined || id.trim() === "") return null;
+        const rec = records.find((r) => r.id === id) ?? null;
+        return rec !== null && rec.kind === "classifier" ? rec : null;
+      },
+    };
+    const record = resolveJudgeRecord(readKey("memory.judgeEndpointId"), lookup);
+    if (record === null) {
+      return { judge: null, reason: "判官端点未配置（memory.judgeEndpointId 与默认分类端点均缺席或无效）" };
     }
     const authStore = new AuthStore(paths.authPath());
     const models = createModelsBase();

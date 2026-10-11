@@ -79,6 +79,7 @@ function fakeLookup(record: EmbeddingEndpointRecord | null = ENDPOINT_RECORD): E
       current === null
         ? null
         : { baseUrl: current.baseUrl, model: current.model, ...(current.apiKey !== undefined ? { apiKey: current.apiKey } : {}) },
+    resolveDefaultClassifierRecord: () => null,
     drop: () => {
       current = null;
     },
@@ -235,6 +236,7 @@ function judgeLookup(): EmbeddingConfigLookup {
       return null;
     },
     resolveDefault: () => ({ baseUrl: "http://localhost:11434", model: "bge-m3" }),
+    resolveDefaultClassifierRecord: () => null,
   };
 }
 
@@ -558,6 +560,7 @@ describe("管家记忆 B4a：判官面（judgeEndpointId 引用 + kind 校验）
         return null;
       },
       resolveDefault: () => ({ baseUrl: ENDPOINT_RECORD.baseUrl, model: ENDPOINT_RECORD.model }),
+      resolveDefaultClassifierRecord: () => null,
     };
   }
 

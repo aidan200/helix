@@ -67,6 +67,7 @@ function fakeLookup(): EmbeddingConfigLookup {
         ? { id: "ep-bge", name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "bge-m3" }
         : null,
     resolveDefault: () => ({ baseUrl: "http://localhost:11434/v1", model: "bge-m3" }),
+    resolveDefaultClassifierRecord: () => null,
   };
 }
 

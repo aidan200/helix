@@ -236,3 +236,19 @@ describe("全局默认 embedding 端点（批1 WP-A）", () => {
     expect(container.querySelector("[data-emb-delete-default-hint=ep-2]")).toBeNull();
   });
 });
+
+describe("D1 全局默认向量模型卡（F(3.4).6 同构 UI 契约）", () => {
+  it("未设默认 → 弱化提示；设默认 → 只读展示 name·model（改默认在下方列表行「设为默认」）", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS));
+    expect(container.querySelector("[data-emb-global-default]")).not.toBeNull();
+    expect(container.querySelector("[data-emb-global-default-unset]")).not.toBeNull();
+    expect(container.querySelector("[data-emb-global-default-value]")).toBeNull();
+    // 卡内无改默认入口（只读展示——改默认走下方列表行）
+    expect(container.querySelector("[data-emb-global-default] [data-emb-set-default]")).toBeNull();
+    act(() => feedList(ENDPOINTS, "ep-1"));
+    expect(container.querySelector("[data-emb-global-default-value]")!.textContent).toBe("Ollama 本地 · bge-m3");
+    expect(container.querySelector("[data-emb-global-default-unset]")).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>("[data-emb-set-default=ep-2]")).not.toBeNull(); // 列表行改默认入口保留
+  });
+});

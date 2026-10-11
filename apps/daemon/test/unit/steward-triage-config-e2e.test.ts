@@ -57,6 +57,7 @@ function fakeLookup() {
   return {
     records,
     resolveRecord: (id: string) => records.get(id) ?? null,
+    resolveDefaultClassifierRecord: () => null,
   };
 }
 

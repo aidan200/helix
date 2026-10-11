@@ -828,10 +828,11 @@ export function embeddingDeleteCommand(id: string): EmbeddingDeleteCommand {
   return { v: PROTOCOL_VERSION, type: "embedding.delete", payload: { id } };
 }
 
-/** embedding.set_default：设置全局默认 embedding 端点（批1；单选语义——
- *  校验三拒（不存在/kind≠embedding/未 verify）在 daemon，回执新清单）。 */
-export function embeddingSetDefaultCommand(id: string): EmbeddingSetDefaultCommand {
-  return { v: PROTOCOL_VERSION, type: "embedding.set_default", payload: { id } };
+/** embedding.set_default：设置全局默认端点（批1 向量默认；D1 泛化 kind 维度
+ *  ——kind 缺省 = embedding，"classifier" = 默认分类端点；单选语义，
+ *  校验三拒（不存在/kind 不吻合/未 verify）在 daemon，回执新清单）。 */
+export function embeddingSetDefaultCommand(id: string, kind?: "embedding" | "classifier"): EmbeddingSetDefaultCommand {
+  return { v: PROTOCOL_VERSION, type: "embedding.set_default", payload: { id, ...(kind !== undefined ? { kind } : {}) } };
 }
 
 /** embedding.verify：连通测试（回执 embedding.verify.result 两判别，id 回携）。 */

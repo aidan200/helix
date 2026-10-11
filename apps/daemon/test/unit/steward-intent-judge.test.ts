@@ -43,6 +43,7 @@ function fakeEmbeddingConfig(valid = true) {
   return {
     resolveRecord: (endpointId: string) =>
       valid && endpointId === "ep-1" ? { ...ENDPOINT_RECORD } : null,
+    resolveDefaultClassifierRecord: () => null,
   };
 }
 

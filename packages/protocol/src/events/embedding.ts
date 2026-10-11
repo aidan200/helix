@@ -44,6 +44,9 @@ export interface EmbeddingListResultPayload {
   /** 全局默认 embedding 端点 id（批1；未设/引用悬空 = null——消费面按
    *  「向量面不可用」降级：记忆拒开、kg 嵌入降级 warn）。 */
   defaultEndpointId: string | null;
+  /** 全局默认分类端点 id（D1 渐进收编，additive 可选——旧壳缺席忽略；
+   *  未设/引用悬空 = null = 判官缺席，各消费面维持现状降级）。 */
+  defaultClassifierEndpointId?: string | null;
 }
 
 /** embedding.list.result：端点清单回执（channel = "embedding"；点对点）。 */
