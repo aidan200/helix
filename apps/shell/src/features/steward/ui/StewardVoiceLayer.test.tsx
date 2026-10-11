@@ -520,6 +520,41 @@ describe("StewardVoiceLayer（B2 光球层）", () => {
     expect(screen.getByTestId("steward-health-badge").textContent).toBe("TTS"); // judge 恢复退场
   });
 
+  it("光球角标（去残留修复）：降级徽标 60s 无新证据自动灭；窗口内新证据续期", () => {
+    vi.useFakeTimers();
+    try {
+      svState.duplexActive = true;
+      renderLayer();
+      const degraded = (seq: number) =>
+        ({
+          type: "steward.health",
+          payload: { component: "tts", status: "degraded", reason: "合成失败", seq },
+        }) as unknown as EventEnvelope;
+      act(() => {
+        emitSteward(degraded(1));
+      });
+      expect(screen.getByTestId("steward-health-badge")).toBeTruthy();
+      // 55s 处新证据续期 → 首条到期时刻徽标不灭（110s 总跨度）
+      act(() => {
+        vi.advanceTimersByTime(55_000);
+      });
+      act(() => {
+        emitSteward(degraded(2));
+      });
+      act(() => {
+        vi.advanceTimersByTime(55_000);
+      });
+      expect(screen.getByTestId("steward-health-badge")).toBeTruthy();
+      // 距末次证据 61s → 自动灭（去残留）
+      act(() => {
+        vi.advanceTimersByTime(6_000);
+      });
+      expect(screen.queryByTestId("steward-health-badge")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("语音口令（D3=b）：整句「确认」→ steward.confirm 既有命令 + 回读字幕；无卡零动作回读", async () => {
     svState.duplexActive = true;
     renderLayer();

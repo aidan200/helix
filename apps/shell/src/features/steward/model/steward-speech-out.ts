@@ -439,7 +439,11 @@ export class StewardSpeechOut {
       }
       this.streamUsed = true;
       const utterId = `utt-${(this.utterSeq += 1)}`;
-      const sent = this.senders.sendStream(utterId, piece, { voice: this.voiceProvider() });
+      // 音色分槽（cosyvoice 411 根因修复）：流式引擎（cosyvoice）音色表 ≠
+      // 一次性引擎（qwen3-tts）——设置页音色（Cherry 等）传给流式 =
+      // InvalidParameter 411。流式零音色（走服务端流式引擎缺省）；
+      // voiceProvider 只随一次性回退（qwen3-tts 音色在该引擎合法）。
+      const sent = this.senders.sendStream(utterId, piece);
       if (!sent) {
         // 发送失败（未连接等）：链死降级，本句入回退
         recordSpeechDiag("issue.fail", utterId);

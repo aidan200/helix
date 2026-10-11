@@ -69,6 +69,7 @@ import {
   endNotificationPlayback,
   micOccupied,
   notificationSpeechActive,
+  onNotificationQueueChange,
   resetSpeechFloorForTest,
   setMicOccupied,
   stopNotificationSpeech,
@@ -120,6 +121,28 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
     expect(FakeAudio.instances.length).toBe(1);
     expect(FakeAudio.instances[0]!.src).toBe("data:audio/wav;base64,S1");
     expect(FakeAudio.instances[0]!.volume).toBeCloseTo(0.6);
+  });
+
+  it("队列深度入账（角标双轨收口）：帧入队/播毕 → 深度镜像推（含在播 +1）、排空归零", async () => {
+    const seen: number[] = [];
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    const off = onNotificationQueueChange((d) => seen.push(d));
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+      frameListener!(broadcastFrame(2));
+    });
+    expect(seen[seen.length - 1]).toBe(2); // 首条在播 +1 +次条排队 1
+    await act(async () => {
+      FakeAudio.instances[0]!.onended!();
+    });
+    expect(seen[seen.length - 1]).toBe(1); // 首条播毕 → 次条在播
+    await act(async () => {
+      FakeAudio.instances[1]!.onended!();
+    });
+    expect(seen[seen.length - 1]).toBe(0); // 排空归零
+    off();
   });
 
   it("seq 去重：重复/回退帧丢弃（只播一次）", async () => {

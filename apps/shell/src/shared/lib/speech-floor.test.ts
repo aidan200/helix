@@ -19,9 +19,11 @@ import {
   micOccupied,
   notificationSpeechActive,
   onNotificationPlaybackChange,
+  onNotificationQueueChange,
   registerNotificationSpeech,
   resetSpeechFloorForTest,
   setMicOccupied,
+  setNotificationQueue,
   stopNotificationSpeech,
   type NotificationSpeechControl,
 } from "./speech-floor";
@@ -32,6 +34,24 @@ function fakeControl(): NotificationSpeechControl & {
 } {
   return { stopAndClear: vi.fn((): void => undefined), resume: vi.fn((): void => undefined) };
 }
+
+describe("通知队列深度镜像（TTS 队列计数双轨入账）", () => {
+  afterEach(() => {
+    resetSpeechFloorForTest();
+  });
+
+  it("setNotificationQueue 推深度、同深去重、退订即断", () => {
+    const seen: number[] = [];
+    const off = onNotificationQueueChange((d) => seen.push(d));
+    setNotificationQueue(2);
+    setNotificationQueue(2); // 同深去重
+    setNotificationQueue(0);
+    expect(seen).toEqual([2, 0]);
+    off();
+    setNotificationQueue(5);
+    expect(seen).toEqual([2, 0]); // 退订后零推送
+  });
+});
 
 describe("speech-floor（发言协调器：对话 > 通知，播×播互斥）", () => {
   afterEach(() => {

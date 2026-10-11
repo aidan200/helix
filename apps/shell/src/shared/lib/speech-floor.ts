@@ -122,6 +122,33 @@ export function notificationSpeechActive(): boolean {
   return notificationPlaying;
 }
 
+// ── 通知队列深度镜像（TTS 队列计数双轨入账）──────────────────────────
+// useVoiceBroadcast 队列（排队 + 在播）深度透出；useStewardVoice 计入光球
+// 队列计数徽标（ttsQueue）——有声必有计数，消灭「有播报但计数不出现」双轨感。
+let notificationQueue = 0;
+const notificationQueueListeners = new Set<(depth: number) => void>();
+
+/** 通知队列深度推送（useVoiceBroadcast 每次队列变动调用；同深去重）。 */
+export function setNotificationQueue(depth: number): void {
+  if (notificationQueue === depth) return;
+  notificationQueue = depth;
+  for (const l of [...notificationQueueListeners]) {
+    try {
+      l(depth);
+    } catch {
+      // 隔离单监听者异常（镜像面绝不断链）
+    }
+  }
+}
+
+/** 订阅通知队列深度变化（返回退订函数）。 */
+export function onNotificationQueueChange(listener: (depth: number) => void): () => void {
+  notificationQueueListeners.add(listener);
+  return () => {
+    notificationQueueListeners.delete(listener);
+  };
+}
+
 // ── 麦克占用（重叠修复：收音/转写期延后通知——用户说话不叠播报）──────────────
 // 通知到达时若用户正在说话（recording/transcribing），立即播会双声重叠且 TTS
 // 灌麦污染转写。占用由 useStewardVoice 录音链态驱动；useVoiceBroadcast 的
@@ -147,4 +174,6 @@ export function resetSpeechFloorForTest(): void {
   notificationPlaying = false;
   notificationListeners.clear();
   micOccupiedState = false;
+  notificationQueue = 0;
+  notificationQueueListeners.clear();
 }

@@ -27,6 +27,7 @@ import {
   endNotificationPlayback,
   micOccupied,
   registerNotificationSpeech,
+  setNotificationQueue,
 } from "@/shared/lib/speech-floor";
 import type { EventEnvelope } from "@helix/protocol";
 
@@ -77,6 +78,10 @@ export function useVoiceBroadcast(): VoiceBroadcast {
   /** 当前在播 Audio（① 对话收编/全轨停止的 pause 面）。 */
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const playNextRef = useRef<() => void>(() => undefined);
+  /** 队列深度入账（TTS 队列计数双轨收口）：排队 + 在播 → 镜像推（同深去重）。 */
+  const syncQueueDepth = (): void => {
+    setNotificationQueue(pendingRef.current.length + (playingRef.current ? 1 : 0));
+  };
 
   useEffect(() => {
     if (subscribeVoiceFrames === undefined) return;
@@ -87,6 +92,7 @@ export function useVoiceBroadcast(): VoiceBroadcast {
       if (typeof payload.seq !== "number" || payload.seq <= lastSeqRef.current) return;
       lastSeqRef.current = payload.seq;
       pendingRef.current.push(payload);
+      syncQueueDepth();
       playNextRef.current();
     });
   }, [subscribeVoiceFrames]);
@@ -96,14 +102,19 @@ export function useVoiceBroadcast(): VoiceBroadcast {
     // ① 对话发言期（对话 > 通知）+ 麦克占用（收音/转写期——用户说话不叠播报）
     // 延后入队——不立即播不打断对话，对话收口/麦克释放后串行放行
     //（队列保序；延前期不占播报租约）
-    if (dialogueSpeechActive() || micOccupied()) return;
+    if (dialogueSpeechActive() || micOccupied()) {
+      syncQueueDepth(); // 延后驻留：深度 = 排队数（角标可见）
+      return;
+    }
     const next = pendingRef.current.shift();
     if (next === undefined) {
       endSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 队列排空 → 发言期收口（收音恢复）
       endNotificationPlayback(); // 占用释放（排空 = 播报不在场）
+      syncQueueDepth(); // 排空归零
       return;
     }
     playingRef.current = true;
+    syncQueueDepth(); // 在播 +1 入账
     beginSpeechLease(SPEECH_LEASE_BROADCAST); // ⑥ 发言期登记（排空/卸载释放）
     beginNotificationPlayback(); // 占用镜像：在播 → barge-in 门武装面在场
     try {
@@ -147,6 +158,7 @@ export function useVoiceBroadcast(): VoiceBroadcast {
         const audio = currentAudioRef.current;
         currentAudioRef.current = null;
         playingRef.current = false;
+        syncQueueDepth(); // 清队列即归零（角标同步收位）
         if (audio !== null) {
           audio.onended = null; // 弃播不续：收口回调零续链
           audio.onerror = null;

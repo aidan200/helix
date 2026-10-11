@@ -77,6 +77,11 @@ export const STEWARD_NOTIFY_DEDUP_KEYS_MAX = 64;
 /** 单连接的协议帧发送端（WsServerAdapter 按连接构造，内含 readyState 守卫）。 */
 export type FrameSender = (frame: EventEnvelope) => void;
 
+/** steward.health 同态续报窗口（去残留修复）：同状态窗口内去重（降级风暴
+ *  不刷帧）、届满同态续报（持续故障持续有证据，供 shell 徽标 TTL 续期）。
+ *  必须小于 shell 侧徽标 TTL（useStewardHealth HEALTH_TTL_MS=60s）。 */
+export const STEWARD_HEALTH_REEMIT_MS = 30_000;
+
 export interface EventStreamDeps {
   /**
    * 缺省会话（v0.2 信封 sessionId 必发纪律的兜底）：生产侧 delta 未携带
@@ -655,8 +660,11 @@ export class EventStream implements EventPublisherPort {
 
   // ── 光球健康角标批：子系统健康状态帧（steward.health）──
 
-  /** 各组件最近上报态（同态去重——连续失败只报一次，恢复才再发）。 */
-  private readonly healthStatus = new Map<StewardHealthPayload["component"], StewardHealthPayload["status"]>();
+  /** 各组件最近上报态（同态窗口去重——见 reportStewardHealth）。 */
+  private readonly healthStatus = new Map<
+    StewardHealthPayload["component"],
+    { status: StewardHealthPayload["status"]; at: number }
+  >();
   /** 健康帧序（连接内单调）。 */
   private healthSeq = 0;
 
@@ -671,8 +679,12 @@ export class EventStream implements EventPublisherPort {
     status: StewardHealthPayload["status"],
     reason?: string,
   ): void {
-    if (this.healthStatus.get(component) === status) return; // 同态去重（降级风暴只报首次）
-    this.healthStatus.set(component, status);
+    const now = this.deps.clock?.() ?? Date.now();
+    const prev = this.healthStatus.get(component);
+    // 同态窗口去重（去残留修复）：同状态窗口内只报一次，窗口届满同态续报
+    //（持续故障持续有证据——徽标 TTL 续期）；状态变化立即报
+    if (prev !== undefined && prev.status === status && now - prev.at < STEWARD_HEALTH_REEMIT_MS) return;
+    this.healthStatus.set(component, { status, at: now });
     const payload: StewardHealthPayload = {
       component,
       status,

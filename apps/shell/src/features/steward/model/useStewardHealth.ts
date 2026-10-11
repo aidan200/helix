@@ -6,7 +6,7 @@
  * 维护各组件最近状态供光球角标呈现。缺省 = 全 ok（未收到任何帧 = 无故障
  * 证据，不是未知——帧是事件驱动，daemon 重启后首个状态变化即重新对齐）。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EventEnvelope } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 
@@ -30,11 +30,24 @@ export interface UseStewardHealth {
 
 const COMPONENT_ORDER: readonly StewardHealthComponent[] = ["judge", "tts", "stt", "llm"];
 
+/** 证据 TTL（去残留修复）：徽标只反映最近 60s 内的故障证据，到期自动退场。
+ *  持续故障由 daemon 同态续报窗口（30s）不断续证；新证据到达重置计时。 */
+export const HEALTH_TTL_MS = 60_000;
+
 export function useStewardHealth(): UseStewardHealth {
   const { subscribeStewardFrames } = useSession() as {
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
   const [health, setHealth] = useState<Partial<Record<StewardHealthComponent, StewardHealthEntry>>>({});
+  /** 逐组件 TTL 计时器（新证据重置；卸载清场）。 */
+  const timersRef = useRef(new Map<StewardHealthComponent, ReturnType<typeof setTimeout>>());
+  useEffect(
+    () => () => {
+      for (const t of timersRef.current.values()) clearTimeout(t);
+      timersRef.current.clear();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (subscribeStewardFrames === undefined) return;
@@ -54,6 +67,24 @@ export function useStewardHealth(): UseStewardHealth {
           ? { status, reason: p.reason, at: Date.now() }
           : { status, at: Date.now() };
       setHealth((prev) => ({ ...prev, [component]: entry }));
+      // 去残留：证据 TTL——到期自动退场（与 daemon 续报窗口配合：持续故障
+      // 每 30s 新证据重置本计时，徽标只在真实故障期常驻）
+      const timers = timersRef.current;
+      const prevTimer = timers.get(component);
+      if (prevTimer !== undefined) clearTimeout(prevTimer);
+      timers.set(
+        component,
+        setTimeout(() => {
+          timers.delete(component);
+          setHealth((prev) => {
+            const cur = prev[component];
+            if (cur === undefined || cur.at !== entry.at) return prev;
+            const next = { ...prev };
+            delete next[component];
+            return next;
+          });
+        }, HEALTH_TTL_MS),
+      );
     });
   }, [subscribeStewardFrames]);
 

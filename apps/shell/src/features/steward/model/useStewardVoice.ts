@@ -121,6 +121,7 @@ import {
   endDialogueSpeech,
   notificationSpeechActive,
   onNotificationPlaybackChange,
+  onNotificationQueueChange,
   setMicOccupied,
   stopNotificationSpeech,
 } from "@/shared/lib/speech-floor";
@@ -360,8 +361,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   const [streamSpeaking, setStreamSpeaking] = useState(false);
   const speaking = legacySpeaking || streamSpeaking;
   // ── TTS 队列计数（光球左上角徽标）：流式在途句（speechOut 深度透出）+
-  //    一次性回执在播（legacy 面 +1）——两面合并单计数。──
+  //    一次性回执在播（legacy 面 +1）+ 广播/通知轨（队列镜像）——三面合并
+  //    单计数（双轨入账：有声必有计数）。──
   const [streamQueue, setStreamQueue] = useState(0);
+  const [broadcastQueue, setBroadcastQueue] = useState(0);
+  useEffect(() => onNotificationQueueChange(setBroadcastQueue), []);
   const speakPendingRef = useRef(false);
   // ── ③ 回执轮次校验（迟到回执弃播）：fallback 发出时记轮次 id，回执到达
   //    时轮次已变（新 ask 已开）→ 弃播（不 new Audio——旧轮音频不覆盖新轮）。
@@ -1321,7 +1325,7 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     interim,
     streamDegraded,
     speaking,
-    ttsQueue: streamQueue + (legacySpeaking ? 1 : 0),
+    ttsQueue: streamQueue + (legacySpeaking ? 1 : 0) + broadcastQueue,
     voiceError: voice.error,
     voiceDraft,
     cancelWake,

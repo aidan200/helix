@@ -66,6 +66,8 @@ function fakePlayer(): SpeechPlayer & {
 
 function fakeSenders(): SpeechOutSenders & {
   streams: [string, string][];
+  streamVoices: (string | undefined)[];
+  fallbackVoices: (string | undefined)[];
   stopFor: string[];
   stopAll: number;
   fallbacks: string[];
@@ -73,11 +75,14 @@ function fakeSenders(): SpeechOutSenders & {
 } {
   const s = {
     streams: [] as [string, string][],
+    streamVoices: [] as (string | undefined)[],
+    fallbackVoices: [] as (string | undefined)[],
     stopFor: [] as string[],
     stopAll: 0,
     fallbacks: [] as string[],
     streamFails: false,
-    sendStream(utterId: string, text: string) {
+    sendStream(utterId: string, text: string, opts?: { voice?: string }) {
+      s.streamVoices.push(opts?.voice);
       if (s.streamFails) return false;
       s.streams.push([utterId, text]);
       return true;
@@ -90,7 +95,8 @@ function fakeSenders(): SpeechOutSenders & {
       s.stopAll += 1;
       return true;
     },
-    sendFallback(text: string) {
+    sendFallback(text: string, opts?: { voice?: string }) {
+      s.fallbackVoices.push(opts?.voice);
       s.fallbacks.push(text);
       return true;
     },
@@ -217,6 +223,18 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
     expect(depths[depths.length - 1]).toBe(0);
     out.stopSpeaking(); // 空队列停读不重复播报深度
     expect(out.queueDepth).toBe(0);
+  });
+
+  it("音色分槽（cosyvoice 411 根因修复）：流式零音色（走流式引擎缺省）；一次性回退随带 qwen3-tts 设置页音色", () => {
+    const o = new StewardSpeechOut({ senders, createPlayer: () => player, voiceProvider: () => "Cherry" });
+    o.resetAnswer();
+    o.feedRawDelta("第一句。");
+    expect(senders.streamVoices).toEqual([undefined]); // 流式不带音色（qwen3-tts 音色对 cosyvoice = 411）
+    const id1 = senders.streams[0]![0];
+    o.onErrorFrame(id1); // 链死 → answerResult 走一次性回退
+    expect(o.answerResult("answer", "第一句。")).toBe("fallback");
+    expect(senders.fallbackVoices).toEqual(["Cherry"]); // 回退随带设置页音色（qwen3-tts 引擎合法）
+    o.close();
   });
 
   describe("迟到自愈（兜底盲区修复：结果先行判 stream 后链死 → 自动一次性回退）", () => {

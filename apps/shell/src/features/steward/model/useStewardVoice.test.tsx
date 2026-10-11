@@ -28,6 +28,7 @@ import {
   resetSpeechMutexForTest,
   speechLeaseActive,
 } from "@/shared/lib/speech-mutex";
+import { setNotificationQueue } from "@/shared/lib/speech-floor";
 import { VOICE_VOICE_CHECK_PREF_KEY, VOICE_VAD_SENSITIVITY_PREF_KEY, VOICE_ZCR_TOLERANCE_PREF_KEY } from "@/shared/lib/voice-pref";
 import type { EventEnvelope } from "@helix/protocol";
 
@@ -1373,5 +1374,16 @@ describe("useStewardVoice（B3 回声防线）", () => {
     const hit = trace.find((e) => e.fired === true);
     expect(hit?.rms).toBe(0.05);
     expect(trace.length).toBe(2); // 段级打点（压制段一条 + 触发段一条）
+  });
+});
+
+describe("TTS 队列计数（双轨入账：广播/通知轨深度计入 ttsQueue）", () => {
+  it("setNotificationQueue → ttsQueue 随之增减；归零收口", () => {
+    const r = renderHook(() => useStewardVoice(), { wrapper: I18nProvider }).result;
+    expect(r.current.ttsQueue).toBe(0);
+    act(() => setNotificationQueue(3));
+    expect(r.current.ttsQueue).toBe(3);
+    act(() => setNotificationQueue(0));
+    expect(r.current.ttsQueue).toBe(0);
   });
 });
