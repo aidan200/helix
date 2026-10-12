@@ -50,6 +50,7 @@ import { buildTaskOrchestrator } from "./assembly/buildTaskOrchestrator";
 import { buildCliDriving, buildWsDriving } from "./assembly/buildDrivingAdapters";
 import { freezeSearchBackends, migrateLegacyModelConfig, migrateLegacyRuntimeConfig, resolveWsPort } from "./assembly/bootPrelude";
 import { hasActiveJob } from "../application/services/kg/job-activity";
+import { KgTriageAutoTrigger } from "../application/services/kg/KgTriageAutoTrigger";
 import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
 import { singleProjectDirOf } from "./assembly/singleProjectDir";
@@ -430,6 +431,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 批2 WP-C：知识库配置域晚绑引用（KgConfigStore 构造在下方——buildStack
   //  惰性闭包经此读查重阈值生效对，运行期即热）
   let kgConfigRef: KgConfigStore | undefined;
+  // B批：kg-triage 静默点自动触发晚绑引用（构造在 kgResolvers 之后——buildStack
+  //  惰性闭包经此发候选变化通知，构造窗口零调用；触发裁决三关在触发器侧）
+  let kgTriageAutoTriggerRef: KgTriageAutoTrigger | undefined;
   const workspace = new WorkspaceService({
     kv: persistence.runtimeConfig, // KV 底座（AG-06 单写通道；不进 config.json，TR-AD-6）
     fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
@@ -448,6 +452,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "code-review", projectName),
         hasRunningTriageJob: (projectName) =>
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-triage", projectName),
+        // B批：候选台账变化通知 → 自动触发评估（晚绑 ref；防抖在触发器侧，
+        //  发不发由水位/静默门/冷却三关裁决）
+        onCandidateChange: (projectRoot) => kgTriageAutoTriggerRef?.notifyCandidateChange(projectRoot),
         // 批1 WP-B：kg 向量联动面（嵌入经全局默认 embedding 端点单点——
         //  端点缺失/失效 = 嵌入降级 warn 不阻塞写，可选件纪律）
         makeEmbedding: () =>
@@ -1565,6 +1572,22 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskStore: taskStack.orchestratorCore.store,
     skills: taskStack.orchestratorCore.skills,
   });
+
+  // ── kg-triage 静默点自动触发（B批，docs/temp/kg-auto-adjudication-design.md
+  //    红线修订：全自动→静默点自动）：水位（pending ≥20 或最老 ≥48h）+
+  //    静默门（无 pending/running 任务 + 无 active 写租约）+ 6h 冷却，双通道
+  //    评估（写入口候选通知防抖 + 30min sweep 兜底）；发起走 KgTriageService
+  //    .create 准入复用（createdBy="auto" 审计可溯），启动即扫一遍存量。──
+  const kgTriageAutoTrigger = new KgTriageAutoTrigger({
+    triage: kgResolvers.kgTriageResolver,
+    stack: () => workspace.stack(),
+    listJobs: () => taskStack.orchestratorCore.store.listJobs(),
+    leases: () => sessionStack.coordination.leases(),
+    logger,
+  });
+  kgTriageAutoTriggerRef = kgTriageAutoTrigger;
+  kgTriageAutoTrigger.start();
+  kgTriageAutoTrigger.sweep();
 
   // ── driving 接线阶段二（M29 切片，assembly/buildDrivingAdapters）：
   //    system 门面 + dev token/静态产物 + 编排/模型门面 + WS 服务——

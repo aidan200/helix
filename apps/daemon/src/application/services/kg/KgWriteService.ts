@@ -34,6 +34,10 @@ export interface KgWriteServiceDeps {
   readonly vectorSync?: {
     onWriteSuccess(projectRoot: string, op: KnowledgeWriteOp, result: Extract<WriteResult, { ok: true }>): void;
   };
+  /** kg-triage 自动触发挂钩（可选——缺席零动作；B批静默点自动触发）：
+   *  候选台账变化通知（proposeCandidate/decideCandidate 成功后 fire-and-forget
+   *  ——防抖与评估全在触发器侧，钩子内失败 WARN 不阻塞知识写入）。 */
+  readonly autoTriage?: { onCandidateChange(projectRoot: string): void };
 }
 
 export class KgWriteService {
@@ -50,6 +54,14 @@ export class KgWriteService {
     if (error !== null) return { ok: false, error };
     const result = this.deps.store.writeKnowledge(projectRoot, op);
     if (result.ok) this.deps.vectorSync?.onWriteSuccess(projectRoot, op, result);
+    if (result.ok && (op.kind === "proposeCandidate" || op.kind === "decideCandidate")) {
+      try {
+        this.deps.autoTriage?.onCandidateChange(projectRoot);
+      } catch (error) {
+        // 触发器通知绝不影响写入（与 vectorSync 同规：WARN 不阻塞）。
+        void error;
+      }
+    }
     return result;
   }
 }

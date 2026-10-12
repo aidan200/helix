@@ -117,6 +117,11 @@ export function buildKnowledgeStack(deps: {
   hasRunningCodeReviewJob?: (projectName: string) => boolean;
   /** 非终态 kg-triage job 探测（P2；hasRunningReviewJob 同规）。 */
   hasRunningTriageJob?: (projectName: string) => boolean;
+  /** kg-triage 自动触发候选变化通知（B批静默点触发；缺省零动作）：写入口
+   *  proposeCandidate/decideCandidate 成功后回调——组合根接 KgTriageAutoTrigger。
+   *  （与已退役的 notifyWrite 自动 sync 不同类：彼为写后自动同步，此为任务
+   *  发起评估通知，触发与否由水位/静默门/冷却三关裁决。） */
+  onCandidateChange?: (projectRoot: string) => void;
   /** 批1 WP-B 向量联动面（可选——缺席零动作）：嵌入端口工厂 + 默认端点解析
    *  （resolveDefault 单点窄投影；随栈建 KgVectorService——写入口挂钩增量
    *  重嵌 + rebuild 顺带修复缺失向量）。生产 = OpenAiCompatEmbeddingAdapter
@@ -146,7 +151,11 @@ export function buildKnowledgeStack(deps: {
           ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
         })
       : undefined;
-  const writeService = new KgWriteService({ store, ...(vectors !== undefined ? { vectorSync: vectors } : {}) });
+  const writeService = new KgWriteService({
+    store,
+    ...(vectors !== undefined ? { vectorSync: vectors } : {}),
+    ...(deps.onCandidateChange !== undefined ? { autoTriage: { onCandidateChange: deps.onCandidateChange } } : {}),
+  });
   // 检索语义化批：语义召回轨（可选件——嵌入面在场才挂；端点缺失/嵌入失败/
   //  超时服务内降级纯关键词轨，queryService 零感知差异）
   const semantic =
