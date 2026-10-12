@@ -672,6 +672,8 @@ export const zhCN = {
         sandboxOn: "开启",
         sandboxOff: "关闭",
         sandboxNote: "对新会话与新 SubAgent 任务生效；运行中的会话保持原状态。开启后 bash 与文件写入被限制在工作空间与 ~/.helix 内，自检失败自动降级为关闭",
+        sandboxAutoApprove: "提权申请自动通过",
+        sandboxAutoApproveNote: "开启后提权申请（permission_request）不再弹卡确认、自动批准执行；仅提权申请生效，其他确认卡不受影响。立即生效（无需新会话）。注意：agent 将可在无确认的情况下执行沙箱外命令，仅建议受信场景开启",
         groupSummary: "总结",
         summaryEnable: "会话总结",
         summaryTurnsLabel: "总结间隔",

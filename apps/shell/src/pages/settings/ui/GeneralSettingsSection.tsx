@@ -334,6 +334,16 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     setSandboxError(null);
   };
 
+  // 提权自动通过（autoApprove 配置）：部分更新只携带 autoApprove；结果帧
+  // 驱动回填（无乐观更新——TR-84）；与 enabled/extraRoots 不同，立即生效
+  const toggleSandboxAutoApprove = (autoApprove: boolean): void => {
+    if (setSandboxConfig({ autoApprove }) === false) {
+      setSandboxError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setSandboxError(null);
+  };
+
   // 查重阈值提交（失焦/回车）：Number 严校验（parseInt("2.5") 会截成 2 误当
   // 合法——小数/空串必须回落）；值域 [0,1]；非法/未变回落最近已提交值零命令
   const commitKgThreshold = (which: "warn" | "dup"): void => {
@@ -829,6 +839,32 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               {sandboxError}
             </span>
           )}
+        </div>
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.sandboxAutoApprove")}</span>
+          <div className="lang-switch" data-sandbox-auto-approve-switch role="group" aria-label={t("chat.settings.general.sandboxAutoApprove")}>
+            <button
+              type="button"
+              className={cn("hud-btn sm", sandboxCfg?.autoApprove === true ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-sandbox-auto-approve-option="on"
+              aria-pressed={sandboxCfg?.autoApprove === true}
+              onClick={() => toggleSandboxAutoApprove(true)}
+            >
+              {t("chat.settings.general.sandboxOn")}
+            </button>
+            <button
+              type="button"
+              className={cn("hud-btn sm", sandboxCfg?.autoApprove === false ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-sandbox-auto-approve-option="off"
+              aria-pressed={sandboxCfg?.autoApprove === false}
+              onClick={() => toggleSandboxAutoApprove(false)}
+            >
+              {t("chat.settings.general.sandboxOff")}
+            </button>
+          </div>
+          <span className="ag-note" data-sandbox-auto-approve-note>
+            {t("chat.settings.general.sandboxAutoApproveNote")}
+          </span>
         </div>
         <div className="fld">
           <label className="hud-label" htmlFor="sandbox-extra-roots">

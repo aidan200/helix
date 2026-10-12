@@ -40,7 +40,7 @@ const requestAuthList = vi.fn();
 let mockCatalog: { models: { id: string; providerId: string }[] } | null = null;
 let mockAuth: Record<string, { configured: boolean }> = {};
 /** 沙箱开关状态（结果帧驱动回填用可变位）。 */
-let mockSandbox: { enabled: boolean; extraRoots: string[] } | null = null;
+let mockSandbox: { enabled: boolean; extraRoots: string[]; autoApprove: boolean } | null = null;
 /** stale-indicator 批：daemonFreshness 可变位（welcome 承接面——设置页人话时间数据源）。 */
 let mockDaemonFreshness: { startedAt: number; stale: boolean } | null = null;
 const setPortConfig = vi.fn();
@@ -456,7 +456,7 @@ describe("沙箱开关卡（沙箱开关批）", () => {
     fireEvent.click(on);
     expect(setSandboxConfig).toHaveBeenCalledWith({ enabled: true });
     // 结果帧驱动回填（无乐观更新——mock 态变更 + rerender 模拟回执落态）
-    mockSandbox = { enabled: true, extraRoots: [] };
+    mockSandbox = { enabled: true, extraRoots: [], autoApprove: false };
     view.rerender(
       <I18nProvider>
         <ToastProvider>
@@ -468,8 +468,34 @@ describe("沙箱开关卡（沙箱开关批）", () => {
     expect(container.querySelector<HTMLElement>('[data-sandbox-option="off"]')?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("提权自动通过双按钮：点击开启发部分更新 {autoApprove:true}；回执驱动 aria-pressed 翻转（无乐观更新）", () => {
+    mockSandbox = { enabled: true, extraRoots: [], autoApprove: false };
+    const view = ui();
+    const container = view.container;
+    const on = container.querySelector<HTMLElement>('[data-sandbox-auto-approve-option="on"]')!;
+    const off = container.querySelector<HTMLElement>('[data-sandbox-auto-approve-option="off"]')!;
+    expect(on.getAttribute("aria-pressed")).toBe("false");
+    expect(off.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(on);
+    expect(setSandboxConfig).toHaveBeenCalledWith({ autoApprove: true });
+    // 结果帧驱动回填（mock 态变更 + rerender 模拟回执落态）
+    mockSandbox = { enabled: true, extraRoots: [], autoApprove: true };
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(on.getAttribute("aria-pressed")).toBe("true");
+    expect(off.getAttribute("aria-pressed")).toBe("false");
+    // 关闭回写同样只携带 autoApprove（部分更新）
+    fireEvent.click(off);
+    expect(setSandboxConfig).toHaveBeenCalledWith({ autoApprove: false });
+  });
+
   it("extraRoots：编辑 → 保存发部分更新 {extraRoots}；非绝对路径行 → 行内拒绝不发出", () => {
-    mockSandbox = { enabled: true, extraRoots: ["/Users/x/.cache/uv"] };
+    mockSandbox = { enabled: true, extraRoots: ["/Users/x/.cache/uv"], autoApprove: false };
     const { container } = ui();
     const ta = container.querySelector<HTMLTextAreaElement>("[data-sandbox-extra-roots]")!;
     // 未编辑态展示现值

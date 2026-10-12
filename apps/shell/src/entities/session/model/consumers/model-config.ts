@@ -156,8 +156,9 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       break;
     case "config.get_sandbox.result":
     case "config.set_sandbox.result":
-      // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）
-      next = { ...mc, sandbox: { enabled: frame.payload.enabled, extraRoots: frame.payload.extraRoots ?? [] } };
+      // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）；
+      // autoApprove 兑底 false（旧 daemon 回执缺键——自动通过必须显式开启）
+      next = { ...mc, sandbox: { enabled: frame.payload.enabled, extraRoots: frame.payload.extraRoots ?? [], autoApprove: frame.payload.autoApprove === true } };
       break;
     case "config.get_kg.result":
     case "config.set_kg.result":

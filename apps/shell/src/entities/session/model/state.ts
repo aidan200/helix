@@ -351,11 +351,13 @@ export interface PortConfigState {
   overriddenByArgv: boolean;
 }
 
-/** 沙箱开关（与协议 payload 同构；新会话/新任务生效）。 */
+/** 沙箱开关（与协议 payload 同构；enabled/extraRoots 新会话/新任务生效，autoApprove 立即生效）。 */
 export interface SandboxConfigState {
   enabled: boolean;
   /** 额外可写根全局清单（缺省 []——旧 daemon 回执缺键的兑底）。 */
   extraRoots: string[];
+  /** 提权申请自动通过（缺省 false——旧 daemon 回执缺键的兑底）。 */
+  autoApprove: boolean;
 }
 
 /** 总结配置（与协议 SummaryConfigStatePayload 同构——summary.* 通用域：

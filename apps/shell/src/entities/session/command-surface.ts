@@ -691,10 +691,10 @@ export const COMMAND_SURFACE = {
         deps.send(configGetSandboxCommand());
       }
     },
-  /** 沙箱配置写入（新会话/新任务生效——装配期定格，无热切换）。
-   * 部分更新语义：enabled/extraRoots 任选至少一项。send 返回值透传（code-review H8）。 */
+  /** 沙箱配置写入（enabled/extraRoots 新会话/新任务生效——装配期定格，无热切换；autoApprove 立即生效）。
+   * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项。send 返回值透传（code-review H8）。 */
   setSandboxConfig: (deps) =>
-    (patch: { enabled?: boolean; extraRoots?: string[] }): boolean => deps.send(configSetSandboxCommand(patch)),
+    (patch: { enabled?: boolean; extraRoots?: string[]; autoApprove?: boolean }): boolean => deps.send(configSetSandboxCommand(patch)),
   /** 总结配置拉取（通用配置分区进入；未请求态才发；总结器独立化批①）。 */
   requestSummaryConfig: (deps) =>
     () => {

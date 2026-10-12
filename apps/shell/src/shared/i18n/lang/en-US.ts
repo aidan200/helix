@@ -667,6 +667,8 @@ export const enUS = {
         sandboxOn: "On",
         sandboxOff: "Off",
         sandboxNote: "Applies to new sessions and new SubAgent tasks; running sessions keep their state. When on, bash and file writes are confined to the workspace and ~/.helix; auto-degrades to off if the self-check fails",
+        sandboxAutoApprove: "Auto-approve permission requests",
+        sandboxAutoApproveNote: "When on, permission requests (permission_request) skip the confirm card and are approved automatically; only this request kind is affected. Takes effect immediately (no new session needed). Caution: the agent can then run out-of-sandbox commands without confirmation — enable only in trusted setups",
         groupSummary: "Summaries",
         summaryEnable: "Session summary",
         summaryTurnsLabel: "Summary interval",

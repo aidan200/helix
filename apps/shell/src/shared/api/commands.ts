@@ -379,9 +379,9 @@ export function configGetSandboxCommand(): ConfigGetSandboxCommand {
   return { v: PROTOCOL_VERSION, type: "config.get_sandbox", payload: {} };
 }
 
-/** config.set_sandbox：沙箱配置写面（全局命令；新会话/新任务生效）。
- * 部分更新语义：enabled/extraRoots 任选至少一项，未携带项保留现值。 */
-export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?: string[] }): ConfigSetSandboxCommand {
+/** config.set_sandbox：沙箱配置写面（全局命令；enabled/extraRoots 新会话/新任务生效，autoApprove 立即生效）。
+ * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项，未携带项保留现值。 */
+export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?: string[]; autoApprove?: boolean }): ConfigSetSandboxCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: patch };
 }
 
