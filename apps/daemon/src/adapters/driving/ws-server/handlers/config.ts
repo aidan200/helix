@@ -193,13 +193,14 @@ export function handleConfigGetSandbox(ctx: WsCommandContext): void {
     sessionId: SYSTEM_SESSION_ID,
     channel: "model",
     type: "config.get_sandbox.result",
-    payload: { enabled: ctx.sandboxConfig.current().enabled, extraRoots: ctx.sandboxConfig.current().extraRoots },
+    payload: { enabled: ctx.sandboxConfig.current().enabled, extraRoots: ctx.sandboxConfig.current().extraRoots, autoApprove: ctx.sandboxConfig.current().autoApprove },
   };
   ctx.sendNow(sender, frame);
 }
 
-/** config.set_sandbox：沙箱配置写面（点对点回执；新会话/新任务生效）。
- * 部分更新语义：enabled/extraRoots 任选至少一项，未携带项保留现值合并写。 */
+/** config.set_sandbox：沙箱配置写面（点对点回执；enabled/extraRoots 新会话/新任务生效，
+ * autoApprove 运行期即热）。
+ * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项，未携带项保留现值合并写。 */
 export function handleConfigSetSandbox(ctx: WsCommandContext): void {
   if (ctx.sandboxConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（sandboxConfig）");
@@ -207,8 +208,9 @@ export function handleConfigSetSandbox(ctx: WsCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const enabled = ctx.payload.enabled;
   const extraRoots = ctx.payload.extraRoots;
-  if (enabled === undefined && extraRoots === undefined) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled / payload.extraRoots 至少携带一项");
+  const autoApprove = ctx.payload.autoApprove;
+  if (enabled === undefined && extraRoots === undefined && autoApprove === undefined) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled / payload.extraRoots / payload.autoApprove 至少携带一项");
   }
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
@@ -216,10 +218,14 @@ export function handleConfigSetSandbox(ctx: WsCommandContext): void {
   if (extraRoots !== undefined && (!Array.isArray(extraRoots) || !extraRoots.every((r) => typeof r === "string"))) {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.extraRoots 应为 string[]");
   }
+  if (autoApprove !== undefined && typeof autoApprove !== "boolean") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.autoApprove 应为 boolean");
+  }
   const cur = ctx.sandboxConfig.current();
   const next = {
     enabled: enabled ?? cur.enabled,
     extraRoots: extraRoots ?? cur.extraRoots,
+    autoApprove: autoApprove ?? cur.autoApprove,
   };
   void ctx.sandboxConfig
     .set(next)

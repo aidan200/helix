@@ -162,7 +162,7 @@ async function migrateLegacySandboxConfig(paths: HelixPaths, persistence: Persis
     if (typeof raw.enabled === "boolean") {
       const current = persistence.runtimeConfig.get("sandbox_config");
       if (current === undefined) {
-        await persistence.sandboxConfig.set({ enabled: raw.enabled, extraRoots: [] });
+        await persistence.sandboxConfig.set({ enabled: raw.enabled, extraRoots: [], autoApprove: false });
       }
       renameSync(legacyPath, migratedPath);
       logger.info(`已迁移沙箱开关（沙箱开关批）：sandbox.json{enabled:${raw.enabled}} → KV sandbox_config；原文改名 sandbox.json.migrated`);

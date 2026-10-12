@@ -19,6 +19,13 @@ export interface SandboxConfig {
    * 的正解是纳入同一 workspace，不是开洞）。
    */
   extraRoots: string[];
+  /**
+   * 提权申请自动通过（缺省 false）：true 时 permission_request 不弹卡确认、
+   * 自动批准裸跑（AskService 仲裁点单点短路；仅该 kind 生效）。
+   * 与 enabled/extraRoots 的装配期定格不同——**运行期即热**（每次申请读现值），
+   * 勾选后立即生效。设置页「通用 → 命令沙箱」配置。
+   */
+  autoApprove: boolean;
 }
 
 export interface SandboxConfigPort {

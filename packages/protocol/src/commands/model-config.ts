@@ -126,12 +126,15 @@ export interface ConfigGetPortCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_port";
 }
 
-/** config.set_sandbox 载荷：沙箱配置（新会话/新任务生效——装配期定格读取）。
- * 部分更新语义：enabled/extraRoots 任选至少一项，未携带项保留现值。 */
+/** config.set_sandbox 载荷：沙箱配置（enabled/extraRoots 新会话/新任务生效——装配期定格读取；
+ * autoApprove 运行期即热——每次提权申请现值判定）。
+ * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项，未携带项保留现值。 */
 export interface ConfigSetSandboxPayload {
   enabled?: boolean;
   /** 额外可写根（全局清单，绝对路径；工具链/环境目录逃生门）。 */
   extraRoots?: string[];
+  /** 提权申请自动通过（permission_request 免弹卡确认自动批准；仅该 kind 生效，缺省 false）。 */
+  autoApprove?: boolean;
 }
 export interface ConfigSetSandboxCommand extends CommandFrame<ConfigSetSandboxPayload> {
   type: "config.set_sandbox";

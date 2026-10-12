@@ -70,6 +70,8 @@ export interface ConfigGetSandboxResultPayload {
   enabled: boolean;
   /** 额外可写根全局清单（缺省 []）。 */
   extraRoots: string[];
+  /** 提权申请自动通过生效值（permission_request 免弹卡自动批准；缺省 false）。 */
+  autoApprove: boolean;
 }
 export interface ConfigGetSandboxResultEvent extends EventFrame<ConfigGetSandboxResultPayload> {
   channel?: "model";
@@ -81,6 +83,8 @@ export interface ConfigSetSandboxResultPayload {
   enabled: boolean;
   /** 额外可写根全局清单（合并写后的全量现值）。 */
   extraRoots: string[];
+  /** 提权申请自动通过（合并写后的全量现值）。 */
+  autoApprove: boolean;
 }
 export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandboxResultPayload> {
   channel?: "model";
