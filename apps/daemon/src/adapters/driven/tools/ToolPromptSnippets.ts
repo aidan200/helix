@@ -30,7 +30,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
     "path 相对会话目录（多项目 workspace 即其根，跨项目带项目目录前缀，无需先 cd）", // H11：原文案误导为正则；现有 regex 开关，两面对齐（缺省子串）
   web_search: "联网搜索（DuckDuckGo 主/Bing 兜底），返回标题/链接/摘要列表",
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
-  agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",
+  agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）；任务派发携带 batchId 即机械接线批次行",
   agent_send: "向运行中的 SubAgent 实例追加补充指示",
   agent_status: "查询 SubAgent 实例状态（含挂起中）；用户询问进度或要恢复挂起实例时先用",
   agent_inspect: "核实 SubAgent 实例真实执行轨迹（进展零增量时判断是否死循环）",
@@ -48,7 +48,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   task_insert_batch: "在指定阶段插入批次行（划批次落库，返回批次号；暂停/终态会被拒）",
   task_assembly_done:
     "申报阶段装配完成（execute 阶段批次划完后申报：机械校验批次非零/前序阶段全 done，通过后机械驱动派发轮——不要在本轮自行派发）",
-  task_dispatch_batch: "批次派发落章（批次号 + 实例 id；仅 pending/failed 可派发）",
+  task_dispatch_batch: "批次补接线（spawn 自动接线的补救口，同实例重复落章幂等；仅 pending/failed 可派发）",
   task_advance_stage: "推进阶段行到 running（上一阶段产物落库后推进下一阶段）",
   task_stage_artifact: "聚合阶段产物并收口阶段（你给人类可读摘要，产出节点 id 集由系统按批次反查）",
   task_complete_job: "申报任务完成（系统机械复核全部阶段行 done 后收口）",

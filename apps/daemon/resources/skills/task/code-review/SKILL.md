@@ -66,7 +66,7 @@ task:
 ### 分批评审（execute 阶段——装配轮 + 派发轮机械分段）
 
 - **装配轮**：按底账批次划分逐批 `task_insert_batch`（**每划定一批立即落行**——页面逐行可见，不攒批连发），全部划完后 `task_assembly_done` 申报装配完成并**结束本轮**（系统机械校验后注入【装配完成】通知驱动派发轮——不要在本轮自行派发）。
-- **派发轮**：收到【装配完成】通知后逐批 `agent_spawn`（subagent-code-reviewer）+ `task_dispatch_batch` 接线（受 maxConcurrent=3 排队语义约束）。
+- **派发轮**：收到【装配完成】通知后逐批 `agent_spawn`（subagent-code-reviewer，携带 batchId 即机械接线；漏接线补救才单独 `task_dispatch_batch`）（受 maxConcurrent=3 排队语义约束）。
 - **收口**：本阶段批次全部收口后 `task_stage_artifact` 聚合（机械门：批次未全收口 done 会被拒）。
 - **验收**：模块零遗漏（评审计数 = 底账计数）；每条发现四要素齐全；批次 plan 全 resolve。
 

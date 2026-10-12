@@ -19,7 +19,7 @@ task:
 
 执行形态是**无人工交互的多 agent 编排**：你划批次、装配批次 brief、派批次 SubAgent、读 closure 判成败、推进或重试。全程没有中途人审门——没有「每层等审」的环节，你的判断依据只有代码事实、上层已产出的知识与本 SOP 的约束。产出质量不靠执行中拦截，靠批次 brief 里的写作规范前置 + 任务结束后人工修正（修改/supersede）兜底。
 
-**装配与派发分离（机械驱动分段）**：每个 execute 阶段（L0/L1/L2）分两轮推进——装配轮：通读上层产出与代码结构后逐批 `task_insert_batch`（**每划定一批立即落行**，页面逐行可见），全部划完后 `task_assembly_done` 申报装配完成并结束本轮（系统注入【装配完成】通知驱动派发轮——不要在本轮自行派发）；派发轮：按通知逐批 spawn + `task_dispatch_batch` 接线。阶段产物聚合（`task_stage_artifact`）须本阶段批次全部收口（机械门）。
+**装配与派发分离（机械驱动分段）**：每个 execute 阶段（L0/L1/L2）分两轮推进——装配轮：通读上层产出与代码结构后逐批 `task_insert_batch`（**每划定一批立即落行**，页面逐行可见），全部划完后 `task_assembly_done` 申报装配完成并结束本轮（系统注入【装配完成】通知驱动派发轮——不要在本轮自行派发）；派发轮：按通知逐批 `agent_spawn` 携带 batchId（spawn 即机械接线；漏接线补救才单独 `task_dispatch_batch`）。阶段产物聚合（`task_stage_artifact`）须本阶段批次全部收口（机械门）。
 
 **worktree 豁免（W-R5）：本任务类型不开 worktree，主工作树执行**——kg 库是 SQLite 单写面，隔离副本各自写库合并必分叉；批次 SubAgent 不适用通用开发任务的 worktree 隔离纪律。
 

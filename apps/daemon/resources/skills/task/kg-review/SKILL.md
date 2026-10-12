@@ -55,7 +55,7 @@ task:
 
 ### L1 规则册逐节点评审（execute 阶段——以 L0 清单为上下文）
 
-- **装配与派发分段**：装配轮按节点域分组逐批 `task_insert_batch`（每划一组立即落行）→ `task_assembly_done` 申报后本轮收尾；派发轮经【装配完成】通知逐批 spawn + `task_dispatch_batch` 接线。
+- **装配与派发分段**：装配轮按节点域分组逐批 `task_insert_batch`（每划一组立即落行）→ `task_assembly_done` 申报后本轮收尾；派发轮经【装配完成】通知逐批 `agent_spawn` 携带 batchId（spawn 即机械接线；漏接线补救才单独 `task_dispatch_batch`）。
 - **做什么**：逐条评审全部规则节点（TR- 族）——四问逐条过：代码现实成立吗（规则约束的代码/架构还是这个形态吗）？scene 缺失或不准吗？与其他规则矛盾吗？body 合规吗（条款式/预算/禁计数快照/digest 检索关键词/为什么存在段）？
 - **验收**：规则节点零遗漏（评审数 = active 规则节点数）；每个发现按③纪律落账；scene 缺失的规则已直补。
 
