@@ -218,7 +218,7 @@ const RESUME_NOTICE = "【恢复通知】任务已恢复（running）——按�
 /** 推进检查重驱文案（收场后无在跑实例 + 未完批次/阶段：提示 LLM 推进或收口——涵盖装配期零批次死局）。 */
 const PROGRESS_CHECK_NOTICE = [
   "【推进检查】驱动收场后系统检测：无在跑实例但任务存在未完批次/阶段。",
-  "请按任务 skill SOP 与批次行现场继续推进：尚未划批的先划分批次并 task_insert_batch 落行；已划批的派发 pending 批次（spawn 后立即 task_dispatch_batch 接线）；聚合已收口阶段产物；或申报任务完成/失败。",
+  "请按任务 skill SOP 与批次行现场继续推进：尚未划批的先划分批次并 task_insert_batch 落行；已划批的派发 pending 批次（agent_spawn 携带 batchId 即自动接线；仅补接线才单独 task_dispatch_batch）；聚合已收口阶段产物；或申报任务完成/失败。",
   "若无实质推进动作，系统将把任务失败收口（failJob）。",
 ].join("\n");
 
@@ -393,7 +393,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     const name = stages.find((s) => s.seq === stageSeq)?.name ?? `#${stageSeq}`;
     this.wake(
       loop,
-      `【装配完成】阶段 #${stageSeq}「${name}」装配 ${batchCount} 批已就绪（机械校验通过：前序阶段 done + 非零批次）。进入派发轮：逐批 agent_spawn + task_dispatch_batch 接线；不要新增或改动批次行，失败重派由引擎自动负责。`,
+      `【装配完成】阶段 #${stageSeq}「${name}」装配 ${batchCount} 批已就绪（机械校验通过：前序阶段 done + 非零批次）。进入派发轮：逐批 agent_spawn 携带 batchId（spawn 即机械接线，回执 wiring 字段即落章结果；漏接线补救才单独 task_dispatch_batch）；不要新增或改动批次行，失败重派由引擎自动负责。`,
     );
   }
 
@@ -573,7 +573,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       );
       this.wake(
         loop,
-        `【派发纠偏】实例 ${agentId} 已收口但未接线任何批次行，产物已丢弃。若你正准备对该实例 task_dispatch_batch：机械面会拦截终态实例接线并把批次自动转失败收口、由引擎重派新实例——不要再对该实例操作；后续新批次请 spawn 后立即 task_dispatch_batch 接线。`,
+        `【派发纠偏】实例 ${agentId} 已收口但未接线任何批次行，产物已丢弃。若你正准备对该实例 task_dispatch_batch：机械面会拦截终态实例接线并把批次自动转失败收口、由引擎重派新实例——不要再对该实例操作；后续新批次请 agent_spawn 携带 batchId 自动接线（spawn 即落章，不再需要单独 task_dispatch_batch）。`,
       );
       return;
     }
@@ -823,7 +823,30 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     // 缺省与 dispatch 缺省一致——task-worker 已撤，单源 DEFAULT_PROFILE_KIND）
     const profileKind = job !== undefined ? dispatchProfileKindOf(job.type) : DEFAULT_PROFILE_KIND;
     return {
-      spawn: (task: string) => this.spawnBatch(jobId, task),
+      // 派发原子化（fix A）：携带 batchId 即 spawn 后机械接线（与 reDispatch
+      // 同款落章）——消灭「spawn 后忘记/迟到 task_dispatch_batch」的游离
+      // 实例类事故；接线失败不吞 spawn（实例已起），回执 wiring.failed 提示补救
+      spawn: async (task: string, _profileKind?: string, _reportIntervalMs?: number, options?: { batchId?: string }) => {
+        const outcome = await this.spawnBatch(jobId, task);
+        if (outcome.status === "rejected" || options?.batchId === undefined) return outcome;
+        try {
+          const wiring = await this.deps.taskEngine.dispatchBatch(options.batchId, outcome.agentId);
+          return outcome.status === "run"
+            ? { status: "run" as const, agentId: outcome.agentId, wiring }
+            : { status: "queued" as const, agentId: outcome.agentId, position: outcome.position, wiring };
+        } catch (err) {
+          const detail = (err as Error).message;
+          this.warn(`派发接线失败（任务 ${jobId} 批次 ${options.batchId} 实例 ${outcome.agentId}）：${detail}——实例已起未落章，可 task_dispatch_batch 补接线`);
+          return outcome.status === "run"
+            ? { status: "run" as const, agentId: outcome.agentId, wiring: { status: "failed" as const, detail } }
+            : {
+                status: "queued" as const,
+                agentId: outcome.agentId,
+                position: outcome.position,
+                wiring: { status: "failed" as const, detail },
+              };
+        }
+      },
       send: () => ({ delivered: false, detail: "任务批次实例不支持编排会话消息注入" }),
       status: (agentId) => {
         if (agentId === undefined) return [];
@@ -892,7 +915,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       "",
       "【接管与推进说明】本任务当前 pending=待接管：task_insert_batch / task_advance_stage / task_stage_artifact 任一动作即接管激活（pending→running）——不存在人审门；skill 的 confirm 字段是「开启前对话确认」语义（发起侧已完成），不是执行中的门。阶段按冻结序推进：前序阶段全部 done 后才可对后续阶段插批/推进/聚合（机械守卫，越序会被拒）。",
       "",
-      "【派发纪律】running/failed 批次已由引擎派发或自动重派（上表实例号即证据）——不要对它们自行另派实例；新批次须 insertBatch 落行、spawn 后立即 task_dispatch_batch 接线，未接线实例的产物会被丢弃；接线已终态实例会被机械转失败收口并由引擎重派，无需你另派。",
+      "【派发纪律】running/failed 批次已由引擎派发或自动重派（上表实例号即证据）——不要对它们自行另派实例；新批次须 insertBatch 落行、agent_spawn 携带 batchId 自动接线（spawn 即机械落章），未接线实例的产物会被丢弃；接线已终态实例会被机械转失败收口并由引擎重派，无需你另派。",
       "",
       "【任务 skill 全文】",
       skillText ?? `（skill "${job.type}" 全文不可得——按任务类型名与阶段行自行组织批次划分，或申报任务失败。）`,

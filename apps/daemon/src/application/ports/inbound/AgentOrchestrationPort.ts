@@ -9,10 +9,20 @@ import type { InstanceState, WriteMode } from "../../../domain/agent/AgentInstan
  * 本文件只有接口/类型定义（port 铁律 AG-01：零实现）。
  */
 
-/** spawn 判定结果（SchedulerService.spawn 同形状）。 */
+/**
+ * 派发原子化接线结果（options.batchId 携带时由任务编排口机械落章并附带）：
+ * dispatched=接线成功；converted-failed=接线前实例已终态（迟到接线守卫）
+ * 批次转失败收口；failed=接线调用本身失败（附原因，补救走 task_dispatch_batch）。
+ */
+export type BatchWiringOutcome =
+  | { readonly status: "dispatched" }
+  | { readonly status: "converted-failed"; readonly retryScheduled: boolean }
+  | { readonly status: "failed"; readonly detail: string };
+
+/** spawn 判定结果（SchedulerService.spawn 同形状；wiring 仅任务编排口携带）。 */
 export type SpawnOutcome =
-  | { readonly status: "run"; readonly agentId: string }
-  | { readonly status: "queued"; readonly agentId: string; readonly position: number }
+  | { readonly status: "run"; readonly agentId: string; readonly wiring?: BatchWiringOutcome }
+  | { readonly status: "queued"; readonly agentId: string; readonly position: number; readonly wiring?: BatchWiringOutcome }
   | { readonly status: "rejected"; readonly error: string };
 
 /** send 转投结果：delivered=已投给执行载体（turn 边界生效）；否则附原因说明。 */
@@ -109,12 +119,17 @@ export interface AgentOrchestrationPort {
    * options.writes（U3 写面声明三档，判断在 LLM 执行在 daemon）：缺省
    * shared（现状行为）；readonly 摘三写工具+纪律后缀；isolated 机械
    * git worktree（非 git 仓工作目录 → 异步收口 failed 带原因）。
+   *
+   * options.batchId（派发原子化）：任务批次派发用——携带即由实现在
+   * spawn 成功后机械接线批次行（等价旧 task_dispatch_batch 落章，三步
+   * 并一步），接线结果经 SpawnOutcome.wiring 回执；非任务实现忽略该
+   * 参数（工具面以 batchIdIgnored 明示）。
    */
   spawn(
     task: string,
     profileKind?: string,
     reportIntervalMs?: number,
-    options?: { writes?: WriteMode },
+    options?: { writes?: WriteMode; batchId?: string },
   ): SpawnOutcome | Promise<SpawnOutcome>;
   /**
    * 向运行中实例注入消息（AD-7⑤：SchedulerService.send → runner.send →

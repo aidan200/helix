@@ -44,6 +44,14 @@ const spawnParameters = {
         "daemon 机械建隔离 worktree 执行（closure 携 worktree 路径，物理防互踩，" +
         "merge 归主会话检查点）。纯研究型任务显式声明 readonly 可避免意外写入。",
     },
+    batchId: {
+      type: "string",
+      description:
+        "任务批次派发原子化（仅任务编排会话生效）：携带批次号即在 spawn 后机械接线" +
+        "批次行（等价旧 task_dispatch_batch 落章，三步并一步），接线结果随回执 wiring 字段" +
+        "返回；漏接线是产物丢弃事故源，派发批次实例必须携带。其余会话携带会被忽略" +
+        "（回执 batchIdIgnored:true）。",
+    },
   },
   required: ["task"],
   additionalProperties: false,
@@ -108,23 +116,38 @@ export function createAgentSpawnTool(
     parameters: spawnParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { task, profileKind, reportIntervalMs, writes } = params as {
+      const { task, profileKind, reportIntervalMs, writes, batchId } = params as {
         task: string;
         profileKind?: string;
         reportIntervalMs?: number;
         writes?: "readonly" | "shared" | "isolated";
+        batchId?: string;
       };
-      const outcome = await orchestration.spawn(task, profileKind, reportIntervalMs, { writes });
+      const outcome = await orchestration.spawn(task, profileKind, reportIntervalMs, { writes, batchId });
       if (outcome.status === "rejected") {
         // 队列满报错回 LLM（reject 通路汇流）：以异常表达失败（pi 工具
         // 惯例），CoreToolExecutor 转结构化 error 结果，文案即调度器中文说明
         throw new Error(outcome.error);
       }
-      return textResult(
+      const body: Record<string, unknown> =
         outcome.status === "queued"
-          ? JSON.stringify({ agentId: outcome.agentId, spawned: true, queued: true, position: outcome.position })
-          : JSON.stringify({ agentId: outcome.agentId, spawned: true, queued: false }),
-      );
+          ? { agentId: outcome.agentId, spawned: true, queued: true, position: outcome.position }
+          : { agentId: outcome.agentId, spawned: true, queued: false };
+      if (batchId !== undefined) {
+        if (outcome.wiring !== undefined) {
+          body.wiring = outcome.wiring;
+          if (outcome.wiring.status === "converted-failed") {
+            body.note =
+              `实例 ${outcome.agentId} 已终态（接线被机械拦截）——批次已转失败收口；` +
+              (outcome.wiring.retryScheduled ? "引擎将自动重派新实例，勿自行另派。" : "重试预算耗尽已上浮任务失败。");
+          } else if (outcome.wiring.status === "failed") {
+            body.note = `批次接线失败（${outcome.wiring.detail}）——实例已起但未落章，请用 task_dispatch_batch 补接线。`;
+          }
+        } else {
+          body.batchIdIgnored = true; // 非任务编排口（调度器直连）不接线——明示而非静默
+        }
+      }
+      return textResult(JSON.stringify(body));
     },
   };
 }

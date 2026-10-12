@@ -385,6 +385,12 @@ export class TaskEngineService implements TaskEnginePort {
 
   async dispatchBatch(batchId: string, instanceId: string): Promise<DispatchBatchOutcome> {
     const batch = this.mustBatch(batchId);
+    // 幂等接线（派发原子化）：同实例重复落章为 no-op——spawn 自动接线后
+    // LLM 可能仍按旧三步补调 task_dispatch_batch，不误伤；换实例仍受下方
+    // assertBatchRunnable 状态机守卫拒绝（不可把 running 批次重接到另一实例）
+    if (batch.status === "running" && batch.instanceId === instanceId) {
+      return { status: "dispatched" };
+    }
     const job = this.mustJob(batch.jobId);
     if (job.status !== "running") {
       throw new TaskError("task.invalid_state", `任务 ${batch.jobId} 当前状态 ${job.status}，不派发批次`);
