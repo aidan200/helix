@@ -31,7 +31,7 @@ export interface TaskSummaryDto {
   readonly title: string;
   readonly status: JobStatus;
   readonly projects: readonly string[];
-  readonly createdBy: "page" | "chat";
+  readonly createdBy: "page" | "chat" | "auto";
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly progress: TaskProgress | null;

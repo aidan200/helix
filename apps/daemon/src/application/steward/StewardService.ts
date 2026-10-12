@@ -815,7 +815,7 @@ export interface StewardServiceDeps {
       type: string;
       projects: readonly string[];
       params: Record<string, unknown>;
-      createdBy: "page" | "chat";
+      createdBy: "page" | "chat" | "auto";
     }): Promise<{ jobId: string }>;
   };
   /** A2：code-review 前置校验——项目 git 仓存在性（组合根 fs 注入；

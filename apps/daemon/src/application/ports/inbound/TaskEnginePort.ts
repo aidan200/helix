@@ -29,8 +29,8 @@ export interface CreateTaskInput {
   readonly params: Record<string, unknown>;
   /** free 策略阶段的发起者确认列表（fixed 策略忽略；缺则拒绝）。 */
   readonly confirmedStages?: readonly string[];
-  /** 创建宿主（AD-7：page | chat）。 */
-  readonly createdBy: "page" | "chat";
+  /** 创建宿主（AD-7：page | chat；auto = kg-triage 自动触发静默发起，审计面可区分）。 */
+  readonly createdBy: "page" | "chat" | "auto";
 }
 
 /**

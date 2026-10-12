@@ -103,7 +103,7 @@ export class KgTriageService {
     return { eligible: true };
   }
 
-  async create(project: string): Promise<KgTriageResult<KgTriageCreateView>> {
+  async create(project: string, opts?: { readonly createdBy?: "page" | "auto" }): Promise<KgTriageResult<KgTriageCreateView>> {
     const resolved = this.deps.project.resolve(project);
     if (resolved === undefined) {
       return {
@@ -135,7 +135,7 @@ export class KgTriageService {
       projectName,
       slotBusyError: () => ({ code: "kg.triage.not_eligible", message: TASK_RUNNING_MESSAGE }),
       createTask: () =>
-        this.deps.taskEngine.createTask({ type: "kg-triage", projects: [projectName], params: { projectRoot }, createdBy: "page" }),
+        this.deps.taskEngine.createTask({ type: "kg-triage", projects: [projectName], params: { projectRoot }, createdBy: opts?.createdBy ?? "page" }),
     });
     if (!created.ok)
       return {

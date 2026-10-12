@@ -22,8 +22,8 @@ export interface JobData {
   /** 项目标签集（JSON 数组列；0..n 类型空数组合法，AD-8）。 */
   readonly projects: readonly string[];
   readonly status: JobStatus;
-  /** 创建宿主（AD-7：page | chat）。 */
-  readonly createdBy: "page" | "chat";
+  /** 创建宿主（AD-7：page | chat | auto——auto = kg-triage 自动触发）。 */
+  readonly createdBy: "page" | "chat" | "auto";
   readonly createdAt: string;
   readonly updatedAt: string;
   /** 失败理由（终态 failed 携带；运行中 null）。 */

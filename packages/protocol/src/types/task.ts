@@ -23,8 +23,8 @@ import type { EventFrame } from "../envelope";
 /** 任务六态（wire 值 = 后端状态机原值；前端展示映射 pending→装配中/done→已完成只发生在展示层，契约 §0）。 */
 export type TaskStatus = "pending" | "running" | "paused" | "done" | "failed" | "cancelled";
 
-/** 任务来源（双宿主如实呈现，AD-7/R-9）。 */
-export type TaskCreatedBy = "page" | "chat";
+/** 任务来源（三宿主如实呈现，AD-7/R-9；auto = kg-triage 静默点自动触发）。 */
+export type TaskCreatedBy = "page" | "chat" | "auto";
 
 // ── 列表行（task.list；契约 §1） ─────────────────────────────
 
