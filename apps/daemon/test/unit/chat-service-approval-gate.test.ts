@@ -68,14 +68,14 @@ class GatedStubEngine implements AgentEnginePort {
 /** AskService 桩：request 记录入参，按剧本裁决。 */
 class StubAsk {
   requests: { sessionId: string; instanceId: string; command: string; reason: string; kind?: string }[] = [];
-  constructor(private readonly outcome: "approved" | "denied" | "timeout" | "throw") {}
+  constructor(private readonly outcome: "approved" | "denied" | "timeout" | "auto_approved" | "throw") {}
   request(input: {
     sessionId: string;
     instanceId: string;
     command: string;
     reason: string;
     kind?: string;
-  }): Promise<"approved" | "denied" | "timeout"> {
+  }): Promise<"approved" | "denied" | "timeout" | "auto_approved"> {
     this.requests.push(input);
     if (this.outcome === "throw") return Promise.reject(new Error("会话已有挂起的提权申请"));
     return Promise.resolve(this.outcome);
@@ -104,6 +104,13 @@ describe("ChatService engine_paused 消费（审批闸接线批）", () => {
     expect(ask.requests).toEqual([
       { sessionId: expect.any(String), instanceId: "main", command: "bun install -g pkg", reason: "需要全局安装", kind: "permission_request" },
     ]);
+    expect(engine.resumes).toEqual([{ pauseToken: "tok-1", decision: { kind: "approve" } }]);
+  });
+
+  test("auto_approved（提权自动通过）→ 同 resume(approve)：放行工具裸跑", async () => {
+    const ask = new StubAsk("auto_approved");
+    const engine = new GatedStubEngine(GATE_ARGS);
+    await runOnce(engine, ask);
     expect(engine.resumes).toEqual([{ pauseToken: "tok-1", decision: { kind: "approve" } }]);
   });
 

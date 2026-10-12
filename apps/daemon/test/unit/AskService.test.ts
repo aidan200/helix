@@ -138,3 +138,53 @@ describe("AskService（提权申请仲裁）", () => {
     expect(kv.data.has("ask_pending:s-bad")).toBe(false);
   });
 });
+
+describe("AskService（提权自动通过 autoApproved 配置）", () => {
+  test("autoApprove 开 → 直接裁 auto_approved：零弹卡（不发 ask.started/不落 pending/不计时）", async () => {
+    const nowRef = { t: 0 };
+    const base = makeDeps(nowRef);
+    const svc = new AskService({ ...base.deps, autoApprove: () => true });
+    const outcome = await svc.request({ sessionId: "s1", instanceId: "i1", command: "npm i -g x", reason: "r" });
+    expect(outcome).toBe("auto_approved");
+    expect(base.events).toHaveLength(0); // 零 ask.started/ask.resolved
+    expect(svc.pendingOf("s1")).toBeNull();
+    expect(base.kv.data.has("ask_pending:s1")).toBe(false);
+  });
+
+  test("autoApprove 判定运行期即热：每次 request 现值读取（翻转后无需重建服务）", async () => {
+    const nowRef = { t: 0 };
+    const base = makeDeps(nowRef);
+    let on = false;
+    const svc = new AskService({ ...base.deps, autoApprove: () => on });
+    // 现值 false → 正常卡片流程
+    const p = svc.request({ sessionId: "s1", instanceId: "i1", command: "c", reason: "r" });
+    expect(base.events).toHaveLength(1);
+    expect(base.events[0]).toMatchObject({ type: "ask.started" });
+    svc.answer("s1", "ask-1", false);
+    await expect(p).resolves.toBe("denied");
+    // 翻开 → 后续申请立即自动通过
+    on = true;
+    await expect(svc.request({ sessionId: "s1", instanceId: "i1", command: "c2", reason: "r" })).resolves.toBe("auto_approved");
+  });
+
+  test("autoApprove 缺省不注入 → 行为零变（正常弹卡）", async () => {
+    const nowRef = { t: 0 };
+    const base = makeDeps(nowRef);
+    const svc = new AskService(base.deps);
+    const p = svc.request({ sessionId: "s1", instanceId: "i1", command: "c", reason: "r" });
+    expect(base.events).toHaveLength(1);
+    expect(svc.pendingOf("s1")).not.toBeNull();
+    svc.answer("s1", "ask-1", true);
+    await expect(p).resolves.toBe("approved");
+  });
+
+  test("自动通过不影响单 pending 不变式（短路路径零 pending 产生）", async () => {
+    const nowRef = { t: 0 };
+    const base = makeDeps(nowRef);
+    const svc = new AskService({ ...base.deps, autoApprove: () => true });
+    // 连发多个申请：全部即裁，互不阻塞、无一挂起
+    await expect(svc.request({ sessionId: "s1", instanceId: "i1", command: "c1", reason: "r" })).resolves.toBe("auto_approved");
+    await expect(svc.request({ sessionId: "s1", instanceId: "i2", command: "c2", reason: "r" })).resolves.toBe("auto_approved");
+    expect(svc.pendingOf("s1")).toBeNull();
+  });
+});

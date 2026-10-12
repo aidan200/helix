@@ -198,7 +198,7 @@ export interface SubagentLauncherDeps {
    * 目标——父进程 AskService 单例（卡片弹在归属会话页）。会话归属由本侧
    * instance 注册裁决（子上行不携 sessionId，防伪造）。缺省 → ok:false「未装配」。
    */
-  readonly askService?: { request: (input: { sessionId: string; instanceId: string; command: string; reason: string }) => Promise<"approved" | "denied" | "timeout"> };
+  readonly askService?: { request: (input: { sessionId: string; instanceId: string; command: string; reason: string }) => Promise<"approved" | "denied" | "timeout" | "auto_approved"> };
   /** tool-res 出口 result 截断上限字节（可注入；缺省 256KB，wire.ts 常量）。 */
   readonly toolResultMaxBytes?: number;
   /** 线协议观测面（测试断言/诊断；WS 事件映射接线点）。 */

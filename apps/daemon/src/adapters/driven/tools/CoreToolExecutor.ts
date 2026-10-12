@@ -432,7 +432,10 @@ export class CoreToolExecutor implements ToolExecutorPort {
       // 接线批）切纯裸跑版（审批前置到 beforeToolCall，execute 防双卡片）。
       tools.push(
         options.permissionRequestGated === true
-          ? createPermissionRequestGatedTool({ unsandboxedExec: options.permissionRequest.unsandboxedExec })
+          ? createPermissionRequestGatedTool({
+              unsandboxedExec: options.permissionRequest.unsandboxedExec,
+              ...(options.permissionRequest.autoApprove !== undefined ? { autoApprove: options.permissionRequest.autoApprove } : {}),
+            })
           : createPermissionRequestTool(options.permissionRequest),
       );
     }

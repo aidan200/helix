@@ -17,7 +17,7 @@ import type { ChildOutboundLine, ToolResponseLine } from "../transport/wire";
 export const REMOTE_ASK_TIMEOUT_MS = 90_000;
 
 interface PendingEntry {
-  readonly resolve: (value: "approved" | "denied" | "timeout") => void;
+  readonly resolve: (value: "approved" | "denied" | "timeout" | "auto_approved") => void;
   readonly reject: (err: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
 }
@@ -38,7 +38,7 @@ export class RemoteAskPort {
     if (entry === undefined) return;
     this.pending.delete(line.reqId);
     clearTimeout(entry.timer);
-    if (line.ok) entry.resolve(line.value as "approved" | "denied" | "timeout");
+    if (line.ok) entry.resolve(line.value as "approved" | "denied" | "timeout" | "auto_approved");
     else entry.reject(new Error(line.error));
   }
 
@@ -56,7 +56,7 @@ export class RemoteAskPort {
    * sessionId/instanceId 由装配面绑定传入但不上 wire（父侧以 instance
    * 注册表裁决会话归属，子上行只携 command/reason）。
    */
-  request(input: { sessionId: string; instanceId: string; command: string; reason: string }): Promise<"approved" | "denied" | "timeout"> {
+  request(input: { sessionId: string; instanceId: string; command: string; reason: string }): Promise<"approved" | "denied" | "timeout" | "auto_approved"> {
     const reqId = ++this.nextReqId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

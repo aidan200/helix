@@ -11,7 +11,7 @@ import { ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // ZERO_USAGE = pr
 import { isMainInstanceId } from "../../domain/agent/AgentInstance";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
-import type { AskService } from "./AskService";
+import type { AskOutcome, AskService } from "./AskService";
 import type {
   AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, AgentThinkingChangedPayload, CompactionCompletedPayload,
   DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SessionTopicUpdatedPayload, SteerDiscardedPayload, SteerPayload, ThinkingCompletedPayload,
@@ -524,8 +524,10 @@ export class ChatService implements ChatPort {
   /**
    * engine_paused 消费（审批闸接线批）：提取挂闸参数 → AskService 卡片
    * 仲裁（ask.started UI 双帧/60s 超时/answer 收口全复用——闸制与异步
-   * 工具制同链路）→ 裁决映射 resume：approved → approve（放行工具裸跑）；
-   * denied/timeout/异常/防御面 → reject + 引导文案（模型知情改道）。
+   * 工具制同链路）→ 裁决映射 resume：approved/auto_approved → approve
+   *（放行工具裸跑；auto_approved = autoApprove 配置短路自动批准，留痕在
+   * 工具结果注记行）；denied/timeout/异常/防御面 → reject + 引导文案
+   *（模型知情改道）。
    * 异步链路（不 await——挂闸期间 run 挂起，事件流照常流转）。
    */
   private handleEnginePaused(e: EngineEventOf<"engine_paused">): void {
@@ -549,7 +551,7 @@ export class ChatService implements ChatPort {
   /** 裁决收敛：outcome/异常 → resume 决策（全部出口都收口，不挂死）。 */
   private async resolveGate(
     pauseToken: string,
-    pending: Promise<"approved" | "denied" | "timeout"> | undefined,
+    pending: Promise<AskOutcome> | undefined,
   ): Promise<void> {
     let decision: { kind: "approve" } | { kind: "reject"; text: string };
     if (pending === undefined) {
@@ -558,7 +560,7 @@ export class ChatService implements ChatPort {
       try {
         const outcome = await pending;
         decision =
-          outcome === "approved"
+          outcome === "approved" || outcome === "auto_approved"
             ? { kind: "approve" }
             : {
                 kind: "reject",

@@ -15,7 +15,11 @@ import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
  * - **重启恢复**：构造时扫 KV pending 行——未过期重挂计时器（按剩余量），
  *   已过期立即 timeout 收口（补发 resolved，防悬卡）；
  * - **一次性语义**：批准仅放行本次执行，不记任何 always-allow 清单；
- * - **超时机械**：60s（ASK_TIMEOUT_MS 单点），计时器到点即 denied(timeout)。
+ * - **超时机械**：60s（ASK_TIMEOUT_MS 单点），计时器到点即 denied(timeout)；
+ * - **提权自动通过**（autoApprove 配置，运行期即热）：kind=permission_request
+ *   且配置开 → 免卡片直接裁 auto_approved（不发 ask.started/不落 pending/
+ *   不计时——单 pending 不变式不受影响）；仅该 kind 享受（未来危险确认类
+ *   消费者不跟随）。留痕 = 工具结果注记行（A① 完全静默裁决）。
  *
  * KV 布局：`ask_pending:<sessionId>` 单键 JSON（AskPendingRecord）——会话
  * 单 pending 不变式的存储载体；快照 pendingAsk 读面同源。
@@ -37,8 +41,8 @@ export interface AskPendingRecord {
   readonly expiresAt: number;
 }
 
-/** request 裁决结果（回工具层：批准=放行裸跑；拒绝/超时=引导文案）。 */
-export type AskOutcome = "approved" | "denied" | "timeout";
+/** request 裁决结果（回工具层：批准=放行裸跑；拒绝/超时=引导文案；auto_approved=配置自动通过的批准，工具结果携注记留痕）。 */
+export type AskOutcome = "approved" | "denied" | "timeout" | "auto_approved";
 
 export interface AskServiceDeps {
   /** 领域事件发布面（会话归属路由由 EventStream 按 sessionId 分发）。 */
@@ -49,6 +53,12 @@ export interface AskServiceDeps {
   readonly now: () => number;
   /** askId 生成（测试可控）。 */
   readonly newId: () => string;
+  /**
+   * 提权申请自动通过判定（autoApprove 配置；可选——缺省恒 false 不自动通过）。
+   * 每次 request 现值读取（运行期即热，装配面接 SandboxConfigPort.current()）；
+   * 仅 kind=permission_request 消费。
+   */
+  readonly autoApprove?: () => boolean;
 }
 
 interface PendingEntry {
@@ -82,6 +92,11 @@ export class AskService {
     /** 超时时长（缺省 60s——不同消费者对时延容忍不同，按类可携） */
     readonly timeoutMs?: number;
   }): Promise<AskOutcome> {
+    // 提权自动通过（autoApprove 配置）：免卡片直接裁决——不发 ask.started/
+    // 不落 pending/不计时，UI 零弹卡；仅 permission_request（kind 判别位）。
+    if ((input.kind ?? "permission_request") === "permission_request" && this.deps.autoApprove?.() === true) {
+      return Promise.resolve("auto_approved");
+    }
     if (this.pending.has(input.sessionId)) {
       throw new Error(`会话已有挂起的提权申请（${this.pending.get(input.sessionId)!.record.askId}），待其收口后再发起`);
     }

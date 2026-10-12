@@ -144,6 +144,12 @@ export interface MainEngineFactoryCtx {
   readonly toolCwdOf: () => string;
   /** 沙箱运行时现值读面（可选槽——装配层注入则包装 bash/写面；缺省不注入）。 */
   readonly sandboxOf?: () => import("../../adapters/driven/tools/SandboxEnvWrap").SandboxRuntime | undefined;
+  /**
+   * 提权自动通过现值判定（autoApprove 配置；可选——缺省不注记）：闸制版
+   * permission_request 的结果留痕面（审批在闸前被 AskService 短路自动批准，
+   * execute 不接触 ask）；每次调用读现值（运行期即热，TR-175 显式透传）。
+   */
+  readonly autoApproveOf?: () => boolean;
   /** 提权申请仲裁面（提权申请批；沙箱 on 时 executor 注册 permission_request 工具）。 */
   readonly askService?: Pick<import("../../application/services/AskService").AskService, "request">;
   readonly turnDiff: TurnDiffService;
@@ -313,6 +319,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
               instanceId: bind?.mainInstanceId ?? "main",
               unsandboxedExec: (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> =>
                 toolExecutor.unsandboxedExec(command),
+              ...(ctx.autoApproveOf !== undefined ? { autoApprove: ctx.autoApproveOf } : {}),
             },
             permissionRequestGated: true,
           }

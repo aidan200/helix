@@ -573,6 +573,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     kv: persistence.runtimeConfig,
     now: () => clock.nowMs(),
     newId: () => `ask-${crypto.randomUUID().slice(0, 8)}`,
+    // 提权自动通过（autoApprove 配置）：每次申请现值判定（运行期即热）——
+    // 勾选后立即生效，与沙箱开关装配期定格不同（TR-175：透传参显式书写）
+    autoApprove: () => persistence.sandboxConfig.current().autoApprove,
   });
 
   // ── driven：CDP 浏览器连接（地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──

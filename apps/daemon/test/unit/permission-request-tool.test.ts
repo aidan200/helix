@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-harness";
-import { createPermissionRequestTool, type PermissionRequestToolDeps } from "../../src/adapters/driven/tools/permission-request/PermissionRequestTool";
+import {
+  createPermissionRequestGatedTool,
+  createPermissionRequestTool,
+  type PermissionRequestToolDeps,
+} from "../../src/adapters/driven/tools/permission-request/PermissionRequestTool";
 
 function depsOf(overrides: Partial<PermissionRequestToolDeps> = {}): PermissionRequestToolDeps {
   return {
@@ -114,5 +118,51 @@ describe("createPermissionRequestTool", () => {
       reason: "需要全局安装",
       kind: "permission_request", // kind 判别位随申请上行（原语消费者分发键）
     });
+  });
+
+  test("auto_approved（提权自动通过）→ 裸跑执行 + 结果注记留痕", async () => {
+    const text = await run(
+      depsOf({ ask: { request: async () => "auto_approved" as const } }),
+      { command: "npm i -g x", reason: "r" },
+    );
+    expect(text).toContain("ok\n");
+    expect(text).toContain("自动通过");
+    expect(text).toContain("未经用户确认");
+  });
+
+  test("auto_approved → 裸跑抛错也携注记（失败不吞留痕）", async () => {
+    const text = await run(
+      depsOf({
+        ask: { request: async () => "auto_approved" as const },
+        unsandboxedExec: async () => {
+          throw new Error("spawn ENOENT");
+        },
+      }),
+    );
+    expect(text).toContain("提权执行失败：spawn ENOENT");
+    expect(text).toContain("自动通过");
+  });
+});
+
+describe("createPermissionRequestGatedTool（闸制版——审批在闸前完成）", () => {
+  async function runGated(autoApprove?: () => boolean) {
+    const tool = createPermissionRequestGatedTool({
+      unsandboxedExec: async () => ({ stdout: "ok\n", stderr: "", exitCode: 0 }),
+      ...(autoApprove !== undefined ? { autoApprove } : {}),
+    });
+    const result = await tool.execute("tc1", { command: "echo hi", reason: "r" }, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);
+    return result.content.map((c) => ("text" in c ? c.text : "")).join("");
+  }
+
+  test("autoApprove 开 → 裸跑结果附自动通过注记（execute 不接触 ask）", async () => {
+    const text = await runGated(() => true);
+    expect(text).toContain("ok\n");
+    expect(text).toContain("自动通过");
+    expect(text).toContain("未经用户确认");
+  });
+
+  test("autoApprove 关/缺省 → 零注记（用户确认过的执行不留自动通过痕）", async () => {
+    expect(await runGated(() => false)).toBe("ok\n");
+    expect(await runGated()).toBe("ok\n");
   });
 });

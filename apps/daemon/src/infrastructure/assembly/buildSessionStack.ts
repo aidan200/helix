@@ -1068,6 +1068,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       const cfg = deps.sandboxConfig?.current();
       return readSandboxRuntime(cfg?.enabled ?? false, paths.home, toolCwdOf(), cfg?.extraRoots);
     },
+    // 提权自动通过（autoApprove 配置）：闸制工具留痕判定——每次调用读现值
+    //（运行期即热；与 sandboxOf 装配期定格不同，设置页勾选后立即生效）
+    autoApproveOf: () => deps.sandboxConfig?.current().autoApprove === true,
     // 提权申请批：permission_request 工具仲裁面（engineFor 内按沙箱开关门控注册）
     ...(deps.askService !== undefined ? { askService: deps.askService } : {}),
     ...(deps.editDeps !== undefined ? { editDeps: deps.editDeps } : {}),

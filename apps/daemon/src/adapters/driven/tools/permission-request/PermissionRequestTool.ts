@@ -15,6 +15,9 @@ import type { AskService } from "../../../../application/services/AskService";
  *   ——SandboxRuntime 包装在 CoreToolExecutor 的共享 env 上，本工具拿到的
  *   context.env 已是装饰后形态，故裸跑走 deps.unsandboxedExec 注入口）；
  * - **拒绝/超时 = 引导文案**：60s 无裁决自动拒绝（AskService 机械超时）；
+ * - **提权自动通过**（autoApprove 配置）：AskService 短路裁 auto_approved
+ *   （异步版）/ 闸前短路批准（闸制版）→ 免弹卡直接裸跑，工具结果附注记行
+ *   留痕（A① 完全静默裁决的唯一留痕面）；
  * - 结果（stdout/stderr/exitCode）直接作为工具结果返回——与 bash 工具同形态。
  *
  * 注册门控：仅沙箱开启时注册（装配面判定——沙箱 off 无提权语义）；
@@ -53,7 +56,17 @@ export interface PermissionRequestToolDeps {
   readonly unsandboxedExec: (
     command: string,
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  /**
+   * 提权自动通过判定（autoApprove 配置；可选——缺省不注记）：闸制版审批在
+   * beforeToolCall 闸完成、execute 不接触 ask，故闸制版的「未经用户确认」
+   * 留痕只能走本判定（异步版留痕走 outcome=auto_approved）。装配面接
+   * SandboxConfigPort.current().autoApprove 现值读取（运行期即热）。
+   */
+  readonly autoApprove?: () => boolean;
 }
+
+/** 自动通过注记行（两版共用——静默裁决的唯一留痕面）。 */
+const AUTO_APPROVE_NOTE = "（提权申请已按配置自动通过，未经用户确认）";
 
 export function createPermissionRequestTool(
   deps: PermissionRequestToolDeps,
@@ -66,7 +79,7 @@ export function createPermissionRequestTool(
     parameters: permissionRequestParameters,
     execute: async (_toolCallId, params): Promise<AgentToolResult<undefined>> => {
       const { command, reason } = params as { command: string; reason: string };
-      let outcome: "approved" | "denied" | "timeout";
+      let outcome: "approved" | "denied" | "timeout" | "auto_approved";
       try {
         outcome = await deps.ask.request({
           sessionId: deps.sessionId,
@@ -81,7 +94,7 @@ export function createPermissionRequestTool(
           details: undefined,
         };
       }
-      if (outcome !== "approved") {
+      if (outcome === "denied" || outcome === "timeout") {
         const why = outcome === "timeout" ? "60 秒内未获用户裁决（超时自动拒绝）" : "用户拒绝";
         return {
           content: [
@@ -93,7 +106,8 @@ export function createPermissionRequestTool(
           details: undefined,
         };
       }
-      // 批准：一次性裸跑（不经沙箱装饰）
+      // 批准：一次性裸跑（不经沙箱装饰）；auto_approved = 配置自动通过（注记留痕）
+      const note = outcome === "auto_approved" ? `\n${AUTO_APPROVE_NOTE}` : "";
       try {
         const res = await deps.unsandboxedExec(command);
         const text =
@@ -101,12 +115,12 @@ export function createPermissionRequestTool(
           (res.stderr !== "" ? `${res.stdout !== "" ? "\n" : ""}[stderr]\n${res.stderr}` : "") +
           (res.exitCode !== 0 ? `\n[exit ${res.exitCode}]` : "");
         return {
-          content: [{ type: "text", text: text === "" ? "(no output)" : text }],
+          content: [{ type: "text", text: (text === "" ? "(no output)" : text) + note }],
           details: undefined,
         };
       } catch (err) {
         return {
-          content: [{ type: "text", text: `提权执行失败：${(err as Error).message}` }],
+          content: [{ type: "text", text: `提权执行失败：${(err as Error).message}${note}` }],
           details: undefined,
         };
       }
@@ -122,10 +136,11 @@ export function createPermissionRequestTool(
  * execute 到达 = 已批准——本工具只剩纯裸跑（再走 ask.request 会双卡片）。
  * 异步工具制（原工厂）保留给 SubAgent 子进程（闸制面未接——RemoteAskPort
  * 转发父进程仲裁的既有链路不变）。工具名/参数/描述与原版同面（模型认知
- * 零变化，profile 声明不动）。
+ * 零变化，profile 声明不动）。autoApprove 配置开时结果附注记留痕（闸前
+ * AskService 已短路自动批准——execute 不接触 ask，留痕走 deps.autoApprove）。
  */
 export function createPermissionRequestGatedTool(
-  deps: Pick<PermissionRequestToolDeps, "unsandboxedExec">,
+  deps: Pick<PermissionRequestToolDeps, "unsandboxedExec" | "autoApprove">,
 ): AgentHarnessTool<ExecutionToolContext, any, undefined> {
   return {
     name: "permission_request",
@@ -135,6 +150,7 @@ export function createPermissionRequestGatedTool(
     parameters: permissionRequestParameters,
     execute: async (_toolCallId, params): Promise<AgentToolResult<undefined>> => {
       const { command } = params as { command: string; reason: string };
+      const note = deps.autoApprove?.() === true ? `\n${AUTO_APPROVE_NOTE}` : "";
       try {
         const res = await deps.unsandboxedExec(command);
         const text =
@@ -142,12 +158,12 @@ export function createPermissionRequestGatedTool(
           (res.stderr !== "" ? `${res.stdout !== "" ? "\n" : ""}[stderr]\n${res.stderr}` : "") +
           (res.exitCode !== 0 ? `\n[exit ${res.exitCode}]` : "");
         return {
-          content: [{ type: "text", text: text === "" ? "(no output)" : text }],
+          content: [{ type: "text", text: (text === "" ? "(no output)" : text) + note }],
           details: undefined,
         };
       } catch (err) {
         return {
-          content: [{ type: "text", text: `提权执行失败：${(err as Error).message}` }],
+          content: [{ type: "text", text: `提权执行失败：${(err as Error).message}${note}` }],
           details: undefined,
         };
       }
