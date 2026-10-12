@@ -3,7 +3,7 @@ import type { SendOutcome, SessionChatPort } from "../../../application/ports/in
 import type { SessionPort } from "../../../application/ports/inbound/SessionPort";
 import type { EventPublisherPort, StreamDelta } from "../../../application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
-import type { AgentStateChangedPayload, MessageCompletedPayload, SteerPayload, ToolResultPayload } from "../../../domain/events/DomainEvent";
+import type { AgentStateChangedPayload, MessageCompletedPayload, SteerDiscardedPayload, SteerPayload, ToolResultPayload } from "../../../domain/events/DomainEvent";
 
 /**
  * StdoutEventPublisher —— EventPublisherPort 的 CLI 实现（driving 侧实现
@@ -54,6 +54,13 @@ export class StdoutEventPublisher implements EventPublisherPort {
       case "steer.drained": {
         const p = event.payload as SteerPayload;
         this.write(`\n[steer] 已注入并驱动新回复：${p.text}`);
+        break;
+      }
+      case "steer.discarded": {
+        const p = event.payload as SteerDiscardedPayload;
+        this.write(
+          `\n[steer] 队列出账（${p.reason === "buffered" ? "转续送" : "丢弃"} ${p.entryIds.length} 条）`,
+        );
         break;
       }
       case "turn.completed":

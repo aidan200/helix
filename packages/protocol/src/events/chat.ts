@@ -77,6 +77,17 @@ export interface SteerDrainedPayload {
   source?: SteerSource;
 }
 
+/** 队列出账（非 drain 通道）：run 收口清账时队列残留离队的广播帧——
+ *  丢弃/转续送两由因同规出坞（前端队列坞对账；丢弃项从未 drain 落盘，
+ *  时间轴零条目）。缺本帧时坞内条目残留到下次快照重建。 */
+export interface SteerDiscardedPayload {
+  /** 本次离队的队列项 entryId（daemon 预分配 id） */
+  entryIds: string[];
+  /** dropped = user steer 可观测丢弃（防过时注入重复回复）；
+   *  buffered = closure/progress 转续送缓冲（稍后以普通消息落时间轴） */
+  reason: "dropped" | "buffered";
+}
+
 /** 工具调用开始（entry 为 tool-call 变体，state="running"） */
 export interface ToolCallStartedPayload {
   entry: EntryDto;
@@ -121,6 +132,10 @@ export interface SteerQueuedEvent extends EventFrame<SteerQueuedPayload> {
 export interface SteerDrainedEvent extends EventFrame<SteerDrainedPayload> {
   channel?: "chat";
   type: "steer.drained";
+}
+export interface SteerDiscardedEvent extends EventFrame<SteerDiscardedPayload> {
+  channel?: "chat";
+  type: "steer.discarded";
 }
 export interface ToolCallStartedEvent
   extends EventFrame<ToolCallStartedPayload> {

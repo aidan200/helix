@@ -5,8 +5,9 @@
  * - chat.stream.delta / chat.message.completed / chat.turn.started /
  *   chat.turn.completed：主线消息流与流式中间态；一帧三槽（streaming /
  *   channelStreams / instances 摘要尾窗）与 instanceId 分流（缺省 = main）；
- * - steer.queued / steer.drained：本地 echo 对账（LOCAL_PREFIX + daemon
- *   entryId 确认）与徽标两态（SM-3）；
+ * - steer.queued / steer.drained / steer.discarded：本地 echo 对账（LOCAL_PREFIX +
+ *   daemon entryId 确认）与徽标两态（SM-3）+ 队列出账（drain 落盘之外的
+ *   丢弃/转续送出坞——run 收口清账对账帧）；
  * - engine.error（终验热修族归 chat）：错误卡片数据，瞬态不落盘——
  *   瞬态卡清除时机 = error.entry 帧到达（error entry 批）；chat.turn.started
  *   清除保留作兜底，turn.completed 收流时序由本族内闭环；
@@ -35,6 +36,7 @@ export const CHAT_EVENT_TYPES = [
   "chat.turn.completed",
   "steer.queued",
   "steer.drained",
+  "steer.discarded",
   "engine.error",
   "engine.retrying",
   "error.entry",
@@ -105,6 +107,15 @@ function drainSteer(s: SessionState, entryId: string, source?: SteerSource): Ses
       : e,
   );
   return { ...s, steerQueue, entries };
+}
+
+/** steer.discarded：队列出账（非 drain 通道）——run 收口清账的丢弃/转续送
+ *  残留批量出坞（daemon 预分配 entryId 匹配移除）。丢弃项从未 drain 落盘
+ *（drain 落盘语义），entries 零触碰；无本帧时坞内条目残留到下次快照重建
+ *（bug 修复：停止/意外收口后队列坞永不清）。 */
+function discardSteer(s: SessionState, entryIds: readonly string[]): SessionState {
+  const ids = new Set(entryIds);
+  return { ...s, steerQueue: s.steerQueue.filter((item) => !ids.has(item.id)) };
 }
 
 export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: number): SessionState {
@@ -189,6 +200,8 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: numbe
     }
     case "steer.drained":
       return drainSteer(s, event.payload.entryId, event.payload.source);
+    case "steer.discarded":
+      return discardSteer(s, event.payload.entryIds);
     // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；
     // 瞬态卡存续到 error.entry 帧到达转正（error entry 批）或新 turn.started 兜底清除）
     case "engine.error":
@@ -223,10 +236,21 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: numbe
     }
     case "agent.state.changed": {
       const agentState = event.payload.state;
+      // 终态清未确认本地 echo（拒绝回执窗口兜底）：echo 入坞后若 run 已收口
+      //（abort/停止/引擎错误），steer.queued 确认帧将永不到达（daemon 拒绝
+      // 注入只回 connection.error，无关联 id 可对账）——未确认 local echo 必须
+      // 出坞，否则残留到下次快照重建。已确认条目不在此清（steer.discarded/
+      // 快照重建负责）；steering/running 不清——本端 steer 的确认帧可能在
+      // 路上（daemon 先发 steering 后发 steer.queued）。
+      const steerQueue =
+        agentState === "idle" || agentState === "aborting" || agentState === "stopped"
+          ? s.steerQueue.filter((item) => item.confirmed || !item.id.startsWith(LOCAL_PREFIX))
+          : s.steerQueue;
       // idle 收流式态 + 网络重试卡（run 终结——含 abort 打断等待的场景）
       return {
         ...s,
         agentState,
+        steerQueue,
         streaming: agentState === "idle" ? null : s.streaming,
         engineRetrying: agentState === "idle" ? null : s.engineRetrying,
       };

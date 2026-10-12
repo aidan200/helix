@@ -76,6 +76,8 @@ export const TRACE_TYPE_CATEGORIES: readonly TraceTypeCategory[] = [
       "turn.interrupted",
       "steer.queued",
       "steer.drained",
+      // 队列出账帧（run 收口清账：丢弃/转续送出坞）——归 lifecycle 桶
+      "steer.discarded",
       "agent.state.changed",
       "agent.spawned",
       "agent.queued",
@@ -325,6 +327,12 @@ export function summarizeTraceEvent(row: TraceEventRow): string {
     case "steer.drained": {
       const text = asStr(p.text);
       return text !== null ? `steer · ${truncateText(text, 48)}` : row.type;
+    }
+    case "steer.discarded": {
+      // 队列出账（非 drain 通道）：丢弃/转续送两由因 + 条数摘要（mono 字面量）
+      const ids = (p as { entryIds?: unknown }).entryIds;
+      const reason = asStr(p.reason);
+      return Array.isArray(ids) && reason !== null ? `steer-x · ${reason} ${ids.length}` : row.type;
     }
     case "agent.state.changed": {
       const st = asStr(p.state);

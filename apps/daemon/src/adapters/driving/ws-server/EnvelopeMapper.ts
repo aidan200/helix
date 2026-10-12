@@ -43,6 +43,7 @@ import type {
   EngineRetryingPayload,
   MessageCompletedPayload,
   SteerPayload,
+  SteerDiscardedPayload,
   ThinkingCompletedPayload,
   CompactionCompletedPayload,
   ErrorEntryPayload,
@@ -185,6 +186,16 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         type: event.type,
         // source 透传（T11a：user/closure/progress 三值；老载荷缺省不携带键）
         payload: { entryId: p.entryId, ...(p.source !== undefined ? { source: p.source } : {}) },
+      };
+    }
+
+    case "steer.discarded": {
+      const p = event.payload as SteerDiscardedPayload;
+      return {
+        v: PROTOCOL_VERSION,
+        type: "steer.discarded",
+        // 队列出账（非 drain 通道）：run 收口清账的丢弃/转续送批量出账帧
+        payload: { entryIds: [...p.entryIds], reason: p.reason },
       };
     }
 

@@ -2,7 +2,7 @@
  * chat 族：steer 定向寻址两形态（CL-3）与 chat 通道分族类型面。
  */
 import { describe, expect, test } from "bun:test";
-import type { ChatSteerPayload, EventEnvelope, MessageEntryDto, SteerDrainedPayload, SteerQueuedPayload } from "../../src/index";
+import type { ChatSteerPayload, EventEnvelope, MessageEntryDto, SteerDiscardedPayload, SteerDrainedPayload, SteerQueuedPayload } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand } from "./samples/helpers";
 import { steerMainDefault, steerTargeted } from "./samples/v03";
@@ -18,6 +18,7 @@ type _ChatFamily = Expect<
     | "chat.message.completed"
     | "steer.queued"
     | "steer.drained"
+    | "steer.discarded"
     | "tool.call.started"
     | "tool.call.result"
     | "agent.state.changed"
@@ -39,6 +40,10 @@ type _SteerSource = Expect<
 >;
 type _SteerDrainedSource = Expect<
   Equal<SteerDrainedPayload["source"], "user" | "closure" | "progress" | "coord" | "steward" | undefined>
+>;
+// steer 队列出账帧（run 收口清账）：entryIds 批量 + 两由因
+type _SteerDiscardedShape = Expect<
+  Equal<SteerDiscardedPayload["reason"], "dropped" | "buffered">
 >;
 type _MessageEntrySource = Expect<
   Equal<MessageEntryDto["source"], "user" | "closure" | "progress" | "coord" | "steward" | undefined>

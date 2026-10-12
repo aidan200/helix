@@ -230,6 +230,26 @@ describe("② 领域事件 → 协议事件帧", () => {
     expect(ev).toMatchObject({ type: "chat.turn.completed", payload: { turnId: "t-last", reason: "completed" } });
   });
 
+  test("steer.discarded → steer.discarded（队列出账帧：entryIds 拷贝 + 两由因透传）", () => {
+    const dropped = domainEventToEnvelope({
+      ...base,
+      type: "steer.discarded",
+      payload: { entryIds: ["e-a", "e-b"], reason: "dropped" },
+    });
+    expect(dropped).toMatchObject({
+      v: PROTOCOL_VERSION,
+      type: "steer.discarded",
+      payload: { entryIds: ["e-a", "e-b"], reason: "dropped" },
+      sessionId: "s-1",
+    });
+    const buffered = domainEventToEnvelope({
+      ...base,
+      type: "steer.discarded",
+      payload: { entryIds: ["e-c"], reason: "buffered" },
+    });
+    expect(buffered).toMatchObject({ payload: { entryIds: ["e-c"], reason: "buffered" } });
+  });
+
   test("message.completed → chat.message.completed（含 EntryDto；steer 消息标 queued）", () => {
     const ev = domainEventToEnvelope({
       ...base,

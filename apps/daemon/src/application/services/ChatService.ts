@@ -14,7 +14,7 @@ import { parseDataUrlImages, ImageValidationError } from "./images";
 import type { AskService } from "./AskService";
 import type {
   AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, AgentThinkingChangedPayload, CompactionCompletedPayload,
-  DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SessionTopicUpdatedPayload, SteerPayload, ThinkingCompletedPayload,
+  DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SessionTopicUpdatedPayload, SteerDiscardedPayload, SteerPayload, ThinkingCompletedPayload,
   ToolCallPayload, ToolResultPayload, TurnCompletedPayload, UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 
@@ -694,14 +694,27 @@ export class ChatService implements ChatPort {
     //   engine.error 可观测留存。
     // closureBuffer 走下方既有 T2 续送链。
     const orphaned = this.session.drainAllSteer();
+    const droppedIds: string[] = [];
+    const bufferedIds: string[] = [];
     for (const item of orphaned) {
       if (item.source === "closure" || item.source === "progress") {
         this.closureBuffer.push({ text: item.text, source: item.source });
+        bufferedIds.push(item.entryId);
       } else {
         this.publish("engine.error", {
           message: `注入被丢弃（轮次已收口，引擎侧无后续消费轮）：${item.text.slice(0, 80)}`,
         });
+        droppedIds.push(item.entryId);
       }
+    }
+    // 队列出账广播（前端队列坞对账，bug 修复）：非 drain 离队的残留必须
+    // 显式出账——否则队列坞条目永不出坞（drain 落盘语义：丢弃/转续送均不落
+    // 时间轴，无 message.completed 可对账），残留到下次快照重建。
+    if (bufferedIds.length > 0) {
+      this.publish<SteerDiscardedPayload>("steer.discarded", { entryIds: bufferedIds, reason: "buffered" });
+    }
+    if (droppedIds.length > 0) {
+      this.publish<SteerDiscardedPayload>("steer.discarded", { entryIds: droppedIds, reason: "dropped" });
     }
     // T2 送达补齐：run 收口回 idle 后续送缓冲 closure（经 scheduleClosureDrain 挂本 run
     // promise settle 后再发——本同步段内引擎仍在飞，直接 sendMessage 会撞在飞守卫）。

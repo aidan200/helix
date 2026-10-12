@@ -41,6 +41,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `steer-q:${event.payload.entryId}`;
     case "steer.drained":
       return `steer-d:${event.payload.entryId}`;
+    case "steer.discarded":
+      return `steer-x:${event.payload.entryIds.join(",")}:${event.payload.reason}`;
     case "tool.call.started":
       return `tool-start:${event.payload.entry.id}`;
     case "tool.call.result":

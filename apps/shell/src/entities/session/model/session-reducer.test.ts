@@ -516,6 +516,71 @@ describe("T11b steer 事件 source 对账（queued/drained 载荷 → 队列坞/
   });
 });
 
+// ── steer 队列坞出账兑底（bug 修复：停止/意外收口后队列坞残留） ──
+
+describe("steer.discarded 出账 + 终态清未确认 echo（队列坞残留修复）", () => {
+  const ready = (): SessionState =>
+    run([
+      welcome(),
+      snapshotOf([]),
+      ev({ v: 0, type: "agent.state.changed", payload: { state: "running" } }),
+    ]);
+
+  it("steer.discarded（dropped）→ 匹配条目出坞；entries 不动（丢弃项从未落盘）", () => {
+    const sent = run([{ type: "ui/send", text: "排队注入", mode: "steer", ts: 10 }], ready());
+    const confirmed = run([ev({ v: 0, type: "steer.queued", payload: { entryId: "st1" } })], sent);
+    const out = run(
+      [ev({ v: 0, type: "steer.discarded", payload: { entryIds: ["st1"], reason: "dropped" } })],
+      confirmed,
+    );
+    expect(out.steerQueue).toHaveLength(0);
+    expect(out.entries).toEqual([]); // 丢弃不落时间轴条目（drain 落盘语义不变）
+  });
+
+  it("steer.discarded（buffered）→ 转续送项同规出坞；未匹配 id 无副作用", () => {
+    const sent = run([{ type: "ui/send", text: "保留项", mode: "steer", ts: 10 }], ready());
+    const s = run(
+      [
+        ev({ v: 0, type: "steer.queued", payload: { entryId: "st-keep" } }),
+        ev({ v: 0, type: "steer.queued", payload: { entryId: "st-gone", text: "转续送", source: "closure" } }),
+      ],
+      sent,
+    );
+    const out = run(
+      [ev({ v: 0, type: "steer.discarded", payload: { entryIds: ["st-gone", "st-nope"], reason: "buffered" } })],
+      s,
+    );
+    expect(out.steerQueue).toHaveLength(1);
+    expect(out.steerQueue[0]!.id).toBe("st-keep");
+  });
+
+  it("agent.state.changed 终态（idle/aborting/stopped）→ 未确认本地 echo 出坞（拒绝回执窗口清残留）；已确认条目保留", () => {
+    const sent = run(
+      [
+        { type: "ui/send", text: "未确认 echo", mode: "steer", ts: 10 },
+        { type: "ui/send", text: "另一条", mode: "steer", ts: 11 },
+      ],
+      ready(),
+    );
+    const confirmed = run([ev({ v: 0, type: "steer.queued", payload: { entryId: "st1" } })], sent);
+    expect(confirmed.steerQueue).toHaveLength(2); // 第一条已确认、第二条未确认
+    const settled = run(
+      [ev({ v: 0, type: "agent.state.changed", payload: { state: "idle" } })],
+      confirmed,
+    );
+    expect(settled.steerQueue).toHaveLength(1); // 未确认 echo 出坞（steer.queued 将永不到达）
+    expect(settled.steerQueue[0]!.id).toBe("st1");
+    expect(settled.steerQueue[0]!.confirmed).toBe(true);
+  });
+
+  it("非终态（steering）不清 echo——本端 steer 的 steer.queued 确认可能还在路上", () => {
+    const sent = run([{ type: "ui/send", text: "确认在路上", mode: "steer", ts: 10 }], ready());
+    const s = run([ev({ v: 0, type: "agent.state.changed", payload: { state: "steering" } })], sent);
+    expect(s.steerQueue).toHaveLength(1);
+    expect(s.steerQueue[0]!.confirmed).toBe(false);
+  });
+});
+
 describe("T11b entry.source 到渲染链（实时帧 + 快照）", () => {
   it("chat.message.completed 实时帧 entry.source 透传进主流（idle closure 注入即时区分）", () => {
     const s = run([

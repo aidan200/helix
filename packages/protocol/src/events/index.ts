@@ -41,6 +41,7 @@ import type {
   EngineErrorEvent,
   EngineRetryingEvent,
   ErrorEntryEvent,
+  SteerDiscardedEvent,
   SteerDrainedEvent,
   SteerQueuedEvent,
   ToolCallResultEvent,
@@ -249,6 +250,7 @@ export type EventEnvelope =
   | ChatMessageCompletedEvent
   | SteerQueuedEvent
   | SteerDrainedEvent
+  | SteerDiscardedEvent
   | ToolCallStartedEvent
   | ToolCallResultEvent
   | AgentStateChangedEvent
@@ -409,6 +411,7 @@ export const EVENT_TYPES = [
   "chat.message.completed",
   "steer.queued",
   "steer.drained",
+  "steer.discarded",
   "tool.call.started",
   "tool.call.result",
   "agent.state.changed",
@@ -620,6 +623,7 @@ export const EVENT_CHANNELS = {
   "chat.message.completed": "chat",
   "steer.queued": "chat",
   "steer.drained": "chat",
+  "steer.discarded": "chat",
   "tool.call.started": "chat",
   "tool.call.result": "chat",
   "agent.state.changed": "chat",

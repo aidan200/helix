@@ -145,6 +145,13 @@ describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分
         (e) => e.type === "engine.error" && String((e.payload as { message?: string }).message).includes("注入被丢弃"),
       ),
     ).toBe(false);
+    // 队列出账广播（前端队列坞对账）：转续送 = reason "buffered"（文本稍后
+    // 以普通消息落时间轴，坞内旧 entryId 条目必须出账）
+    const queued = domainEvents.find((e) => e.type === "steer.queued");
+    const bufferedId = (queued!.payload as { entryId: string }).entryId;
+    const outAccount = domainEvents.filter((e) => e.type === "steer.discarded");
+    expect(outAccount).toHaveLength(1);
+    expect(outAccount[0]!.payload).toEqual({ entryIds: [bufferedId], reason: "buffered" });
 
     // T2 续送链：idle 后以 closure 文本开新轮 → 落时间轴 user 条目（message.completed）
     await until(() =>
@@ -168,7 +175,7 @@ describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分
 
     const run = chat.sendMessage("主线任务");
     await until(() => publisher.deltas.length >= 1);
-    await chat.steer("用户运行中注入");
+    const { entryId } = await chat.steer("用户运行中注入");
     await run;
     await until(() => chat.agentState === "idle");
 
@@ -184,6 +191,36 @@ describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分
         (e) => e.type === "message.completed" && String((e.payload as { text?: string }).text).includes("用户运行中注入"),
       ),
     ).toBe(false);
+    // 队列出账广播（前端队列坞对账）：丢弃 = reason "dropped"（UI 残留修复——
+    // 丢弃无 steer.drained，队列坞须据本帧出账）
+    const outAccount = domainEvents.filter((e) => e.type === "steer.discarded");
+    expect(outAccount).toHaveLength(1);
+    expect(outAccount[0]!.payload).toEqual({ entryIds: [entryId], reason: "dropped" });
+  });
+
+  test("用户停止流式输出（abort）时队列有 user steer → 可观测丢弃 + steer.discarded 出账（UI 残留修复现场）", async () => {
+    const engine = new NoDrainEngine();
+    const { chat, publisher, domainEvents } = makeChat(engine);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 1);
+    const { entryId } = await chat.steer("停止前排队的注入");
+    chat.abort(); // 用户停止流式输出——引擎收尾照常（aborting → settleRunEnd("aborted")）
+    await run;
+    await until(() => chat.agentState === "idle");
+
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+    // 中断收口可观测（既有语义不变）
+    expect(domainEvents.some((e) => e.type === "turn.interrupted")).toBe(true);
+    expect(
+      domainEvents.some(
+        (e) => e.type === "engine.error" && String((e.payload as { message?: string }).message).includes("注入被丢弃"),
+      ),
+    ).toBe(true);
+    // 出账广播：队列坞据此清除（修复前此帧缺失 → 队列坞残留到下次快照）
+    const outAccount = domainEvents.filter((e) => e.type === "steer.discarded");
+    expect(outAccount).toHaveLength(1);
+    expect(outAccount[0]!.payload).toEqual({ entryIds: [entryId], reason: "dropped" });
   });
 
   test("正常 drain 路径不受影响（FakeAgentEngine 必 drain 策略，有续轮时 closure 照常注入）", async () => {
@@ -201,6 +238,8 @@ describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分
 
     // 正常路径：drain 发生（steer.drained 存在）+ 队列清空 + 无清账丢弃
     expect(domainEvents.some((e) => e.type === "steer.drained")).toBe(true);
+    // drain 出账不产生 discard 出账（steer.discarded 只兜「非 drain 离队」）
+    expect(domainEvents.some((e) => e.type === "steer.discarded")).toBe(false);
     expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
     const discarded = domainEvents.find(
       (e) => e.type === "engine.error" && String((e.payload as { message?: string }).message).includes("注入被丢弃"),

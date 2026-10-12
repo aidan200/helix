@@ -20,6 +20,7 @@ export type DomainEventType =
   | "message.completed"
   | "steer.queued"
   | "steer.drained"
+  | "steer.discarded"
   | "tool.call.started"
   | "tool.call.result"
   | "agent.state.changed"
@@ -115,6 +116,15 @@ export interface SteerPayload {
   readonly text: string;
   /** 注入来源（T11a：user/closure/progress；缺省 = 老事件按 user）。 */
   readonly source?: SteerSource;
+}
+
+/** steer.discarded：队列出账（非 drain 通道）——run 收口清账时残留离队的
+ *  广播载荷（前端队列坞出账对账；丢弃/转续送两由因同规出坞）。 */
+export interface SteerDiscardedPayload {
+  readonly entryIds: readonly string[];
+  /** dropped = user steer 可观测丢弃（防过时注入重复回复）；
+   *  buffered = closure/progress 转 closureBuffer 续送（稍后以普通消息落时间轴）。 */
+  readonly reason: "dropped" | "buffered";
 }
 
 export interface TurnCompletedPayload {
