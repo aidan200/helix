@@ -106,24 +106,30 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     return rows;
   }
 
-  /** 尾部消息投影（progress 批 M3 真实仓对位：旧→新 + 单条截 300 码点）。 */
+  /** 尾部消息投影（progress 批 M3 真实仓对位：旧→新 + 缺省单条截 300 码点；
+   *  opts 参数化批对位——entryOffset 翻页 / maxEntryChars 覆盖）。 */
   async readSessionTail(
     sessionId: string,
     tailEntries: number,
+    opts?: { entryOffset?: number; maxEntryChars?: number },
   ): Promise<readonly { role: string; text: string }[] | undefined> {
     const snap = this.store.get(sessionId);
     if (snap === undefined) return undefined;
     const n = Number.isInteger(tailEntries) && tailEntries > 0 ? tailEntries : 1;
-    return snap.session.entries
-      .filter((e): e is (typeof e) & { role: string; text: string } => "role" in e)
-      .slice(-n)
-      .map((e) => {
-        const chars = [...(e.text ?? "")];
-        return {
-          role: e.role,
-          text: chars.length > 300 ? `${chars.slice(0, 300).join("")}…` : (e.text ?? ""),
-        };
-      });
+    const rawOffset = opts?.entryOffset;
+    const offset = rawOffset !== undefined && Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+    const entries = snap.session.entries.filter(
+      (e): e is (typeof e) & { role: string; text: string } => "role" in e,
+    );
+    const window = offset > 0 ? entries.slice(-(n + offset), -offset) : entries.slice(-n);
+    const cap = opts?.maxEntryChars ?? 300;
+    return window.map((e) => {
+      const chars = [...(e.text ?? "")];
+      return {
+        role: e.role,
+        text: chars.length > cap ? `${chars.slice(0, cap).join("")}…` : (e.text ?? ""),
+      };
+    });
   }
 
   /** 单会话短标题点读（语音闭环批 ④真实仓对位：title > topic(内存 fake 无此列面) >

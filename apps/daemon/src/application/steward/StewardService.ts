@@ -732,9 +732,14 @@ export interface StewardSessionsSource {
    *  引导）；成功后由调用方广播 steward.navigate 切页。 */
   deliverToSession(sessionId: string, text: string): Promise<{ delivered: boolean; detail: string }>;
   /** 尾部消息投影读面（progress 批 M3——read_session 工具数据源）：单会话
-   *  最后 N 条 {role, text}（旧→新，repo 层单条已截 300）；sessionId 不存在
+   *  最后 N 条 {role, text}（旧→新；opts 参数化批——entryOffset 翻页 /
+   *  maxEntryChars 单条截断覆盖，缺省 repo 层截 300）；sessionId 不存在
    *  = undefined（引导层判据）。 */
-  readSessionTail(sessionId: string, tailEntries: number): Promise<readonly { role: string; text: string }[] | undefined>;
+  readSessionTail(
+    sessionId: string,
+    tailEntries: number,
+    opts?: { entryOffset?: number; maxEntryChars?: number },
+  ): Promise<readonly { role: string; text: string }[] | undefined>;
 }
 
 /** A2：kg 项目解析面（KgProjectService 同款窄接口——spawn_review_task
@@ -945,12 +950,13 @@ export const TOOL_QUERY_RECENT_WORK: StewardLlmTool = {
 export const TOOL_READ_SESSION: StewardLlmTool = {
   name: "read_session",
   description:
-    "读取指定会话的最近消息内容（尾部窗口，旧→新）——回答「那个会话聊到哪了/进展如何/具体说了什么」类问题时深读用；只读不改。sessionId 先用 query_recent_work 查（或用记忆召回行里的 sid）。返回尾部若干条 [user]/[assistant] 消息（长文截断）。",
+    "读取指定会话的消息内容（尾部窗口，旧→新，单条全文）——回答「那个会话聊到哪了/进展如何/具体说了什么」类问题时深读用；只读不改。sessionId 先用 query_recent_work 查（或用记忆召回行里的 sid）。需读更早的消息时用 offset 翻页（跳过最近 offset 条再取 tail 条，逐步步进）；单次结果总量有上限，读不全就加大 offset 继续翻。",
   parameters: {
     type: "object",
     properties: {
       sessionId: { type: "string", description: "目标会话 id（query_recent_work 结果或记忆召回行的 sid）" },
-      tail: { type: "number", description: "尾部条数（可选，缺省 6，上限 20）" },
+      tail: { type: "number", description: "本次读取条数（可选，缺省 6，上限 20）" },
+      offset: { type: "number", description: "跳过最近 N 条再取（翻页读更早消息；可选，缺省 0 = 最近窗口；逐次步进如 0→6→12…可通读全对话）" },
     },
     required: ["sessionId"],
     additionalProperties: false,

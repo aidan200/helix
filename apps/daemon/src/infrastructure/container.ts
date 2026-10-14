@@ -114,7 +114,7 @@ import { resolveModel } from "../adapters/driven/llm";
 import { stewardEngineTraceBridge } from "./assembly/stewardEngineTraceBridge";
 import { StewardDiagnosisAdapter } from "../adapters/driven/voice/StewardDiagnosisAdapter";
 import type { StewardDiagnosisPort } from "../application/ports/outbound/StewardDiagnosisPort";
-import { StewardPerceptionService } from "../application/steward/StewardPerceptionService";
+import { StewardPerceptionService, REPLY_CONTEXT_MAX_CHARS } from "../application/steward/StewardPerceptionService";
 import type { StewardComponent } from "../application/steward/StewardComponent";
 import { resolveStewardTuning } from "../domain/steward/tuning/StewardTuning";
 import type { TtsPort } from "../application/ports/outbound/TtsPort";
@@ -928,10 +928,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         enqueueDiagnosed: (item) => voiceBroadcastRef?.enqueueDiagnosed(item),
       },
       // 修复①：回合终态分诊读回复正文（尾投影取末条 assistant——与管家
-      // read_session 工具同数据源，单条 300 码点护栏在出口处）
+      // read_session 工具同数据源）。2026-10-11 参数化批：单条改全文入诊
+      // （用户裁决去 300 码点截断——回递播报凭全文；REPLY_CONTEXT_MAX_CHARS
+      // 仅作病理体量防御，正常回复等效全文）。
       readReply: async (sessionId) => {
-        // 尾深 8（≈2400 字级——用户反馈「总结要详：白话逐项」：6×300 在 600 字逐项下原料偏紧）
-        const tail = await persistence.repository.readSessionTail(sessionId, 8);
+        const tail = await persistence.repository.readSessionTail(sessionId, 8, {
+          maxEntryChars: REPLY_CONTEXT_MAX_CHARS,
+        });
         if (tail === undefined) return undefined;
         for (let i = tail.length - 1; i >= 0; i -= 1) {
           if (tail[i]!.role === "assistant" && tail[i]!.text.trim() !== "") return tail[i]!.text;
@@ -1236,8 +1239,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // 语音闭环批 ④：轻量单会话标题查询（提案短名/在途摘要数据源——repo 点读
       // 不拉全表；title > topic > firstUserText）
       sessionTitleOf: (sessionId) => persistence.repository.readSessionTitle(sessionId),
-      // progress 批 M3：尾部消息投影透传（repo 单行点读，单条已截 300）
-      readSessionTail: (sessionId, tailEntries) => persistence.repository.readSessionTail(sessionId, tailEntries),
+      // progress 批 M3：尾部消息投影透传（repo 单行点读；opts 参数化批——
+      // entryOffset 翻页 / maxEntryChars 覆盖，缺省仍截 300）
+      readSessionTail: (sessionId, tailEntries, opts) =>
+        persistence.repository.readSessionTail(sessionId, tailEntries, opts),
       deliverToSession: async (sessionId, text) => {
         try {
           const runtime = registry.peek(sessionId) ?? (await registry.get(sessionId));

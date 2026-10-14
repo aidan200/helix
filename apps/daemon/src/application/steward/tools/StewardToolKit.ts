@@ -798,13 +798,15 @@ export class StewardToolKit {
 
   // ── progress 批 M3：read_session（会话尾部内容深读）────────
 
-  /** 尾部条数缺省与上限（LLM 面体量面：缺省 6 上限 20，repo 层单条已截 300，
+  /** 尾部条数缺省与上限（LLM 面体量面：缺省 6 上限 20；单条全文透传——
+   *  2026-10-11 用户裁决：深读体量靠 offset 翻页控制不靠单条截断，
    *  capToolResultText 4000 总护栏兑底）。 */
   private static readonly READ_SESSION_TAIL_DEFAULT = 6;
   private static readonly READ_SESSION_TAIL_MAX = 20;
 
   /** read_session 工具体：meta 行定位（displayTitle 单源）→ 尾窗投影 →
-   *  文本组装；双失败径（meta 缺/尾读 undefined）统一引导回 query_recent_work。 */
+   *  文本组装；offset 翻页（跳过最近 N 条读更早）；双失败径（meta 缺/尾读
+   *  undefined）统一引导回 query_recent_work。 */
   private async readSession(args: Record<string, unknown>): Promise<string> {
     const sessionId = typeof args["sessionId"] === "string" ? args["sessionId"] : "";
     if (sessionId === "") {
@@ -815,16 +817,23 @@ export class StewardToolKit {
       Number.isInteger(tailRaw) && tailRaw > 0 ? tailRaw : StewardToolKit.READ_SESSION_TAIL_DEFAULT,
       StewardToolKit.READ_SESSION_TAIL_MAX,
     );
+    const offsetRaw = typeof args["offset"] === "number" ? args["offset"] : 0;
+    const offset = Number.isInteger(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
     if (this.deps.sessions === undefined) {
       return "会话读面不可用（daemon 装配缺 sessions 源）";
     }
     try {
       const meta = (await this.deps.sessions.listSessionMetadata()).find((r) => r.sessionId === sessionId);
-      const tailRows = await this.deps.sessions.readSessionTail(sessionId, tail);
+      const tailRows = await this.deps.sessions.readSessionTail(sessionId, tail, {
+        entryOffset: offset,
+        maxEntryChars: Infinity,
+      });
       if (meta === undefined || tailRows === undefined) {
         return `会话 ${sessionId} 不存在——请用 query_recent_work 查询近期会话拿正确的 sessionId（或与用户确认目标）`;
       }
-      const lines = [`${tailRows.length === 0 ? "（会话暂无消息）" : `最近 ${tailRows.length} 条消息（旧→新）：`}`];
+      const lines = [
+        `${tailRows.length === 0 ? "（本窗口无消息——offset 越界或会话暂无消息，可减小 offset 或直接看最近窗口）" : `本窗口 ${tailRows.length} 条消息（旧→新${offset > 0 ? `，跳过了最近 ${offset} 条` : ""}）：`}`,
+      ];
       for (const e of tailRows) {
         lines.push(`[${e.role}] ${e.text}`);
       }

@@ -789,12 +789,16 @@ describe("A2-6 read_session（会话尾部内容深读）", () => {
     tails: Record<string, readonly { role: string; text: string }[] | undefined>,
   ) {
     const base = fakeSessions(rows);
-    const tailCalls: { sessionId: string; tail: number }[] = [];
+    const tailCalls: { sessionId: string; tail: number; opts?: { entryOffset?: number; maxEntryChars?: number } }[] = [];
     return {
       ...base,
       tailCalls,
-      readSessionTail: async (sessionId: string, tail: number) => {
-        tailCalls.push({ sessionId, tail });
+      readSessionTail: async (
+        sessionId: string,
+        tail: number,
+        opts?: { entryOffset?: number; maxEntryChars?: number },
+      ) => {
+        tailCalls.push({ sessionId, tail, opts });
         return tails[sessionId];
       },
     };
@@ -834,7 +838,11 @@ describe("A2-6 read_session（会话尾部内容深读）", () => {
     const sessions = fakeSessionsWithTail(rows, { "sess-work": [] });
     const { svc } = makeA2Service({ llm, sessions });
     await svc.ask("看看");
-    expect(sessions.tailCalls[0]).toEqual({ sessionId: "sess-work", tail: 6 });
+    expect(sessions.tailCalls[0]).toEqual({
+      sessionId: "sess-work",
+      tail: 6,
+      opts: { entryOffset: 0, maxEntryChars: Infinity }, // 参数化批：单条全文投影
+    });
 
     const llm2 = fakeLlm([
       toolCall("read_session", { sessionId: "sess-work", tail: 999 }),
@@ -861,5 +869,35 @@ describe("A2-6 read_session（会话尾部内容深读）", () => {
 
   test("④ system prompt 路由行：问管家取数工具清单含 read_session", () => {
     expect(STEWARD_SYSTEM_PROMPT).toContain("read_session");
+  });
+
+  // ── 参数化批（2026-10-11 用户裁决：深读体量靠翻页不靠截断）──
+
+  test("⑤ offset 透传：跳过最近 N 条读更早窗口（逐条翻页）+ 单条不截传 repo", async () => {
+    const llm = fakeLlm([
+      toolCall("read_session", { sessionId: "sess-work", offset: 6 }),
+      { kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" },
+    ]);
+    const sessions = fakeSessionsWithTail(rows, { "sess-work": [{ role: "user", text: "早前消息" }] });
+    const { svc } = makeA2Service({ llm, sessions });
+    await svc.ask("看看更早的");
+    expect(sessions.tailCalls[0]).toEqual({
+      sessionId: "sess-work",
+      tail: 6,
+      opts: { entryOffset: 6, maxEntryChars: Infinity },
+    });
+  });
+
+  test("⑥ 单条全文透出：超 300 码点条目工具结果含尾部内容（不二次砍）", async () => {
+    const long = "尾".repeat(400); // 800 码点 > 300——repo 全文投影后工具面不再砍
+    const llm = fakeLlm([
+      toolCall("read_session", { sessionId: "sess-work" }),
+      { kind: "blocks", blocks: [{ type: "text", text: "ok" }], stopReason: "stop" },
+    ]);
+    const sessions = fakeSessionsWithTail(rows, { "sess-work": [{ role: "assistant", text: long }] });
+    const { svc } = makeA2Service({ llm, sessions });
+    await svc.ask("看看");
+    const tr = llm.calls[1]!.request.messages.find((m): m is Extract<typeof m, { role: "toolResult" }> => m.role === "toolResult" && m.name === "read_session");
+    expect(tr!.text).toContain(long); // 单条全文进 toolResult（capToolResultText 4000 总护栏兑底）
   });
 });

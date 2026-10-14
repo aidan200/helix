@@ -95,6 +95,12 @@ export const NOTIFY_BODY_MAX_CHARS = 600;
  *  放宽到 2000（约 6 分钟白话，超长兑底防御保留）。 */
 export const VOICE_DETAIL_MAX_CHARS = 2000;
 
+/** 回递链路回复正文读面单条上限（2026-10-11 用户裁决全文入诊：去 repo 层
+ *  300 码点截断后 readReply 取末条 assistant 全文——本上限仅作病理体量
+ *  防御（正常回复等效全文，与工具面 capToolResultText 同量级），非内容
+ *  截断设计）。 */
+export const REPLY_CONTEXT_MAX_CHARS = 4000;
+
 /** 投递关注持久化单键（runtime_config kv——无枚举面，单键整图快照形态；
  *  空 Map 写 "{}"，无 delete 面不生残留）。 */
 export const STEWARD_WATCH_KV_KEY = "steward_watch_reply";
@@ -594,7 +600,7 @@ export class StewardPerceptionService {
         } catch {
           // 读面失败保底标注（诊断照常）
         }
-        userPrompt = `${userPrompt}\n回复内容（尾部截取）：${replyBlock}`;
+        userPrompt = `${userPrompt}\n回复内容：${replyBlock}`;
       }
       const { result, verbose } = await this.diagnoseOrJudge(port, input, userPrompt);
       const present = this.clampPresent(result.present);

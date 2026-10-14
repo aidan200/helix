@@ -7,7 +7,7 @@
  * 3. 点读单行成本（SELECT entries 单行——与 restore 同级，投影后原文即弃）；
  * 4. 不存在 sessionId → undefined（引导层判据）。
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -87,5 +87,69 @@ describe("readSessionTail（repo 层尾部投影）", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+// ── 参数化批（回递全文 + 深读翻页——2026-10-11 用户裁决）──────────
+// 缺省行为（单条截 300）由上方②钉位不变；本块断言 opts 两参数：
+// maxEntryChars=Infinity（回递链路全文入诊）/ entryOffset（管家逐条翻页）。
+
+describe("readSessionTail 参数化（maxEntryChars / entryOffset）", () => {
+  /** TR-152：登记数组 + afterAll 幂等回收（finally 内 close 招错不得跳过 rm）。 */
+  const homes: string[] = [];
+  afterAll(() => {
+    for (const h of homes) rmSync(h, { recursive: true, force: true });
+  });
+
+  async function openRepo(): Promise<{ repo: SqliteSessionRepository; queue: WriteQueue }> {
+    const home = tmpHome();
+    homes.push(home);
+    const queue = new WriteQueue(path.join(home, "helix.db"));
+    return { repo: new SqliteSessionRepository(queue), queue };
+  }
+
+  test("④ maxEntryChars=Infinity：单条全文（回递链路全文入诊——用户裁决）", async () => {
+    const { repo, queue } = await openRepo();
+    const long = "全文".repeat(400); // 800 码点 > 300
+    await saveWithMessages(repo, "sess-full", [{ role: "user", text: long }]);
+    const rows = await repo.readSessionTail("sess-full", 1, { maxEntryChars: Infinity });
+    expect(rows![0]!.text).toBe(long); // 无省略号、无截断
+    queue.close();
+  });
+
+  test("⑤ entryOffset 翻页：跳过最近 N 条读更早窗口（旧→新序保持）", async () => {
+    const { repo, queue } = await openRepo();
+    await saveWithMessages(repo, "sess-page", [
+      { role: "user", text: "第一条" },
+      { role: "user", text: "第二条" },
+      { role: "user", text: "第三条" },
+      { role: "user", text: "第四条" },
+      { role: "user", text: "第五条" },
+    ]);
+    // 跳过最近 2 条（第五/四），取 2 条（第二/三——旧→新序保持）；offset 0 = 现状尾窗
+    const page = await repo.readSessionTail("sess-page", 2, { entryOffset: 2 });
+    expect(page!.map((r) => r.text)).toEqual(["第二条", "第三条"]);
+    const tail = await repo.readSessionTail("sess-page", 2);
+    expect(tail!.map((r) => r.text)).toEqual(["第四条", "第五条"]);
+    queue.close();
+  });
+
+  test("⑥ offset ≥ 条目数 → 空窗口（翻页越界 = 空数组非 undefined）", async () => {
+    const { repo, queue } = await openRepo();
+    await saveWithMessages(repo, "sess-over", [{ role: "user", text: "唯一" }]);
+    expect(await repo.readSessionTail("sess-over", 6, { entryOffset: 10 })).toEqual([]);
+    queue.close();
+  });
+
+  test("⑦ offset × 全文组合：翻页模式读更早的长条目不截（体量靠翻页不靠截断）", async () => {
+    const { repo, queue } = await openRepo();
+    const long = "早".repeat(450);
+    await saveWithMessages(repo, "sess-mix", [
+      { role: "user", text: long },
+      { role: "user", text: "短" },
+    ]);
+    const page = await repo.readSessionTail("sess-mix", 1, { entryOffset: 1, maxEntryChars: Infinity });
+    expect(page![0]!.text).toBe(long);
+    queue.close();
   });
 });

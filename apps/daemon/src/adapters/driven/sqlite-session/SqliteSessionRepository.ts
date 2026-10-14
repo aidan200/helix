@@ -9,6 +9,7 @@ import type {
   OrphanInstanceLifecycleRow,
   PendingSyncRowData,
   PersistedDomainState,
+  ReadSessionTailOptions,
   SessionMetadataRow,
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
@@ -101,11 +102,14 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   }
 
   /** 尾部消息投影（progress 批 M3）：单行点读（与 restore 同级成本——每次
-   *  只读一行，非全表扫）；TS 层 parse 后立即投影丢弃原文，出口单条截 300
-   *  码点——LLM 面体量护栏在 repo 出口处收口（任何消费面天然受控）。 */
+   *  只读一行，非全表扫）；TS 层 parse 后立即投影丢弃原文。出口单条缺省
+   *  截 300 码点（opts 可覆盖——2026-10-11 参数化批：回递链路全文入诊 /
+   *  深读翻页单条不截，体量控制归消费面：分诊面防御上限 / 工具面
+   *  capToolResultText 兑底）。 */
   async readSessionTail(
     sessionId: string,
     tailEntries: number,
+    opts?: ReadSessionTailOptions,
   ): Promise<readonly { role: string; text: string }[] | undefined> {
     const row = this.queue.database
       .prepare("SELECT entries FROM session_state WHERE session_id = ?")
@@ -119,11 +123,15 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     }
     if (!Array.isArray(parsed)) return [];
     const n = Number.isInteger(tailEntries) && tailEntries > 0 ? tailEntries : 1;
-    return parsed.slice(-n).map((e) => {
+    // 翻页窗口（entryOffset：从尾部向前跳过 N 条；0 = 现状尾窗）
+    const rawOffset = opts?.entryOffset;
+    const offset = rawOffset !== undefined && Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+    const window = offset > 0 ? parsed.slice(-(n + offset), -offset) : parsed.slice(-n);
+    const cap = opts?.maxEntryChars ?? READ_TAIL_ENTRY_MAX_CHARS;
+    return window.map((e) => {
       const entry = e as { role?: unknown; text?: unknown };
       const text = typeof entry.text === "string" ? [...entry.text] : [];
-      const capped =
-        text.length > READ_TAIL_ENTRY_MAX_CHARS ? `${text.slice(0, READ_TAIL_ENTRY_MAX_CHARS).join("")}…` : text.join("");
+      const capped = text.length > cap ? `${text.slice(0, cap).join("")}…` : text.join("");
       return { role: typeof entry.role === "string" ? entry.role : "?", text: capped };
     });
   }

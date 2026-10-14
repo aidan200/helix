@@ -37,6 +37,17 @@ export interface PersistedDomainState {
  * 会话聚合持久化族：领域状态整体 write-through（save/restore）+
  * 会话清单与元数据读面 + 删除收口链的删库步。
  */
+/**
+ * 尾部投影选项（2026-10-11 参数化批：回递全文 + 深读翻页用户裁决）：
+ * - entryOffset：从尾部向前跳过 N 条（0 = 现状尾窗；管家 read_session 逐条翻页读更早窗口）；
+ * - maxEntryChars：单条截断码点上限（缺省 300 现状不变；Infinity = 全文——
+ *   回递链路全文入诊；体量控制归消费面：分诊面防御上限 / 工具面 capToolResultText 兑底）。
+ */
+export interface ReadSessionTailOptions {
+  readonly entryOffset?: number;
+  readonly maxEntryChars?: number;
+}
+
 export interface SessionRepository {
   /** 保存领域状态整体（幂等覆盖，同 sessionId）。 */
   save(state: PersistedDomainState): Promise<void>;
@@ -57,11 +68,15 @@ export interface SessionRepository {
   listSessionMetadata(): Promise<readonly SessionMetadataRow[]>;
   /**
    * 会话尾部消息投影（progress 批 M3——管家 read_session 工具数据源）：
-   * 单会话点读最后 N 条 {role, text}（旧→新；单条截 300 码点——LLM 面
-   * 体量护栏在出口处）。点读单行与 restore 同级成本，投影后原文即弃；
-   * 不存在 → undefined。不重建聚合、不触写面。
+   * 单会话点读最后 N 条 {role, text}（旧→新；缺省单条截 300 码点——LLM 面
+   * 体量护栏在出口处，opts 可覆盖）。点读单行与 restore 同级成本，投影后
+   * 原文即弃；不存在 → undefined。不重建聚合、不触写面。
    */
-  readSessionTail(sessionId: string, tailEntries: number): Promise<readonly { role: string; text: string }[] | undefined>;
+  readSessionTail(
+    sessionId: string,
+    tailEntries: number,
+    opts?: ReadSessionTailOptions,
+  ): Promise<readonly { role: string; text: string }[] | undefined>;
   /**
    * 单会话短标题点读（语音闭环批 ④：管家投递回执/提案短名数据源——
    * title > topic > 首条用户消息，与 listSessionMetadata 同优先级但不拉全表；
