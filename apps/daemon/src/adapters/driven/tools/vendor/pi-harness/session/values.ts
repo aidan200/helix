@@ -1,4 +1,4 @@
-import type { AssistantMessageFrame } from "@earendil-works/pi-ai";
+import type { AssistantMessage, TextContent, ThinkingContent, ToolCall } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type {
 	DurableStructuralPreparation,
@@ -10,6 +10,39 @@ import type {
 	OperationState,
 	PendingEntry,
 } from "./types.ts";
+
+/**
+ * FROZEN from pi-ai v1.0.4 utils/assistant-message-frame.ts —
+ * upstream deleted the frame encoder/reducer in v1.3.0 (serializeConversation no
+ * longer replays thinking); this address type only needs the shape to type the
+ * persisted `pi.pending.assistant_frame` list, so the union is vendored here.
+ */
+export type AssistantMessageFrame =
+	| { type: "start"; partial: AssistantMessage }
+	| { type: "text_start"; contentIndex: number; content: TextContent }
+	| { type: "text_delta"; contentIndex: number; delta: string }
+	| { type: "text_end"; contentIndex: number; content: string; textSignature?: string }
+	| { type: "thinking_start"; contentIndex: number; content: ThinkingContent }
+	| { type: "thinking_delta"; contentIndex: number; delta: string }
+	| {
+			type: "thinking_end";
+			contentIndex: number;
+			content: string;
+			thinkingSignature?: string;
+			redacted?: boolean;
+	  }
+	| { type: "toolcall_start"; contentIndex: number; toolCall: ToolCall }
+	| { type: "toolcall_checkpoint"; contentIndex: number; json: string }
+	| { type: "toolcall_delta"; contentIndex: number; delta: string }
+	| {
+			type: "toolcall_end";
+			contentIndex: number;
+			id: string;
+			name: string;
+			arguments: ToolCall["arguments"];
+			thoughtSignature?: string;
+			namespace?: string;
+	  };
 
 declare const storedValueType: unique symbol;
 
