@@ -130,7 +130,7 @@ export class CdpConnectionManager implements BrowserPort {
   private cmdId = 0;
   private readonly pending = new Map<number, PendingCommand>();
   private readonly sessions = new Map<string, string>(); // targetId → sessionId
-  private readonly executionTargets = new Map<number, string>(); // executionContextId → targetId（M1 归属防串扰）
+  private readonly executionTargets = new Map<string, string>(); // `${sessionId}:${ctxId}` → targetId（B15：ctxId 仅单 session 内唯一，复合键防多 tab 同号碰撞）
   private readonly observerSessions = new Set<string>(); // 已注入观察者的 session（每 session 恰一次）
   private readonly portGuardedSessions = new Set<string>();
   private awareness: BrowserAwarenessSink | undefined;
@@ -591,14 +591,17 @@ export class CdpConnectionManager implements BrowserPort {
     if (sink === undefined || !sink.isEnabled()) return;
     const params = (msg.params ?? {}) as Record<string, unknown>;
     // executionContextId → targetId 映射维护（Runtime 上下文生命周期——
-    // bindingCalled 归属真源，附录 A 防串扰难点）
+    // bindingCalled 归属真源，附录 A 防串扰难点；B15：键钉在 sessionId 上
+    // ——executionContextId 仅单 session/target 内唯一，多 tab 同号会碰撞串盖）
     if (msg.method === "Runtime.executionContextCreated") {
       const ctxId = (params as { context?: { id?: unknown } }).context?.id;
       const targetId = this.targetIdOfSession(msg.sessionId);
-      if (typeof ctxId === "number" && targetId !== undefined) this.executionTargets.set(ctxId, targetId);
+      if (typeof ctxId === "number" && targetId !== undefined) {
+        this.executionTargets.set(this.ctxKey(msg.sessionId, ctxId), targetId);
+      }
     } else if (msg.method === "Runtime.executionContextDestroyed") {
       const ctxId = (params as { executionContextId?: unknown }).executionContextId;
-      if (typeof ctxId === "number") this.executionTargets.delete(ctxId);
+      if (typeof ctxId === "number") this.executionTargets.delete(this.ctxKey(msg.sessionId, ctxId));
     }
     const targetId = this.targetIdOfEvent(msg, params);
     sink.onCdpEvent(msg.method, params, {
@@ -607,8 +610,9 @@ export class CdpConnectionManager implements BrowserPort {
     });
   }
 
-  /** 事件归属解析：bindingCalled 按 executionContextId 映射优先（防串扰），
-   *  回落 targetId 字段（targetCreated/Destroyed 族）与 sessionId 反查。 */
+  /** 事件归属解析（B15 修正）：bindingCalled 的 ctxId 映射仅同 session 内
+   *  生效（复合键命中）；跨会话/未知 ctxId 回落 targetId 字段与 sessionId
+   *  反查——executionContextId 全局不可信，sessionId 反查为真源。 */
   private targetIdOfEvent(
     msg: { method: string; sessionId?: string },
     params: Record<string, unknown>,
@@ -616,12 +620,19 @@ export class CdpConnectionManager implements BrowserPort {
     if (msg.method === "Runtime.bindingCalled") {
       const ctxId = (params as { executionContextId?: unknown }).executionContextId;
       if (typeof ctxId === "number") {
-        const mapped = this.executionTargets.get(ctxId);
-        if (mapped !== undefined) return mapped; // 上下文归属优先（防串扰）
+        const mapped = this.executionTargets.get(this.ctxKey(msg.sessionId, ctxId));
+        if (mapped !== undefined) return mapped; // 同 session 上下文归属优先（防串扰）
       }
     }
     if (typeof params.targetId === "string") return params.targetId;
     return this.targetIdOfSession(msg.sessionId);
+  }
+
+  /** ctxId 归属复合键（B15）：`${sessionId}:${ctxId}`——executionContextId
+   *  仅单 session/target 内唯一，裸键在多 tab 同号碰撞时把 A tab 用户活动
+   *  盖成 B tab 归属（防串扰机制反向串扰）。 */
+  private ctxKey(sessionId: unknown, ctxId: number): string {
+    return `${typeof sessionId === "string" ? sessionId : ""}:${ctxId}`;
   }
 
   /** sessionId → targetId 反查（flatten 会话归属）。 */

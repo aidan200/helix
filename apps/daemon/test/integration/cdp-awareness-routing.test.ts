@@ -176,7 +176,7 @@ describe("CDP 事件路由 → SurfaceRegistry → 感知 ring（开关 on）", 
     await rig.manager.stop();
   });
 
-  test("归属防串扰：executionContextId 映射优先——A 会话帧携带 B 的上下文 id 归 B", async () => {
+  test("归属防串扰（B15 修正语义）：ctxId 映射仅同 session 内生效，跨会话/未知 ctxId 回落 sessionId 归属", async () => {
     const rig = makeRig();
     await rig.manager.connect();
     const ws = rig.sockets[0]!;
@@ -185,23 +185,52 @@ describe("CDP 事件路由 → SurfaceRegistry → 感知 ring（开关 on）", 
     ws.receive({ method: "Runtime.executionContextCreated", params: { context: { id: 11 } }, sessionId: `sess-${t1}` });
     ws.receive({ method: "Runtime.executionContextCreated", params: { context: { id: 22 } }, sessionId: `sess-${t2}` });
 
-    // 交付在 t1 的 session 上、executionContextId 指向 t2 → 归 t2（上下文归属优先）
+    // 跨会话 ctxId（碰撞形态）：t1 会话帧携带 22（t2 的上下文号）→ 归 t1
+    //（executionContextId 仅 session 内唯一，全局映射不可信——sessionId 反查为真源）
     ws.receive({
       method: "Runtime.bindingCalled",
-      params: { name: OBSERVER_BINDING_NAME, executionContextId: 22, payload: observerPayload({ t: "focus", trusted: true, url: "b" }) },
+      params: { name: OBSERVER_BINDING_NAME, executionContextId: 22, payload: observerPayload({ t: "focus", trusted: true, url: "a" }) },
       sessionId: `sess-${t1}`,
     });
-    // 未知 executionContextId → 回落 sessionId 归属
+    // 同 session ctxId 命中：t1 帧携带 11 → 映射生效归 t1
     ws.receive({
       method: "Runtime.bindingCalled",
-      params: { name: OBSERVER_BINDING_NAME, executionContextId: 999, payload: observerPayload({ t: "focus", trusted: true, url: "a" }) },
+      params: { name: OBSERVER_BINDING_NAME, executionContextId: 11, payload: observerPayload({ t: "focus", trusted: true, url: "a2" }) },
+      sessionId: `sess-${t1}`,
+    });
+    // 未知 executionContextId → 回落 sessionId 归属（既有行为保持）
+    ws.receive({
+      method: "Runtime.bindingCalled",
+      params: { name: OBSERVER_BINDING_NAME, executionContextId: 999, payload: observerPayload({ t: "focus", trusted: true, url: "a3" }) },
       sessionId: `sess-${t1}`,
     });
     await sleep(5);
 
     const ring = rig.perception.ringSnapshot();
-    expect(ring.map((r) => r.sessionId)).toEqual([`browser:${t2}`, `browser:${t1}`]);
-    expect(rig.adapter.focusedTarget()).toBe(t1); // 最后 focus 归 t1
+    expect(ring.map((r) => r.sessionId)).toEqual([`browser:${t1}`, `browser:${t1}`, `browser:${t1}`]);
+    expect(rig.adapter.focusedTarget()).toBe(t1); // 全部归 t1
+    await rig.manager.stop();
+  });
+
+  test("多 tab ctxId 碰撞（B15 判据）：两 tab 同号上下文各归各 session，不串盖", async () => {
+    const rig = makeRig();
+    await rig.manager.connect();
+    const ws = rig.sockets[0]!;
+    const { tabId: t1 } = await rig.manager.openTab("https://a.test/", "agent-1");
+    const { tabId: t2 } = await rig.manager.openTab("https://b.test/", "agent-1");
+    // 碰撞面：两个 tab 的默认上下文同号（ctxId 计数器每 session 独立）
+    ws.receive({ method: "Runtime.executionContextCreated", params: { context: { id: 11 } }, sessionId: `sess-${t1}` });
+    ws.receive({ method: "Runtime.executionContextCreated", params: { context: { id: 11 } }, sessionId: `sess-${t2}` });
+    // t1 上的用户活动事件：全局键下 11→t2（后注册覆盖）会被盖成 t2 —— 必须归 t1
+    ws.receive({
+      method: "Runtime.bindingCalled",
+      params: { name: OBSERVER_BINDING_NAME, executionContextId: 11, payload: observerPayload({ t: "click", trusted: true, tag: "button" }) },
+      sessionId: `sess-${t1}`,
+    });
+    await sleep(5);
+
+    const ring = rig.perception.ringSnapshot();
+    expect(ring.map((r) => r.sessionId)).toEqual([`browser:${t1}`]);
     await rig.manager.stop();
   });
 
