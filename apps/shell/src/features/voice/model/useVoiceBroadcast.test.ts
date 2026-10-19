@@ -164,6 +164,34 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
     expect(FakeAudio.instances[1]!.src).toBe("data:audio/wav;base64,S5");
   });
 
+  it("重连世代复位：断线重连后 daemon 重启 seq 归零，新广播不被旧高水位丢弃", async () => {
+    const { rerender } = await act(async () => {
+      return renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    await act(async () => {
+      frameListener!(broadcastFrame(3)); // 高水位推到 3
+    });
+    expect(FakeAudio.instances.length).toBe(1);
+    await act(async () => {
+      FakeAudio.instances[0]!.onended?.();
+    });
+    expect(FakeAudio.instances.length).toBe(1);
+    // 断线 → 重连（daemon 进程重启，广播 seq 从 1 重新起步）
+    connState = "connecting";
+    await act(async () => {
+      rerender();
+    });
+    connState = "connected";
+    await act(async () => {
+      rerender();
+    });
+    expect(sendVoiceSubscribe).toHaveBeenCalledTimes(2); // 重连重发订阅（既有行为）
+    await act(async () => {
+      frameListener!(broadcastFrame(1)); // 重启后新广播 seq=1
+    });
+    expect(FakeAudio.instances.length).toBe(2); // 修复前：被旧高水位 3 当重复静默丢弃
+  });
+
   it("顺序保障：第二条在首条 onended 后才播", async () => {
     await act(async () => {
       renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
