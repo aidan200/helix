@@ -11,7 +11,8 @@ import type { McpToolDefinition } from "./types";
  *
  * 核心可行性（方案 §0 已证）：MCP inputSchema = 标准 JSON Schema，
  * pi-ai Tool.parameters（TSchema）与其同构（grep 工具手写 JSON Schema
- * 同款先例）——**零转换透传**，动态发现的 schema 直接进模型工具定义。
+ * 同款先例）——透传进模型工具定义（唯一例外：sanitizer 钳制面，见
+ * sanitizeMcpInputSchema——provider 兼容性收口，语义见函数头）。
  *
  * 命名空间：`${server}__${tool}`（双下划线——shadcn 自身工具名含单下划线，
  * 弱分隔会撞）；description 加 `[mcp:${server}]` 前缀保证归属辨识（MCP
@@ -51,6 +52,42 @@ function textOfContent(content: unknown[]): string {
   return text || "(no content)";
 }
 
+/**
+ * MCP inputSchema 钳制面（E-316，2026-10-19 zai 1210 实证）：递归把
+ * JSON Schema 的 **tuple 形 `items`**（`"items": [schema, schema, …]`，
+ * draft-04/07 位置校验合法形态）改写为对象形 `{anyOf: […]}`。
+ *
+ * 动机（实证链）：智谱 coding 端点（open.bigmodel.cn，glm-5.3）对 tools
+ * 数组做严格 schema 校验，遇 tuple 形 items 直接拒——`400 code 1210
+ * "API 调用参数有误"`。触发面即本文件的懒加载物化链：模型调用
+ * `${server}__discover` → aseprite 真实工具（validate 含 layerFrames/
+ * mustNotOverlap 两处 tuple items）注册 → 下一请求 tools 数组带上它们 →
+ * 该会话及共享工具注册表的其余会话全部 1210（同 daemon 跨会话复现）。
+ * 清洗后同 schema 实测 200（anyOf 对象形 + 保留 minItems/maxItems——
+ * 位置严格性放宽为成员校验，provider 兼容性的最小代价）。
+ *
+ * 纯函数纪律：深拷贝改写（不动入参）、零 IO、递归全树（properties/
+ * items/additionalProperties/anyOf 等一切容器）；非 items 数组不动
+ *（enum 等合法数组形态）。空 tuple `items: []` → `{}`（空 schema = 任意）。
+ */
+export function sanitizeMcpInputSchema(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map(sanitizeMcpInputSchema);
+  }
+  if (typeof node !== "object" || node === null) {
+    return node;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "items" && Array.isArray(value)) {
+      out[key] = value.length > 0 ? { anyOf: value.map(sanitizeMcpInputSchema) } : {};
+    } else {
+      out[key] = sanitizeMcpInputSchema(value);
+    }
+  }
+  return out;
+}
+
 /** 单工具适配（缺 inputSchema 时空对象 schema——无参工具形态；GrepTool 手写 JSON Schema 同款先例，daemon 不直接依赖 typebox）。 */
 export function createMcpTool(
   server: string,
@@ -59,7 +96,7 @@ export function createMcpTool(
 ): AgentHarnessTool<ExecutionToolContext> {
   const namespaced = `${server}__${definition.name}`;
   const description = `[mcp:${server}] ${definition.description ?? definition.name}`;
-  const parameters = (definition.inputSchema ?? {
+  const parameters = sanitizeMcpInputSchema(definition.inputSchema ?? {
     type: "object",
     properties: {},
   }) as never;
