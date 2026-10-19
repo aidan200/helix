@@ -122,6 +122,18 @@ describe("createKgFramesListener（M9 #2.31）", () => {
     expect(dispatched[0]).toMatchObject({ type: "list-result", initialSel: "E-1" });
     expect(deps.sendKgNodeDetail).toHaveBeenCalledWith({ project: "helix", id: "E-1" });
   });
+
+  it("中危 F3a（TR-84 同族）：首载默认选中后 detail 发送失败（断线窗口）→ detail-failed 清骨架（不永挂）", () => {
+    const { listener, dispatched } = setup({ sel: null, detailSendOk: false });
+    const nodes = [
+      { id: "TR-1", name: "r", kind: "rule", domain: "tech", status: "confirmed", digest: "d" },
+      { id: "E-1", name: "e", kind: "entity", domain: null, status: "confirmed", digest: "d" },
+    ];
+    listener(frame("kg.list.result", { total: 2, nodes }));
+    // list-result 已置 detailLoading=true；send false 未发出——必须同款收口
+    //（与 confirm 分支族A一致），否则断线窗口首载骨架永挂
+    expect(dispatched).toContainEqual({ type: "detail-failed", id: "E-1" });
+  });
 });
 
 describe("code-review 族A：confirm 后 detail 重发失败收口（TR-84）", () => {
