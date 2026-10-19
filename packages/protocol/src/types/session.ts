@@ -127,17 +127,23 @@ export interface SessionSnapshotDto {
   agentState: AgentStateDto;
   /** 增量基线序号：快照之后的增量事件续接于此 */
   revision: number;
-  /** 会话条目，时间顺序排列（v0/v0.1 全量口径；v0.2 尾窗口径下 daemon 填充 = tail 同源） */
+  /**
+   * 会话条目，时间顺序排列（v0/v0.1 全量口径）。**v0.2 起为兼容别名**：
+   * daemon 填的是与 `tail` 同一尾窗数组，wire 上序列化两次、主轴字节预算按
+   * 双份计（快照体量批帧级计账）。新消费面一律读 `tail`；退役条件 = legacy
+   * 全量口径消费面（旧剧本/旧壳）零引用后同批删除本字段。
+   */
   entries: EntryDto[];
   /** 实例清单（v0.1 新增）：重启恢复卡片/抽屉骨架；缺省 = 未携带（旧剧本兼容） */
   instances?: AgentInstanceDto[];
   /** 账目聚合（v0.1 新增）：重启恢复徽标/popover；缺省 = 未携带（旧剧本兼容） */
   usage?: SessionUsageDto;
   /**
-   * 主时间轴尾窗（v0.2 新增，AD-1 尾窗口径，additive）：默认 30 条（G-1）。
-   * 尾窗只作用于主时间轴 entry；per-instance channel 分组（instances[].channels）
-   * 不随主轴尾窗切——独立通道尾窗 + 字节预算（快照体量批，见
-   * InstanceChannelHistory.truncated）。缺省 = 未携带（v0/v0.1 旧剧本兼容）。
+   * 主时间轴尾窗（v0.2 新增，AD-1 尾窗口径，additive；条数单源 = daemon
+   * TAIL_WINDOW_SIZE 常量）。尾窗只作用于主时间轴 entry；per-instance channel
+   * 分组（instances[].channels）不随主轴尾窗切——通道侧是预览化 + 截断标记，
+   * 完整通道历史走 session.instanceChannels 按需拉取（见
+   * InstanceChannelHistory）。缺省 = 未携带（v0/v0.1 旧剧本兼容）。
    */
   tail?: EntryDto[];
   /** 全量计数（v0.2 新增，分页指示用，additive）：缺省 = 未携带 */
