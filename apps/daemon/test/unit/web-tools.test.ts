@@ -124,6 +124,19 @@ describe("htmlToMarkdown（五要素转换核）", () => {
     const md = htmlToMarkdown("<p>a &amp; b &lt;c&gt; &quot;q&quot; &#39;s&#39; x&nbsp;y</p>");
     expect(md).toContain(`a & b <c> "q" 's' x y`);
   });
+
+  // 评审 F2 #18：占位符曾用可被正文击中的「CODE<n>」字面量——越界即抛 TypeError，
+  // 未越界则把正文里的 CODE<n> 错换成代码块。
+  test("⑦ 正文字面 CODE<n>：越界不抛错、原样保留", () => {
+    expect(() => htmlToMarkdown("<p>see CODE5 here</p>")).not.toThrow();
+    expect(htmlToMarkdown("<p>see CODE5 here</p>")).toContain("CODE5");
+  });
+
+  test("⑦ 正文字面 CODE<0>：不与真代码块占位串扰（正文不被错换）", () => {
+    const md = htmlToMarkdown("<pre>alpha</pre><p>literal CODE0 marker</p>");
+    expect(md).toContain("literal CODE0 marker");
+    expect(md).toContain("```\nalpha\n```");
+  });
 });
 
 describe("toJinaUrl（Jina 备选通道 URL 投影）", () => {
