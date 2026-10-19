@@ -61,6 +61,12 @@ export interface EmbeddingListResultEvent extends EventFrame<EmbeddingListResult
  * 校准概率 prob）——ok = 端点可达且协议形态合法；fail = 不可达/
  * HTTP 非 2xx/协议异常（error 含定位信息）。id 回携——多端点并发验证
  * 归属无歧义（auth.verify in-flight 单飞限制的改良）。
+ *
+ * ⚠ 判别位现状（已知契约瑕疵，消费端按此窄化）：两个 `state:"ok"` 变体共用
+ * 同一判别位，实际区分靠字段存在性——先用 `"dim" in payload`（或
+ * `"prob" in payload`）窄化再取值。引入独立 kind 判别位或合并为
+ * `{dim:number|null;prob:number|null}` 均属 **wire 形态变更**（两端同动），
+ * 未经裁决不改。
  */
 export type EmbeddingVerifyResultPayload =
   | {

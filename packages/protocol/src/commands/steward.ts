@@ -152,7 +152,12 @@ export interface StewardMemoryListCommand extends CommandFrame<EmptyPayload> {
 export interface StewardMemoryAppendPayload {
   /** 记忆文本（非空；daemon 校验）。 */
   text: string;
-  /** 条目类别（缺省 "fact"；枚举对齐存储面既有 kind 值）。 */
+  /**
+   * 条目类别（缺省 "fact"）：**人工可建集 = fact | preference 两值**。
+   * 读面（StewardMemoryEntryView.kind）另有 "progress"——那是轮末联合摘要器
+   * 写的系统产出（source = session-progress，走 remember 两段闸），不开放
+   * 手建；本载荷携 "progress" → command.invalid_payload。
+   */
   kind?: "fact" | "preference";
   /** 项目作用域（项目隔离批，additive："global" 或项目目录名；缺省按
    *  domain 一致性约束裁定——habit/general → global，domain=project 必绑
