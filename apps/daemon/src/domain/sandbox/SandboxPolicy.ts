@@ -20,6 +20,10 @@ export interface SandboxPolicy {
   readonly writableRoots: readonly string[];
 }
 
+/** 控制字符（C0 + DEL）——sbpl 字面量断行/注入的唯一入口面（解析过滤与字面量
+ * 削除两处共用）。 */
+export const HAS_CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
 /** 解析沙箱开关配置载荷（KV sandbox_config 单键 JSON {enabled, extraRoots?}——
  * 沙箱开关批 2026-09-12 起开关存 db 单键；第一版 <home>/sandbox.json 文件开关已由
  * bootPrelude.migrateLegacySandboxConfig 一次性迁移退役；extraRoots = 用户配置的
@@ -28,7 +32,12 @@ export function parseSandboxConfig(raw: unknown, workspaceRoot: string, helixHom
   const obj = (raw ?? {}) as Record<string, unknown>;
   const enabled = obj["enabled"] === true;
   const extra = Array.isArray(obj["extraRoots"])
-    ? obj["extraRoots"].filter((r): r is string => typeof r === "string" && r.trim() !== "")
+    ? obj["extraRoots"].filter((r): r is string => typeof r === "string" && r.trim() !== "").filter(
+        // 控制字符剔除（评审 F1）：root 是要拼进 sbpl 字符串字面量的——\n 等
+        // 控制字符会断行/注入策略语句。合法路径不含控制字符，直接剔除且在
+        // 策略面即剔除（与 profile 构建同口径：不放行 write 工具也不放行 bash）。
+        (r) => !HAS_CONTROL_CHARS.test(r),
+      )
     : [];
   return {
     mode: enabled ? "on" : "off",
