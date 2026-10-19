@@ -548,8 +548,9 @@ class FakeSocket {
     }, latencyMs);
   }
 
-  /** task.changed 投递准入（连接级订阅表：null=未订阅不投递；"*"=全部；否则按 jobId）。 */
-  private taskChangedAllowed(frame: EventEnvelope): boolean {
+  /** task.changed 投递准入（连接级订阅表：null=未订阅不投递；"*"=全部；否则按 jobId）。
+ *  公有：mock 控制面 emit/emitAll 直发路径同闸消费（中危 F3a）。 */
+  taskChangedAllowed(frame: EventEnvelope): boolean {
     if (this.taskSubs === null) return false;
     const jobId = (frame.payload as { jobId?: unknown } | undefined)?.jobId;
     if (this.taskSubs.has("*")) return true;
@@ -733,6 +734,10 @@ const mockApi: HelixMockApi = {
     // steward 广播闸（B1；daemon EventStream.broadcastSteward* 的
     // stewardSubscribed 连接级过滤镜像——未订阅连接广播帧丢弃）
     if (!inst.stewardBroadcastAllowed(frame)) return;
+    // task.changed 订阅闸（中危 F3a，TR-155 镜像对齐：daemon 推送面对未订阅
+    // 连接不下发——auto-reply 路径 D-2 既有；emit/emitAll 直发路径同闸，否则
+    // spec 直发可掩盖订阅失效回归；仅 task.changed 帧受闸，点对点回执豁免）
+    if (frame.type === "task.changed" && !inst.taskChangedAllowed(frame)) return;
     inst.fireMessage(frame);
   },
   async emitAll(frames) {
@@ -743,6 +748,7 @@ const mockApi: HelixMockApi = {
       if (!registry.passTierFilter(f)) continue; // monitor 档白名单过滤
       registry.trackScenarioSession(f);
       if (!inst.stewardBroadcastAllowed(f)) continue; // steward 广播闸（B1 同上）
+      if (f.type === "task.changed" && !inst.taskChangedAllowed(f)) continue; // task.changed 订阅闸（同 emit）
       inst.fireMessage(f);
     }
   },
