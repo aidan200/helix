@@ -125,8 +125,11 @@ export class ChatService implements ChatPort {
   private readonly toolCalls = new Map<string, ToolCallRecord>();
   /** 流式期间预分配的 assistant entry id（D-2：delta.messageId 对齐最终 entry id；归流式族非 ThinkingBuffer）。 */
   private streamEntryId: string | null = null;
-  /** drain 暂存（steer 时序修复）：pi 引擎 steer 注入时 message_start(user, steer-drain) 先于 message_end(assistant) 到达——若 message_start 时立即落盘 steer，steer 会排在旧轮回复之前（entries push 序）。故 drain 时暂存 item，待 message_end(assistant) 落盘回复后再落盘 steer + 开新 turn（对话时序原位）。 */
-  private pendingDrainSteerItem: SteerItem | null = null;
+  /** drain 暂存（steer 时序修复）：pi 引擎 steer 注入时 message_start(user, steer-drain) 先于 message_end(assistant) 到达——若 message_start 时立即落盘 steer，steer 会排在旧轮回复之前（entries push 序）。故 drain 时暂存条目，待 message_end(assistant) 落盘回复后再落盘 steer + 开新 turn（对话时序原位）。
+   *  FIFO 队列而非单槽（评审 F1 续）：pi 在 turn 边界**整批**注入排队 steer，逐条
+   *  发 drain 帧且都先于旧轮 message_end——单槽会在同窗口第二次 drain 时覆盖首条
+   *  （用户输入已广播 steer.drained 却永不进时间轴）。队列化后整批保序落盘。 */
+  private readonly pendingDrainSteerItems: SteerItem[] = [];
   /** thinking 块两态缓冲（原 thinkingStarts/pendingThinking 收编）。 */
   private readonly thinking = new ThinkingBuffer();
   /** 在飞 run 的 promise（AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
@@ -624,8 +627,8 @@ export class ChatService implements ChatPort {
     const item = this.session.dequeueSteer();
     if (item) {
       if (this.streamEntryId !== null) {
-        // 真实 pi 事件序：旧轮回复未落盘，steer 落盘延迟到 recordAssistantMessage 后
-        this.pendingDrainSteerItem = item;
+        // 真实 pi 事件序：旧轮回复未落盘，steer 落盘延迟到 recordAssistantMessage 后（同窗口可多条，FIFO 入队）
+        this.pendingDrainSteerItems.push(item);
       } else {
         // FakeAgentEngine 事件序：旧轮已结束，steer 立即落盘 + 开新 turn
         this.landDrainedSteer(item);
@@ -650,6 +653,19 @@ export class ChatService implements ChatPort {
     const turn = this.session.beginTurn(item.entryId, this.now());
     this.publish("turn.started", { turnId: turn.id });
     this.deps.turnDiff?.onTurnBegin(turn.id, this.now()); // T2 turn diff：drain 轮开轮挂点
+  }
+
+  /** 延迟暂存整批落盘（recordAssistantMessage 消费点）：首条走 landDrainedSteer
+   *  （开新轮 + turn.started），同批余条只落条目 + message.completed——不二次
+   *  beginTurn（TR-25 同 lane 防重入：单轮不变式），时间轴顺序 = drain 顺序。 */
+  private landPendingDrainedSteers(): void {
+    const [head, ...rest] = this.pendingDrainSteerItems.splice(0);
+    if (head === undefined) return;
+    this.landDrainedSteer(head);
+    for (const item of rest) {
+      const entry = this.session.appendSteerEntryAtDrain(item, this.now());
+      this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
+    }
   }
 
   /** turn_end：带工具结果 = assistant 将带结果续生成（新 pi turn）——Turn 保持 open、toolRunning 回 generating；无工具结果的 turn_end 不动（run 收尾归 agent_end 兜底收口）。 */
@@ -686,9 +702,7 @@ export class ChatService implements ChatPort {
     // 残留至下一轮 landDrainedSteer 会在已有 openTurn 上调 beginTurn（TR-25
     // 防重入 DomainError）。此处只落盘条目（drain 落盘语义保住用户输入事实），
     // 不开新轮（run 已终结，无回复对象；下轮正常 beginTurn）。
-    if (this.pendingDrainSteerItem) {
-      const item = this.pendingDrainSteerItem;
-      this.pendingDrainSteerItem = null;
+    for (const item of this.pendingDrainSteerItems.splice(0)) {
       const entry = this.session.appendSteerEntryAtDrain(item, this.now());
       this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
     }
@@ -767,13 +781,9 @@ export class ChatService implements ChatPort {
       this.publishTurnUsage(e.usage);
     }
     this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
-    // drain 暂存 steer 落盘：回复已落盘（或空回复轮），steer 此刻进时间轴原位
+    // drain 暂存 steer 落盘：回复已落盘（或空回复轮），整批 steer 此刻进时间轴原位
     //（pi 事件序延迟分支——两分支事件序差异见 drainSteerTurn 头注释）
-    if (this.pendingDrainSteerItem) {
-      const item = this.pendingDrainSteerItem;
-      this.pendingDrainSteerItem = null;
-      this.landDrainedSteer(item);
-    }
+    this.landPendingDrainedSteers();
   }
 
   /**

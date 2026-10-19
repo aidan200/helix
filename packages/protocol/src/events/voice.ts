@@ -17,7 +17,7 @@ export type VoiceBroadcastKind = "agent.completed" | "agent.failed" | "agent.kil
 
 /** voice.broadcast payload：合成产物广播（一帧一播报）。 */
 export interface VoiceBroadcastPayload {
-  /** 触发事件类型（V2 播报集合三值）。 */
+  /** 触发事件类型（播报集合以 VoiceBroadcastKind 为单源）。 */
   kind: VoiceBroadcastKind;
   /** 触发实例 id（agent-<串>）。 */
   agentId: string;

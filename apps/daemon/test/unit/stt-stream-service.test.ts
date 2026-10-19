@@ -53,6 +53,7 @@ class FakeStreamPort implements SttStreamPort {
 class FakeSession implements SttStreamSession {
   appended: string[] = [];
   finished = false;
+  finishCount = 0;
   aborted = false;
   get dead(): boolean {
     return this.aborted;
@@ -62,6 +63,7 @@ class FakeSession implements SttStreamSession {
   }
   finish(): void {
     this.finished = true;
+    this.finishCount += 1;
   }
   abort(): void {
     this.aborted = true;
@@ -213,6 +215,37 @@ describe("SttStreamService：pending start 缓冲与连接级单流", () => {
     expect(r.port.sessions[0]!.finished).toBe(true);
     r.service.stop(r.sender);
     expect(r.port.sessions[0]!.aborted).toBe(true);
+  });
+
+  test("pending 期 finish 不丢（评审 F1）：open 就绪后先冲刷 chunk 再补发 upstream.finish()", async () => {
+    // 占位句柄的 finish 原为静默 no-op——buildContext 在途期间 shell 发出
+    // finish（用户松手）时意图被吞：上游永不收尾，只能等超时/dispose。
+    const r = rig([new FakeStreamPort()]);
+    let resolveCtx: (c: AsrContext) => void = () => {};
+    r.start({ buildContext: () => new Promise<AsrContext>((res) => (resolveCtx = res)) });
+    r.service.chunk(r.sender, "AA1");
+    r.service.finish(r.sender); // pending 期 finish
+    await flush();
+    expect(r.port.sessions).toHaveLength(0); // 仍未 open
+    resolveCtx(CONTEXT);
+    await flush();
+    const session = r.port.sessions[0]!;
+    expect(session.appended).toEqual(["AA1"]); // 先冲刷缓冲
+    expect(session.finished).toBe(true); // 再补发 finish
+  });
+
+  test("pending 期重复 finish 只补发一次（意图标记一次性消费）", async () => {
+    const r = rig([new FakeStreamPort()]);
+    let resolveCtx: (c: AsrContext) => void = () => {};
+    r.start({ buildContext: () => new Promise<AsrContext>((res) => (resolveCtx = res)) });
+    r.service.finish(r.sender);
+    r.service.finish(r.sender);
+    resolveCtx(CONTEXT);
+    await flush();
+    const session = r.port.sessions[0]!;
+    expect(session.finishCount).toBe(1); // 就绪后只补发一次（标记已消费）
+    r.service.finish(r.sender); // 就绪后的正常 finish 面（幂等，交给上游）
+    expect(session.finishCount).toBe(2);
   });
 
   test("closeSender（连接断开）→ abort + 清位（chunk 不再缓冲）", async () => {

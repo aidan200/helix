@@ -29,6 +29,9 @@ export interface ParentWatchdogDeps {
   readonly aliveOf?: (pid: number) => boolean;
   /** 判定周期 ms（缺省 5000——孤儿泄漏窗口上限；测试注入小值）。 */
   readonly intervalMs?: number;
+  /** 异常降级留痕面（TR-218：定时器回调异常 warn 静默——缺省 console.warn，
+   *  main.ts 装配点在容器建立前，console 是唯一通道；测试注入收集）。 */
+  readonly warn?: (message: string) => void;
 }
 
 /** 缺省父存活探测：信号 0 只探测不发送；ESRCH=不存在，EPERM=存在但无权（存活）。 */
@@ -48,16 +51,29 @@ export function startParentWatchdog(deps: ParentWatchdogDeps): () => void {
   // ppid===1 reparent 判据，零行为变化）
   const aliveOf = deps.aliveOf ?? (process.platform === "win32" ? defaultAliveOf : undefined);
   const intervalMs = deps.intervalMs ?? 5000;
+  const warn = deps.warn ?? ((message: string) => console.warn(message));
   let stopped = false;
   const timer = setInterval(() => {
+    // TR-218：定时器驱动后台任务的回调异常兑底——探测面/动作面任一抛错
+    // 静默降级 warn，不上抛击穿宿主（生产经 installCrashLogging 即进程退出）。
+    // 探测面失败保续航（下周期重试）；动作面失败触发已消费（至多一次不变量）。
     if (stopped) return;
-    const ppid = ppidOf();
-    // 双判据：ppid===1（posix reparent 重挂）或父进程已死（win32 主判据——
-    // ppid 滞留不重挂；posix 缺省不走此支）
-    if (ppid !== 1 && (aliveOf === undefined || aliveOf(ppid))) return;
+    try {
+      const ppid = ppidOf();
+      // 双判据：ppid===1（posix reparent 重挂）或父进程已死（win32 主判据——
+      // ppid 滞留不重挂；posix 缺省不走此支）
+      if (ppid !== 1 && (aliveOf === undefined || aliveOf(ppid))) return;
+    } catch (err) {
+      warn(`父死看门狗探测降级（下周期重试）：${(err as Error).message}`);
+      return;
+    }
     stopped = true; // 一次性判定：触发即自停（onOrphan 不得重入）
     clearInterval(timer);
-    deps.onOrphan();
+    try {
+      deps.onOrphan();
+    } catch (err) {
+      warn(`父死看门狗关停动作异常（触发已消费，不上抛）：${(err as Error).message}`);
+    }
   }, intervalMs);
   timer.unref?.(); // 看门狗不得成为事件循环保活源（保活归 WS 服务）
   return () => {

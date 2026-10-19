@@ -35,7 +35,12 @@ import { existsSync } from "node:fs";
 import type { EmbeddingEndpointConfig, EmbeddingPort } from "../src/application/ports/outbound/EmbeddingPort";
 import type { KgVectorSyncReport } from "../src/application/services/kg/KgVectorService";
 import { KgVectorService } from "../src/application/services/kg/KgVectorService";
-import { parseRecords, type EmbeddingEndpointRecord } from "../src/application/embedding/EmbeddingConfigService";
+import {
+  parseRecords,
+  resolveDefaultRecordOf,
+  endpointConfigOf,
+  type EmbeddingEndpointRecord,
+} from "../src/application/embedding/EmbeddingConfigService";
 import { SqliteKnowledgeStore } from "../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { nodeVectorContentHash } from "../src/adapters/driven/sqlite-kg/node-vector-codec";
 import { KgDatabase } from "../src/adapters/driven/sqlite-kg/KgDatabase";
@@ -111,8 +116,10 @@ interface DefaultEndpointResolution {
 }
 
 /** 从 helix.db KV 解析默认 embedding 端点（embedding.defaultEndpointId →
- *  embedding_endpoints 记录，kind=embedding 校验——与
- *  EmbeddingConfigService.resolveDefault 同判）。 */
+ *  embedding_endpoints 记录，kind=embedding 校验）。判据 = 与父进程
+ *  EmbeddingConfigService.resolveDefault 共享的纯函数单点（评审 F1——此前三处
+ *  本地复刻，语义靠注释维系）；本脚本额外保留失败定位文案（未配置/悬空/非向量
+ *  三类退出提示）。 */
 function resolveDefaultEndpoint(dbPath: string): DefaultEndpointResolution {
   const db = openTaskLedgerDatabase(dbPath);
   try {
@@ -124,21 +131,19 @@ function resolveDefaultEndpoint(dbPath: string): DefaultEndpointResolution {
     if (id === undefined || id.trim() === "") {
       return { endpoint: null, reason: "embedding.defaultEndpointId 未配置" };
     }
-    const record: EmbeddingEndpointRecord | undefined = parseRecords(readKey("embedding_endpoints")).find((r) => r.id === id);
-    if (record === undefined) {
-      return { endpoint: null, reason: `默认端点记录不存在（悬空：${id}）` };
+    const records = parseRecords(readKey("embedding_endpoints"));
+    const record = resolveDefaultRecordOf(records, id, "embedding");
+    if (record === null) {
+      const referenced = records.find((r) => r.id === id);
+      return {
+        endpoint: null,
+        reason:
+          referenced === undefined
+            ? `默认端点记录不存在（悬空：${id}）`
+            : `默认端点 ${referenced.name} 不是向量端点（kind=${referenced.kind}）`,
+      };
     }
-    if ((record.kind ?? "embedding") !== "embedding") {
-      return { endpoint: null, reason: `默认端点 ${record.name} 不是向量端点（kind=${record.kind}）` };
-    }
-    return {
-      endpoint: {
-        baseUrl: record.baseUrl,
-        model: record.model,
-        ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-      },
-      reason: "",
-    };
+    return { endpoint: endpointConfigOf(record), reason: "" };
   } finally {
     db.close();
   }

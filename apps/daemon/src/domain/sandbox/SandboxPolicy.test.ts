@@ -33,6 +33,14 @@ describe("parseSandboxConfig", () => {
     expect(p.writableRoots).toEqual([WS, HOME, "/ok"]);
     expect(parseSandboxConfig({ enabled: false, extraRoots: ["/ok"] }, WS, HOME).writableRoots).toEqual([]);
   });
+
+  test("extraRoots 含控制字符项剔除（防 sbpl 字面量断行——策略面与 profile 面同口径）", () => {
+    const evil = '/opt/x\n(allow file-write* (subpath "/"))';
+    const p = parseSandboxConfig({ enabled: true, extraRoots: [evil, "/ok", "/tab\there"] }, WS, HOME);
+    expect(p.writableRoots).toEqual([WS, HOME, "/ok"]);
+    // 剔除是策略面事实（isPathWritable 同口径拒绝该路径——不放行 profile 也不放行 write 工具）
+    expect(isPathWritable("/opt/x", p)).toBe(false);
+  });
 });
 
 describe("normalizeRoots", () => {

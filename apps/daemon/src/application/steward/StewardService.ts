@@ -1277,11 +1277,9 @@ export class StewardService implements StewardComponent {
     this.ledger = new ProposalLedger({ now: () => this.now() });
     this.run = new StewardRun<StewardAskErrorKind>(() => this.now());
     this.askQueue = new AskQueue<StewardAskItem>(() => this.tuningOf().ask.queueMax); // 批 2：上限现拍（KV 即热）
-    // 批 3a：工具面收编 StewardToolKit（deps 全量透传 + 确认执行体闭包注入）
-    this.toolKit = new StewardToolKit({
-      ...deps,
-      executePending: (action: PendingAction) => this.executePending(action),
-    });
+    // 批 3a：工具面收编 StewardToolKit（deps 全量透传；executePending 不注入
+    // ——挂闸工具 execute 不直行写动作，确认执行体留在本服务 confirm 域）
+    this.toolKit = new StewardToolKit(deps);
   }
 
   async ask(
@@ -2041,8 +2039,30 @@ export class StewardService implements StewardComponent {
     //（闸内 raceAbort 唤醒）再弃引用；runActive 复位防新 ask 误判 busy。
     this.engine?.abort();
     this.engine = undefined;
+    // 在途/排队 ask 先收口再清状态（孤儿化修复：askSettler 只置空不 settle
+    // 的话，在途 ask 的 promise 永不 resolve——handler 的 steward.ask.result
+    // 帧永不回执，UI 该轮永久等待；runSettledMark 同步收口防 abort-再驱动
+    // 路径的 awaiter 挂死；排队项逐个 deliver 作废回执——新对话语义下不再
+    // 处理，但发起面必须拿到终帧）。clearAll 后 finishRun 幂等守卫直接回，
+    // 自然收口路径不会二次 settle——此处是唯一收口点。）
+    const droppedItems = this.askQueue.drainAll();
+    if (droppedItems.length > 0) this.logInfo(`管家新对话：丢弃排队 ${droppedItems.length} 条`);
+    for (const queuedItem of droppedItems) {
+      queuedItem.deliver?.({ status: "error", reason: "对话已清空（新对话）——排队输入作废", errorKind: "aborted" });
+    }
+    const clearedPayload: StewardAskResultPayload = {
+      status: "error",
+      reason: "对话已清空（新对话）——本轮已被中止",
+      errorKind: "aborted",
+    };
+    const item = this.pendingRunAsk;
+    this.pendingRunAsk = undefined;
+    this.askStreamEvents = {};
+    this.settleAsk(clearedPayload);
     this.run.clearAll(); // 批 2：run 态全复位
-    this.askSettler = undefined;
+    this.runSettledMark?.();
+    this.runSettledMark = undefined;
+    item?.deliver?.(clearedPayload);
   }
 
   /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行——

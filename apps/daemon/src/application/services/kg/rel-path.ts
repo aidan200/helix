@@ -7,16 +7,25 @@
  * application 层共享 util，不进 domain/kg——那是跨层语义面，收口范围仅限
  * 服务族内部路径归一口径）。
  */
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
+import { relative as relativeWin32 } from "node:path/win32";
+
+/** win32 盘符绝对形态（posix 宿主收到时也按 win32 语义归一——E-12 分隔符
+ *  归一口径：isOutsideRootRel 已兼容 ..\，本面同尺度对称）。 */
+const WIN_DRIVE_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
 
 /**
  * 事件路径归一：绝对路径 → 相对 projectRoot（引擎面/锚表/符号表相对语义
  * 同源）；相对输入原样透传；根自身（relative=""）回退原路径——队列键与
- * 锚表键永不为空串。
+ * 锚表键永不为空串。绝对判定用 node:path.isAbsolute（win32 宿主即含盘符
+ * /反斜杠形态；评审 F1：原先只认 '/' 前缀，win32 盘符路径被当相对输入
+ * 原样透传，sync 窗口键/附着键与锚表相对键失配）；posix 宿主收到盘符
+ * 形态时按 win32 relative 归一（跨宿主兼容）。
  */
 export function relPathOf(projectRoot: string, path: string): string {
-  if (!path.startsWith("/")) return path;
-  return relative(projectRoot, path) || path;
+  if (isAbsolute(path)) return relative(projectRoot, path) || path;
+  if (WIN_DRIVE_ABSOLUTE.test(path)) return relativeWin32(projectRoot, path) || path;
+  return path;
 }
 
 /**

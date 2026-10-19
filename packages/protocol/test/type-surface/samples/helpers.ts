@@ -228,7 +228,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "agent.skill_content.get.result":
       return `skill-content:${event.payload.name}:${event.payload.content.length}`;
     case "agent.skill.create.result":
-      return `skill-create:${event.payload.status}:${event.payload.name ?? event.payload.reason ?? "-"}`;
+      return `skill-create:${event.payload.status}:${event.payload.status === "applied" ? event.payload.name : event.payload.reason}`;
     case "agent.steward_profile.get.result":
       // 管家公民权批：只读档案回执（工具数 + 模型槽位 + kindLabel）
       return `steward-profile:${event.payload.tools.length}:${event.payload.model ?? "-"}:${event.payload.kindLabel}`;
@@ -369,7 +369,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "loop.duplex.wake":
       return `loop-duplex-wake:${event.payload.source}`;
     case "loop.context.compacted":
-      return `loop-context-compacted:${event.payload.runId}:${event.payload.status}:${String(event.payload.tokensAfter ?? "-")}`;
+      return `loop-context-compacted:${event.payload.runId}:${event.payload.status}:${event.payload.status === "completed" ? String(event.payload.tokensAfter) : event.payload.error}`;
     case "voice.synthesize.chunk":
       return `voice-syn-chunk:${event.payload.utterId}:${event.payload.seq}:${event.payload.audio.length}`;
     case "voice.synthesize.done":

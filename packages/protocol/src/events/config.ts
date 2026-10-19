@@ -1,6 +1,14 @@
 import type { EventFrame } from "../envelope";
 
-// ── config 族命令结果帧（压缩参数配置；全局命令，无会话归属）──
+/**
+ * config 族命令结果帧（全局命令，无会话归属；点对点回执）。
+ *
+ * set 回执形状规约：**新增 set 回执一律平铺生效态**——回执字段即写入后的
+ * 生效值（compaction / scheduling / port / sandbox / kg 先例，所见即所得）。
+ * `{ state: ... }` 包裹为存量例外（config.set_summary /
+ * config.set_voice_models 两族：get/set 共用同一状态载荷而加包裹层），不改造、
+ * 不作新命令范例。例外清单以本文件的 set 载荷类型为准（勿按注释枚举）。
+ */
 
 /** config.get_compaction.result：压缩参数读面回执（点对点；全局命令） */
 export interface ConfigGetCompactionResultPayload {

@@ -13,6 +13,7 @@
  */
 import type { CommandFrame } from "../envelope";
 import type { SurfaceDescriptor, SurfaceEventUplinkPayload } from "../events/surface";
+import type { EmptyPayload } from "./session";
 
 /** surface.register 载荷。 */
 export interface SurfaceRegisterPayload {
@@ -27,7 +28,7 @@ export interface SurfaceRegisterCommand extends CommandFrame<SurfaceRegisterPayl
 }
 
 /** surface.unregister：表面注销（对称语义；断连自动等效）。 */
-export interface SurfaceUnregisterCommand extends CommandFrame<Record<string, never>> {
+export interface SurfaceUnregisterCommand extends CommandFrame<EmptyPayload> {
   type: "surface.unregister";
 }
 

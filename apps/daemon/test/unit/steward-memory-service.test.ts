@@ -136,12 +136,16 @@ function fakeStore(dim: number | null = 3): StewardMemoryPort & {
     ...state,
     append(items) {
       state.appended.push(...items);
+      const ids: number[] = [];
       for (const item of items) {
+        const id = state.entries.length + 1;
+        ids.push(id);
         // 遗忘机制批：新条目满强度起步（与真 store 同口径——last_recalled_at = createdAt）
         state.entries.push(
-          life({ id: state.entries.length + 1, kind: item.kind, text: item.text, source: item.source, createdAt: item.createdAt, updatedAt: item.createdAt }),
+          life({ id, kind: item.kind, text: item.text, source: item.source, createdAt: item.createdAt, updatedAt: item.createdAt }),
         );
       }
+      return ids;
     },
     search(query, topK): readonly StewardMemoryHit[] {
       return state.entries.slice(0, topK).map((e) => ({ ...e, score: 0.9 }));
@@ -335,6 +339,58 @@ describe("StewardMemoryService", () => {
     await expect(off.remember("x", "fact", "s")).rejects.toThrow("未启用");
   });
 
+  test("③b remember 回执 id 取 append 返回的新 id（时钟回拨下尾元素推断错 id）", async () => {
+    // 真库 list() = ORDER BY created_at ASC：时钟回拨（或同毫秒并列写入）时
+    // 新条目不在尾位——旧实现以 list() 尾元素推断 id，回执与 memory_written
+    // 通知会指向别的条目。fake 对齐真库口径：append 返回新 id，list 按
+    // created_at 升序。
+    let clockNow = 5_000;
+    const entries: StewardMemoryEntry[] = [
+      life({ id: 42, kind: "fact", text: "存量条目", source: "steward-turn", createdAt: 5_000, updatedAt: 5_000 }),
+    ];
+    let nextId = 43;
+    const appended: StewardMemoryAppendItem[] = [];
+    const store: StewardMemoryPort = {
+      append(items) {
+        appended.push(...items);
+        const ids: number[] = [];
+        for (const item of items) {
+          ids.push(nextId);
+          entries.push(
+            life({ id: nextId++, kind: item.kind, text: item.text, source: item.source, createdAt: item.createdAt, updatedAt: item.createdAt }),
+          );
+        }
+        return ids;
+      },
+      search: () => [],
+      list: () => [...entries].sort((a, b) => a.createdAt - b.createdAt), // 真库口径：created_at ASC
+      forget: () => true,
+      updateEntry: () => true,
+      findProgressId: () => null,
+      markRecalled: () => {},
+      setPinned: () => false,
+      restore: () => false,
+      fadeMany: () => {},
+      count: () => entries.length,
+      storedDim: () => 3,
+      resetVectors: () => {},
+      putVector: () => {},
+      close: () => {},
+    };
+    const svc = new StewardMemoryService({
+      config: fakeConfig(ENABLED_KV),
+      embedding: fakeEmbedding(),
+      embeddingConfig: fakeLookup(),
+      store,
+      clock: () => clockNow,
+    });
+    clockNow = 1_000; // 时钟回拨：新条目 created_at 早于存量 → list() 尾元素是存量（id=42）
+    const r = await svc.remember("新记忆", "fact", "steward-turn");
+    expect(r.updated).toBe(false);
+    expect(r.id).toBe(43); // 新写入条目的 id，而非尾元素推断出的 42
+    expect(appended.length).toBe(1);
+  });
+
   test("④ 维度切换重建：resetVectors + 全量条目重嵌入回填", async () => {
     const store = fakeStore(3);
     store.entries.push(life({ id: 7, kind: "fact", text: "旧条目甲", source: "s", createdAt: 1, updatedAt: 1 }));
@@ -437,6 +493,7 @@ describe("StewardMemoryService B5：写入查重两段闸 + 召回阈值", () =>
       append(items) {
         appended.push(...items);
         entries.push(life({ id: 8, kind: items[0]!.kind, text: items[0]!.text, source: items[0]!.source, createdAt: items[0]!.createdAt, updatedAt: items[0]!.createdAt }));
+        return [8];
       },
       search: () => [{ ...entries[0]!, score: topScore }],
       list: () => entries,
@@ -913,7 +970,7 @@ describe("召回资格闸配置驱动（memory.recallMinScore）", () => {
   /** 可控命中 fake store：search 回放给定 hits（资格闸断言面）。 */
   function hitStore(hits: readonly StewardMemoryHit[]): StewardMemoryPort {
     return {
-      append: () => {},
+      append: () => [],
       search: () => hits,
       list: () => hits,
       forget: () => false,

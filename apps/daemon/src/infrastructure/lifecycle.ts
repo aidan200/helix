@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import type { Logger } from "./logging";
 
 /**
@@ -33,8 +33,13 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-/** 获取单例锁；同 home 已有存活实例（含自己）时抛错。 */
-export function acquireSingletonLock(lockPath: string): SingletonLock {
+/** 获取单例锁；同 home 已有存活实例（含自己）时抛错。
+ *  interleave：并发窗口注入缝（测试专用——陈锁判死后、占位接管前回调，
+ *  模拟并发接管者在窗口内重建新锁的交错）。 */
+export function acquireSingletonLock(
+  lockPath: string,
+  interleave?: { afterStaleJudge?: () => void },
+): SingletonLock {
   // 独占创建（O_CREAT|O_EXCL，code-review H13）：existsSync→writeFileSync
   // 检查-创建分离时并发二启双双通过检查各自写锁，AG-17 被击穿；wx 把
   // 「检查不存在+创建」收口为单次原子系统调用（对齐 auth-store withFileLock 先例）。
@@ -67,8 +72,10 @@ export function acquireSingletonLock(lockPath: string): SingletonLock {
       // 锁已存在：持有进程存活 → 拒绝；已死（含损坏锁文件视同无主）→ 接管
       let heldBy: number | undefined;
       let heldStartedAt: string | undefined;
+      let rawAtJudge: string | undefined;
       try {
-        const held = JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: unknown; startedAt?: unknown };
+        rawAtJudge = readFileSync(lockPath, "utf8");
+        const held = JSON.parse(rawAtJudge) as { pid?: unknown; startedAt?: unknown };
         heldBy = Number.parseInt(String(held.pid), 10);
         heldStartedAt = typeof held.startedAt === "string" ? held.startedAt : undefined;
       } catch {
@@ -80,14 +87,36 @@ export function acquireSingletonLock(lockPath: string): SingletonLock {
             `同一 --home 只允许一个实例；如需另开会话请用不同 --home。`,
         );
       }
+      interleave?.afterStaleJudge?.();
+      // 陈锁原子占位接管（评审 F1 竞态修复）：原 rmSync→重建序列在「读锁→
+      // 删除」窗口内可被并发接管者插入——后到者的 rmSync 会删掉先到者刚建
+      // 的新锁再自建，双方均认为持锁（双写者击穿 AG-17）。改为 rename 占位
+      //（原子：并发接管者唯一成功）+ 占位内容复核：搬走的若已不是判死时的
+      // 陈锁行（窗口内被并发接管者重建的新锁），原样搬回并重判新持有者。
+      const claimPath = `${lockPath}.claim-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      try {
+        renameSync(lockPath, claimPath);
+      } catch (e2) {
+        if ((e2 as NodeJS.ErrnoException).code !== "ENOENT") throw e2;
+        continue; // 锁已被并发接管者搬走重建（或已释放）——下轮重判新持有者
+      }
+      try {
+        const claimed = readFileSync(claimPath, "utf8");
+        if (rawAtJudge !== undefined && claimed !== rawAtJudge) {
+          renameSync(claimPath, lockPath); // 搬回他人新锁（lockPath 刚被搬走且本流程未自建）
+          continue; // 重判新持有者（存活即拒）
+        }
+      } catch {
+        // 占位行不可读（损坏陈锁）——占位即有效，照常清除
+      }
+      rmSync(claimPath, { force: true });
       if (heldBy !== undefined && Number.isFinite(heldBy)) {
         // 接管签名（startedAt 缺失以空串兜底——损坏行仍判接管但无时间锚）
         takeover = { pid: heldBy, startedAt: heldStartedAt ?? "" };
       }
-      rmSync(lockPath, { force: true }); // 陈锁清除后下轮重试独占创建
     }
   }
-  // 两轮均 EEXIST：并发接管者抢先建锁且其锁行未通过存活判定——如实报错不抢
+  // 多轮均 EEXIST：并发接管者抢先建锁且其锁行未通过存活判定——如实报错不抢
   throw new Error(`单例锁竞争失败（并发接管冲突）：${lockPath}。请重试启动。`);
 }
 

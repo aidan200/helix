@@ -165,26 +165,30 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     );
   }
 
-  append(items: readonly StewardMemoryAppendItem[]): void {
-    if (items.length === 0) return;
+  append(items: readonly StewardMemoryAppendItem[]): readonly number[] {
+    if (items.length === 0) return [];
     this.ensureVecTable(items[0]!.vector.length);
     const insertEntry = this.db.prepare(
       "INSERT INTO entries(kind, text, source, created_at, updated_at, last_recalled_at, recall_count, faded_at, pinned, session_id, project_scope, domain) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)",
     );
     const insertVec = this.db.prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?, ?)");
+    const ids: number[] = [];
     const tx = this.db.transaction((rows: readonly StewardMemoryAppendItem[]) => {
       for (const item of rows) {
         // 遗忘机制批：新条目满强度起步（last_recalled_at = createdAt——锄点
         // 即创建时刻，新条目不吃存量衰减亏）。项目隔离批：scope 写入时落
         // （缺省 global）。
         const info = insertEntry.run(item.kind, item.text, item.source, item.createdAt, item.createdAt, item.createdAt, item.sessionId ?? "", item.projectScope ?? "global", item.domain ?? "habit");
+        const newId = Number(info.lastInsertRowid);
+        ids.push(newId);
         // Bun NAPI better-sqlite3 把 JS number 绑定为 REAL——vec0 rowid 只
         // 收 INTEGER 字面类型（"Only integers are allowed" 实证），BigInt
         // 才绑定为 INTEGER（条目数 << 2^53 无精度问题）。
-        insertVec.run(BigInt(Number(info.lastInsertRowid)), Buffer.from(item.vector.buffer, item.vector.byteOffset, item.vector.byteLength));
+        insertVec.run(BigInt(newId), Buffer.from(item.vector.buffer, item.vector.byteOffset, item.vector.byteLength));
       }
     });
     tx(items);
+    return ids;
   }
 
   putVector(id: number, vector: Float32Array): void {

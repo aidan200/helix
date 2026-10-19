@@ -69,3 +69,24 @@ Promise.reject(new Error("boom-probe"));
     expect(log).toContain("boom-probe");
   }, 15_000);
 });
+
+describe("陈锁接管竞态（评审 F1：盲删新锁窗口）", () => {
+  test("判死后窗口内被并发接管者重建的活锁不得被删——拒绝而非接管（AG-17 双写者防线）", () => {
+    const lockPath = path.join(makeDir("helix-lock-race-"), "daemon.lock");
+    const stale = JSON.stringify({ pid: DEAD_PID, startedAt: "2026-09-14T12:38:22.475Z" });
+    writeFileSync(lockPath, stale, "utf8");
+    let winnerLock: string | undefined;
+    expect(() =>
+      acquireSingletonLock(lockPath, {
+        // 模拟并发接管者：本进程「读陈锁→判死」与「清除重建」之间，它已
+        // 抢先重建了新锁（活持有者 = 本测试进程）
+        afterStaleJudge: () => {
+          winnerLock = JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() });
+          writeFileSync(lockPath, winnerLock, "utf8");
+        },
+      }),
+    ).toThrow("已在运行");
+    // 并发接管者的新锁完好无损（未被后来者盲删顶替）
+    expect(readFileSync(lockPath, "utf8")).toBe(winnerLock!);
+  });
+});

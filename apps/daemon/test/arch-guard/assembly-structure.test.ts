@@ -32,3 +32,21 @@ describe("TP-2.2e：组合根 TDZ 注释零残留", () => {
     }
   });
 });
+
+describe("TR-101：E 层 launcher spawnSnapshot 与生产注入面签名对账", () => {
+  // 少参箭头赋多参接口在 TS 协变下合法、多参被静默丢弃（buildDrivingAdapters
+  // options 透传坑同型）——机械断言 E 层镜像显式书写生产三参
+  // (profileKind, writeMode, sessionId)，生产签名再扩展时此处先红。
+  test("e2e/launcher.ts spawnSnapshot 箭头声明全三参（writeMode/sessionId 显式消费）", () => {
+    const launcherSrc = readFileSync(path.join(import.meta.dir, "..", "e2e", "launcher.ts"), "utf8");
+    const m = launcherSrc.match(/spawnSnapshot:\s*\(([^)]*)\)\s*=>/);
+    expect(m, "e2e/launcher.ts 应含 spawnSnapshot 箭头注入").not.toBeNull();
+    const params = (m![1] ?? "").split(",").map((s) => s.trim());
+    expect(params.length, "E 层 spawnSnapshot 参数面与生产 SubagentLauncherDeps 对账").toBe(3);
+    expect(params[0]).toContain("profileKind");
+    expect(params[1]).toContain("writeMode");
+    expect(params[2]).toContain("sessionId");
+    // writeMode 语义消费锚（U3 readonly 减三写工具——非摆设参数）
+    expect(launcherSrc.includes("applyWriteModeToAssembly"), "E 层 spawnSnapshot 应经 applyWriteModeToAssembly 消费 writeMode").toBe(true);
+  });
+});

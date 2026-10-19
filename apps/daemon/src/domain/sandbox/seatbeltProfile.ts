@@ -13,12 +13,19 @@ import {
   SEATBELT_PLATFORM_READ_POLICY,
   SEATBELT_SCRATCH_POLICY,
 } from "./seatbeltBaseProfile";
+import { HAS_CONTROL_CHARS } from "./SandboxPolicy";
 import type { SandboxPolicy } from "./SandboxPolicy";
 
 /** sbpl 字符串字面量转义（路径含特殊字符时的安全网）。 */
 function sbplLiteral(value: string): string {
   // 双引号与反斜杠转义；路径场景实际罕见，防御性处理。
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  // 控制字符末级削除（评审 F1）：sbpl 字面量无换行转义语法——\n 会直接断行
+  // 使整份 profile 解析失败/被注入策略语句。解析面（parseSandboxConfig）
+  // 已剔除含控制字符的 extraRoots；此处兑底绕过解析面直构 policy 的调用。
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
 }
 
 /** 生成完整 Seatbelt profile 文本。 */

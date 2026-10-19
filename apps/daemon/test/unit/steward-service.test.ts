@@ -28,7 +28,7 @@ import type {
 } from "../../src/application/ports/outbound/StewardLlmPort";
 import type { AgentOrchestrationPort, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import type { RuntimeConfigPort } from "../../src/application/ports/outbound/RuntimeConfigPort";
-import type { StewardFeedPayload, StewardHistoryRecord } from "@helix/protocol";
+import type { StewardFeedPayload, StewardHistoryRecord, StewardAskResultPayload } from "@helix/protocol";
 import {
   StewardService,
   STEWARD_FEED_EVENT_TYPES,
@@ -619,6 +619,50 @@ describe("⑩ A1：KV 三闸——预算裁剪 / TTL 清空 / 新对话三处一
     // ③ pending 作废：旧 actionId confirm → error（单次消费 + 清空作废）
     const confirmResult = await svc.confirm("steward-action-1");
     expect(confirmResult.status).toBe("error");
+  });
+
+  test("新对话闸：clearHistory 收口在途/排队 ask——promise 必 resolve、排队项必 deliver（孤儿化）", async () => {
+    // 挂起流：首次 complete 永不返回（在途 run 打不醒的挂死形态），清空后
+    // 重建引擎的第二轮正常应答（验证清场不误伤新对话）。
+    let llmCalls = 0;
+    const hangLlm = {
+      modelId: "fake",
+      complete: () => {
+        llmCalls += 1;
+        if (llmCalls === 1) return new Promise<StewardLlmResponse>(() => {});
+        return Promise.resolve({
+          kind: "blocks",
+          blocks: [{ type: "text", text: "新答" }],
+          stopReason: "stop",
+        } as StewardLlmResponse);
+      },
+    } as unknown as StewardLlmPort;
+    const svc = new StewardService({
+      llm: hangLlm,
+      createEngine: createEngineFromPort(hangLlm),
+      orchestration: fakeOrchestration([]),
+      tasks: { listTasks: () => [] },
+      config: fakeConfig({ "steward.enabled": "1" }),
+      clock: () => 1_000,
+      feedGate: { hasStewardSubscribers: () => false },
+      emitFeed: () => {},
+    });
+    const delivered: StewardAskResultPayload[] = [];
+    const inFlight = svc.ask("在途问题");
+    const queued = await svc.ask("排队问题", {}, (p) => delivered.push(p));
+    expect(queued.status).toBe("queued"); // 首问已同步占位，次问入队
+    await new Promise((r) => setTimeout(r, 10)); // 在途 run 起跑（askSettler 就位）
+    await svc.clearHistory();
+    // 在途 ask promise 必收口（孤儿化修复面）：error 判别 + aborted 分类
+    const outcome = await inFlight;
+    expect(outcome).toMatchObject({ status: "error", errorKind: "aborted" });
+    // 排队项必作废回执（deliver 面——新对话不再处理）
+    expect(delivered.length).toBe(1);
+    expect(delivered[0]).toMatchObject({ status: "error" });
+    // 清场后新 ask 照常（run 态复位不误伤新对话）
+    const fresh = await svc.ask("新对话第一问");
+    expect(fresh.status).toBe("answer");
+    expect((fresh as { text?: string }).text).toBe("新答");
   });
 });
 
