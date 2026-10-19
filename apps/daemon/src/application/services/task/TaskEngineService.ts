@@ -418,6 +418,12 @@ export class TaskEngineService implements TaskEnginePort {
         );
       }
       if (state !== "queued" && state !== "running" && state !== "parked") {
+        // 终态转化只对**可派发态**（pending/failed）——评审 F1：转化路径原无态
+        // 限定，会把已 done 批次回退 running→failed（把「已完成」倒灌成失败），
+        // 或把别的实例正在跑的 running 批次 instanceId 置 null 后 failBatch
+        //（真实在飞实例的收口随后被判游离丢弃）。非可派发态一律经
+        // assertBatchRunnable 状机守卫拒绝（invalid_state，行状态零迁移）。
+        assertBatchRunnable(batch);
         // 桥接 running（failBatch 断言要求 + 状态机 pending→failed 仅 cancel 出边）：
         // 同一调用内落定 failed，观察者只见终值；instanceId 保持 null（不接线死实例）
         await this.deps.store.updateBatch({
