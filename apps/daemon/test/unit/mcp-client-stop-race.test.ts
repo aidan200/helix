@@ -5,10 +5,13 @@
  * 落定，doConnect 尾部无条件置 ready=true → 已停止 client 变 ready=true 且
  * piClient=undefined 的僵死态（后续 listTools/callTool 恒 TypeError 且不自愈）。
  *
- * 本文件以 mock.module 替换 @earendil-works/pi-mcp 驱动层（协议/传输全在驱动层，
- * 本壳只保编排语义）——用可控 deferred 把 connect 的落定时机握在测试手里。
+ * 测试经 McpClient 的构造接缝注入假 client/transport（不 mock 模块——bun 的
+ * mock.module 是进程级替换，会污染同进程后续的真子进程用例）。
  */
-import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+
+import { McpClient } from "../../src/adapters/driven/mcp/McpClient";
+import type { McpServerConfig } from "../../src/adapters/driven/mcp/types";
 
 /** 受控 pi-mcp client 假体：connect() 由测试侧 deferred 决定何时落定。 */
 class FakePiClient {
@@ -57,33 +60,29 @@ class FakePiClient {
   }
 }
 
-class FakeTransport {
-  pid = 4242;
-  async close(): Promise<void> {
-    // no-op
-  }
+const CONFIG: McpServerConfig = { name: "fake-server", command: "fake", args: [] };
+
+function newClient(): McpClient {
+  return new McpClient(CONFIG, {
+    seams: {
+      clientFactory: () => new FakePiClient() as never,
+      transportFactory: () => ({ pid: 4242 }) as never,
+    },
+  });
 }
 
-mock.module("@earendil-works/pi-mcp", () => ({ McpClient: FakePiClient, StdioTransport: FakeTransport }));
-
-let McpClientCtor: typeof import("../../src/adapters/driven/mcp/McpClient").McpClient;
-
-beforeAll(async () => {
-  ({ McpClient: McpClientCtor } = await import("../../src/adapters/driven/mcp/McpClient"));
-});
-
-const CONFIG = { name: "fake-server", command: "fake", args: [] as string[] };
+const lastClient = (): FakePiClient => FakePiClient.instances[FakePiClient.instances.length - 1]!;
 
 describe("McpClient.stop() 与在途 connect 竞态（评审 F2 #29）", () => {
   test("stop 在 connect 落定前发生 → 不得置 ready，且孤儿 client 被关闭（不自愈僵死）", async () => {
-    const client = new McpClientCtor(CONFIG as never);
+    const client = newClient();
     const connecting = client.connect();
-    const pi = FakePiClient.instances[FakePiClient.instances.length - 1]!;
+    const pi = lastClient();
 
     client.stop(); // 连接仍在途
     pi.resolveConnect(); // 旧连接随后落定
     await connecting.catch(() => {
-      // stop 态下请求被取消属预期（错误文案见下）；不允许的是静默进 ready
+      // stop 态下请求被取消属预期；不允许的是静默进 ready
     });
 
     expect(client.isReady()).toBe(false);
@@ -92,9 +91,9 @@ describe("McpClient.stop() 与在途 connect 竞态（评审 F2 #29）", () => {
   });
 
   test("stop 后再次调用可自愈：新建连接并进入 ready（不再 piClient=undefined 的 TypeError 面）", async () => {
-    const client = new McpClientCtor(CONFIG as never);
+    const client = newClient();
     const connecting = client.connect();
-    FakePiClient.instances[FakePiClient.instances.length - 1]!.resolveConnect();
+    lastClient().resolveConnect();
     await connecting;
     expect(client.isReady()).toBe(true);
     client.stop();
@@ -103,7 +102,7 @@ describe("McpClient.stop() 与在途 connect 竞态（评审 F2 #29）", () => {
     // 自愈：下一次调用重建连接（旧实现此处是 TypeError）
     const before = FakePiClient.instances.length;
     const again = client.connect();
-    const fresh = FakePiClient.instances[FakePiClient.instances.length - 1]!;
+    const fresh = lastClient();
     expect(FakePiClient.instances.length).toBe(before + 1);
     fresh.resolveConnect();
     await again;
@@ -113,9 +112,9 @@ describe("McpClient.stop() 与在途 connect 竞态（评审 F2 #29）", () => {
   });
 
   test("在途被 stop 的请求给出明确错误（不是 TypeError 层崩溃）", async () => {
-    const client = new McpClientCtor(CONFIG as never);
+    const client = newClient();
     const connecting = client.connect();
-    const pi = FakePiClient.instances[FakePiClient.instances.length - 1]!;
+    const pi = lastClient();
     client.stop();
     pi.resolveConnect();
     await expect(connecting).rejects.toThrow(/停止/);

@@ -27,6 +27,16 @@ import { workspaceChildEnv } from "../../../infrastructure/workspacePaths";
  * import infrastructure，同 WriteQueue onError 回调注入纪律）。
  */
 
+/**
+ * 驱动层测试接缝（F2 #29 竞态用例需要可控的 connect 时序）：协议/传输本体由
+ * pi-mcp 承担，测试不 mock 模块（bun 的 mock.module 是进程级、会污染后续测试
+ * 文件的真子进程用例）——经构造参数注入假 client/transport 即可。
+ */
+export interface McpClientSeams {
+  readonly transportFactory?: (config: McpServerConfig, env: Record<string, string>) => StdioTransport;
+  readonly clientFactory?: (config: McpServerConfig) => PiMcpClient;
+}
+
 /** 驱动层本地日志形状（info/warn/error 文本三方法；组合根适配）。 */
 export interface McpLogger {
   info(message: string): void;
@@ -66,6 +76,7 @@ export class McpClient {
   private readonly name: string;
   private readonly logger: McpLogger;
   private readonly onExit?: (code: number | null) => void;
+  private readonly seams?: McpClientSeams;
 
   constructor(
     config: McpServerConfig,
@@ -73,6 +84,8 @@ export class McpClient {
       logger?: McpLogger;
       /** 进程退出回调（registry 降级状态面挂钩；构造方轮询亦可）。 */
       onExit?: (code: number | null) => void;
+      /** 测试接缝（缺省走 pi-mcp 真实现）。 */
+      seams?: McpClientSeams;
     },
   ) {
     this.config = config;
@@ -83,6 +96,7 @@ export class McpClient {
       error: () => {},
     };
     this.onExit = options?.onExit;
+    this.seams = options?.seams;
   }
 
   /** 建连（幂等——已就绪/在途连接直接复用）。initialize 失败即抛（调用方定状态）。 */
@@ -151,25 +165,30 @@ export class McpClient {
         return {};
       }
     })();
-    const transport = new StdioTransport({
-      command: config.command,
-      args: config.args ?? [],
-      cwd: config.cwd ?? process.cwd(),
-      // inheritEnv 缺省 true = process.env 合入 config.env（子进程环境继承
-      // 语义，与旧实现 {...process.env, ...config.env} 等价）；注入键在
-      // config.env 之下（用户显式配置优先）。
-      env: { ...injectedEnv, ...(config.env ?? {}) },
-      onStderr: (chunk) => {
-        const text = chunk.trimEnd();
-        if (text) this.logger.info(`mcp[${this.name}] stderr: ${text}`);
-      },
-    });
+    // inheritEnv 缺省 true = process.env 合入 config.env（子进程环境继承
+    // 语义，与旧实现 {...process.env, ...config.env} 等价）；注入键在
+    // config.env 之下（用户显式配置优先）。
+    const env = { ...injectedEnv, ...(config.env ?? {}) };
+    const transport =
+      this.seams?.transportFactory?.(config, env) ??
+      new StdioTransport({
+        command: config.command,
+        args: config.args ?? [],
+        cwd: config.cwd ?? process.cwd(),
+        env,
+        onStderr: (chunk) => {
+          const text = chunk.trimEnd();
+          if (text) this.logger.info(`mcp[${this.name}] stderr: ${text}`);
+        },
+      });
     // 每次连接全新 client：pi-mcp client close 后状态机不可复用，懒重连 = 整体重建。
-    const piClient = new PiMcpClient({
-      name: "helix",
-      version: "0.1.0",
-      requestTimeoutMs: config.timeoutMs ?? 30_000,
-    });
+    const piClient =
+      this.seams?.clientFactory?.(config) ??
+      new PiMcpClient({
+        name: "helix",
+        version: "0.1.0",
+        requestTimeoutMs: config.timeoutMs ?? 30_000,
+      });
     // close 监听先于 connect 挂好：连接期进程秒退也能落到意外退出回调。
     this.closeUnbind = piClient.onClose(() => {
       // 意外断线路径（stop 已解绑此监听）：ready 先复位再回调——registry
