@@ -38,6 +38,16 @@ fn run_helper(writable: &PathBuf, workdir: &PathBuf, inner_cmd: &str) -> (i32, S
     (code, stderr)
 }
 
+/// windows-latest 预装 Git for Windows（bash 在 PATH）——缺席则响亮报错而非误判沙箱失败。
+fn bash_available() -> bool {
+    Command::new("bash")
+        .arg("-c")
+        .arg("exit 0")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 #[test]
 fn write_inside_root_succeeds() {
     let root = temp_root("inside");
@@ -131,3 +141,63 @@ fn missing_writable_root_refuses_to_run() {
 }
 
 // 清理：Windows temp 目录由系统回收；测试目录互不干扰（pid + tag 命名）。
+
+#[test]
+fn multi_word_bash_c_script_boundaries_preserved() {
+    // B28（task-91e2e2f9）：argv → 命令行重建须保真参数边界。裸 join(" ")
+    // 时代 `bash -c <多词脚本>` 只执行首词（脚本被命令行重解析腰斩，其余词
+    // 沦为 $0/$1…），daemon 侧 SandboxEnvWrap 的 bash -c 改写形态全瘫。
+    // 本用例：多词脚本（含内嵌空格/双引号）+ 带空格位置参数——$0/$1 与
+    // stdout 逐字断言，证明 MSVC quoting 往返无损。
+    assert!(bash_available(), "windows-latest 预装 Git Bash 应在 PATH（缺席时本用例无法验证 argv 边界）");
+    let root = temp_root("bashc");
+    let out = Command::new(HELPER)
+        .arg("--writable")
+        .arg(&root)
+        .arg("--")
+        .args([
+            "bash",
+            "-c",
+            "printf '[%s|%s]' \"$0\" \"$1\"",
+            "first",
+            "second word",
+        ])
+        .output()
+        .expect("spawn helper");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "helper stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout, "[first|second word]", "argv 边界须保真（脚本本体 + 位置参数原样到达）");
+}
+
+#[test]
+fn bash_c_write_with_quoted_path_succeeds() {
+    // B28 配套：生产改写形态下沙箱内写（脚本含内嵌空格路径）——引用重建
+    // 不损坏脚本语义时写链照常工作。
+    assert!(bash_available(), "windows-latest 预装 Git Bash 应在 PATH");
+    let root = temp_root("bashw");
+    let out = Command::new(HELPER)
+        .arg("--writable")
+        .arg(&root)
+        .arg("--")
+        .args([
+            "bash",
+            "-c",
+            "echo quoted > 'out quoted.txt'",
+        ])
+        .output()
+        .expect("spawn helper");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "helper stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let content =
+        std::fs::read_to_string(root.join("out quoted.txt")).expect("quoted 路径文件应存在");
+    assert!(content.contains("quoted"));
+}
