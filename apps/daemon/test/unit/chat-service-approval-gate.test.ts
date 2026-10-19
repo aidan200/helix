@@ -65,7 +65,8 @@ class GatedStubEngine implements AgentEnginePort {
   }
 }
 
-/** AskService 桩：request 记录入参，按剧本裁决。 */
+/** AskService 桩：request 记录入参，按剧本裁决（throw = 同步抛——对齐真实
+ * AskService.request 契约：方法非 async，单 pending 冲突在返 promise 前 throw）。 */
 class StubAsk {
   requests: { sessionId: string; instanceId: string; command: string; reason: string; kind?: string }[] = [];
   constructor(private readonly outcome: "approved" | "denied" | "timeout" | "auto_approved" | "throw") {}
@@ -77,7 +78,8 @@ class StubAsk {
     kind?: string;
   }): Promise<"approved" | "denied" | "timeout" | "auto_approved"> {
     this.requests.push(input);
-    if (this.outcome === "throw") return Promise.reject(new Error("会话已有挂起的提权申请"));
+    // 真实契约（AskService.ts 单 pending 冲突）：同步 throw 而非 rejected promise
+    if (this.outcome === "throw") throw new Error("会话已有挂起的提权申请");
     return Promise.resolve(this.outcome);
   }
 }
@@ -133,12 +135,16 @@ describe("ChatService engine_paused 消费（审批闸接线批）", () => {
     if (decision.kind === "reject") expect(decision.text).toContain("超时");
   });
 
-  test("ask.request 异常（单 pending 冲突）→ resume(reject 防御文案)", async () => {
+  test("ask.request 同步 throw（单 pending 冲突，真实契约）→ 闸必收敛 resume(reject 防御文案)，不悬挂不冒泡", async () => {
     const ask = new StubAsk("throw");
     const engine = new GatedStubEngine(GATE_ARGS);
+    // 同步 throw 在 resolveGate 实参求值处炸开：缺陷下 sendMessage 本身拒绝
+    //（异常冒泡进引擎事件循环）且 resumes 空（pauseToken 永不 resume 挂闸悬挂）
     await runOnce(engine, ask);
+    expect(engine.resumes.length).toBe(1); // 闸不悬挂：必达一次 resume
     const decision = engine.resumes[0]!.decision;
     expect(decision.kind).toBe("reject");
+    if (decision.kind === "reject") expect(decision.text).toContain("未能发起");
   });
 
   test("无 ask 面（测试形态未注入）→ resume(reject 审批面不可用，不挂死)", async () => {
