@@ -35,8 +35,12 @@ export class AskQueue<T> {
 
   /** 全停清空（停止判定判停/语音全停通道——返回被丢弃条数，幂等）。 */
   clearAll(): number {
-    const dropped = this.items.length;
-    this.items.length = 0;
-    return dropped;
+    return this.drainAll().length;
+  }
+
+  /** 清空并返回被丢弃条目（新对话清场——逐条作废回执需条目面，clearHistory
+   * 专用口；其余全停面只报数维持 clearAll 原签名）。 */
+  drainAll(): T[] {
+    return this.items.splice(0, this.items.length);
   }
 }
