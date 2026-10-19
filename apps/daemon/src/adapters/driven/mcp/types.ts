@@ -26,8 +26,8 @@ export interface McpServerConfig {
   timeoutMs?: number;
   /**
    * 懒加载开关（deferred 批，缺省 true）：true = 具体工具不进初始生效集，
-   * 经 `${server}__discover` meta 工具按需装载（addedToolNames + 工具池
-   * 物化）；false = 全量急发（mcp 批现状）。见 PROTOCOL-CHANGELOG §28。
+   * 经 `${server}__discover` meta 工具按需装载（工具池物化）；false = 全量
+   * 急发（mcp 批现状）。见 PROTOCOL-CHANGELOG §28。
    */
   deferred?: boolean;
 }
