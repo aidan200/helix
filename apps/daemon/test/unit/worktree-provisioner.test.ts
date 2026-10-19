@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, mkdir, writeFile, lstat } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, lstat, utimes, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitWorktreeProvisioner } from "../../src/adapters/driven/worktree/GitWorktreeProvisioner";
@@ -143,4 +143,79 @@ describe("code-review M：陈旧分支死锁自愈 + 复用分支校验（TR-83 
       await rm(repo, { recursive: true, force: true });
     }
   });
+});
+
+describe("code-review B14：config.lock 陈旧判定（锁龄阈值 + 活锁退避，不动活锁）", () => {
+  const lockExists = async (repo: string): Promise<boolean> => {
+    try {
+      await stat(join(repo, ".git", "config.lock"));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  /** add 失败注入：预期落点已被非空目录占住（git worktree add 拒绝非空路径）。 */
+  const blockTarget = async (repo: string, slug: string): Promise<void> => {
+    await mkdir(join(repo, ".worktrees", slug), { recursive: true });
+    await writeFile(join(repo, ".worktrees", slug, "blocker.txt"), "占位");
+  };
+
+  test("新鲜锁（并发 git 正持有）→ 不删锁、退避等待到窗尾后报错，不损坏 config", async () => {
+    const repo = await mkRepo();
+    try {
+      await blockTarget(repo, "agent-livelock");
+      // 新鲜活锁：mtime = 当前（并发 git 操作刚建锁形态）
+      await writeFile(join(repo, ".git", "config.lock"), "");
+      const p = new GitWorktreeProvisioner({ staleLockMs: 60_000, lockWaitMs: 800, lockPollMs: 50 });
+      const t0 = Date.now();
+      const r = await p.provision("agent-livelock", repo);
+      const elapsed = Date.now() - t0;
+      // 等待窗耗尽 → 诚实报错（等待不删锁，防并发写 .git/config 损坏）
+      expect("error" in r).toBe(true);
+      // 活锁未被删除（核心判据：上游无锁龄判定即删）
+      expect(await lockExists(repo)).toBe(true);
+      // 退避等待真的发生（非立即删锁重跑的短路径）
+      expect(elapsed).toBeGreaterThanOrEqual(700);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("陈旧锁（锁龄超阈）→ 删除重跑自愈保留（TR-82 行为不回退）", async () => {
+    const repo = await mkRepo();
+    try {
+      await blockTarget(repo, "agent-stalelock");
+      // 陈旧残留：mtime 拨回 60s 前
+      const lockPath = join(repo, ".git", "config.lock");
+      await writeFile(lockPath, "");
+      const old = new Date(Date.now() - 60_000);
+      await utimes(lockPath, old, old);
+      const p = new GitWorktreeProvisioner({ staleLockMs: 10_000, lockWaitMs: 800, lockPollMs: 50 });
+      const r = await p.provision("agent-stalelock", repo);
+      // add 重跑仍被 blocker 挡住 → 报错；但陈旧锁已被删（自愈动作发生）
+      expect("error" in r).toBe(true);
+      expect(await lockExists(repo)).toBe(false);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("新鲜锁在等待窗内被并发方自然释放 → 重跑 add 成功（正常并发路径）", async () => {
+    const repo = await mkRepo();
+    try {
+      const lockPath = join(repo, ".git", "config.lock");
+      await writeFile(lockPath, "");
+      const p = new GitWorktreeProvisioner({ staleLockMs: 60_000, lockWaitMs: 5_000, lockPollMs: 30 });
+      // 模拟并发 git 操作完成释放锁（100ms 后）
+      setTimeout(() => {
+        void rm(lockPath, { force: true });
+      }, 100);
+      const r = await p.provision("agent-concurrent-release", repo);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.branch).toBe("helix/agent-concurrent-release");
+      expect(await Bun.file(join(r.path, "a.ts")).exists()).toBe(true);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

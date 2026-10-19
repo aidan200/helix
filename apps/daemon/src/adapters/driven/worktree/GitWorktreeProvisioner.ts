@@ -16,7 +16,8 @@ import type {
  *   packages/protocol 四处软链（bun workspaces 按包装配面），软链 untracked
  *   不入提交；
  * - TR-82：主仓 .git/config.lock 残留会让 worktree add 失败——检测到锁文件
- *   删除后重跑一次（仅当锁属陈旧残留形态：add 失败且锁存在）。
+ *   且锁龄超阈才删锁重跑（评审 B14：并发 git 操作正持有的新鲜活锁不可删，
+ *   退避等待其自然释放）。
  *
  * exec 通道：node execFile（非 Bun.spawn——沙箱内 Bun.spawn 的 posix_spawn
  * 对 /private 前缀 cwd 形态 ENOENT，execFile 不受影响；bashSnapshot 同款
@@ -26,7 +27,28 @@ import type {
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 15_000;
 
+/** config.lock 处置策略（评审 B14 注入面：测试假时钟；缺省 = 生产值）。 */
+export interface WorktreeLockPolicy {
+  /** 陈旧锁龄阈值（ms）：锁龄超过即判陈旧残留（TR-82）删除重跑。缺省 10s。 */
+  readonly staleLockMs?: number;
+  /** 新鲜锁等待窗（ms）：并发 git 操作持锁期的退避等待上限——超窗仍新鲜则
+   *  放弃不动锁（防损坏 .git/config），交上层报错/重试。缺省 5s。 */
+  readonly lockWaitMs?: number;
+  /** 等待轮询间隔（ms）。缺省 250ms。 */
+  readonly lockPollMs?: number;
+}
+
 export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
+  private readonly staleLockMs: number;
+  private readonly lockWaitMs: number;
+  private readonly lockPollMs: number;
+
+  constructor(policy: WorktreeLockPolicy = {}) {
+    this.staleLockMs = policy.staleLockMs ?? 10_000;
+    this.lockWaitMs = policy.lockWaitMs ?? 5_000;
+    this.lockPollMs = policy.lockPollMs ?? 250;
+  }
+
   async provision(slug: string, baseCwd: string): Promise<WorktreeProvisionResult> {
     let root: string;
     try {
@@ -43,16 +65,10 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
     const addArgs = ["worktree", "add", "-b", branch, worktreePath];
     let added = await this.gitOk(addArgs, root);
     if (!added) {
-      // TR-82：config.lock 陈旧残留 → 删锁重跑一次（陈旧判定 = add 失败且锁文件存在）
-      const lockPath = `${root}/.git/config.lock`;
-      if (await Bun.file(lockPath).exists()) {
-        try {
-          await unlink(lockPath);
-          added = await this.gitOk(addArgs, root);
-        } catch {
-          /* 删锁失败走下方既有探测/报错 */
-        }
-      }
+      // TR-82 + 评审 B14：add 失败且锁存在 ≠ 陈旧——并行 isolated spawn 同仓
+      // 竞态下锁可能正被并发 git 操作持有，删活锁后并发写 .git/config 有损坏
+      // 风险。锁龄判定 + 活锁退避见 recoverUnderConfigLock。
+      added = await this.recoverUnderConfigLock(root, `${root}/.git/config.lock`, addArgs);
     }
     if (!added) {
       // 既有 worktree（重试/残留）：路径在册 + 分支对 → 复用；路径不在册但分支滞留
@@ -129,6 +145,42 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
     // realpath 归一（/var → /private/var 等 macOS 符号链接形态——SBPL/护栏同源坑）
     const real = await realpath(worktreePath).catch(() => undefined);
     return { path: real ?? worktreePath, branch };
+  }
+
+  /**
+   * config.lock 恢复（评审 B14）：锁龄判定 + 活锁退避。
+   * - 初始无锁：非锁因失败——不处置（上游语义保持，走既有探测/报错路径）；
+   * - 锁龄 ≥ staleLockMs：陈旧残留（TR-82）→ 删锁重跑一次；
+   * - 锁龄 < staleLockMs：并发 git 操作可能正持有 → 轮询等待其自然释放后重跑；
+   *   等待窗耗尽仍新鲜 → 放弃（不删活锁），交上层报错/重试。
+   * 返回 add 是否成功。
+   */
+  private async recoverUnderConfigLock(
+    root: string,
+    lockPath: string,
+    addArgs: readonly string[],
+  ): Promise<boolean> {
+    if (!(await Bun.file(lockPath).exists())) return false; // 无锁：非锁因失败，不处置
+    const deadline = Date.now() + this.lockWaitMs;
+    for (;;) {
+      let age: number;
+      try {
+        age = Date.now() - (await stat(lockPath)).mtimeMs;
+      } catch {
+        // 等待期间锁被并发方释放：重跑一次 add
+        return await this.gitOk(addArgs, root);
+      }
+      if (age >= this.staleLockMs) {
+        try {
+          await unlink(lockPath);
+          return await this.gitOk(addArgs, root); // 陈旧残留：删锁重跑一次
+        } catch {
+          return false; // 删锁失败走既有探测/报错
+        }
+      }
+      if (Date.now() >= deadline) return false; // 活锁不动，等待窗耗尽
+      await new Promise((r) => setTimeout(r, this.lockPollMs));
+    }
   }
 
   async remove(path: string): Promise<boolean> {
