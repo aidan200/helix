@@ -40,12 +40,17 @@ export interface ConfigFieldController {
  * - 结果帧对账：在途（pending）→ 落值 + 「已保存」；非在途且脏 → 不回填
  *   覆盖（M46 门控）；
  * - 在途失败：connection.error（subscribeConfigFrames 域）清 pending +
- *   saveError 行内交代——单飞门控：本卡无在途的 connection.error 不消费
- *   （trace/workspace 先例；三卡各自 pending 独立，错误只归在途卡）。
+ *   saveError 行内交代——尾缀归因（TR-84/族B：「（命令 <type>）」单一构
+ *   造点 WsServerAdapter）——带尾缀时仅本卡写面命令消费（他卡/页面外
+ *   命令族的拒绝不误清本卡在途、不误显示他卡错误；否则本卡真实结果帧
+ *   随后到达会被 dirty 门控跳过回填，「已保存」永失）；无尾缀旧 daemon
+ *   容忍按可能本卡处理（宁误交代不静默）。
  */
 export function useConfigField<T>(
   config: T | null,
   toInputs: (config: T) => readonly string[],
+  /** 本卡写面命令名（connection.error 尾缀归因判据——每卡一条写命令）。 */
+  command: string,
 ): ConfigFieldController {
   const { subscribeConfigFrames } = useSession();
   const { t } = useI18n();
@@ -75,20 +80,23 @@ export function useConfigField<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
-  // M10 批②：config 族在途错误经 connection.error 收口——清 pending +
+  // M10 批②/族B：config 族在途错误经 connection.error 收口——尾缀归因 +
+  // 单飞门控：非本卡写面命令不消费（他卡在途不被误摘）；清 pending +
   // 行内错误（不假「已保存」；在途不永锁，后续读帧不被误当保存回执）
   useEffect(
     () =>
       subscribeConfigFrames((e: EventEnvelope) => {
         if (e.type !== "connection.error") return;
         if (!pendingRef.current) return; // 单飞门控：非本卡在途不消费
+        const message =
+          (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
+        const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+        if (cmd !== undefined && cmd !== command) return; // 族B 尾缀归因：他命令不归本卡
         pendingRef.current = false;
         setSaved(false);
-        setSaveError(
-          (e.payload as { message?: string } | undefined)?.message ?? "connection.error",
-        );
+        setSaveError(message);
       }),
-    [subscribeConfigFrames],
+    [subscribeConfigFrames, command],
   );
 
   const setInput = useCallback((index: number, value: string) => {

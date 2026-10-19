@@ -1,0 +1,128 @@
+[
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "apps/shell/src/pages/settings/ui/settings-hooks.ts",
+    "line": "84",
+    "symbol": "useConfigField",
+    "issue": "connection.error 单飞门控只看本卡 pending 不看错误归因：本卡在途时误消费他命令（config.set_sandbox/steward.set_config 等）的 connection.error，误清 pending + 行内显示他卡错误；本卡真实结果帧随后到达被 dirty 门控跳过回填，「已保存」永失",
+    "suggestion": "handler 内按「（命令 <type>）」尾缀过滤本卡命令族再收口（对齐 TR-84 命令尾缀过滤、只清当前代）"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "apps/shell/src/pages/settings/ui/EmbeddingModelsTab.tsx",
+    "line": "229",
+    "symbol": "onSetDefault",
+    "issue": "setDefault daemon 三拒（不存在/kind 不吻合/未 verify）走 connection.error 但本组件只消费 list/verify 结果帧——拒绝零反馈；行内「设为默认」对未 verify 端点照样渲染（:370-379）点击后无任何交代，修改口面板还照关（:301）",
+    "suggestion": "消费 connection.error（尾缀归因）行内/toast 交代拒绝原因；未 verify 端点按钮可预禁用"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "apps/shell/src/pages/settings/ui/ClassifierModelsTab.tsx",
+    "line": "229",
+    "symbol": "onSetDefault",
+    "issue": "classifier 三拒静默无反馈（同 EmbeddingModelsTab）；onSetDefault 仅判 send 即返回 true，误导调用侧按成功关面板",
+    "suggestion": "消费 connection.error 交代拒绝原因；返回值语义改为「daemon 接受」或调用侧不据此关面板"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "apps/shell/src/pages/settings/ui/CustomProvidersTab.tsx",
+    "line": "191",
+    "symbol": "saveForm",
+    "issue": "provider.set 被 daemon 拒绝走 connection.error 而订阅 handler（:115-129）只消费 list.result：保存被拒时弹层无条件 setForm(null)（:208）用户整表输入（模型清单七字段）丢失且零交代；provider.delete 拒绝同静默（:211-217 仅交代 send false）",
+    "suggestion": "消费 connection.error 行内交代 + 失败不关弹层保留输入"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "apps/shell/src/pages/settings/ui/McpSettingsSection.tsx",
+    "line": "100",
+    "symbol": "McpSettingsSection",
+    "issue": "testingRef.current = test.kind === \"testing\" 渲染体裸写 state 镜像 ref，违反 TR-173（禁渲染体裸写、翻转走 markXxx setter 包装），且与本文件 :71-71-77 自述纪律矛盾；并发渲染废弃腿可写陈旧 testing 位误消费 connection.error",
+    "suggestion": "改 markTesting setter 包装或 effect 镜像"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "apps/shell/src/pages/settings/ui/SkillsSettingsSection.tsx",
+    "line": "173",
+    "symbol": "SkillsSettingsSection",
+    "issue": "pendingRef.current = pending 渲染体裸写 state 镜像 ref，违反 TR-173；:163-166 注释自认「渲染期不裸写 ref」却在 :173 裸写",
+    "suggestion": "markPending setter 包装或 effect 镜像"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/features/steward/model/steward-store.ts",
+    "line": "232-234",
+    "symbol": "StewardStore.onDisconnect",
+    "issue": "断连只弃 streamingText，askInFlight/askActivity 不复位；断连在途 run 的 ask.result 不会再来（daemon 不重放），面板输入禁用与 phase=\"asking\" 可能永锁",
+    "suggestion": "断连即复位 askInFlight/askActivity，或核实 daemon 重连补发终态并在注释注明依赖"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/features/steward/model/sentence-splitter.ts",
+    "line": "69-74",
+    "symbol": "SentenceBuffer.drainBoundary",
+    "issue": "BOUNDARY_PAIRS 对（\"？！\"/\"!?\"）被整对跳过当非句界，句界吞并：\"你好？！再见。\" 切成单句（node 复现坐实；\"！？\"正常——不对称），\"？！\"收尾句还须等后续边界/flush 才出；内层 p2 分支（:80-86）实际不可达死分支",
+    "suggestion": "对视作「句界后移一位」（对尾字符处收句）而非非句界，并补齐 \"！?\"/\"？!\" 混合形态"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/features/steward/model/useStewardVoice.ts",
+    "line": "1180-1188",
+    "symbol": "useStewardVoice.guardedBeginListening",
+    "issue": "重入锁只被 toggleWake（:1219）与自动续听（:1328）消费，openBargeInIntentWindow（:1107）/bargeIn（:1162）/startListening（:1169）仍直调 beginListening()，锁注释所述 getUserMedia 窗口并发双开麦竞态在这些入口依旧敞开",
+    "suggestion": "全部 beginListening 入口统一走 guardedBeginListening"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/features/steward/model/useStewardActions.ts",
+    "line": "158-177",
+    "symbol": "useStewardActions（steward.confirm.result 归因）",
+    "issue": "error 回执用 lastConfirmedRef 单槽最近发起者归因，两张 awaiting 卡快速连点时首个 error 误摘后一张卡，第二张 error 无人归因（culprit 已清空）",
+    "suggestion": "confirm.result error 携 actionId 点对点归因，或发送侧强制单飞排队"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/pages/steward-activity/StewardActivityPage.tsx",
+    "line": "31-39,86-87",
+    "symbol": "rangeSince + 帧消费(steward.activity 在窗判定)",
+    "issue": "「昨天」窗仅判下界 entry.at < since，今天实时条目会插入昨天视图；daemon handler 同为 since-only 下推（StewardActivityService.listWindow 已支持 untilMs 未用，daemon 侧属范围外仅指针）",
+    "suggestion": "yesterday 增加上界 today0（UI 入列判定与 daemon 下推同修）"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/pages/steward-memory/StewardMemoryPage.tsx",
+    "line": "131,150-172",
+    "symbol": "StewardMemoryPage(vectorizing + 帧消费面)",
+    "issue": "写命令失败走 connection.error 而本页不消费：vectorizing 永挂「向量化中」（该行整行占位、不可编辑删除）且失败完全静默，须重挂载恢复",
+    "suggestion": "消费 connection.error/写失败回执清在途位并行内报错"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/features/steward/voiceprint/ui/mic-recorder.ts",
+    "line": "52",
+    "symbol": "createMicUtteranceRecorder.record",
+    "issue": "未开口兜底超时不判 spoke 直接 resolve 纯静音段，上游 recordInto/register 仅校验时长 ≥1.2s，静音句可注册为声纹模板句污染模板、相似度判定失真",
+    "suggestion": "spoke=false 收口返回 null（对齐 port 注释「null=采集失败」），或上游增加语音内容校验（过门帧占比）"
+  },
+  {
+    "kind": "issue",
+    "severity": "中",
+    "file": "helix/apps/shell/src/features/steward/ui/StewardVoiceLayer.tsx",
+    "line": "118",
+    "symbol": "dispatchAfterGate",
+    "issue": "输入流水终态经 inputResolve 固定标「尾行」，onFinalText 异步窗（verifyGate 推理 + judgeStopIntent RPC 最长 2.5s，首句引擎冷加载更长）内新 interim 追加新行抢占尾位——旧句 done/rejected 注记（含声纹相似度 note）误标到新句，原句滞留 confirmed 到 6s 硬 TTL",
+    "suggestion": "inputConfirm 返回行 id、inputResolve 按 id 定向标记"
+  }
+]
