@@ -130,6 +130,18 @@ describe("DashScopeTtsAdapter：两步 HTTP 合成（fetch 层断言）", () => 
     const adapter = new DashScopeTtsAdapter({ getApiKey: () => "sk-dash", fetchFn });
     await expect(adapter.synthesize({ text: "测试" })).rejects.toThrow(/下载失败.*404/s);
   });
+
+  // 评审 F2 #26：生成与音频下载两处 fetch 均无超时——任一环节挂起即播报链永久悬挂。
+  test("两处 fetch 均带超时 signal（生成 + 下载）", async () => {
+    const { calls, fetchFn } = ttsFetch(okBody);
+    const adapter = new DashScopeTtsAdapter({ getApiKey: () => "sk-dash", fetchFn });
+    await adapter.synthesize({ text: "测试" });
+    expect(calls.length).toBe(2);
+    for (const call of calls) {
+      expect(call.init.signal).toBeInstanceOf(AbortSignal);
+      expect(call.init.signal?.aborted).toBe(false);
+    }
+  });
 });
 
 // ── 模型配置接入 P0：getModel 覆盖（空/未配回落默认常量）────────────
