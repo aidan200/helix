@@ -380,3 +380,39 @@ describe("EmbeddingConfigService：variant 通道（pi-ai 目录形态）", () =
     expect(views.find((v) => v.name === "Jev 直连")?.variant).toBeUndefined();
   });
 });
+
+// ── 端点清单读改写串行化（评审 F1：并发 set/markVerified 交错丢更新） ──
+
+describe("EmbeddingConfigService 写面互斥（读改写原子化）", () => {
+  test("并发 set 串行化——后写不覆盖先写（gated KV 交错模拟丢更新窗口）", async () => {
+    // 门闸 KV：set 提交可挂起——两笔 set 都在「读快照→写回」的 await 窗口内
+    // 交错时，旧实现（无互斥）两笔各自基于旧快照写回，先提交者被覆盖丢失。
+    const store = new Map<string, string>([
+      [EMBEDDING_ENDPOINTS_KEY, JSON.stringify([{ id: "x", name: "存量", baseUrl: "u", model: "m" }])],
+    ]);
+    let gateOpen = false;
+    const waiters: (() => void)[] = [];
+    const openGate = (): void => {
+      gateOpen = true;
+      for (const w of waiters.splice(0)) w();
+    };
+    const config: RuntimeConfigPort = {
+      get: (key) => store.get(key),
+      set: async (key, value) => {
+        if (!gateOpen) await new Promise<void>((r) => waiters.push(r));
+        store.set(key, value);
+      },
+    };
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
+    const p1 = svc.set({ name: "端点A", baseUrl: "u", model: "m" });
+    await new Promise((r) => setTimeout(r, 5)); // p1 进入写回挂起（读快照 = [x]）
+    const p2 = svc.set({ name: "端点B", baseUrl: "u", model: "m" });
+    await new Promise((r) => setTimeout(r, 5)); // p2 同窗交错（读快照仍 = [x]）
+    openGate();
+    await Promise.all([p1, p2]);
+    const names = svc.list().map((r) => r.name);
+    expect(names).toContain("端点A"); // 旧实现：A 被 B 的旧快照写回覆盖丢失
+    expect(names).toContain("端点B");
+    expect(names.length).toBe(3);
+  });
+});

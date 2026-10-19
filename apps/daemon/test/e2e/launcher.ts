@@ -26,6 +26,7 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
 import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
 import { SubAgentCodeReviewerProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
+import { applyWriteModeToAssembly } from "../../src/infrastructure/assembly/buildSessionStack";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { CdpConnectionManager } from "../../src/adapters/driven/cdp/CdpConnectionManager";
 import { buildModels } from "../../src/adapters/driven/llm";
@@ -387,14 +388,20 @@ async function main(): Promise<void> {
         // worker）；E 层不注入时子进程回退 SubAgentProfile 静态声明（无
         // kg-update——kg-bootstrap 批次 kg-update 调用被拒、零节点落库）。
         // 显式快照同时隔绝宿主 HELIX_TOOLS_JSON/HELIX_SYSTEM_PROMPT 环境泄漏。
-        spawnSnapshot: (profileKind: string) => {
-          if (profileKind === "subagent-kg-writer") {
-            return { tools: SubAgentKgWriterProfile.tools, systemPrompt: SubAgentKgWriterProfile.systemPrompt };
-          }
-          if (profileKind === "subagent-code-reviewer") {
-            return { tools: SubAgentCodeReviewerProfile.tools, systemPrompt: SubAgentCodeReviewerProfile.systemPrompt };
-          }
-          return { tools: SubAgentProfile.tools, systemPrompt: SubAgentProfile.systemPrompt };
+        // TR-101 对账（评审 F1）：全三参与生产注入面同签名——writeMode 经
+        // applyWriteModeToAssembly 真消费（U3 readonly 减三写工具+纪律后缀，
+        // E 层 readonly 子代理行为与生产同构）；sessionId（U7 会话足迹常驻
+        // 段）E 层无 writeFacts/residentRulesOf 面，静态镜像不拼（生产
+        // deps.residentRulesOf 缺席时同态 null 不拼）——参数显式书写防
+        // 少参箭头静默丢参（assembly-structure 结构断言钉死）。
+        spawnSnapshot: (profileKind: string, writeMode?: string, _sessionId?: string) => {
+          const base =
+            profileKind === "subagent-kg-writer"
+              ? { tools: SubAgentKgWriterProfile.tools, systemPrompt: SubAgentKgWriterProfile.systemPrompt }
+              : profileKind === "subagent-code-reviewer"
+                ? { tools: SubAgentCodeReviewerProfile.tools, systemPrompt: SubAgentCodeReviewerProfile.systemPrompt }
+                : { tools: SubAgentProfile.tools, systemPrompt: SubAgentProfile.systemPrompt };
+          return applyWriteModeToAssembly(base, writeMode);
         },
       })
     : new ScriptedSubagentRunner(subagentScript);

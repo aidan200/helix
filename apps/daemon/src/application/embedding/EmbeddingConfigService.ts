@@ -165,10 +165,22 @@ export function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[]
 export class EmbeddingConfigService {
   private readonly deps: EmbeddingConfigServiceDeps;
   private readonly now: () => number;
+  /** 端点清单写面互斥链（评审 F1）：set/delete/markVerified 都是「同步读
+   *  KV → await 写回」的读改写序列，config.set 虽走 WriteQueue 单写但读
+   *  发生在入队前——并发交错时后写基于旧快照覆盖先写（丢更新）。三写面
+   *  经本链串行化：读快照必在前一笔写回落定之后。 */
+  private mutationChain: Promise<unknown> = Promise.resolve();
 
   constructor(deps: EmbeddingConfigServiceDeps) {
     this.deps = deps;
     this.now = deps.clock ?? Date.now;
+  }
+
+  /** 写面互斥入口（前手失败不断链——失败已由各写面自身收口为结果值）。 */
+  private enqueueMutation<T>(op: () => Promise<T>): Promise<T> {
+    const next = this.mutationChain.then(op, op);
+    this.mutationChain = next.catch(() => undefined);
+    return next;
   }
 
   /** 全量端点（daemon 内——含 apiKey；勿直接进回执帧。kind 归一显式：
@@ -205,6 +217,19 @@ export class EmbeddingConfigService {
     id?: string;
     name: string;
     /** 直连型必填（variant=pi-ai 目录型免填——缺省空串）。 */
+    baseUrl?: string;
+    apiKey?: string;
+    model: string;
+    kind?: EndpointKind;
+    variant?: string;
+  }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+    // 入参校验互斥外先行（只读面无临界区）
+    return this.enqueueMutation(() => this.setInner(input));
+  }
+
+  private async setInner(input: {
+    id?: string;
+    name: string;
     baseUrl?: string;
     apiKey?: string;
     model: string;
@@ -271,13 +296,15 @@ export class EmbeddingConfigService {
     return { ok: true, id: input.id };
   }
 
-  /** 删除（id 不存在 → error）。 */
+  /** 删除（id 不存在 → error）。写面互斥内执行（读改写丢更新防护）。 */
   async delete(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
-    const records = this.list();
-    const next = records.filter((r) => r.id !== id);
-    if (next.length === records.length) return { ok: false, error: `端点不存在：${id}` };
-    await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(next));
-    return { ok: true };
+    return this.enqueueMutation(async () => {
+      const records = this.list();
+      const next = records.filter((r) => r.id !== id);
+      if (next.length === records.length) return { ok: false as const, error: `端点不存在：${id}` };
+      await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(next));
+      return { ok: true as const };
+    });
   }
 
   /**
@@ -325,14 +352,17 @@ export class EmbeddingConfigService {
     }
   }
 
-  /** verifiedAt 落盘（verify 成功路径共用）。 */
-  private async markVerified(id: string): Promise<void> {
-    const records = [...this.list()];
-    const idx = records.findIndex((r) => r.id === id);
-    if (idx !== -1) {
-      records[idx] = { ...records[idx]!, verifiedAt: this.now() };
-      await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
-    }
+  /** verifiedAt 落盘（verify 成功路径共用）。写面互斥内执行（读改写丢更新
+   *  防护——verify 的网络探测在互斥外，只有落盘段进临界区）。 */
+  private markVerified(id: string): Promise<void> {
+    return this.enqueueMutation(async () => {
+      const records = [...this.list()];
+      const idx = records.findIndex((r) => r.id === id);
+      if (idx !== -1) {
+        records[idx] = { ...records[idx]!, verifiedAt: this.now() };
+        await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
+      }
+    });
   }
 
   /** endpointId → 端点记录（含 name 等元数据；条目已删/不存在 → null——记忆
