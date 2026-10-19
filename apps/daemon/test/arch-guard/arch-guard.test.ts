@@ -957,3 +957,24 @@ function typeOnly(spec: string, source: string): boolean {
   );
   return typeRe.test(source) && !valueRe.test(source);
 }
+
+describe("AG-13：通用记忆配置域不自反依赖管家域（环依赖守护）", () => {
+  // memoryConfig 模块裁决「记忆配置不能挂在管家名下」——若反向 import
+  // application/steward/**（如引用 StewardMemoryService 常量），则与
+  // StewardMemoryService → memoryConfig 的正向引用构成环，且常量落位与
+  // 域边界自相矛盾（评审 F1：memoryConfig ↔ StewardMemoryService 环形
+  // 依赖实证）。缺省阈值常量归属 memoryConfig，管家侧反向取用。
+  test("application/memory/** 不 import application/steward/**", () => {
+    const files = listFiles(path.join(srcRoot, "application", "memory"));
+    expect(files.length).toBeGreaterThanOrEqual(1);
+    for (const rel of files) {
+      const relPath = path.join("application", "memory", rel);
+      for (const spec of importSpecifiers(read(relPath))) {
+        expect(
+          spec,
+          `${relPath} 不得依赖管家域（steward）——记忆配置域自洽：${spec}`,
+        ).not.toMatch(/steward/);
+      }
+    }
+  });
+});
