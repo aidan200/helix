@@ -239,6 +239,45 @@ describe("DashScopeStreamingTtsAdapter（V3b-2 流式 TTS）", () => {
     expect(c.onError).toHaveBeenCalledTimes(1);
     expect(h.sockets[0]!.closed).toBe(true);
   });
+
+  // 评审 F2 #23：构造器里的匿名 open 监听不在 detach() 摘除清单（只摘 message/close），
+  // 池化连接句间复用时每 utterance 累积一个捕获整句 options.text 的闭包——无界增长。
+  test("⑩ 收口后连接不留任何监听（尤其 open）：池化复用不累积闭包", () => {
+    const h = harness();
+    // 池化健康监听（idle 回收/断连摘除）允许 close:1；句级监听（message/open）必须清零，
+    // 且 close 监听不得随句数增长。
+    const listenersOf = (s: FakeSocket) =>
+      [...s.listeners.entries()].filter(([, set]) => set.size > 0).map(([type, set]) => `${type}:${set.size}`).sort();
+    const c1 = cb();
+    h.adapter.openUtterance({ text: "第一句。", callbacks: c1 });
+    const s = h.sockets[0]!;
+    s.fire("message", JSON.stringify({ header: { event: "task-started" } }));
+    s.fire("message", JSON.stringify({ header: { event: "task-finished" } }));
+    expect(c1.onDone).toHaveBeenCalledTimes(1);
+    expect(listenersOf(s)).toEqual(["close:1"]); // 句级监听（message/open）清零，仅留池健康 close
+
+    // 第二句复用回池连接 → 收口后同样清零，监听总数不随句数增长
+    const c2 = cb();
+    h.adapter.openUtterance({ text: "第二句。", callbacks: c2 });
+    expect(h.sockets.length).toBe(1); // 复用同一连接
+    s.fire("message", JSON.stringify({ header: { event: "task-started" } }));
+    s.fire("message", JSON.stringify({ header: { event: "task-finished" } }));
+    expect(c2.onDone).toHaveBeenCalledTimes(1);
+    expect(listenersOf(s)).toEqual(["close:1"]); // 不随复用句数累积
+  });
+
+  test("⑪ abort 路径同样摘除监听（句级终止不留 open 闭包）", () => {
+    const h = harness();
+    const c = cb();
+    const u = h.adapter.openUtterance({ text: "中断句。", callbacks: c });
+    const s = h.sockets[0]!;
+    s.fire("message", JSON.stringify({ header: { event: "task-started" } }));
+    u.abort();
+    expect([...s.listeners.values()].every((set) => set.size === 0)).toBe(true);
+    // 迟到的 close 帧不再触发回调（已摘除监听）
+    s.fire("close");
+    expect(c.onError).not.toHaveBeenCalled();
+  });
 });
 
 // ── 模型配置接入 P0：model getter（配置值优先，空/未配回落默认）──────

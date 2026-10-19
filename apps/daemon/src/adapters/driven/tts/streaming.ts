@@ -181,6 +181,9 @@ class Utterance implements TtsStreamSession {
   private finishTimer: number | undefined;
   private readonly onMessage: (ev: { data?: unknown }) => void;
   private readonly onClose: () => void;
+  /** open 监听句柄（F2 #23：匿名监听摘不掉——句间复用的池化连接会把整句
+   *  闭包（含 options.text）永久挂在 socket 上，连续播报无界增长）。 */
+  private readonly onOpen: () => void;
 
   constructor(
     private readonly options: TtsStreamOpenOptions,
@@ -194,9 +197,10 @@ class Utterance implements TtsStreamSession {
     const cb = options.callbacks;
     this.onMessage = (ev) => this.handleMessage(ev.data, cb);
     this.onClose = () => this.dieWith(cb, "上游连接断开");
+    this.onOpen = () => this.sendRunTask();
     socket.addEventListener("message", this.onMessage);
     socket.addEventListener("close", this.onClose);
-    socket.addEventListener("open", () => this.sendRunTask());
+    socket.addEventListener("open", this.onOpen);
     if (isOpenNow(socket)) this.sendRunTask();
     this.startedTimer = this.setTimer(() => {
       if (this.phase === "closed") return;
@@ -210,6 +214,8 @@ class Utterance implements TtsStreamSession {
     // 且不再出音）——本地直接终态（stop 语义收口在 service 层），连接废弃不回池
     const wasStarted = this.phase === "started";
     this.die();
+    // 先摘监听再 close：迟到的 close 帧不得再回调（已终止句不发 onError）
+    this.detach();
     try {
       if (wasStarted) {
         this.socket.send(
@@ -340,6 +346,8 @@ class Utterance implements TtsStreamSession {
     try {
       this.socket.removeEventListener("message", this.onMessage);
       this.socket.removeEventListener("close", this.onClose);
+      // F2 #23：open 同属句级监听——回池连接必须摘干净（否则闭包随复用累积）
+      this.socket.removeEventListener("open", this.onOpen);
     } catch {
       // 环境差异——幂等
     }
