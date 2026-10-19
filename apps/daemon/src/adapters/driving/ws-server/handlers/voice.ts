@@ -15,6 +15,7 @@
 import type { VoiceSynthesizeResultEvent } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { VoiceCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /** 试听文本防御上限（设置页固定短句；广播路径经模板截断不经此处）。 */
 const SYNTHESIZE_TEXT_MAX = 500;
@@ -72,9 +73,7 @@ export function handleVoiceSynthesize(ctx: VoiceCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) =>
-    ctx.commandError(ctx.type, "command.invalid_payload", `voice.synthesize 执行失败：${(err as Error).message}`),
-  );
+  void run().catch((err) => reportInternalFailure(ctx, err, "voice.synthesize 执行失败"));
 }
 
 /** voice.subscribe（全局命令）：连接级播报订阅登记（音色偏好随命令携带）。 */

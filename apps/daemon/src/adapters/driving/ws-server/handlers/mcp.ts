@@ -41,6 +41,7 @@ import type {
   McpServerStatusInfo,
 } from "../../../../application/ports/outbound/McpServerPort";
 import type { McpCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /** 运行态行 DTO 映射（port McpServerStatusInfo → 协议 McpServerStatusDto）。 */
 function statusDtoOf(status: McpServerStatusInfo): McpServerStatusDto {
@@ -50,6 +51,25 @@ function statusDtoOf(status: McpServerStatusInfo): McpServerStatusDto {
     ...(status.toolCount !== undefined ? { toolCount: status.toolCount } : {}),
     ...(status.lastError !== undefined ? { lastError: status.lastError } : {}),
   };
+}
+
+/**
+ * mcp 配置写面串行链（F2 #11）：add/update/remove 三写命令都是「读配置快照 →
+ * 整段替换落盘」。落盘是 await（WriteQueue），await 窗口内到达的第二条写命令
+ * 会读到同一旧快照 —— 后写覆盖前写，先到的修改被静默丢弃（add 侧注释自认
+ * TOCTOU，update/remove 同窗口）。MCP 声明面是全局单写面（mcp_server 表整段
+ * 替换），故用模块级串行链把「读快照 → 落盘 → 连接面同步」整段串起来；
+ * 前一条失败不阻断后续（then(run, run)）。
+ */
+let configMutationChain: Promise<unknown> = Promise.resolve();
+
+function withConfigMutation<T>(run: () => Promise<T>): Promise<T> {
+  const next = configMutationChain.then(run, run);
+  configMutationChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
 }
 
 /** 配置行 DTO 映射（port McpServerConfigInput → 协议 McpServerConfigDto；结构同形浅拷贝）。 */
@@ -158,10 +178,8 @@ export function handleMcpServersAdd(ctx: McpCommandContext): void {
   const { input } = parsed;
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const run = async (): Promise<void> => {
-    // 存在性检查在 save 闭包内重查（TOCTOU 缩窗）：同步段外先查后存的两连接
-    // 并发同名 add 可双写配置；重查点与数组组装同同步段，窗口收窄到两闭包
-    // 同步段微任务级交叠（全局写面单用户场景可忽略；registry 侧 addServer
-    // 是 remove+add 的 replace 语义不拒重，拒重责任在本 handler）。
+    // 存在性检查与数组组装同在串行链内的同步段（F2 #11）：并发同名 add /
+    // add 与 update 交错都在链上排队，快照不再跨 await 失真。
     if (ctx.mcp.listConfigs().some((c) => c.name === input.name)) {
       return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${input.name}" 已存在（更新请用 mcp.servers.update）`);
     }
@@ -177,7 +195,7 @@ export function handleMcpServersAdd(ctx: McpCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.add 执行失败：${(err as Error).message}`));
+  void withConfigMutation(run).catch((err) => reportInternalFailure(ctx, err, "mcp.servers.add 执行失败"));
 }
 
 /** mcp.servers.update（全局写面）：按 name 覆盖配置（落盘 + 断旧连重连）。 */
@@ -187,12 +205,14 @@ export function handleMcpServersUpdate(ctx: McpCommandContext): void {
     return ctx.commandError(ctx.type, "command.invalid_payload", parsed.error);
   }
   const { input } = parsed;
-  const configs = ctx.mcp.listConfigs();
-  if (!configs.some((c) => c.name === input.name)) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${input.name}" 不存在（新增请用 mcp.servers.add）`);
-  }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const run = async (): Promise<void> => {
+    // 快照读取原在 run() 外（handler 同步段）——F2 #11：落盘 await 窗口内到达的
+    // 第二条写命令会读到同一旧快照，整段替换抹掉前一条修改。移入串行链内读取。
+    const configs = ctx.mcp.listConfigs();
+    if (!configs.some((c) => c.name === input.name)) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${input.name}" 不存在（新增请用 mcp.servers.add）`);
+    }
     await ctx.saveMcpServers(configs.map((c) => (c.name === input.name ? input : c)));
     // addServer 同名幂等覆盖：断旧连 → 重连 → 重新发现（McpRegistry 并发语义）
     const status = await ctx.mcp.addServer(input);
@@ -205,7 +225,7 @@ export function handleMcpServersUpdate(ctx: McpCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.update 执行失败：${(err as Error).message}`));
+  void withConfigMutation(run).catch((err) => reportInternalFailure(ctx, err, "mcp.servers.update 执行失败"));
 }
 
 /** mcp.servers.remove（全局写面）：断连 + 摘工具 + 落盘（stopped 广播经组合根链）。 */
@@ -214,12 +234,13 @@ export function handleMcpServersRemove(ctx: McpCommandContext): void {
   if (typeof name !== "string" || name.length === 0) {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空 string");
   }
-  const configs = ctx.mcp.listConfigs();
-  if (!configs.some((c) => c.name === name)) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${name}" 不存在`);
-  }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const run = async (): Promise<void> => {
+    // 同 update：快照读取移入串行链（F2 #11——删除不得被并发的旧快照复活）
+    const configs = ctx.mcp.listConfigs();
+    if (!configs.some((c) => c.name === name)) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${name}" 不存在`);
+    }
     await ctx.saveMcpServers(configs.filter((c) => c.name !== name));
     ctx.mcp.removeServer(name); // 断连 + 摘 entry + stopped 广播（刷新链在组合根接线自动触发）
     const frame: McpServersRemoveResultEvent = {
@@ -231,7 +252,7 @@ export function handleMcpServersRemove(ctx: McpCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.remove 执行失败：${(err as Error).message}`));
+  void withConfigMutation(run).catch((err) => reportInternalFailure(ctx, err, "mcp.servers.remove 执行失败"));
 }
 
 /** mcp.servers.test（全局写面）：试连（不落盘不注册）——配置页「测试连接」。 */

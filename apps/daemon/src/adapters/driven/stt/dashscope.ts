@@ -46,6 +46,11 @@ const DASHSCOPE_MULTIMODAL_ENDPOINT =
 /** DashScope 上传 policy 端点（GET action=getPolicy）。 */
 const DASHSCOPE_UPLOADS_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/uploads";
 
+/** 单次 HTTP 超时（F2 #24）：三处 fetch（getPolicy/OSS 上传/生成）都必须可中断——
+ *  上游挂起时 transcribe 不能永久悬挂（语音输入要回错误而不是无声等待）。
+ *  取值参考同仓 embedding/judge 适配器的 15s 纪律，音频上传/转写体量更大取 30s。 */
+const STT_HTTP_TIMEOUT_MS = 30_000;
+
 /** V1 主选 ASR 模型（qwen-audio-3.0-asr-flash：即时热词 + 上下文双通道）。
  *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
 export const DASHSCOPE_ASR_MODEL = DEFAULT_VOICE_MODEL_CONFIG.sttModel;
@@ -176,6 +181,7 @@ export class DashScopeSttAdapter implements SttPort {
         "X-DashScope-OssResourceResolve": "enable",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(STT_HTTP_TIMEOUT_MS),
     });
     const parsed = (await res.json().catch(() => ({}))) as DashScopeOkBody & DashScopeErrorBody;
     if (!res.ok) {
@@ -210,6 +216,7 @@ export class DashScopeSttAdapter implements SttPort {
       {
         method: "GET",
         headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(STT_HTTP_TIMEOUT_MS),
       },
     );
     const policyParsed = (await policyRes.json().catch(() => ({}))) as {
@@ -243,6 +250,7 @@ export class DashScopeSttAdapter implements SttPort {
       method: "POST",
       headers: { Accept: "application/json", Date: new Date().toUTCString() },
       body: form,
+      signal: AbortSignal.timeout(STT_HTTP_TIMEOUT_MS),
     });
     if (!upRes.ok) {
       const detail = await upRes.text().catch(() => "");

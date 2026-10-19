@@ -80,6 +80,64 @@ describe("M15：deleteSession 落定后 sessionTails 仓位条目清理（杜绝
   });
 });
 
+// 评审 F2 #13：pendingSyncNotified 经 default 落全局链，与 pendingSync（会话仓 FIFO）
+// 无跨链顺序保证——同会话 notified=1 可先落、upsert 复位 0 后落，提示态错位。
+describe("F2 #13：pending_sync 提示位置位与复位写同链保序", () => {
+  test("chainKeyOf：单会话 pendingSyncNotified 入该会话仓（不再走全局链）", () => {
+    const queue = new WriteQueue(tmpDbPath());
+    const chainKeyOf = (queue as unknown as { chainKeyOf: (job: unknown) => string | undefined }).chainKeyOf.bind(queue);
+    expect(chainKeyOf({ kind: "pendingSync", sessionId: "s1", jobId: null, changedAt: "t" })).toBe("s1");
+    expect(chainKeyOf({ kind: "pendingSyncNotified", sessionIds: ["s1"] })).toBe("s1");
+  });
+
+  test("多会话批量置位拆分为逐会话 job——各自入本会话仓且全部落盘", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      await queue.savePendingSync("s-a", "job-1", "t1");
+      await queue.savePendingSync("s-b", "job-2", "t1");
+      await queue.markPendingSyncNotified(["s-a", "s-b"]);
+      await queue.flush();
+      const db = new Database(dbPath, { readonly: true });
+      const rows = db.prepare("SELECT session_id, notified FROM pending_sync ORDER BY session_id").all() as {
+        session_id: string;
+        notified: number;
+      }[];
+      db.close();
+      expect(rows).toEqual([
+        { session_id: "s-a", notified: 1 },
+        { session_id: "s-b", notified: 1 },
+      ]);
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("同会话交错：复位写（notified=0）之后置位 → 终态 1；置位之后复位 → 终态 0", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      await queue.savePendingSync("s-x", "job-1", "t1");
+      await queue.markPendingSyncNotified(["s-x"]);
+      await queue.flush();
+      let db = new Database(dbPath, { readonly: true });
+      expect((db.prepare("SELECT notified FROM pending_sync WHERE session_id = 's-x'").get() as { notified: number }).notified).toBe(1);
+      db.close();
+      // 新变更 → 复位；再次置位 → 终态 1（同链保序，跨链会随机丢一次上报）
+      await queue.savePendingSync("s-x", "job-2", "t2");
+      await queue.markPendingSyncNotified(["s-x"]);
+      await queue.flush();
+      db = new Database(dbPath, { readonly: true });
+      expect((db.prepare("SELECT notified FROM pending_sync WHERE session_id = 's-x'").get() as { notified: number }).notified).toBe(1);
+      db.close();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("M2：drainAll 稳定判据——drain 期间新入队 job 一并等待", () => {
   test("drain 窗口内向既有仓入队新 job（同 key 覆盖、sessionTails.size 不变）→ flush 返回时其 persist promise 已 settle", async () => {
     const dbPath = tmpDbPath();

@@ -299,7 +299,8 @@ describe("kill 命令链：WS agent.kill → port → SchedulerService.kill → 
     );
     expect(collected[0]!.payload.message).toContain("已终态");
     expect(collected[1]!.payload.message).toContain("不存在");
-    for (const f of collected) expect(f.payload.code).toBe("command.invalid_payload");
+    // F2 归位：目标不存在/已终态 = 业务态失败（agent.invalid_state），非载荷非法
+    for (const f of collected) expect(f.payload.code).toBe("agent.invalid_state");
   }, 10000);
 
   test("agent.subscribe 通路语义：登记不过滤——订阅后其他实例事件仍广播可达", async () => {

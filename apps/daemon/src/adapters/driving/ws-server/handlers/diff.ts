@@ -21,7 +21,7 @@ import type { DiffFileDto, DiffGetResultEvent, ErrorCode, EventEnvelope } from "
 import type { FrozenDiffFile } from "../../../../application/services/TurnDiffService";
 import type { FrameSender } from "../EventStream";
 import type { DiffCommandContext } from "./context";
-import { optionalPayloadString } from "./payload-guards";
+import { optionalPayloadString, reportInternalFailure } from "./payload-guards";
 
 /** external 条目备注（±粗估行说明——外部进程变更无精确原文）。 */
 const EXTERNAL_NOTE = "外部进程变更（无精确原文，±行为粗估）";
@@ -89,7 +89,8 @@ export function handleDiffGet(ctx: DiffCommandContext): void {
   if (live === null) return;
   const state = diff.stateOf(sid);
   if (state === undefined) {
-    return fail(ctx, "command.invalid_payload", `会话不存在或未加载：${sid}`);
+    // F2 归位：目标会话不在 diff 状态表 = 会话不存在（业务态，非载荷非法）
+    return fail(ctx, "session.not_found", `会话不存在或未加载：${sid}`);
   }
   void diff.service
     .getTurnView(state, { ...(turnId !== undefined ? { turnId } : {}), ...(live !== undefined ? { live } : {}) })
@@ -123,6 +124,6 @@ export function handleDiffGet(ctx: DiffCommandContext): void {
       reply(ctx, frame);
     })
     .catch((err: unknown) => {
-      fail(ctx, "command.invalid_payload", `diff 查询失败：${(err as Error).message}`);
+      reportInternalFailure(ctx, err, "diff 查询失败");
     });
 }

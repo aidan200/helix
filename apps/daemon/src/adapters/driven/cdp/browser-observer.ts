@@ -9,8 +9,14 @@
  *   跨域 iframe 远期，附录 A）；
  * - parseObserverMessage：bindingCalled payload JSON → 形状守卫后的消息；
  * - mapObserverMessage：观察者事件 → 六 kind 封闭词汇表（D2 词汇表外不新
- *   造）+ origin 恒 user（观察者回传 = 用户活动面——isTrusted 过滤保证真实
- *   用户交互，合成事件（agent JS 层点击）零上报）；
+ *   造）+ origin 恒 user（观察者回传 = 用户活动面）。可信度口径（F2 #30 校正，
+ *   **不是安全边界**）：isTrusted 过滤只挡「意外的合成事件」（agent JS 层
+ *   click()/dispatchEvent 造成的误归因）；binding 是页面级函数，任意页面脚本
+ *   可直接调 window[OBSERVER_BINDING_NAME](JSON.stringify({t:"click",trusted:true}))
+ *   伪造——trusted 只是可复制的 JSON 字段，无签名/无一次性凭证。故 origin=user
+ *   与 focusedTarget 判定是「尽力而为的归因」：恶意页面理论上可伪造「用户正在
+ *   活动/停在哪个页面」。威胁模型沿用沙箱裁决（只防诚实错误，不做对抗级打磨）；
+ *   若后续要把感知面作安全判据（如写面审批），必须先补会话级不可伪造凭证。
  * - BrowserFocusState：前台 tab 状态机（document.hasFocus() 上报为可靠真源
  *   ——不依赖 targetInfoChanged 激活态，附录 A）。
  *

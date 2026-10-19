@@ -50,7 +50,12 @@ export function handleChatSend(ctx: ChatCommandContext): void {
     void ctx.directory
       .startDraftSession(ctx.payload.text, draftModel, images, draftMode)
       .then(({ sessionId }) => {
-        if (!sender) return;
+        if (!sender) {
+          // F2：防御位（authed 门后 sender 必在，握手鉴权门近乎不可达）——
+          // 真落此路径不静默丢回执（首条消息已落库，客户端零帧等待面）
+          ctx.commandError(ctx.type, "daemon.internal", "草稿会话回执面缺失（sender 未登记）");
+          return;
+        }
         ctx.events.subscribeSession(sender, sessionId);
         return ctx.directory.getSessionView(sessionId).then((view) => {
           // 草稿快照盖新会话自身章（竞态窗口关闭：A 后台流式事件

@@ -135,6 +135,19 @@ describe("DashScopeSttAdapter：OSS 三步上传 + oss:// 引用（fetch 层断�
     expect(body.parameters.language).toBe("zh");
   });
 
+  // 评审 F2 #24：三处 fetch（getPolicy / OSS 上传 / 生成）均无超时——上游挂起即
+  // transcribe Promise 永久悬挂、语音输入无错误回执（同仓 embedding/judge 15s 纪律）。
+  test("三处 fetch 均带超时 signal（挂起可中断）", async () => {
+    const { calls, fetchFn } = dashscopeFetch(() => ({ output: { text: "ok" } }));
+    const adapter = new DashScopeSttAdapter({ getApiKey: () => "sk-dash", fetchFn });
+    await adapter.transcribe({ audio: AUDIO, context: { terms: [], hint: "" } });
+    expect(calls.length).toBe(3);
+    for (const call of calls) {
+      expect(call.init.signal).toBeInstanceOf(AbortSignal);
+      expect(call.init.signal?.aborted).toBe(false);
+    }
+  });
+
   test("空词表上下文：无 system 消息、无 vocabulary 键（裸转写）；key 前后两次上传不撞（随机文件名）", async () => {
     const { calls, fetchFn } = dashscopeFetch(() => ({ output: { text: "你好" } }));
     const adapter = new DashScopeSttAdapter({ getApiKey: () => "sk-dash", fetchFn });
@@ -246,6 +259,19 @@ describe("SiliconFlowSttAdapter：OpenAI 兼容 form 形态 + 兜底语义", () 
     expect(form.get("file")).toBeInstanceOf(Blob);
     const headers = calls[0]!.init.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer sk-sf");
+  });
+
+  // 评审 F2 #25：与 stt/dashscope 同型——multipart 上传无超时，挂起即永挂。
+  test("fetch 带超时 signal（挂起可中断）", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchFn = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ text: "ok" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const adapter = new SiliconFlowSttAdapter({ getApiKey: () => "sk-sf", fetchFn });
+    await adapter.transcribe({ audio: AUDIO, context: { terms: [], hint: "" } });
+    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
+    expect(calls[0]!.init.signal?.aborted).toBe(false);
   });
 
   test("缺 key → fail-fast 中文引导", async () => {

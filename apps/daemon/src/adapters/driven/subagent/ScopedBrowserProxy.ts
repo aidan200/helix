@@ -1,4 +1,5 @@
 import type { BrowserPort, ScrollDirection, ScreenshotFormat } from "../../../application/ports/outbound/BrowserPort";
+import { foldPathSegments } from "../../../domain/sandbox/SandboxPolicy";
 
 /**
  * ScopedBrowserProxy —— daemon 侧 tool-req 归属代理（H-3 方案 A，纯函数面）。
@@ -14,8 +15,17 @@ import type { BrowserPort, ScrollDirection, ScreenshotFormat } from "../../../ap
  *   不可见不可触）；
  * - listTabs：过滤 owner 维度子集；getStatus：透传（观测面无操作能力）；
  * - 管理面 4 方法（connect/onStatusChange/stop/reclaimOwner）不上 wire（有意
- *   收窄——stop/reclaimOwner 会越 owner 边界，归属校验兜不住），到达即白名单外拒绝。
+ *   收窄——stop/reclaimOwner 会越 owner 边界，归属校验兜不住），到达即白名单外拒绝；
+ * - screenshotTab 落盘路径必须落在调用方给定的可写根内（F2 #6：子进程可指定任意
+ *   绝对路径 → 把任意既有文件覆盖成图片字节，绕过 readonly 档「写工具摘除」且不进
+ *   写入事实记账）。缺席可写根 = fail-closed 拒绝落盘。
  */
+
+/** 调用侧上下文（可写根由 launcher 按 workspace 注入）。 */
+export interface ScopedBrowserCallOptions {
+  /** 子进程可写的落盘根（workspace 根）；截图路径越界即拒绝。 */
+  readonly allowedWriteRoot?: string;
+}
 
 /** wire 白名单：browser 工具可达的 12 个操作方法（H-3 裁决 4）。 */
 const WIRE_METHODS = new Set([
@@ -44,6 +54,7 @@ export async function scopedBrowserCall(
   instanceId: string,
   method: string,
   args: readonly unknown[],
+  options?: ScopedBrowserCallOptions,
 ): Promise<unknown> {
   if (!WIRE_METHODS.has(method)) {
     throw new Error(`未知 browser 转发方法 "${method}"（白名单外——管理面 4 方法不上 wire，H-3 裁决 4）`);
@@ -73,9 +84,10 @@ export async function scopedBrowserCall(
     );
   }
   if (method === "screenshotTab") {
+    const file = (args[1] ?? undefined) as string | undefined;
     return browser.screenshotTab(
       tabId,
-      (args[1] ?? undefined) as string | undefined,
+      resolveScreenshotPath(file, options?.allowedWriteRoot),
       (args[2] ?? undefined) as ScreenshotFormat | undefined,
     );
   }
@@ -101,4 +113,26 @@ export async function scopedBrowserCall(
       // screenshotTab 归上方显式分支）——防御性不可达
       throw new Error(`未知 browser 转发方法 "${method}"（白名单内但无分发分支——接线缺失）`);
   }
+}
+
+/**
+ * 截图落盘路径归属校验（F2 #6）：归一（段折叠）后必须落在 allowedWriteRoot 内。
+ * 相对路径按可写根解析；根缺席 fail-closed（子进程不得自选落点）。
+ */
+function resolveScreenshotPath(file: string | undefined, allowedWriteRoot: string | undefined): string | undefined {
+  if (file === undefined) return undefined; // 缺参交给 port 报错（不在此造第二套错误文案）
+  if (allowedWriteRoot === undefined || allowedWriteRoot.trim() === "") {
+    throw new Error(
+      `browser screenshot 落盘被拒绝（子进程未获可写根注入）：file="${file}"——子进程不得自选落盘位置`,
+    );
+  }
+  const root = foldPathSegments(allowedWriteRoot);
+  const abs = foldPathSegments(file.startsWith("/") ? file : `${root}/${file}`);
+  if (abs !== root && !abs.startsWith(`${root}/`)) {
+    throw new Error(
+      `browser screenshot 落盘越界：file="${file}" 不在可写根 ${root} 内——` +
+        "子进程截图只能落 workspace 内路径（防止借截图通道覆盖任意文件）",
+    );
+  }
+  return abs;
 }

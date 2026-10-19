@@ -110,3 +110,23 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
     }
   });
 });
+
+// 评审 F2 #10：config.set_sandbox 的部分更新是 handler 层「读现值 → 合并 → 写回」。
+// current() 每次都会从 KV 重读并刷新缓存，而 KV 落盘是异步队列（WriteQueue）——
+// 写未落盘期间读到的仍是旧 JSON，缓存被旧值覆盖，随后合并即丢字段（后写覆盖前写）。
+describe("F2 #10：写未落盘期间 current() 不得用旧 KV 值覆盖刚写入的缓存", () => {
+  test("set 在途时 current() 仍返回刚写入值（不被旧 KV 覆盖）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "sandbox-store-"));
+    try {
+      const store = makeStore(dir);
+      await store.set({ enabled: false, extraRoots: [], autoApprove: false });
+      const pending = store.set({ enabled: true, extraRoots: [], autoApprove: false });
+      // 落盘队列尚未 apply：此时读面必须返回在途写入值（否则 handler 合并会丢 enabled）
+      expect(store.current().enabled).toBe(true);
+      await pending;
+      expect(store.current().enabled).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

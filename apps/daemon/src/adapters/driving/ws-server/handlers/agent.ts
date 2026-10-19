@@ -22,11 +22,13 @@ export function handleAgentKill(ctx: AgentCommandContext): void {
   if (typeof ctx.payload.agentId !== "string" || ctx.payload.agentId === "") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.agentId 应为非空 string");
   }
-  // 错误模型（契约 §4）：目标不存在/已终态 → connection.error 回执（中文说明）；
+  // 错误模型（契约 §4）：目标不存在/已终态 → connection.error 回执（中文说明；
+  // F2 归位：业务态失败码 agent.invalid_state——与 task.invalid_state 类口径，
+  // 原误标 invalid_payload 误导按参数错误处理）；
   // 正常路径回执 agent.killed 事件（经事件流广播，单一终态语义）
   const outcome = ctx.orchestration.kill(ctx.payload.agentId);
   if (!outcome.killed) {
-    ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+    ctx.commandError(ctx.type, "agent.invalid_state", outcome.error);
   }
 }
 

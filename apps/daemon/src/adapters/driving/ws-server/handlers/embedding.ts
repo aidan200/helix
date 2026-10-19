@@ -17,6 +17,7 @@ import type {
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { EmbeddingCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /** 清单回执（list/set/delete/set_default 共用形态）。 */
 function respondList(ctx: EmbeddingCommandContext): void {
@@ -83,7 +84,7 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
       }
       respondList(ctx);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.set 执行失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "embedding.set 执行失败"));
 }
 
 /** embedding.delete（全局命令）：删除端点 → 回执清单。 */
@@ -100,7 +101,7 @@ export function handleEmbeddingDelete(ctx: EmbeddingCommandContext): void {
       }
       respondList(ctx);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.delete 执行失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "embedding.delete 执行失败"));
 }
 
 /**
@@ -125,7 +126,7 @@ export function handleEmbeddingSetDefault(ctx: EmbeddingCommandContext): void {
       }
       respondList(ctx);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `embedding.set_default 执行失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "embedding.set_default 执行失败"));
 }
 
 /** embedding.verify（全局命令）：连通测试 → 两判别回执（fail 是正常结果非 error）。 */

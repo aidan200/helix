@@ -125,6 +125,47 @@ describe("U3 spawn writes 三档（launcher 侧）", () => {
   });
 });
 
+// 评审 F2 #4：provision 窗口（launch 占位期）无 children entry——kill/send 静默
+// 空转，provision 落成后照常 spawn，用户已终止的实例继续消耗 token 并落盘。
+describe("provision 窗口内 kill（评审 F2 #4）", () => {
+  test("provision 在途 kill → 不 spawn，且回收刚建好的 worktree", async () => {
+    const wtPath = "/tmp/fake-workspace/.worktrees/agent-cancel";
+    const removed: string[] = [];
+    let releaseProvision: () => void = () => {};
+    const h = mkHarness({
+      provision: async (slug, baseCwd) => {
+        h.provisioned.push({ slug, baseCwd });
+        return new Promise((resolve) => {
+          releaseProvision = () => resolve({ path: `${wtPath}-${slug}`, branch: `helix/${slug}` });
+        });
+      },
+      remove: async (p: string) => {
+        removed.push(p);
+        return true;
+      },
+    });
+    const inst = mkInstance("isolated");
+    h.launcher.launch(inst, "t");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(h.provisioned.length).toBe(1); // provision 在途
+
+    const outcome = await h.launcher.kill(inst.instanceId);
+    expect(outcome).toBe("graceful"); // 占位窗内 kill 有明确回执（不是 undefined 空转）
+
+    releaseProvision(); // provision 随后落定
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(h.snapshotCalls.length).toBe(0); // 不 spawn（不耗 token）
+    expect(h.worktreeRegistered.length).toBe(0); // 不登记实例
+    expect(removed).toEqual([`${wtPath}-${inst.instanceId}`]); // worktree 回收，不留脏树
+  });
+
+  test("未见实例且未在 provision → kill 仍返回 undefined（未知实例幂等语义不变）", async () => {
+    const h = mkHarness();
+    expect(await h.launcher.kill("agent-ghost")).toBeUndefined();
+  });
+});
+
 describe("isolated 档 launch 去重窗（code-review 低危）", () => {
   test("provision 窗口内重复 launch 被占位去重：单次 provision + 单次 spawnSnapshot", async () => {
     let inFlight = 0;

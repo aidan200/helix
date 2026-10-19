@@ -223,7 +223,7 @@ describe("TP-DIFF-c：diff.get 往返与防御回执", () => {
     }
   }, 15000);
 
-  test("信封缺 sessionId / 载荷形状不符 / 未知会话 → invalid_payload 三防御", async () => {
+  test("信封缺 sessionId / 载荷形状不符 → invalid_payload；未知会话 → session.not_found（F2 归位）", async () => {
     const rig = await makeRig([{ text: "好。" }]);
     const client = new TestClient(rig.url);
     try {
@@ -245,10 +245,11 @@ describe("TP-DIFF-c：diff.get 往返与防御回执", () => {
         "turnId 形状回执",
       );
 
-      // ③ 未知会话（不存在/未加载）
+      // ③ 未知会话（不存在/未加载）→ session.not_found（F2 归位：会话缺失是
+      // 业务态非载荷非法）
       client.send({ v: 0, type: "diff.get", sessionId: "sess-nope", payload: {} });
       await client.waitFor(
-        (f) => f.type === "connection.error" && (f.payload as { code?: string }).code === "command.invalid_payload" && (f.payload as { message: string }).message.includes("sess-nope"),
+        (f) => f.type === "connection.error" && (f.payload as { code?: string }).code === "session.not_found" && (f.payload as { message: string }).message.includes("sess-nope"),
         "未知会话回执",
       );
     } finally {

@@ -256,6 +256,9 @@ export class SubagentLauncher implements InstanceRunner {
    * 无窗口，不入占位。
    */
   private readonly launching = new Set<string>();
+  /** provision 窗口内的取消标记（F2 #4）：launch 占位期无子进程可杀——kill
+   *  先记标记，provision 落成后不再 spawn（否则用户已终止的实例跑完全程）。 */
+  private readonly cancelledWhileProvisioning = new Set<string>();
 
   constructor(private readonly deps: SubagentLauncherDeps) {}
 
@@ -346,6 +349,7 @@ export class SubagentLauncher implements InstanceRunner {
       try {
         provisioned = await this.deps.worktreeProvisioner.provision(id, this.currentToolCwd());
       } catch (error) {
+        if (this.cancelledWhileProvisioning.delete(id)) return; // 已终止：异常无需上报
         const detail = error instanceof Error ? error.message : String(error);
         this.callbacks?.onInstanceClosure(id, {
           result: "failed",
@@ -355,6 +359,7 @@ export class SubagentLauncher implements InstanceRunner {
         return;
       }
       if ("error" in provisioned) {
+        if (this.cancelledWhileProvisioning.delete(id)) return; // 已终止：失败原因无需上报
         this.callbacks?.onInstanceClosure(id, {
           result: "failed",
           closure: failedClosure(`isolated worktree 创建失败：${provisioned.error}`),
@@ -362,10 +367,24 @@ export class SubagentLauncher implements InstanceRunner {
         });
         return;
       }
+      if (this.cancelledWhileProvisioning.delete(id)) {
+        // provision 窗口内已被终止（F2 #4）：回收刚建好的 worktree，不再 spawn
+        await this.discardProvisionedWorktree(provisioned.path, id);
+        return;
+      }
       this.deps.onWorktreeProvisioned?.(id, provisioned);
       this.doLaunch(instance, task, provisioned.path);
     } finally {
       this.launching.delete(id);
+    }
+  }
+
+  /** 取消窗口内 provision 落成后的 worktree 回收（失败只记日志——不阻断收口）。 */
+  private async discardProvisionedWorktree(path: string, id: string): Promise<void> {
+    try {
+      await this.deps.worktreeProvisioner?.remove(path);
+    } catch (err) {
+      this.deps.logger?.warn(`[subagent] 已终止实例 ${id} 的 worktree 回收失败：${(err as Error).message}`);
     }
   }
 
@@ -539,8 +558,14 @@ export class SubagentLauncher implements InstanceRunner {
    */
   async kill(instanceId: string): Promise<"graceful" | "escalated" | undefined> {
     const entry = this.children.get(instanceId);
-    if (!entry) return undefined;
-    return entry.transport.kill();
+    if (entry) return entry.transport.kill();
+    // provision 窗口（isolated 档 async 前置）尚无子进程可杀：记取消标记，
+    // launchIsolated 落定后不再 spawn（F2 #4——否则已终止实例照常跑完全程）
+    if (this.launching.has(instanceId)) {
+      this.cancelledWhileProvisioning.add(instanceId);
+      return "graceful";
+    }
+    return undefined;
   }
 
   /** 子进程 pid（测试/诊断；未 launch 返回 undefined）。 */
@@ -657,7 +682,10 @@ export class SubagentLauncher implements InstanceRunner {
       res = { type: "tool-res", reqId, ok: false, error: "browser 未装配（SubagentLauncher 无 browser 注入——测试 Fake 引擎形态）" };
     } else {
       try {
-        const value = await scopedBrowserCall(this.deps.browser, id, method, args);
+        // 可写根 = 实例 toolCwd（workspace）——截图落盘不得越界（F2 #6）
+        const value = await scopedBrowserCall(this.deps.browser, id, method, args, {
+          allowedWriteRoot: this.currentToolCwd(),
+        });
         res = { type: "tool-res", reqId, ok: true, value: truncateToolResult(value, this.deps.toolResultMaxBytes) };
       } catch (err) {
         res = { type: "tool-res", reqId, ok: false, error: (err as Error).message };

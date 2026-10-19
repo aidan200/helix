@@ -90,10 +90,56 @@ describe("ScopedBrowserProxy ③ H9 可选参 null 占位 → undefined 还原",
   test("screenshotTab [tabId, file, null] → port 收到 (tabId, file, undefined)（format 缺省归实现侧）", async () => {
     const browser = new FakeBrowserPort();
     browser.tabs = [tab("tab-1", "agent-7")];
-    await scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "/tmp/s.png", null]);
+    await scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "/w/shots/s.png", null], {
+      allowedWriteRoot: "/w",
+    });
     const args = browser.lastCall("screenshotTab")!.args;
-    expect(args[1]).toBe("/tmp/s.png");
+    expect(args[1]).toBe("/w/shots/s.png");
     expect(args[2]).toBeUndefined();
+  });
+});
+
+// 评审 F2 #6：screenshotTab 的 file 原样透传落盘——子进程可指定任意绝对路径
+// （覆盖既有文件为图片字节），绕过 readonly 档写工具摘除且不入写事实记账。
+describe("ScopedBrowserProxy 截图落盘路径边界（评审 F2 #6）", () => {
+  const ROOT = "/w/workspace";
+
+  test("根内路径放行（相对路径按可写根解析 + 段折叠）", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", ".helix/tmp/s.png"], {
+      allowedWriteRoot: ROOT,
+    });
+    expect(browser.lastCall("screenshotTab")!.args[1]).toBe(`${ROOT}/.helix/tmp/s.png`);
+  });
+
+  test("根外绝对路径 → 拒绝且不触达 port", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await expect(
+      scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "/etc/hosts"], { allowedWriteRoot: ROOT }),
+    ).rejects.toThrow(/落盘越界/);
+    expect(browser.lastCall("screenshotTab")).toBeUndefined();
+  });
+
+  test("段折叠逃逸（../）→ 拒绝（前缀判定防伪）", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await expect(
+      scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "../../etc/passwd"], {
+        allowedWriteRoot: ROOT,
+      }),
+    ).rejects.toThrow(/落盘越界/);
+    expect(browser.lastCall("screenshotTab")).toBeUndefined();
+  });
+
+  test("未注入可写根 → fail-closed 拒绝（子进程不得自选落盘位置）", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await expect(
+      scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "/tmp/s.png"]),
+    ).rejects.toThrow(/未获可写根注入/);
+    expect(browser.lastCall("screenshotTab")).toBeUndefined();
   });
 });
 

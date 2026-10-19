@@ -295,9 +295,17 @@ export class WriteQueue {
     return this.enqueue({ kind: "pendingSync", sessionId, jobId, changedAt });
   }
 
-  /** pending_sync 置已提示入队（job 终态提示发出后；幂等）。 */
-  markPendingSyncNotified(sessionIds: readonly string[]): Promise<void> {
-    return this.enqueue({ kind: "pendingSyncNotified", sessionIds });
+  /**
+   * pending_sync 置已提示入队（job 终态提示发出后；幂等）。
+   *
+   * F2 #13：逐会话拆成单会话 job 入各自会话仓——置位与 savePendingSync 的复位
+   * 写（同表同主键）必须同链保序，否则跨链交错会把 notified 置成过期值
+   * （提示态错位：该提示的被吞、已提示的再提示）。跨会话原子性由此退化为
+   * 逐行原子（每行幂等，崩溃窗口只影响未落盘的那几行）。
+   */
+  async markPendingSyncNotified(sessionIds: readonly string[]): Promise<void> {
+    if (sessionIds.length === 0) return;
+    await Promise.all(sessionIds.map((sessionId) => this.enqueue({ kind: "pendingSyncNotified", sessionIds: [sessionId] })));
   }
 
   /**
@@ -427,6 +435,10 @@ export class WriteQueue {
         return job.sessionId;
       case "pendingSync":
         return job.sessionId;
+      case "pendingSyncNotified":
+        // 单会话形态入会话仓（F2 #13：与 pendingSync 复位写同链保序）；多会话
+        // 形态在 markPendingSyncNotified 侧已拆分，落到此处属防御（全局链）
+        return job.sessionIds.length === 1 ? job.sessionIds[0] : undefined;
       default:
         // reportFile/runtimeConfig/resource_state 族与任务表域链（O-1：任务
         // 无会话维）均走全局链

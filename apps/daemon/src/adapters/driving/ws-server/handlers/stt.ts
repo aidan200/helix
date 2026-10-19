@@ -20,6 +20,7 @@
 import type { SttStreamFrame, SttStreamService } from "../../../../application/stt/SttStreamService";
 import type { SttTranscribeResultEvent } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { ErrorCode } from "@helix/protocol";
 import type { SttPort } from "../../../../application/ports/outbound/SttPort";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { AsrContext } from "../../../../application/stt/VocabularyBuilder";
@@ -30,6 +31,7 @@ import {
 } from "../../../../application/stt/VocabularyBuilder";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
 import type { SttCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /** P1 会话源采样条数（最近 N 条 user/assistant 消息；> 新近度窗口 10 覆盖衰减梯度）。 */
 export const SESSION_SOURCE_MESSAGES = 16;
@@ -168,13 +170,14 @@ export function handleSttTranscribe(ctx: SttCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) =>
-    ctx.commandError(
-      ctx.type,
-      "session.not_found",
-      `stt.transcribe 执行失败：${(err as Error).message}`,
-    ),
-  );
+  void run().catch((err) => {
+    // F2 归位（session.ts:137-139 判别先例）：session.not_found 只覆盖
+    // resolveTarget 会话不存在；buildSttContext/组帧等意外异常归
+    // daemon.internal（服务端故障非会话缺失，原全量 not_found 误导排障）。
+    const code =
+      (err as { code?: ErrorCode }).code === "session.not_found" ? "session.not_found" : "daemon.internal";
+    ctx.commandError(ctx.type, code, `stt.transcribe 执行失败：${(err as Error).message}`);
+  });
 }
 
 // ── 流式转写批（V3b-1）：stt.stream 四命令（生命周期全在 SttStreamService）──

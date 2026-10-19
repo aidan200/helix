@@ -49,6 +49,7 @@ import type { ResourceConfigBlock } from "../../../../application/ports/inbound/
 import type { ProfileKind, ResourceType } from "../../../../application/ports/outbound/ResourceStatePort";
 import type { SkillDescriptor } from "../../../../application/ports/outbound/SkillSourcePort";
 import type { ResourceCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /** 命令 payload 校验通过的归一形态。 */
 interface SetEnabledInput {
@@ -184,7 +185,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
         };
         ctx.sendNow(sender, frame);
       })
-      .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
+      .catch((err) => reportInternalFailure(ctx, err, "配置读面组装失败"));
     return;
   }
   // 缺省 = 全部可编辑 kind（序固定 main/sub）+ 只读系统三块（编排归位批：
@@ -207,7 +208,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       },
     };
     ctx.sendNow(sender, frame);
-  })().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
+  })().catch((err) => reportInternalFailure(ctx, err, "配置读面组装失败"));
 }
 
 /** agent.base_prompt.get 合法 kind（五值全可读——含系统派生三 kind；写面只读≠读面拒绝）。 */
@@ -269,7 +270,7 @@ export function handleAgentSkillContentGet(ctx: ResourceCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `skill 正文读面失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "skill 正文读面失败"));
 }
 
 /**
@@ -312,7 +313,7 @@ export function handleAgentSkillCreate(ctx: ResourceCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `skill 创建写面失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "skill 创建写面失败"));
 }
 
 /** agent.config.set_enabled（全局写面）：四路径回执 + applied 广播。 */
@@ -373,5 +374,5 @@ export function handleAgentConfigSetEnabled(ctx: ResourceCommandContext): void {
       ctx.events.broadcastAgentConfigChanged({ profileKind, resourceType, name: changedName, enabled });
     }
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置写面失败：${(err as Error).message}`));
+  void run().catch((err) => reportInternalFailure(ctx, err, "配置写面失败"));
 }

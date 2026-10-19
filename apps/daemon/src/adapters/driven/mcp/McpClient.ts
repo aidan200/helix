@@ -27,6 +27,16 @@ import { workspaceChildEnv } from "../../../infrastructure/workspacePaths";
  * import infrastructure，同 WriteQueue onError 回调注入纪律）。
  */
 
+/**
+ * 驱动层测试接缝（F2 #29 竞态用例需要可控的 connect 时序）：协议/传输本体由
+ * pi-mcp 承担，测试不 mock 模块（bun 的 mock.module 是进程级、会污染后续测试
+ * 文件的真子进程用例）——经构造参数注入假 client/transport 即可。
+ */
+export interface McpClientSeams {
+  readonly transportFactory?: (config: McpServerConfig, env: Record<string, string>) => StdioTransport;
+  readonly clientFactory?: (config: McpServerConfig) => PiMcpClient;
+}
+
 /** 驱动层本地日志形状（info/warn/error 文本三方法；组合根适配）。 */
 export interface McpLogger {
   info(message: string): void;
@@ -58,11 +68,15 @@ export class McpClient {
   private transport?: StdioTransport;
   private ready = false;
   private connecting?: Promise<void>;
+  /** 停止代数（F2 #29）：stop() 递增；doConnect 建连在途跨代即判「已停止」，
+   *  不得把落定的旧连接标 ready（否则 ready=true 且 piClient=undefined 僵死）。 */
+  private stopEpoch = 0;
   private closeUnbind?: () => void;
   private readonly config: McpServerConfig;
   private readonly name: string;
   private readonly logger: McpLogger;
   private readonly onExit?: (code: number | null) => void;
+  private readonly seams?: McpClientSeams;
 
   constructor(
     config: McpServerConfig,
@@ -70,6 +84,8 @@ export class McpClient {
       logger?: McpLogger;
       /** 进程退出回调（registry 降级状态面挂钩；构造方轮询亦可）。 */
       onExit?: (code: number | null) => void;
+      /** 测试接缝（缺省走 pi-mcp 真实现）。 */
+      seams?: McpClientSeams;
     },
   ) {
     this.config = config;
@@ -80,6 +96,7 @@ export class McpClient {
       error: () => {},
     };
     this.onExit = options?.onExit;
+    this.seams = options?.seams;
   }
 
   /** 建连（幂等——已就绪/在途连接直接复用）。initialize 失败即抛（调用方定状态）。 */
@@ -111,6 +128,7 @@ export class McpClient {
    * 同步签名保持 registry 同步消费面（removeServer/stopAll）。
    */
   stop(): void {
+    this.stopEpoch += 1;
     const piClient = this.piClient;
     this.piClient = undefined;
     this.transport = undefined;
@@ -134,6 +152,7 @@ export class McpClient {
 
   private async doConnect(): Promise<void> {
     if (this.piClient) return;
+    const epoch = this.stopEpoch;
     const config = this.config;
     // 落点规范批（2026-10-10）：uvx/npx 类 server 的用户级缓存散落
     // （~/.cache/uv、~/.npm）重定向到 <cwd>/.helix/tool-cache；cwd 基准 =
@@ -146,25 +165,30 @@ export class McpClient {
         return {};
       }
     })();
-    const transport = new StdioTransport({
-      command: config.command,
-      args: config.args ?? [],
-      cwd: config.cwd ?? process.cwd(),
-      // inheritEnv 缺省 true = process.env 合入 config.env（子进程环境继承
-      // 语义，与旧实现 {...process.env, ...config.env} 等价）；注入键在
-      // config.env 之下（用户显式配置优先）。
-      env: { ...injectedEnv, ...(config.env ?? {}) },
-      onStderr: (chunk) => {
-        const text = chunk.trimEnd();
-        if (text) this.logger.info(`mcp[${this.name}] stderr: ${text}`);
-      },
-    });
+    // inheritEnv 缺省 true = process.env 合入 config.env（子进程环境继承
+    // 语义，与旧实现 {...process.env, ...config.env} 等价）；注入键在
+    // config.env 之下（用户显式配置优先）。
+    const env = { ...injectedEnv, ...(config.env ?? {}) };
+    const transport =
+      this.seams?.transportFactory?.(config, env) ??
+      new StdioTransport({
+        command: config.command,
+        args: config.args ?? [],
+        cwd: config.cwd ?? process.cwd(),
+        env,
+        onStderr: (chunk) => {
+          const text = chunk.trimEnd();
+          if (text) this.logger.info(`mcp[${this.name}] stderr: ${text}`);
+        },
+      });
     // 每次连接全新 client：pi-mcp client close 后状态机不可复用，懒重连 = 整体重建。
-    const piClient = new PiMcpClient({
-      name: "helix",
-      version: "0.1.0",
-      requestTimeoutMs: config.timeoutMs ?? 30_000,
-    });
+    const piClient =
+      this.seams?.clientFactory?.(config) ??
+      new PiMcpClient({
+        name: "helix",
+        version: "0.1.0",
+        requestTimeoutMs: config.timeoutMs ?? 30_000,
+      });
     // close 监听先于 connect 挂好：连接期进程秒退也能落到意外退出回调。
     this.closeUnbind = piClient.onClose(() => {
       // 意外断线路径（stop 已解绑此监听）：ready 先复位再回调——registry
@@ -186,12 +210,21 @@ export class McpClient {
       // （协议版本协商——server 侧回它支持的版本；capabilities 缺省最小
       // 声明：不传 roots，roots/list 请求按协议拒绝）。
       await piClient.connect(transport);
-      this.ready = true;
     } catch (err) {
       // initialize 失败：清连接防僵尸，错误上抛（调用方定 error 状态）
       this.stop();
       throw err instanceof Error ? err : new Error(String(err));
     }
+    // 竞态守卫（F2 #29）：connect 在途时 stop() 已清空引用——旧连接即便落定也
+    // 必须就地关掉并拒绝，绝不置 ready（已停止 client 的 ready 位会与
+    // piClient=undefined 组成僵死态，后续调用恒 TypeError 且不自愈）。
+    if (this.stopEpoch !== epoch || this.piClient !== piClient) {
+      void piClient.close().catch((err) => {
+        this.logger.warn(`mcp[${this.name}] 停止期连接回收异常：${(err as Error).message}`);
+      });
+      throw new Error(`mcp[${this.name}] 连接在途时已被停止（请求取消）`);
+    }
+    this.ready = true;
   }
 }
 

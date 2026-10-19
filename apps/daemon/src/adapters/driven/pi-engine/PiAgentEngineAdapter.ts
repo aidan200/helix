@@ -158,10 +158,13 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     const thinkingStreamFn =
       options.resolveThinking === undefined ? baseStreamFn : wrapStreamFnThinking(baseStreamFn, options.resolveThinking);
     // P2 ⑦ 网络重试：重试包装在最外层（每轮重试重新过 thinking 解析）；
-    // 主会话/子进程/编排器三装配点同源生效。fake 剧本通道同被包裹——
-    // 仅传输层错误（连接/超时/socket 断开，裁决 2026-09-08）触发重试，
-    // LLM 接口返回（含 429/5xx/配额）一律快速失败，既有永久类错误剧本
-    // 行为零变化。重试回调经监听器发 engine_retrying（等待期可观测）
+    // 主会话/子进程/编排器三装配点同源生效。fake 剧本通道同被包裹。
+    // 分类纪律 = TR-195 现行口径（2026-09-19/21 修订，与 network-retry.ts
+    // 实现同步）：传输层错误（连接/超时/socket 断开）退避档重试；
+    // 5xx/流中断/Anthropic refusal（库常量串）收编 transient-fast 5s 单次
+    // 快速重试；4xx/429/配额 permanent 快速失败；缺省 permanent（fail-fast，
+    // 错判 transient 代价 = 每 agent 白等——GLM 1308 事故实证）。重试回调
+    // 经监听器发 engine_retrying（等待期可观测）
     const streamFn = withNetworkRetry(thinkingStreamFn, {
       ...(options.retry?.backoffMs !== undefined ? { backoffMs: options.retry.backoffMs } : {}),
       ...(options.retry?.streamBackoffMs !== undefined ? { streamBackoffMs: options.retry.streamBackoffMs } : {}),

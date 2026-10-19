@@ -113,6 +113,33 @@ describe("code-review M：陈旧分支死锁自愈 + 复用分支校验（TR-83 
     }
   });
 
+  // 评审 F2 #5：强删陈旧分支不做 merged 检查——分支上未合入的提交被静默丢弃。
+  test("陈旧分支含未合入提交 → 拒绝强删并发错（不静默丢工作）", async () => {
+    const repo = await mkRepo();
+    try {
+      const p = new GitWorktreeProvisioner();
+      const r1 = await p.provision("agent-unmerged", repo);
+      if ("error" in r1) throw new Error(r1.error);
+      // 在 worktree 分支上留下一笔未合入提交
+      await writeFile(join(r1.path, "b.ts"), "export const b = 2;\n");
+      await run(["git", "add", "."], r1.path);
+      await run(["git", "commit", "-qm", "unmerged work"], r1.path);
+      // 残留现场：worktree 移除但分支滞留
+      await run(["git", "worktree", "remove", "--force", r1.path], repo);
+
+      const r2 = await p.provision("agent-unmerged", repo);
+      expect("error" in r2).toBe(true);
+      if ("error" in r2) expect(r2.error).toContain("未合入提交");
+      // 分支与其提交必须仍在（未被强删）
+      const branchTip = Bun.spawnSync(["git", "rev-parse", "--verify", "helix/agent-unmerged"], { cwd: repo });
+      expect(branchTip.exitCode).toBe(0);
+      const log = Bun.spawnSync(["git", "log", "--oneline", "helix/agent-unmerged"], { cwd: repo });
+      expect(log.stdout.toString()).toContain("unmerged work");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   test("复用校验：路径已是 worktree 但检出分支不符 → 报错不静默复用（旧基分支漂移事故面）", async () => {
     const repo = await mkRepo();
     try {

@@ -265,21 +265,62 @@ function entryCostBytes(entry: EntryDto): number {
 }
 
 /**
- * 字节尾窗（保最新；单条超预算保底 1 条——快照非空进度保证）。
- * 返回实际保留段与累计字节（供通道预算分摊）。
+ * 单条条目硬顶（F2 #20）：字节预算原先是软顶——「单条超预算保底 1 条」让一个
+ * 巨型工具结果（result 无截断）整条进帧，2MB 预算被单条击穿，重连循环事故面
+ * 复现。超顶条目按「最长字符串字段截断 + 省略标记」压进上限内（结构保留，
+ * 条目仍在，内容有损——快照面本就是有界预览）。
  */
-function byteTailNewest(entries: readonly EntryDto[], budgetBytes: number): { entries: EntryDto[]; usedBytes: number } {
-  let used = 0;
-  let cutAt = -1;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const cost = entryCostBytes(entries[i]!);
-    if (i !== entries.length - 1 && used + cost > budgetBytes) {
-      cutAt = i + 1;
-      break;
+const MAX_SINGLE_ENTRY_BYTES = 256 * 1024;
+const ENTRY_TRUNCATE_MARKER = "…（快照体量超预算：本条内容已截断，完整内容见会话详情/工具结果）";
+
+/** 把超顶条目压进 maxBytes：逐轮砍最长顶层字符串字段（最多 4 轮）。 */
+function capEntryBytes(entry: EntryDto, maxBytes: number): { entry: EntryDto; bytes: number; shrunk: boolean } {
+  let bytes = entryCostBytes(entry);
+  if (bytes <= maxBytes) return { entry, bytes, shrunk: false };
+  const clone = { ...(entry as unknown as Record<string, unknown>) };
+  let shrunk = false;
+  for (let round = 0; round < 4 && bytes > maxBytes; round++) {
+    let key: string | undefined;
+    let len = -1;
+    for (const [k, v] of Object.entries(clone)) {
+      if (typeof v === "string" && v.length > len) {
+        key = k;
+        len = v.length;
+      }
     }
-    used += cost;
+    if (key === undefined) break; // 无可砍字符串字段（结构体条目）：放弃压缩，交由尾窗整条取舍
+    const overflow = bytes - maxBytes;
+    const chars = [...(clone[key] as string)];
+    // 每个码元至少 1 字节，砍 overflow 个码元至少回收 overflow 字节（含标记开销需多留）
+    const keep = Math.max(32, chars.length - Math.ceil(overflow * 1.2));
+    clone[key] = `${chars.slice(0, keep).join("")}${ENTRY_TRUNCATE_MARKER}`;
+    bytes = entryCostBytes(clone as unknown as EntryDto);
+    shrunk = true;
   }
-  return { entries: cutAt === -1 ? [...entries] : entries.slice(cutAt), usedBytes: used };
+  return { entry: clone as unknown as EntryDto, bytes, shrunk };
+}
+
+/**
+ * 字节尾窗（保最新；单条超预算先压进单条硬顶——快照非空进度保证，F2 #20）。
+ * 返回实际保留段、累计字节（供通道预算分摊）与是否发生过单条压缩。
+ */
+function byteTailNewest(
+  entries: readonly EntryDto[],
+  budgetBytes: number,
+  maxEntryBytes: number = Math.min(MAX_SINGLE_ENTRY_BYTES, Math.max(4 * 1024, budgetBytes)),
+): { entries: EntryDto[]; usedBytes: number; shrunk: boolean } {
+  let used = 0;
+  const kept: EntryDto[] = [];
+  let shrunk = false;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const capped = capEntryBytes(entries[i]!, maxEntryBytes);
+    if (kept.length > 0 && used + capped.bytes > budgetBytes) break;
+    kept.push(capped.entry);
+    used += capped.bytes;
+    shrunk = shrunk || capped.shrunk;
+  }
+  kept.reverse();
+  return { entries: kept, usedBytes: used, shrunk };
 }
 
 /** 实例通道预算分摊参数（dtoInstances 消费）。 */
@@ -323,7 +364,7 @@ function dtoInstances(
         continue;
       }
       const bounded = byteTailNewest(countTail, remaining);
-      if (bounded.entries.length < countTail.length) truncated = true;
+      if (bounded.entries.length < countTail.length || bounded.shrunk) truncated = true;
       remaining -= bounded.usedBytes;
       channels[key] = bounded.entries;
     }

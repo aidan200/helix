@@ -17,6 +17,7 @@ import type {
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID, VOICE_MODEL_FIELDS } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /**
  * config 族命令处理（压缩参数/调度预算/WS 端口配置；全局命令，无会话
@@ -76,7 +77,7 @@ export function handleConfigSetCompaction(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }
 
 /** config.get_scheduling：SubAgent 调度预算读面（点对点回执）。 */
@@ -130,7 +131,7 @@ export function handleConfigSetScheduling(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }
 
 /** config.get_port：WS 端口读面（点对点回执；含 argv 覆盖信息）。 */
@@ -179,7 +180,7 @@ export function handleConfigSetPort(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }
 
 /** config.get_sandbox：沙箱开关读面（点对点回执）。 */
@@ -239,7 +240,7 @@ export function handleConfigSetSandbox(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }
 
 // ── config.kg 族（批2 WP-C「知识库」配置组：查重阈值——部分更新语义；
@@ -315,7 +316,7 @@ export function handleConfigSetKg(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }
 
 // ── config.summary 族（会话总结器独立化批①；部分更新语义：携带项写入，
@@ -406,7 +407,7 @@ export function handleConfigSetSummary(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }
 
 // ── config.voice_models 族（ASR/TTS 模型配置接入 P0；部分更新语义：携带项
@@ -465,5 +466,5 @@ export function handleConfigSetVoiceModels(ctx: WsCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+    .catch((err) => reportInternalFailure(ctx, err));
 }

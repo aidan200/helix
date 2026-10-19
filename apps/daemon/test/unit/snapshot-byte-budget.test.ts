@@ -141,6 +141,38 @@ describe("快照字节预算（重连循环第二轮修复）", () => {
     }
   });
 
+  // 评审 F2 #20：2MB 预算是软顶——「单条超预算保底 1 条」让单个巨型工具结果整条进帧，
+  // 可重现 >8MB 背压 close(4000) 重连循环。单条必须硬顶压缩。
+  test("巨型单条工具结果（6MB）→ 压进单条硬顶，整帧仍在预算内（不再击穿软顶）", () => {
+    const view = {
+      session: {
+        sessionId: "s-giant",
+        createdAt: new Date(0).toISOString(),
+        entries: [],
+        turns: [],
+        pendingSteer: [],
+        mainInstanceId: "main",
+      },
+      toolCalls: [toolCall("tc-giant", 1_000, 6 * 1024)],
+      instances: [
+        {
+          instanceId: "main",
+          kind: "main",
+          profileKind: "main-session",
+          sessionId: "s-giant",
+          state: "running",
+          createdAt: new Date(0).toISOString(),
+        },
+      ],
+    } as unknown as SessionStateView;
+    const dto = toSnapshotDto(view, "anthropic/fake", "idle");
+    const size = JSON.stringify(dto).length;
+    expect(size).toBeLessThanOrEqual(SNAPSHOT_BUDGET_BYTES + 64 * KB);
+    const giant = dto.entries.find((e) => e.id === "tc-giant");
+    expect(giant).toBeDefined(); // 条目仍在（保最新 + 结构保留）
+    expect(String((giant as { result?: string }).result)).toContain("已截断");
+  });
+
   test("小会话零截断：预算内通道不带 truncated 键（additive 缺省兼容）", () => {
     const view = {
       session: {

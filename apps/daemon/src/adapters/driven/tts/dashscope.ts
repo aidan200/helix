@@ -35,6 +35,10 @@ export const DASHSCOPE_TTS_MODEL = DEFAULT_VOICE_MODEL_CONFIG.ttsModel;
 /** 默认音色（Cherry——女声，官方示例音色；中文播报基线）。 */
 export const DASHSCOPE_TTS_DEFAULT_VOICE = "Cherry";
 
+/** 单次 HTTP 超时（F2 #26）：生成与音频下载两处 fetch 都必须可中断——任一环节
+ *  挂起即播报链永久悬挂（不落 onError，shell 侧听不到任何收口）。 */
+const TTS_HTTP_TIMEOUT_MS = 30_000;
+
 /** auth.json provider id（与 STT 共用同一条目）。 */
 export const DASHSCOPE_PROVIDER_ID = "dashscope";
 
@@ -111,6 +115,7 @@ export class DashScopeTtsAdapter implements TtsPort {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TTS_HTTP_TIMEOUT_MS),
     });
     const parsed = (await res.json().catch(() => ({}))) as DashScopeTtsOkBody & DashScopeErrorBody;
     if (!res.ok) {
@@ -128,7 +133,10 @@ export class DashScopeTtsAdapter implements TtsPort {
     }
 
     // ② 下载音频（OSS 签名 URL 公开可下——http/https 均可，统一 https）
-    const dl = await this.fetchFn(audioUrl.replace(/^http:/, "https:"), { method: "GET" });
+    const dl = await this.fetchFn(audioUrl.replace(/^http:/, "https:"), {
+      method: "GET",
+      signal: AbortSignal.timeout(TTS_HTTP_TIMEOUT_MS),
+    });
     if (!dl.ok) {
       const detail = await dl.text().catch(() => "");
       throw new Error(

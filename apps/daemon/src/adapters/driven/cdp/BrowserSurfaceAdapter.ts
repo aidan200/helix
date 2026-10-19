@@ -68,7 +68,8 @@ export interface BrowserSurfaceAdapterDeps {
    * act/只读面降级「未接入」回执，感知面不受影响）。
    */
   readonly browser?: SurfaceBrowserOps;
-  /** 回声窗口 TTL（缺省 3000ms——超时兜底关窗，挂死不永锁；测试注入小值）。 */
+  /** 回声窗口 TTL（显式覆盖；缺省派生 = actTimeout + 5s——窗口罩住整个 act
+   *  执行期，TTL 只兜「act 永不收口」；测试注入小值）。 */
   readonly echoWindowMs?: number;
   /** act 执行超时（缺省 30s——CDP 栈挂起时回超时回执）。 */
   readonly actTimeoutMs?: number;
@@ -99,12 +100,25 @@ export interface SurfaceReadResult {
   readonly text: string;
 }
 
-const DEFAULT_ECHO_WINDOW_MS = 3_000;
-const DEFAULT_ACT_TIMEOUT_MS = 30_000;
+export const DEFAULT_ACT_TIMEOUT_MS = 30_000;
+
+/** 回声窗口在 act 超时之后的余量（F2 #27：TTL 只做「挂死兜底」，必须在 act
+ *  收口之后才可能触发——否则慢 act 后段的观察者事件会被误归 origin=user）。 */
+const ECHO_WINDOW_SLACK_MS = 5_000;
+
+/**
+ * 回声窗口 TTL（导出供测试钉不变式）：
+ * - 显式 echoWindowMs = 显式覆盖（测试/特殊场景）；
+ * - 缺省 = actTimeout + 余量——窗口生命周期由 act 绑定，TTL 只兜「act 永不收口」。
+ */
+export function echoWindowTtlMs(deps: { readonly echoWindowMs?: number; readonly actTimeoutMs?: number }): number {
+  if (deps.echoWindowMs !== undefined) return deps.echoWindowMs;
+  return (deps.actTimeoutMs ?? DEFAULT_ACT_TIMEOUT_MS) + ECHO_WINDOW_SLACK_MS;
+}
 const READ_TEXT_MAX_CHARS = 4_000;
 const SNAPSHOT_TEXT_MAX_CHARS = 1_200;
 
-type EchoWindow = { readonly timer: ReturnType<typeof setTimeout> };
+type EchoWindow = { readonly timer: ReturnType<typeof setTimeout>; count: number };
 
 export class BrowserSurfaceAdapter implements BrowserAwarenessSink, SurfaceLocalExecutor {
   /** 命名空间（surfaceId 第一段——Registry act 路由判据）。 */
@@ -361,21 +375,27 @@ export class BrowserSurfaceAdapter implements BrowserAwarenessSink, SurfaceLocal
 
   // ── M2：回声窗口（CAND-592）─────────────────────────────
 
-  /** 开回声窗口（TTL 超时兜底关窗——挂死不永锁）。 */
+  /** 开回声窗口（引用计数：同 tab 并发 act 各自持一份，先收口不关后者窗口）。
+   *  TTL = actTimeout + 余量（echoWindowTtlMs）——只兜「act 永不收口」，不提前抢关。 */
   private beginEcho(targetId: string): void {
-    this.endEcho(targetId);
-    const ttl = this.deps.echoWindowMs ?? DEFAULT_ECHO_WINDOW_MS;
+    const existing = this.echoWindows.get(targetId);
+    if (existing !== undefined) {
+      existing.count += 1;
+      return;
+    }
     const timer = setTimeout(() => {
       this.echoWindows.delete(targetId);
-    }, ttl);
+    }, echoWindowTtlMs(this.deps));
     timer.unref?.();
-    this.echoWindows.set(targetId, { timer });
+    this.echoWindows.set(targetId, { timer, count: 1 });
   }
 
-  /** 关回声窗口（幂等——act 收口调用）。 */
+  /** 关回声窗口（引用计数归零才真正关；act 收口调用，幂等）。 */
   private endEcho(targetId: string): void {
     const win = this.echoWindows.get(targetId);
     if (win === undefined) return;
+    win.count -= 1;
+    if (win.count > 0) return;
     clearTimeout(win.timer);
     this.echoWindows.delete(targetId);
   }
