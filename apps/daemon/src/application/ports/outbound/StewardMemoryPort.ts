@@ -83,8 +83,11 @@ export interface StewardMemoryAppendItem {
 }
 
 export interface StewardMemoryPort {
-  /** 追加条目（条目 + 向量同事务写入）。 */
-  append(items: readonly StewardMemoryAppendItem[]): void;
+  /** 追加条目（条目 + 向量同事务写入）；返回逐条新 id（与入参同序）。
+   *  契约由“返回 void + 调用方 list() 尾元素推断”修订：真库 list() 是
+   *  ORDER BY created_at ASC，时钟回拨/同毫秒并列时新条目不在尾位，
+   *  尾元素推断会回错 id（回执与 memory_written 通知错指向）。 */
+  append(items: readonly StewardMemoryAppendItem[]): readonly number[];
   /** 语义检索：cosine topK（score 降序；空库/维度未初始化 → 空数组）。
    *  scopeFilter（项目隔离批，可选）：允许召回的 project_scope 集合
    *  （如 ["global"] 或 ["global", "helix"]）——rowid IN 预过滤（KNN 名额

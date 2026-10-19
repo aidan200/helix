@@ -632,10 +632,9 @@ export class StewardMemoryService implements StewardComponent {
       if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
       return { id: top.id, updated: true };
     }
-    store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]!, projectScope: attrs.projectScope, domain: attrs.domain }]);
+    const [newId] = store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]!, projectScope: attrs.projectScope, domain: attrs.domain }]);
     if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
-    const entries = store.list();
-    return { id: entries[entries.length - 1]!.id, updated: false };
+    return { id: newId!, updated: false };
   }
 
   /** 显式 remember 水位读面（防双写闸）：since 起点以来发生过用户显式写入。

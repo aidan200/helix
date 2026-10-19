@@ -253,9 +253,12 @@ function domainFakeStore(): StewardMemoryPort & {
     updated,
     append(items) {
       appended.push(...items);
+      const ids: number[] = [];
       for (const item of items) {
+        const id = rows.length + 1;
+        ids.push(id);
         rows.push({
-          id: rows.length + 1,
+          id,
           kind: item.kind,
           text: item.text,
           source: item.source,
@@ -270,6 +273,7 @@ function domainFakeStore(): StewardMemoryPort & {
           ...(item.domain !== undefined ? { domain: item.domain } : {}),
         });
       }
+      return ids;
     },
     search: () => [],
     list: () => rows,

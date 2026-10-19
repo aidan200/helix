@@ -116,7 +116,7 @@ function fakeStore(entryCount: number): StewardMemoryPort & { searched: number[]
   return {
     searched,
     entries,
-    append: (_items: readonly StewardMemoryAppendItem[]) => {},
+    append: (_items: readonly StewardMemoryAppendItem[]) => [],
     search(_query: Float32Array, topK: number): readonly StewardMemoryHit[] {
       searched.push(topK);
       return entries.slice(0, topK).map((e) => ({ ...e, score: 0.9 }));

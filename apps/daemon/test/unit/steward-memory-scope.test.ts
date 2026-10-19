@@ -231,9 +231,12 @@ function scopeFakeStore(opts: { progressId?: number | null } = {}): StewardMemor
     seeded: rows,
     append(items) {
       appended.push(...items);
+      const ids: number[] = [];
       for (const item of items) {
+        const id = rows.length + 1;
+        ids.push(id);
         rows.push({
-          id: rows.length + 1,
+          id,
           kind: item.kind,
           text: item.text,
           source: item.source,
@@ -247,6 +250,7 @@ function scopeFakeStore(opts: { progressId?: number | null } = {}): StewardMemor
           ...(item.projectScope !== undefined ? { projectScope: item.projectScope } : {}),
         });
       }
+      return ids;
     },
     search(_q: Float32Array, topK: number, scopes?: readonly string[]) {
       searchCalls.push({ topK, scopes });

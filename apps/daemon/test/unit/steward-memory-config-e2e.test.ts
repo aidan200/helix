@@ -85,7 +85,7 @@ function fakeEmbedding(): EmbeddingPort {
 
 function fakeStore(): StewardMemoryPort {
   return {
-    append: () => {},
+    append: () => [],
     search: () => [],
     list: () => [],
     forget: () => false,
