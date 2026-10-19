@@ -1685,6 +1685,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
                 ...(s.cwd !== undefined ? { cwd: s.cwd } : {}),
                 ...(s.enabled !== undefined ? { enabled: s.enabled } : {}),
                 ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
+                // deferred（懒加载开关）必须同序列化：漏此行则 update 全量
+                // 覆盖语义下该位恒回落缺省 true（全量急发经 WS 不可达）
+                ...(s.deferred !== undefined ? { deferred: s.deferred } : {}),
               }))
             : [],
         );
