@@ -146,15 +146,19 @@ export function surfaceVerbRisk(verb: SurfaceVerb): SurfaceRisk {
  * shell 表面发明 url 参数 → shell 载荷防御静默弃帧 → 60s 挂死。本校验面在
  * 挂闸/派发前即时拒绝（模型可自纠），错误文本携正确形状与示例。
  *
- * **覆盖范围与前置校验链（勿把本函数当总闸单独用）**：
- * - 只覆盖**已登记形状**的组合（shell×navigate、browser×上列五动词）；
- * - 未覆盖组合（如 shell×click、browser×未登记动词）返回 undefined = 「本函数
- *   无该组合的形状规则」，**不等于校验通过**；
- * - 动词词汇表合法性由调用方先行判定（`isSurfaceVerb` / Registry
- *   `isSurfaceVerbAllowed`）——现唯一生产调用点 StewardToolKit act 工具即此顺序
- *   （先 isSurfaceVerb 拒私造动词，再调本函数校形状）；
- * - 跳过前置直接调用 = 未覆盖组合静默放行（已知缺口：收紧为显式拒绝属**行为
- *   变更**，未经裁决不擅自改）。
+ * **覆盖范围**：本函数自 M2 批起是**组合级总闸**——已登记形状（shell×navigate、
+ * browser×上列五动词）逐参数校验，**未登记组合（shell×click、cli×任意动词等）
+ * 显式返回错误**（携该命名空间的可用动词清单供模型自纠），不再静默返回
+ * undefined 放行。
+ *
+ * 前置校验链（仍在）：动词词汇表合法性由调用方先行判定（`isSurfaceVerb` /
+ * Registry `isSurfaceVerbAllowed`）——现唯一生产调用点 StewardToolKit act 工具
+ * 即此顺序（先 isSurfaceVerb 拒私造动词，再调本函数校形状）；前置报错文案更
+ * 贴「词汇表」语义，故顺序不变。
+ *
+ * 行为变更（F3a/B5 裁决）：未登记组合由「静默放行」改为「显式拒绝」——调用方
+ * 依赖 undefined = 通过语义的旧面需改为判 undefined 与错误两条分支（现生产
+ * 调用点本就如是与否一致）。
  */
 export function validateSurfaceActArgs(
   namespace: SurfaceNamespaceKind,
@@ -214,7 +218,11 @@ export function validateSurfaceActArgs(
       return undefined;
     }
   }
-  return undefined; // cli 无注册动词（Registry 注册面拒绝前置）——零形状面
+  // 未登记组合 = 显式拒绝（不是「无形状规则」）：动词在词表内但该表面未注册
+  // 能力（shell 只收 navigate、cli 当前零注册动词）——列出可用动词供模型自纠。
+  const allowed = SURFACE_VERB_CAPABILITIES[namespace];
+  const allowedText = allowed.length > 0 ? allowed.join(" / ") : "无（本表面当前未开放置动作动词）";
+  return `act 参数形状不合法：动词 ${verb} 未在 ${namespace} 表面注册——该表面可用动词：${allowedText}。收到 ${JSON.stringify(args)}。用法：先 surface_list 读该表面的 capabilities，再按注册动词调用`;
 }
 
 /** SurfaceDescriptor **形状**判定（kind ∈ 命名空间 + capabilities 为非空字符串
