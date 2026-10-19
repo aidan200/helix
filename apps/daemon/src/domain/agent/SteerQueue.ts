@@ -1,9 +1,13 @@
 /**
  * steer 待注入消息（领域值对象）：applySteer 时生成，drain 时消费。
  *
- * entryId 指向 Session 内已落地的 user entry（isSteer=true），
- * text 是注入内容——两者一起进队列，drain 方既知道注入什么、也知道关联哪条 entry
- * （前端 steer 徽标「已入队 → 已注入」的两态都靠 entryId 观测）。
+ * entryId 是 Session.reserveEntryId() 预分配的 id（D-2：与流式 delta.messageId
+ * 同源口径），**队列中不存在 entry**——条目要到 drain 时刻才由
+ * Session.appendSteerEntryAtDrain 落时间轴（位置 = 生效时机：旧轮收尾后、新轮
+ * 回复前），故 queued 期的观测面只有 steer.queued 事件与快照 pendingSteer（队列坞），
+ * 不是条目表。text 是注入内容——两者一起进队列，drain 方既知道注入什么、也知道
+ * 关联哪条 entry（前端 steer 徽标「已入队 → 已注入」的两态都靠 entryId 观测；
+ * abort 未 drain 时该预分配 id 成空洞无害）。
  *
  * +source：注入来源可区分（AD-8 双通道 + T11a 贯通）——user=用户输入转投；
  * closure=SubAgent 收口注入（`agent-N closure: …`，下轮 turn 边界 drain
