@@ -576,6 +576,25 @@ describe("⑦ 候选建议锚通道（P4a：候选行携带 anchors → applied 
     expect(probe<{}>(f.root, "SELECT 1 FROM anchor_decl")).toHaveLength(0);
   });
 
+  test("警告分支仍落 decideCandidate 审计行（appliedNodeId 不存在——每 op 必落 change_log，review B7）", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    expectOk(f.write.write(f.root, propose("悬空目标候选", { anchors })));
+    const r = f.write.write(
+      f.root,
+      decide("CAND-1", "applied", { appliedNodeId: "TR-9999", reason: "采纳", taskId: "job-audit" }),
+    );
+    expectOk(r);
+    expect((r as { warning?: string }).warning).toContain("未落地"); // 警告上浮（锚随候选行保留）
+    const audit = probe<{ op: string; node_id: string; task_id: string | null }>(
+      f.root,
+      "SELECT op, node_id, task_id FROM change_log WHERE op = 'decideCandidate' AND node_id = 'CAND-1'",
+    );
+    // 缺陷：警告分支 early return 跳过 appendChangeLog——裁决审计链缺行
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.task_id).toBe("job-audit");
+  });
+
   test("anchors 形态非法 → KG_E_SCHEMA 零落库（复用 validateAnchorDeclarations 词表）", () => {
     const f = makeFixture();
     f.database.knowledgeConnection(f.root);

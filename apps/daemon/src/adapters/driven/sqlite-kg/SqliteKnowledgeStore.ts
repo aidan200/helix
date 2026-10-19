@@ -471,12 +471,14 @@ export class SqliteKnowledgeStore {
     // + 目标节点存在且零锚声明 → 机械落地为初始全集声明（TR-150：零声明节点
     // 初始全集非增量；显式声明优先永不覆盖——节点已有声明 = 建档方已表态）。
     // 目标节点不存在：锚不落地（候选指针语义不变），warning 上浮供裁决者回看。
+    // 审计先落（review B7）：警告分支不早退——每 op 必落 change_log（裁决
+    // 审计链完整性优先于锚增强面；警告仅上浮不阻断）。
+    let anchorWarning: string | null = null;
     if (decision === "applied" && op.appliedNodeId !== undefined && current.anchors_json !== null) {
-      const anchorWarning = this.fillCandidateAnchors(db, op, current.anchors_json);
-      if (anchorWarning !== null) return { ok: true, nodeId: op.candidateId, warning: anchorWarning };
+      anchorWarning = this.fillCandidateAnchors(db, op, current.anchors_json);
     }
     this.appendChangeLog(db, op.iterationId, "decideCandidate", op.candidateId, null, op.reason ?? null, op.taskId);
-    return { ok: true, nodeId: op.candidateId };
+    return { ok: true, nodeId: op.candidateId, ...(anchorWarning !== null ? { warning: anchorWarning } : {}) };
   }
 
   /** 候选建议锚落地（P4a fill-if-empty）：返回 warning 字符串（未落地原因）或 null。 */
