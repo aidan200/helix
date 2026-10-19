@@ -24,7 +24,7 @@ import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-import { platformSpec, type DesktopPlatform } from "./desktop-platform";
+import { DESKTOP_PLATFORMS, parsePlatform, platformSpec, type DesktopPlatform } from "./desktop-platform";
 
 export interface FetchVec0Result {
   readonly dest: string;
@@ -58,14 +58,38 @@ export function fetchVec0(deps: {
   return { dest, action: "copied" };
 }
 
-function parsePlatform(argv: readonly string[]): DesktopPlatform {
+/**
+ * 宿主真实平台档（严格双档判定）：darwin-arm64 / win32-x64 外即抛——跨档
+ * 守卫的判定源（hostPlatform() 是管线缺省语义的 lenient 版（其余 →
+ * darwin-arm64，mac 零回归），不能用作守卫：linux 宿主会被判成 darwin 档，
+ * 守卫失效重演 B29 死代码缺陷）。
+ */
+export function hostDesktopPlatform(
+  nodePlatform: string = process.platform,
+  nodeArch: string = process.arch,
+): DesktopPlatform {
+  if (nodePlatform === "darwin" && nodeArch === "arm64") return "darwin-arm64";
+  if (nodePlatform === "win32" && nodeArch === "x64") return "windows-x64";
+  throw new Error(`宿主平台不在 TR-95 双档内（${nodePlatform}-${nodeArch}）`);
+}
+
+/**
+ * --platform 入参解析（argv 注入可单测）：非法值 fail-fast（desktop-platform
+ * .parsePlatform 单点，枚举合法值于消息中）——旧版静默回落宿主档，拼写错误
+ * 档名会产出错档资源；缺省 = 宿主档（严格判定同 hostDesktopPlatform）。
+ */
+export function resolveTargetPlatform(
+  argv: readonly string[],
+  nodePlatform: string = process.platform,
+  nodeArch: string = process.arch,
+): DesktopPlatform {
   const idx = argv.indexOf("--platform");
-  const value = idx >= 0 ? argv[idx + 1] : undefined;
-  if (value === "darwin-arm64" || value === "windows-x64") return value;
-  // 缺省 = 宿主档（TR-95 双档外平台 → 报错引导）
-  if (process.platform === "darwin" && process.arch === "arm64") return "darwin-arm64";
-  if (process.platform === "win32" && process.arch === "x64") return "windows-x64";
-  throw new Error(`宿主平台不在 TR-95 双档内（${process.platform}-${process.arch}）——请显式 --platform`);
+  if (idx === -1) return hostDesktopPlatform(nodePlatform, nodeArch);
+  const value = argv[idx + 1];
+  if (value === undefined || value.startsWith("-")) {
+    throw new Error(`--platform 需要平台档参数（合法值：${DESKTOP_PLATFORMS.join(" / ")}，TR-95）`);
+  }
+  return parsePlatform(value);
 }
 
 if (import.meta.main) {
@@ -75,9 +99,13 @@ if (import.meta.main) {
     join(import.meta.dir, "..", "apps", "daemon", "package.json"),
   );
   const { getLoadablePath } = daemonRequire("sqlite-vec");
-  const platform = parsePlatform(process.argv.slice(2));
+  const platform = resolveTargetPlatform(process.argv.slice(2));
   const result = fetchVec0({
     platform,
+    // 宿主档显式注入：不注时 host 缺省 = platform，跨档守卫成死代码
+    //（task-91e2e2f9 B29：mac 交叉出 windows 档会把宿主 .dylib 静默拷成
+    // vec0.dll 混入 NSIS 包）。
+    hostPlatform: hostDesktopPlatform(),
     resourcesDir: join(import.meta.dir, "..", "apps", "shell", "src-tauri", "resources"),
     resolvePath: () => getLoadablePath(),
   });
