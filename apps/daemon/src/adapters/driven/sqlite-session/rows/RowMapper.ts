@@ -3,6 +3,7 @@ import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycl
 import { LEGACY_MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import { deriveToolCallKind, type ToolCallKind, type ToolCallRecordData, type ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
+import type { TurnData } from "../../../../domain/session/Turn";
 import type { PersistedDomainState } from "../../../../application/ports/outbound/SessionRepositoryPort";
 import type {
   AgentLifecycleRow,
@@ -122,6 +123,23 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
   };
 }
 
+/** 行内 JSON 列宽容解析（评审 F2 #14）：损坏行不该让恢复/查询面整面红
+ *  （对齐 rowToDomainEvent 与 SqliteSessionRepository.readSessionTail 同款口径）。
+ *  调用方各自声明降级值（entries/turns → 空投影，args → 空对象，images → 键不携带）。 */
+function safeParseJson(text: string): unknown | undefined {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** JSON.parse 兑底：非数组/解析失败 → 空数组（列表型列的降级语义）。 */
+function parseJsonArray<T>(text: string): T[] {
+  const parsed = safeParseJson(text);
+  return Array.isArray(parsed) ? (parsed as T[]) : [];
+}
+
 export function rowsToPersistedState(
   session: SessionStateRow,
   lifecycle: AgentLifecycleRow | undefined,
@@ -148,12 +166,13 @@ export function rowsToPersistedState(
       ...(session.topic !== null && session.topic !== undefined ? { topic: session.topic } : {}),
       // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填该会话
       // 主实例 id（TR-AD-14；NULL 主 id 列 = legacy "main"）；entries 为
-      // message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
-      entries: (JSON.parse(session.entries) as SessionEntryData[]).map((e) => ({
+      // message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId。
+      // 脏行兜底（F2 #14）：非法 JSON/非数组 → 空投影，单脏行不炸会话恢复。
+      entries: parseJsonArray<SessionEntryData>(session.entries).map((e) => ({
         ...e,
         instanceId: e.instanceId ?? session.main_instance_id ?? LEGACY_MAIN_INSTANCE_ID,
       })),
-      turns: JSON.parse(session.turns),
+      turns: parseJsonArray<TurnData>(session.turns),
       pendingSteer: steer.map((s) => ({
         entryId: s.entry_id,
         text: s.text,
@@ -172,12 +191,16 @@ export function rowsToPersistedState(
         (t.kind as ToolCallKind | null) ??
         deriveToolCallKind(t.instance_id !== LEGACY_MAIN_INSTANCE_ID ? t.instance_id : undefined, session.main_instance_id),
       toolName: t.tool_name,
-      args: JSON.parse(t.args),
+      // 脏行兜底（F2 #14）：args 非法 JSON → 空对象（签参不可恢复但记录仍在）
+      args: (safeParseJson(t.args) ?? {}) as ToolCallRecordData["args"],
       status: t.status as ToolCallStatus,
       result: t.result ?? undefined,
       error: t.error ?? undefined,
-      // 下行：图片列 JSON 往返（null/旧行无列值 → undefined 前向兼容）
-      ...(t.images !== null && t.images !== undefined ? { images: JSON.parse(t.images) as string[] } : {}),
+      // 下行：图片列 JSON 往返（null/旧行无列值 → undefined 前向兼容；
+      // 脏列解析失败同样兜底为 undefined——图片是附加面，不拖垮记录本体）
+      ...(t.images !== null && t.images !== undefined && Array.isArray(safeParseJson(t.images))
+        ? { images: safeParseJson(t.images) as string[] }
+        : {}),
       startedAt: t.started_at ?? undefined,
       endedAt: t.ended_at ?? undefined,
     })) satisfies ToolCallRecordData[],

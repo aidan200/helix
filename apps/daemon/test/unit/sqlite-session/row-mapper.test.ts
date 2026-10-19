@@ -203,6 +203,51 @@ describe("TP-CL8-5：RowMapper 往返等价", () => {
     const restoredRecord = ToolCallRecord.restore(back.toolCalls[0]!);
     expect(restoredRecord.toData().images).toEqual([dataUrl]);
   });
+
+  // 评审 F2 #14：entries/turns/args/images 曾裸 JSON.parse——单脏行可炸整个会话恢复，
+  // 与同文件 :41-48「损坏行不该让恢复/查询面整面红」口径及 readSessionTail 脏行防御不一致。
+  test("脏行兜底：entries/turns/args/images 非法 JSON 不抛错（降级为空投影）", () => {
+    const dirtySessionRow = {
+      session_id: "s-dirty",
+      created_at: "2024-01-01T00:00:00.000Z",
+      entries: "[{broken",
+      turns: "{also-broken",
+      updated_at: "2024-01-01T00:00:00.000Z",
+      main_instance_id: null,
+      mode: null,
+      title: null,
+      topic: null,
+    } as Parameters<typeof RowMapper.rowsToPersistedState>[0];
+    const dirtyToolRow = {
+      id: "tc-dirty",
+      session_id: "s-dirty",
+      instance_id: "main",
+      kind: null,
+      tool_name: "bash",
+      args: "{broken",
+      status: "completed",
+      result: null,
+      error: null,
+      images: "[broken",
+      started_at: null,
+      ended_at: null,
+    } as Parameters<typeof RowMapper.rowsToPersistedState>[3][number];
+
+    let back: ReturnType<typeof RowMapper.rowsToPersistedState> | undefined;
+    expect(() => {
+      back = RowMapper.rowsToPersistedState(
+        dirtySessionRow,
+        { session_id: "s-dirty", instance_id: "main", state: "idle", updated_at: "2024-01-01T00:00:00.000Z" },
+        [],
+        [dirtyToolRow],
+      );
+    }).not.toThrow();
+    // 降级语义：脏 entries/turns → 空投影（与 readSessionTail 同口径）；脏 args → {}；脏 images → 键不携带
+    expect(back?.session.entries).toEqual([]);
+    expect(back?.session.turns).toEqual([]);
+    expect(back?.toolCalls[0]?.args).toEqual({});
+    expect(back?.toolCalls[0]?.images).toBeUndefined();
+  });
 });
 
 describe("TP-CL8-5（A 半）：模型隔离", () => {
