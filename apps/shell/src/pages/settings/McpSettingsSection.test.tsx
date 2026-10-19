@@ -252,8 +252,8 @@ describe("MCP 设置分区：编辑 server（update 接线批，CAND-705）", ()
   });
 });
 
-describe("MCP 设置分区：导入配置 JSON（统一启停批配套）", () => {
-  it("⑥ 导入 Claude Desktop mcpServers 格式 → 预填 name/command/args + 表单展开 + 多 server 提示", async () => {
+describe("MCP 设置分区：导入配置 JSON（粘贴文本批——直接粘贴完整 JSON，不再选 .json 文件）", () => {
+  it("⑥ 粘贴 Claude Desktop mcpServers 格式 → 预填 name/command/args + 表单展开 + 面板收起 + 多 server 提示", async () => {
     ui();
     const json = JSON.stringify({
       mcpServers: {
@@ -261,37 +261,43 @@ describe("MCP 设置分区：导入配置 JSON（统一启停批配套）", () =
         other: { command: "node", args: ["server.js"] },
       },
     });
-    const file = new File([json], "config.json", { type: "application/json" });
-    fireEvent.change(document.querySelector("[data-mcp-import-file]")!, { target: { files: [file] } });
+    fireEvent.click(document.querySelector("[data-mcp-import]")!); // 展开粘贴面板
+    fireEvent.change(document.querySelector("[data-mcp-import-text]")!, { target: { value: json } });
+    fireEvent.click(document.querySelector("[data-mcp-import-parse]")!);
     await waitFor(() => {
       expect((document.querySelector("[data-mcp-name]") as HTMLInputElement).value).toBe("shadcn");
     });
     expect((document.querySelector("[data-mcp-command]") as HTMLInputElement).value).toBe("npx");
     expect((document.querySelector("[data-mcp-args]") as HTMLInputElement).value).toBe("shadcn@latest mcp");
     expect(document.querySelector("[data-mcp-form]")!).toBeTruthy(); // 表单展开
+    expect(document.querySelector("[data-mcp-import-panel]")).toBeNull(); // 面板收起
     expect(document.querySelector("[data-mcp-import-note]")!.textContent).toContain("2");
   });
 
-  it("⑦ 非法 JSON → 行内错误（表单不动）；单 server 对象（无 mcpServers 包裹）name 取文件名", async () => {
+  it("⑦ 非法 JSON → 面板内行内错误（表单不动不展开）", async () => {
     ui();
-    const bad = new File(["not json"], "bad.json", { type: "application/json" });
-    fireEvent.change(document.querySelector("[data-mcp-import-file]")!, { target: { files: [bad] } });
+    fireEvent.click(document.querySelector("[data-mcp-import]")!);
+    fireEvent.change(document.querySelector("[data-mcp-import-text]")!, { target: { value: "not json" } });
+    fireEvent.click(document.querySelector("[data-mcp-import-parse]")!);
     await waitFor(() => {
-      expect(document.querySelector("[data-mcp-form-error]")!.textContent).toContain("导入失败");
+      expect(document.querySelector("[data-mcp-import-error]")!.textContent).toContain("导入失败");
     });
+    expect(document.querySelector("[data-mcp-form]")).toBeNull(); // 解析失败不强制展开表单
   });
 
-  it("⑧ 单 server 对象（无 mcpServers 包裹）→ name 取文件名预填", async () => {
+  it("⑧ 单 server 裸对象（无 mcpServers 包裹）→ name 留空 + 补填提示（不再有文件名可取）", async () => {
     ui();
-    const single = new File([JSON.stringify({ command: "uvx", args: ["mcp-server"] })], "my-server.json", {
-      type: "application/json",
+    fireEvent.click(document.querySelector("[data-mcp-import]")!);
+    fireEvent.change(document.querySelector("[data-mcp-import-text]")!, {
+      target: { value: JSON.stringify({ command: "uvx", args: ["mcp-server"] }) },
     });
-    fireEvent.change(document.querySelector("[data-mcp-import-file]")!, { target: { files: [single] } });
+    fireEvent.click(document.querySelector("[data-mcp-import-parse]")!);
     await waitFor(() => {
-      expect((document.querySelector("[data-mcp-name]") as HTMLInputElement).value).toBe("my-server");
+      expect((document.querySelector("[data-mcp-name]") as HTMLInputElement).value).toBe("");
     });
     expect((document.querySelector("[data-mcp-command]") as HTMLInputElement).value).toBe("uvx");
     expect((document.querySelector("[data-mcp-args]") as HTMLInputElement).value).toBe("mcp-server");
+    expect(document.querySelector("[data-mcp-import-note]")!.textContent).toContain("补填名称");
   });
 });
 

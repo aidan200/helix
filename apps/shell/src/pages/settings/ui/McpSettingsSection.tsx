@@ -7,7 +7,7 @@
  * + subscribeMcpFrames 域订阅（mcp.*.result 点对点回执 + mcp.status.changed
  * 状态广播实时更新徽标 + connection.error 写面在途错误）。
  *
- * 三功能块：
+ * 四功能块：
  * - server 列表：name + command 摘要 + 五态徽标（idle/connecting/running/
  *   error/stopped）+ 工具数 + lastError（error 态展开）；两段式行内删除
  *   （armed 2.5s 超时复原——ModelsSettings key 删除先例）+ 行内编辑入口
@@ -16,6 +16,10 @@
  *   缺省开；提交 = mcp.servers.add / mcp.servers.update（编辑态 name 锁定
  *   ——update 按 name 定位，改名 = 删除后重加；connect_failed 时行内错误
  *   提示、配置保留可重试）；
+ * - 导入面板（粘贴批）：直接粘贴完整 JSON 文本（Claude Desktop/Cursor
+ *   mcpServers 格式或单 server 裸对象）→ 解析取首个 server 预填表单；
+ *   裸对象无名可取——name 留空 + 提示补填（替代旧 file input 文件导入；
+ *   面板内行内错误，不弹 toast）；
  * - 测试连接：表单现值 mcp.servers.test（不落盘不接入）applied/failed
  *   两判别行内反馈。
  *
@@ -25,7 +29,7 @@
  * add/update 共用在途位。
  */
 import { useEffect, useRef, useState } from "react";
-import { Plug, PlugZap, Pencil, Trash2, FileDown } from "lucide-react";
+import { Plug, PlugZap, Pencil, Trash2, ClipboardPaste } from "lucide-react";
 /** 卡头按钮图标统一拖参（项目全局部件 strokeWidth=1.75 + 装饰性图标 aria-hidden）。 */
 const ICON_PROPS = { size: 14, strokeWidth: 1.75, "aria-hidden": true } as const;
 import type {
@@ -82,9 +86,13 @@ const McpSettingsSection = function McpSettingsSection() {
   const [enabled, setEnabled] = useState(true);
   const [deferred, setDeferred] = useState(true);
   const [formError, setFormError] = useState("");
-  /** 导入提示（多 server 发现计数；导入结果行内反馈，不弹 toast）。 */
+  /** 导入提示（多 server 发现计数/裸对象补填名提醒；预填后行内反馈，不弹 toast）。 */
   const [importNote, setImportNote] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
+  // 导入面板（粘贴批）：开合 + 粘贴文本 + 面板内行内错误（独立于表单错误位——
+  // 解析失败不打扰表单，也不强制展开表单）。
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
   // save 在途位（add/update 共用）：addPending 更名泛化——提交钮防重 + 回执对账。
   const [savePending, setSavePending] = useState(false);
   // 在途位同步 ref：订阅 effect 真挂载一次（listener 读 ref 不进 deps——
@@ -212,53 +220,45 @@ function parseArgs(input: string): string[] {
   return out;
 }
 
-/** 导入 MCP 配置 JSON（Claude Desktop/Cursor mcpServers 格式或单 server 对象）：取首个 server 预填表单。 */
-  const onImportFile = (file: File): void => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result ?? "")) as Record<string, unknown>;
-        // 形态一：{ mcpServers: { <name>: {...} } }（Claude Desktop/Cursor）；形态二：单 server 对象（name 取文件名）
-        const servers =
-          parsed.mcpServers !== undefined && typeof parsed.mcpServers === "object" && parsed.mcpServers !== null
-            ? (parsed.mcpServers as Record<string, unknown>)
-            : { [file.name.replace(/\.json$/i, "")]: parsed };
-        const entries = Object.entries(servers).filter(([, v]) => typeof v === "object" && v !== null);
-        if (entries.length === 0) {
-          setFormOpen(true); // 展开表单让错误可见（错误提示在表单内）
-          setFormError(t("chat.settings.mcp.importFail"));
-          return;
-        }
-        const [name, cfgRaw] = entries[0]!;
-        const cfg = cfgRaw as { command?: unknown; args?: unknown };
-        if (typeof cfg.command !== "string" || cfg.command === "") {
-          setFormOpen(true);
-          setFormError(t("chat.settings.mcp.importFail"));
-          return;
-        }
-        setName(name);
-        setCommand(cfg.command);
-        setArgs(Array.isArray(cfg.args) && cfg.args.every((a) => typeof a === "string") ? serializeArgs(cfg.args as string[]) : "");
-        setFormOpen(true);
-        setFormError("");
-        if (entries.length > 1) {
-          setTest({ kind: "idle" });
-          // 多 server 提示：只填入首个（零协议扩展——批量导入后续可扩展）
-          setImportNote(t("chat.settings.mcp.importMulti", { count: entries.length }));
-        } else {
-          setImportNote("");
-        }
-      } catch {
-        setFormOpen(true);
-        setFormError(t("chat.settings.mcp.importFail"));
-      }
-    };
-    // 读取失败行内交代（不静默）
-    reader.onerror = () => {
-      setFormOpen(true);
-      setFormError(t("chat.settings.mcp.importFail"));
-    };
-    reader.readAsText(file);
+/** 解析粘贴的 MCP 配置 JSON（Claude Desktop/Cursor mcpServers 格式或单 server 裸对象）：取首个 server 预填表单，成功即收起面板。 */
+  const parseImportText = (): void => {
+    setImportError("");
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(importText) as Record<string, unknown>;
+    } catch {
+      setImportError(t("chat.settings.mcp.importFail"));
+      return;
+    }
+    // 形态一：{ mcpServers: { <name>: {...} } }（Claude Desktop/Cursor）；形态二：单 server 裸对象（粘贴文本无名可取——name 留空提示补填，表单必填校验兜底）
+    const servers =
+      parsed.mcpServers !== undefined && typeof parsed.mcpServers === "object" && parsed.mcpServers !== null
+        ? (parsed.mcpServers as Record<string, unknown>)
+        : { "": parsed };
+    const entries = Object.entries(servers).filter(([, v]) => typeof v === "object" && v !== null);
+    const [name, cfgRaw] = entries[0] ?? [];
+    const cfg = cfgRaw as { command?: unknown; args?: unknown } | undefined;
+    if (cfg === undefined || typeof cfg.command !== "string" || cfg.command === "") {
+      setImportError(t("chat.settings.mcp.importFail"));
+      return;
+    }
+    setName(name ?? "");
+    setCommand(cfg.command);
+    setArgs(Array.isArray(cfg.args) && cfg.args.every((a) => typeof a === "string") ? serializeArgs(cfg.args as string[]) : "");
+    setFormError("");
+    setTest({ kind: "idle" });
+    // 成功：收起面板清文本 + 展开表单（预填后焦点交给表单补填/提交）
+    setImportOpen(false);
+    setImportText("");
+    setFormOpen(true);
+    if (entries.length > 1) {
+      // 多 server 提示：只填入首个（零协议扩展——批量导入后续可扩展）
+      setImportNote(t("chat.settings.mcp.importMulti", { count: entries.length }));
+    } else if ((name ?? "") === "") {
+      setImportNote(t("chat.settings.mcp.importUnnamed"));
+    } else {
+      setImportNote("");
+    }
   };
 
   /** 表单现值 → McpServerInput（args 空格分隔转数组（引号段含空白不拆）；空串 → 缺省；deferred 缺省 true = 懒加载）。 */
@@ -367,28 +367,55 @@ function parseArgs(input: string): string[] {
           </button>
           <button
             type="button"
-            className="hud-btn sm hud-btn-ghost"
+            className={cn("hud-btn sm", importOpen ? "hud-btn-ghost" : "hud-btn-cyan")}
             data-mcp-import
-            onClick={() => fileInput.current?.click()}
+            onClick={() => {
+              setImportOpen((v) => !v);
+              setImportError("");
+            }}
           >
-            <FileDown {...ICON_PROPS} />
+            <ClipboardPaste {...ICON_PROPS} />
             {t("chat.settings.mcp.importLabel")}
           </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".json,application/json"
-            className="skill-file-input"
-            data-mcp-import-file
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f !== undefined) onImportFile(f);
-              e.target.value = ""; // 同文件可重复导入
-            }}
-          />
         </div>
         <p className="ag-note">{t("chat.settings.mcp.subtitle")}</p>
+
+        {/* 导入面板（粘贴批）：直接粘贴完整 JSON 文本解析——不再走 .json 文件选择 */}
+        {importOpen && (
+          <div className="mcp-form" data-mcp-import-panel>
+            <div className="fld">
+              <label className="hud-label" htmlFor="mcp-import-json">
+                {t("chat.settings.mcp.importLabel")}
+              </label>
+              <textarea
+                id="mcp-import-json"
+                className="hud-input"
+                value={importText}
+                data-mcp-import-text
+                rows={8}
+                spellCheck={false}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder={t("chat.settings.mcp.importPlaceholder")}
+              />
+            </div>
+            <div className="mcp-form-actions">
+              <button
+                type="button"
+                className="hud-btn hud-btn-cyan"
+                data-mcp-import-parse
+                onClick={parseImportText}
+              >
+                <ClipboardPaste {...ICON_PROPS} />
+                {t("chat.settings.mcp.importParse")}
+              </button>
+            </div>
+            {importError !== "" && (
+              <p className="mcp-err" data-mcp-import-error>
+                {importError}
+              </p>
+            )}
+          </div>
+        )}
 
         {formOpen && (
           <div className="mcp-form" data-mcp-form>
