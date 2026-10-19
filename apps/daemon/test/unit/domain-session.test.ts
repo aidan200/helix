@@ -299,3 +299,32 @@ describe("Session 错误条目（error entry 批：引擎/模型失败落时间�
     expect(u2.id).not.toBe(u.id);
   });
 });
+
+describe("openTurn 只读投影（评审 F1）：绕开聚合的 Turn 直接状态修改在类型/运行时均不可达", () => {
+  test("openTurn 返回投影快照：无 Turn 迁移方法，且改快照字段不回写聚合", () => {
+    const s = Session.create("s-ro-turn");
+    const u = s.appendUserEntry("第一问");
+    const started = s.beginTurn(u.id);
+
+    const open = s.openTurn;
+    expect(open).not.toBeNull();
+    expect(open!.id).toBe(started.id);
+    expect(open!.status).toBe("generating");
+    // TR-25「绕开聚合的直接状态修改会被拦下」在此路径成立：投影面零迁移方法
+    // （修复前 openTurn 直接回 Turn 活引用，turn.complete() 可把状态改掉而
+    // Session.currentTurn 不置空 → 轮次悬挂、beginTurn 恒抛）
+    for (const mutator of ["complete", "interrupt", "markToolRunning", "resumeGenerating"]) {
+      expect((open as unknown as Record<string, unknown>)[mutator]).toBeUndefined();
+    }
+
+    // 快照写入不回写聚合：Turn 状态与聚合的 open 面不受影响
+    (open as unknown as { status: string }).status = "completed";
+    expect(s.openTurn?.status).toBe("generating");
+
+    // 聚合面照常迁移（唯一写路径），收尾后 open 面置空
+    s.markTurnToolRunning();
+    expect(s.openTurn?.status).toBe("toolRunning");
+    s.completeTurn();
+    expect(s.openTurn).toBeNull();
+  });
+});

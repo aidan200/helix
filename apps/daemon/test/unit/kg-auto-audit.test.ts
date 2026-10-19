@@ -94,6 +94,7 @@ function makeViewer(opts: {
   unanchored?: number;
   readyDrafts?: number;
   staleDrafts?: number;
+  declaredAnchorDebt?: number;
 }): KgViewerService {
   return new KgViewerService({
     project: {
@@ -112,6 +113,7 @@ function makeViewer(opts: {
       findDrafts: (): DraftItem[] => [
         ...Array.from({ length: opts.readyDrafts ?? 0 }, () => ({ kind: "ready" }) as DraftItem),
         ...Array.from({ length: opts.staleDrafts ?? 0 }, () => ({ kind: "stale" }) as DraftItem),
+        ...Array.from({ length: opts.declaredAnchorDebt ?? 0 }, () => ({ kind: "anchor-debt", declared: true }) as DraftItem),
       ],
     } as unknown as KgVerifyService,
     graph: {
@@ -171,6 +173,17 @@ describe("KgViewerService.health triageHint（积压提示，与 triage pendingC
     expect(res.ok).toBe(true);
     const hint = (res as { value: KgHealthView }).value.triageHint;
     expect(hint).toEqual({ pendingTotal: 7, suggested: false });
+  });
+
+  test("带声明 anchor-debt 计入（与 KgTriageService.pendingCount 真同源——2026-09-29 防 nothing_pending 拒发口径）", () => {
+    const res = makeViewer({ declaredAnchorDebt: 5 }).health("alpha");
+    expect(res.ok).toBe(true);
+    const hint = (res as { value: KgHealthView }).value.triageHint;
+    expect(hint).toEqual({ pendingTotal: 5, suggested: false });
+    // 与准入计数一致才能推 suggested（积压提示不得低于准入计数）
+    const res2 = makeViewer({ declaredAnchorDebt: 10 }).health("alpha");
+    const hint2 = (res2 as { value: KgHealthView }).value.triageHint;
+    expect(hint2).toEqual({ pendingTotal: 10, suggested: true });
   });
 
   test("五计数 < 10 → suggested=false；阈值下不提示", () => {

@@ -36,7 +36,7 @@
  * - memory.recallTopK / memory.recallPool（召回量配置驱动——缺省
  *   5/24 = B1 定格常量现值，零行为变化；值语义读面单点裁决）；
  * - memory.recallMinScore（召回资格闸阈值配置驱动——缺省 0.30 = B3 定格
- *   常量现值；STEWARD_MEMORY_RECALL_MIN_SCORE 保留为缺省值单一来源）。
+ *   常量现值；STEWARD_MEMORY_RECALL_MIN_SCORE 单一来源在 memoryConfig）。
  * available 闸 = 开关 ∧ endpointId 有效 ∧ 条目完整 ∧ 存储已装配。
  * 凭据卫生：getMemoryState 导出面只回引用态（id/name/model/hasApiKey），
  * apiKey 与 baseUrl 永不出库。
@@ -54,6 +54,7 @@ import {
   MEMORY_RECALL_MIN_SCORE_KEY,
   MEMORY_RECALL_POOL_KEY,
   MEMORY_RECALL_TOP_K_KEY,
+  STEWARD_MEMORY_RECALL_MIN_SCORE,
   resolveMemoryRecallParams,
 } from "../memory/memoryConfig";
 import type {
@@ -77,10 +78,10 @@ export const STEWARD_MEMORY_EMBEDDING_KEY = "steward.memory.embedding";
  * 召回相似度下限缺省值（B3：score < 资格闸的命中不注入——语义无关条目
  * 污染 system prompt 的噪音闸；bge-m3 cosine 经验值 0.30，近似主题即可
  * 达标，纯噪音明显低于此）。资格闸生效值批起配置驱动（memory.recallMinScore，
- * resolveMemoryRecallParams 读面解析）——本常量保留为缺省值单一来源
- * （config 回退引用它，不双写字面量）。
+ * resolveMemoryRecallParams 读面解析）——常量单一来源在 memoryConfig
+ * （配置域归属），此处 re-export 保持既有引用面稳定。
  */
-export const STEWARD_MEMORY_RECALL_MIN_SCORE = 0.3;
+export { STEWARD_MEMORY_RECALL_MIN_SCORE } from "../memory/memoryConfig";
 /**
  * 写入查重两段闸（B5：Jev 判官从「判增量」改为「判同一」）：
  * - 粗筛段：向量检索 top1 ≥ 0.85（放宽自 B3 的 0.92——召回更多候选交给判官精判）；
@@ -632,10 +633,9 @@ export class StewardMemoryService implements StewardComponent {
       if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
       return { id: top.id, updated: true };
     }
-    store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]!, projectScope: attrs.projectScope, domain: attrs.domain }]);
+    const [newId] = store.append([{ kind, text: trimmed, source, createdAt: this.now(), vector: vectors[0]!, projectScope: attrs.projectScope, domain: attrs.domain }]);
     if (!AUTO_SOURCES.has(source)) this.lastExplicitRememberAt = this.now();
-    const entries = store.list();
-    return { id: entries[entries.length - 1]!.id, updated: false };
+    return { id: newId!, updated: false };
   }
 
   /** 显式 remember 水位读面（防双写闸）：since 起点以来发生过用户显式写入。

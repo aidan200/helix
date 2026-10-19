@@ -268,3 +268,79 @@ describe("act 工具：突变验证（私造动词拒绝 / destructive 豁免失
     expect(history.map((r) => r.text ?? "").join("\n")).toContain("不可执行");
   });
 });
+
+// ── 五写工具 execute 防绕过（评审 F1：与 act「write/destructive 本执行面
+//    不直行」同姿态——execute 直调不得执行写动作，未确认零执行防火墙） ──
+
+describe("五写工具 execute：挂闸动作不直行（防绕过确认闸）", () => {
+  interface GatedRig {
+    svc: StewardService;
+    tools: ReturnType<typeof captureTools>;
+    sends: { agentId: string; message: string }[];
+  }
+  const captureTools = () => {
+    const tools: import("../../src/application/ports/outbound/StewardToolSpec").StewardToolSpec[] = [];
+    return tools;
+  };
+  function makeGatedRig(): GatedRig {
+    const tools = captureTools();
+    const sends: { agentId: string; message: string }[] = [];
+    const svc = new StewardService({
+      llm: fakeLlm([say("ok")]),
+      orchestration: {
+        status: () => [
+          { agentId: "agent-1", state: "running", displayState: "active", profileKind: "subagent-worker", task: "干活" },
+        ],
+        send: (agentId, message) => {
+          sends.push({ agentId, message });
+          return { delivered: true, detail: "已投递" };
+        },
+      },
+      tasks: { listTasks: () => [] },
+      config: fakeConfig({ "steward.enabled": "1" }),
+      feedGate: { hasStewardSubscribers: () => true },
+      emitFeed: () => {},
+      sessions: {
+        sessionExists: async () => true,
+        readSessionTail: async () => undefined,
+        deliverToSession: async () => ({ delivered: true, detail: "已送达" }),
+        listSessionMetadata: async () => [],
+        startDraftSession: async () => ({ sessionId: "sess-draft" }),
+        createTitledSession: async () => ({ sessionId: "sess-new" }),
+      },
+      createEngine: (options) => {
+        tools.push(...options.tools);
+        return createEngineFromPort(fakeLlm([say("ok")]))(options);
+      },
+    });
+    return { svc, tools, sends };
+  }
+  const toolOf = (rig: GatedRig, name: string) => {
+    const found = rig.tools.find((t) => t.name === name);
+    if (found === undefined) throw new Error(`未捕获工具：${name}`);
+    return found;
+  };
+
+  test("propose_send execute 直调不执行递话（拒绝 + 零 send）", async () => {
+    const rig = makeGatedRig();
+    await rig.svc.ask("warm"); // createEngine 落地工具面
+    const result = await toolOf(rig, "propose_send").execute(
+      { agentId: "agent-1", message: "直调递话" },
+      { toolCallId: "t-direct" },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("确认闸");
+    expect(rig.sends).toHaveLength(0); // 未确认零执行防火墙
+  });
+
+  test("deliver_to_session execute 直调不执行投递", async () => {
+    const rig = makeGatedRig();
+    await rig.svc.ask("warm");
+    const result = await toolOf(rig, "deliver_to_session").execute(
+      { sessionId: "sess-1", text: "直调投递" },
+      { toolCallId: "t-direct" },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("确认闸");
+  });
+});

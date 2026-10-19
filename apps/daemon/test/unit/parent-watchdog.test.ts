@@ -91,3 +91,49 @@ describe("startParentWatchdog（H-4 父死看门狗）", () => {
     stop();
   });
 });
+
+describe("startParentWatchdog（TR-218：定时器回调异常兑底——不上抛击穿宿主）", () => {
+  test("探测面抛错 → warn 降级不击穿，下周期重试续航（判据恢复后正常判孤儿）", async () => {
+    const src = ppidSource(1234);
+    const warns: string[] = [];
+    let fired = 0;
+    let probeFailures = 1; // 首个 tick 抛错，之后恢复
+    const stop = startParentWatchdog({
+      ppidOf: () => {
+        if (probeFailures > 0) {
+          probeFailures -= 1;
+          throw new Error("ppid 探测失效");
+        }
+        return src.get();
+      },
+      intervalMs: 5,
+      warn: (m) => warns.push(m),
+      onOrphan: () => {
+        fired++;
+      },
+    });
+    await Bun.sleep(30); // 抛错 tick 已过（兑底不击穿 = 测试进程存活即证）
+    expect(warns.length).toBe(1);
+    expect(warns[0]).toContain("ppid 探测失效");
+    src.set(1); // 探测恢复后父死 reparent
+    await Bun.sleep(40);
+    expect(fired).toBe(1); // 下周期重试正常判孤儿
+    stop();
+  });
+
+  test("onOrphan 抛错 → 不上抛击穿宿主（触发已消费，warn 留痕）", async () => {
+    const src = ppidSource(1);
+    const warns: string[] = [];
+    const stop = startParentWatchdog({
+      ppidOf: src.get,
+      intervalMs: 5,
+      warn: (m) => warns.push(m),
+      onOrphan: () => {
+        throw new Error("关停动作失效");
+      },
+    });
+    await Bun.sleep(30);
+    expect(warns.some((w) => w.includes("关停动作失效"))).toBe(true);
+    stop();
+  });
+});

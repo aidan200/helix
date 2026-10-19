@@ -144,7 +144,8 @@ export interface KgGraphPurgePayload {
 /**
  * 清空本项目 kg 库全部内容（知识面 + 符号面 + meta 基准，全量清 + 索引态复位
  * absent——不动 .codegraph，那是 kg.index.delete 的职责）。安全门禁：存在
- * 运行中（running/pending）kg-bootstrap 任务时拒绝（kg.graph.purge_blocked）。
+ * 任一 kg 写任务族（kg-bootstrap/kg-triage/kg-review）的非终态
+ * （running/pending/paused）任务时拒绝（kg.graph.purge_blocked）。
  */
 export interface KgGraphPurgeCommand extends CommandFrame<KgGraphPurgePayload> {
   type: "kg.graph.purge";
