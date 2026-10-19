@@ -88,9 +88,13 @@ export function createStewardKgSource(deps: StewardKgSourceDeps): StewardKgSourc
       if (query === undefined) {
         throw new Error("知识图谱栈未装配（workspace 未绑定——请先绑定 workspace 再检索）");
       }
+      // 判空与渲染必须同轨（F2 #15）：渲染走 searchUnion（关键词+语义并集），
+      // 判空若用关键词轨 search，仅语义命中的项目会被当空块跳过（命中漏渲染）。
+      // 并集取一次、逐项目过滤复用——每项目不再多一次检索。
+      const union = await query.searchUnion(q);
       const blocks: string[] = [];
       for (const root of roots) {
-        if (query.search(q).filter((h) => h.project === root).length === 0) continue;
+        if (!union.some((hit) => hit.project === root)) continue;
         blocks.push(`【项目 ${projectLabel(root)}】\n${await runOp({ op: "search", q }, root)}`);
       }
       if (blocks.length > 0) return blocks.join("\n\n");

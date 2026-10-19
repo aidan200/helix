@@ -81,6 +81,23 @@ describe("createStewardKgSource（createKgTool 语义复用薄壳）", () => {
     expect(text).toContain("Beta 实体");
   });
 
+  // 评审 F2 #15：分块判空用关键词轨 search，而块内容走 searchUnion（双轨并集）——
+  // 仅语义命中的项目被判空跳过（命中漏渲染），且每项目双查。
+  test("缺省多项目：判空与渲染同轨（仅语义命中不被误判空跳过）", async () => {
+    // 关键词轨恒空、向量轨（searchUnion）命中 beta —— 语义检索批的真实形态
+    const semanticHit = { project: "/w/beta", row: row("E-9", "语义命中实体") } as unknown as ReturnType<QueryFace["search"]>;
+    const query = {
+      search: () => [] as never,
+      searchUnion: async () => [semanticHit],
+      get: () => null,
+      locate: () => [],
+    } as unknown as QueryFace;
+    const source = createStewardKgSource({ queryOf: () => query, kgProjects: () => ["/w/alpha", "/w/beta"] });
+    const text = await source.search("语义说法");
+    expect(text).toContain("【项目 beta】"); // 语义命中项目必须渲染
+    expect(text).toContain("语义命中实体");
+  });
+
   test("缺省单项目：原样渲染（零项目头——与 createKgTool 逐字一致）", async () => {
     const query = fakeQuery();
     const source = createStewardKgSource({ queryOf: () => query, kgProjects: () => ["/w/alpha"] });
