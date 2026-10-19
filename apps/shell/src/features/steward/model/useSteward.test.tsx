@@ -536,3 +536,30 @@ describe("useSteward 同源共享（语音轮过程全程可见）", () => {
     expect(a.result.current.items).toEqual([]);
   });
 });
+
+// ── 断连在途面清位（评审 steward-store.ts:232-234 / TR-272 四清位面）──
+describe("断连清位：ask 在途面", () => {
+  it("断连即复位 askInFlight/askActivity（终态帧点对点发原连接，重连不重放——不永锁）", async () => {
+    const { result, rerender } = renderSteward();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.ask("断连在途的一问");
+    });
+    expect(result.current.askInFlight).toBe(true);
+    // thinking 帧推进过程态（面板状态区展开）
+    act(() => {
+      frameListener?.(frame("steward.thinking", { text: "思考中" }));
+    });
+    await waitFor(() => expect(result.current.askActivity).not.toBeNull());
+    // 断连：daemon 的 ask.result 点对点发原连接（deliverResult(ctx.sendNow(sender))），
+    // 重连不补发——在途位必须本地清，否则面板输入禁用与 asking 相位永锁
+    connState = "disconnected";
+    await act(async () => {
+      rerender();
+    });
+    expect(result.current.askInFlight).toBe(false);
+    expect(result.current.askActivity).toBeNull();
+  });
+});

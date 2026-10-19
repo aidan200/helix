@@ -96,6 +96,21 @@ function feedList(providers: ProviderView[]) {
   });
 }
 
+/** daemon 命令失败回执（connection.error——commandError 尾缀「（命令 <type>）」）。 */
+function feedConnError(message: string) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    channel: "notification",
+    type: "connection.error",
+    ts: 1,
+    payload: { code: "command.invalid_payload", message },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of providerListeners) l(frame);
+  });
+}
+
 function ui(onGoAuth = vi.fn()) {
   return render(
     <I18nProvider>
@@ -261,5 +276,51 @@ describe("三方平台 tab（三方平台批 II：结构化表单）", () => {
     act(() => feedList(PROVIDERS));
     fireEvent.click(container.querySelector("[data-cprov-verify=my-gateway]")!);
     expect(verifyProvider).toHaveBeenCalledWith("my-gateway");
+  });
+});
+
+describe("写面拒绝交代（族B：provider.set/delete 走 connection.error 无结果帧）", () => {
+  /** 填出可保存的最小表单（id/baseUrl/单行 id+上下文）。 */
+  function fillSavable(container: HTMLElement): void {
+    fill(container, "data-cprov-form-id", "my-gateway");
+    fill(container, "data-cprov-form-baseurl", "http://localhost:3000/v1");
+    fill(container, "data-cprov-mrow-id=0", "gpt-x");
+    fill(container, "data-cprov-mrow-ctx=0", "128000");
+  }
+
+  it("保存被 daemon 拒 → 弹层不关、行内交代原因（整表七字段输入不丢）；回执清单才关弹层", () => {
+    const { container } = ui();
+    act(() => feedList([]));
+    fireEvent.click(container.querySelector("[data-cprov-add]")!);
+    fillSavable(container);
+    fireEvent.click(container.querySelector("[data-cprov-form-save]")!);
+    expect(sendProviderSet).toHaveBeenCalledTimes(1);
+    // 发出后不乐观关弹层（结果帧驱动收场）
+    expect(container.querySelector("[data-cprov-form-id]")).not.toBeNull();
+    // 他命令拒绝 → 不误显示
+    feedConnError("追踪查询失败（命令 trace.query）");
+    expect(container.querySelector("[data-cprov-form-err]")!.className).not.toContain("show");
+    // 本命令拒绝 → 弹层保留 + 行内交代原因（输入原样可改后重试）
+    feedConnError("provider.set 被拒：模型清单为空（命令 provider.set）");
+    expect(container.querySelector("[data-cprov-form-id]")).not.toBeNull();
+    expect(container.querySelector("[data-cprov-form-err]")!.textContent).toContain("模型清单为空");
+    expect((container.querySelector("[data-cprov-form-id]") as HTMLInputElement).value).toBe("my-gateway");
+    expect((container.querySelector('[data-cprov-mrow-id="0"]') as HTMLInputElement).value).toBe("gpt-x");
+    // 改后重试：再保存 → 成功回执（provider.list.result）→ 收口关弹层
+    fireEvent.click(container.querySelector("[data-cprov-form-save]")!);
+    expect(container.querySelector("[data-cprov-form-id]")).not.toBeNull();
+    act(() => feedList([]));
+    expect(container.querySelector("[data-cprov-form-id]")).toBeNull();
+  });
+
+  it("provider.delete 被拒 → toast 交代原因（不静默）", () => {
+    const { container } = ui();
+    act(() => feedList(PROVIDERS));
+    const btn = container.querySelector("[data-cprov-delete=my-gateway]")! as HTMLButtonElement;
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(sendProviderDelete).toHaveBeenCalledWith("my-gateway");
+    feedConnError("provider.delete 被拒：平台被默认模型占用（命令 provider.delete）");
+    expect(document.body.textContent).toContain("平台被默认模型占用");
   });
 });

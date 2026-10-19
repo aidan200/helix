@@ -80,9 +80,11 @@ export function useStewardActions(): UseStewardActions {
   };
   const toast = useToast();
   const { t } = useI18n();
-  /** 最近发起 confirm 的 actionId（confirm.result error 归因面——点对点回执
-   *  只回发起连接，本连接在途动作单飞口径）。 */
-  const lastConfirmedRef = useRef<string | null>(null);
+  /** 本连接在途确认队列（confirm.result error 无 actionId——daemon 单连接按序
+   *  回执，按发起序 FIFO 归因；accepted 携 actionId 精确出队）。单槽「最近发起者」
+   *  在两卡快速连点时会误摘后一张卡（首个 error 归来摘新卡、第二个 error 无人
+   *  归因）——评审 :158-177。 */
+  const confirmFlightRef = useRef<string[]>([]);
 
   const [cards, setCards] = useState<readonly StewardActionCard[]>([]);
   /** 卡栈镜像（事件回调读最新卡集——闭包不依赖 cards 重渲染；幂等去重判据面）。 */
@@ -164,14 +166,19 @@ export function useStewardActions(): UseStewardActions {
         if (payload.status === "accepted") {
           const actionId = payload.actionId;
           if (typeof actionId !== "string") return;
+          // 受理即出队（携 actionId 精确归因）：后续 error 不再误摘已受理卡
+          const queue = confirmFlightRef.current;
+          const at = queue.indexOf(actionId);
+          if (at >= 0) queue.splice(at, 1);
           setCards((prev) =>
             prev.map((c) => (c.actionId === actionId ? { ...c, state: "accepted" as const } : c)),
           );
           return;
         }
-        const culprit = lastConfirmedRef.current;
+        // error 无 actionId：按发起序取队首（FIFO——单槽「最近发起者」在多卡
+        // 快速连点时误摘后一张、首个 error 之后的第二个 error 无人归因）
+        const culprit = confirmFlightRef.current.shift() ?? null;
         if (culprit !== null) {
-          lastConfirmedRef.current = null;
           setCards((prev) => prev.filter((c) => !(c.actionId === culprit && c.state === "awaiting")));
         }
         return;
@@ -206,7 +213,10 @@ export function useStewardActions(): UseStewardActions {
       if (typeof sendStewardConfirm !== "function") return false;
       const ok = sendStewardConfirm(actionId);
       if (ok === false) return false; // 未连接（TR-168 严格判）
-      lastConfirmedRef.current = actionId;
+      // 入在途队（同 id 不重复入队：受理前双击两次发送，daemon 单次消费——
+      // 首个 accepted 即出队，重复消费的 error 不至于误摘别卡）
+      const queue = confirmFlightRef.current;
+      if (!queue.includes(actionId)) queue.push(actionId);
       return true;
     },
     [cards, sendStewardConfirm],

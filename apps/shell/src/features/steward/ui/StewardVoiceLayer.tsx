@@ -45,7 +45,7 @@ import { useStewardActions } from "../model/useStewardActions";
 import { deriveOrbPhase } from "../model/steward-voice-machine";
 import { parseVoiceCommand, resolveVoiceCommand, type VoiceCardTarget } from "../model/voice-command";
 import { captionEvict, captionPush, captionUpdateTail, CAPTION_EVICT_TICK_MS, type CaptionLine } from "../model/caption-log";
-import { inputAnnotate, inputConfirm, inputEvict, inputHearing, inputResolve, type InputNote, type InputRow } from "../model/input-pipeline";
+import { inputAnnotate, inputConfirmWithId, inputEvict, inputHearing, inputResolve, type InputNote, type InputRow } from "../model/input-pipeline";
 import type { StewardPanelItem } from "../model/steward-store";
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
@@ -85,6 +85,19 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   //    判定链推进色态（hearing 灰→confirmed 白→done 绿/failed 红/rejected
   //    警示色带闸门注记），短驻驱逐。──
   const [inputRows, setInputRows] = useState<readonly InputRow[]>([]);
+  /** 行栈镜像（eager：每次变更以镜像为基算新值并同点写回——异步判定链必须
+   *  能按行 id 定向标记，禁依赖「尾行」隐式约定；评审 :118：声纹/Jev 判定
+   *  在途窗口内后到新句append 为新尾行，尾行约定会把旧句注记标到新句）。 */
+  const inputRowsRef = useRef<readonly InputRow[]>([]);
+  const applyInputRows = useCallback(
+    (next: (prev: readonly InputRow[]) => readonly InputRow[]): readonly InputRow[] => {
+      const rows = next(inputRowsRef.current);
+      inputRowsRef.current = rows;
+      setInputRows(rows);
+      return rows;
+    },
+    [],
+  );
 
   // ── 语音口令（D3=b）：final 整句拦截——口令本地解析 + 卡栈快照裁决 +
   //    动作执行（既有命令）+ 回读（say + 字幕）；非口令句 submitUtterance
@@ -114,8 +127,9 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     async () => "unjudged",
   );
   const dispatchAfterGate = useCallback(
-    (text: string) => {
-      setInputRows((prev) => inputResolve(prev, { state: "done" })); // 确认输入→成功色（转写成功短驻消失）
+    (text: string, rowId?: number) => {
+      // 确认输入→成功色（转写成功短驻消失）；异步门后必按行 id 定向
+      applyInputRows((prev) => inputResolve(prev, { state: "done" }, Date.now(), rowId));
       const command = parseVoiceCommand(text);
       if (command === null) {
         submitUtteranceRef.current(text); // 聊天句：发问（voice-duplex 归类在 hook 内）
@@ -156,11 +170,15 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
       setLines((prev) => captionPush(prev, "steward", reply)); // 回读字幕
       sayRef.current(reply); // 回读音频（money 闸内判）
     },
-    [pushLine, t, confirmCardWithReadback],
+    [pushLine, t, confirmCardWithReadback, applyInputRows],
   );
   const onFinalText = useCallback(
     (text: string, ctx?: { bargeInIntent: boolean }): "consumed" | "pass" => {
-      setInputRows((prev) => inputConfirm(prev, text)); // 用户行入左侧输入流水（确认输入=白色态）
+      // 用户行入左侧输入流水（确认输入=白色态）；**行 id 钉住**——后续声纹/
+      // 判官异步窗口内新句可入列成为新尾行，终态按本行 id 定向标记（评审 :118）
+      const confirmed = inputConfirmWithId(inputRowsRef.current, text);
+      applyInputRows(() => confirmed.rows);
+      const inputRowId = confirmed.id;
       // 声纹总闸（链路重排批：机械→声纹→Jev→LLM）：每轮必验，不区分口令/
       // 聊天/有无卡；本句 PCM 同步取（final 定稿时点环尾部即本句）。barge-in
       // 意图窗内 fromMark 取样（开窗锚——duck 期自声污染防御，选段只含插话）。
@@ -178,15 +196,20 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           // 不打断）——窗收位恢复音量，字幕沿用声纹拒绝文案（闸门对应修复批：
           // 附相似度 pct——reject 三因（真旁人/阈值未达/取样段偏差）可辨）。
           if (ctx?.bargeInIntent) svCloseWindowRef.current();
-          setInputRows((prev) =>
-            inputResolve(prev, {
-              state: "rejected",
-              note: {
-                kind: "voiceprint-reject",
-                pct: Math.round(decision.score * 100),
-                th: Math.round(readVoiceprintThresholdPref()),
+          applyInputRows((prev) =>
+            inputResolve(
+              prev,
+              {
+                state: "rejected",
+                note: {
+                  kind: "voiceprint-reject",
+                  pct: Math.round(decision.score * 100),
+                  th: Math.round(readVoiceprintThresholdPref()),
+                },
               },
-            }),
+              Date.now(),
+              inputRowId,
+            ),
           );
           return;
         }
@@ -217,11 +240,11 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
           svCloseWindowRef.current();
           return;
         }
-        dispatchAfterGate(text);
+        dispatchAfterGate(text, inputRowId);
       })();
       return "consumed"; // 一律本地消费（意图窗插话不直发 ask——判定后丢弃/真停；聊天句由 dispatch 自派发）
     },
-    [pushLine, t, dispatchAfterGate],
+    [pushLine, t, dispatchAfterGate, applyInputRows],
   );
 
   const sv = useStewardVoice({ onFinalText, welcomeText: t("steward.voice.welcome") });
@@ -273,20 +296,20 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   useEffect(() => {
     if (typeof sv.dropNoticeSeq !== "number" || sv.dropNoticeSeq <= lastDropNoticeRef.current) return;
     lastDropNoticeRef.current = sv.dropNoticeSeq;
-    setInputRows((prev) => inputAnnotate(prev, { kind: "judge-reject" }));
+    applyInputRows((prev) => inputAnnotate(prev, { kind: "judge-reject" }));
   }, [sv.dropNoticeSeq]);
 
   // ── 输入流水驱动（光球分区批）：interim → hearing 原位推进；voiceError
   //    （转写失败）→ failed 红色态贴 asr-fail 注记。──
   useEffect(() => {
     if (sv.interim === null || sv.interim === "") return;
-    setInputRows((prev) => inputHearing(prev, sv.interim ?? ""));
+    applyInputRows((prev) => inputHearing(prev, sv.interim ?? ""));
   }, [sv.interim]);
   const lastVoiceErrorRef = useRef<string | null>(null);
   useEffect(() => {
     if (typeof sv.voiceError !== "string" || sv.voiceError === "" || sv.voiceError === lastVoiceErrorRef.current) return;
     lastVoiceErrorRef.current = sv.voiceError;
-    setInputRows((prev) => inputResolve(prev, { state: "failed", note: { kind: "asr-fail" } }));
+    applyInputRows((prev) => inputResolve(prev, { state: "failed", note: { kind: "asr-fail" } }));
   }, [sv.voiceError]);
 
   // ── 行 TTL 驱逐（短驻批 + 分区批）：duplex 活跃期周期驱逐静置超时行
@@ -295,7 +318,7 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
     if (!sv.duplexActive) return;
     const timer = setInterval(() => {
       setLines((prev) => captionEvict(prev, Date.now()));
-      setInputRows((prev) => inputEvict(prev, Date.now()));
+      applyInputRows((prev) => inputEvict(prev, Date.now()));
     }, CAPTION_EVICT_TICK_MS);
     return () => clearInterval(timer);
   }, [sv.duplexActive]);

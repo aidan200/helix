@@ -191,3 +191,71 @@ describe("useStewardActions（B1 全局确认卡栈数据面）", () => {
     expect(result.current.cards[0]!.actionId).toBe("act-2"); // 误伤排查：他卡保留
   });
 });
+
+// ── 多点确认归因（评审 useStewardActions:158-177）────────────────────
+describe("confirm.result error 多点归因（单槽 lastConfirmed 的误摘面）", () => {
+  it("两卡快速连点：两次 error 各摘自家卡（FIFO 在途队列），不误摘后发起的卡", async () => {
+    const { result } = renderActions();
+    act(() => {
+      frameListener?.(
+        frame("steward.ask.result", { status: "confirm_required", actionId: "act-1", agentId: "agent-1", message: "递话一" }),
+      );
+    });
+    act(() => {
+      frameListener?.(
+        frame("steward.ask.result", { status: "confirm_required", actionId: "act-2", agentId: "agent-2", message: "递话二" }),
+      );
+    });
+    await waitFor(() => expect(result.current.cards.length).toBe(2));
+    // 两卡先后发起确认（在途两份——daemon 单连接按序回执）
+    act(() => {
+      expect(result.current.confirmCard("act-1")).toBe(true);
+      expect(result.current.confirmCard("act-2")).toBe(true);
+    });
+    // 首个 error：归首发起的 act-1（单槽实现会误摘 act-2）
+    act(() => {
+      frameListener?.(frame("steward.confirm.result", { status: "error", reason: "待确认动作不存在或已消费" }));
+    });
+    await waitFor(() => expect(result.current.cards.length).toBe(1));
+    expect(result.current.cards[0]!.actionId).toBe("act-2");
+    // 第二个 error：归 act-2（单槽实现此刻已清空 → 卡滞留 awaiting 无人归因）
+    act(() => {
+      frameListener?.(frame("steward.confirm.result", { status: "error", reason: "待确认动作不存在或已消费" }));
+    });
+    await waitFor(() => expect(result.current.cards.length).toBe(0));
+  });
+
+  it("accepted 携 actionId 精确出队：已受理的卡不再被后续 error 误摘", async () => {
+    const { result } = renderActions();
+    act(() => {
+      frameListener?.(
+        frame("steward.ask.result", { status: "confirm_required", actionId: "act-1", agentId: "agent-1", message: "递话一" }),
+      );
+    });
+    act(() => {
+      frameListener?.(
+        frame("steward.ask.result", { status: "confirm_required", actionId: "act-2", agentId: "agent-2", message: "递话二" }),
+      );
+    });
+    await waitFor(() => expect(result.current.cards.length).toBe(2));
+    act(() => {
+      result.current.confirmCard("act-1");
+    });
+    act(() => {
+      frameListener?.(frame("steward.confirm.result", { status: "accepted", actionId: "act-1" }));
+    });
+    await waitFor(() => expect(result.current.cards[0]!.state).toBe("accepted"));
+    act(() => {
+      result.current.confirmCard("act-2");
+    });
+    act(() => {
+      frameListener?.(frame("steward.confirm.result", { status: "accepted", actionId: "act-2" }));
+    });
+    await waitFor(() => expect(result.current.cards[1]!.state).toBe("accepted"));
+    // 迟到 error（他窗竞态/重复消费）——两卡均已受理出队，零误摘
+    act(() => {
+      frameListener?.(frame("steward.confirm.result", { status: "error", reason: "待确认动作不存在或已消费" }));
+    });
+    expect(result.current.cards.length).toBe(2);
+  });
+});

@@ -90,17 +90,21 @@ const GeneralSettingsSection = function GeneralSettingsSection({
 
   // 三卡同构状态机（M10 批⑤：useConfigField 单点承载——脏态门控 M46 /
   // 在途对账 M44 / connection.error 在途失败收口 M10-②）
-  const compactionField = useConfigField(compaction, (c) => [
-    String(c.reserveTokens),
-    String(c.keepRecentTokens),
-  ]);
-  const schedulingField = useConfigField(scheduling, (s) => [
-    String(s.maxConcurrent),
-    String(s.maxQueued),
-  ]);
-  const portField = useConfigField(portCfg, (p) => [
-    p.storedPort !== null ? String(p.storedPort) : "",
-  ]);
+  const compactionField = useConfigField(
+    compaction,
+    (c) => [String(c.reserveTokens), String(c.keepRecentTokens)],
+    "config.set_compaction",
+  );
+  const schedulingField = useConfigField(
+    scheduling,
+    (s) => [String(s.maxConcurrent), String(s.maxQueued)],
+    "config.set_scheduling",
+  );
+  const portField = useConfigField(
+    portCfg,
+    (p) => [p.storedPort !== null ? String(p.storedPort) : ""],
+    "config.set_port",
+  );
   const [reserve = "", keepRecent = ""] = compactionField.inputs;
   const [maxConcurrent = "", maxQueued = ""] = schedulingField.inputs;
   const portInput = portField.inputs[0] ?? "";
@@ -109,7 +113,11 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // 必消费 / connection.error 在途收口）；提交时机同长期记忆组：失焦/回车，
   // 非法值回落最近已提交值零命令
   const kgCfg = topology.modelConfig.kg;
-  const kgField = useConfigField(kgCfg, (c) => [String(c.similarityWarn), String(c.similarityDup)]);
+  const kgField = useConfigField(
+    kgCfg,
+    (c) => [String(c.similarityWarn), String(c.similarityDup)],
+    "config.set_kg",
+  );
   const kgWarnDraft = kgField.inputs[0] ?? "";
   const kgDupDraft = kgField.inputs[1] ?? "";
   /** 沙箱开关 send 失败交代（code-review H8：断线窗口不静默——结果帧驱动的开关无在途态，行内错误即全部反馈面）。 */

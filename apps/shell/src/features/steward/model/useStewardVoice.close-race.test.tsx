@@ -26,6 +26,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, act, waitFor } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope } from "@helix/protocol";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const sendStewardAsk = vi.fn(() => true);
 const sendStewardConfirm = vi.fn(() => true);
@@ -290,5 +293,52 @@ describe("useStewardVoice 关麦竞态（getUserMedia 异步窗口孤儿开麦�
     // 期望正确行为同现场 1（复现红 = 报障实证）
     expect(r.current.phase).toBe("idle"); // 修复后：迟归麦不再孤儿开启
     expect(env.allTracksStopped()).toBe(true); // 修复后：迟归 track 即刻释放
+  });
+});
+
+// ── 重入锁覆盖面（评审 useStewardVoice:1180）：并发开麦入口只开一次麦 ──
+describe("听音重入锁覆盖全部 beginListening 入口", () => {
+  let restoreEnv: (() => void) | null = null;
+
+  beforeEach(() => {
+    localStorage.clear();
+    for (const s of Object.values(listeners)) s.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    FakeMediaRecorder.instances = [];
+    restoreEnv?.();
+    restoreEnv = null;
+  });
+
+  it("并发 startListening（getUserMedia 窗口内二次入口）只开一次麦——锁内串行", async () => {
+    const env = installDeferredEnv();
+    restoreEnv = env.restore;
+    const r = renderVoice();
+    // 两个开麦入口同 tick 并发（手动开麦 + 打断/自动续听同构）：首路挂在
+    // getUserMedia 窗口，次路必须被锁挡下（否则双开麦 = 双 getUserMedia）
+    await act(async () => {
+      void r.current.startListening();
+      void r.current.startListening();
+    });
+    await tick();
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      env.resolveGum();
+    });
+    await tick();
+  });
+
+  it("源码定式：全部入口统一走 guardedBeginListening（无任何直调 beginListening 的入口）", () => {
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "useStewardVoice.ts"),
+      "utf8",
+    ).replace(/^\s*\/\/.*$/gm, "");
+    // 仅锁包装体内一处 `await beginListening()`；其余入口（toggleWake/自动续听/
+    // openBargeInIntentWindow/bargeIn/startListening）一律 guarded
+    expect(src.match(/beginListening\(\)/g) ?? []).toHaveLength(1);
+    expect(src).not.toMatch(/void beginListening\(\)/);
+    expect((src.match(/guardedBeginListening\(\)/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 });

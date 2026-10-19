@@ -55,25 +55,41 @@ export function inputHearing(rows: readonly InputRow[], text: string, at: number
   return trim([...rows, { id: rowSeq, text, state: "hearing", note: null, at }]);
 }
 
-/** 确认输入（ASR final 定稿）：hearing 尾行转正换文本（同句同行），否则追加。 */
+/** 确认输入（ASR final 定稿）：hearing 尾行转正换文本（同句同行），否则追加。
+ *  需要行身份的调用面（异步门后定向标记）用 inputConfirmWithId。 */
 export function inputConfirm(rows: readonly InputRow[], text: string, at: number = Date.now()): InputRow[] {
-  const tail = rows[rows.length - 1];
-  if (tail !== undefined && tail.state === "hearing") {
-    return [...rows.slice(0, -1), { ...tail, text, state: "confirmed", at }];
-  }
-  rowSeq += 1;
-  return trim([...rows, { id: rowSeq, text, state: "confirmed", note: null, at }]);
+  return inputConfirmWithId(rows, text, at).rows;
 }
 
-/** 行终态推进：done / failed / rejected（带闸门注记）。 */
+/** 确认输入 + 行 id（异步判定窗口内新句可入列抢占尾位——终态必须按
+ *  id 定向标记，禁依赖「尾行」隐式约定）。 */
+export function inputConfirmWithId(
+  rows: readonly InputRow[],
+  text: string,
+  at: number = Date.now(),
+): { readonly rows: InputRow[]; readonly id: number } {
+  const tail = rows[rows.length - 1];
+  if (tail !== undefined && tail.state === "hearing") {
+    return { rows: [...rows.slice(0, -1), { ...tail, text, state: "confirmed", at }], id: tail.id };
+  }
+  rowSeq += 1;
+  return { rows: trim([...rows, { id: rowSeq, text, state: "confirmed", note: null, at }]), id: rowSeq };
+}
+
+/** 行终态推进：done / failed / rejected（带闸门注记）。targetId 缺省 = 尾行
+ *  （同步判定链）；异步判定链必传 id（尾位可能已被后到新句占走）。 */
 export function inputResolve(
   rows: readonly InputRow[],
   outcome: { readonly state: "done" | "failed" | "rejected"; readonly note?: InputNote },
   at: number = Date.now(),
+  targetId?: number,
 ): InputRow[] {
-  const tail = rows[rows.length - 1];
-  if (tail === undefined) return [...rows];
-  return [...rows.slice(0, -1), { ...tail, state: outcome.state, note: outcome.note ?? tail.note, at }];
+  const index = targetId === undefined ? rows.length - 1 : rows.findIndex((r) => r.id === targetId);
+  if (index < 0 || index >= rows.length) return [...rows];
+  const target = rows[index]!;
+  const next = [...rows];
+  next[index] = { ...target, state: outcome.state, note: outcome.note ?? target.note, at };
+  return next;
 }
 
 /** 闸门异步回判（judge dropped 在 dispatch 之后才回执）：最近可判行（终态

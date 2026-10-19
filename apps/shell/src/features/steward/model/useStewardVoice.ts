@@ -1095,6 +1095,23 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     await voiceRef.current.start();
   }, [clearFallbackTimer]);
 
+  // ── B2 双工听音锁（重入防护）：beginListening 的 getUserMedia 窗口内
+  //    stateRef 仍 idle——自动续听 effect 与 toggleWake/打断入口并发触发会
+  //    双开麦；锁内串行（useVoiceInput 自身 stateRef 守卫在 await 后才生效）。
+  //    评审 useStewardVoice:1180：锁必须覆盖**全部** beginListening 入口
+  //    （toggleWake/自动续听/openBargeInIntentWindow/bargeIn/startListening）
+  //    ——任何一处直调 beginListening 都把双开麦竞态窗口重新敞开。
+  const beginListeningLockRef = useRef(false);
+  const guardedBeginListening = useCallback(async () => {
+    if (beginListeningLockRef.current) return;
+    beginListeningLockRef.current = true;
+    try {
+      await beginListening();
+    } finally {
+      beginListeningLockRef.current = false;
+    }
+  }, [beginListening]);
+
   // B2 barge-in 打断序（①②③不可换序——UX 与一致性分离）：①立即停播
   // （零延迟）②steward.interrupt（daemon abortInFlight 幂等善后）③进
   // listening 开 stt.stream.start 新流；新转写 final → steward.ask 新轮。
@@ -1104,8 +1121,8 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     if (bargeInWindow.isActive()) return; // 窗已开幂等（fired 闩锁外再防线）
     setBargeInIntentActive(true); // 呈现位（状态位/mark/duck/timer 归状态机）
     bargeInWindow.open(BARGE_IN_INTENT_DUCK_SCALE); // duck+mark 锚+超时 timer 内聚
-    void beginListening(); // 开麦+开新转写流（收插话）——不 stopSpeaking 不 interrupt
-  }, [bargeInWindow, beginListening]);
+    void guardedBeginListening(); // 开麦+开新转写流（收插话）——不 stopSpeaking 不 interrupt
+  }, [bargeInWindow, guardedBeginListening]);
 
   /** 真停（停止意图确认——Layer 意图判定后调）：三步序①停播全轨②interrupt
    *  携 scope=all 全停（批 3b 裁决乙：语音停止判定 = abort 当前 + 清空 daemon
@@ -1159,33 +1176,19 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
       // 未连接：打断帧未达 daemon——本地停播即事实（零回滚）；后续 ask
       // 发送失败走 voiceDraft 回填既有降级（零静默丢话）
     }
-    void beginListening(); // ③
-  }, [stopSpeaking, beginListening, sendStewardInterrupt, openBargeInIntentWindow]);
+    void guardedBeginListening(); // ③
+  }, [stopSpeaking, guardedBeginListening, sendStewardInterrupt, openBargeInIntentWindow]);
   bargeInRef.current = bargeIn;
 
   // 新一轮说话 = 停上轮朗读 + 听音本体（手动 barge-in 同构先序）
   const startListening = useCallback(async () => {
     stopSpeaking();
-    await beginListening();
-  }, [stopSpeaking, beginListening]);
+    await guardedBeginListening();
+  }, [stopSpeaking, guardedBeginListening]);
 
   const stopListening = useCallback(() => {
     voiceRef.current.stop();
   }, []);
-
-  // ── B2 双工听音锁（重入防护）：beginListening 的 getUserMedia 窗口内
-  //    stateRef 仍 idle——自动续听 effect 与 toggleWake 并发触发会双开麦；
-  //    锁内串行（useVoiceInput 自身 stateRef 守卫在 await 后才生效）。──
-  const beginListeningLockRef = useRef(false);
-  const guardedBeginListening = useCallback(async () => {
-    if (beginListeningLockRef.current) return;
-    beginListeningLockRef.current = true;
-    try {
-      await beginListening();
-    } finally {
-      beginListeningLockRef.current = false;
-    }
-  }, [beginListening]);
 
   // ── B2 双工 toggle（全局组合键唯一入口；D2 单键 toggle）：无会话 →
  //    进双工（光球浮现 + 欢迎语 + 持续麦）；duplex 在途 → 关麦收口（D6）。──

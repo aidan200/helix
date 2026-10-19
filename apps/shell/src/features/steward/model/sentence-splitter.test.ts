@@ -33,7 +33,24 @@ describe("SentenceBuffer（V3b-2 delta → 句切分）", () => {
 
   test("④ 连续边界合并（！！！/……不拆句）", () => {
     const b = new SentenceBuffer();
-    expect(b.push("真的吗？！太好了……")).toEqual(["真的吗？！太好了……"]);
+    expect(b.push("真的吗？！太好了……")).toEqual(["真的吗？！", "太好了……"]);
+  });
+
+  test("④b 跨类合并对「？！」是句界后移到对尾（不吞并后句；收尾句即出不等 flush）", () => {
+    const b = new SentenceBuffer();
+    // 评审 sentence-splitter:69-74：整对当非句界 → 「你好？！再见。」被切成单句
+    expect(b.push("你好？！再见。")).toEqual(["你好？！", "再见。"]);
+    // 收尾即对尾：不残留待 flush（原实现须等后续边界/flush 才出）
+    const c = new SentenceBuffer();
+    expect(c.push("你好？！")).toEqual(["你好？！"]);
+    expect(c.pending).toBe("");
+  });
+
+  test("④c 混合形态对称：！？ /？！ 同判（原实现只登记 ？！/!? 两对，！？ 靠连续边界兜底）", () => {
+    const b = new SentenceBuffer();
+    expect(b.push("真的吗！？假的？")).toEqual(["真的吗！？", "假的？"]);
+    const c = new SentenceBuffer();
+    expect(c.push("wait!? really?")).toEqual(["wait!?", "really?"]);
   });
 
   test("⑤ 无标点强制切：cut() 把残余整段切出（空残量 null）", () => {

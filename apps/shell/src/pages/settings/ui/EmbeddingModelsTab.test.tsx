@@ -104,6 +104,21 @@ function ui() {
   );
 }
 
+/** daemon 命令失败回执（connection.error——commandError 尾缀「（命令 <type>）」）。 */
+function feedConnError(message: string) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    channel: "notification",
+    type: "connection.error",
+    ts: 1,
+    payload: { code: "command.invalid_payload", message },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of embeddingListeners) l(frame);
+  });
+}
+
 describe("向量模型 tab（B2-③）", () => {
   it("进入拉取：sendEmbeddingList；端点行渲染四要素（名称/url·model/脱敏 key/连通徽标）", () => {
     const { container } = ui();
@@ -259,7 +274,7 @@ describe("D1 全局默认向量模型卡（F(3.4).6 同构 UI 契约）", () => 
     expect(container.querySelector<HTMLButtonElement>("[data-emb-set-default=ep-2]")).not.toBeNull(); // 列表行辅助入口保留
   });
 
-  it("修改口交互：点「设置默认模型」开面板 → 选端点即 set_default + 关面板；默认项带 sel+chip", () => {
+  it("修改口交互：点「设置默认模型」开面板 → 选端点即 set_default；回执新默认才关面板；默认项带 sel+chip", () => {
     const { container } = ui();
     act(() => feedList(ENDPOINTS, "ep-1"));
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-change-default]")!);
@@ -270,7 +285,24 @@ describe("D1 全局默认向量模型卡（F(3.4).6 同构 UI 契约）", () => 
     expect(container.querySelector("[data-emb-default-picker-item=ep-2]")).not.toBeNull();
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-default-picker-item=ep-2]")!);
     expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-2");
-    expect(container.querySelector("[data-emb-default-picker]")).toBeNull(); // 成功关面板
+    // 结果帧驱动收口（族B：不乐观关面板——daemon 三拒无 list 回执，乐观关面板会吞掉输入面）
+    expect(container.querySelector("[data-emb-default-picker]")).not.toBeNull();
+    act(() => feedList(ENDPOINTS, "ep-2"));
+    expect(container.querySelector("[data-emb-default-picker]")).toBeNull(); // 回执新默认 → 关面板
+  });
+
+  it("set_default 被 daemon 拒 → 行内交代原因 + 面板不关（尾缀归因：他命令拒绝不误消费）", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-1"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-change-default]")!);
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-default-picker-item=ep-2]")!);
+    // 他族命令拒绝 → 不归本卡（不误显示）
+    feedConnError("追踪查询失败（命令 trace.query）");
+    expect(container.querySelector("[data-emb-default-error]")).toBeNull();
+    // 本命令拒绝（未 verify）→ 行内交代 + 面板保持打开（用户可改选已验端点）
+    feedConnError("端点未通过连通测试，不能设为默认（命令 embedding.set_default）");
+    expect(container.querySelector("[data-emb-default-error]")!.textContent).toContain("未通过连通测试");
+    expect(container.querySelector("[data-emb-default-picker]")).not.toBeNull();
   });
 
   it("修改口空态：无向量端点 → 面板内空态提示", () => {
