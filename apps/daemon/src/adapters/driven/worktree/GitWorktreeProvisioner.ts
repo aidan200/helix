@@ -111,6 +111,17 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
           branchExists = false;
         }
         if (branchExists) {
+          // F2 #5：陈旧分支里可能压着上一个 worktree 未合入的提交（remove() 不删
+          // 分支）——强删会静默丢工作。只有「分支提交全部已在基分支（HEAD）上」
+          // 才允许自愈删除；否则如实报错交人工裁决（合并或手工删）。
+          const merged = await this.gitOk(["merge-base", "--is-ancestor", branch, "HEAD"], root);
+          if (!merged) {
+            return {
+              error:
+                `陈旧分支 ${branch} 含未合入提交（不在 HEAD 祖先链上）——拒绝强删以免丢失工作：` +
+                `请先合并该分支，或人工执行 git branch -D ${branch} 后重试`,
+            };
+          }
           try {
             await execFileAsync("git", ["branch", "-D", branch], { cwd: root, timeout: GIT_TIMEOUT_MS });
             added = await this.gitOk(addArgs, root);
