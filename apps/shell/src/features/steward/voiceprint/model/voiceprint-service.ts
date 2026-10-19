@@ -79,7 +79,16 @@ export function createVoiceprintService(options: VoiceprintServiceOptions) {
   let enginePromise: Promise<EmbedEngine> | null = null;
 
   const loadEngine = (): Promise<EmbedEngine> => {
-    if (enginePromise === null) enginePromise = engineLoader();
+    if (enginePromise === null) {
+      const p = engineLoader();
+      // 瞬时失败（模型缺席/网络抖动/ort init 失败）不永锁缓存位：拒绝即清出，
+      // 下次调用重试加载——否则本会话 verifyGate 永久 skip（每句 WARN，补好
+      // 模型也不恢复直到刷新）。成功时照常单飞共享（并发 await 同一 promise）。
+      p.catch(() => {
+        if (enginePromise === p) enginePromise = null;
+      });
+      enginePromise = p;
+    }
     return enginePromise;
   };
 

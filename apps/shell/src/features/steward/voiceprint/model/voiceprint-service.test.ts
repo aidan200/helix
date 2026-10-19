@@ -150,6 +150,24 @@ describe("verifyGate 契约（授权点判定）", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it("引擎加载失败不永锁：瞬时失败恢复后下次调用重载成功（不再永久 skip）", async () => {
+    const { engine } = fakeEngine([1, 0]);
+    let fail = true;
+    let loaded = 0;
+    const loader = () => {
+      loaded += 1;
+      return fail ? Promise.reject(new Error("transient ort init failure")) : Promise.resolve(engine);
+    };
+    store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
+    const svc = createVoiceprintService({ engineLoader: loader, store });
+    const r1 = await svc.verifyGate(utterance(2));
+    expect(r1).toEqual({ kind: "skip", reason: "engine-unavailable" }); // 首载瞬时失败
+    fail = false; // 模型归位/抖动过去
+    const r2 = await svc.verifyGate(utterance(2));
+    expect(r2).toEqual({ kind: "pass" }); // 修复前：rejected promise 永久缓存 → 本会话永远 skip
+    expect(loaded).toBe(2); // 重试过一次 loader
+  });
+
   it("推理抛错 → skip(inference-error) + WARN", async () => {
     const warn = vi.fn();
     store.write({ dim: 2, vector: new Float32Array([1, 0]), vectors: [], utterances: 3, createdAt: 1 });
