@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
+import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { KnowledgeGraphPort } from "../../src/application/ports/outbound/KnowledgeGraphPort";
@@ -38,6 +39,11 @@ import { CodegraphEngineFake } from "../mocks/CodegraphEngineFake";
  * - watcher 生命周期（幂等挂接/stopWatching 接缝/dispose 全停）；
  * - Bun runtime fs.watch 实测（真 tmp 目录 recursive）+ Linux 目录分层兜底
  *   （platform 注入强制走兜底分支）。
+ *
+ * 真 fs 组守卫（2026-10）：helix 命令沙箱（seatbelt）下 FSEvents 事件链路
+ * 不可达——文件写入/watchFile 轮询正常，但 fs.watch（flat/recursive）事件零
+ * 送达（与 fixture 落点无关，workspace 内同样零送达），真 fs 组会以 waitFor
+ * 超时形态假红。故先探测事件可达性：可达真跑、不可达显式 skip，不冒充绿。
  */
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -207,6 +213,38 @@ function makeTmpProject(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "kg-fs-watch-"));
   tmpDirs.push(dir);
   return dir;
+}
+
+/**
+ * fs.watch 事件能力探测（真 fs 组运行前置）：真写一个文件、等真实事件 500ms。
+ * 探测自身失败（写被拦等）同样视为不可达——这种环境下真 fs 组必红，跳过即正确语义。
+ */
+async function probeRealFsEvents(): Promise<boolean> {
+  try {
+    const dir = mkdtempSync(path.join(tmpdir(), "kg-fs-watch-probe-"));
+    try {
+      return await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const finish = (ok: boolean, w: FSWatcher): void => {
+          if (settled) return;
+          settled = true;
+          w.close();
+          resolve(ok);
+        };
+        const w = watch(dir, { recursive: true }, () => finish(true, w));
+        setTimeout(() => finish(false, w), 500);
+        writeFileSync(path.join(dir, "probe.txt"), "x");
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {
+    return false;
+  }
+}
+const realFsEventsAvailable = await probeRealFsEvents();
+if (!realFsEventsAvailable) {
+  console.warn("[kg-fs-watch] fs.watch 事件在本环境不可达（沙箱/受限环境），真 fs 组显式跳过");
 }
 
 // ── ① ignore 面（纯逻辑） ───────────────────────────────────
@@ -396,7 +434,7 @@ describe("FsWatchAdapter：真 fs（Bun runtime fs.watch 实测）", () => {
     }
   }
 
-  test("⑧ 自激励防护（真 fs）：sync/引擎产物目录写入零事件回流；源文件 write/remove 正常", async () => {
+  test.skipIf(!realFsEventsAvailable)("⑧ 自激励防护（真 fs）：sync/引擎产物目录写入零事件回流；源文件 write/remove 正常", async () => {
     const { svc, spy, root } = makeRealWatch();
     seedProject(root);
     expect(svc.watchProject(root)).toBe(true);
@@ -419,7 +457,7 @@ describe("FsWatchAdapter：真 fs（Bun runtime fs.watch 实测）", () => {
     await waitFor(() => spy.events.some((e) => e.path.endsWith(path.join("src", "a.ts")) && e.kind === "remove"));
   }, 15000);
 
-  test("⑨ stopWatching 后真 fs 事件不再送达（生命周期真面）", async () => {
+  test.skipIf(!realFsEventsAvailable)("⑨ stopWatching 后真 fs 事件不再送达（生命周期真面）", async () => {
     const { svc, spy, root } = makeRealWatch();
     seedProject(root);
     svc.watchProject(root);
@@ -433,7 +471,7 @@ describe("FsWatchAdapter：真 fs（Bun runtime fs.watch 实测）", () => {
     expect(spy.events.length).toBe(seen);
   }, 15000);
 
-  test("⑩ Linux 兜底（目录分层，platform 注入）：既有子目录/新增目录/忽略不下钻", async () => {
+  test.skipIf(!realFsEventsAvailable)("⑩ Linux 兜底（目录分层，platform 注入）：既有子目录/新增目录/忽略不下钻", async () => {
     const { svc, spy, root } = makeRealWatch("linux"); // 强制走目录分层分支
     seedProject(root);
     mkdirSync(path.join(root, "src", "nested"), { recursive: true });
