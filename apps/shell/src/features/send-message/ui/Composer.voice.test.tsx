@@ -153,6 +153,25 @@ describe("Composer 麦克风钮（语音输入 V2：点击 + 三态）", () => {
     expect(start).not.toHaveBeenCalled();
     expect(stop).not.toHaveBeenCalled();
   });
+
+  it("录音中断连（canSend=false）：mic 钮仍可点击强制停——本地停止动作不依赖连接（中危 F3a）", () => {
+    voiceState = "recording";
+    // 连接断开（welcome 后 disconnected）：canSend=false——录音中的强制停不押在连接态上
+    stateRef.current = sessionReducer(stateRef.current, { type: "conn/disconnected" });
+    render(
+      <I18nProvider>
+        <ToastProvider>
+          <Composer />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    const btn = mic();
+    expect(btn.disabled).toBe(false); // 录音中恒不禁用（旧实现 !canSend 连带禁用 → stop 不可达悬挂录音）
+    fireEvent.click(btn);
+    expect(stop).toHaveBeenCalledTimes(1);
+    // 发送钮仍禁用（canSend 语义不变——仅录音态豁免）
+    expect((document.querySelector("#btn-send") as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe("Composer 语音镜像层（实时识别批：interim 灰字上屏）", () => {
