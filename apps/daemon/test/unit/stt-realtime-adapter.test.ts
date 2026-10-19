@@ -298,6 +298,52 @@ describe("DashScope realtime 流式 adapter：断连重连一次与 60s 空闲�
     session.abort();
   });
 
+  test("B16：句终段已入账不重放——重连重放只含未句终尾段，onFinal 全文不重复", () => {
+    const h = harness();
+    const { session } = openReady(h);
+    const ws1 = h.sockets[0]!;
+    session.appendAudio("AA1");
+    session.appendAudio("AA2");
+    // 第一句句终：AA1/AA2 段已入账 completedText
+    ws1.emitMessage({ type: "conversation.item.input_audio_transcription.completed", transcript: "第一句。" });
+    // 尾段在途（未句终）
+    session.appendAudio("AA3");
+    // 断连重连
+    ws1.emitUnexpectedClose();
+    const ws2 = h.sockets[1]!;
+    ws2.emitOpen();
+    ws2.emitMessage({ type: "session.updated", session: {} });
+    // 重放只含未句终尾段 AA3——已句终段重放会令新会话重转写同段再发 completed，
+    // completedText 重复拼接断连前缀（onFinal 全文重复）
+    const replay = ws2.sent
+      .filter((s) => s.includes("input_audio_buffer.append"))
+      .map((s) => (JSON.parse(s) as { audio: string }).audio);
+    expect(replay).toEqual(["AA3"]);
+    // 新会话只转写尾段：句终入账 + finish + 终帧 → 全文恰一次「第一句。」前缀
+    ws2.emitMessage({ type: "conversation.item.input_audio_transcription.completed", transcript: "第二句。" });
+    session.finish();
+    ws2.emitMessage({ type: "session.finished" });
+    expect(h.events.final).toEqual(["第一句。第二句。"]);
+  });
+
+  test("B16 补面：无句终时重放仍全量（既有语义保持——重放范围与文本累计共享覆盖记账）", () => {
+    const h = harness();
+    const { session } = openReady(h);
+    const ws1 = h.sockets[0]!;
+    session.appendAudio("BB1");
+    ws1.emitMessage({ type: "conversation.item.input_audio_transcription.text", text: "在途", stash: "" }); // 仅 interim 未句终
+    session.appendAudio("BB2");
+    ws1.emitUnexpectedClose();
+    const ws2 = h.sockets[1]!;
+    ws2.emitOpen();
+    ws2.emitMessage({ type: "session.updated", session: {} });
+    const replay = ws2.sent
+      .filter((s) => s.includes("input_audio_buffer.append"))
+      .map((s) => (JSON.parse(s) as { audio: string }).audio);
+    expect(replay).toEqual(["BB1", "BB2"]); // 未句终段全量重放（零丢失面）
+    session.abort();
+  });
+
   test("60 秒无音频 → 关流 + error（money 纪律安全阀）", () => {
     const h = harness();
     const { session } = openReady(h);

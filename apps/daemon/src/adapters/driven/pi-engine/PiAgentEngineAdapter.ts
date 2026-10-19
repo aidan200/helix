@@ -479,7 +479,11 @@ function engineBlocksOf(content: readonly unknown[] | undefined): import("../../
     const blk = b as Record<string, unknown>;
     if (blk.type === "text") return { type: "text", text: String(blk.text ?? "") };
     if (blk.type === "thinking") {
-      return { type: "thinking", text: String(blk.thinking ?? ""), ...(blk.signature !== undefined ? { signature: String(blk.signature) } : {}) };
+      // pi ThinkingContent 签名字段是 thinkingSignature（pi-ai types），非 signature——
+      // 与 PiStewardLlmAdapter.toResponse 同口径；漏读会令下游取块签名恒空、
+      // 回放侧无签名 thinking 被判不可回传丢弃（评审 B8）。
+      const sig = blk.thinkingSignature ?? blk.signature;
+      return { type: "thinking", text: String(blk.thinking ?? ""), ...(sig !== undefined ? { signature: String(sig) } : {}) };
     }
     if (blk.type === "toolCall") {
       return { type: "toolCall", id: String(blk.id), name: String(blk.name), args: (blk.arguments ?? {}) as Record<string, unknown> };

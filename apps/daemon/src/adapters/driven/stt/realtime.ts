@@ -142,7 +142,8 @@ class RealtimeSession implements SttStreamSession {
   private reconnectsUsed = 0;
   private itemFailures = 0;
   private completedText = "";
-  /** 就绪前缓冲 + 重连重放清单（同源：append 即入列）。 */
+  /** 就绪前缓冲 + 重连重放清单（同源：append 即入列；completed 到达即清
+   *  已覆盖段——B16 覆盖记账：重放范围与 completedText 累计共享同一边界）。 */
   private readonly replayLog: string[] = [];
   private idleTimer: number | undefined;
   private finalTimer: number | undefined;
@@ -257,6 +258,10 @@ class RealtimeSession implements SttStreamSession {
         return;
       case "conversation.item.input_audio_transcription.completed":
         this.completedText += msg.transcript ?? "";
+        // 覆盖记账（B16）：句终边界到达 = 此前缓冲段已入账 completedText，
+        // 重连重放不得再含——否则新会话重转写同段再发 completed，completedText
+        // 跨会话重复拼接断连前缀（onFinal 全文重复）。句终后追加的在途段保留。
+        this.replayLog.length = 0;
         return;
       case "conversation.item.input_audio_transcription.failed":
         this.itemFailures += 1;

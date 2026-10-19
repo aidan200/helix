@@ -27,6 +27,10 @@ export interface FsWatchAdapterDeps {
   readonly isIgnoredSegment: (name: string) => boolean;
   /** 平台注入面（测试以 "linux" 强制走目录分层兜底）；缺省 process.platform。 */
   readonly platform?: string;
+  /** 节点 fs.watch 注入面（可选，缺省 = node:fs watch）：目录分层兜底的
+   *  watcher 生命周期确定性单测面（真 fs 事件在沙箱/CI 不可派发——删除重建
+   *  剧本需确定性驱动；recursive 面共用同一注入）。 */
+  readonly watchFn?: typeof watch;
 }
 
 export class FsWatchAdapter implements FsWatchPort {
@@ -55,13 +59,23 @@ export class FsWatchAdapter implements FsWatchPort {
     onEvent: (event: FsWatchEvent) => void,
     onError?: (error: unknown) => void,
   ): FsWatchHandle {
-    const watcher = watch(root, { recursive: true }, (eventType, filename) => {
+    const watcher = this.nodeWatch(root, { recursive: true }, (eventType, filename) => {
       if (filename === null) return; // 弃事件：无路径可定位
       const abs = path.join(root, filename.toString());
       onEvent({ path: abs, kind: kindOf(eventType, abs) });
     });
     if (onError !== undefined) watcher.on("error", onError);
     return { close: () => watcher.close() };
+  }
+
+  /** 节点 watch 单点（缺省 node:fs watch；测试注入 watchFn 确定性驱动）。 */
+  private nodeWatch(
+    target: string,
+    options: { recursive: boolean },
+    listener: (eventType: string, filename: string | null) => void,
+  ): FSWatcher {
+    const fn = this.deps.watchFn ?? watch;
+    return fn(target, options as never, listener as never);
   }
 
   /**
@@ -74,7 +88,27 @@ export class FsWatchAdapter implements FsWatchPort {
     onError?: (error: unknown) => void,
   ): FsWatchHandle {
     const watchers = new Map<string, FSWatcher>(); // relDir（"" = root）→ watcher
-    const seenTrees = new Set<string>(); // realpath 去重：watched 树内 symlink 成环防线（addTree 无限递归）
+    // realpath → relDir：防环去重 + stale 摘除反查面（评审条目7：只增不删会令
+    // 删除重建的同名目录命中残留键永不补挂——Linux 分层兜底下永久脱管）
+    const seenTrees = new Map<string, string>();
+
+    /** 按前缀摘除整棵子树：watcher + seenTrees 同步出册（覆盖记账共享同一边界）。 */
+    const dropTree = (relDir: string): void => {
+      for (const key of [...watchers.keys()]) {
+        if (key === relDir || key.startsWith(`${relDir}/`)) {
+          const stale = watchers.get(key);
+          watchers.delete(key);
+          try {
+            stale?.close();
+          } catch {
+            // close 幂等防御
+          }
+        }
+      }
+      for (const [real, rel] of [...seenTrees.entries()]) {
+        if (rel === relDir || rel.startsWith(`${relDir}/`)) seenTrees.delete(real);
+      }
+    };
 
     const addTree = (absDir: string, relDir: string): void => {
       let real: string;
@@ -84,7 +118,7 @@ export class FsWatchAdapter implements FsWatchPort {
         return; // 目录扫描窗口内消失
       }
       if (seenTrees.has(real)) return; // symlink 指回已 watch 目录——防环
-      seenTrees.add(real);
+      seenTrees.set(real, relDir);
       if (!addDir(absDir, relDir)) return;
       let names: string[];
       try {
@@ -107,7 +141,7 @@ export class FsWatchAdapter implements FsWatchPort {
       if (watchers.has(relDir)) return true;
       let watcher: FSWatcher;
       try {
-        watcher = watch(absDir, (eventType, filename) => {
+        watcher = this.nodeWatch(absDir, { recursive: false }, (eventType, filename) => {
           if (filename === null) return;
           const name = filename.toString();
           const rel = relDir === "" ? name : `${relDir}/${name}`;
@@ -125,17 +159,10 @@ export class FsWatchAdapter implements FsWatchPort {
             if (isDir) {
               addTree(abs, rel);
             } else {
-              for (const key of [...watchers.keys()]) {
-                if (key === rel || key.startsWith(`${rel}/`)) {
-                  const stale = watchers.get(key);
-                  watchers.delete(key);
-                  try {
-                    stale?.close();
-                  } catch {
-                    // close 幂等防御
-                  }
-                }
-              }
+              // 目录消失：主动摘除以该 rel 为前缀的滞留 watcher + seenTrees 条目
+              //（部分平台对已删目录静默不发 error，rename 风暴会累积句柄泄漏；
+              // seenTrees 不同步清除则同名重建永不补挂——评审条目7）
+              dropTree(rel);
             }
           }
           onEvent({ path: abs, kind: kindOf(eventType, abs) });
@@ -144,13 +171,9 @@ export class FsWatchAdapter implements FsWatchPort {
         return false; // 目录在挂接窗口内消失
       }
       watcher.on("error", (error) => {
-        // 单目录 watcher 故障（目录被删等）：自闭合摘除，不影响其余目录
-        watchers.delete(relDir);
-        try {
-          watcher.close();
-        } catch {
-          // close 幂等防御
-        }
+        // 单目录 watcher 故障（目录被删等）：自闭合摘除（含 seenTrees 出册——
+        // 目录已亡，防环键残留会阻断同名重建），不影响其余目录
+        dropTree(relDir);
         onError?.(error);
       });
       watchers.set(relDir, watcher);

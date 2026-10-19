@@ -72,6 +72,10 @@ import type {
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
   authed: boolean;
+  /** welcome 帧已发标志（评审 B9）：握手链路中段抛错时 authed 已置位但
+   *  welcome 从未发出——排队帧回放守卫改看本位（authed 不再作回放门），
+   *  保证 *.result 回执永不早于 welcome（E-54③）。 */
+  welcomed?: boolean;
   /** 认证通过后构造的协议帧发送端（EventStream 注册键）。 */
   sender: FrameSender | null;
   /**
