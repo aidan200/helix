@@ -1154,6 +1154,7 @@ export const enUS = {
       reviewFailToast: "Failed to launch review: {message}",
       codeReviewTitle: "Code review",
       codeReviewLaunch: "Launch code review",
+      codeReviewRunningBadge: "Code review running",
       codeReviewRunningStrip: "A code review task (code-review) is running for \"{name}\"; watch progress on the Tasks page. This entry becomes available again once the task finishes (concurrency only).",
       codeReviewLaunched: "Code review task launched ({name})",
       codeReviewOkToast: "Code review task launched: {name}",
@@ -1161,6 +1162,7 @@ export const enUS = {
       // ── P1 kg-triage + P2 auto adjudication audit (health pane third task block, hint & spot-check) ──
       triageTitle: "Pending adjudication",
       triageLaunch: "Launch kg-triage",
+      triageRunningBadge: "Adjudication running",
       triageRunningStrip: "kg-triage adjudication running ({name})",
       triageLaunched: "Adjudication task launched ({name})",
       triageOkToast: "Pending adjudication task launched: {name}",

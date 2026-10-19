@@ -1160,6 +1160,7 @@ export const zhCN = {
       reviewFailToast: "体检任务发起失败：{message}",
       codeReviewTitle: "代码评审",
       codeReviewLaunch: "发起代码评审",
+      codeReviewRunningBadge: "代码评审进行中",
       codeReviewRunningStrip: "「{name}」的代码评审任务（code-review）运行中；可在「任务」页观察进度，任务终态后此处恢复可发起（仅禁并发）。",
       codeReviewLaunched: "代码评审任务已发起（{name}）",
       codeReviewOkToast: "代码评审任务已发起：{name}",
@@ -1167,6 +1168,7 @@ export const zhCN = {
       // ── P1 kg-triage 待办面裁决 + P2 自动裁决审计（体检面板第三任务块与提示/抽查面）──
       triageTitle: "待办面即时裁决",
       triageLaunch: "发起 kg-triage",
+      triageRunningBadge: "待办面裁决进行中",
       triageRunningStrip: "kg-triage 裁决进行中（{name}）",
       triageLaunched: "裁决任务已发起（{name}）",
       triageOkToast: "待办面裁决任务已发起：{name}",
