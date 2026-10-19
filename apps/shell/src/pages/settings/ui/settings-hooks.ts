@@ -133,6 +133,76 @@ export function useConfigField<T>(
   return { inputs, setInput, saved, saveError, submit };
 }
 
+/** 端点「设为默认」写面命令（向量/分类两 tab 共用；尾缀归因判据单点）。 */
+const ENDPOINT_SET_DEFAULT_COMMAND = "embedding.set_default";
+
+/** 端点设默认写面控制器（向量/分类两 tab 同构单点）。 */
+export interface DefaultEndpointSetter {
+  /** 在途端点 id（null = 无在途；面板不乐观关——等 list 回执对账）。 */
+  readonly pendingId: string | null;
+  /** daemon 拒绝原因（connection.error 尾缀归因收口；下次发起/回执成功清）。 */
+  readonly error: string | null;
+  /**
+   * 发起设默认：send 返回 false = 未发出（不置在途，调用方 toast 交代）；
+   * 发出即置在途——**不乐观关面板**（daemon 三拒无结果帧，乐观关会吞掉输入面）。
+   */
+  readonly request: (id: string, send: () => unknown) => boolean;
+  /**
+   * 回执对账（调用方在 embedding.list.result 到达时调）：新默认 = 本 tab 在途
+   * id → 收口（清在途/清错误）返回 true（调用方据此关修改口面板）。
+   */
+  readonly settle: (defaultId: string | null) => boolean;
+}
+
+/**
+ * 端点设默认写面状态机（向量/分类两 tab 同构单点；评审 Embedding/Classifier
+ * ModelsTab:229）：daemon 三拒（不存在/kind 不吻合/未 verify）走 connection.error
+ * 而无结果帧——①按「（命令 <type>）」尾缀归因只消费本命令（他命令拒绝不误显示），
+ * ②拒绝原因行内交代，③面板收场改结果帧驱动（list 回执新默认才关）。
+ */
+export function useDefaultEndpointSetter(): DefaultEndpointSetter {
+  const { subscribeEmbeddingFrames } = useSession();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /** 在途 id 镜像（订阅 effect 真挂载一次——listener 读 ref 不进 deps）。 */
+  const pendingRef = useRef<string | null>(null);
+
+  useEffect(
+    () =>
+      subscribeEmbeddingFrames((e: EventEnvelope) => {
+        if (e.type !== "connection.error") return;
+        if (pendingRef.current === null) return; // 单飞门控：本 tab 无在途不消费
+        const message =
+          (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
+        const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+        // 尾缀归因（族B）：他命令拒绝不归本卡；无尾缀旧 daemon 容忍也交代
+        if (cmd !== undefined && cmd !== ENDPOINT_SET_DEFAULT_COMMAND) return;
+        pendingRef.current = null;
+        setPendingId(null);
+        setError(message);
+      }),
+    [subscribeEmbeddingFrames],
+  );
+
+  const request = useCallback((id: string, send: () => unknown): boolean => {
+    setError(null);
+    if (send() === false) return false;
+    pendingRef.current = id;
+    setPendingId(id);
+    return true;
+  }, []);
+
+  const settle = useCallback((defaultId: string | null): boolean => {
+    if (pendingRef.current === null || defaultId !== pendingRef.current) return false;
+    pendingRef.current = null;
+    setPendingId(null);
+    setError(null);
+    return true;
+  }, []);
+
+  return { pendingId, error, request, settle };
+}
+
 /**
  * 两段式删除确认（首击 armed → timeoutMs 后复原；同 id 二击执行 action）。
  * armed = 当前 armed 行 id（按钮变确认态的数据源；null = 无 armed）。
