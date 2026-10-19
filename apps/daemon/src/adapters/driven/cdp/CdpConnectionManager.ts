@@ -537,10 +537,18 @@ export class CdpConnectionManager implements BrowserPort {
     // targetId → sessionId 映射维护（flatten attach 事件通道）
     if (msg.method === "Target.attachedToTarget") {
       const { sessionId, targetInfo } = msg.params;
-      this.sessions.set(targetInfo.targetId, sessionId);
       this.registry.update(targetInfo.targetId, { url: targetInfo.url, title: targetInfo.title });
-      // M1 观察者注入（自动接管来的用户 tab 同样进观察面；开关门内）
-      void this.ensureObserver(sessionId);
+      const existing = this.sessions.get(targetInfo.targetId);
+      if (existing !== undefined && existing !== sessionId) {
+        // 同一 target 的第二个会话（auto-attach 与显式 attach 竞态）：保留既有映射，
+        // 新会话就地解绑——覆盖映射会让旧会话成孤儿，且新会话的注入面只挂一半。
+        void this.sendCDP("Target.detachFromTarget", { sessionId }).catch(() => undefined);
+      } else {
+        this.sessions.set(targetInfo.targetId, sessionId);
+        // 反风控端口守卫 + M1 观察者注入（F2 #28：auto-attach 来的 tab 与显式
+        // attach 同等待遇——否则感知开关开时新 tab 全部漏挂端口拦截）
+        void this.enablePortGuard(sessionId).then(() => this.ensureObserver(sessionId));
+      }
     }
     // 目标生命周期对称：detach/destroy 同步出册清 session——外部关 tab
     // 不留幽灵 tab（否则 15min sweep 才回收）与死 sessionId（后续命令
