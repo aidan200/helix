@@ -422,3 +422,52 @@ describe("code-review 族B：delete-result 清 artifacts 在途位（B1）", () 
     expect(s2.artifactsLoading).toBe(true); // 在途不受影响
   });
 });
+
+// ── ⑧ list-result 回落换选中：在途位/产物归属与 delete-result 同口径（族B 同型）──
+
+describe("⑧ list-result 回落换选中：在途位与产物归属一并复位", () => {
+  function taskStatusOf(jobId: string, status: TaskSummaryDto["status"]): TaskSummaryDto {
+    return {
+      jobId,
+      type: "code-review",
+      title: `任务 ${jobId}`,
+      status,
+      projects: ["helix"],
+      createdBy: "page",
+      createdAt: "2026-08-29T08:00:00.000+08:00",
+      updatedAt: "2026-08-29T08:10:00.000+08:00",
+      progress: null,
+      error: null,
+    };
+  }
+
+  it("选中 job 从新清单消失 → 回落首行并清 artifactsLoading/归属（否则迟到回执被丢弃、结果 tab 永挂骨架）", () => {
+    let s = createTasksPageState();
+    s = tasksReducer(s, { type: "list-result", tasks: [taskStatusOf("j-a", "running"), taskStatusOf("j-b", "running")] });
+    s = tasksReducer(s, { type: "select-task", jobId: "j-a" });
+    s = tasksReducer(s, { type: "tab", value: "result" });
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-a" });
+    expect(s.artifactsLoading).toBe(true);
+    // 外部删除 j-a 后重拉：j-a 消失 → 回落 j-b
+    s = tasksReducer(s, { type: "list-result", tasks: [taskStatusOf("j-b", "running")] });
+    expect(s.selected).toBe("j-b");
+    expect(s.artifactsLoading).toBe(false); // 在途位复位（结果 tab watcher 可重拉 j-b）
+    expect(s.artifactsJob).toBeNull();
+    expect(s.artifacts).toBeNull();
+    expect(s.detail).toBeNull();
+    // 迟到回执（j-a）按新选中丢弃，不落库
+    s = tasksReducer(s, { type: "artifacts-result", jobId: "j-a", artifacts: { stages: [] } });
+    expect(s.artifactsJob).toBeNull();
+  });
+
+  it("选中不变（新清单仍含选中 job）→ 在途位与产物不动（无谓复位会丢已加载产物）", () => {
+    let s = createTasksPageState();
+    s = tasksReducer(s, { type: "list-result", tasks: [taskStatusOf("j-a", "running")] });
+    s = tasksReducer(s, { type: "select-task", jobId: "j-a" });
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-a" });
+    s = tasksReducer(s, { type: "artifacts-result", jobId: "j-a", artifacts: { stages: [] } });
+    s = tasksReducer(s, { type: "list-result", tasks: [taskStatusOf("j-a", "running"), taskStatusOf("j-b", "running")] });
+    expect(s.selected).toBe("j-a");
+    expect(s.artifactsJob).toBe("j-a");
+  });
+});
