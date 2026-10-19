@@ -47,8 +47,16 @@ export function makeKvConfigStore<T>(
   options: KvConfigStoreOptions<T>,
 ): KvConfigStore<T> {
   let cached = options.clone(options.fallback);
+  /**
+   * 在途写计数（F2 #10）：KV 读面是同步直读 db，而写面经 WriteQueue 异步落盘——
+   * 写未落盘期间 db 里仍是旧 JSON，此时 current() 若照常「刷新缓存」，会把刚
+   * 写入的值覆盖回旧值；handler 侧「读现值 → 合并 → 写回」的部分更新随后即丢字段
+   * （set_sandbox 两连接并发可复现）。在途期间读面直接信缓存。
+   */
+  let pendingWrites = 0;
   return {
     current(): T {
+      if (pendingWrites > 0) return cached;
       try {
         const parsed = options.parse(runtimeConfig.get(options.key));
         if (parsed !== undefined) cached = parsed;
@@ -62,7 +70,12 @@ export function makeKvConfigStore<T>(
     },
     async set(value: T): Promise<void> {
       cached = options.clone(value);
-      await runtimeConfig.set(options.key, options.serialize(value));
+      pendingWrites += 1;
+      try {
+        await runtimeConfig.set(options.key, options.serialize(value));
+      } finally {
+        pendingWrites -= 1;
+      }
     },
   };
 }
