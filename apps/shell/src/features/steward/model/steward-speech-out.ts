@@ -494,8 +494,9 @@ export class StewardSpeechOut {
       recordSpeechDiag("play.enqueue-fail", utterId);
       this.pending.delete(utterId);
       this.player.drop(utterId);
+      this.fallbackText += pending.text; // 本句零出声（enqueue 失败）：先拼——发句序在前（degrade 只收后继在途句）
       this.degrade();
-      this.fallbackText += pending.text;
+      this.maybeLateFallback(); // 判决后链死与超时/error 触发面收齐（TR-258：链死且零出声 → 一次性自愈；已出声轮 no-op）
       return;
     }
     this.anyAudio = true;
