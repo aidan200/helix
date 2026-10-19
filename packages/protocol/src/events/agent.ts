@@ -9,6 +9,14 @@ import type { TraceProfileSnapshot } from "../types/trace";
 export interface AgentSpawnedPayload {
   agentId: string;
   task: string;
+  /**
+   * profile 标识：**有意保持 string 透传**（不收窄 ProfileKind）——值来自
+   * spawn 入参（agent_spawn 工具/WS 命令的自由串，daemon 调度层按
+   * DEFAULT_PROFILE_KIND 兜底但不做封闭校验），且历史事件含已撤 kind
+   * （task-worker 等）与自定义 profile 名，收窄会与实际 wire 值脱钩
+   * （trace 回放/旧事件消费面）。封闭集面板见 types/agent.ts ProfileKind
+   * （写面命令用，非本帧值域）。
+   */
   profileKind: string;
   /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
   model?: string;
@@ -88,6 +96,7 @@ export interface AgentResumedPayload {
  */
 export interface AgentInstantiatedPayload {
   instanceId: string;
+  /** profile 标识：同 AgentSpawnedPayload 口径的 string 透传（落盘快照回放面，含历史/已撤 kind）。 */
   profileKind: string;
   /**
    * SubAgent spawn 解析的 thinkingLevel 快照（v0.11 新增，thinking 批④，

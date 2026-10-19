@@ -1,6 +1,6 @@
 /** 资源与观测域命令族：trace.query / agent.config.* / web.*。 */
 import type { CommandFrame } from "../envelope";
-import type { ProfileKind } from "../types/agent";
+import type { ProfileKind, ReadableProfileKind } from "../types/agent";
 import type { TraceQueryPageInput, TraceTimeRange } from "../types/trace";
 import type { EmptyPayload } from "./session";
 
@@ -37,8 +37,8 @@ export interface TraceQueryCommand extends CommandFrame<TraceQueryPayload> {
  * 结果帧 = agent.config.list.result 点对点回执（TR-AD-21 模式）。
  */
 export interface AgentConfigListPayload {
-  /** 目标 kind：缺省 = 全部可配置 kind（main-session + subagent-worker 双块，序固定；task-worker 已撤）；携带 = 单块。 */
-  profileKind?: "main-session" | "subagent-worker";
+  /** 目标 kind：缺省 = 全部可配置块（取值以 types/agent.ts ReadableProfileKind 为单源，序固定；task-worker 已撤）；携带 = 单块。 */
+  profileKind?: ReadableProfileKind;
 }
 
 export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayload> {
