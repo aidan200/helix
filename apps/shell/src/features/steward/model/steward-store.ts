@@ -233,11 +233,14 @@ class StewardStore {
     this.installedSub = sub;
   }
 
-  /** 断连即弃流式缓冲（daemon 不持 delta 状态，重连不重放——终态权威面另达）；
-   *  连接代次递增（重连后读命令幂等键换代重拉）。 */
+  /** 断连即弃流式缓冲 + 复位 ask 在途面：daemon 的 ask.result 点对点发原连接
+   *  （deliverResult(ctx.sendNow(sender))），断连后不会重连补发——不复位则
+   *  面板输入禁用与 phase="asking" 永锁（TR-272 断连清位面）；连接代次递增
+   *  （重连后读命令幂等键换代重拉）。 */
   onDisconnect(): void {
     this.connEpoch += 1;
-    if (this.state.streamingText !== null) this.setState({ streamingText: null });
+    if (this.state.streamingText === null && !this.state.askInFlight && this.state.askActivity === null) return;
+    this.setState({ streamingText: null, askInFlight: false, askActivity: null });
   }
 
   /** 配置读面（同连接代次幂等——防重渲染重发；重连换代重拉）。 */
