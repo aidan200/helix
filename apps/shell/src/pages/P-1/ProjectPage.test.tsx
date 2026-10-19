@@ -8,6 +8,9 @@
  * + subscribeKgFrames 帧注入回放（页面私有链）。中文断言语言钉 zh-CN。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { EventEnvelope, KgProjectRow } from "@helix/protocol";
 import type {
@@ -107,6 +110,8 @@ let mockConn: "connected" | "connecting" | "disconnected" = "connected";
 /** kg.projects send 开关（code-review M：send false → listLoading 不永挂）。 */
 let kgProjectsSendOk = true;
 let kgReadSendOk = true;
+/** kg.node.detail send 开关（B21 #3：select-node 后发送失败 → 清骨架 + toast）。 */
+let kgDetailSendOk = true;
 /** M9 #2.31：体检/台账读面 send 结果可变位（false → 清 loading + err toast）。 */
 let kgHealthSendOk = true;
 
@@ -126,7 +131,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgNodeDetail: (payload: KgNodeDetailPayload) => {
         sent.detail.push(payload);
-        return true;
+        return kgDetailSendOk;
       },
       sendKgChangeReport: () => {
         sent.report += 1;
@@ -259,6 +264,7 @@ afterEach(() => {
   kgProjectsSendOk = true;
   kgReadSendOk = true;
   kgHealthSendOk = true;
+  kgDetailSendOk = true;
   resetRememberedProjectForTest();
 });
 
@@ -1330,5 +1336,75 @@ describe("code-review 低危组10（shell pages P-1）", () => {
       ],
     } satisfies KgProjectsResultPayload);
     expect(screen.getByText("workspace · foo")).toBeTruthy();
+  });
+});
+
+// ── TR-173 state 镜像 ref 纪律（code-review task-91e2e2f9 B21 #1）──────
+// ProjectPage stateRef 被 subscribeKgFrames listener 闭包读取（构建完成 toast
+// 判定），渲染体裸写违反 TR-173「写入必须收敛 setter 包装（ref 与 setState/
+// dispatch 同点写）」——React 并发渲染废弃腿可写陈旧值（行为面在 RTL 不可
+// 复现，按 B22 对 TR-173 类既例采用源码不变式守护）。
+describe("TR-173 state 镜像 ref 纪律（B21 #1：ProjectPage stateRef 渲染体裸写）", () => {
+  /** 被测源码（剥行注释——防注释内示例形态误伤断言；fileURLToPath 字符串
+   * 解析——jsdom 环境 new URL 全局非 node 实现，相对解析会报 scheme 错）。 */
+  const stripped = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ProjectPage.tsx"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+
+  it("渲染体禁裸写 state 镜像 ref：源码无「stateRef.current = state」直写形态", () => {
+    expect(stripped).not.toMatch(/^\s*stateRef\.current\s*=\s*state\s*;?\s*$/m);
+  });
+
+  it("TR-173 定式在位：写入收敛 dispatch 同点写包装（reducer 形态的 markXxx setter）", () => {
+    expect(stripped).toMatch(/dispatchSync/);
+    expect(stripped).toMatch(/stateRef\.current\s*=\s*projectReducer\(/);
+  });
+});
+
+// ── TR-173 state 镜像 ref 纪律（code-review task-91e2e2f9 B21 #2）──────
+// KgViewer stateRef 被 kg-frames-listener 闭包读取（pickInitial 首载判定 /
+// idxRebuilding 判定）。渲染体裸写下，同一 React 批内到达的第二帧读到重渲染
+// 前的陈旧 sel——首载后刷新帧被误判首载：重置选中 + 重拉 detail；镜像写入
+// 收敛 dispatchSync（ref 与 dispatch 同点写）后批内帧立即可见最新 sel。
+describe("TR-173 state 镜像 ref 纪律（B21 #2：KgViewer stateRef 渲染体裸写）", () => {
+  it("同一 act 内连续两帧 kg.list.result：第二帧不是首载——不重置选中/不重拉 detail（镜像批内新鲜）", () => {
+    ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    const before = sent.detail.length;
+    const frame = {
+      v: "0.14", type: "kg.list.result", sessionId: "__system__", channel: "kg",
+      payload: { total: NODES.length, matched: NODES.length, nodes: [...NODES] },
+    } as EventEnvelope;
+    act(() => {
+      for (const l of [...listeners]) l(frame);
+      for (const l of [...listeners]) l(frame);
+    });
+    // 旧形态（渲染体裸写）：第二帧读 sel 仍 null → pickInitial 再置 initialSel
+    // → 重拉 detail（before+2）；修复后仅首帧拉一次（before+1）
+    expect(sent.detail.length).toBe(before + 1);
+  });
+
+  it("源码定式：kg-viewer 无「stateRef.current = state」直写形态，dispatchSync 包装在位", () => {
+    const stripped = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "kg-viewer.tsx"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(stripped).not.toMatch(/^\s*stateRef\.current\s*=\s*state\s*;?\s*$/m);
+    expect(stripped).toMatch(/dispatchSync/);
+    expect(stripped).toMatch(/stateRef\.current\s*=\s*kgReducer\(/);
+  });
+});
+
+// ── send 返回值消费（code-review task-91e2e2f9 B21 #3，TR-84）──────
+// onSelectNode：select-node 已置 detailLoading，sendKgNodeDetail 返回值被吞
+// ——断线窗口点击节点：详情骨架永挂零反馈，重连也不自愈（list 刷新因 sel 非空
+// 不重拉 detail）。与 onConfirm/kg-frames-listener confirm 路径同口径收口。
+describe("send 返回值消费（B21 #3：onSelectNode 断线窗口零反馈）", () => {
+  it("sendKgNodeDetail 返 false → detail-failed 清在途 + err toast 交代（不静默永挂）", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    kgDetailSendOk = false; // 断线窗口：详情命令发不出
+    fireEvent.click(qs('[data-kg-list] [data-id="TR-44"]'));
+    // 命令已尝试发出（payload 带目标 id）
+    expect(sent.detail.some((p) => p.id === "TR-44")).toBe(true);
+    // 零反馈不再：err toast 交代（pj.boot.sendFail）
+    expect(qs(".toast-zone")!.textContent).toContain("发送失败：与 daemon 的连接不可用");
   });
 });

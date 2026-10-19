@@ -32,6 +32,7 @@ import { useI18n } from "@/shared/i18n";
 import { fmtShortDateTime } from "@/shared/lib/format";
 import { useToast } from "@/shared/ui/Toast";
 import { createProjectPageState, projectReducer } from "./model/project-model";
+import type { ProjectAction } from "./model/project-model";
 import KgViewer from "./kg-viewer";
 import { ProgressFill } from "./ui/kg-progress";
 import { KG_INDEX_POLL_MS } from "./model/project-model";
@@ -132,8 +133,18 @@ const ProjectPage = function ProjectPage({
   const conn = session.conn;
 
   const [state, dispatch] = useReducer(projectReducer, undefined, createProjectPageState);
+  // 族A（TR-173）：listener 闭包读最新在途态的镜像 ref——写入走 dispatchSync
+  // 包装（ref 与 dispatch 同点写，eager reduce），禁渲染体裸写（React 并发渲染
+  // 废弃腿可写陈旧值、绕过 setState 单一状态源）。本组件全部 dispatch（含注入
+  // KgViewer 的 projectDispatch 扩面 action）一律经 dispatchSync，镜像不漂移。
   const stateRef = useRef(state);
-  stateRef.current = state;
+  const dispatchSync = useCallback(
+    (action: ProjectAction) => {
+      stateRef.current = projectReducer(stateRef.current, action);
+      dispatch(action);
+    },
+    [dispatch],
+  );
 
   /** 页面发起的 kg.index.status 目标项目（回执无 project 回显——关联靠此 ref）。 */
   const idxReqRef = useRef<string | null>(null);
@@ -145,7 +156,7 @@ const ProjectPage = function ProjectPage({
     const prev = prevConnRef.current;
     prevConnRef.current = conn;
     if (conn === "connected" && prev !== "connected" && sendKgProjects() === false) {
-      dispatch({ type: "list-send-failed" });
+      dispatchSync({ type: "list-send-failed" });
       toast.push("err", t("pj.listSendFail"));
     }
   }, [conn, sendKgProjects, t, toast]);
@@ -161,9 +172,9 @@ const ProjectPage = function ProjectPage({
       subscribeWorkspaceFrames((e) => {
         if (e.type !== "workspace_changed") return;
         rememberedProject = null; // 新工作空间：旧选中记忆随项目域作废
-        dispatch({ type: "workspace-reset" });
+        dispatchSync({ type: "workspace-reset" });
         if (sendKgProjects() === false) {
-          dispatch({ type: "list-send-failed" });
+          dispatchSync({ type: "list-send-failed" });
           toast.push("err", t("pj.listSendFail"));
         }
       }),
@@ -175,7 +186,7 @@ const ProjectPage = function ProjectPage({
     () =>
       subscribeKgFrames((e) => {
         if (e.type === "kg.projects.result") {
-          dispatch({ type: "list-result", projects: [...e.payload.projects] });
+          dispatchSync({ type: "list-result", projects: [...e.payload.projects] });
           return;
         }
         if (e.type === "kg.index.status.result") {
@@ -186,8 +197,11 @@ const ProjectPage = function ProjectPage({
           // KgViewer 面板轮询的回执不再被页面层误消费（本行守护真生效，
           // 而非仅 benign 徽章顺带刷新）
           if (status.state !== "building") idxReqRef.current = null;
-          dispatch({ type: "index-status", name, status });
+          // 读点在 dispatch 之前：eager 镜像下 post-dispatch 已翻 graph，「构建
+          // 完成 toast」判定语义 = 回执到达前仍处 building（原渲染体镜像下两读
+          // 点同值，此处钉住 pre-dispatch 读不变式）
           const cur = stateRef.current;
+          dispatchSync({ type: "index-status", name, status });
           if (
             name === cur.selected &&
             cur.mainMode === "building" &&
@@ -228,25 +242,25 @@ const ProjectPage = function ProjectPage({
       return;
     }
     idxReqRef.current = cur.selected;
-    dispatch({ type: "build-started", name: cur.selected });
+    dispatchSync({ type: "build-started", name: cur.selected });
   }, [sendKgIndexStatus, toast, t]);
 
   const onSelectProject = useCallback((name: string) => {
     rememberedProject = name; // 记入会话内记忆（离开 /project 再进自动恢复）
     idxReqRef.current = null; // 切项目：旧项目的在途查询锚作废
-    dispatch({ type: "select-project", name });
-  }, []);
+    dispatchSync({ type: "select-project", name });
+  }, [dispatchSync]);
 
   // 记忆恢复：清单到位且尚未选中时，命中记忆项目走点选同路径进主区态
   //（项目已从新清单消失 → 保持 empty 不强行选中——记忆仅提示非权威）
   useEffect(() => {
     if (state.listLoading || state.selected !== null || rememberedProject === null) return;
     if (state.projects.some((p) => p.name === rememberedProject)) {
-      dispatch({ type: "select-project", name: rememberedProject });
+      dispatchSync({ type: "select-project", name: rememberedProject });
     }
-  }, [state.listLoading, state.selected, state.projects]);
+  }, [state.listLoading, state.selected, state.projects, dispatchSync]);
 
-  const onExpandDomain = useCallback(() => dispatch({ type: "expand-domain" }), []);
+  const onExpandDomain = useCallback(() => dispatchSync({ type: "expand-domain" }), [dispatchSync]);
 
   // ── 展示派生 ─────────────────────────────────────────────
   const selectedRow =
@@ -401,7 +415,7 @@ const ProjectPage = function ProjectPage({
             key={state.kgToken}
             project={selectedRow}
             bootstrapLaunched={state.bootstrap.launched}
-            projectDispatch={dispatch}
+            projectDispatch={dispatchSync}
             onOpenTasks={onOpenTasks}
           />
         )}

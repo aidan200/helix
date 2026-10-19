@@ -222,8 +222,12 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
   const onPickVoice = (id: string) => {
     setVoice(id);
     writeTtsVoicePref(id);
-    // 音色偏好随订阅上报——订阅态下切换音色即时生效（否则下一帧仍是旧音色）
-    sendVoiceSubscribe(id);
+    // 音色偏好随订阅上报——订阅态下切换音色即时生效（否则下一帧仍是旧音色）；
+    // 仅播报开关 on 时发送（B22 #3）：off 态订阅连接被登记后 daemon 合成推送、
+    // 播放面不查偏好照播——用户显式关闭的「不偷偷发音频」开关不得被绕过
+    //（开=订阅/关=退订契约，docblock；off 态只写音色偏好，开启时
+    // onToggleBroadcast 以 readTtsVoicePref() 现值订阅）
+    if (readVoiceBroadcastPref()) sendVoiceSubscribe(id);
   };
 
   const onVolume = (v: number) => {

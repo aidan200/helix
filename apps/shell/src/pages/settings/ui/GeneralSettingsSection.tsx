@@ -220,15 +220,17 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // 部分更新（批B 转发写面裁决）；开关/下拉点击即发；召回量失焦/回车提交；
   // 空串 = 清除判官端点引用回未配置态；回执驱动回填不乐观。批1：
   // endpointId 退役（向量端点恒为全局默认——写面不传该位）
-  const sendMemory = (patch: { enabled?: boolean; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number }): void => {
+  const sendMemory = (patch: { enabled?: boolean; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number }): boolean => {
+    // 返回 send 结果（TR-84 消费面）：committed 类调用方仅成功才前移（B22 #1）
     if (sendStewardSetConfig({ memory: patch }) === false) {
       setMemoryError(t("chat.settings.general.sendFail"));
-      return;
+      return false;
     }
     setMemoryError(null);
+    return true;
   };
-  const toggleMemory = (enabled: boolean): void => sendMemory({ enabled });
-  const selectJudgeEndpoint = (judgeEndpointId: string): void => sendMemory({ judgeEndpointId });
+  const toggleMemory = (enabled: boolean) => sendMemory({ enabled });
+  const selectJudgeEndpoint = (judgeEndpointId: string) => sendMemory({ judgeEndpointId });
   // 分诊判官写面（分诊判官接入批）：steward.set_config {triage} 部分更新
   //（管家卡内同帧命令——send 失败归管家组行内错误位）；空串 = 清除端点引用；
   // 回执驱动回填不乐观
@@ -252,17 +254,19 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     everyTurns?: number;
     model?: string | null;
     task?: { enabled?: boolean; model?: string | null };
-  }): void => {
+  }): boolean => {
+    // 返回 send 结果（TR-84 消费面）：committed 类调用方仅成功才前移（B22 #1）
     if (setSummaryConfig(patch) === false) {
       setSummaryError(t("chat.settings.general.sendFail"));
-      return;
+      return false;
     }
     setSummaryError(null);
+    return true;
   };
-  const toggleSummary = (enabled: boolean): void => sendSummary({ enabled });
-  const selectSummaryModel = (model: string): void => sendSummary({ model: model === "" ? null : model });
-  const toggleSummaryTask = (enabled: boolean): void => sendSummary({ task: { enabled } });
-  const selectSummaryTaskModel = (model: string): void => sendSummary({ task: { model: model === "" ? null : model } });
+  const toggleSummary = (enabled: boolean) => sendSummary({ enabled });
+  const selectSummaryModel = (model: string) => sendSummary({ model: model === "" ? null : model });
+  const toggleSummaryTask = (enabled: boolean) => sendSummary({ task: { enabled } });
+  const selectSummaryTaskModel = (model: string) => sendSummary({ task: { model: model === "" ? null : model } });
   // 轮次草稿随回执同步（everyTurns 生效值变化才覆写——不误伤在途草稿）
   useEffect(() => {
     if (summaryCfg === null) return;
@@ -279,8 +283,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       setTurnsDraft(String(parsed));
       return;
     }
-    sendSummary({ everyTurns: parsed });
-    turnsCommitted.current = parsed;
+    // 消费 send 结果后才前移 committed（B22 #1：发送失败不前移——否则下次
+    // 失焦判「未变零命令」，草稿看似已存实则从未落盘，重试通道被吞）
+    if (sendSummary({ everyTurns: parsed })) turnsCommitted.current = parsed;
   };
   // 召回量草稿随回执同步（生效值变化才覆写——不误伤在途草稿；旧 daemon 缺席
   // additive 字段 → 缺省兑底展示）
@@ -320,10 +325,15 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       setDraft(String(parsed));
       return;
     }
-    sendMemory(which === "topK" ? { recallTopK: parsed } : which === "pool" ? { recallPool: parsed } : { recallMinScore: parsed });
-    if (which === "topK") topKCommitted.current = parsed;
-    else if (which === "pool") poolCommitted.current = parsed;
-    else scoreCommitted.current = parsed;
+    // 消费 send 结果后才前移 committed（B22 #1：同 everyTurns——发送失败不
+    // 前移，重试通道不被吞）
+    if (
+      sendMemory(which === "topK" ? { recallTopK: parsed } : which === "pool" ? { recallPool: parsed } : { recallMinScore: parsed })
+    ) {
+      if (which === "topK") topKCommitted.current = parsed;
+      else if (which === "pool") poolCommitted.current = parsed;
+      else scoreCommitted.current = parsed;
+    }
   };
 
   const toggleSandbox = (enabled: boolean): void => {

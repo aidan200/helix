@@ -726,6 +726,26 @@ describe("总结组（会话总结器独立化批①：三产物开关 + 轮次 
     fireEvent.click(container.querySelector<HTMLElement>('[data-summary-option="on"]')!);
     expect(container.querySelector("[data-summary-save-error]")).not.toBeNull();
   });
+
+  // code-review task-91e2e2f9 B22 #1：send 失败不前移 committed（重试通道不被吞）
+  it("everyTurns 提交 send 失败不前移 committed：再失焦仍重发（草稿看似已存实则从未落盘 → 重试通道修复）", () => {
+    mockSummary = { enabled: true, everyTurns: 3, model: null, task: { enabled: false, model: null } };
+    try {
+      const { container } = ui();
+      const input = container.querySelector<HTMLInputElement>("[data-summary-turns-input]")!;
+      setSummaryConfig.mockReturnValueOnce(false); // 断线窗口：命令未发出
+      fireEvent.change(input, { target: { value: "5" } });
+      fireEvent.blur(input);
+      expect(setSummaryConfig).toHaveBeenCalledWith({ everyTurns: 5 });
+      expect(container.querySelector("[data-summary-save-error]")).not.toBeNull(); // 行内错误（既有行为）
+      setSummaryConfig.mockClear();
+      fireEvent.blur(input); // 草稿仍 5：再失焦 = 重试
+      // 旧代码：committed 已乐观前移至 5 → 判「未变零命令」不再发（重试被吞）
+      expect(setSummaryConfig).toHaveBeenCalledWith({ everyTurns: 5 });
+    } finally {
+      mockSummary = null;
+    }
+  });
 });
 
 describe("管家组瘦身（设置页长期记忆组批：记忆区迁出管家组）", () => {
@@ -934,6 +954,22 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
     fireEvent.change(input, { target: { value: "0" } });
     fireEvent.keyDown(input, { key: "Enter" }); // 回车也提交；0 = 关闸全放行（值域下界合法）
     expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { recallMinScore: 0 } });
+  });
+
+  // code-review task-91e2e2f9 B22 #1：send 失败不前移 committed（重试通道不被吞）
+  it("recallTopK 提交 send 失败不前移 committed：再失焦仍重发（对照正确形态 commitKgThreshold 从配置现值取 committed）", () => {
+    const { container } = ui();
+    feedStewardConfig(true, MEMORY_ON);
+    const input = container.querySelector<HTMLInputElement>("[data-memory-topk-input]")!;
+    sendStewardSetConfig.mockReturnValueOnce(false); // 断线窗口：命令未发出
+    fireEvent.change(input, { target: { value: "12" } });
+    fireEvent.blur(input);
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { recallTopK: 12 } });
+    expect(container.querySelector("[data-memory-save-error]")).not.toBeNull(); // 行内错误（既有行为）
+    sendStewardSetConfig.mockClear();
+    fireEvent.blur(input); // 草稿仍 12：再失焦 = 重试
+    // 旧代码：topKCommitted 已乐观前移至 12 → 判「未变零命令」不再发（重试被吞）
+    expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { recallTopK: 12 } });
   });
 
   it("观测与入口迁入：条目计数行 + 待命提示（enabled ∧ !available）+ 管理记忆链接", () => {

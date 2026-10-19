@@ -68,7 +68,9 @@ describe("HotkeyRecorder（按键录制形态）", () => {
     fireEvent.keyDown(window, { key: "K", metaKey: true, shiftKey: true });
     expect(screen.getByTestId("hotkey-value").textContent).toBe("⌘⇧K");
     expect(localStorage.getItem(STEWARD_WAKE_HOTKEY_PREF_KEY)).toBe("⌘⇧K");
-    await vi.waitFor(() => expect(syncWakeHotkeyRegistration).toHaveBeenCalledTimes(2));
+    // 三次 = 进录制暂注（effect 体 suspend）+ commit 热更新（await 版）+
+    // 离开录制恢复（effect cleanup；幂等重放，B22 #2 卸载兑底面）
+    await vi.waitFor(() => expect(syncWakeHotkeyRegistration).toHaveBeenCalledTimes(3));
   });
 
   it("修饰键拒单键：行内提示 + 留在录制态；修饰键单独按下忽略", () => {
@@ -117,5 +119,18 @@ describe("HotkeyRecorder（按键录制形态）", () => {
     fireEvent.click(screen.getByTestId("hotkey-record"));
     fireEvent.keyDown(window, { key: "K", metaKey: true, shiftKey: true });
     await vi.waitFor(() => expect(screen.getByTestId("hotkey-register-error")).toBeTruthy());
+  });
+
+  // code-review task-91e2e2f9 B22 #2：录制态卸载恢复注册
+  it("录制态组件卸载：effect cleanup 兜底恢复唤醒组合键注册（切分区/离开页面不静默失灵）", () => {
+    const { unmount } = renderRecorder();
+    fireEvent.click(screen.getByTestId("hotkey-record"));
+    expect(syncWakeHotkeyRegistration).toHaveBeenCalledWith({ suspend: true });
+    syncWakeHotkeyRegistration.mockClear();
+    unmount(); // 录制态下卸载（Esc/commit 两条收尾路径均不经过）
+    // 旧代码：cleanup 只移除键盘监听——唤醒组合键静默失灵直到重新录制
+    //（mock 包装层显式透传 opts：无参调用落参为 undefined）
+    expect(syncWakeHotkeyRegistration).toHaveBeenCalledWith(undefined);
+    expect(syncWakeHotkeyRegistration).not.toHaveBeenCalledWith({ suspend: true });
   });
 });
