@@ -991,3 +991,35 @@ describe("阶段角色门与装配完成申报（A 批：kind 机械约束 + 第
     });
   });
 });
+
+describe("store 守卫拒绝上抛（mapDomainError 吞错回归，review B4）", () => {
+  // TaskEngineService 七处 `.catch((error) => this.mapDomainError(error))` 形态：
+  // mapDomainError 对 DomainError 是 return 而非 throw——.catch 把返回值当恢复值，
+  // store 迁移守卫拒绝（非法迁移/行不存在）被静默吞掉、方法照常返回成功
+  //（与 transitionJob :813 的正确 `throw this.mapDomainError(e)` 自相矛盾）。
+  test("writeStageArtifact 重复聚合已 done 阶段 → done→done 守卫拒绝须上抛 task.invalid_state，不得静默成功", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId } = await launchRunningJob(env); // stage1 running + batch running
+      await env.engine.completeBatch(batchId);
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "L0 完成" });
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("done");
+      // 重复聚合：assertStageTransition(done→done) 拒绝——吞错缺陷下本调用
+      // 假装成功（产物未落库），修复后须上抛 TaskError
+      await expect(env.engine.writeStageArtifact(jobId, 1, { summary: "重复申报" })).rejects.toMatchObject({
+        code: "task.invalid_state",
+      });
+      // 原产物不被第二次申报覆盖（吞错时静默丢弃新产物）
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.artifact).toEqual({ summary: "L0 完成" });
+    });
+  });
+
+  test("cancel 对已 done 阶段不触达守卫（回归护栏：修复不改变 cancel 幂等收口语义）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId } = await launchRunningJob(env);
+      await env.engine.completeBatch(batchId);
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "L0 完成" });
+      await env.engine.cancel(jobId); // done stage 被 isTerminalStage 跳过，不进吞错面
+      expect(env.store.getJob(jobId)!.status).toBe("cancelled");
+    });
+  });
+});
