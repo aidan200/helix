@@ -292,7 +292,7 @@ export class WsServerAdapter {
 
   private async onFetch(req: Request, srv: Bun.Server<ConnState>): Promise<Response | undefined> {
     // ① WS 升级（非升级请求返回 false，继续 HTTP 路径）
-    if (srv.upgrade(req, { data: { authed: false, sender: null } satisfies ConnState })) {
+    if (srv.upgrade(req, { data: { authed: false, welcomed: false, sender: null } satisfies ConnState })) {
       return undefined;
     }
 
@@ -385,6 +385,7 @@ export class WsServerAdapter {
 
   private onOpen(ws: ServerWebSocket<ConnState>): void {
     ws.data.authed = false;
+    ws.data.welcomed = false;
     ws.data.sender = null;
     this.logConn(ws, "ws open");
     // 修复批③：握手超时自清——连接建立起计时，超时窗口内未完成握手（合法
@@ -475,8 +476,11 @@ export class WsServerAdapter {
         }
         const queued = this.handshakeQueues.get(ws) ?? [];
         this.handshakeQueues.delete(ws);
-        // 握手拒绝（连接已 close）或窗口内断连：丢弃排队帧不回放
-        if (!ws.data.authed || ws.readyState !== WebSocket.OPEN) return;
+        // 握手拒绝（连接已 close）、链路异常兜底 close 或窗口内断连：丢弃排队帧
+        // 不回放。回放门 = welcomed（welcome 已发）而非 authed（评审 B9：链路
+        // 中段抛错时 authed 已置位但 welcome 未发——authed 作门会令 *.result
+        // 回执早于 welcome，破 E-54③；readyState 守卫仍作为断连面兜底）。
+        if (!ws.data.welcomed || ws.readyState !== WebSocket.OPEN) return;
         for (const queuedFrame of queued) this.dispatchCommand(ws, queuedFrame);
       });
       return;
@@ -503,6 +507,13 @@ export class WsServerAdapter {
       ws.close(); // error 帧先入发送队列，close 控制帧随后（契约 §2：先发帧再 close）
     };
 
+    // 链路整体兜底（评审 B9）：authed 置位后的异步链（probeCurrentDraft/
+    // getStatus/events.attach/freshness/getDefault）任一抛错 → 修复前为
+    // unhandledRejection + 连接悬挂（welcome/snapshot 永不发、超时定时器已被
+    // finally 清除成永久死锁）+ finally 排队帧照常回放（*.result 早于 welcome
+    // 破 E-54③）。与 dispatchCommand H5 兜底同构：connection.error
+    // {daemon.internal} 先发帧再 close；拒绝帧自身发送失败时兜底 close 不悬挂。
+    try {
     // 首帧必须是 hello（非 hello = 未出示 token）；payload 非对象形状
     // （null/字符串——code-review H4）同拒：null 属性访问抛 TypeError →
     // unhandled rejection → 不发拒绝帧不 close 连接悬挂（E-54 先发帧再 close）
@@ -579,6 +590,7 @@ export class WsServerAdapter {
       },
     };
     this.sendNow(sender, welcome);
+    ws.data.welcomed = true; // 排队帧回放门置位（E-54③：回执不早于 welcome）
     if (isDraft) return; // 草稿握手不推快照（前端按草稿态显示；建会话链另推）
     if (view !== undefined) {
       // M4：快照盖章 = 视图同源组装（sessionStamp——model 缺省回退全局
@@ -587,6 +599,16 @@ export class WsServerAdapter {
       // welcome 仍取 getStatus（连接级帧回带全局现值，非 per-session 盖章面）。
       const stamp = this.sessionStamp(view);
       this.sendNow(sender, this.snapshotFrame(view, stamp.model, stamp.agentState));
+    }
+    } catch (err) {
+      // 兜底拒绝路径（E-54 同处置）：先发帧再 close；发送面自身崩坏时
+      // 兜底 close（不悬挂、不留死锁连接）。
+      try {
+        reject("daemon.internal", `握手链路异常：${(err as Error).message}`);
+      } catch {
+        ws.data.daemonClose = "handshake-error-fallback";
+        try { ws.close(); } catch { /* 连接已断 */ }
+      }
     }
   }
 
