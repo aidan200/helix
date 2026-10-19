@@ -22,10 +22,12 @@
  * sync 也走全量域重建；重建成功后经 onSynced 钩子自动重挂 watcher。
  *
  * 【purge 安全门禁】存在非终态（!isTerminalJob：running/pending/paused）
- * 的 kg-bootstrap 任务时拒绝（kg.graph.purge_blocked）——防 done 任务悬挂
- * 引用，亦防 paused 任务在清库（含发号计数器清零）后恢复写入破坏 E-8
- * 「id 永不复用」不变式（code-review H4：原门禁仅 running/pending，paused
- * 可穿透）。判定口径 = hasActiveJob（job-activity 单源，与 bootstrap/review
+ * 的 kg 写任务族任务（kg-bootstrap/kg-triage/kg-review——清单以
+ * KG_WRITING_TASK_TYPES 为单源）时拒绝（kg.graph.purge_blocked）——防 done
+ * 任务悬挂引用，亦防 paused 任务在清库（含发号计数器清零）后恢复写入
+ * 破坏 E-8「id 永不复用」不变式（code-review H4：原门禁仅 running/pending，
+ * paused 可穿透；评审 F1：原门禁漏 kg-triage/kg-review 同样写库的面）。
+ * 判定口径 = hasActiveKgWritingJob（job-activity 单源，与 bootstrap/review
  * create 准入同源）。
  *
  * 【index-delete 范围】删除 .codegraph（引擎 deleteIndex）+ kg 索引态
@@ -45,7 +47,7 @@ import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgFsWatchService } from "./KgFsWatchService";
 import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
-import { hasActiveJob, projectNameOf } from "./job-activity";
+import { hasActiveKgWritingJob, projectNameOf } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
 
@@ -105,15 +107,18 @@ export class KgMaintenanceService {
     if (!resolved.ok) return resolved;
     const projectRoot = resolved.value;
 
-    // 安全门禁：非终态（含 paused）kg-bootstrap 任务存在时拒绝——hasActiveJob
-    // 单源（与 bootstrap/review create 准入同口径，code-review L 消双实现）
+    // 安全门禁：任一 kg 写任务族（kg-bootstrap/kg-triage/kg-review）存在
+    // 非终态（含 paused）任务时拒绝——hasActiveKgWritingJob 族口径
+    //（与 bootstrap/review create 准入同源 hasActiveJob，code-review L 消
+    // 双实现；评审 F1：在途 triage 同样写库，门禁漏列即发号计数器清零后
+    // 恢复写入破坏 E-8「id 永不复用」）
     const projectName = projectNameOf(projectRoot);
-    if (hasActiveJob(this.deps.taskStore.listJobs(), "kg-bootstrap", projectName)) {
+    if (hasActiveKgWritingJob(this.deps.taskStore.listJobs(), projectName)) {
       return {
         ok: false,
         error: {
           code: "kg.graph.purge_blocked",
-          message: `存在运行中的 kg-bootstrap 任务（${projectName}）：清空图谱不可用——请先等待任务完成或取消任务`,
+          message: `存在运行中的 kg 写入任务（kg-bootstrap/kg-triage/kg-review，${projectName}）：清空图谱不可用——请先等待任务完成或取消任务`,
         },
       };
     }
