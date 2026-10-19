@@ -1277,11 +1277,9 @@ export class StewardService implements StewardComponent {
     this.ledger = new ProposalLedger({ now: () => this.now() });
     this.run = new StewardRun<StewardAskErrorKind>(() => this.now());
     this.askQueue = new AskQueue<StewardAskItem>(() => this.tuningOf().ask.queueMax); // 批 2：上限现拍（KV 即热）
-    // 批 3a：工具面收编 StewardToolKit（deps 全量透传 + 确认执行体闭包注入）
-    this.toolKit = new StewardToolKit({
-      ...deps,
-      executePending: (action: PendingAction) => this.executePending(action),
-    });
+    // 批 3a：工具面收编 StewardToolKit（deps 全量透传；executePending 不注入
+    // ——挂闸工具 execute 不直行写动作，确认执行体留在本服务 confirm 域）
+    this.toolKit = new StewardToolKit(deps);
   }
 
   async ask(
