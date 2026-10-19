@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   inputAnnotate,
   inputConfirm,
+  inputConfirmWithId,
   inputEvict,
   inputHearing,
   inputResolve,
@@ -85,5 +86,39 @@ describe("input-pipeline（左侧输入流水）", () => {
   it("evict 无变化原引用短路（无谓重渲染零）", () => {
     const rows = inputConfirm([], "活句", T0);
     expect(inputEvict(rows, T0 + 1)).toBe(rows);
+  });
+});
+
+// ── 行身份定向（评审 StewardVoiceLayer:118：异步门窗口内尾位被新句占走）──
+describe("inputConfirmWithId / inputResolve(targetId)：行 id 定向标记", () => {
+  it("异步判定链按 id 定向：新句成为尾行后，旧句终态仍标旧句行", () => {
+    const first = inputConfirmWithId([], "第一句", T0);
+    // 判定在途：第二句入列（成为尾行）
+    const second = inputConfirmWithId(first.rows, "第二句", T0 + 10);
+    expect(second.rows.length).toBe(2);
+    expect(second.id).not.toBe(first.id);
+    const resolved = inputResolve(
+      second.rows,
+      { state: "rejected", note: { kind: "voiceprint-reject", pct: 30, th: 60 } },
+      T0 + 20,
+      first.id,
+    );
+    expect(resolved[0]).toMatchObject({ id: first.id, text: "第一句", state: "rejected" });
+    expect(resolved[0]!.note).toMatchObject({ kind: "voiceprint-reject" });
+    // 尾行（第二句）不被误标
+    expect(resolved[1]).toMatchObject({ id: second.id, state: "confirmed", note: null });
+  });
+
+  it("未知 id / 已驱逐行：原行集不变（迟到回执不误标他人）", () => {
+    let rows = inputConfirm([], "活句", T0);
+    rows = inputResolve(rows, { state: "done" }, T0 + 5, 99_999);
+    expect(rows[0]).toMatchObject({ text: "活句", state: "confirmed" });
+  });
+
+  it("hearing 尾行转正沿用同行 id（同句同行）", () => {
+    const hearing = inputHearing([], "拟输入", T0);
+    const confirmed = inputConfirmWithId(hearing, "定稿句", T0 + 5);
+    expect(confirmed.rows.length).toBe(1);
+    expect(confirmed.id).toBe(hearing[0]!.id);
   });
 });
