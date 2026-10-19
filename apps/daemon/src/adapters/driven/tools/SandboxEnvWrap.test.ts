@@ -282,6 +282,42 @@ describe("wrapEnvForSandbox fallback 态（规则级执行器——U0c 二期）
   });
 });
 
+describe("profile 文件内容寻址（评审 F2 #19）", () => {
+  /** 从 sandbox-exec 改写命令里取回 profile 路径（`-f '<path>'`）。 */
+  function profilePathOf(cmd: string): string {
+    const m = cmd.match(/^\/usr\/bin\/sandbox-exec -f '([^']+)'/);
+    if (m === null) throw new Error(`no profile in command: ${cmd}`);
+    return m[1]!;
+  }
+
+  function runtimeWithRoots(roots: readonly string[]): SandboxRuntime {
+    return { policy: { mode: "on", writableRoots: roots }, profileDir: "/tmp/sandbox-test-profiles", enforcer: "seatbelt" };
+  }
+
+  async function profilePathOfRoots(roots: readonly string[]): Promise<string> {
+    const env = mockEnv();
+    await wrapEnvForSandbox(env, runtimeWithRoots(roots)).exec("true", undefined, CTX);
+    return profilePathOf(env.execCalls[0]!);
+  }
+
+  test('roots 串拼接歧义不碰撞：["/a","/bc"] 与 ["/a/bc"] 落不同 profile', async () => {
+    const split = await profilePathOfRoots(["/Users/x/work", "/a", "/bc"]);
+    const joined = await profilePathOfRoots(["/Users/x/work", "/a/bc"]);
+    expect(split).not.toBe(joined);
+  });
+
+  test("同 roots 稳定同文件（幂等：重复 exec 不新增 profile）", async () => {
+    const first = await profilePathOfRoots(["/Users/x/work", "/Users/x/.helix"]);
+    const second = await profilePathOfRoots(["/Users/x/work", "/Users/x/.helix"]);
+    expect(first).toBe(second);
+  });
+
+  test("指纹取全长散列（非 32 位）：文件名带 64 位十六进制摘要", async () => {
+    const path = await profilePathOfRoots(["/Users/x/work"]);
+    expect(path).toMatch(/seatbelt-[0-9a-f]{64}\.sbpl$/);
+  });
+});
+
 describe("wrapEnvForSandbox helper 态（Windows 受限 token——U0c 二期②接线）", () => {
   const helperRt = (): SandboxRuntime => ({ ...fallbackRuntime(), enforcer: "helper", helperPath: "C:\\tools\\helix-sandbox-helper.exe" });
 
