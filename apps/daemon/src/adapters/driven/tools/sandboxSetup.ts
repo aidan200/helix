@@ -75,10 +75,26 @@ function locateWindowsHelper(): string | undefined {
   }
 }
 
+/** helper 自检 argv：多词 bash -c + 位置参数（B28/task-91e2e2f9）——单词语句
+ *  `exit 0` 在 argv 裸拼时代巧合通过，无法暴露命令行重建腰斩缺陷；自检脚本
+ *  须含内嵌空格/引号并断言位置参数原样到达（脚本腰斩时 `"$1"` 判定必败）。 */
+export function windowsHelperSelfCheckArgs(writableRoot: string): string[] {
+  return [
+    "--writable",
+    writableRoot,
+    "--",
+    "bash",
+    "-c",
+    '[ "$1" = "two words" ]',
+    "selfcheck",
+    "two words",
+  ];
+}
+
 /** helper 自检：真跑一次最小命令（受限 token + grant 链全通验证）。失败降级 fallback。 */
 function windowsHelperSelfCheck(helperPath: string): boolean {
   try {
-    const res = spawnSync(helperPath, ["--writable", tmpdir(), "--", "bash", "-c", "exit 0"], {
+    const res = spawnSync(helperPath, windowsHelperSelfCheckArgs(tmpdir()), {
       encoding: "utf-8",
       timeout: 30_000,
     });

@@ -26,8 +26,10 @@
  *
  * env 注入面：
  * - HELIX_DESKTOP_HOME：注入 daemon `--home`（dev/测试隔离位；缺省 =
- *   daemon 默认 ~/.helix）。daemon 端口经 `<home>/config.json` 的 port
- *   键注入（既有配置面，非本脚本旋钮）。
+ *   daemon 默认 ~/.helix）。daemon 端口经 helix.db KV `daemon_port` 解析
+ *  （TR-112 config 瘦身：argv --port > KV > 7333；config.json 已退役为
+ *   纯引导参数 staticDir/rgPath，无 port 键）——本脚本不注入 --port，
+ *   预绑定端口解析链 = KV daemon_port > 缺省 7333（readWsPort）。
  *
  * argv 旋钮面（编排脚本自身参数，非 env——运行期配置走既有配置面，
  * env 只留 bootstrap 定位键）：
@@ -36,9 +38,9 @@
  *   前端门禁（W3）引导 UI 选择（旧 TTY prompt 机制已删——UI 门禁取代
  *   之）；已传（目录须存在，否则起编排前 fail-fast）→ wrapper cd 保留 +
  *   daemon ready 后经 WS 发 workspace.open {root} 预绑定（token =
- *   `<home>/dev-token` 文件，端口 = `<home>/config.json` port 键，缺省
- *   7333），预绑定失败（超时/校验错）非零退出——显式指认错误的
- *   fail-fast 精神保留。e2e/无头场景传它跳过交互门禁。
+ *   `<home>/dev-token` 文件，端口 = helix.db KV `daemon_port`（TR-112
+ *   解析链），缺省 7333），预绑定失败（超时/校验错）非零退出——显式指认
+ *   错误的 fail-fast 精神保留。e2e/无头场景传它跳过交互门禁。
  * - --vite-port=<port>：vite dev 端口覆盖（测试隔离位；缺省 =
  *   vite 默认 5173，与 tauri.conf devUrl 对齐）。覆盖后经 --config 同步
  *   override build.devUrl 随动——tauri dev 启动前等待 devUrl 可达，不随动
@@ -51,6 +53,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
+import { Database } from "bun:sqlite";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { installFromRelease, isInstalled, RG_DEST } from "./fetch-rg";
 import {
@@ -259,14 +262,14 @@ export function resolveDevWorkspaceRoot(deps: WorkspaceRootDeps): string | undef
 /** 预绑定总超时（对齐握手超时量级；超时 → 非零退出）。 */
 export const PREBIND_TIMEOUT_MS = 15_000;
 
-/** daemon 默认 WS 端口（同值锚：apps/daemon/src/infrastructure/config.ts DEFAULT_PORT；<home>/config.json port 键缺省值）。 */
+/** daemon 默认 WS 端口（同值锚：apps/daemon/src/infrastructure/config.ts DEFAULT_PORT；helix.db KV daemon_port 未设时的缺省回落，TR-112 解析链末端）。 */
 const DEFAULT_WS_PORT = 7333;
 
 /** prebindWorkspace 注入面（成功/超时/校验错三分支可单测，零真网络依赖）。 */
 export interface PrebindDeps {
   /** 待绑定 workspace 根（workspace.open payload.root）。 */
   readonly root: string;
-  /** daemon WS 端口（`<home>/config.json` port 键解析值）。 */
+  /** daemon WS 端口（helix.db KV `daemon_port` 解析值；未设/非法 → 缺省 7333）。 */
   readonly port: number;
   /** WS 端口可达探测（daemon ready 信号 = 端口监听；不可达轮询直至超时抛错）。 */
   readonly waitPortReachable: (port: number, timeoutMs: number) => Promise<void>;
@@ -318,11 +321,33 @@ function devHome(): string {
   return process.env.HELIX_DESKTOP_HOME ?? join(homedir(), ".helix");
 }
 
-/** daemon WS 端口读取：`<home>/config.json` port 键（缺省/不可读 → 7333，对齐 daemon 既有配置面）。 */
-function readWsPort(home: string): number {
+/** 解析 KV daemon_port 值（0-65535 整数字符串；非法/未设 → null）——与 daemon
+ * bootPrelude.parseStoredPort 同判（TR-112/E-139 端口解析链）。 */
+export function parseStoredPort(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 65535) return null;
+  return n;
+}
+
+/**
+ * daemon WS 端口读取：helix.db runtime_config KV `daemon_port`（只读短连接，
+ * SELECT 直查——daemon 子进程读面同源手法，ChildMain.readKey 同构；无现成
+ * KV 客户端故用 bun:sqlite 只读查询）。库缺席/表未建/键未设/非法 → 缺省
+ * 7333（TR-112：config.json 已退役为纯引导参数，port 键不再存在——设置页
+ * 改端口后 config.json 无 port，旧实现恒读 7333 致 prebind 连错口 15s 超时）。 */
+export function readWsPort(home: string): number {
   try {
-    const cfg = JSON.parse(readFileSync(join(home, "config.json"), "utf8")) as { port?: unknown };
-    return typeof cfg.port === "number" && cfg.port > 0 ? cfg.port : DEFAULT_WS_PORT;
+    const db = new Database(join(home, "helix.db"), { readonly: true, create: false });
+    try {
+      const row = db.prepare("SELECT value FROM runtime_config WHERE key = 'daemon_port'").get() as
+        | { value: string }
+        | null;
+      return parseStoredPort(row === null ? undefined : row.value) ?? DEFAULT_WS_PORT;
+    } finally {
+      db.close();
+    }
   } catch {
     return DEFAULT_WS_PORT;
   }

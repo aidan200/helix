@@ -13,14 +13,21 @@
 //! 链，砍 conpty/wfp/elevated service/私有桌面/dpapi（codex 的完整桌面隔离
 //! 工程——helix 非交互管道形态用不上）。
 
+// Windows 专属模块（token/ACL/spawn 链）：cfg 门使非 Windows 宿主可跑纯逻辑
+// 单测（cargo test on mac——B28 修复附带；win32 面本体零改动，仅加门）。
+#[cfg(target_os = "windows")]
 mod acl;
+mod quoting;
+#[cfg(target_os = "windows")]
 mod spawn;
+#[cfg(target_os = "windows")]
 mod token;
 
 use std::path::PathBuf;
 
-use anyhow::Context;
 use anyhow::Result;
+#[cfg(target_os = "windows")]
+use anyhow::Context;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,6 +41,8 @@ fn main() {
 }
 
 /// 参数解析：--writable <dir>... 与 `--` 后的命令。
+/// `--` 后 argv 按逐参数 MSVC quoting 重建命令行（B28：裸 join 丢参数边界，
+/// 多词 bash -c 脚本只执行首词——见 quoting.rs）。
 fn parse_args(args: &[String]) -> Result<(Vec<PathBuf>, String)> {
     let mut writables: Vec<PathBuf> = Vec::new();
     let mut i = 0;
@@ -47,7 +56,7 @@ fn parse_args(args: &[String]) -> Result<(Vec<PathBuf>, String)> {
                 writables.push(PathBuf::from(dir));
             }
             "--" => {
-                let cmd = args[(i + 1)..].join(" ");
+                let cmd = quoting::build_command_line(&args[(i + 1)..]);
                 if cmd.is_empty() {
                     anyhow::bail!("`--` 后缺命令");
                 }
@@ -63,6 +72,7 @@ fn parse_args(args: &[String]) -> Result<(Vec<PathBuf>, String)> {
     anyhow::bail!("缺 `-- <command>` 终结符");
 }
 
+#[cfg(target_os = "windows")]
 fn run(args: &[String]) -> Result<i32> {
     // 诊断模式：--diagnose <path>——被沙箱进程内跑 whoami/icacls 取证（CI 盲调：
     // 根外写未拒类问题需要 token 视角 + ACL 面事实，日志一轮拿全）
@@ -102,7 +112,15 @@ fn run(args: &[String]) -> Result<i32> {
 }
 
 
+#[cfg(not(target_os = "windows"))]
+fn run(_args: &[String]) -> Result<i32> {
+    // 非 Windows 构建仅为宿主纯逻辑单测形态（cargo test on mac）；真执行面
+    // 在 Windows（CI windows runner 行为矩阵）——拒跑保 refusing-to-run 纪律。
+    anyhow::bail!("helix-sandbox-helper 仅支持 Windows")
+}
+
 /// 诊断模式：受限 token 视角下跑 whoami /groups + icacls（stdout 透传回测试）。
+#[cfg(target_os = "windows")]
 fn run_diagnose(target: &str) -> Result<i32> {
     unsafe {
         let cap_sid_str = acl::random_cap_sid();
@@ -135,7 +153,44 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(w.len(), 2);
-        assert_eq!(cmd, "cmd /c echo hi");
+        // 多词参数须包双引号（B28：裸 join 会变成 cmd /c echo hi）
+        assert_eq!(cmd, "cmd /c \"echo hi\"");
+    }
+
+    #[test]
+    fn multi_word_bash_c_script_boundaries_preserved() {
+        // B28 生产形态：SandboxEnvWrap 改写命令 = helper -- bash -c <多词脚本>
+        // ——脚本本体须作为单参数包双引号传递，不得被命令行重解析腰斩成首词。
+        let (_, cmd) = parse_args(&[
+            "--writable".into(),
+            "C:\\work".into(),
+            "--".into(),
+            "bash".into(),
+            "-c".into(),
+            "echo hello world".into(),
+        ])
+        .unwrap();
+        assert_eq!(cmd, "bash -c \"echo hello world\"");
+    }
+
+    #[test]
+    fn bash_script_with_embedded_quotes_and_positional_args() {
+        // 含内嵌双引号脚本 + 带空格位置参数：引号转义、空格参数各自成段
+        let (_, cmd) = parse_args(&[
+            "--writable".into(),
+            "C:\\work".into(),
+            "--".into(),
+            "bash".into(),
+            "-c".into(),
+            "printf '[%s|%s]' \"$0\" \"$1\"".into(),
+            "first".into(),
+            "second word".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            cmd,
+            "bash -c \"printf '[%s|%s]' \\\"$0\\\" \\\"$1\\\"\" first \"second word\""
+        );
     }
 
     #[test]
@@ -147,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn cap_sid_shape() {
         let sid = acl::random_cap_sid();
         assert!(sid.starts_with("S-1-5-21-"), "SID 形态: {sid}");

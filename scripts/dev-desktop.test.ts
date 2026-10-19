@@ -18,6 +18,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, createServer } from "node:net";
@@ -37,6 +38,10 @@ import { prebindWorkspace } from "./dev-desktop";
 
 // TDD-RED：wrapper cwd 止血 + W5 两形态——buildWrapperScript 尚未实现（先红后绿）
 import { buildWrapperScript, parseDevDesktopArgs, resolveDevWorkspaceRoot, shQuote } from "./dev-desktop";
+
+// TDD-RED（task-91e2e2f9 B29）：WS 预绑定端口改从 helix.db KV daemon_port 解析
+//（config.json port 键退役，TR-112）——readWsPort 尚未按 KV 读（先红后绿）
+import { parseStoredPort, readWsPort } from "./dev-desktop";
 
 const root = join(import.meta.dir, "..");
 const SCRIPT = join(root, "scripts/dev-desktop.ts");
@@ -538,6 +543,62 @@ describe("parseDevDesktopArgs（argv 旋钮面）", () => {
 
 // ── W5 WS 预绑定编排（纯注入面：成功/超时/校验错三分支）──────────
 
+// ── task-91e2e2f9 B29：预绑定端口解析链对齐 TR-112（helix.db KV daemon_port）──
+
+describe("readWsPort（端口 = helix.db KV daemon_port，TR-112 对齐）", () => {
+  /** 造一个带 runtime_config KV 的 home（helix.db 夹具，真实 bun:sqlite）。 */
+  function homeWith(kv: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), "helix-dev-wsport-"));
+    const db = new Database(join(dir, "helix.db"));
+    db.exec("CREATE TABLE runtime_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    for (const [k, v] of Object.entries(kv)) {
+      db.run("INSERT INTO runtime_config (key, value) VALUES (?, ?)", [k, v]);
+    }
+    db.close();
+    return dir;
+  }
+
+  test("KV daemon_port 生效：7440 → 7440（设置页改端口后预绑定不再连错口）", () => {
+    expect(readWsPort(homeWith({ daemon_port: "7440" }))).toBe(7440);
+  });
+
+  test("非法值/越界/非数字 → 缺省 7333（与 bootPrelude.parseStoredPort 同判）", () => {
+    expect(readWsPort(homeWith({ daemon_port: "abc" }))).toBe(7333);
+    expect(readWsPort(homeWith({ daemon_port: "-1" }))).toBe(7333);
+    expect(readWsPort(homeWith({ daemon_port: "99999" }))).toBe(7333);
+    expect(readWsPort(homeWith({ daemon_port: "7440.5" }))).toBe(7333);
+  });
+
+  test("键未设 / helix.db 缺席 → 缺省 7333（首跑与未改端口场景）", () => {
+    expect(readWsPort(homeWith({}))).toBe(7333);
+    const noDb = mkdtempSync(join(tmpdir(), "helix-dev-wsport-nodb-"));
+    expect(readWsPort(noDb)).toBe(7333);
+  });
+
+  test("config.json 的退役 port 键不再被消费（TR-112：config 瘦身后仅剩 staticDir/rgPath）", () => {
+    const home = homeWith({ daemon_port: "7440" });
+    // 即便旧 config.json 残留 port=9999，也不得压过 KV/缺省链
+    writeFileSync(join(home, "config.json"), JSON.stringify({ port: 9999 }));
+    expect(readWsPort(home)).toBe(7440);
+    const homeNoKv = homeWith({});
+    writeFileSync(join(homeNoKv, "config.json"), JSON.stringify({ port: 9999 }));
+    expect(readWsPort(homeNoKv)).toBe(7333);
+  });
+});
+
+describe("parseStoredPort（KV daemon_port 解析，bootPrelude 同判）", () => {
+  test("0-65535 整数字符串合法；其余 null", () => {
+    expect(parseStoredPort("7333")).toBe(7333);
+    expect(parseStoredPort("0")).toBe(0);
+    expect(parseStoredPort("65535")).toBe(65535);
+    expect(parseStoredPort(undefined)).toBe(null);
+    expect(parseStoredPort("65536")).toBe(null);
+    expect(parseStoredPort("-1")).toBe(null);
+    expect(parseStoredPort("7x")).toBe(null);
+    expect(parseStoredPort("")).toBe(null);
+  });
+});
+
 describe("prebindWorkspace（W5 预绑定：端口可达→读 token→workspace.open）", () => {
   test("成功：三步顺序执行（waitPort→readToken→open），open 参数透传 root/token/port", async () => {
     const order: string[] = [];
@@ -659,6 +720,16 @@ test(
   30_000,
 );
 
+/** 测试 home 预置 daemon 端口：helix.db KV daemon_port（TR-112 解析链——
+ * config.json port 键已退役，daemon resolveWsPort 与 dev-desktop readWsPort
+ * 两侧同源消费 KV，钳口不再依赖 config.json）。 */
+function seedDaemonPort(home: string, port: number): void {
+  const db = new Database(join(home, "helix.db"));
+  db.exec("CREATE TABLE IF NOT EXISTS runtime_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  db.run("INSERT OR REPLACE INTO runtime_config (key, value) VALUES ('daemon_port', ?)", [String(port)]);
+  db.close();
+}
+
 // ── F4.2 编排 + teardown 三件套零残留（连跑两轮）────────────
 
 test(
@@ -666,8 +737,8 @@ test(
   async () => {
     for (let round = 1; round <= 2; round++) {
       // 端口隔离（TR-TEST-4 同口径：不依赖本机 7333/5173 空闲——daemon 端口
-      // 经 <home>/config.json 既有配置面注入，vite 端口经 --vite-port argv
-      // 注入；窗口 devUrl 不随动，编排面断言不依赖窗口内容）
+      // 经 helix.db KV daemon_port 预置（TR-112 解析链，两侧同源），vite 端口
+      // 经 --vite-port argv 注入；窗口 devUrl 不随动，编排面断言不依赖窗口内容）
       const daemonPort = await freePort();
       const vitePort = await freePort();
 
@@ -676,7 +747,7 @@ test(
       const workspace = join(sandbox, "ws"); // workspace 必须显式（领域原则）：注入隔离工作区
       mkdirSync(home, { recursive: true });
       mkdirSync(workspace, { recursive: true });
-      writeFileSync(join(home, "config.json"), JSON.stringify({ port: daemonPort }));
+      seedDaemonPort(home, daemonPort);
       let proc: ReturnType<typeof Bun.spawn> | undefined;
       try {
         proc = Bun.spawn({
@@ -877,7 +948,7 @@ test(
     const sandbox = mkdtempSync(join(tmpdir(), "helix-dev-desktop-prebind-fail-"));
     const home = join(sandbox, "home");
     mkdirSync(home, { recursive: true });
-    writeFileSync(join(home, "config.json"), JSON.stringify({ port: daemonPort }));
+    seedDaemonPort(home, daemonPort); // TR-112：端口钳制走 KV daemon_port（两侧同源）
     let proc: ReturnType<typeof Bun.spawn> | undefined;
     try {
       proc = Bun.spawn({
