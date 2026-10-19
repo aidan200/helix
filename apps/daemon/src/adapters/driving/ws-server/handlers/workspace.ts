@@ -12,6 +12,7 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { WorkspaceGetResultEvent, WorkspaceOpenResultEvent } from "@helix/protocol";
 import type { WorkspaceCommandContext } from "./context";
 import { projectRowToDto } from "./kg";
+import { reportInternalFailure } from "./payload-guards";
 
 /** workspace.get（门禁判定读面：current/recents/notice 快照）。 */
 export function handleWorkspaceGet(ctx: WorkspaceCommandContext): void {
@@ -55,6 +56,6 @@ export function handleWorkspaceOpen(ctx: WorkspaceCommandContext): void {
     })
     .catch((err: unknown) => {
       // 意外异常兜底（service 契约面外）：不吞声不崩溃（trace.ts 同模式）
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }

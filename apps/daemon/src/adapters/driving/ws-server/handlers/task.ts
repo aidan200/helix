@@ -61,6 +61,7 @@ const TASK_ERROR_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "task.validation_failed",
   "task.not_found",
   "task.invalid_state",
+  "task.internal",
 ]);
 
 /** 六态枚举（wire 值 = 后端状态机原值，契约 §0）。 */
@@ -288,8 +289,9 @@ function subscribeGate(ctx: TaskCommandContext): FrameSender | undefined {
 /**
  * 引擎/查询服务错误 → connection.error 回执（错误码原样透传，契约 §4 词表；
  * modelErrorCode 先例 duck-typing err.code——免 TaskError 运行时 import，
- * AG-12 服务面 type-only 纪律）。词表外异常兜底 command.invalid_payload
- * （不吞声不崩溃）。
+ * AG-12 服务面 type-only 纪律）。词表外异常兜底 task.internal（F2 归位：
+ * 未分类内部错误是服务端故障非载荷非法，M7 先例码；原 command
+ * .invalid_payload 误导客户端按参数错误排障）。
  */
 function taskError(ctx: TaskCommandContext, err: unknown): void {
   const code = (err as { code?: unknown }).code;
@@ -298,7 +300,7 @@ function taskError(ctx: TaskCommandContext, err: unknown): void {
     ctx.commandError(ctx.type, code as ErrorCode, message);
     return;
   }
-  ctx.commandError(ctx.type, "command.invalid_payload", message);
+  ctx.commandError(ctx.type, "task.internal", message);
 }
 
 /** 点对点结果帧联合（九命令回执；types/task.ts 窄化接口）。 */

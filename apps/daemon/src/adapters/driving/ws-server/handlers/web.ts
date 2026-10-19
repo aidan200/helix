@@ -30,6 +30,7 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { BrowserPort } from "../../../../application/ports/outbound/BrowserPort";
 import type { WebCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /**
  * BrowserPort 读面 → WebStatusPayload（协议 DTO）：getStatus 状态块 +
@@ -60,7 +61,7 @@ export function handleWebStatus(ctx: WebCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `web.status 执行失败：${(err as Error).message}`));
+  void run().catch((err) => reportInternalFailure(ctx, err, "web.status 执行失败"));
 }
 
 /** web.stop（全局写面）：stop() 执行 + applied 回执（状态回流经广播链）。 */
@@ -77,7 +78,7 @@ export function handleWebStop(ctx: WebCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `web.stop 执行失败：${(err as Error).message}`));
+  void run().catch((err) => reportInternalFailure(ctx, err, "web.stop 执行失败"));
 }
 
 /**
@@ -106,5 +107,5 @@ export function handleWebStart(ctx: WebCommandContext): void {
       payload,
     };
     ctx.sendNow(sender, frame);
-  }).catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `web.start 执行失败：${(err as Error).message}`));
+  }).catch((err) => reportInternalFailure(ctx, err, "web.start 执行失败"));
 }

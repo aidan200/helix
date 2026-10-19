@@ -73,5 +73,7 @@ export type ErrorCode =
   | "kg.triage.not_eligible"
   /** agent-roster 批新增：agent.config.set_enabled 对只读系统派生 kind（orchestrator / subagent-kg-writer）的写面拒绝——前端只读只是表现，后端拒绝才是事实；发 error 帧连接保持 */
   | "agent.config.read_only"
+  /** F2 归位批新增：agent.kill 业务态失败（目标不存在/已终态——message 区分两形态）；原 command.invalid_payload 误导客户端按参数错误处理；发 error 帧连接保持 */
+  | "agent.invalid_state"
   /** H5 新增：命令处理意外异常兑底回执（chat 族等 catch 非判别类异常透传 message——客户端可感知不静默；发 error 帧连接保持） */
   | "daemon.internal";

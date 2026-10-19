@@ -41,6 +41,7 @@ import type {
   McpServerStatusInfo,
 } from "../../../../application/ports/outbound/McpServerPort";
 import type { McpCommandContext } from "./context";
+import { reportInternalFailure } from "./payload-guards";
 
 /** 运行态行 DTO 映射（port McpServerStatusInfo → 协议 McpServerStatusDto）。 */
 function statusDtoOf(status: McpServerStatusInfo): McpServerStatusDto {
@@ -169,7 +170,7 @@ export function handleMcpServersAdd(ctx: McpCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.add 执行失败：${(err as Error).message}`));
+  void run().catch((err) => reportInternalFailure(ctx, err, "mcp.servers.add 执行失败"));
 }
 
 /** mcp.servers.update（全局写面）：按 name 覆盖配置（落盘 + 断旧连重连）。 */
@@ -197,7 +198,7 @@ export function handleMcpServersUpdate(ctx: McpCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.update 执行失败：${(err as Error).message}`));
+  void run().catch((err) => reportInternalFailure(ctx, err, "mcp.servers.update 执行失败"));
 }
 
 /** mcp.servers.remove（全局写面）：断连 + 摘工具 + 落盘（stopped 广播经组合根链）。 */
@@ -223,7 +224,7 @@ export function handleMcpServersRemove(ctx: McpCommandContext): void {
     };
     ctx.sendNow(sender, frame);
   };
-  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.remove 执行失败：${(err as Error).message}`));
+  void run().catch((err) => reportInternalFailure(ctx, err, "mcp.servers.remove 执行失败"));
 }
 
 /** mcp.servers.test（全局写面）：试连（不落盘不注册）——配置页「测试连接」。 */

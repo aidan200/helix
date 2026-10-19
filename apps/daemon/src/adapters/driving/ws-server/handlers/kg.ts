@@ -78,7 +78,7 @@ import type {
 import type { OrphanItem } from "../../../../application/services/kg/KgVerifyService";
 import type { NodeDigestRow } from "../../../../domain/kg/types";
 import type { KgCommandContext } from "./context";
-import { optionalPayloadString, requirePayloadString } from "./payload-guards";
+import { optionalPayloadString, requirePayloadString, reportInternalFailure } from "./payload-guards";
 
 /** kg.projects（F5.0：宽松口径一层扫描；只读零写）。W1：unbound 防御契约——空集结果非报错。 */
 export function handleKgProjects(ctx: KgCommandContext): void {
@@ -253,7 +253,7 @@ export function handleKgIndexStatus(ctx: KgCommandContext): void {
     })
     .catch((err: unknown) => {
       // 意外异常兜底（service 契约面外）：不吞声不崩溃（trace.ts 同模式）
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -281,7 +281,7 @@ export function handleKgBootstrapCreate(ctx: KgCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err: unknown) => {
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -328,7 +328,7 @@ export function handleKgNodeUpdate(ctx: KgCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err: unknown) => {
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -356,7 +356,7 @@ export function handleKgNodeSupersede(ctx: KgCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err: unknown) => {
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -431,7 +431,7 @@ export function handleKgIndexDelete(ctx: KgCommandContext): void {
     })
     .catch((err: unknown) => {
       // 意外异常兜底（service 契约面外）：不吞声不崩溃（kg.index.status 同模式）
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -512,7 +512,7 @@ export function handleKgReviewCreate(ctx: KgCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err: unknown) => {
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -538,7 +538,7 @@ export function handleKgTriageCreate(ctx: KgCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err: unknown) => {
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 
@@ -656,7 +656,7 @@ export function handleCodeReviewCreate(ctx: KgCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err: unknown) => {
-      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+      reportInternalFailure(ctx, err);
     });
 }
 

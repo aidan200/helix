@@ -17,6 +17,7 @@ import type { ProviderListResultEvent } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { ProviderCommandContext } from "./context";
 import type { CustomProviderSetInput } from "../../../../application/services/CustomProviderService";
+import { reportInternalFailure } from "./payload-guards";
 
 /** 清单回执（list/set/delete 共用形态）。 */
 function respondList(ctx: ProviderCommandContext): void {
@@ -72,7 +73,7 @@ export function handleProviderSet(ctx: ProviderCommandContext): void {
       }
       respondList(ctx);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `provider.set 执行失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "provider.set 执行失败"));
 }
 
 /** provider.delete（全局命令）：删除平台 → 回执清单；invalid_payload 防御。 */
@@ -89,5 +90,5 @@ export function handleProviderDelete(ctx: ProviderCommandContext): void {
       }
       respondList(ctx);
     })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `provider.delete 执行失败：${(err as Error).message}`));
+    .catch((err) => reportInternalFailure(ctx, err, "provider.delete 执行失败"));
 }

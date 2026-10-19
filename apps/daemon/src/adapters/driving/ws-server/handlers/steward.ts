@@ -29,6 +29,7 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { StewardCommandContext } from "./context";
 import type { StewardAskEvents } from "../../../../application/steward/StewardService";
 import type { StewardAskSource } from "@helix/protocol";
+import { reportInternalFailure } from "./payload-guards";
 
 /** ask 文本防御上限（管家对话单轮；超长引导拆分）。 */
 const ASK_TEXT_MAX = 2000;
@@ -220,9 +221,7 @@ export function handleStewardHistory(ctx: StewardCommandContext): void {
     .then((outcome) => {
       respond(outcome instanceof Array ? outcome : []);
     })
-    .catch((err) =>
-      ctx.commandError(ctx.type, "command.invalid_payload", `steward.history 执行失败：${(err as Error).message}`),
-    );
+    .catch((err) => reportInternalFailure(ctx, err, "steward.history 执行失败"));
 }
 /** steward.get_config（全局命令）：设置读面 + steward.config.result 回执。 */
 export function handleStewardGetConfig(ctx: StewardCommandContext): void {
@@ -348,9 +347,7 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err) =>
-      ctx.commandError(ctx.type, "command.invalid_payload", `steward.set_config 执行失败：${(err as Error).message}`),
-    );
+    .catch((err) => reportInternalFailure(ctx, err, "steward.set_config 执行失败"));
 }
 
 /**
@@ -452,9 +449,7 @@ export function handleStewardMemoryAppend(ctx: StewardCommandContext): void {
       }
       respondMemoryList(ctx);
     })
-    .catch((err) =>
-      ctx.commandError(ctx.type, "command.invalid_payload", `steward.memory_append 执行失败：${(err as Error).message}`),
-    );
+    .catch((err) => reportInternalFailure(ctx, err, "steward.memory_append 执行失败"));
 }
 
 /** steward.memory_update（全局命令；管家记忆 B2）：重嵌更新 → 回执新清单。 */
@@ -475,9 +470,7 @@ export function handleStewardMemoryUpdate(ctx: StewardCommandContext): void {
       }
       respondMemoryList(ctx);
     })
-    .catch((err) =>
-      ctx.commandError(ctx.type, "command.invalid_payload", `steward.memory_update 执行失败：${(err as Error).message}`),
-    );
+    .catch((err) => reportInternalFailure(ctx, err, "steward.memory_update 执行失败"));
 }
 
 /** steward.memory_delete（全局命令；管家记忆 B2）：行级删除 → 回执新清单
@@ -566,7 +559,10 @@ export function handleStewardJudgeStopIntent(ctx: StewardCommandContext): void {
       },
     };
     ctx.sendNow(sender, frame);
-  });
+  })
+    // F2：意外异常不静默（同文件 ask/confirm 防御先例）——无 catch 时
+    // unhandled rejection 且 shell 打断链永等回执；兑底 daemon.internal。
+    .catch((err) => reportInternalFailure(ctx, err, "steward.judge_stop_intent 执行失败"));
 }
 
 /** ── M3-d1 感知兑现批：活动账两命令（时间线页数据源）────────────── */
