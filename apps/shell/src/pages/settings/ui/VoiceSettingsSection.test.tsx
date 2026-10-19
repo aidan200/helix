@@ -17,7 +17,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
-import { readWelcomeAudioPref, readWelcomeTextPref } from "@/shared/lib/voice-pref";
+import { readTtsVoicePref, readVoiceBroadcastPref, readWelcomeAudioPref, readWelcomeTextPref, VOICE_BROADCAST_PREF_KEY } from "@/shared/lib/voice-pref";
 
 const sendVoiceSynthesize = vi.fn(() => true);
 const sendVoiceSubscribe = vi.fn(() => true);
@@ -168,5 +168,40 @@ describe("欢迎词工坊（生成试听 → 确认固化 → 恢复默认）", 
     fireEvent.click(q('[data-tts-welcome-generate]'));
     expect(sendVoiceSynthesize).not.toHaveBeenCalled();
     expect(screen.getByText("欢迎词文本不能为空")).toBeTruthy();
+  });
+});
+
+// ── 音色选择订阅门控（code-review task-91e2e2f9 B22 #3）──────
+// 播报开关契约（docblock）：开 = voice.subscribe / 关 = voice.unsubscribe——
+// off 态选音色不得无条件订阅：连接被登记后 daemon 合成推送、播放面不查
+// 偏好照播，用户显式关闭的「不偷偷发音频花钱」开关被绕过。
+describe("音色选择订阅门控（B22 #3：off 态选音色不订阅）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    voiceListeners = [];
+    vi.clearAllMocks();
+    stubAudioPlay();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("播报开关 off（默认）：选音色只写偏好，不发 voice.subscribe（开关不被绕过）", async () => {
+    expect(readVoiceBroadcastPref()).toBe(false); // 前置：默认关
+    await renderSection();
+    fireEvent.change(q("#tts-voice"), { target: { value: "Serena" } });
+    expect(readTtsVoicePref()).toBe("Serena"); // 偏好照写（off 态只写音色偏好）
+    // 旧代码：无条件 sendVoiceSubscribe(id)——开关被绕过（红）
+    expect(sendVoiceSubscribe).not.toHaveBeenCalled();
+  });
+
+  it("播报开关 on：选音色随订阅上报（订阅态下切音色即时生效——回归面）", async () => {
+    localStorage.setItem(VOICE_BROADCAST_PREF_KEY, "1");
+    await renderSection();
+    fireEvent.change(q("#tts-voice"), { target: { value: "Serena" } });
+    expect(sendVoiceSubscribe).toHaveBeenCalledWith("Serena");
+    expect(readTtsVoicePref()).toBe("Serena");
   });
 });

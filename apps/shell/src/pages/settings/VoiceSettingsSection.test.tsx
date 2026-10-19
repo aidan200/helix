@@ -223,6 +223,9 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）
   });
 
   it("订阅态下切音色 → sendVoiceSubscribe(新音色) 即时重报（音色随订阅上报）", () => {
+    // B22 #3 后前提为真：播报开关 on（订阅态）才随订阅上报；off 态选音色
+    // 只写偏好（旧测试依赖的「无条件订阅」正是被修的绕开关缺陷）
+    localStorage.setItem("helix.voice.broadcast", "1");
     rig();
     const select = screen.getByLabelText(/播报音色|Voice/) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "Ethan" } });
