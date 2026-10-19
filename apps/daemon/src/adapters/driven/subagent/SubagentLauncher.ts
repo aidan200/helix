@@ -657,7 +657,10 @@ export class SubagentLauncher implements InstanceRunner {
       res = { type: "tool-res", reqId, ok: false, error: "browser 未装配（SubagentLauncher 无 browser 注入——测试 Fake 引擎形态）" };
     } else {
       try {
-        const value = await scopedBrowserCall(this.deps.browser, id, method, args);
+        // 可写根 = 实例 toolCwd（workspace）——截图落盘不得越界（F2 #6）
+        const value = await scopedBrowserCall(this.deps.browser, id, method, args, {
+          allowedWriteRoot: this.currentToolCwd(),
+        });
         res = { type: "tool-res", reqId, ok: true, value: truncateToolResult(value, this.deps.toolResultMaxBytes) };
       } catch (err) {
         res = { type: "tool-res", reqId, ok: false, error: (err as Error).message };
