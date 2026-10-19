@@ -145,6 +145,16 @@ export function surfaceVerbRisk(verb: SurfaceVerb): SurfaceRisk {
  * 2026-10-07 事故：act 工具描述只写了 browser 形状（navigate {url}），模型在
  * shell 表面发明 url 参数 → shell 载荷防御静默弃帧 → 60s 挂死。本校验面在
  * 挂闸/派发前即时拒绝（模型可自纠），错误文本携正确形状与示例。
+ *
+ * **覆盖范围与前置校验链（勿把本函数当总闸单独用）**：
+ * - 只覆盖**已登记形状**的组合（shell×navigate、browser×上列五动词）；
+ * - 未覆盖组合（如 shell×click、browser×未登记动词）返回 undefined = 「本函数
+ *   无该组合的形状规则」，**不等于校验通过**；
+ * - 动词词汇表合法性由调用方先行判定（`isSurfaceVerb` / Registry
+ *   `isSurfaceVerbAllowed`）——现唯一生产调用点 StewardToolKit act 工具即此顺序
+ *   （先 isSurfaceVerb 拒私造动词，再调本函数校形状）；
+ * - 跳过前置直接调用 = 未覆盖组合静默放行（已知缺口：收紧为显式拒绝属**行为
+ *   变更**，未经裁决不擅自改）。
  */
 export function validateSurfaceActArgs(
   namespace: SurfaceNamespaceKind,
@@ -207,7 +217,10 @@ export function validateSurfaceActArgs(
   return undefined; // cli 无注册动词（Registry 注册面拒绝前置）——零形状面
 }
 
-/** SurfaceDescriptor 结构判定（kind ∈ 命名空间 + capabilities 非空动词清单）。 */
+/** SurfaceDescriptor **形状**判定（kind ∈ 命名空间 + capabilities 为非空字符串
+ *  数组）。注意：不校验 capabilities 是否为 SURFACE_VERBS 成员——词汇表成员校验
+ *  单点在 daemon SurfaceRegistry 注册面（逐项 isSurfaceVerb +
+ *  isSurfaceVerbAllowed）。 */
 export function isSurfaceDescriptor(v: unknown): v is SurfaceDescriptor {
   if (typeof v !== "object" || v === null) return false;
   const d = v as { kind?: unknown; capabilities?: unknown };
@@ -255,7 +268,10 @@ export interface SurfaceEventUplinkPayload {
  * 过闸后才产生本帧）；seq 单调供执行回执对账（D7-1 原子性）。
  */
 export interface SurfaceAction {
-  /** 动词（能力=动词清单——D4；M0 动词注册校验面留 M2）。 */
+  /** 动词（能力 = 动词清单，D4）。线格式有意保持 string 不收窄 SurfaceVerb：
+   *  词汇表校验单点在 daemon SurfaceRegistry（注册面 + act 路由）与
+   *  StewardToolKit act 入参闸，协议面收窄需两端同动（收窄属契约变更，非注释
+   *  对齐）。 */
   verb: string;
   /** 动词参数（如 navigate 携 {sessionId}）。 */
   args: Record<string, unknown>;
@@ -303,7 +319,9 @@ export interface SurfaceRegisteredEvent extends EventFrame<SurfaceRegisteredPayl
 export interface SurfaceDescriptor {
   /** 表面宿主种类（surfaceId 命名空间第一段）。 */
   kind: SurfaceNamespaceKind;
-  /** 能力 = 动词清单（非空；如 shell: ["navigate"]）。 */
+  /** 能力 = 动词清单（非空；如 shell: ["navigate"]）。类型层保持 string[]：
+   *  成员合法性单点在 Registry 注册面（isSurfaceVerb + isSurfaceVerbAllowed，
+   *  非法项拒注册），协议面只约束形状（isSurfaceDescriptor）。 */
   capabilities: readonly string[];
   /** 采集策略（可选；如上报事件子集/输入采集边界——D1 隐私一等公民）。 */
   policy?: {

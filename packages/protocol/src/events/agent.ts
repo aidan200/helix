@@ -394,15 +394,25 @@ export interface AgentSkillContentGetResultEvent extends EventFrame<AgentSkillCo
   type: "agent.skill_content.get.result";
 }
 
-/** agent.skill.create.result 载荷：用户级技能创建写面回执（点对点）。 */
-export interface AgentSkillCreateResultPayload {
-  /** applied：name 回显（落盘目录名）；skipped：不落盘。 */
-  status: "applied" | "skipped";
-  /** applied 回显技能名（目录名）。 */
-  name?: string;
-  /** skipped 原因码：invalid-name（含路径穿越）/ missing-description / already-exists / bad-frontmatter。 */
-  reason?: string;
-}
+/**
+ * agent.skill.create.result 载荷：用户级技能创建写面回执（点对点）。
+ *
+ * 真判别联合（`status` 为判别位）：applied **必带** name、skipped **必带**
+ * reason——条件字段不再全可选（拍平写法下「applied 却无 name」无编译期信号）。
+ * 消费端窄化后按变体取字段，勿先判 status 再裸取可选字段。
+ */
+export type AgentSkillCreateResultPayload =
+  | {
+      status: "applied";
+      /** 落盘目录名回显（applied 必带）。 */
+      name: string;
+    }
+  | {
+      status: "skipped";
+      /** 不落盘；原因码：invalid-name（含路径穿越）/ missing-description /
+       *  already-exists / bad-frontmatter。 */
+      reason: string;
+    };
 
 /** agent.skill.create.result：用户级技能创建写面回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
 export interface AgentSkillCreateResultEvent extends EventFrame<AgentSkillCreateResultPayload> {
