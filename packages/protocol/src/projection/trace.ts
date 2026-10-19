@@ -32,7 +32,8 @@ export interface NormalizedTraceQuery {
   readonly agentKind: "main" | "subagent" | null;
   /** null = 全部类型（缺省）；空数组 = 空结果。 */
   readonly types: readonly string[] | null;
-  /** ISO 8601 含起含止（ts >= from && ts <= to）。 */
+  /** ISO 8601 含起含止（ts >= from && ts <= to）；归一为 UTC 毫秒形态
+   *（new Date(v).toISOString()——比较与存储 ts 文本比较同口径，B29）。 */
   readonly timeRange: { readonly from: string | null; readonly to: string | null } | null;
   readonly page: { readonly limit: number; readonly beforeId: number | null };
 }
@@ -52,8 +53,9 @@ export class TraceQueryInvalidError extends Error {
  * WS payload（未信 unknown）→ 归一查询。校验规则（契约 v0.4 §4 机械判据）：
  * sessionId 必填非空；instanceIds/types 为非空 string 数组（空数组合法 =
  * 空结果，无成员枚举）；agentKind ∈ {"main","subagent"}；timeRange from>to
- * 矛盾拒绝；limit 正整数鉗制 MAX_PAGE；beforeId 正整数。违反即
- * TraceQueryInvalidError（中文说明）。
+ * 矛盾拒绝（归一后比较——Date.parse 可解析写法先回写为 ISO 8601 UTC 毫秒
+ * 形态，与 ts 文本比较同口径，B29）；limit 正整数鉗制 MAX_PAGE；beforeId
+ * 正整数。违反即 TraceQueryInvalidError（中文说明）。
  */
 export function normalizeTraceQuery(input: unknown): NormalizedTraceQuery {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
@@ -154,8 +156,17 @@ function optionalStringArray(value: unknown, name: string): readonly string[] | 
 
 function optionalIsoString(value: unknown, name: string): string | null {
   if (value === undefined) return null;
-  if (typeof value !== "string" || value === "" || Number.isNaN(Date.parse(value))) {
+  if (typeof value !== "string" || value === "") {
     throw new TraceQueryInvalidError(`trace.query 校验失败：${name} 应为 ISO 8601 时间文本`);
   }
-  return value;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) {
+    throw new TraceQueryInvalidError(`trace.query 校验失败：${name} 应为 ISO 8601 时间文本`);
+  }
+  // 归一（task-91e2e2f9 B29）：回写为 ISO 8601 UTC 毫秒形态——校验（Date.parse
+  // 接受纯日期/无毫秒/时区偏移等写法）与比较（from>to 矛盾判定、ts 过滤，
+  // daemon SQL ts>=? 亦为文本比较）必须同口径；存储 ts 恒为 toISOString 形态
+  //（WriteQueue 落库链），归一后字典序 == 时间序，两侧（shell 内存过滤 / daemon
+  // SQL）一致。字段形态不变（仍为 string，additive）。
+  return new Date(ms).toISOString();
 }

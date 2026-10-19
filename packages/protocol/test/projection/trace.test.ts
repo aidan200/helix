@@ -106,6 +106,51 @@ describe("trace 域：normalizeTraceQuery（基线 = daemon domain-trace.test.ts
   });
 });
 
+describe("trace 域：timeRange 时间形态归一（task-91e2e2f9 B29：校验与比较口径一致）", () => {
+  test("归一形态：Date.parse 可解析的合法输入回写为 ISO 8601 UTC 毫秒（与 daemon SQL ts 文本比较同口径）", () => {
+    const q = normalizeTraceQuery({
+      sessionId: "s1",
+      timeRange: { from: "2026-01-02", to: "2026-01-03T02:00:00+08:00" },
+    });
+    expect(q.timeRange).toEqual({ from: "2026-01-02T00:00:00.000Z", to: "2026-01-02T18:00:00.000Z" });
+  });
+
+  test("实证①纯日期边界：to='2026-01-02' 的含止边界 = 当日 00:00——边界刻事件须含入（文本比较把它腰斩成排除）", () => {
+    const events = [row({ id: 1, type: "message.completed", ts: "2026-01-02T00:00:00.000Z" })];
+    const q = normalizeTraceQuery({ sessionId: "s1", timeRange: { to: "2026-01-02" } });
+    expect(pageTraceEvents(events, q).total).toBe(1);
+  });
+
+  test("实证②同刻两写法：…T00:00:00Z 与 …T00:00:00.000Z 同刻不误判矛盾（窗口恰含该刻事件）", () => {
+    const q = normalizeTraceQuery({
+      sessionId: "s1",
+      timeRange: { from: "2026-01-02T00:00:00Z", to: "2026-01-02T00:00:00.000Z" },
+    });
+    expect(q.timeRange).toEqual({ from: "2026-01-02T00:00:00.000Z", to: "2026-01-02T00:00:00.000Z" });
+    const events = [row({ id: 1, type: "message.completed", ts: "2026-01-02T00:00:00.000Z" })];
+    expect(pageTraceEvents(events, q).total).toBe(1);
+  });
+
+  test("实证③时区偏移形态：跨日偏移不得误判矛盾/排序翻转（+08:00 的 01-03 02:00 = UTC 01-02 18:00）", () => {
+    const q = normalizeTraceQuery({
+      sessionId: "s1",
+      timeRange: { from: "2026-01-03T02:00:00+08:00", to: "2026-01-02T20:00:00Z" },
+    });
+    const events = [
+      row({ id: 1, type: "message.completed", ts: "2026-01-02T19:00:00.000Z" }), // 窗口内（18:00–20:00）
+      row({ id: 2, type: "message.completed", ts: "2026-01-02T21:00:00.000Z" }), // 窗口外（晚于 to）
+    ];
+    const page = pageTraceEvents(events, q);
+    expect(page.total).toBe(1);
+    expect(page.rows[0]!.id).toBe(1);
+  });
+
+  test("无效时间文本仍拒绝（归一化不放宽校验）", () => {
+    expect(() => normalizeTraceQuery({ sessionId: "s1", timeRange: { from: "not-a-time" } })).toThrow(/ISO 8601/);
+    expect(() => normalizeTraceQuery({ sessionId: "s1", timeRange: { to: 42 } })).toThrow(/ISO 8601/);
+  });
+});
+
 describe("trace 域：hasMoreBefore（基线 = daemon domain-trace.test.ts ④）", () => {
   test("loaded === limit 即可能还有更早页（恰整除边界多一次空载，契约记录在案）", () => {
     expect(hasMoreBefore(50, 50)).toBe(true);
