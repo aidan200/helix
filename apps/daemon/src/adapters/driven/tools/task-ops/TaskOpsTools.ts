@@ -177,8 +177,9 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
       name: "task_dispatch_batch",
       label: "task_dispatch_batch",
       description:
-        "批次派发落章（批次号 + 实例 id；仅 pending/failed 批次可派发——failed→running 为自动重派路径）。" +
-        "在插行与派发之后调用，完成派发三步。接线已终态实例会被机械拦截：批次自动转失败收口并由引擎重派。",
+        "批次补接线（批次号 + 实例 id）：spawn 携带 batchId 时自动接线，本工具是接线失败/" +
+        "需人工补接线的补救口——同实例重复落章幂等（可安全重试）；仅 pending/failed 批次可派发" +
+        "（failed→running 为自动重派路径）。接线已终态实例会被机械拦截：批次自动转失败收口并由引擎重派。",
       parameters: dispatchBatchParameters as any,
       async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
         void toolCallId;
