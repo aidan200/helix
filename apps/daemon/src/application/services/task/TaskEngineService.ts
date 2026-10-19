@@ -245,7 +245,7 @@ export class TaskEngineService implements TaskEnginePort {
       if (isTerminalStage(stage.status)) continue;
       await this.deps.store
         .updateStageStatus(jobId, stage.seq, "failed")
-        .catch((error) => this.mapDomainError(error));
+        .catch((e) => { throw this.mapDomainError(e); })
     }
     await this.transitionJob(jobId, "cancelled");
   }
@@ -282,7 +282,7 @@ export class TaskEngineService implements TaskEnginePort {
       if (stage.status !== "failed") continue;
       await this.deps.store
         .updateStageStatus(jobId, stage.seq, "running")
-        .catch((error) => this.mapDomainError(error));
+        .catch((e) => { throw this.mapDomainError(e); })
       this.notify({ jobId, changed: "stage", status: "running" });
     }
     await this.transitionJob(jobId, "running"); // error=null 清失败理由
@@ -357,9 +357,18 @@ export class TaskEngineService implements TaskEnginePort {
     // （真机实测批次 done 而 stage 滞留 pending 的倒挂）；advanceStage 保留
     // 幂等兼容（已是 running 时 no-op），编排冗余调用不炸。
     if (stage.status === "pending") {
-      await this.deps.store
-        .updateStageStatus(input.jobId, input.stageSeq, "running")
-        .catch((error) => this.mapDomainError(error));
+      // T4.2 幂等兼容的显性化（review B4 吞错修复）：同轮并发 insertBatch 下
+      // 后到者读到滞后 pending 前态、落库时 stage 已被先到者推 running——
+      // running→running 守卫拒绝是同目标幂等 no-op（此前靠吞错侥幸幂等）；
+      // 其余守卫拒绝（done→running / failed→running 等）照常上抛。
+      try {
+        await this.deps.store.updateStageStatus(input.jobId, input.stageSeq, "running");
+      } catch (e) {
+        const current = this.deps.store.getStages(input.jobId).find((s) => s.seq === input.stageSeq);
+        if (!(e instanceof DomainError && current?.status === "running")) {
+          throw this.mapDomainError(e);
+        }
+      }
       this.notify({ jobId: input.jobId, changed: "stage", status: "running" });
     }
     const now = this.deps.clock.now();
@@ -512,7 +521,7 @@ export class TaskEngineService implements TaskEnginePort {
   private async escalateRetryExhausted(batch: BatchData, detail: string): Promise<void> {
     await this.deps.store
       .updateStageStatus(batch.jobId, batch.stageSeq, "failed")
-      .catch((error) => this.mapDomainError(error));
+      .catch((e) => { throw this.mapDomainError(e); })
     this.notify({ jobId: batch.jobId, changed: "stage", status: "failed" });
     await this.transitionJob(
       batch.jobId,
@@ -538,7 +547,7 @@ export class TaskEngineService implements TaskEnginePort {
     // T4.2 幂等兼容：insertBatch 已机械推进 running 后，编排 LLM 的冗余
     // 调用为 no-op 成功（不删工具，双通道收口同一状态）；done 同理幂等不炸
     if (stage.status === "running" || stage.status === "done") return;
-    await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((error) => this.mapDomainError(error));
+    await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((e) => { throw this.mapDomainError(e); })
     this.notify({ jobId, changed: "stage", status: "running" });
   }
 
@@ -573,13 +582,13 @@ export class TaskEngineService implements TaskEnginePort {
     // 直执阶段免两步（B 批）：pending 阶段引擎自动走 running 再落 done——domain
     // 迁移集不动（pending→done 仍非法），LLM 无需「先 advance 再 artifact」两步走
     if (stage.status === "pending") {
-      await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((error) => this.mapDomainError(error));
+      await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((e) => { throw this.mapDomainError(e); })
       this.notify({ jobId, changed: "stage", status: "running" });
     }
     // 阶段产物聚合 + stage 收口 done（§4.6：artifact 随 done 一次落库）
     await this.deps.store
       .updateStageStatus(jobId, stageSeq, "done", artifact)
-      .catch((error) => this.mapDomainError(error));
+      .catch((e) => { throw this.mapDomainError(e); })
     this.notify({ jobId, changed: "stage", status: "done" });
   }
 

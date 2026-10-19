@@ -537,15 +537,26 @@ export class ChatService implements ChatPort {
     void this.resolveGate(
       e.pauseToken,
       command !== undefined
-        ? this.deps.ask?.request({
-            sessionId: this.session.id,
-            instanceId: "main",
-            command,
-            reason,
-            kind: "permission_request",
-          })
+        ? this.requestApproval(command, reason)
         : Promise.reject(new Error("挂闸参数形状异常（非 permission_request 载荷）")),
     );
+  }
+
+  /** ask.request 同步 throw（单 pending 冲突——AskService 方法非 async，返
+   * promise 前抛）转 rejected promise：保证 resolveGate 必被调用（闸必收敛
+   * 不悬挂），异常经防御文案 reject 收口而非冒泡进引擎事件循环。 */
+  private requestApproval(command: string, reason: string): Promise<AskOutcome> | undefined {
+    try {
+      return this.deps.ask?.request({
+        sessionId: this.session.id,
+        instanceId: "main",
+        command,
+        reason,
+        kind: "permission_request",
+      });
+    } catch (err) {
+      return Promise.reject(err instanceof Error ? err : new Error(String(err)));
+    }
   }
 
   /** 裁决收敛：outcome/异常 → resume 决策（全部出口都收口，不挂死）。 */

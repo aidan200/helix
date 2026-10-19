@@ -115,6 +115,8 @@ function makeHarness(options: {
   clock?: ClockPort;
   /** W2-D：pending_sync job 归属解析（透传 ClosureRecorder；缺省不注入 = 恒 null）。 */
   pendingSyncJobIdOf?: (sessionId: string) => string | null;
+  /** F1.3 任务文本切片注入器（review B5 竞态测试面：可控延迟注入）。 */
+  taskInjector?: (sessionId: string, task: string) => Promise<string>;
 }): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t21-sched-"));
   const writeQueue = new WriteQueue(path.join(home, "helix.db"));
@@ -138,6 +140,7 @@ function makeHarness(options: {
     clock,
     stalledPollMs: 40, // 小轮询：stalled 测试可控（K1 阈值注入配套）
     ...(options.pendingSyncJobIdOf !== undefined ? { pendingSyncJobIdOf: options.pendingSyncJobIdOf } : {}),
+    ...(options.taskInjector !== undefined ? { taskInjector: options.taskInjector } : {}),
   });
   return {
     scheduler,
@@ -725,3 +728,48 @@ async function waitForCondition(pred: () => boolean, timeoutMs = 2_000): Promise
   }
 }
 
+
+describe("spawn 注入窗口竞态（review B5：在途占位 + 终态早退）", () => {
+  /** 可控延迟注入器：每次调用挂起至 release 对应 gate。 */
+  function gatedInjector(): { injector: (s: string, t: string) => Promise<string>; release: (n: number) => void } {
+    const gates: Array<(value: string) => void> = [];
+    return {
+      injector: (_s, t) => new Promise((resolve) => gates.push((v) => resolve(`${v}(${t})`))),
+      release: (n) => gates[n]?.("injected"),
+    };
+  }
+
+  test("并发 spawn 双读注入窗口 → 在途实例纳入预算占位，不双双获 run 突破 maxConcurrent", async () => {
+    const { injector, release } = gatedInjector();
+    const h = current = makeHarness({
+      policy: () => new SchedulingPolicy({ maxConcurrent: 1, maxQueued: 8 }),
+      taskInjector: injector,
+    });
+    const pA = h.scheduler.spawn(SESSION_ID, "任务A");
+    const pB = h.scheduler.spawn(SESSION_ID, "任务B"); // A 注入在途（已 register 未 running）
+    release(0);
+    release(1);
+    const [a, b] = await Promise.all([pA, pB]);
+    // 缺陷：B 的 decideSpawn 看不见 A（不计 running 不在 queue）→ 双 run、
+    // 实际 launch 2 个 running 突破 maxConcurrent=1
+    expect(a.status).toBe("run");
+    expect(b.status).toBe("queued"); // 修复后 B 见 A 占位 → 入队
+    expect(h.runner.launched).toHaveLength(1); // 实际只 launch A
+  });
+
+  test("注入窗口内 cancelSession 终态化 → completeSpawn 复查终态早退：不发 spawned、不 startInstance、不抛非法迁移", async () => {
+    const { injector, release } = gatedInjector();
+    const h = current = makeHarness({ taskInjector: injector });
+    const pending = h.scheduler.spawn(SESSION_ID, "将被取消的任务");
+    h.scheduler.cancelSession(SESSION_ID); // 窗口内会话级取消：queued 实例 → cancelled
+    release(0);
+    const outcome = await pending;
+    // 缺陷：照常发 agent.spawned + startInstance → markRunning 对终态实例
+    // 抛非法迁移（cancelled→running），spawn promise 整体 reject
+    expect(outcome.status).toBe("rejected");
+    expect(outcome.status === "rejected" && outcome.error).toContain("已终止");
+    expect(payloadsOf(h.events, "agent.spawned")).toHaveLength(0); // 终态实例不出卡
+    expect(payloadsOf(h.events, "agent.started")).toHaveLength(0);
+    expect(h.runner.launched).toHaveLength(0); // 不派发
+  });
+});
