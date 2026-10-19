@@ -78,7 +78,7 @@ import { SqliteVecMemoryStore } from "../../steward-memory/SqliteVecMemoryStore"
 import { resolveVec0Path } from "../../steward-memory/resolve-vec0";
 import { OpenAiCompatEmbeddingAdapter } from "../../embedding/OpenAiCompatEmbeddingAdapter";
 import { StewardMemoryService } from "../../../../application/steward/StewardMemoryService";
-import { parseRecords } from "../../../../application/embedding/EmbeddingConfigService";
+import { resolveDefaultConfigOf, resolveDefaultRecordOf, parseRecords } from "../../../../application/embedding/EmbeddingConfigService";
 import type { RuntimeConfigPort } from "../../../../application/ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointRecord } from "../../../../application/embedding/EmbeddingConfigService";
 import type { EmbeddingEndpointConfig } from "../../../../application/ports/outbound/EmbeddingPort";
@@ -473,17 +473,10 @@ function buildLocalVectorStack(store: SqliteKnowledgeStore): {
   const resolveThresholds = (): { warn: number; dup: number } =>
     resolveKgSimilarityThresholds({ get: readKey }, (message) => console.warn(message));
   if (dbPath === undefined) return { vectorSync: undefined, resolveThresholds };
-  const resolveDefault = (): EmbeddingEndpointConfig | null => {
-    const id = readKey("embedding.defaultEndpointId");
-    if (id === undefined || id.trim() === "") return null;
-    const record = parseRecords(readKey("embedding_endpoints")).find((r) => r.id === id);
-    if (record === undefined || (record.kind ?? "embedding") !== "embedding") return null;
-    return {
-      baseUrl: record.baseUrl,
-      model: record.model,
-      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-    };
-  };
+  // 评审 F1：默认端点判据不再本地复刻——公用 E-306 纯函数单点（子进程无
+  // EmbeddingConfigService 全量装配，只需 records + 默认引用两输入）。
+  const resolveDefault = (): EmbeddingEndpointConfig | null =>
+    resolveDefaultConfigOf(parseRecords(readKey("embedding_endpoints")), readKey("embedding.defaultEndpointId"), "embedding");
   return {
     vectorSync: new KgVectorService({
       store,
@@ -690,22 +683,17 @@ export function buildLocalMemorySearchStack(
     };
     const resolveRecord = (endpointId: string): EmbeddingEndpointRecord | null =>
       parseRecords(readKey("embedding_endpoints")).find((r) => r.id === endpointId) ?? null;
-    // 批1：向量端点取用改走全局默认端点单点（embedding.defaultEndpointId——
-    // 与父进程 EmbeddingConfigService.resolveDefault 同判：悬空/非 embedding →
-    // null；memory.endpointId 已退役不再读）
-    const resolveDefault = (): { baseUrl: string; apiKey?: string; model: string } | null => {
-      const id = readKey("embedding.defaultEndpointId");
-      if (id === undefined || id.trim() === "") return null;
-      const record = resolveRecord(id);
-      if (record === null || (record.kind ?? "embedding") !== "embedding") return null;
-      return { baseUrl: record.baseUrl, ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}), model: record.model };
-    };
-    const resolveDefaultClassifierRecord = (): EmbeddingEndpointRecord | null => {
-      const id = readKey("classifier.defaultEndpointId");
-      if (id === undefined || id.trim() === "") return null;
-      const record = resolveRecord(id);
-      return record !== null && record.kind === "classifier" ? record : null;
-    };
+    // 批１：向量端点取用改走全局默认端点单点（embedding.defaultEndpointId——
+    // 评审 F1 起与父进程 EmbeddingConfigService.resolveDefault 共享同一个纯函数
+    // 判据 resolveDefaultConfigOf，不再注释维系平行实现）。
+    const resolveDefault = (): EmbeddingEndpointConfig | null =>
+      resolveDefaultConfigOf(parseRecords(readKey("embedding_endpoints")), readKey("embedding.defaultEndpointId"), "embedding");
+    const resolveDefaultClassifierRecord = (): EmbeddingEndpointRecord | null =>
+      resolveDefaultRecordOf(
+        parseRecords(readKey("embedding_endpoints")),
+        readKey("classifier.defaultEndpointId"),
+        "classifier",
+      );
     const embedding = new OpenAiCompatEmbeddingAdapter({
       getConfig: () => resolveDefault(),
     });

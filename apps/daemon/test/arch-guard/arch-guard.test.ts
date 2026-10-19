@@ -96,12 +96,16 @@ describe("AG-02：依赖方向矩阵", () => {
     // AD-1（iter-20260821-dg90 T3.3）扩为三项：+ @helix/common（业务无关
     // 通用层直引，MAIN_INSTANCE_ID 唯一定义所在，TR-AD-1/TR-AD-28）。
     const PACKAGE_WHITELIST: ReadonlySet<string> = new Set(["@helix/common", "@helix/protocol", "node:path"]);
+    // node:path 的宿主方言子入口（node:path/win32）同属白名单——解决 F1 rel-path
+    // 盘符分支（559f2da3）：posix 宿主收到 win32 形态路径时需 win32 语义的
+    // relative，node:path 默认出口不提供。除路径计算外仍禁一切包外依赖。
+    const isPathFamily = (spec: string): boolean => spec === "node:path" || spec.startsWith("node:path/");
     for (const rel of listFiles(path.join(srcRoot, "application"))) {
       for (const spec of importSpecifiers(read(path.join("application", rel)))) {
         expect(spec, `application/${rel} 禁止引到 adapters/infrastructure：${spec}`).not.toMatch(/adapters|infrastructure/);
         if (!spec.startsWith(".")) {
           expect(
-            PACKAGE_WHITELIST.has(spec),
+            PACKAGE_WHITELIST.has(spec) || isPathFamily(spec),
             `application/${rel} 包外 import 越出白名单 {@helix/common, @helix/protocol, node:path}：${spec}`,
           ).toBe(true);
         }
@@ -476,9 +480,13 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
         const isModelCatalog = rel === path.join("adapters", "driven", "llm", "model-catalog.ts");
         const isConfig = rel === path.join("infrastructure", "config.ts");
         const isBootPrelude = rel === path.join("infrastructure", "assembly", "bootPrelude.ts");
+        // 单例锁陈锁接管批（1a7353a7）：lock 文件走 rename 原子占位（陈锁先
+        // 改名搬走再回读复核后才 rm，消灭「删他人新锁」双写者窗口）——非状态
+        // 数据写面，与 SQLite/配置落盘无关。
+        const isSingletonLock = rel === path.join("infrastructure", "lifecycle.ts");
         expect(
-          isWriteQueue || isAuthStore || isModelCatalog || isConfig || isBootPrelude,
-          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog / config / bootPrelude 迁移）`,
+          isWriteQueue || isAuthStore || isModelCatalog || isConfig || isBootPrelude || isSingletonLock,
+          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog / config / bootPrelude 迁移 / lifecycle 陈锁占位）`,
         ).toBe(true);
       }
     }
@@ -976,5 +984,35 @@ describe("AG-13：通用记忆配置域不自反依赖管家域（环依赖守�
         ).not.toMatch(/steward/);
       }
     }
+  });
+});
+
+describe("E-306：默认端点解析单点（评审 F1——子进程/脚本不得本地复刻判据）", () => {
+  // 评审 F1 实证：默认端点语义（读默认引用 → 找记录 → 悬空/非本 kind → null）
+  // 曾在 ChildMain 两处 + backfill 脚本一处被本地复刻，靠注释「与父进程同判」
+  // 维系，语义演进三处易漂移。现全部收编为 EmbeddingConfigService 导出的纯
+  // 函数（resolveDefaultRecordOf / resolveDefaultConfigOf）；本守护钉住不许
+  // 回退：该判据的中心表达式只允许出现在单点定义文件里。
+  const SINGLE_POINT = path.join("application", "embedding", "EmbeddingConfigService.ts");
+  const CENTER_EXPRESSION = /\(record\.kind \?\? "embedding"\) !== /;
+  const scriptRoot = path.join(srcRoot, "..", "scripts");
+
+  test("src 内除单点定义文件外无 kind-归一默认端点判据复刻", () => {
+    const hits: string[] = [];
+    for (const rel of listFiles(srcRoot)) {
+      if (rel === SINGLE_POINT) continue;
+      if (CENTER_EXPRESSION.test(read(rel))) hits.push(rel);
+    }
+    expect(hits).toEqual([]);
+  });
+
+  test("daemon 独立脚本同守（backfill 类脚本经纯函数复用）", () => {
+    const hits: string[] = [];
+    for (const entry of readdirSync(scriptRoot) as string[]) {
+      if (!entry.endsWith(".ts")) continue;
+      const src = readFileSync(path.join(scriptRoot, entry), "utf8");
+      if (CENTER_EXPRESSION.test(src)) hits.push(entry);
+    }
+    expect(hits).toEqual([]);
   });
 });

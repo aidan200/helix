@@ -133,6 +133,41 @@ export function resolveJudgeRecord(
   return record !== null && record.kind === "classifier" ? record : null;
 }
 
+/** 端点记录 → 端口配置窄投影（apiKey 缺席即不传键——与 set 的凭据"空串清除/缺省不动"语义同源）。 */
+export function endpointConfigOf(record: EmbeddingEndpointRecord): EmbeddingEndpointConfig {
+  return {
+    baseUrl: record.baseUrl,
+    model: record.model,
+    ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
+  };
+}
+
+/** 默认端点解析纯函数（评审 F1 单点收编）：records + 默认引用 id → 记录|null。
+ *  判据：引用未设/空串 → null；悬空（条目已删）→ null；kind 不吻合（缺省 = embedding）
+ *  → null。无 IO 无状态——子进程（ChildMain 本地记忆/向量栈）与独立脚本
+ *  （backfill-kg-vectors）无需构造 EmbeddingConfigService 全量装配即可复用同一
+ *  判据，E-306「resolveDefault 全消费面唯一取用单点」不再靠注释"与父进程同判"维系。 */
+export function resolveDefaultRecordOf(
+  records: readonly EmbeddingEndpointRecord[],
+  defaultId: string | undefined,
+  kind: EndpointKind = "embedding",
+): EmbeddingEndpointRecord | null {
+  if (defaultId === undefined || defaultId.trim() === "") return null;
+  const record = records.find((r) => r.id === defaultId) ?? null;
+  if (record === null || (record.kind ?? "embedding") !== kind) return null;
+  return record;
+}
+
+/** 默认端点配置纯函数（resolveDefaultRecordOf 的窄投影面——消费面直取端口配置时用）。 */
+export function resolveDefaultConfigOf(
+  records: readonly EmbeddingEndpointRecord[],
+  defaultId: string | undefined,
+  kind: EndpointKind = "embedding",
+): EmbeddingEndpointConfig | null {
+  const record = resolveDefaultRecordOf(records, defaultId, kind);
+  return record === null ? null : endpointConfigOf(record);
+}
+
 /** KV JSON 防御解析（形态非法视同空表）。导出（批E）：ChildMain 本地 memory_search 栈复用同源解析（子进程无 EmbeddingConfigService 全量装配——只消费记录查我丽 resolveRecord 面，parse 不另写一份）。 */
 export function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
   if (raw === undefined || raw.trim() === "") return [];
@@ -413,34 +448,18 @@ export class EmbeddingConfigService {
    * （记忆拒开、kg 嵌入降级 warn）。
    */
   resolveDefault(): EmbeddingEndpointConfig | null {
-    const record = this.resolveDefaultRecord("embedding");
-    if (record === null) return null;
-    return {
-      baseUrl: record.baseUrl,
-      model: record.model,
-      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-    };
+    return resolveDefaultConfigOf(this.list(), this.deps.config.get(EMBEDDING_DEFAULT_ENDPOINT_ID_KEY), "embedding");
   }
 
   /** 默认分类端点配置（D1 对称面：判官消费面兜底取用；未设/悬空/误指 → null）。 */
   resolveDefaultClassifier(): EmbeddingEndpointConfig | null {
-    const record = this.resolveDefaultRecord("classifier");
-    if (record === null) return null;
-    return {
-      baseUrl: record.baseUrl,
-      model: record.model,
-      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-    };
+    return resolveDefaultConfigOf(this.list(), this.deps.config.get(CLASSIFIER_DEFAULT_ENDPOINT_ID_KEY), "classifier");
   }
 
   /** 默认端点记录（含 id/name 等元数据；悬空/非本 kind/不完整 → null。
    *  kind 缺省 = embedding（E-306 契约零变化）。 */
   resolveDefaultRecord(kind: EndpointKind = "embedding"): EmbeddingEndpointRecord | null {
-    const id = this.deps.config.get(defaultKeyOf(kind));
-    if (id === undefined || id.trim() === "") return null;
-    const record = this.resolveRecord(id);
-    if (record === null || (record.kind ?? "embedding") !== kind) return null;
-    return record;
+    return resolveDefaultRecordOf(this.list(), this.deps.config.get(defaultKeyOf(kind)), kind);
   }
 
   /** 默认分类端点记录（D1：resolveJudgeRecord 兑底层的默认档数据源——含 variant）。 */
