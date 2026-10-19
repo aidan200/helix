@@ -363,3 +363,65 @@ describe("管家记忆独立页（domain 维度批）", () => {
     expect(sendStewardMemoryAppend).toHaveBeenCalledWith("helix 项目事实", "fact", "project", "helix");
   });
 });
+
+// ── 写面失败收口（评审 StewardMemoryPage:131,150-172 / TR-272）────────
+describe("写命令失败经 connection.error 收口（向量化行不永挂 + 不静默）", () => {
+  function feedConnError(message: string) {
+    const frame = {
+      v: PROTOCOL_VERSION,
+      sessionId: "__system__",
+      channel: "notification",
+      type: "connection.error",
+      ts: 1,
+      payload: { code: "command.invalid_payload", message },
+    } as unknown as EventEnvelope;
+    act(() => {
+      for (const l of stewardListeners) l(frame);
+    });
+  }
+
+  it("编辑保存被拒 → 向量化在途清位（行恢复可编辑/可删）+ 行内交代原因", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(ENTRIES));
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-memory-edit-btn="1"]')!);
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-edit-input]")!, {
+      target: { value: "改写后的记忆" },
+    });
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-edit-save]")!);
+    expect(container.querySelector("[data-memory-item-vectorizing]")).not.toBeNull(); // 在途
+    // 他族命令拒绝 → 不误清在途
+    feedConnError("追踪查询失败（命令 trace.query）");
+    expect(container.querySelector("[data-memory-item-vectorizing]")).not.toBeNull();
+    // 本命令拒绝 → 清在途（原实现永挂「向量化中」整行占位、零交代）
+    feedConnError("文本过长（命令 steward.memory_update）");
+    expect(container.querySelector("[data-memory-item-vectorizing]")).toBeNull();
+    expect(container.querySelector("[data-memory-write-error]")!.textContent).toContain("文本过长");
+    // 行恢复可交互（不再被在途位占位锁死）
+    expect(container.querySelector<HTMLButtonElement>('[data-memory-edit-btn="1"]')!.disabled).toBe(false);
+  });
+
+  it("新增被拒 → 不静默（行内交代）", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(ENTRIES));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-open]")!);
+    fireEvent.change(container.querySelector<HTMLInputElement>("[data-memory-add-input]")!, {
+      target: { value: "手动新增一条" },
+    });
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-memory-add-save]")!);
+    feedConnError("向量端点不可用（命令 steward.memory_append）");
+    expect(container.querySelector("[data-memory-write-error]")!.textContent).toContain("向量端点不可用");
+  });
+
+  it("pin 失败（无本地在途位）同样交代；读命令失败不误报写面", () => {
+    const { container } = ui();
+    feedConfig(true);
+    act(() => feedList(ENTRIES));
+    feedConnError("记忆读面失败（命令 steward.memory_list）");
+    expect(container.querySelector("[data-memory-write-error]")).toBeNull();
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-memory-pin-btn="2"]')!);
+    feedConnError("条目不存在（命令 steward.memory_pin）");
+    expect(container.querySelector("[data-memory-write-error]")!.textContent).toContain("条目不存在");
+  });
+});
