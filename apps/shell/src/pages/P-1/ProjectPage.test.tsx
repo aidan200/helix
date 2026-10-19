@@ -110,6 +110,8 @@ let mockConn: "connected" | "connecting" | "disconnected" = "connected";
 /** kg.projects send 开关（code-review M：send false → listLoading 不永挂）。 */
 let kgProjectsSendOk = true;
 let kgReadSendOk = true;
+/** kg.node.detail send 开关（B21 #3：select-node 后发送失败 → 清骨架 + toast）。 */
+let kgDetailSendOk = true;
 /** M9 #2.31：体检/台账读面 send 结果可变位（false → 清 loading + err toast）。 */
 let kgHealthSendOk = true;
 
@@ -129,7 +131,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgNodeDetail: (payload: KgNodeDetailPayload) => {
         sent.detail.push(payload);
-        return true;
+        return kgDetailSendOk;
       },
       sendKgChangeReport: () => {
         sent.report += 1;
@@ -262,6 +264,7 @@ afterEach(() => {
   kgProjectsSendOk = true;
   kgReadSendOk = true;
   kgHealthSendOk = true;
+  kgDetailSendOk = true;
   resetRememberedProjectForTest();
 });
 
@@ -1385,5 +1388,23 @@ describe("TR-173 state 镜像 ref 纪律（B21 #2：KgViewer stateRef 渲染体�
     expect(stripped).not.toMatch(/^\s*stateRef\.current\s*=\s*state\s*;?\s*$/m);
     expect(stripped).toMatch(/dispatchSync/);
     expect(stripped).toMatch(/stateRef\.current\s*=\s*kgReducer\(/);
+  });
+});
+
+// ── send 返回值消费（code-review task-91e2e2f9 B21 #3，TR-84）──────
+// onSelectNode：select-node 已置 detailLoading，sendKgNodeDetail 返回值被吞
+// ——断线窗口点击节点：详情骨架永挂零反馈，重连也不自愈（list 刷新因 sel 非空
+// 不重拉 detail）。与 onConfirm/kg-frames-listener confirm 路径同口径收口。
+describe("send 返回值消费（B21 #3：onSelectNode 断线窗口零反馈）", () => {
+  it("sendKgNodeDetail 返 false → detail-failed 清在途 + err toast 交代（不静默永挂）", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    kgDetailSendOk = false; // 断线窗口：详情命令发不出
+    fireEvent.click(qs('[data-kg-list] [data-id="TR-44"]'));
+    // 命令已尝试发出（payload 带目标 id）
+    expect(sent.detail.some((p) => p.id === "TR-44")).toBe(true);
+    // 零反馈不再：err toast 交代（pj.boot.sendFail）
+    expect(qs(".toast-zone")!.textContent).toContain("发送失败：与 daemon 的连接不可用");
   });
 });

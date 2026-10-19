@@ -196,9 +196,15 @@ const KgViewer = function KgViewer({
   const onSelectNode = useCallback(
     (id: string) => {
       dispatchSync({ type: "select-node", id });
-      sendKgNodeDetail({ project: project.name, id });
+      // code-review 族A（TR-84）：send 返回值必消费 === false 严格判——未发出
+      //（断线窗口）清详情在途防永挂 + err toast 交代（同节点重选不重拉、
+      // 重连不自愈；与 onConfirm 及 listener confirm 路径同口径）
+      if (sendKgNodeDetail({ project: project.name, id }) === false) {
+        dispatchSync({ type: "detail-failed", id });
+        toast.push("err", t("pj.boot.sendFail"));
+      }
     },
-    [project.name, sendKgNodeDetail, dispatchSync],
+    [project.name, sendKgNodeDetail, dispatchSync, toast, t],
   );
 
   const onConfirm = useCallback(
