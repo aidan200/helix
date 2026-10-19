@@ -16,9 +16,10 @@
  * （管家记忆 B2 瘦身——端点 CRUD 收编模型页，管家组只留开关 + 端点选择）。
  */
 import type { CommandFrame } from "../envelope";
+import type { EmptyPayload } from "./session";
 
 /** embedding.list：读端点清单（点对点回执 embedding.list.result）。 */
-export interface EmbeddingListCommand extends CommandFrame<Record<string, never>> {
+export interface EmbeddingListCommand extends CommandFrame<EmptyPayload> {
   type: "embedding.list";
 }
 

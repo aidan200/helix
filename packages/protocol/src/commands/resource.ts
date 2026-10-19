@@ -131,7 +131,7 @@ export interface AgentSkillCreateCommand extends CommandFrame<AgentSkillCreatePa
  * 避免「可配置」误解。结果帧 = agent.steward_profile.get.result 点对点
  * 回执（TR-AD-21 模式，agent.base_prompt.get 同构）。
  */
-export interface AgentStewardProfileGetCommand extends CommandFrame<Record<string, never>> {
+export interface AgentStewardProfileGetCommand extends CommandFrame<EmptyPayload> {
   type: "agent.steward_profile.get";
 }
 

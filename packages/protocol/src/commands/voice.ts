@@ -14,6 +14,7 @@
  *   偏好同构存储面）。
  */
 import type { CommandFrame } from "../envelope";
+import type { EmptyPayload } from "./session";
 
 /** voice.synthesize 载荷。 */
 export interface VoiceSynthesizePayload {
@@ -42,7 +43,7 @@ export interface VoiceSubscribeCommand extends CommandFrame<VoiceSubscribePayloa
 }
 
 /** voice.unsubscribe：播报退订（断连自动等效——连接级状态随连接销毁）。 */
-export interface VoiceUnsubscribeCommand extends CommandFrame<Record<string, never>> {
+export interface VoiceUnsubscribeCommand extends CommandFrame<EmptyPayload> {
   type: "voice.unsubscribe";
 }
 

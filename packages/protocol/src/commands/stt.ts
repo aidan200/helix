@@ -19,6 +19,7 @@
  * 门控判别位）。
  */
 import type { CommandFrame } from "../envelope";
+import type { EmptyPayload } from "./session";
 
 /** stt.transcribe 载荷。 */
 export interface SttTranscribePayload {
@@ -96,7 +97,7 @@ export interface SttStreamChunkCommand extends CommandFrame<SttStreamChunkPayloa
  * stt.stream.finish：正常收口（VAD 停/点击停后发送；上游 session.finish
  * → 尾段识别 → stt.stream.final 终帧。final 后流关闭，连接回到无流态）。
  */
-export interface SttStreamFinishCommand extends CommandFrame<Record<string, never>> {
+export interface SttStreamFinishCommand extends CommandFrame<EmptyPayload> {
   type: "stt.stream.finish";
 }
 
@@ -104,6 +105,6 @@ export interface SttStreamFinishCommand extends CommandFrame<Record<string, neve
  * stt.stream.stop：中止（面板卸载/切模式废弃/新 start 顶旧流；关上游不发
  * session.finish、不期 final——已计费音频不退，但停止后续上行）。
  */
-export interface SttStreamStopCommand extends CommandFrame<Record<string, never>> {
+export interface SttStreamStopCommand extends CommandFrame<EmptyPayload> {
   type: "stt.stream.stop";
 }
