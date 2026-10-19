@@ -181,7 +181,9 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       });
       await until(() => frames.some((f) => f.type === "steer.queued"));
       const queued = frames.find((f) => f.type === "steer.queued")!;
-      expect(queued.payload).toEqual({ entryId: "e9" });
+      // E-313 修复后：text 与 entryId 同帧透出（原断言 { entryId } 钉的正是「text
+      // 在 wire 丢失」的缺陷状态——前端 text 对账/create-if-no-echo 依赖该位）
+      expect(queued.payload).toEqual({ entryId: "e9", text: "注入" });
 
       ws.close();
     } finally {

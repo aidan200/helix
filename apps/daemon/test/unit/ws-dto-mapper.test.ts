@@ -230,6 +230,33 @@ describe("② 领域事件 → 协议事件帧", () => {
     expect(ev).toMatchObject({ type: "chat.turn.completed", payload: { turnId: "t-last", reason: "completed" } });
   });
 
+  test("steer.queued → wire 面透传 text（E-313 缺口：前端 create-if-no-echo / text 对账依赖；drained 无 text 位不携带）", () => {
+    const queued = domainEventToEnvelope({
+      ...base,
+      type: "steer.queued",
+      payload: { entryId: "e-9", text: "管家投递的任务", source: "steward" },
+    });
+    expect(queued).toMatchObject({
+      type: "steer.queued",
+      payload: { entryId: "e-9", text: "管家投递的任务", source: "steward" },
+    });
+    const legacy = domainEventToEnvelope({
+      ...base,
+      type: "steer.queued",
+      payload: { entryId: "e-10", text: "本地追问" },
+    });
+    expect(legacy).toMatchObject({ payload: { entryId: "e-10", text: "本地追问" } });
+    expect((legacy!.payload as Record<string, unknown>).source).toBeUndefined(); // 老载荷不带 source 键
+    const drained = domainEventToEnvelope({
+      ...base,
+      type: "steer.drained",
+      payload: { entryId: "e-9", text: "管家投递的任务", source: "steward" },
+    });
+    expect(drained).toMatchObject({ type: "steer.drained", payload: { entryId: "e-9", source: "steward" } });
+    // drained 载荷无 text 位（协议 SteerDrainedPayload）——不透出多余键
+    expect((drained!.payload as Record<string, unknown>).text).toBeUndefined();
+  });
+
   test("steer.discarded → steer.discarded（队列出账帧：entryIds 拷贝 + 两由因透传）", () => {
     const dropped = domainEventToEnvelope({
       ...base,
