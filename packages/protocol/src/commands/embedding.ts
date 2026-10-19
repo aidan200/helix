@@ -24,7 +24,13 @@ export interface EmbeddingListCommand extends CommandFrame<Record<string, never>
 
 /**
  * embedding.set 载荷：新增或更新端点。id 缺省 = 新增（uuid 生成）；带 id =
- * 更新既有条目（name/baseUrl/model 覆盖写，apiKey 空串 = 清除、缺省 = 不动）。
+ * 更新既有条目。更新形态字段三态**分两类**（以 daemon
+ * EmbeddingConfigService.set 为单源）：
+ * - 覆盖写：name / model / **baseUrl**——缺席 = 空串（**不是「不动」**）；
+ *   其中 baseUrl 按 variant 条件必填（目录型免填，直连型缺席即
+ *   command.invalid_payload）。故**更新目录型条目必须同带 variant**，否则按
+ *   直连型校验被拒。
+ * - 缺省 = 不动：apiKey（空串 = 清除）、kind、variant。
  */
 export interface EmbeddingSetPayload {
   /** 目标端点 id（缺省 = 新增）。 */
@@ -32,7 +38,9 @@ export interface EmbeddingSetPayload {
   /** 端点显示名（非空；如 "Ollama 本地"）。 */
   name: string;
   /** OpenAI 兼容服务根（如 "http://localhost:11434/v1"）。variant="pi-ai"
-   *  目录通道免填（model 填目录模型串，走 provider key）。 */
+   *  目录通道免填（model 填目录模型串，走 provider key）。
+   *  **覆盖写语义：更新形态缺席 = 置空**（非「不动」）——直连型缺席即被拒，
+   *  目录型缺席落空串。 */
   baseUrl?: string;
   /** API key（本地免 key 端点可空；更新形态下空串 = 清除）。 */
   apiKey?: string;

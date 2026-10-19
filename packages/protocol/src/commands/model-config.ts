@@ -126,9 +126,14 @@ export interface ConfigGetPortCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_port";
 }
 
-/** config.set_sandbox 载荷：沙箱配置（enabled/extraRoots 新会话/新任务生效——装配期定格读取；
- * autoApprove 运行期即热——每次提权申请现值判定）。
- * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项，未携带项保留现值。 */
+/**
+ * config.set_sandbox 载荷：沙箱配置（enabled/extraRoots 新会话/新任务生效
+ * ——装配期定格读取；autoApprove 运行期即热——每次提权申请现值判定）。
+ * 部分更新语义：三项任选至少一项，未携带项保留现值。
+ * **空载荷裁决**：三项全缺省（`{}`，类型层三可选无法表达「至少一项」）→
+ * daemon 以 command.invalid_payload 拒绝（不是 no-op 成功）——错误码单源 =
+ * daemon handlers/config.ts 的 set_sandbox 前置校验。
+ */
 export interface ConfigSetSandboxPayload {
   enabled?: boolean;
   /** 额外可写根（全局清单，绝对路径；工具链/环境目录逃生门）。 */
