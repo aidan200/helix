@@ -185,7 +185,14 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         v: PROTOCOL_VERSION,
         type: event.type,
         // source 透传（T11a：user/closure/progress 三值；老载荷缺省不携带键）
-        payload: { entryId: p.entryId, ...(p.source !== undefined ? { source: p.source } : {}) },
+        // text 透传（E-313：协议 SteerQueuedPayload.text 可选位早已登记，此前
+        // 映射漏透传 → 前端 create-if-no-echo 建不出跨源坞条目、text 对账失效；
+        // drained 载荷无 text 位，只在 queued 透出——TR-159 逐字段映射纪律）
+        payload: {
+          entryId: p.entryId,
+          ...(event.type === "steer.queued" ? { text: p.text } : {}),
+          ...(p.source !== undefined ? { source: p.source } : {}),
+        },
       };
     }
 

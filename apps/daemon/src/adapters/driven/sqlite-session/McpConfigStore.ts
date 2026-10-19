@@ -64,6 +64,11 @@ function parseMcpServerConfig(name: string, raw: string): McpServerConfig | unde
     if (typeof p["timeoutMs"] === "number") {
       (out as { timeoutMs?: number }).timeoutMs = p["timeoutMs"];
     }
+    // deferred（懒加载开关，缺省 true）：读面漏解析会让写面透传白费——
+    // list 读面/adapter 生效集（meta 工具 vs 全量急发）都读本行值
+    if (typeof p["deferred"] === "boolean") {
+      (out as { deferred?: boolean }).deferred = p["deferred"];
+    }
     return out;
   } catch {
     return undefined;

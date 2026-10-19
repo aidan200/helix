@@ -298,8 +298,16 @@ export class HelixWsClient {
         };
         transport.send(JSON.stringify(hello));
       },
-      onMessage: (data) => this.handleMessage(data),
+      onMessage: (data) => {
+        // 陈旧 transport 身份守卫（中危 F3a，E-83）：非当前连接的迟到帧（僵尸
+        // welcome 可把 phase 翻 connected——握手完成前拒发保证被破）直接丢弃
+        if (this.transport !== transport) return;
+        this.handleMessage(data);
+      },
       onClose: (info) => {
+        // 陈旧 transport 身份守卫（同上）：迟到 close 不误计新尝试失败、不清其
+        // 握手计时器（attemptTimedOut 是客户端级共享标志，不足以区分代次）
+        if (this.transport !== transport) return;
         // 超时自清已收口的尝试：close 事件是自身断开的事后回声，不二次计失败
         if (this.attemptTimedOut) return;
         this.handleClose(info);

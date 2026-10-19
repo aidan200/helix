@@ -72,7 +72,14 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
         // 仅首载（sel 空）应用——转正后 list 刷新不得重置当前选中/详情
         const initial = stateRef.current.sel === null ? pickInitial(nodes) : undefined;
         dispatch({ type: "list-result", total: e.payload.total, nodes, initialSel: initial?.id });
-        if (initial !== undefined) deps.sendKgNodeDetail({ project: projectName, id: initial.id });
+        if (initial !== undefined) {
+          // 首载默认选中的 detail 发送返回值必消费（中危 F3a，TR-84 同族/与
+          // confirm 分支同款收口）：list-result 已置 detailLoading，send false
+          //（断线窗口）不清骨架即永挂
+          if (deps.sendKgNodeDetail({ project: projectName, id: initial.id }) === false) {
+            dispatch({ type: "detail-failed", id: initial.id });
+          }
+        }
         return;
       }
       case "kg.node.detail.result":

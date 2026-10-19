@@ -211,6 +211,44 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     restore();
   });
 
+  it("VAD 自动停走最新 stop 闭包（sendSttTranscribe 引用漂移后不悬挂在旧命令面——中危 F3a）", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    const meter = makeFakeMeter();
+    const sendV1 = vi.fn(() => true);
+    const sendV2 = vi.fn(() => true);
+    const initial = { sendSttTranscribe: sendV1, subscribeSttFrames };
+    const { result, rerender } = renderHook(
+      (p: typeof initial) => useVoiceInput(vi.fn(), { ...p, createMeter: () => Promise.resolve(meter) }),
+      { wrapper: I18nProvider, initialProps: initial },
+    );
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.state).toBe("recording");
+    // 命令面引用漂移（重连换面等）：重渲染换 sendSttTranscribe——start 闭包
+    // 不随重刷，VAD 自动停必须走最新 stop（旧实现走旧 sendV1）
+    rerender({ sendSttTranscribe: sendV2, subscribeSttFrames });
+    for (let i = 0; i < 4; i += 1) {
+      await act(async () => {
+        meter.emit(0.2);
+      });
+      clock.advance(100);
+    }
+    await tick();
+    clock.advance(VOICE_LEAD_IN_MS + VOICE_SILENCE_STOP_MS + 200 - 400);
+    await act(async () => {
+      meter.emit(0.001);
+    });
+    expect(result.current.state).toBe("transcribing");
+    await waitFor(() => {
+      expect(sendV2).toHaveBeenCalledTimes(1);
+    }, { timeout: 2000 });
+    expect(sendV1).not.toHaveBeenCalled();
+    restore();
+  });
+
   it("VAD 丢弃（全程未开口）：auto-stop → idle、零转写零计费、零 error", async () => {
     const restore = installRecorder();
     const clock = useFakeClock();

@@ -380,3 +380,26 @@ describe("SubscriptionLedger —— 监控窗口容量化（慢客户端积压�
     expect(l.replay().length).toBeLessThanOrEqual(4);
   });
 });
+
+describe("SubscriptionLedger —— 草稿链待激活锚 pendingActivation（两缺口）", () => {
+  test("缺口①：tiers 已在册（list 抢跑订成 monitor）时 addCreated 仍须登记待激活", () => {
+    const l = new SubscriptionLedger();
+    // 无活跃（草稿链）+ session.list.result 抢跑：syncList 把新会话订成 monitor
+    l.syncList(["n"]);
+    expect(l.tierOf("n")).toBe("monitor");
+    // 随后 list_changed{created}：tiers.has 幂等早退，但待激活锚必须已登记
+    l.addCreated("n");
+    // 该会话的回推快照 = 激活指令（否则被当 ack 噪声吞掉 → 建会话停留草稿视图）
+    const v = l.onSnapshot("n");
+    expect(v.dispatch).toBe(true);
+    expect(proj(v.commands)).toEqual([["session.subscribe", "n", "full"]]);
+  });
+
+  test("缺口②：LRU 淘汰即清待激活锚——被淘汰会话的迟到快照按 ack 噪声吞帧", () => {
+    const l = new SubscriptionLedger(1);
+    l.addCreated("n1"); // 无活跃 → 待激活 + monitor
+    l.addCreated("n2"); // 容量 1 → n1 被 LRU 淘汰（退订）
+    expect(l.tierOf("n1")).toBeUndefined();
+    expect(l.onSnapshot("n1").dispatch).toBe(false); // 无档位状态不得被激活
+  });
+});

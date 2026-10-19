@@ -76,8 +76,16 @@ function confirmSteerEcho(
     next[idx] = { ...echo, id: entryId, ...(source !== undefined ? { source } : {}) };
     return { ...s, entries: next };
   }
-  // 主线分支（队列坞 echo）
-  const idx = s.steerQueue.findIndex((item) => item.id.startsWith(LOCAL_PREFIX) && !item.confirmed);
+  // 主线分支（队列坞 echo）：text 存在则**按文本对账**（create-if-no-echo 支持
+  // 跨源注入——坞内可并存本端 user echo 与他源注入帧，FIFO 盲匹配会把他源
+  // entryId 换到本端 echo 上：文本与 id 互换，drain 时按 id 出坞张冠李戴）；
+  // text 缺席（旧 daemon 无 text 位）回落 FIFO 保兼容。
+  const isUnconfirmedEcho = (item: (typeof s.steerQueue)[number]) =>
+    item.id.startsWith(LOCAL_PREFIX) && !item.confirmed;
+  const idx =
+    text !== undefined && text !== ""
+      ? s.steerQueue.findIndex((item) => isUnconfirmedEcho(item) && item.text === text)
+      : s.steerQueue.findIndex(isUnconfirmedEcho);
   if (idx === -1) {
     // create-if-no-echo：无本地 echo（跨源注入——管家投递/closure/progress
     // 后台发送）→ 建条目入坞（confirmed=true——daemon 权威 id 直用；text

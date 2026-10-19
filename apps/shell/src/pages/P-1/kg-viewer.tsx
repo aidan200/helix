@@ -273,12 +273,14 @@ const KgViewer = function KgViewer({
     if (!(okHealth && okCand)) toast.push("err", t("pj.boot.sendFail"));
   }, [tab, project.name, sendKgHealth, sendKgCandidatesList, toast, t]);
 
-  /** 台账过滤（过滤入口唯一归台账面板按钮）：设过滤 + 重拉。 */
+  /** 台账过滤（过滤入口唯一归台账面板按钮）：设过滤 + 重拉；失败同置 failed
+   *  （中危 F3a：与首进拉取两态区分口径一致——只清 loading 不置 failed 会
+   *  高亮 pending 却展示旧全量行集，过滤态与行集错位误导）。 */
   const onCandFilter = useCallback(
     (filter: CandFilter) => {
       setCandView((v) => ({ ...v, filter, loading: true }));
       if (!sendKgCandidatesList({ project: project.name, ...(filter !== "all" ? { status: filter } : {}) })) {
-        setCandView((v) => ({ ...v, loading: false }));
+        setCandView((v) => ({ ...v, loading: false, failed: true }));
         toast.push("err", t("pj.boot.sendFail"));
       }
     },

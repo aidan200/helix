@@ -130,20 +130,28 @@ export function useVoiceBroadcast(): VoiceBroadcast {
       const audio = new Audio(next.audio);
       audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
       currentAudioRef.current = audio;
+      // 完成回调统一世代闸（中危 F3a）：非当前代（currentAudioRef 已换新或被
+      // stopAndClear 收编）的迟到回调直接丢弃——同一坏帧 error + play.reject
+      // 双触发时第二次回调不得把在播新条目的 playingRef 拍成 false 并再续一链
+      //（否则两音频并发双播、顺序播放不变量破坏）；stopAndClear 的 pause 使
+      // play() promise 迟到 reject 同理不拍飞在播标志。
       audio.onended = () => {
-        if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        if (currentAudioRef.current !== audio) return;
+        currentAudioRef.current = null;
         playingRef.current = false;
         playNextRef.current();
       };
       audio.onerror = () => {
-        if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        if (currentAudioRef.current !== audio) return;
+        currentAudioRef.current = null;
         errorRef.current = tRef.current("chat.voice.broadcast.playFail");
         playingRef.current = false;
         playNextRef.current();
       };
       void audio.play().catch(() => {
         // 自动播放策略等拒绝：跳过该条（顺序保障继续）
-        if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        if (currentAudioRef.current !== audio) return;
+        currentAudioRef.current = null;
         errorRef.current = tRef.current("chat.voice.broadcast.playBlocked");
         playingRef.current = false;
         playNextRef.current();

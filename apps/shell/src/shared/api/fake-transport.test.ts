@@ -410,6 +410,29 @@ describe("fake-transport task 族订阅簿记（D-2；连接级订阅表 + chang
     expect(types(second.replies)).toEqual(["task.resume.result", "task.pause.result"]);
     second.transport.close();
   });
+
+  it("中危 F3a：emit/emitAll 直发路径同过 task.changed 订阅闸（未订阅不下发，订阅后恢复——与 auto-reply 路径等价）", async () => {
+    const { transport, replies } = await setupSocket();
+    const changed = { v: 0, type: "task.changed", sessionId: "__system__", channel: "notification", payload: { jobId: "job-x" } } as EventEnvelope;
+    await window.__helixMock!.emit(changed); // 未订阅：不得直发绕闸（否则掩盖订阅失效回归）
+    expect(types(replies)).toEqual([]);
+    sendTask(transport, "task.subscribe");
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    await window.__helixMock!.emit(changed); // 订阅后（"*"）：正常投递
+    expect(types(replies)).toEqual(["task.subscribe.result", "task.changed"]);
+    await window.__helixMock!.netClose(1006);
+    const replies3: EventEnvelope[] = [];
+    const third: Transport = createFakeTransport("1")(WS_URL, {
+      onOpen: () => {},
+      onMessage: (data: string) => replies3.push(JSON.parse(data) as EventEnvelope),
+      onClose: () => {},
+      onError: () => {},
+    });
+    await window.__helixMock!.open();
+    await window.__helixMock!.emitAll([changed]); // emitAll 同闸：新连接未订阅不下发
+    expect(types(replies3)).toEqual([]);
+    third.close();
+  });
 });
 
 // ── 自动应答 gate（F 层确定性 hold/release；慢机 skeleton 瞬态断言；trace/kg/task 三族）──

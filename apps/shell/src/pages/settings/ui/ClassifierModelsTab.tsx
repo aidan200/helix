@@ -131,14 +131,16 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
           return;
         }
         if (e.type === "embedding.verify.result") {
-          const payload = e.payload as
-            | { id: string; state: "ok"; dim?: number; prob?: number }
-            | { id: string; state: "fail"; error: string };
+          // 判别位窄化（B4）：本 tab 只收 classifier 变体（kind 判别位自述）；
+          // 非本 tab 端点的回执不带 prob 也照常收（多端点并发验证归属靠 id）
+          const payload = e.payload;
           setVerifyStates((prev) => ({
             ...prev,
             [payload.id]:
               payload.state === "ok"
-                ? { phase: "ok", ...("dim" in payload ? {} : { prob: payload.prob }) }
+                ? payload.kind === "classifier"
+                  ? { phase: "ok", prob: payload.prob }
+                  : { phase: "ok" }
                 : { phase: "fail", error: payload.error },
           }));
           if (payload.state === "fail") {

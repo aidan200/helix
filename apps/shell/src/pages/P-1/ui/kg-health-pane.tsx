@@ -7,6 +7,10 @@
  *    发起按钮直接入行（运行态徽标/已发起条随行——按钮状态即任务状态）。
  * 概览卡之下 = conflicts/orphans 问题清单（零问题 → 「结构健康」空态）。
  *
+ * 文案纪律：TaskBlock 五个文案键（title/launch/runningBadge/runningStrip/
+ * launched）全部由调用方注入——运行态徽标不再复用 review 专属键（code-review/
+ * triage 运行中显示「体检任务进行中」属误导）。
+ *
  * 展示纪律：只列不修零写路径（发起钮只调既有 ws 命令，启动钮即「开启前
  * 一次确认」位，bootstrap 入口同规）；conflicts/orphans 条目 summary =
  * 服务层人读文案直渲（AD-16 同规，前端零二次叙述）。纯展示组件：命令
@@ -24,6 +28,7 @@ function TaskBlock({
   badge,
   titleKey,
   launchKey,
+  runningBadgeKey,
   runningStripKey,
   launchedKey,
   running,
@@ -38,6 +43,8 @@ function TaskBlock({
   badge: string;
   titleKey: string;
   launchKey: string;
+  /** 运行态徽标文案键（各任务块专属——不复用 review 的「体检任务进行中」） */
+  runningBadgeKey: string;
   runningStripKey: string;
   launchedKey: string;
   running: boolean;
@@ -55,7 +62,7 @@ function TaskBlock({
         <span className="hud-badge kbe-type">{badge}</span>
         <span className="kg-task-name">{t(titleKey)}</span>
         {running ? (
-          <span className="hud-badge" {...attrs("running-badge")}>{t("pj.health.reviewRunningBadge")}</span>
+          <span className="hud-badge" {...attrs("running-badge")}>{t(runningBadgeKey)}</span>
         ) : (
           <button
             type="button"
@@ -231,6 +238,7 @@ export default function KgHealthPane({
             badge="kg-review"
             titleKey="pj.health.reviewTitle"
             launchKey="pj.health.reviewLaunch"
+            runningBadgeKey="pj.health.reviewRunningBadge"
             runningStripKey="pj.health.reviewRunningStrip"
             launchedKey="pj.health.reviewLaunched"
             running={reviewRunning}
@@ -246,6 +254,7 @@ export default function KgHealthPane({
             badge="code-review"
             titleKey="pj.health.codeReviewTitle"
             launchKey="pj.health.codeReviewLaunch"
+            runningBadgeKey="pj.health.codeReviewRunningBadge"
             runningStripKey="pj.health.codeReviewRunningStrip"
             launchedKey="pj.health.codeReviewLaunched"
             running={codeReviewRunning}
@@ -262,6 +271,7 @@ export default function KgHealthPane({
             badge="kg-triage"
             titleKey="pj.health.triageTitle"
             launchKey="pj.health.triageLaunch"
+            runningBadgeKey="pj.health.triageRunningBadge"
             runningStripKey="pj.health.triageRunningStrip"
             launchedKey="pj.health.triageLaunched"
             running={triageRunning}

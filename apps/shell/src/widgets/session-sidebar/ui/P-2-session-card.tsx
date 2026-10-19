@@ -82,6 +82,10 @@ const SessionCard = memo(function SessionCard({
         onSwitch(sessionId);
       }}
       onKeyDown={(e) => {
+        // 内嵌按钮（删除/确认/取消）键盘事件不拦截（中危 F3a）：冒泡至此的
+        // Enter/Space 若 preventDefault 会吞掉按钮原生激活（三钮键盘不可达），
+        // 非 confirming 态还误触发切会话——仅卡片自身焦点才处理
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           if (!confirming) onSwitch(sessionId);

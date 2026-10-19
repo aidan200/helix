@@ -363,6 +363,24 @@ describe("t() 插值", () => {
     );
     expect(t(translations, "chat.not.exists.key")).toBe("chat.not.exists.key");
   });
+
+  it("中危 F3a（TR-222 残余清零）：双语言全部词条零双大括号占位——t() 单大括号契约，双括号渲染「{128} 条」类破损文案", () => {
+    const scan = (node: unknown, path: string[], hits: string[]) => {
+      if (typeof node === "string") {
+        if (/\{\{\w+\}\}/.test(node)) hits.push([...path, node].join(" "));
+      } else if (typeof node === "object" && node !== null) {
+        for (const [k, v] of Object.entries(node)) scan(v, [...path, k], hits);
+      }
+    };
+    for (const [name, dict] of [["zh-CN", zhCN], ["en-US", enUS]] as const) {
+      const hits: string[] = [];
+      scan(dict, [name], hits);
+      expect(hits).toEqual([]);
+    }
+    // 修复后的两键插值回归（曾双括号渲染「已记 {128} 条」）：
+    expect(t(zhCN as unknown as Translations, "chat.settings.general.memoryEntries", { count: 128 })).toBe("已记 128 条");
+    expect(t(enUS as unknown as Translations, "chat.settings.general.memoryEntries", { count: 128 })).toBe("128 entries");
+  });
 });
 
 describe("OI-7 restore.toastSub 投影面枚举（T1.3）", () => {

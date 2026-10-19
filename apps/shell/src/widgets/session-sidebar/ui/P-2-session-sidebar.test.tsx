@@ -155,6 +155,30 @@ describe("P-2 会话侧栏", () => {
     expect(deleteSession).not.toHaveBeenCalled();
   });
 
+  it("内嵌按钮键盘事件不冒泡触发卡片切换（Enter/Space 在删除钮上不误切会话——中危 F3a）", () => {
+    stateRef.current = makeState("s1");
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    ui();
+    const card = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
+    const card2 = screen.getAllByText("重构事件分发架构")[0]!.closest("[data-session-card]")!;
+    // 卡片容器自身键盘可达（回归锚，先于 confirming 态验证，用非活跃卡）：焦点在卡片上 Enter 仍切会话
+    fireEvent.keyDown(card2, { key: "Enter" });
+    expect(switchSession).toHaveBeenCalledWith("s2");
+    switchSession.mockClear();
+    const del = card.querySelector(".ses-del")!;
+    // 焦点在内嵌按钮上按 Enter/Space：冒泡至卡片容器的 keydown 不得
+    // ① preventDefault 吞掉按钮原生激活（删除/确认/取消三钮键盘不可达）
+    // ② 非 confirming 态误触发 onSwitch 切会话
+    fireEvent.keyDown(del, { key: "Enter" });
+    fireEvent.keyDown(del, { key: " " });
+    expect(switchSession).not.toHaveBeenCalled();
+    // confirming 态内嵌确认钮同理（键盘可达性归按钮自身，卡片层零拦截）
+    fireEvent.click(del);
+    const yes = card.querySelector(".sc-yes")!;
+    fireEvent.keyDown(yes, { key: "Enter" });
+    expect(switchSession).not.toHaveBeenCalled();
+  });
+
   it("确认删除：发 deleteSession（活跃会话同链——切草稿归 provider 面）；折叠记忆写入 localStorage", () => {
     stateRef.current = makeState("s1");
     topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };

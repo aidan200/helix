@@ -87,6 +87,9 @@ export class SubscriptionLedger {
       if (this.tiers.get(id) !== "monitor") continue;
       if (this.isPendingDemote(id)) continue;
       this.tiers.delete(id);
+      // 淘汰即清待激活锚（与档位簿记同生命周期）：已退订会话的迟到快照不得
+      // 以「无档位」状态被 onSnapshot 激活（否则草稿视图被旧会话顶回）。
+      this.pendingActivation.delete(id);
       out.push(sessionUnsubscribeCommand(id));
       break;
     }
@@ -133,10 +136,13 @@ export class SubscriptionLedger {
 
   /** created（list_changed）：补订 monitor（LRU 容量化；幂等；档位升级归
    *  switchTo/快照激活）。无活跃（草稿链）时登记 pendingActivation——该会话
-   *  的回推快照 = 激活指令。 */
+   *  的回推快照 = 激活指令。
+   *  **登记先于幂等早退**：list.result/syncList 抢跑已把新会话订成 monitor 时
+   *  （tiers.has → 早退），其回推快照仍是激活指令——不登记则被 onSnapshot 三分支
+   *  全落空当 ack 噪声吞掉，建会话停留草稿视图（无活跃 + tiers 非空 = 三路不命中）。 */
   addCreated(sessionId: string): SubscriptionCommand[] {
-    if (this.tiers.has(sessionId)) return [];
     if (this.activeId === null) this.pendingActivation.add(sessionId);
+    if (this.tiers.has(sessionId)) return [];
     return this.setMonitor(sessionId);
   }
 

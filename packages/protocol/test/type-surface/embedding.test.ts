@@ -137,7 +137,7 @@ const verifyOk: EmbeddingVerifyResultEvent = {
   sessionId: "__system__",
   channel: "embedding",
   type: "embedding.verify.result",
-  payload: { id: "ep-1", state: "ok", dim: 1024 },
+  payload: { id: "ep-1", state: "ok", kind: "embedding", dim: 1024 },
 };
 
 const verifyOkProb: EmbeddingVerifyResultEvent = {
@@ -145,7 +145,7 @@ const verifyOkProb: EmbeddingVerifyResultEvent = {
   sessionId: "__system__",
   channel: "embedding",
   type: "embedding.verify.result",
-  payload: { id: "ep-2", state: "ok", prob: 0.91 },
+  payload: { id: "ep-2", state: "ok", kind: "classifier", prob: 0.91 },
 };
 
 const verifyFail: EmbeddingVerifyResultEvent = {

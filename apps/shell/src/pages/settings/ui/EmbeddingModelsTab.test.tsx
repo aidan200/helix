@@ -76,7 +76,10 @@ function feedList(endpoints: typeof ENDPOINTS, defaultEndpointId: string | null 
 
 function feedVerify(
   id: string,
-  payload: { state: "ok"; dim: number } | { state: "ok"; prob: number } | { state: "fail"; error: string },
+  payload:
+    | { state: "ok"; kind: "embedding"; dim: number }
+    | { state: "ok"; kind: "classifier"; prob: number }
+    | { state: "fail"; error: string },
 ) {
   const frame = {
     v: PROTOCOL_VERSION,
@@ -131,8 +134,12 @@ describe("向量模型 tab（B2-③）", () => {
     expect(sendEmbeddingVerify).toHaveBeenCalledWith("ep-1");
     expect(container.querySelector("[data-emb-conn=verifying]")!).not.toBeNull();
     expect(verifyBtn.disabled).toBe(true);
-    act(() => feedVerify("ep-1", { state: "ok", dim: 1024 }));
+    act(() => feedVerify("ep-1", { state: "ok", kind: "embedding", dim: 1024 }));
     expect(container.querySelector("[data-emb-conn=ok]")!.textContent).toContain("1024");
+    // 判别位窄化（B4）：kind=classifier 的 ok 回执走 prob 显示面（不误走 dim 分支）
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-verify=ep-2]")!);
+    act(() => feedVerify("ep-2", { state: "ok", kind: "classifier", prob: 0.87 }));
+    expect(container.querySelector('[data-emb-row="ep-2"] [data-emb-conn=ok]')!.textContent).toContain("87");
     // fail 判别：err toast 交代 + fail 徽标
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-verify=ep-2]")!);
     act(() => feedVerify("ep-2", { state: "fail", error: "端点不可达" }));

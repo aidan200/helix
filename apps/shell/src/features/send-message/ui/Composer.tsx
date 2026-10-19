@@ -254,7 +254,10 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
           />
           {/* 语音输入钮（V2：点击交互）：待录 Mic / 录音中电平条（level 驱动
               per-bar scaleY）/ 转写中 spinner；点击开始、录音中点击强制停；
-              unsupported（tauri dev 裸跑无授权）隐藏 */}
+              unsupported（tauri dev 裸跑无授权）隐藏。
+              录音中恒不禁用（中危 F3a）：强制停是本地动作不依赖连接/视图态
+              ——断连（canSend=false）时禁用会让 voice.stop() 不可达，录音悬挂
+              到 VAD 静音自停；idle/转写态照旧按 canSend 禁开录 */}
           {voice.state !== "unsupported" && (
             <button
               className={cn("hud-btn", "mic-btn", voice.state === "recording" && "recording")}
@@ -262,7 +265,7 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
               type="button"
               aria-label={voice.state === "recording" ? t("chat.voice.recording") : voice.state === "transcribing" ? t("chat.voice.transcribing") : t("chat.voice.button")}
               title={t("chat.voice.button")}
-              disabled={!canSend || voice.state === "transcribing"}
+              disabled={voice.state === "recording" ? false : !canSend || voice.state === "transcribing"}
               onClick={() => {
                 if (voice.state === "idle") void voice.start();
                 else if (voice.state === "recording") voice.stop();

@@ -138,14 +138,15 @@ export function handleEmbeddingVerify(ctx: EmbeddingCommandContext): void {
   void ctx.embedding.service
     .verify(id)
     .then((result) => {
-      // ok 分叉（TR-159 帧级纪律）：embedding → dim 变体；classifier →
-      // prob 变体（判别联合，二选一组帧）
+      // ok 分叉（TR-159 帧级纪律）：embedding → {kind,dim}；classifier →
+      // {kind,prob}（判别联合，kind 判别位由服务层按端点用途给出——shell 侧
+      // 按 kind 窄化取值，不再猜「字段存在性」）
       const payload: EmbeddingVerifyResultEvent["payload"] =
         result.state === "fail"
           ? { id, state: "fail", error: result.error }
-          : "dim" in result
-            ? { id, state: "ok", dim: result.dim }
-            : { id, state: "ok", prob: result.prob };
+          : result.kind === "classifier"
+            ? { id, state: "ok", kind: "classifier", prob: result.prob }
+            : { id, state: "ok", kind: "embedding", dim: result.dim };
       const frame: EmbeddingVerifyResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,

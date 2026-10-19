@@ -233,6 +233,51 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     }
   }, 30000);
 
+  test("⑬ deferred 透传：add/update 携带值落盘并经 list 读面回显（原实现缺席恒回落 true）", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
+    let daemon: Daemon | undefined;
+    let client: TestClient | undefined;
+    try {
+      daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
+      client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
+      await client.open();
+      await helloHandshake(client, daemon.devToken);
+
+      // add：deferred=false（全量急发）→ 落盘 + list 读面回显 false
+      const fake = fakeServerInput("eager", { deferred: false });
+      client.send({ v: 0, type: "mcp.servers.add", payload: fake.input });
+      await client.expect("mcp.servers.add.result");
+      expect(JSON.parse(readMcpTable(home)[0]!.config).deferred).toBe(false);
+      let mark = client.frames.length;
+      client.send({ v: 0, type: "mcp.servers.list", payload: {} });
+      const listed = await client.expectAfter("mcp.servers.list.result", mark);
+      const row = (listed.payload.servers as { config: Record<string, unknown> }[])[0]!;
+      expect(row.config.deferred).toBe(false);
+
+      // update 全量覆盖：deferred 缺席 → 回落缺省（字段不落盘，list 面省略键）
+      mark = client.frames.length;
+      client.send({ v: 0, type: "mcp.servers.update", payload: { name: "eager", command: process.execPath, args: fake.input.args as string[] } });
+      const updated = await client.expectAfter("mcp.servers.update.result", mark);
+      expect(updated.payload.status).toBe("applied");
+      expect("deferred" in JSON.parse(readMcpTable(home)[0]!.config)).toBe(false);
+      mark = client.frames.length;
+      client.send({ v: 0, type: "mcp.servers.list", payload: {} });
+      const listed2 = await client.expectAfter("mcp.servers.list.result", mark);
+      expect("deferred" in (listed2.payload.servers as { config: Record<string, unknown> }[])[0]!.config).toBe(false);
+
+      // 形状校验：deferred 非 boolean → invalid_payload
+      const badStart = client.frames.length;
+      client.send({ v: 0, type: "mcp.servers.update", payload: { name: "eager", command: process.execPath, deferred: "yes" } });
+      const bad = await client.expectAfter("connection.error", badStart);
+      expect(bad.payload.code).toBe("command.invalid_payload");
+      expect(String(bad.payload.message)).toContain("deferred");
+    } finally {
+      await client?.close();
+      await daemon?.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
+
   test("③ add connect 失败：connect_failed 判别 + 配置保留（可重试）", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
     let daemon: Daemon | undefined;

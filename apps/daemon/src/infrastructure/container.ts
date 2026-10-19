@@ -21,6 +21,8 @@ import type { FrameSender } from "../adapters/driving/ws-server/EventStream";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { isMainInstanceId } from "../domain/agent/AgentInstance";
+import type { InstanceState } from "../domain/agent/AgentInstance";
+import type { JobStatus } from "../domain/task/types";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { BrowserSurfaceAdapter, SURFACE_AWARENESS_KEY } from "../adapters/driven/cdp/BrowserSurfaceAdapter";
@@ -515,10 +517,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: bootCwd,
   });
-  let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void = () => {};
+  let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }) => void = () => {};
   let orchestratorService: TaskOrchestratorService | undefined;
   /** 调度器晚绑引用（⑤ 链 A：任务栈 instanceStateOf 闭包读现值）。 */
-  let schedulerLate: { status(agentId?: string): { state: string }[] } | undefined;
+  let schedulerLate: { status(agentId?: string): { state: InstanceState }[] } | undefined;
   /** 晚绑 starter 代理（T2.2 真体在 sessionStack 之后构造回填；未回填 = 占位语义）。 */
   const lateStarter: TaskOrchestratorStarterPort = {
     startOrchestrator: (jobId) =>
@@ -1684,6 +1686,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
                 ...(s.cwd !== undefined ? { cwd: s.cwd } : {}),
                 ...(s.enabled !== undefined ? { enabled: s.enabled } : {}),
                 ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
+                // deferred（懒加载开关）必须同序列化：漏此行则 update 全量
+                // 覆盖语义下该位恒回落缺省 true（全量急发经 WS 不可达）
+                ...(s.deferred !== undefined ? { deferred: s.deferred } : {}),
               }))
             : [],
         );

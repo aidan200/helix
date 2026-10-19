@@ -222,13 +222,32 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
       let selected = state.selected;
       if (tasks.length === 0) selected = null;
       else if (selected === null || !tasks.some((t) => t.jobId === selected)) selected = tasks[0]!.jobId;
-      const detailGone = state.detail !== null && state.detail.jobId !== selected;
+      if (selected === state.selected) {
+        // 选中未变：仅收列表与加载态（在途位/产物归属保持——无谓复位会丢已加载产物）
+        const detailGone = state.detail !== null && state.detail.jobId !== selected;
+        return {
+          ...state,
+          tasks,
+          listLoading: false,
+          detail: detailGone ? null : state.detail,
+        };
+      }
+      // 回落换选中（选中 job 从新清单消失）：与 delete-result 族B 同口径复位——
+      // 在途归属=旧 selected、数据归属=artifactsJob；只清 detail 不清在途位则迟到
+      // 回执按新 selected 被丢弃、artifactsLoading 永真、结果 tab 骨架永挂。
       return {
         ...state,
         tasks,
         listLoading: false,
         selected,
-        detail: detailGone ? null : state.detail,
+        detail: null,
+        detailLoading: false,
+        artifacts: null,
+        artifactsLoading: false,
+        artifactsJob: null,
+        artifactsError: false,
+        confirmBox: "none",
+        planOpen: {},
       };
     }
     case "workspace-reset":

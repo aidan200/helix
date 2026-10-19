@@ -91,7 +91,12 @@ export interface TaskBatchDto {
   seq: number;
   /** 批次范围描述（粗体，人类可读）。 */
   scope: string;
-  status: "pending" | "running" | "done" | "failed";
+  /**
+   * 批次状态 = TaskStatus 的**批次子集**（Extract 单源，四值字面不另写一份）：
+   * 批次状态机无 paused/cancelled（域 BatchStatus：pending → running → done/
+   * failed，failed 由自动重试接管）；任务级挂起/取消不进批次行。
+   */
+  status: Extract<TaskStatus, "pending" | "running" | "done" | "failed">;
   /** 自动重试计数（>0 时前端 warning 色如实呈现）。 */
   retryCount: number;
   /** 重试原因 note。 */
@@ -154,12 +159,12 @@ export interface TaskChangedPayload {
   /** 变更面（stage/batch/work_item 级变更前端按需重拉 detail）。 */
   changed: "job" | "stage" | "batch" | "work_item";
   /**
-   * job 级变更携带新状态（值集 = 本文件 TaskStatus，以其为单源）。类型层
-   * 保持 string：daemon 广播签名（EventStream.broadcastTaskChanged /
-   * TaskEngineService.notify）为 string 透传，收窄需两端同动 —— 待后续
-   * 契约批一并收紧，新增状态请先落 TaskStatus。
+   * job 级变更携带新状态（值集以 TaskStatus 为单源——已收窄；daemon 侧三处
+   * 广播签名（EventStream.broadcastTaskChanged / TaskEngineService.notify /
+   * handlers 生命周期广播）同批改为 TaskStatus（domain JobStatus 结构同源），
+   * 新增状态请先落 TaskStatus 再广播）。
    */
-  status?: string;
+  status?: TaskStatus;
   /**
    * kg sync 提示（W2-D R13，additive 可选字段）：job 终态时 pending_sync
    * 台账有未提示行 → 随行一帧人读提示（「本次任务有代码/文档变更，是否

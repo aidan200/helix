@@ -2,7 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../../src/adapters/driving/ws-server/EventStream";
 import { StubBrowserPort } from "../mocks/StubBrowserPort";
-import { buildTaskEngineEnv, childLedger, launchRunningJob, type TaskEngineEnv } from "../helpers/task-fixtures";
+import {
+  buildTaskEngineEnv,
+  childLedger,
+  launchRunningJob,
+  type TaskEngineEnv,
+  type TaskEnvOverrides,
+} from "../helpers/task-fixtures";
 import { COMMAND_TYPES, PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 
 /**
@@ -206,8 +212,8 @@ function stubAdapterDeps(events: EventStream) {
 }
 
 /** 每 test 独立 rig：真任务栈接 ws adapter（withTaskEnv 同构自管清理）。 */
-async function makeRig(withTask = true): Promise<Rig> {
-  const env = buildTaskEngineEnv();
+async function makeRig(withTask = true, over: TaskEnvOverrides = {}): Promise<Rig> {
+  const env = buildTaskEngineEnv(over);
   const events = new EventStream();
   const adapter = new WsServerAdapter({
     ...stubAdapterDeps(events),
@@ -235,8 +241,11 @@ async function openClient(rig: Rig): Promise<TestClient> {
   return client;
 }
 
-async function rigWithClient(withTask = true): Promise<{ rig: Rig; client: TestClient }> {
-  const rig = await makeRig(withTask);
+async function rigWithClient(
+  withTask = true,
+  over: TaskEnvOverrides = {},
+): Promise<{ rig: Rig; client: TestClient }> {
+  const rig = await makeRig(withTask, over);
   rigs.push(rig);
   const client = await openClient(rig);
   return { rig, client };
@@ -326,6 +335,30 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
       expect(task.params).toEqual({ projectRoot: "/tmp/demo" });
     } finally {
       await client.close();
+    }
+  });
+
+  test("task.detail 批次行透传 instanceState（⑤ 链 A：wire 面不再恒缺——装配读面时携带，未装配省略）", async () => {
+    // 装配 instanceStateOf（组合根接 scheduler.status 的等价形态）：parked 实例态上 wire
+    const withState = await rigWithClient(true, { instanceStateOf: () => "parked" });
+    try {
+      const { jobId } = await launchRunningJob(withState.rig.env, { projects: ["demo"] });
+      const res = await withState.client.task("task.detail", { jobId });
+      const task = res.result["task"] as Record<string, any>;
+      expect(task.batches[0].instanceId).toBe("inst-a");
+      expect(task.batches[0].instanceState).toBe("parked");
+    } finally {
+      await withState.client.close();
+    }
+    // 未装配读面（隔离形态）：字段省略（不在 wire 上出现 undefined 键）
+    const noState = await rigWithClient();
+    try {
+      const { jobId } = await launchRunningJob(noState.rig.env, { projects: ["demo"] });
+      const res = await noState.client.task("task.detail", { jobId });
+      const task = res.result["task"] as Record<string, any>;
+      expect(task.batches[0]).not.toHaveProperty("instanceState");
+    } finally {
+      await noState.client.close();
     }
   });
 

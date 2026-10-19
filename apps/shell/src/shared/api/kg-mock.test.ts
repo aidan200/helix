@@ -133,4 +133,27 @@ describe("KgMockStore.replyIndex rebuild 门控（对齐 daemon KgViewerService.
     const absent = store.reply("kg.index.status", { project: "serena", rebuild: true });
     expect(absent.payload).toMatchObject({ state: "building" });
   });
+
+  it("中危 F3a：building 中 graph.purge 清 buildingSince 在途时基——已删索引不被 advanceBuilds 复活", () => {
+    const store = new KgMockStore();
+    store.reply("kg.index.status", { project: "helix", rebuild: true }); // building + 时基在飞
+    const purged = store.reply("kg.graph.purge", { project: "helix" });
+    expect(purged.payload).toMatchObject({ purged: true });
+    const after = store.reply("kg.index.status", { project: "helix" });
+    expect(after.payload).toMatchObject({ state: "absent" });
+    // 构建时长耗尽后再查：不得从已删索引复活为 building→synced
+    vi.advanceTimersByTime(4000);
+    const late = store.reply("kg.index.status", { project: "helix" });
+    expect(late.payload).toMatchObject({ state: "absent" });
+  });
+
+  it("中危 F3a：building 中 index.delete 同清 buildingSince——已删索引不被复活", () => {
+    const store = new KgMockStore();
+    store.reply("kg.index.status", { project: "feifei", rebuild: true });
+    const deleted = store.reply("kg.index.delete", { project: "feifei" });
+    expect(deleted.payload).toMatchObject({ deleted: true, state: "absent" });
+    vi.advanceTimersByTime(4000);
+    const late = store.reply("kg.index.status", { project: "feifei" });
+    expect(late.payload).toMatchObject({ state: "absent" });
+  });
 });
