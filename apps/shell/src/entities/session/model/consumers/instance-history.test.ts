@@ -89,4 +89,17 @@ describe("applyInstanceHistoryEvent（session.instanceChannels.result 回填）"
     const items = out.instanceChannels["agent-1"]!;
     expect(items[items.length - 1]!.kind).not.toBe("closure");
   });
+
+  test("回填推进 nextChannelSeq（seq 单调递增契约）：回填后实时条目不与回填条目撞 seq", () => {
+    const s = baseState();
+    s.nextChannelSeq = 4; // 回填前全局计数器（远小于回填后的 seq 上界）
+    const out = applyInstanceHistoryEvent(s, resultEvent({
+      messages: [
+        { kind: "message", id: "m-1", instanceId: "agent-1", role: "assistant", content: "一", createdAt: new Date(1000).toISOString() },
+        { kind: "message", id: "m-2", instanceId: "agent-1", role: "assistant", content: "二", createdAt: new Date(2000).toISOString() },
+      ],
+    }));
+    const maxSeq = Math.max(...out.instanceChannels["agent-1"]!.map((i) => i.seq));
+    expect(out.nextChannelSeq).toBeGreaterThan(maxSeq);
+  });
 });
