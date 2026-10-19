@@ -4,8 +4,10 @@
  * 零变化，追踪页/实例面板无感）。
  *
  * - 里程碑过滤：流式中间态（message_update/thinking_delta 等）不落库
- *  （AD-16 同口径）；runId 语义：pi 无 run id——以 promptSummary（前 80 字）
- *  作 run 锚（追踪页展示面非配对面）；
+ *  （AD-16 同口径）；runId/promptSummary 恒空串占位（pi 无 run id；且
+ *  pi 事件序 agent_start 先于 user 消息帧——原 LoopEvent 形态的
+ *  promptSummary（前 80 字）run 锚在 pi 形态下不可得，行为检索面由
+ *  message/tool 帧承载，steward-trace-projection.test 断言在案）；
  * - 归位四维：sessionId=SYSTEM_SESSION_ID / instanceId="steward"；
  * - 防自激（TR-169/TR-173）：只投领域事件进 fanout——广播面 default→null，
  *  管家不订阅广播流（零反馈边，结构上无环）；
@@ -35,11 +37,13 @@ export interface StewardEngineTraceBridgeDeps {
   ) => void;
 }
 
-/** AgentEngineEvent 载荷 → domain_events 载荷（LoopEvent 桥输出面同构直转）。 */
-function payloadOf(event: AgentEngineEvent, promptSummaryOf: () => string): unknown {
+/** AgentEngineEvent 载荷 → domain_events 载荷（LoopEvent 桥输出面同构直转；
+ *  promptSummary 恒空串占位——pi 事件序下 agent_start 先于 user 消息帧，
+ *  本 run 摘要不可得（见文件头注）。 */
+function payloadOf(event: AgentEngineEvent): unknown {
   switch (event.type) {
     case "agent_start":
-      return { runId: "", promptSummary: promptSummaryOf() };
+      return { runId: "", promptSummary: "" };
     case "agent_end":
       return { runId: "", resolution: "finished" as const };
     case "engine_error":
@@ -70,14 +74,9 @@ function payloadOf(event: AgentEngineEvent, promptSummaryOf: () => string): unkn
 /** 装配：AgentEngineEvent → DomainEvent（里程碑子集）→ 发布面；首条里程碑前合成档案行。 */
 export function stewardEngineTraceBridge(deps: StewardEngineTraceBridgeDeps): (event: AgentEngineEvent) => void {
   let instantiated = false; // 进程内幂等位（重启后历史行已在——重复合成无害）
-  let lastPromptSummary = "";
   // start→end 两段写的行补齐源（end 事件无 args/name 全貌——暂存 start 载荷）
   const startedTools = new Map<string, { toolName: string; args: unknown }>();
   return (event) => {
-    if (event.type === "message_start" && event.role === "user" && event.source === "prompt") {
-      // prompt 摘要锚（agent_start 时点 message_start(user) 可能未到——桥内暂存）
-      lastPromptSummary = "";
-    }
     if (event.type === "tool_execution_start" && deps.recordToolCall !== undefined) {
       // 监控入账（kind='steward'）：id 加实例前缀防跨实例 call id 撞 PK（F3 同因）
       startedTools.set(event.toolCallId, { toolName: event.toolName, args: event.args });
@@ -106,7 +105,7 @@ export function stewardEngineTraceBridge(deps: StewardEngineTraceBridgeDeps): (e
         endedAt: deps.nowIso(),
       });
     }
-    const payload = payloadOf(event, () => lastPromptSummary);
+    const payload = payloadOf(event);
     if (payload === undefined) return;
     if (!instantiated) {
       instantiated = true;
