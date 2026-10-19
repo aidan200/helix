@@ -84,7 +84,7 @@ export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSe
  * 回执（TR-AD-21 模式）。
  */
 export interface AgentBasePromptGetPayload {
-  /** 目标 kind（四值全可读——含系统派生两 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
+  /** 目标 kind（可读全集以 types/agent.ts ProfileKind 为单源——含系统派生 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
   profileKind: ProfileKind;
 }
 

@@ -2,26 +2,29 @@
  * steward 族事件（V2.5 文本管家批，additive；新 Channel 值 "steward"——
  * 扩展纪律：新增族 = additive，不动分发器，"voice" 族先例同构口径）。
  *
- * 四帧（§5.3 ①②层口径：feed 文本行模板直出不进 LLM）：
- * - steward.ask.delta = steward.ask 流式增量帧（V2.5 体验批 additive：
- *   文本生成段逐 chunk 下发，前端聚合——终态以 steward.ask.result 为权威
- *   覆盖；工具执行段静默不发）；
- * - steward.ask.result = steward.ask 点对点回执（三判别：answer 直答 /
- *   confirm_required 确认闸请求 / error 业务失败）；
- * - steward.confirm.result = steward.confirm 点对点回执（ok/error）；
+ * 帧清单以 EVENT_TYPES 为单源（本注只记语义分组，不记帧数——新增帧
+ * 只登记目录；§5.3 ①②层口径：feed 文本行模板直出不进 LLM）：
+ * - steward.ask.delta / steward.ask.result = 管家对话（流式增量 + 点对点
+ *   回执；判别集以 StewardAskResultPayload 为单源）；
+ * - steward.confirm.result = steward.confirm 点对点回执；
  * - steward.feed = 事件 feed 文本行广播（daemon→已订阅连接——agent 生命
  *   周期事件模板直出，复用事件流零新事件源）；
  * - steward.config.result = 设置读写回执（enabled + model 现态）。
+ * 同族其余帧（回放/过程可见/页面指令/记忆通知/健康广播等）语义见各自
+ * 类型注释，本注不逐一列举。
  */
 import type { EventFrame } from "../envelope";
 import type { SummaryConfigStatePayload } from "./config";
 
-/** steward.ask.result payload：五判别——answer = 直答文本；confirm_required =
+/** steward.ask.result payload：`status` 为判别位（判别集即本联合，清单以本
+ *  类型为单源——消费端 switch 勿按注释枚举）；各判别语义：
+ *  answer = 直答文本；confirm_required =
  *  确认闸请求（写注入唯一原语 propose_send 的回执形态，未确认零执行）；
  *  queued = 忙碌态入队确认（L1 件二：本轮工具循环收口后自动作为下一轮
  *  输入，结果帧随后另发）；dropped = 静默丢弃（addressee 判定判为旁人话语
  *  ——双工常开麦收音段非管家对话，零回答零播报零字幕，前端静默收口轮次）；
- *  error = 业务失败（开关关/模型未配/key 缺失/
+ *  stopped = 在途 run 被手动停止（abort 当前 + 清空排队，收口由 daemon
+ *  异步完成）；error = 业务失败（开关关/模型未配/key 缺失/
  *  循环超限等，reason 含引导）。 */
 export type StewardAskResultPayload =
   | {

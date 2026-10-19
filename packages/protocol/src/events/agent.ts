@@ -143,8 +143,9 @@ export interface AgentConfigMcpServerRow {
  * 兼容；零 server/未接 MCP 的 kind 恒缺省）。
  */
 export interface AgentConfigProfileBlock {
-  /** 配置单元 kind（T2.2 additive 扩第三值：任务编排主 agent——读面透传；
-   *  写面（set_enabled）仍两值——编排工具配置 UI 归后续迭代）。 */
+  /** 配置单元 kind（本块 = 读面可配置块，取值以 types/agent.ts
+   *  ReadableProfileKind 为单源；写面 kind 全集见同文件 ProfileKind
+   *  ——编排主 agent 归位 SystemProfileKind 后不进本块）。 */
   profileKind: ReadableProfileKind;
   tools: ReadonlyArray<{ name: string; enabled: boolean; snippet: string }>;
   /** MCP server 行（server 级配置面批 additive；缺省不携带——零 server kind）。 */

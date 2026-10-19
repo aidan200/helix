@@ -1,4 +1,4 @@
-/** 任务域命令族：workspace.* / task.*（九命令族）/ diff.get。 */
+/** 任务域命令族：workspace.* / task.* / diff.get（清单以 COMMAND_TYPES 为单源）。 */
 import type { CommandFrame } from "../envelope";
 import type { TaskStatus } from "../types/task";
 import type { DiffGetPayload } from "../types/diff";
@@ -28,12 +28,13 @@ export interface WorkspaceOpenCommand extends CommandFrame<WorkspaceOpenPayload>
 // ── task 批新增（iter-20260829-ys7q T1.5，P-2 任务页数据面九命令族；契约 = contracts/task-api.md §2）──
 
 /**
- * task 族命令通则：九命令全部为全局命令（信封 sessionId 省略）——任务
+ * task 族命令通则：task.* 全部为全局命令（信封 sessionId 省略）——任务
  * 是 daemon 级实体非会话作用域。零内容干预（AD-2）：无 steer/批次重试/
- * 内容编辑命令——九命令清单即全集（机械 grep 断言守护）。结果 = 点对点
- * 结果帧（types/task.ts，不入 EVENT_TYPES 目录——契约 §0 计数 57→58
- * 仅 task.changed）；生命周期错误码词表 = 契约 §4（handler 透传引擎
- * TaskError，状态判断收口 T1.3 引擎）。
+ * 内容编辑命令——命令清单以 COMMAND_TYPES 为单源（本注不记硬计数，新增
+ * 命令只登记目录；机械 grep 断言守护）。结果 = 点对点结果帧
+ * （types/task.ts，不入 EVENT_TYPES 目录——目录条目以 EVENT_TYPES 为
+ * 单源）；生命周期错误码词表 = 契约 §4（handler 透传引擎 TaskError，
+ * 状态判断收口 T1.3 引擎）。
  */
 export interface TaskListPayload {
   /** 状态过滤器（服务端生效；六态枚举，越界 → command.invalid_payload）。 */
