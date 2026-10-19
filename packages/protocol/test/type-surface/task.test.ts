@@ -20,6 +20,7 @@ import type {
   TaskBatchLedgerDto,
   TaskCancelResultEvent,
   TaskChangedEvent,
+  TaskChangedPayload,
   TaskDetailDto,
   TaskDetailResultEvent,
   TaskListResultEvent,
@@ -196,5 +197,19 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
       TaskChangedEvent,
     ] = null as never; // 仅类型引用，无运行时值
     expect(_rest).toBeNull();
+  });
+  test("状态位收窄（F3a/B3）：TaskChangedPayload.status ∈ TaskStatus；TaskBatchDto.status 为批次子集（越界字面量编译期拒绝）", () => {
+    const changed: TaskChangedPayload = { jobId: "j-1", changed: "job", status: "paused" };
+    expect(changed.status).toBe("paused");
+    const stageOnly: TaskChangedPayload = { jobId: "j-1", changed: "stage" };
+    expect(stageOnly.status).toBeUndefined(); // 非 job 级变更省略状态位
+    // @ts-expect-error status 已收窄为 TaskStatus——越界字面量编译期拒绝（收窄前 string 静默通过）
+    const badChanged: TaskChangedPayload = { jobId: "j-1", changed: "job", status: "killed" };
+    void badChanged;
+    // @ts-expect-error 批次态不含 paused（域 BatchStatus 子集 = Extract<TaskStatus, 四值>）
+    const badBatchStatus: TaskBatchDto["status"] = "paused";
+    void badBatchStatus;
+    const okBatchStatus: TaskBatchDto["status"] = "failed";
+    expect(okBatchStatus).toBe("failed");
   });
 });

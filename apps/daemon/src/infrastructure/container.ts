@@ -22,6 +22,7 @@ import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import type { InstanceState } from "../domain/agent/AgentInstance";
+import type { JobStatus } from "../domain/task/types";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { BrowserSurfaceAdapter, SURFACE_AWARENESS_KEY } from "../adapters/driven/cdp/BrowserSurfaceAdapter";
@@ -516,7 +517,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: bootCwd,
   });
-  let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void = () => {};
+  let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }) => void = () => {};
   let orchestratorService: TaskOrchestratorService | undefined;
   /** 调度器晚绑引用（⑤ 链 A：任务栈 instanceStateOf 闭包读现值）。 */
   let schedulerLate: { status(agentId?: string): { state: InstanceState }[] } | undefined;

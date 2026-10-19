@@ -20,6 +20,7 @@ import type { AgentProjectionStore } from "../../application/ports/outbound/Sess
 import type { EventPublisherPort } from "../../application/ports/outbound/EventPublisherPort";
 import type { TaskManifest } from "../../domain/task/types";
 import type { InstanceState } from "../../domain/agent/AgentInstance";
+import type { JobStatus } from "../../domain/task/types";
 
 /**
  * 装配函数 ④ 任务栈（architecture §4/§10）：组合根的一部分（AG-02④ 豁免面
@@ -72,7 +73,7 @@ export interface BuildTaskStackDeps {
    * 组合根接 EventStream.broadcastTaskChanged 同一广播单点（生命周期三
    * 命令面归 handler，不双发）。缺省不推送（隔离测试形态）。
    */
-  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
+  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }) => void;
   /**
    * 装配完成唤醒钩子（A 批第四 wake 点）：透传 TaskEngineService——组合根
    * 晚绑闭包接编排服务 notifyAssemblyDone（引擎先于编排服务构造）。缺省

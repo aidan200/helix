@@ -4,6 +4,7 @@ import { resolveStagePlan, stageKindOfManifest, validateTaskParams } from "../..
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
 import type { StageKind, StagePlan } from "../../../domain/task/types";
 import type { InstanceState } from "../../../domain/agent/AgentInstance";
+import type { JobStatus } from "../../../domain/task/types";
 import type { TaskEnginePort, CreateTaskInput, DispatchBatchOutcome } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
 import { taskSessionIdOf } from "./TaskOrchestratorService";
@@ -53,7 +54,7 @@ export interface TaskEngineServiceDeps {
    * 生命周期三命令（pause/resume/cancel）**不经本钩子**（handler 层已接
    * 同一单点，避免双发）；deleteTask 不广播（非状态迁移，AF-T1.5.2 裁决）。
    */
-  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
+  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }) => void;
   /**
    * 任务报告目录清理（F3.6 级联扩展）：~<home>/reports/task:<jobId>/ 整目录
    * 删除（批次报告 md/findings 旁路/summary.md 随任务同灭）。组合根注入 fs
@@ -97,7 +98,7 @@ export class TaskEngineService implements TaskEnginePort {
   constructor(private readonly deps: TaskEngineServiceDeps) {}
 
   /** task.changed 帧回调（迁移成功后；钩子异常不阻断引擎主流程）。 */
-  private notify(frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }): void {
+  private notify(frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }): void {
     try {
       this.deps.onTaskChanged?.(frame);
     } catch {
