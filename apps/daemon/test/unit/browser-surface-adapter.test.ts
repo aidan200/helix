@@ -18,7 +18,7 @@ import type { SurfaceEvent } from "@helix/protocol";
 import type { ClickAtResult } from "../../src/application/ports/outbound/BrowserPort";
 import { SurfaceRegistry } from "../../src/application/surface/SurfaceRegistry";
 import { SurfaceActionService } from "../../src/application/surface/SurfaceActionService";
-import { BrowserSurfaceAdapter } from "../../src/adapters/driven/cdp/BrowserSurfaceAdapter";
+import { BrowserSurfaceAdapter, DEFAULT_ACT_TIMEOUT_MS, echoWindowTtlMs } from "../../src/adapters/driven/cdp/BrowserSurfaceAdapter";
 import { OBSERVER_BINDING_NAME } from "../../src/adapters/driven/cdp/browser-observer";
 
 interface Rig {
@@ -361,6 +361,55 @@ describe("BrowserSurfaceAdapter：act 回声窗口（CAND-592——窗口内观�
       { targetId: "t1" },
     );
     expect(rig.events[0]!.origin).toBe("user");
+  });
+
+  // 评审 F2 #27：TTL 缺省 3s < actTimeout 缺省 30s——慢 act 超 3s 后窗口被 TTL 关闭，
+  // 后段观察者事件（isTrusted=true）被误归 origin=user（违背 CAND-592 act 期标 steward）。
+  test("缺省 TTL 不早于 act 超时：窗口覆盖整个 act 执行期（TTL 派生自 actTimeout）", () => {
+    const ttlDefault = echoWindowTtlMs({});
+    expect(ttlDefault).toBeGreaterThan(DEFAULT_ACT_TIMEOUT_MS);
+    // actTimeout 注入即跟随（TTL 始终是「act 之后的兜底」，不是 act 之前）
+    expect(echoWindowTtlMs({ actTimeoutMs: 5_000 })).toBeGreaterThan(5_000);
+    // 显式 echoWindowMs 仍是显式覆盖（测试/特殊场景）
+    expect(echoWindowTtlMs({ echoWindowMs: 10 })).toBe(10);
+  });
+
+  // 评审 F2 #27 后半：同 tab 并发 act —— 先收口者 endEcho 会把后者窗口关掉（Map 单值无引用计数）。
+  test("同 tab 并发 act：先收口不关后者窗口（引用计数）", async () => {
+    const rig = makeActRig();
+    const gates = new Map<string, () => void>();
+    rig.override(
+      "clickAtInTab",
+      (_targetId: unknown, selector: unknown) =>
+        new Promise((resolve) => {
+          gates.set(String(selector), () =>
+            resolve({ clicked: true, x: 0, y: 0, tag: "button", text: String(selector) } as never),
+          );
+        }),
+    );
+    const ctx = { seq: 1, risk: "write" as const, surfaceId: "browser:t1" };
+    const first = rig.adapter.act("click", { selector: "#a" }, ctx);
+    const second = rig.adapter.act("click", { selector: "#b" }, ctx);
+    await sleep(5);
+
+    gates.get("#a")!(); // 先开窗者收口
+    await first;
+    rig.adapter.onCdpEvent(
+      "Runtime.bindingCalled",
+      { name: OBSERVER_BINDING_NAME, payload: JSON.stringify({ t: "click", trusted: true, tag: "b" }) },
+      { targetId: "t1" },
+    );
+    // 第二个 act 仍在途 → 窗口必须仍开（后者收口不得关掉前者窗口）
+    expect(rig.events[0]!.origin).toBe("steward");
+
+    gates.get("#b")!();
+    await second;
+    rig.adapter.onCdpEvent(
+      "Runtime.bindingCalled",
+      { name: OBSERVER_BINDING_NAME, payload: JSON.stringify({ t: "click", trusted: true, tag: "c" }) },
+      { targetId: "t1" },
+    );
+    expect(rig.events[1]!.origin).toBe("user"); // 两个 act 都收口 → 窗口关
   });
 
   test("回声窗口只罩目标表面：他 tab 事件不受影响照常 user", async () => {
