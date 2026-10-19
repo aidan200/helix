@@ -61,7 +61,9 @@ export interface GainNodeLike extends AudioNodeLike {
 /** 播放队列公共面（编排层消费；测试 fake 同形）。 */
 export interface SpeechPlayer {
   /** 增量 PCM 入队（base64 16bit mono 24kHz）。返回 false = 播放面不可用
-   *（AudioContext 构造失败——调用方走一次性合成回退链）。 */
+   *（仅 AudioContext 构造失败——调用方走一次性合成回退链）；单块解码/
+   * 调度失败丢块不杀队列、仍返回 true（中危 F3a：false 专属面不可用，
+   * 坏块不得触发消费方整链降级）。 */
   enqueue(utterId: string, base64Pcm: string): boolean;
   /** 音量 0..1（即时生效）。 */
   setVolume(volume: number): void;
@@ -184,7 +186,8 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
         setActive(true);
         return true;
       } catch {
-        return false; // 单块解码/调度失败——丢块不杀队列
+        return true; // 单块解码/调度失败——丢块不杀队列（播放面仍可用；
+        // false 专属 ctx 不可用——中危 F3a 修双义，消费方不再被坏块误触整链降级）
       }
     },
     setVolume(v: number): void {
