@@ -112,7 +112,6 @@ fn run(args: &[String]) -> Result<i32> {
 }
 
 
-/// 诊断模式：受限 token 视角下跑 whoami /groups + icacls（stdout 透传回测试）。
 #[cfg(not(target_os = "windows"))]
 fn run(_args: &[String]) -> Result<i32> {
     // 非 Windows 构建仅为宿主纯逻辑单测形态（cargo test on mac）；真执行面
@@ -120,6 +119,7 @@ fn run(_args: &[String]) -> Result<i32> {
     anyhow::bail!("helix-sandbox-helper 仅支持 Windows")
 }
 
+/// 诊断模式：受限 token 视角下跑 whoami /groups + icacls（stdout 透传回测试）。
 #[cfg(target_os = "windows")]
 fn run_diagnose(target: &str) -> Result<i32> {
     unsafe {
