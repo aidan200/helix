@@ -430,10 +430,14 @@ export default function ProfileCard({
                       >
                         {skillContentOpen === skill.name ? t("agents.skillContentHide") : t("agents.skillContentView")}
                       </button>
+                      {/* 恒失败控件消除：audience=task（任务 SOP）写面被 daemon
+                          audience-guard 必拒（ResourceService.setEnabled → skipped），
+                          开关置灰——纵深加固（当前唯一暴露面 orchestrator 已因
+                          readOnly 置灰，此处于可写 kind 收到 task 行时仍拦）。 */}
                       <AgentSwitch
                         name={skill.name}
                         checked={skill.enabled}
-                        disabled={writePending || readOnly}
+                        disabled={writePending || readOnly || skill.audience === "task"}
                         onToggle={() => onToggle(kind, "skill", skill.name, !skill.enabled)}
                       />
                     </div>
