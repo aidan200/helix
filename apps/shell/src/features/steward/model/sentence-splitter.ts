@@ -25,9 +25,6 @@ const CLOSING_QUOTES = new Set<string>([
 /** 句尾保留字符：换行（TTS 韵律信号）不剥除 */
 const TRAILING_KEEP = new Set<string>(["\n"]);
 
-/** 跨类边界合并对：？！（问+叹）连用视为一句 */
-const BOUNDARY_PAIRS = new Set<string>(["？！", "!?"]);
-
 export class SentenceBuffer {
   private buffer = "";
 
@@ -64,37 +61,30 @@ export class SentenceBuffer {
     let i = 0;
     while (i < this.buffer.length) {
       const ch: string = this.buffer[i] ?? "";
-      if (BOUNDARY_SET.has(ch)) {
-        // 跨类合并对（？！）出现时句界后移：?!后接文字继续吸收到下一个独立边界
-        const nextCh = this.buffer[i + 1] ?? "";
-        const pair = ch + nextCh;
-        if (BOUNDARY_PAIRS.has(pair)) {
-          i += 2;
-          continue;
-        }
-        let end = i + 1;
-        while (end < this.buffer.length) {
-          const next: string = this.buffer[end] ?? "";
-          // 同类连续边界（！！！/……）与收尾引号并入本句
-          if (next !== "" && (BOUNDARY_SET.has(next) || CLOSING_QUOTES.has(next))) {
-            const p2 = this.buffer[end - 1] + next;
-            if (!BOUNDARY_PAIRS.has(p2)) {
-              end += 1;
-              continue;
-            }
-            end += 0;
-            break;
-          }
-          break;
-        }
-        const sentence = this.buffer.slice(0, end);
-        this.buffer = this.buffer.slice(end);
-        const trimmed = trimSentence(sentence);
-        if (trimmed.length > 0) out.push(trimmed);
-        i = 0;
+      if (!BOUNDARY_SET.has(ch)) {
+        i += 1;
         continue;
       }
-      i += 1;
+      // 句界后吸收连续边界（！！！/……/？！/！？ 各类连用对内不拆）与收尾
+      // 引号——句子止于连用尾（既不在对内拆句，也不把后句吞进本句）。
+      // 评审 :69-74：原实现把「？！」/「!?」整对当非句界跳过，句界吞并后句
+      //（「你好？！再见。」切成单句）且收尾句须等后续边界/flush；混合形态
+      //「！？」靠连续边界兜底的成功只是不对称假象——统一按边界连用吸收。
+      let end = i + 1;
+      while (end < this.buffer.length) {
+        const next: string = this.buffer[end] ?? "";
+        if (next === "") break;
+        if (BOUNDARY_SET.has(next) || CLOSING_QUOTES.has(next)) {
+          end += 1;
+          continue;
+        }
+        break;
+      }
+      const sentence = this.buffer.slice(0, end);
+      this.buffer = this.buffer.slice(end);
+      const trimmed = trimSentence(sentence);
+      if (trimmed.length > 0) out.push(trimmed);
+      i = 0;
     }
     return out;
   }
