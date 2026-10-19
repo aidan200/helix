@@ -258,6 +258,7 @@ describe("useComposerVoice（Composer 流式实时识别接线）", () => {
     });
     spy.mockRestore();
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(sendSttStreamStop).toHaveBeenCalledTimes(1); // 中危 F3a：回落即断流（money 纪律零孤儿连接，不待卸载）
     act(() => {
       emit(frame("stt.transcribe.result", { status: "ok", text: "final 失败后的等价文本", provider: "dashscope" }));
     });
@@ -282,6 +283,7 @@ describe("useComposerVoice（Composer 流式实时识别接线）", () => {
     expect(sendSttStreamFinish).toHaveBeenCalledTimes(1);
     spy.mockRestore();
     await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 }); // 超时回落上传
+    expect(sendSttStreamStop).toHaveBeenCalledTimes(1); // 中危 F3a：回落即断流（daemon 侧流不悬挂到卸载）
     act(() => {
       emit(frame("stt.transcribe.result", { status: "ok", text: "超时回落等价文本", provider: "dashscope" }));
     });
