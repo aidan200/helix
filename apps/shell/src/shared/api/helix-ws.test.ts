@@ -130,6 +130,35 @@ describe("HelixWsClient", () => {
     expect(client.isConnected()).toBe(true);
   });
 
+  it("中危 F3a：陈旧 transport 迟到 welcome 不把新尝试翻 connected（身份守卫，E-83 握手完成前拒发）", async () => {
+    const { client, transports } = await setup();
+    transports[0]!.open(); // attempt1 hello 已发，welcome 未到
+    transports[0]!.netClose(); // 握手期断线 → 失败 → 退避
+    await vi.advanceTimersByTimeAsync(110); // attempt2 → transports[1] 在握
+    expect(transports).toHaveLength(2);
+    transports[0]!.receive(welcome()); // 僵尸 welcome（旧连接迟到回声）
+    expect(client.isConnected()).toBe(false); // 不得以非当前连接的回声翻 connected
+    transports[1]!.open();
+    transports[1]!.receive(welcome()); // 当前连接真握手 → connected
+    expect(client.isConnected()).toBe(true);
+  });
+
+  it("中危 F3a：陈旧 transport 迟到 close 不误计新尝试失败/不清其握手计时器（身份守卫）", async () => {
+    const { transports, conn } = await setup();
+    transports[0]!.open();
+    transports[0]!.netClose();
+    await vi.advanceTimersByTimeAsync(110); // attempt2 → t1 在握（默认握手窗 10s）
+    expect(transports).toHaveLength(2);
+    const kindsBefore = conn.map((c) => c.kind).join(",");
+    transports[0]!.netClose(); // 旧连接迟到 close 回声
+    expect(conn.map((c) => c.kind).join(",")).toBe(kindsBefore); // 零新增失败事件（不误计）
+    // 推进 300ms：仍在 attempt2 自身握手窗（10s）内——旧实现因僵尸 close 拆了
+    // 新尝试的握手计时器并误计失败、提前排重连（~310ms 处出第 3 个 transport），
+    // 新尝试被李代桃偪；守卫后 attempt2 独立存活（无提前重连）
+    await vi.advanceTimersByTimeAsync(300);
+    expect(transports).toHaveLength(2); // 无提前重连：新尝试的握手计时器未被拆
+  });
+
   it("连续失败按指数退避（100→200→400ms），3 次耗尽 → gave-up；手动 retry 立即重连", async () => {
     const { client, transports, conn } = await setup();
     // attempt 1：token 拿到但连接失败（open 之前 close）
