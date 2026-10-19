@@ -136,14 +136,15 @@ const EmbeddingModelsTab = function EmbeddingModelsTab() {
           return;
         }
         if (e.type === "embedding.verify.result") {
-          const payload = e.payload as
-            | { id: string; state: "ok"; dim?: number; prob?: number }
-            | { id: string; state: "fail"; error: string };
+          // 判别位窄化（B4）：ok 变体按 payload.kind 取 dim/prob（不再猜字段存在性）
+          const payload = e.payload;
           setVerifyStates((prev) => ({
             ...prev,
             [payload.id]:
               payload.state === "ok"
-                ? { phase: "ok", ...("dim" in payload ? { dim: payload.dim } : { prob: payload.prob }) }
+                ? payload.kind === "classifier"
+                  ? { phase: "ok", prob: payload.prob }
+                  : { phase: "ok", dim: payload.dim }
                 : { phase: "fail", error: payload.error },
           }));
           if (payload.state === "fail") {

@@ -77,7 +77,10 @@ function feedList(endpoints: typeof ENDPOINTS, defaultClassifierEndpointId: stri
   });
 }
 
-function feedVerify(id: string, payload: { state: "ok"; prob: number } | { state: "fail"; error: string }) {
+function feedVerify(
+  id: string,
+  payload: { state: "ok"; kind: "classifier"; prob: number } | { state: "fail"; error: string },
+) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
@@ -132,7 +135,7 @@ describe("分类模型 tab（判官 pi-ai 批）", () => {
     expect(sendEmbeddingVerify).toHaveBeenCalledWith("ep-4");
     expect(container.querySelector("[data-clf-conn=verifying]")!).not.toBeNull();
     expect(verifyBtn.disabled).toBe(true);
-    act(() => feedVerify("ep-4", { state: "ok", prob: 0.96 }));
+    act(() => feedVerify("ep-4", { state: "ok", kind: "classifier", prob: 0.96 }));
     expect(container.querySelector("[data-clf-row=ep-4] [data-clf-conn=ok]")!.textContent).toContain("96");
   });
 

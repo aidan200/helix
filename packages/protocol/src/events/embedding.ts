@@ -62,22 +62,27 @@ export interface EmbeddingListResultEvent extends EventFrame<EmbeddingListResult
  * HTTP 非 2xx/协议异常（error 含定位信息）。id 回携——多端点并发验证
  * 归属无歧义（auth.verify in-flight 单飞限制的改良）。
  *
- * ⚠ 判别位现状（已知契约瑕疵，消费端按此窄化）：两个 `state:"ok"` 变体共用
- * 同一判别位，实际区分靠字段存在性——先用 `"dim" in payload`（或
- * `"prob" in payload`）窄化再取值。引入独立 kind 判别位或合并为
- * `{dim:number|null;prob:number|null}` 均属 **wire 形态变更**（两端同动），
- * 未经裁决不改。
+ * 判别位（F3a/B4 收窄）：ok 变体带 **kind** 判别位（"embedding" → dim /
+ * "classifier" → prob），与端点用途 E-189「verify 按 kind 分叉」的现状设计
+ * 对齐——消费端按 payload.kind 窄化取值，不再靠「字段存在性」（`"dim" in
+ * payload`）猜型。fail 变体以 state 自成判别，不携带 kind。
+ * ⚠ 本字段为 wire 形态变更（additive 增字段，两端同动）：daemon 产点
+ * （handlers/embedding.ts）与 shell 两个模型 tab 消费点同批落地。
  */
 export type EmbeddingVerifyResultPayload =
   | {
       id: string;
       state: "ok";
+      /** 判别位：本次探测走哪条分叉（= 端点 kind）。 */
+      kind: "embedding";
       /** 实测向量维度（embedding 端点；vec0 建表基准——不硬编码）。 */
       dim: number;
     }
   | {
       id: string;
       state: "ok";
+      /** 判别位：本次探测走判官分叉（= 端点 kind）。 */
+      kind: "classifier";
       /** classifier 端点（B4a）：noul 探测回校准概率（与 dim 变体互斥——
        *  按 kind 分叉探测，二选一）。 */
       prob: number;

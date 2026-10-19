@@ -128,6 +128,29 @@ describe("EmbeddingConfigService：凭据卫生与 verify", () => {
     expect(view[0]!.verifiedAt).toBeNull();
   });
 
+  test("verify ok（classifier 端点）→ 回执带 kind=\"classifier\" + 校准概率 prob", async () => {
+    const config = memoryConfig();
+    const judgeProbe = () => ({
+      noul: async () => 0.93,
+      endpointLabel: () => "fake-judge",
+    });
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: judgeProbe });
+    const created = await svc.set({
+      name: "判官",
+      baseUrl: "https://api.jev.sh/v1",
+      apiKey: "k",
+      model: "jev-latest",
+      kind: "classifier",
+    });
+    if (!created.ok) throw new Error("unreachable");
+    const verified = await svc.verify(created.id);
+    expect(verified.state).toBe("ok");
+    if (verified.state === "ok") {
+      expect(verified.kind).toBe("classifier");
+      if (verified.kind === "classifier") expect(verified.prob).toBe(0.93);
+    }
+  });
+
   test("verify ok → verifiedAt 落盘 + 回实测 dim；fail → error 含定位 + verifiedAt 不动", async () => {
     const config = memoryConfig();
     const ok = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory({ vectors: [[1, 2, 3, 4]] }), createJudgeProbe: noopJudgeProbe });
@@ -135,7 +158,11 @@ describe("EmbeddingConfigService：凭据卫生与 verify", () => {
     if (!created.ok) throw new Error("unreachable");
     const verified = await ok.verify(created.id);
     expect(verified.state).toBe("ok");
-    if (verified.state === "ok" && "dim" in verified) expect(verified.dim).toBe(4);
+    // 判别位（B4）：embedding 端点 ok 回执带 kind="embedding" + 实测 dim
+    if (verified.state === "ok") {
+      expect(verified.kind).toBe("embedding");
+      if (verified.kind === "embedding") expect(verified.dim).toBe(4);
+    }
     expect(ok.listView()[0]!.verifiedAt).not.toBeNull();
 
     const fail = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory({ error: "连接超时" }), createJudgeProbe: noopJudgeProbe });

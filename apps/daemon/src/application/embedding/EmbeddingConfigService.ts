@@ -348,8 +348,8 @@ export class EmbeddingConfigService {
    * fail → error 含定位信息（verifiedAt 不动——上次成功时间保留）。
    */
   async verify(id: string): Promise<
-    | { state: "ok"; dim: number }
-    | { state: "ok"; prob: number }
+    | { state: "ok"; kind: "embedding"; dim: number }
+    | { state: "ok"; kind: "classifier"; prob: number }
     | { state: "fail"; error: string }
   > {
     const record = this.list().find((r) => r.id === id);
@@ -376,12 +376,12 @@ export class EmbeddingConfigService {
           "Is the number two even?",
         );
         await this.markVerified(id);
-        return { state: "ok", prob };
+        return { state: "ok", kind: "classifier", prob };
       }
       const probe = this.deps.createProbe(endpointCfg);
       const { dim } = await probe.embed(["hi"]);
       await this.markVerified(id);
-      return { state: "ok", dim };
+      return { state: "ok", kind: "embedding", dim };
     } catch (err) {
       return { state: "fail", error: (err as Error).message };
     }
