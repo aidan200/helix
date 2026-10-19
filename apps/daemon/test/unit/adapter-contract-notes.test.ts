@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const SRC = path.join(import.meta.dir, "..", "..", "src", "adapters", "driven");
+const DRIVING_SRC = path.join(import.meta.dir, "..", "..", "src", "adapters", "driving");
 
 describe("适配器头注口径对齐（评审 F2 #12/#30）", () => {
   test("#12 SqliteKnowledgeStore：头注承认 sync 通道维护 anchor_decl/change_log（表集非完全互斥）", () => {
@@ -32,5 +33,19 @@ describe("适配器头注口径对齐（评审 F2 #12/#30）", () => {
     expect(src).toContain("无签名/无一次性凭证");
     // 旧的过度承诺措辞不得回潮
     expect(src).not.toContain("isTrusted 过滤保证真实\n *   用户交互");
+  });
+
+  // 评审 F2 #22：12 处「for connections + 订阅位过滤 + try/catch 单连接隔离」同构块
+  // 重复——新增帧族漏抄 try/catch 即破 TR-38「单连接异常不扩散」。统一收口到
+  // fanout 单点后，本断言防止新帧族绕开单点重写裸循环。
+  test("#22 EventStream：连接级投递只经 fanout 单点（无裸广播循环）", () => {
+    const src = readFileSync(path.join(DRIVING_SRC, "ws-server", "EventStream.ts"), "utf8");
+    const loopPattern = /for \(const \[sender, conn\] of this\.connections\)/g;
+    const loops = src.match(loopPattern) ?? [];
+    expect(loops.length).toBe(1); // 唯一允许处 = fanout 内部
+    expect(src).toContain("private fanout(");
+    // fanout 必须在循环体内保留 try/catch 隔离（TR-38 不变式）
+    const fanoutBody = src.slice(src.indexOf("private fanout("), src.indexOf("private fanout(") + 900);
+    expect(fanoutBody).toContain("} catch {");
   });
 });

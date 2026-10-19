@@ -456,14 +456,7 @@ export class EventStream implements EventPublisherPort {
       type: "task.changed",
       payload: { ...payload },
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.taskAll && !conn.taskJobs.has(payload.jobId)) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.taskAll || conn.taskJobs.has(payload.jobId));
   }
 
   /**
@@ -481,14 +474,7 @@ export class EventStream implements EventPublisherPort {
       type: "voice.broadcast",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.voiceSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.voiceSubscribed);
   }
 
   /**
@@ -507,14 +493,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.feed",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /**
@@ -532,14 +511,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.memory_written",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /**
@@ -557,14 +529,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.navigate",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /**
@@ -603,14 +568,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.action.completed",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /**
@@ -646,16 +604,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.notify",
       payload,
     };
-    let recipients = 0;
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-        recipients += 1;
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    const recipients = this.fanout(frame, (conn) => conn.stewardSubscribed);
     // 语音闭环批 ⑤：发出即打 INFO（title + seq + 投递连接数——通知行为可观测）
     this.deps.logger?.info?.(`steward.notify 发出：${payload.title}（seq=${payload.seq}，投递 ${recipients} 连接）`);
   }
@@ -700,16 +649,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.health",
       payload,
     };
-    let recipients = 0;
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-        recipients += 1;
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    const recipients = this.fanout(frame, (conn) => conn.stewardSubscribed);
     this.deps.logger?.info?.(`steward.health：${component} → ${status}${reason === undefined ? "" : `（${reason.slice(0, 60)}）`}，投递 ${recipients} 连接`);
   }
 
@@ -730,14 +670,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.proactive",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /**
@@ -756,14 +689,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.activity",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /**
@@ -780,14 +706,7 @@ export class EventStream implements EventPublisherPort {
       type: "steward.pending.snapshot",
       payload,
     };
-    for (const [sender, conn] of this.connections) {
-      if (!conn.stewardSubscribed) continue;
-      try {
-        sender(frame);
-      } catch {
-        // 发送失败由该连接自身的 close 流程收尾，此处隔离
-      }
-    }
+    this.fanout(frame, (conn) => conn.stewardSubscribed);
   }
 
   /** steward.pending.snapshot 点对点回发（steward.subscribe 受理即对账——
@@ -938,17 +857,30 @@ export class EventStream implements EventPublisherPort {
    * 单连接异常不扩散到其他连接（事件流健壮性）。
    */
   private push(frame: EventEnvelope): void {
+    this.fanout(frame, (conn) => {
+      if (frame.sessionId === undefined || frame.sessionId === SYSTEM_SESSION_ID) return true;
+      const tier = conn.sessionTiers.get(frame.sessionId);
+      if (tier === undefined) return false; // 未订阅该会话
+      return tier !== "monitor" || MONITOR_TIER_EVENT_TYPES.has(frame.type); // monitor 档白名单
+    });
+  }
+
+  /**
+   * 连接级投递单点（F2 #22）：订阅位过滤 + 单连接异常隔离（TR-38「单连接异常
+   * 不扩散」）。原 12 处同构 for/try-catch 块重复——新增帧族漏抄 try/catch 即
+   * 破不变式；统一经此投递，新增帧族只写过滤条件。返回成功投递连接数。
+   */
+  private fanout(frame: EventEnvelope, allow?: (conn: ConnProjection) => boolean): number {
+    let delivered = 0;
     for (const [sender, conn] of this.connections) {
-      if (frame.sessionId !== undefined && frame.sessionId !== SYSTEM_SESSION_ID) {
-        const tier = conn.sessionTiers.get(frame.sessionId);
-        if (tier === undefined) continue; // 未订阅该会话
-        if (tier === "monitor" && !MONITOR_TIER_EVENT_TYPES.has(frame.type)) continue; // monitor 档白名单
-      }
+      if (allow !== undefined && !allow(conn)) continue;
       try {
         sender(frame);
+        delivered += 1;
       } catch {
         // 发送失败由该连接自身的 close 流程收尾，此处隔离
       }
     }
+    return delivered;
   }
 }
