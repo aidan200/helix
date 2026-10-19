@@ -65,11 +65,10 @@ import {
   INSTANCE_SUMMARY_MAX_CHARS,
 } from "../StewardService";
 
-/** 工具面窄依赖（StewardServiceDeps 全量透传 + 确认执行体注入）。 */
-export interface StewardToolKitDeps extends StewardServiceDeps {
-  /** 确认后执行体（approve 决策路径——confirm→executePending 同源动作体）。 */
-  readonly executePending: (action: PendingAction) => Promise<{ ok: boolean; detail: string }>;
-}
+/** 工具面窄依赖（StewardServiceDeps 全量透传）。确认后执行体
+ * （executePending）不进工具面：挂闸工具 execute 不直行写动作（防绕过
+ * 确认闸——与 act 写档同姿态），执行体归 StewardService.confirm 域。 */
+export interface StewardToolKitDeps extends StewardServiceDeps {}
 
 export class StewardToolKit {
   private readonly deps: StewardToolKitDeps;
@@ -98,8 +97,8 @@ export class StewardToolKit {
    * - 只读三件（list_instances/list_tasks/query_recent_work）：handler 直查；
    * - 写注入四件（propose_send/deliver_to_session/create_session/
    *   spawn_review_task）：挂闸工具——beforeToolCallPause 暂停点（gateWriteTool
-   *   前置校验 + PendingAction 构造），handler 为 approve 决策执行体（L0 管家
-   *   走 confirm→resolve 路径，handler 供注册面完整性与未来自动化面）；
+   *   前置校验 + PendingAction 构造），handler 不执行写动作（L0 管家走
+   *   confirm→resolve 路径；execute 直调一律拒绝——防绕过确认闸）；
    * - steward_confirm：hidden 注册（面板确认原语——不进 LLM 工具投影，
    *   E-46「注册面恒宽、声明面管控谁可见」同构）。
    */
@@ -149,9 +148,9 @@ export class StewardToolKit {
       ...TOOL_KG_GET,
       execute: async (args) => ({ text: capToolResultText(await this.kgGetOf(args as Record<string, unknown>)) }),
     });
-    // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute 为
-    // approve 决策执行体（重新过闸校验 + 执行——与 confirm 的 executePending
-    // 同源动作体；L0 管家走 confirm→resolve 路径，execute 供未来自动化面）
+    // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute
+    // 重新过闸校验后拒绝直行（挂闸动作须经 confirm→executePending 执行，
+    // 未确认零执行防火墙不因执行面扩张松动）
     for (const [tool, actionOf] of [
       [TOOL_PROPOSE_SEND, this.pendingActionOfProposeSend.bind(this)],
       [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
@@ -171,8 +170,14 @@ export class StewardToolKit {
             }
             return { text: outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验（approve 不可达此路径）" };
           }
-          const outcome = await this.deps.executePending(gated.action!);
-          return { text: capToolResultText(outcome.detail), ...(outcome.ok ? {} : { isError: true }) };
+          // 防绕过（与 act 写档同姿态）：挂闸写动作不经用户确认恒不执行——
+          // 生产 approve 面走 confirm→executePending→engine.resume(resolve)，
+          // 不经本 execute；任何直调面（自动化/测试/未来接入）一律拒绝，
+          // 未确认零执行防火墙不因执行面扩张而松动。
+          return {
+            text: `${tool.name} 为写动作，须经确认闸（提案→用户确认→执行）——本执行面不直行`,
+            isError: true,
+          };
         },
       });
     }

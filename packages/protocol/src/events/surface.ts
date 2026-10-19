@@ -145,6 +145,20 @@ export function surfaceVerbRisk(verb: SurfaceVerb): SurfaceRisk {
  * 2026-10-07 事故：act 工具描述只写了 browser 形状（navigate {url}），模型在
  * shell 表面发明 url 参数 → shell 载荷防御静默弃帧 → 60s 挂死。本校验面在
  * 挂闸/派发前即时拒绝（模型可自纠），错误文本携正确形状与示例。
+ *
+ * **覆盖范围**：本函数自 M2 批起是**组合级总闸**——已登记形状（shell×navigate、
+ * browser×上列五动词）逐参数校验，**未登记组合（shell×click、cli×任意动词等）
+ * 显式返回错误**（携该命名空间的可用动词清单供模型自纠），不再静默返回
+ * undefined 放行。
+ *
+ * 前置校验链（仍在）：动词词汇表合法性由调用方先行判定（`isSurfaceVerb` /
+ * Registry `isSurfaceVerbAllowed`）——现唯一生产调用点 StewardToolKit act 工具
+ * 即此顺序（先 isSurfaceVerb 拒私造动词，再调本函数校形状）；前置报错文案更
+ * 贴「词汇表」语义，故顺序不变。
+ *
+ * 行为变更（F3a/B5 裁决）：未登记组合由「静默放行」改为「显式拒绝」——调用方
+ * 依赖 undefined = 通过语义的旧面需改为判 undefined 与错误两条分支（现生产
+ * 调用点本就如是与否一致）。
  */
 export function validateSurfaceActArgs(
   namespace: SurfaceNamespaceKind,
@@ -204,10 +218,17 @@ export function validateSurfaceActArgs(
       return undefined;
     }
   }
-  return undefined; // cli 无注册动词（Registry 注册面拒绝前置）——零形状面
+  // 未登记组合 = 显式拒绝（不是「无形状规则」）：动词在词表内但该表面未注册
+  // 能力（shell 只收 navigate、cli 当前零注册动词）——列出可用动词供模型自纠。
+  const allowed = SURFACE_VERB_CAPABILITIES[namespace];
+  const allowedText = allowed.length > 0 ? allowed.join(" / ") : "无（本表面当前未开放置动作动词）";
+  return `act 参数形状不合法：动词 ${verb} 未在 ${namespace} 表面注册——该表面可用动词：${allowedText}。收到 ${JSON.stringify(args)}。用法：先 surface_list 读该表面的 capabilities，再按注册动词调用`;
 }
 
-/** SurfaceDescriptor 结构判定（kind ∈ 命名空间 + capabilities 非空动词清单）。 */
+/** SurfaceDescriptor **形状**判定（kind ∈ 命名空间 + capabilities 为非空字符串
+ *  数组）。注意：不校验 capabilities 是否为 SURFACE_VERBS 成员——词汇表成员校验
+ *  单点在 daemon SurfaceRegistry 注册面（逐项 isSurfaceVerb +
+ *  isSurfaceVerbAllowed）。 */
 export function isSurfaceDescriptor(v: unknown): v is SurfaceDescriptor {
   if (typeof v !== "object" || v === null) return false;
   const d = v as { kind?: unknown; capabilities?: unknown };
@@ -255,7 +276,10 @@ export interface SurfaceEventUplinkPayload {
  * 过闸后才产生本帧）；seq 单调供执行回执对账（D7-1 原子性）。
  */
 export interface SurfaceAction {
-  /** 动词（能力=动词清单——D4；M0 动词注册校验面留 M2）。 */
+  /** 动词（能力 = 动词清单，D4）。线格式有意保持 string 不收窄 SurfaceVerb：
+   *  词汇表校验单点在 daemon SurfaceRegistry（注册面 + act 路由）与
+   *  StewardToolKit act 入参闸，协议面收窄需两端同动（收窄属契约变更，非注释
+   *  对齐）。 */
   verb: string;
   /** 动词参数（如 navigate 携 {sessionId}）。 */
   args: Record<string, unknown>;
@@ -303,7 +327,9 @@ export interface SurfaceRegisteredEvent extends EventFrame<SurfaceRegisteredPayl
 export interface SurfaceDescriptor {
   /** 表面宿主种类（surfaceId 命名空间第一段）。 */
   kind: SurfaceNamespaceKind;
-  /** 能力 = 动词清单（非空；如 shell: ["navigate"]）。 */
+  /** 能力 = 动词清单（非空；如 shell: ["navigate"]）。类型层保持 string[]：
+   *  成员合法性单点在 Registry 注册面（isSurfaceVerb + isSurfaceVerbAllowed，
+   *  非法项拒注册），协议面只约束形状（isSurfaceDescriptor）。 */
   capabilities: readonly string[];
   /** 采集策略（可选；如上报事件子集/输入采集边界——D1 隐私一等公民）。 */
   policy?: {

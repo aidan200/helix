@@ -13,7 +13,7 @@
  * - memory.recallTopK（召回注入条数上限；缺省 5——B1 定格值降级为缺省）；
  * - memory.recallPool（召回候选池；缺省 24——同上）；
  * - memory.recallMinScore（召回资格闸阈值；缺省 STEWARD_MEMORY_RECALL_MIN_SCORE
- *   = 0.3——常量退役为缺省值单一来源，本域回退引用不双写字面量）。
+ *   = 0.3——常量单一来源在本域，缺省回退引用不双写字面量）。
  *
  * 召回量语义（resolveMemoryRecallParams 读面单点裁决——写面无前置校验，
  * 值语义统一在读面兜底）：
@@ -42,7 +42,15 @@
 import type { RuntimeConfigPort } from "../ports/outbound/RuntimeConfigPort";
 import type { EmbeddingEndpointRecord } from "../embedding/EmbeddingConfigService";
 import { EMBEDDING_DEFAULT_ENDPOINT_ID_KEY } from "../embedding/EmbeddingConfigService";
-import { STEWARD_MEMORY_RECALL_MIN_SCORE } from "../steward/StewardMemoryService";
+
+// ── 召回资格闸阈值缺省（常量归属本域——评审 F1 环形依赖修复：原先定义在
+//    StewardMemoryService 由本模块回引，与 StewardMemoryService → memoryConfig
+//    正向引用构成环且常量落位与「配置不挂管家名下」裁决矛盾；迁入本域后
+//    管家侧反向取用，StewardMemoryService 保留同名 re-export 兼容既有引用）──
+
+/** 召回资格闸阈值缺省（bge-m3 cosine 经验值 0.30——资格闸砍在裸相似度上，
+ *  融合排序之前；近似主题即可达标，纯噪音明显低于此）。 */
+export const STEWARD_MEMORY_RECALL_MIN_SCORE = 0.3;
 
 // ── memory.* 键位（通用记忆配置域）────────────────────────────────
 
@@ -59,7 +67,7 @@ export const MEMORY_RECALL_TOP_K_KEY = "memory.recallTopK";
 /** 召回候选池 KV 键（缺省 MEMORY_RECALL_POOL_DEFAULT）。 */
 export const MEMORY_RECALL_POOL_KEY = "memory.recallPool";
 /** 召回资格闸阈值 KV 键（缺省 STEWARD_MEMORY_RECALL_MIN_SCORE——常量
- *  在 StewardMemoryService 保留为缺省值单一来源，本域回退引用不双写）。 */
+ *  单一来源在本域（memoryConfig），缺省回退引用不双写字面量）。 */
 export const MEMORY_RECALL_MIN_SCORE_KEY = "memory.recallMinScore";
 
 // ── 召回量缺省值与边界（批B：常量降级为缺省——现行为零变化）────────

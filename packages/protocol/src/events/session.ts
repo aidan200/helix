@@ -41,8 +41,17 @@ export interface SessionPlanChangedPayload {
 
 /**
  * session.list_changed：会话清单变化（v0.2 新增，AD-4）。
- * 触发：新建（首条消息建聚合）/ 删除 / 运行态变化（idle↔streaming↔
- * subagent_running）/ 标题更新。
+ *
+ * 触发 → kind 映射（新增触发源先落本映射再实现）：
+ * - created：首条消息建聚合 / 新会话入清单；
+ * - deleted：会话删除；
+ * - state_changed：运行态变化（idle↔streaming↔subagent_running）**与标题/
+ *   主题更新**——标题演进复用 state_changed 出海，**无独立 kind**（要感知
+ *   标题变化请读 payload.session 的 title，勿等新 kind）。
+ *
+ * sessionId 在 daemon 现实现**恒携带**；「列表级批量变化可省略」是类型层
+ * 预留（当前零生产者）——消费端勿依赖省略形态；真要加批量生产者，先裁掉
+ * 该可选位。
  */
 export interface SessionListChangedPayload {
   kind: "created" | "deleted" | "state_changed";

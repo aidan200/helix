@@ -21,7 +21,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
-import { useArmedConfirm } from "./settings-hooks";
+import { useArmedConfirm, useDefaultEndpointSetter } from "./settings-hooks";
 
 /** 弹层打开后聚焦延迟（key 弹层先例同值）。 */
 const MODAL_FOCUS_DELAY_MS = 60;
@@ -118,6 +118,9 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
   const [defaultPickerOpen, setDefaultPickerOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
+  /** 设默认写面（族B：拒绝行内交代 + 面板结果帧驱动收场——评审 :229）。 */
+  const defaultSetter = useDefaultEndpointSetter();
+  const { settle: settleSetDefault } = defaultSetter;
 
   useEffect(() => {
     sendEmbeddingList();
@@ -128,17 +131,21 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
         if (e.type === "embedding.list.result") {
           setEndpoints(e.payload.endpoints);
           setDefaultClassifierId(e.payload.defaultClassifierEndpointId ?? null);
+          // 设默认回执对账（族B）：新默认 = 本 tab 在途 id → 关修改口面板
+          if (settleSetDefault(e.payload.defaultClassifierEndpointId ?? null)) setDefaultPickerOpen(false);
           return;
         }
         if (e.type === "embedding.verify.result") {
-          const payload = e.payload as
-            | { id: string; state: "ok"; dim?: number; prob?: number }
-            | { id: string; state: "fail"; error: string };
+          // 判别位窄化（B4）：本 tab 只收 classifier 变体（kind 判别位自述）；
+          // 非本 tab 端点的回执不带 prob 也照常收（多端点并发验证归属靠 id）
+          const payload = e.payload;
           setVerifyStates((prev) => ({
             ...prev,
             [payload.id]:
               payload.state === "ok"
-                ? { phase: "ok", ...("dim" in payload ? {} : { prob: payload.prob }) }
+                ? payload.kind === "classifier"
+                  ? { phase: "ok", prob: payload.prob }
+                  : { phase: "ok" }
                 : { phase: "fail", error: payload.error },
           }));
           if (payload.state === "fail") {
@@ -146,7 +153,7 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
           }
         }
       }),
-    [subscribeEmbeddingFrames, toast, t],
+    [subscribeEmbeddingFrames, toast, t, settleSetDefault],
   );
 
   // 弹层 Escape 关闭（key 弹层先例同构）
@@ -224,13 +231,12 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
   };
 
   /** 设为默认分类端点（D1 单选语义——daemon 校验三拒：不存在/kind≠classifier/未 verify）。
-   *  返回 send 是否已发出（LLM 同构：成功才关修改口面板）。 */
-  const onSetDefault = (id: string): boolean => {
-    if (sendEmbeddingSetDefault(id, "classifier") === false) {
+   *  族B（评审 :229）：发出即置在途不乐观关面板；三拒走 connection.error →
+   *  行内交代拒绝原因（hook 尾缀归因），成功经 list 回执收口关面板。 */
+  const onSetDefault = (id: string): void => {
+    if (!defaultSetter.request(id, () => sendEmbeddingSetDefault(id, "classifier"))) {
       toast.push("err", t("chat.modelsConfig.sendFailToast"));
-      return false;
     }
-    return true;
   };
 
   /** 本 tab 管理面（只 classifier 端点——向量端点在向量 tab）。 */
@@ -278,7 +284,14 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
             </button>
           </div>
         </div>
-        {/* 修改口面板（LLM dms-panel 同构：选中即设默认，成功关面板） */}
+        {/* 设默认被拒交代（族B：daemon 三拒走 connection.error 无结果帧——行内
+            交代原因，不静默；下次发起/回执成功清） */}
+        {defaultSetter.error !== null && (
+          <p className="ag-note mcp-err" data-clf-default-error role="alert">
+            {defaultSetter.error}
+          </p>
+        )}
+        {/* 修改口面板（LLM dms-panel 同构：选中即设默认；回执新默认才关） */}
         {defaultPickerOpen && (
           <div className="dms-panel" data-clf-default-picker>
             <div className="dms-list" data-clf-default-picker-list>
@@ -296,7 +309,7 @@ const ClassifierModelsTab = function ClassifierModelsTab() {
                       type="button"
                       data-clf-default-picker-item={ep.id}
                       onClick={() => {
-                        if (onSetDefault(ep.id)) setDefaultPickerOpen(false);
+                        onSetDefault(ep.id);
                       }}
                     >
                       <span className="dms-name">{ep.name}</span>

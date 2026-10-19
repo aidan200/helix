@@ -43,4 +43,18 @@ describe("buildSeatbeltProfile", () => {
     const p = buildSeatbeltProfile(weird);
     expect(p).toContain('\\"ird');
   });
+
+  test("控制字符不得进前缀：直构 policy 也不污染 profile（字面量面末级削除）", () => {
+    // 解析面已剔除含控制字符的 extraRoots；本测钉字面量面的兑底——绕过
+    // parseSandboxConfig 直构 policy 时也不能把 sbpl 字面量断行/注入语句。
+    const p = buildSeatbeltProfile({
+      mode: "on",
+      writableRoots: ['/Users/x/evil\n(allow file-write* (subpath "/"))', "/Users/x/ok\u0007"],
+    });
+    const literals = [...p.matchAll(/\(subpath "([^"]*)"\)/g)].map((m) => m[1]!);
+    expect(literals.length).toBeGreaterThan(0);
+    for (const literal of literals) {
+      expect(/[\u0000-\u001f\u007f]/.test(literal)).toBe(false);
+    }
+  });
 });

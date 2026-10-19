@@ -175,6 +175,67 @@ function channelsFromSnapshot(
 }
 
 /**
+ * channel 行身份键（重连合入去重口径）：entry 载体行按 entry.id（工具/思考
+ * 定稿、消息正文变动不影响身份）；lifecycle 行按 (lc, ts)（同 lc 可在不同
+ * 时刻多次出现：stalled→resumed）；closure 卡单实例单张（dto.closure 权威）。
+ */
+export function channelItemIdentity(item: ChannelItem): string {
+  switch (item.kind) {
+    case "tool":
+    case "thinking-entry":
+      return `${item.kind}:${item.entry.id}`;
+    case "lifecycle":
+      return `lifecycle:${item.lc}:${item.ts ?? ""}`;
+    case "closure":
+      return "closure";
+    default:
+      return `${item.kind}:${item.text}:${item.ts ?? ""}`;
+  }
+}
+
+/**
+ * 重连合入（并集语义，与主流 entries 整体替换的权威语义对齐）：
+ * - 两侧同 id 的行：取**快照内容**（daemon 落盘终态权威，如工具卡终态）但保
+ *   **live 的 seq**（React key 稳定——重连不整列表重挂）；
+ * - live 独有行（仅存于事件流的 stalled/流式定稿行）：原位保留；
+ * - 快照独有行（断连窗口内 daemon 侧新行、被预览条数截掉的更早行）：按其在
+ *   快照序中的相对位插入（以相邻 live 命中行为锚），seq 取全局新号（渲染顺序
+ *   = 数组序，seq 只作 React key——见 ChannelTimeline）。
+ * 原实现 `live ?? rebuilt` 二选一：断连窗口内的快照新行被整组丢弃且后续快照
+ * 持续不自愈（每次重连都重跑同一取舍）。
+ */
+export function mergeChannelItems(
+  snapshotItems: readonly ChannelItem[],
+  liveItems: readonly ChannelItem[],
+  nextSeq: number,
+): { items: ChannelItem[]; nextSeq: number } {
+  const snapById = new Map(snapshotItems.map((i) => [channelItemIdentity(i), i]));
+  const liveIds = new Set(liveItems.map(channelItemIdentity));
+  const out: ChannelItem[] = liveItems.map((live) => {
+    const snap = snapById.get(channelItemIdentity(live));
+    return snap === undefined ? live : ({ ...snap, seq: live.seq } as ChannelItem);
+  });
+  let seq = nextSeq;
+  for (let i = snapshotItems.length - 1; i >= 0; i--) {
+    const item = snapshotItems[i]!;
+    const id = channelItemIdentity(item);
+    if (liveIds.has(id)) continue;
+    // 插位锚 = 快照序中该行之后最近的、已在合入列表中的行（无则尾部）
+    let insertAt = out.length;
+    for (let j = i + 1; j < snapshotItems.length; j++) {
+      const after = channelItemIdentity(snapshotItems[j]!);
+      const pos = out.findIndex((o) => channelItemIdentity(o) === after);
+      if (pos !== -1) {
+        insertAt = pos;
+        break;
+      }
+    }
+    out.splice(insertAt, 0, { ...item, seq: seq++ } as ChannelItem);
+  }
+  return { items: out, nextSeq: seq };
+}
+
+/**
  * 主实例 id 习得（T10c kind 判别）：快照 instances kind=main 条目是唯一
  * 事实源（daemon 恒列主实例，新形态 agent-<唯一串> / legacy 会话 "main"
  * 自闭合）；无 instances/无 main 条目 = 保持现值（初始 legacy 字面，
@@ -249,14 +310,25 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         }
       }
       const rebuilt = channelsFromSnapshot(dtos, entriesByInstance, snap.model);
-      // 重连合入：已有事件流构建的 channel 保留（含 stalled 等仅存于事件流的行）；
-      // 重启恢复（空状态起）= 全量重建；快照未列实例的 channel 丢弃（卡片已不存）
+      // 重连合入（并集）：已有事件流构建的 channel 与快照重建按行身份并集——
+      // live 独有行（仅存于事件流的 stalled 等）保留，快照新行（断连窗口内
+      // daemon 侧新消息/工具/思考/closure）按快照序补入，同 id 行取快照内容
+      // 保 live seq（React key 稳定）；重启恢复（空状态起）= 全量重建；快照未
+      // 列实例的 channel 丢弃（卡片已不存）。
       const merged: Record<string, ChannelItem[]> = {};
+      let nextSeq = s.nextChannelSeq;
       for (const dto of dtos) {
         if (dto.kind !== "subagent") continue;
-        merged[dto.instanceId] = s.instanceChannels[dto.instanceId] ?? rebuilt[dto.instanceId] ?? [];
+        const snapItems = rebuilt[dto.instanceId];
+        const liveItems = s.instanceChannels[dto.instanceId];
+        if (liveItems === undefined || snapItems === undefined) {
+          merged[dto.instanceId] = liveItems ?? snapItems ?? [];
+          continue;
+        }
+        const r = mergeChannelItems(snapItems, liveItems, nextSeq);
+        merged[dto.instanceId] = r.items;
+        nextSeq = r.nextSeq;
       }
-      let nextSeq = s.nextChannelSeq;
       for (const items of Object.values(merged)) {
         for (const i of items) nextSeq = Math.max(nextSeq, i.seq + 1);
       }

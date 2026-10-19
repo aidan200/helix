@@ -4,7 +4,8 @@
  * 生产形态：getUserMedia + createWorkletPcmPump（pcm-pump——16k mono Int16
  * 100ms 帧，不新开采集通道）。句收口三闸：达最短且静音 1.8s（VOICE_
  * SILENCE_STOP_MS 同值口径）/ 达最长 / 未开口兜底超时。输出 Int16 域
- * Float32Array（模型 normalize_samples=0 口径）。
+ * Float32Array（模型 normalize_samples=0 口径）；未开口（全程不达 RMS 门）
+ * 按采集失败收口 null（零静音段上游）。
  */
 import { createWorkletPcmPump } from "@/shared/lib/pcm-pump";
 import { PCM_RMS_GATE, frameRms } from "../model/pcm-ring";
@@ -27,7 +28,7 @@ export function createMicUtteranceRecorder(): UtteranceRecorder {
       try {
         const pump = await createWorkletPcmPump(stream);
         if (pump === null) return null;
-        return await new Promise<Float32Array>((resolve) => {
+        return await new Promise<Float32Array | null>((resolve) => {
           const frames: Int16Array[] = [];
           let samples = 0;
           let spoke = false;
@@ -40,6 +41,13 @@ export function createMicUtteranceRecorder(): UtteranceRecorder {
             settled = true;
             clearTimeout(timer);
             pump.close();
+            // 未开口（全程过不了 RMS 门）= 采集失败：收口 null（port 契约），
+            // 不把纯静音段交上游——上游只校验时长 ≥1.2s，静音句会被注册成
+            // 声纹模板句污染模板、相似度判定失真（评审 mic-recorder:52）
+            if (!spoke) {
+              resolve(null);
+              return;
+            }
             const total = samples;
             const out = new Float32Array(total);
             let at = 0;

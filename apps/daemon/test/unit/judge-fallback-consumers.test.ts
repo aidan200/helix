@@ -124,9 +124,12 @@ function fakeStore(): MemoryFake {
     updated,
     append(items) {
       appended.push(...items);
+      const ids: number[] = [];
       for (const item of items) {
+        const id = entries.length + 1;
+        ids.push(id);
         entries.push({
-          id: entries.length + 1,
+          id,
           kind: item.kind,
           text: item.text,
           source: item.source,
@@ -139,6 +142,7 @@ function fakeStore(): MemoryFake {
           ...(item.projectScope !== undefined ? { projectScope: item.projectScope } : {}),
         });
       }
+      return ids;
     },
     search: (_q, topK): readonly StewardMemoryHit[] =>
       entries.slice(0, topK).map((e) => ({ ...e, score: 0.9 })),

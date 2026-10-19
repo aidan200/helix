@@ -27,15 +27,26 @@ import { useArmedConfirm } from "@/shared/lib/useArmedConfirm";
 /** 时间窗档位。 */
 const RANGES: readonly StewardActivityRange[] = ["today", "yesterday", "this_week", "all"];
 
-/** 时间窗 → 窗口下界（本地时区零点/周一零点——daemon handler 同口径）。 */
-function rangeSince(range: StewardActivityRange, nowMs: number): number {
+/** 时间窗 → [下界, 上界)（本地时区零点/周一零点——daemon handler 同口径）。
+ *  上界仅「昨天」档：daemon 下推是 since-only（untilMs 未用），且今天实时条目
+ *  会流入——回执与实时帧两层都在本页同判上界，否则今天的账会插进昨天视图。 */
+function rangeWindow(
+  range: StewardActivityRange,
+  nowMs: number,
+): { since: number; until: number | null } {
   const d = new Date(nowMs);
   d.setHours(0, 0, 0, 0);
   const today0 = d.getTime();
-  if (range === "yesterday") return today0 - 86_400_000;
-  if (range === "this_week") return today0 - ((d.getDay() + 6) % 7) * 86_400_000;
-  if (range === "all") return 0;
-  return today0;
+  if (range === "yesterday") return { since: today0 - 86_400_000, until: today0 };
+  if (range === "this_week") return { since: today0 - ((d.getDay() + 6) % 7) * 86_400_000, until: null };
+  if (range === "all") return { since: 0, until: null };
+  return { since: today0, until: null };
+}
+
+/** 条目是否落在当前窗口（[since, until)——until=null 即无上界）。 */
+function inWindow(at: number, range: StewardActivityRange, nowMs: number): boolean {
+  const { since, until } = rangeWindow(range, nowMs);
+  return at >= since && (until === null || at < until);
 }
 
 /** 列表长度上限（呈现面自律——清一屏可读量级）。 */
@@ -69,7 +80,13 @@ const StewardActivityPage = function StewardActivityPage({ path }: { path: strin
       if (event.type === "steward.activity.result") {
         const payload = event.payload as { entries?: unknown };
         if (Array.isArray(payload.entries)) {
-          setEntries(payload.entries as StewardActivityEntryView[]);
+          // 窗口双端过滤：daemon 下推 since-only（昨天档会带回今天的账），
+          // 呈现面以当前窗为准收口——切窗期间的迟到回执也不会跨窗混排
+          const nowMs = Date.now();
+          const range = rangeRef.current;
+          setEntries(
+            (payload.entries as StewardActivityEntryView[]).filter((e) => inWindow(e.at, range, nowMs)),
+          );
         }
         return;
       }
@@ -83,8 +100,7 @@ const StewardActivityPage = function StewardActivityPage({ path }: { path: strin
           attribution: payload.attribution as StewardActivityEntryView["attribution"],
           text: payload.text,
         };
-        const since = rangeSince(rangeRef.current, Date.now());
-        if (entry.at < since) return; // 不在当前窗口（如「今天」档收到昨日迟到帧）
+        if (!inWindow(entry.at, rangeRef.current, Date.now())) return; // 不在当前窗口（含昨天档的今天条目）
         setEntries((prev) => {
           const next = [entry, ...(prev ?? [])];
           return next.length > LIST_MAX ? next.slice(0, LIST_MAX) : next;

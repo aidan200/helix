@@ -45,10 +45,18 @@ export function applyInstanceHistoryEvent(s: SessionState, event: EventEnvelope)
     const item = entryToChannelItem(e, seq++);
     if (item) items.push(item);
   }
-  if (card.closure) items.push({ kind: "closure", seq, closure: card.closure });
+  // 回填重编号 seq 1..N（含 closure 尾卡）——必须同步推进全局取号器，否则
+  // channel.ts「seq 单调递增（React key）」契约被破：回填后实时条目按旧计数器
+  // 取到的号与回填条目重复（ChannelTimeline key={item.seq} 同列表重复 key）。
+  let maxSeq = seq - 1;
+  if (card.closure) {
+    items.push({ kind: "closure", seq, closure: card.closure });
+    maxSeq = seq;
+  }
   return {
     ...s,
     instanceChannels: { ...s.instanceChannels, [instanceId]: items },
+    nextChannelSeq: Math.max(s.nextChannelSeq, maxSeq + 1),
   };
 }
 

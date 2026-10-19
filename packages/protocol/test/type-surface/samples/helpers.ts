@@ -228,7 +228,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "agent.skill_content.get.result":
       return `skill-content:${event.payload.name}:${event.payload.content.length}`;
     case "agent.skill.create.result":
-      return `skill-create:${event.payload.status}:${event.payload.name ?? event.payload.reason ?? "-"}`;
+      return `skill-create:${event.payload.status}:${event.payload.status === "applied" ? event.payload.name : event.payload.reason}`;
     case "agent.steward_profile.get.result":
       // 管家公民权批：只读档案回执（工具数 + 模型槽位 + kindLabel）
       return `steward-profile:${event.payload.tools.length}:${event.payload.model ?? "-"}:${event.payload.kindLabel}`;
@@ -326,13 +326,13 @@ export function summarizeEvent(event: EventEnvelope): string {
       // embedding 配置域（B2）：端点清单回执窄化（数量 + 首条 name 面）
       return `embedding-list:${event.payload.endpoints.length}:${event.payload.endpoints[0]?.name ?? "-"}`;
     case "embedding.verify.result":
-      // embedding 配置域（B2/B4a）：连通测试两判别窄化（ok 携 dim 或 prob
-      // 二选一 / fail 含原因）
+      // embedding 配置域（B2/B4a/B4）：连通测试判别联合窄化——ok 按 kind
+      // 判别位取 dim（embedding）/ prob（classifier），fail 含原因
       return event.payload.state === "fail"
         ? `embedding-verify-fail:${event.payload.id}:${event.payload.error}`
-        : "dim" in event.payload
-          ? `embedding-verify-ok:${event.payload.id}:${event.payload.dim}`
-          : `embedding-verify-prob:${event.payload.id}:${event.payload.prob}`;
+        : event.payload.kind === "classifier"
+          ? `embedding-verify-prob:${event.payload.id}:${event.payload.prob}`
+          : `embedding-verify-ok:${event.payload.id}:${event.payload.dim}`;
     case "ask.started":
       return `ask-start:${event.payload.askId}:${event.payload.command}`;
     case "ask.resolved":
@@ -369,7 +369,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "loop.duplex.wake":
       return `loop-duplex-wake:${event.payload.source}`;
     case "loop.context.compacted":
-      return `loop-context-compacted:${event.payload.runId}:${event.payload.status}:${String(event.payload.tokensAfter ?? "-")}`;
+      return `loop-context-compacted:${event.payload.runId}:${event.payload.status}:${event.payload.status === "completed" ? String(event.payload.tokensAfter) : event.payload.error}`;
     case "voice.synthesize.chunk":
       return `voice-syn-chunk:${event.payload.utterId}:${event.payload.seq}:${event.payload.audio.length}`;
     case "voice.synthesize.done":

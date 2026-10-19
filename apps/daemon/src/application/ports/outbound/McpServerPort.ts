@@ -26,6 +26,13 @@ export interface McpServerConfigInput {
   readonly enabled?: boolean;
   /** 单请求超时毫秒（缺省 30000）。 */
   readonly timeoutMs?: number;
+  /**
+   * 懒加载开关（deferred 批，缺省 true）：true = 具体工具不进初始生效集，经
+   * `${server}__discover` meta 工具按需装载；false = 全量急发。缺省值单源 =
+   * 驱动层 McpServerConfig 类型注释；本端口声明只为让 handler 入口透传
+   * （add/update 全量覆盖语义下，缺席即回落缺省 true）。
+   */
+  readonly deferred?: boolean;
 }
 
 /** server 运行态行（与协议 McpServerStatusDto 同形；DTO 映射归 handler）。 */

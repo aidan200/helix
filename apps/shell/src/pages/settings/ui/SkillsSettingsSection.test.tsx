@@ -18,6 +18,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { AgentConfigListResultPayload, EventEnvelope } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { I18nProvider } from "@/shared/i18n";
 import { stripFrontmatter, mergeUserSkillRows } from "./SkillsSettingsSection";
 
@@ -392,5 +395,19 @@ describe("code-review M（TR-168）：onToggleContent send false → pending 不
     // 未发出 → 不置 pending（钮不锁）+ 错误面交代（非永久 loading）
     expect((document.querySelector('[data-skill-content-toggle="hello-skill"]') as HTMLButtonElement).disabled).toBe(false);
     expect((document.querySelector("[data-skill-content-error]") as HTMLElement | null)?.textContent).toContain("未连接");
+  });
+});
+
+// ── TR-173 源码定式（评审 :173：pending 集镜像 ref 渲染体裸写）──────────
+describe("TR-173：pending 集镜像 ref 翻转走 markPending 包装（禁渲染体裸写）", () => {
+  it("pendingRef 不再在渲染体直写 pending 态；markPending 同点写 ref + setState（eager）", () => {
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "SkillsSettingsSection.tsx"),
+      "utf8",
+    ).replace(/^\s*\/\/.*$/gm, "");
+    // 旧形态：渲染体裸写（并发渲染废弃腿可写陈旧 pending 集 → 单飞门控判据失真）
+    expect(src).not.toMatch(/^\s*pendingRef\.current\s*=\s*pending\s*;?\s*$/m);
+    expect(src).toMatch(/markPending/);
+    expect(src).toMatch(/pendingRef\.current\s*=\s*value/);
   });
 });

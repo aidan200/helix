@@ -102,6 +102,15 @@ export function useComposerVoice(
     }
   }, []);
 
+  /** 回落即断流（中危 F3a，money 纪律「零孤儿连接」）：回落路径置 dead 后
+   *  立即补发 stt.stream.stop（与卸载清理同口径）——否则 daemon 侧流悬挂到
+   *  组件卸载才收口，Composer 常驻会话期即悬挂整场（客户端 chunk 已停）。 */
+  const abandonStream = useCallback((): void => {
+    if (streamArmedRef.current && !finalPendingRef.current) {
+      streamSendersRef.current.sendSttStreamStop?.();
+    }
+  }, []);
+
   // PCM 帧 → stt.stream.chunk（仅 armed 且未死；他态零上行——money 纪律）
   const onPcmFrame = useCallback((frame: ArrayBuffer) => {
     if (!streamArmedRef.current || streamDeadRef.current) return;
@@ -125,15 +134,16 @@ export function useComposerVoice(
       senders.sendSttStreamFinish();
       clearFallbackTimer();
       fallbackTimerRef.current = setTimeout(() => {
-        // 终帧超时 → 回落非流式（V3a 行为等价）
+        // 终帧超时 → 回落非流式（V3a 行为等价）+ 断流（回落即收口 dead 流）
         finalPendingRef.current = false;
         streamDeadRef.current = true;
+        abandonStream();
         voiceRef.current.transcribeNow();
       }, finalTimeoutMsRef.current);
     } else {
       voiceRef.current.transcribeNow();
     }
-  }, [clearFallbackTimer]);
+  }, [clearFallbackTimer, abandonStream]);
 
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
@@ -183,13 +193,14 @@ export function useComposerVoice(
           if (text.trim() !== "") setInterim(text); // final 替换 interim（转正前闪现）
           voiceRef.current.resolveStreaming(text);
         } else {
-          // 流失败 → 回落非流式（blob 整段转写，V3a 行为等价）
+          // 流失败 → 回落非流式（blob 整段转写，V3a 行为等价）+ 断流收口
           streamDeadRef.current = true;
+          abandonStream();
           voiceRef.current.transcribeNow();
         }
       }
     });
-  }, [subscribeSttFrames, clearFallbackTimer]);
+  }, [subscribeSttFrames, clearFallbackTimer, abandonStream]);
 
   // 点击开始：流式复位 + 开流（同步发——失败静默降级）+ 录音启动
   const start = useCallback(async () => {

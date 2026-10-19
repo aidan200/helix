@@ -400,6 +400,12 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     },
     [cleanupMedia, closeMeter, closePump, deferredTranscribe, uploadBlob, setStateSafe],
   );
+  /** stop 的 ref 化（中危 F3a，与 onTranscript 同构）：start 的 meter.onLevel
+   *  帧回调闭包捕获 stop，但 start 的 useCallback deps 不含 stop——命令面
+   * （sendSttTranscribe 等）引用漂移后 VAD 自动停会走创建 start 那一拍的
+   *  陈旧 stop（经旧命令面上行），与手动 stop 路径分叉。经 ref 取最新。 */
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
 
   const start = useCallback(async () => {
     if (stateRef.current !== "idle") return;
@@ -490,7 +496,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
             }
             // 静音时钟自 max(开始+LEAD_IN, lastLoud) 起算；连续静音 ≥ STOP 收口
             const silenceSince = Math.max(startedAtRef.current + VOICE_LEAD_IN_MS, lastLoudAtRef.current);
-            if (now - silenceSince >= VOICE_SILENCE_STOP_MS && (allowSilenceStopRef.current?.() ?? true)) stop(true);
+            if (now - silenceSince >= VOICE_SILENCE_STOP_MS && (allowSilenceStopRef.current?.() ?? true)) stopRef.current(true);
           });
         } else {
           meter?.close(); // 环境不支持/窗口已过：VAD 降级（不早退——pump 仍挂）

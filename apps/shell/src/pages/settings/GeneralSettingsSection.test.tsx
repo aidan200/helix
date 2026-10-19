@@ -397,6 +397,28 @@ describe("M10 批②：config 族在途错误经 connection.error 收口（不�
     expect(document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!.value).toBe("120000");
   });
 
+  it("族B 尾缀归因：本卡在途时他命令 connection.error 不误收口（在途不丢、不误显示他卡错误，本卡结果帧仍落「已保存」）", () => {
+    mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
+    const view = ui();
+    const reserve = document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!;
+    fireEvent.change(reserve, { target: { value: "120000" } });
+    fireEvent.click(document.querySelector("[data-compaction-save]")!);
+    // 本卡在途时他写面命令被拒（config.set_sandbox 属另一张卡/页面外命令族）
+    feedConnError("沙箱配置非法（命令 config.set_sandbox）");
+    // 不误清本卡在途、不误显示他卡错误
+    expect(document.querySelector("[data-compaction-save-error]")).toBeNull();
+    // 本卡真实结果帧随后到达 → 「已保存」（在途未被误摘，dirty 门控不吞回执）
+    mockCompaction = { reserveTokens: 120000, keepRecentTokens: 32000 };
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <GeneralSettingsSection onOpenMemory={onOpenMemory} onOpenModelsEmbeddingTab={onOpenModelsEmbeddingTab} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(document.querySelector("[data-compaction-saved]")!.textContent).toContain("已保存");
+  });
+
   it("单飞门控：无在途时 connection.error 不消费（无错误面、无状态扰动）", () => {
     mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
     ui();

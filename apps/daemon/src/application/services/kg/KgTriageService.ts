@@ -25,6 +25,7 @@ import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort
 import type { KgProjectService } from "./KgProjectService";
 import type { KgVerifyService } from "./KgVerifyService";
 import { createTaskWithSlot, hasActiveJob, narrowCreateErrorCode, projectNameOf } from "./job-activity";
+import { countTriageBacklog } from "../../../domain/kg/verify/backlog";
 
 /** 准入复核结论（create 前置；reason = 契约词表三态）。 */
 export type TriageEligibility =
@@ -85,14 +86,11 @@ export class KgTriageService {
    * 漏项=结构性排空）。
    */
   pendingCount(projectRoot: string): number {
-    const candidates = this.deps.graph.countCandidatesByStatus(projectRoot);
-    const orphans = this.deps.verify.findOrphans(projectRoot);
-    const unanchored = orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").length;
-    const deadAnchors = orphans.filter((o) => o.kind === "dead_anchor").length;
-    const drafts = this.deps.verify.findDrafts(projectRoot).filter(
-      (d) => d.kind === "ready" || d.kind === "stale" || (d.kind === "anchor-debt" && d.declared),
-    ).length;
-    return candidates.pending + candidates.deferred + unanchored + deadAnchors + drafts;
+    return countTriageBacklog({
+      candidates: this.deps.graph.countCandidatesByStatus(projectRoot),
+      orphans: this.deps.verify.findOrphans(projectRoot),
+      drafts: this.deps.verify.findDrafts(projectRoot),
+    });
   }
 
   /** 准入机械复核（后端不信赖前端）：索引存在 + 待办面非空 + 仅禁并发。 */

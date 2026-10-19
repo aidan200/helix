@@ -20,7 +20,10 @@ import type { RuntimeConfigPort } from "../../src/application/ports/outbound/Run
 import type { EmbeddingPort, EmbeddingResult } from "../../src/application/ports/outbound/EmbeddingPort";
 import {
   EmbeddingConfigService,
+  EMBEDDING_DEFAULT_ENDPOINT_ID_KEY,
   EMBEDDING_ENDPOINTS_KEY,
+  resolveDefaultConfigOf,
+  resolveDefaultRecordOf,
 } from "../../src/application/embedding/EmbeddingConfigService";
 import { STEWARD_MEMORY_EMBEDDING_KEY } from "../../src/application/steward/StewardMemoryService";
 import { MEMORY_ENDPOINT_ID_KEY } from "../../src/application/memory/memoryConfig";
@@ -125,6 +128,29 @@ describe("EmbeddingConfigService：凭据卫生与 verify", () => {
     expect(view[0]!.verifiedAt).toBeNull();
   });
 
+  test("verify ok（classifier 端点）→ 回执带 kind=\"classifier\" + 校准概率 prob", async () => {
+    const config = memoryConfig();
+    const judgeProbe = () => ({
+      noul: async () => 0.93,
+      endpointLabel: () => "fake-judge",
+    });
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: judgeProbe });
+    const created = await svc.set({
+      name: "判官",
+      baseUrl: "https://api.jev.sh/v1",
+      apiKey: "k",
+      model: "jev-latest",
+      kind: "classifier",
+    });
+    if (!created.ok) throw new Error("unreachable");
+    const verified = await svc.verify(created.id);
+    expect(verified.state).toBe("ok");
+    if (verified.state === "ok") {
+      expect(verified.kind).toBe("classifier");
+      if (verified.kind === "classifier") expect(verified.prob).toBe(0.93);
+    }
+  });
+
   test("verify ok → verifiedAt 落盘 + 回实测 dim；fail → error 含定位 + verifiedAt 不动", async () => {
     const config = memoryConfig();
     const ok = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory({ vectors: [[1, 2, 3, 4]] }), createJudgeProbe: noopJudgeProbe });
@@ -132,7 +158,11 @@ describe("EmbeddingConfigService：凭据卫生与 verify", () => {
     if (!created.ok) throw new Error("unreachable");
     const verified = await ok.verify(created.id);
     expect(verified.state).toBe("ok");
-    if (verified.state === "ok" && "dim" in verified) expect(verified.dim).toBe(4);
+    // 判别位（B4）：embedding 端点 ok 回执带 kind="embedding" + 实测 dim
+    if (verified.state === "ok") {
+      expect(verified.kind).toBe("embedding");
+      if (verified.kind === "embedding") expect(verified.dim).toBe(4);
+    }
     expect(ok.listView()[0]!.verifiedAt).not.toBeNull();
 
     const fail = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory({ error: "连接超时" }), createJudgeProbe: noopJudgeProbe });
@@ -378,5 +408,76 @@ describe("EmbeddingConfigService：variant 通道（pi-ai 目录形态）", () =
     const views = svc.listView();
     expect(views.find((v) => v.name === "目录判官")?.variant).toBe("pi-ai");
     expect(views.find((v) => v.name === "Jev 直连")?.variant).toBeUndefined();
+  });
+});
+
+// ── 端点清单读改写串行化（评审 F1：并发 set/markVerified 交错丢更新） ──
+
+describe("EmbeddingConfigService 写面互斥（读改写原子化）", () => {
+  test("并发 set 串行化——后写不覆盖先写（gated KV 交错模拟丢更新窗口）", async () => {
+    // 门闸 KV：set 提交可挂起——两笔 set 都在「读快照→写回」的 await 窗口内
+    // 交错时，旧实现（无互斥）两笔各自基于旧快照写回，先提交者被覆盖丢失。
+    const store = new Map<string, string>([
+      [EMBEDDING_ENDPOINTS_KEY, JSON.stringify([{ id: "x", name: "存量", baseUrl: "u", model: "m" }])],
+    ]);
+    let gateOpen = false;
+    const waiters: (() => void)[] = [];
+    const openGate = (): void => {
+      gateOpen = true;
+      for (const w of waiters.splice(0)) w();
+    };
+    const config: RuntimeConfigPort = {
+      get: (key) => store.get(key),
+      set: async (key, value) => {
+        if (!gateOpen) await new Promise<void>((r) => waiters.push(r));
+        store.set(key, value);
+      },
+    };
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
+    const p1 = svc.set({ name: "端点A", baseUrl: "u", model: "m" });
+    await new Promise((r) => setTimeout(r, 5)); // p1 进入写回挂起（读快照 = [x]）
+    const p2 = svc.set({ name: "端点B", baseUrl: "u", model: "m" });
+    await new Promise((r) => setTimeout(r, 5)); // p2 同窗交错（读快照仍 = [x]）
+    openGate();
+    await Promise.all([p1, p2]);
+    const names = svc.list().map((r) => r.name);
+    expect(names).toContain("端点A"); // 旧实现：A 被 B 的旧快照写回覆盖丢失
+    expect(names).toContain("端点B");
+    expect(names.length).toBe(3);
+  });
+});
+
+// ── 默认端点解析纯函数单点（评审 F1：ChildMain/backfill 双份本地复刻收编） ──
+
+describe("默认端点解析纯函数（records + defaultId → record/config）", () => {
+  const RECORDS = [
+    { id: "ep-vec", name: "向量", baseUrl: "http://v", apiKey: "k", model: "bge" },
+    { id: "ep-j", name: "分类", baseUrl: "http://j", model: "jev", kind: "classifier" as const },
+  ];
+
+  test("resolveDefaultRecordOf：命中回记录；未设/空串/悬空/非本 kind → null", () => {
+    expect(resolveDefaultRecordOf(RECORDS, "ep-vec")?.id).toBe("ep-vec");
+    expect(resolveDefaultRecordOf(RECORDS, undefined)).toBeNull();
+    expect(resolveDefaultRecordOf(RECORDS, "   ")).toBeNull();
+    expect(resolveDefaultRecordOf(RECORDS, "ep-gone")).toBeNull();
+    expect(resolveDefaultRecordOf(RECORDS, "ep-j")).toBeNull(); // 缺省 kind=embedding 不认分类端点
+    expect(resolveDefaultRecordOf(RECORDS, "ep-j", "classifier")?.id).toBe("ep-j");
+    expect(resolveDefaultRecordOf(RECORDS, "ep-vec", "classifier")).toBeNull(); // 反向同款
+  });
+
+  test("resolveDefaultConfigOf：窄投影只带 baseUrl/model/apiKey（无 id/name/kind）", () => {
+    expect(resolveDefaultConfigOf(RECORDS, "ep-vec")).toEqual({ baseUrl: "http://v", model: "bge", apiKey: "k" });
+    expect(resolveDefaultConfigOf(RECORDS, "ep-j")).toBeNull();
+    expect(resolveDefaultConfigOf(RECORDS, "ep-j", "classifier")).toEqual({ baseUrl: "http://j", model: "jev" });
+  });
+
+  test("服务方法 = 纯函数的薄壳（同输入同输出，语义不漂移）", async () => {
+    const config = memoryConfig({
+      [EMBEDDING_ENDPOINTS_KEY]: JSON.stringify(RECORDS),
+      [EMBEDDING_DEFAULT_ENDPOINT_ID_KEY]: "ep-vec",
+    });
+    const svc = new EmbeddingConfigService({ config, createProbe: fakeProbeFactory(), createJudgeProbe: noopJudgeProbe });
+    expect(svc.resolveDefaultRecord()).toEqual(resolveDefaultRecordOf(svc.list(), "ep-vec"));
+    expect(svc.resolveDefault()).toEqual(resolveDefaultConfigOf(svc.list(), "ep-vec"));
   });
 });

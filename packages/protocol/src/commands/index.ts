@@ -13,6 +13,11 @@
  * 不符的错误回执见 §7（command.unknown / command.invalid_payload；
  * v0.2 已登记未实现命令 → command.unimplemented，T2.x 前占位回执）。
  *
+ * 命令 type 命名规约（存量不改造、新增统一）：历史名不动（session.loadHistory /
+ * session.instanceChannels 等 camelCase 属既有线契约，改名即破坏 wire）；
+ * 新增命令一律下划线/点分风格（model.catalog_refresh / stt.stream.start
+ * 先例），不在同一目录引入第三种风格。
+ *
  * 域文件拆分（体量治理）：session（会话域）/ model-config（全局配置域）/
  * resource（资源与观测域）/ kg（图谱域）/ task（任务域）/ mcp（MCP 接入域）/
  * catalog（信封联合 + 命令目录常量）——桶导出面不变（index.ts 顶层

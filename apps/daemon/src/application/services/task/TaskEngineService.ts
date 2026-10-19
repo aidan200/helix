@@ -3,6 +3,8 @@ import { isTerminalJob, isTerminalStage, assertBatchTransition } from "../../../
 import { resolveStagePlan, stageKindOfManifest, validateTaskParams } from "../../../domain/task/manifest";
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
 import type { StageKind, StagePlan } from "../../../domain/task/types";
+import type { InstanceState } from "../../../domain/agent/AgentInstance";
+import type { JobStatus } from "../../../domain/task/types";
 import type { TaskEnginePort, CreateTaskInput, DispatchBatchOutcome } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
 import { taskSessionIdOf } from "./TaskOrchestratorService";
@@ -52,7 +54,7 @@ export interface TaskEngineServiceDeps {
    * 生命周期三命令（pause/resume/cancel）**不经本钩子**（handler 层已接
    * 同一单点，避免双发）；deleteTask 不广播（非状态迁移，AF-T1.5.2 裁决）。
    */
-  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
+  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }) => void;
   /**
    * 任务报告目录清理（F3.6 级联扩展）：~<home>/reports/task:<jobId>/ 整目录
    * 删除（批次报告 md/findings 旁路/summary.md 随任务同灭）。组合根注入 fs
@@ -70,11 +72,11 @@ export interface TaskEngineServiceDeps {
   readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
   /**
    * 实例调度态读面（迟到接线守卫，task-efd68911 事故收敛）：agentId →
-   * queued/running/parked/终态（done/failed/killed/cancelled）或 undefined
+   * queued/running/parked/终态（done/failed/cancelled）或 undefined
    * （查无）。组合根接 scheduler.status 映射；缺省不守卫（纯引擎测试形态——
    * 现有测试以假实例 id 直落章，零破坏过渡）。
    */
-  readonly instanceStateOf?: (agentId: string) => string | undefined;
+  readonly instanceStateOf?: (agentId: string) => InstanceState | undefined;
   /**
    * 实例生命周期投影族（恢复链幽灵收口；组合根接 persistence.repository，
    * 缺省不装配——纯引擎测试形态零依赖）。
@@ -96,7 +98,7 @@ export class TaskEngineService implements TaskEnginePort {
   constructor(private readonly deps: TaskEngineServiceDeps) {}
 
   /** task.changed 帧回调（迁移成功后；钩子异常不阻断引擎主流程）。 */
-  private notify(frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }): void {
+  private notify(frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }): void {
     try {
       this.deps.onTaskChanged?.(frame);
     } catch {
@@ -137,35 +139,47 @@ export class TaskEngineService implements TaskEnginePort {
       error: null,
     });
     this.notify({ jobId, changed: "job", status: "pending" }); // 创建帧（双宿主同源：/project 与 chat 工具面）
-    for (const stage of stagePlan) {
-      await this.deps.store.insertStage({
-        jobId,
-        seq: stage.seq,
-        name: stage.name,
-        status: "pending",
-        artifact: null,
-        updatedAt: now,
-      });
-      this.notify({ jobId, changed: "stage", status: "pending" });
+    try {
+      for (const stage of stagePlan) {
+        await this.deps.store.insertStage({
+          jobId,
+          seq: stage.seq,
+          name: stage.name,
+          status: "pending",
+          artifact: null,
+          updatedAt: now,
+        });
+        this.notify({ jobId, changed: "stage", status: "pending" });
+      }
+    } catch (err) {
+      // stage 插入中途失败回补（评审 F1）：job 行已落而阶段计划残缺——既不满足
+      // TR-72「创建时一次定格」，也不是终态（只能靠重启恢复扫描捞，残缺行会
+      // 错判阶段完成度）。与下方 starter 失败同口径就地收口为 cancelled 后再上抛。
+      await this.abortPendingTask(jobId, `阶段计划写入失败：${(err as Error).message}`);
+      throw err;
     }
     try {
       await this.deps.starter.startOrchestrator(jobId);
     } catch (err) {
       // starter 失败回补（清单 #2.5）：job/stage 行已产而编排未起——不回补会
-      // 滞留 pending 仅重启恢复扫描可捞。就地按 cancel 语义收口（无批次可收：
-      // pending stage 标 failed——cancel 显性出边先例；job pending→cancelled
-      // 合法迁移），再上抛原错给发起方。
-      for (const stage of this.deps.store.getStages(jobId)) {
-        if (isTerminalStage(stage.status)) continue;
-        await this.deps.store.updateStageStatus(jobId, stage.seq, "failed").catch(() => undefined);
-      }
-      await this.deps.store
-        .updateJobStatus(jobId, "cancelled", `编排启动失败：${(err as Error).message}`)
-        .catch(() => undefined);
-      this.notify({ jobId, changed: "job", status: "cancelled" });
+      // 滞留 pending 仅重启恢复扫描可捞。就地按 cancel 语义收口，再上抛原错给发起方。
+      await this.abortPendingTask(jobId, `编排启动失败：${(err as Error).message}`);
       throw err;
     }
     return { jobId };
+  }
+
+  /** 创建期失败回补（stage 插入中途失败 / 编排启动失败共用）：非终态 stage 标
+   *  failed（无批次可收，cancel 显性出边先例）+ job pending→cancelled（合法迁移）
+   *  ——残留行是「终态可见」而非滞留在飞面。回补本身失败静默：不掩盖原错
+   *  （原错由调用方上抛），与既有 starter 回补同姿态。 */
+  private async abortPendingTask(jobId: string, reason: string): Promise<void> {
+    for (const stage of this.deps.store.getStages(jobId)) {
+      if (isTerminalStage(stage.status)) continue;
+      await this.deps.store.updateStageStatus(jobId, stage.seq, "failed").catch(() => undefined);
+    }
+    await this.deps.store.updateJobStatus(jobId, "cancelled", reason).catch(() => undefined);
+    this.notify({ jobId, changed: "job", status: "cancelled" });
   }
 
   // ── 生命周期（§4.2，AD-2：零内容干预） ──────────────────────
@@ -418,6 +432,12 @@ export class TaskEngineService implements TaskEnginePort {
         );
       }
       if (state !== "queued" && state !== "running" && state !== "parked") {
+        // 终态转化只对**可派发态**（pending/failed）——评审 F1：转化路径原无态
+        // 限定，会把已 done 批次回退 running→failed（把「已完成」倒灌成失败），
+        // 或把别的实例正在跑的 running 批次 instanceId 置 null 后 failBatch
+        //（真实在飞实例的收口随后被判游离丢弃）。非可派发态一律经
+        // assertBatchRunnable 状机守卫拒绝（invalid_state，行状态零迁移）。
+        assertBatchRunnable(batch);
         // 桥接 running（failBatch 断言要求 + 状态机 pending→failed 仅 cancel 出边）：
         // 同一调用内落定 failed，观察者只见终值；instanceId 保持 null（不接线死实例）
         await this.deps.store.updateBatch({

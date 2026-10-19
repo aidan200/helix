@@ -63,6 +63,7 @@ import type {
   WorkspaceChangedEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { TaskStatus } from "@helix/protocol";
 import { domainEventToEnvelope, diffChangedFrame, sessionMetaDto } from "./DtoMapper";
 import { isWireMainAttribution, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 import type { SessionListChange } from "../../../application/ports/inbound/SessionDirectoryPort";
@@ -443,7 +444,8 @@ export class EventStream implements EventPublisherPort {
   broadcastTaskChanged(payload: {
     jobId: string;
     changed: "job" | "stage" | "batch" | "work_item";
-    status?: string;
+    /** job 级新状态（值集 = 协议 TaskStatus 单源；批次/阶段级变更省略）。 */
+    status?: TaskStatus;
     /** W2-D R13：job 终态同步提示（pending_sync 命中时随行——人读文案直渲，kg DTO summary 同规）。 */
     syncHint?: string;
   }): void {

@@ -531,25 +531,39 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       // 兜底（code-review M5，D4 口径）：引擎调用异常时实例已终态、不再有任何
       // 事件驱动——批次行滞留 running 即永久卡死。退避重试一次兜底 failBatch；
       // 仍失败则如实标记滞留（人工 task.retry/cancel 介入面）。
-      this.warn(
-        `批次收口引擎调用异常（任务 ${loop.jobId} 批次 ${batch.id}）：${(err as Error).message}——5s 后兜底重试一次 failBatch`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
-      try {
-        // M6 #2.5：兜底 failBatch 成功后仍须按 retryScheduled 补派——批次有
-        // 余量却不重派则滞留 failed（sweepRetries 仅在 startOrchestrator
-        // 触发，存活 loop 内再无补派机会，直至重启/人工介入）
-        const { retryScheduled } = await this.deps.taskEngine.failBatch(
-          batch.id,
-          `收口引擎异常兜底：${(err as Error).message}`,
-        );
-        verdict = `失败（收口引擎异常，兜底 failBatch 成功：${(err as Error).message}）`;
-        if (retryScheduled) redispatched = await this.reDispatch(loop, batch);
-      } catch (retryErr) {
-        verdict = `收口处理异常且兜底 failBatch 仍失败（批次滞留 running，需人工介入：${(retryErr as Error).message}）`;
+      //
+      // 已终态短路（评审 F1）：异常也可能来自主路径**之后**的环节（failBatch 已
+      // 成功 → reDispatch 内 rawSpawn 抛错）——此时批次行已落定终态，兜底
+      // failBatch 对非 running 行必抛（仅 running 可收口 failed），重试无意义且
+      // 会把「已 failed 且余量在」的场面谎报为「滞留 running，需人工介入」。
+      // 复读行后据实收口：终态直报（补派归编排收场对账/引擎重试扫描）。
+      const latest = this.batchRowOf(loop.jobId, batch.id);
+      if (latest !== undefined && latest.status !== "running") {
+        verdict = `失败（收口已落库 ${latest.status}；其后环节异常：${(err as Error).message}——补派由引擎重试扫描/收场对账接续，无需人工介入）`;
         this.warn(
-          `兜底 failBatch 仍失败（任务 ${loop.jobId} 批次 ${batch.id}）：${(retryErr as Error).message}——批次滞留 running，需人工介入（task.retry / cancel）`,
+          `收口后续环节异常（任务 ${loop.jobId} 批次 ${batch.id}，批次行已 ${latest.status}）：${(err as Error).message}——不重试兜底 failBatch（终态行不可再转 failed），补派归引擎重试扫描/收场对账`,
         );
+      } else {
+        this.warn(
+          `批次收口引擎调用异常（任务 ${loop.jobId} 批次 ${batch.id}）：${(err as Error).message}——5s 后兜底重试一次 failBatch`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        try {
+          // M6 #2.5：兜底 failBatch 成功后仍须按 retryScheduled 补派——批次有
+          // 余量却不重派则滞留 failed（sweepRetries 仅在 startOrchestrator
+          // 触发，存活 loop 内再无补派机会，直至重启/人工介入）
+          const { retryScheduled } = await this.deps.taskEngine.failBatch(
+            batch.id,
+            `收口引擎异常兜底：${(err as Error).message}`,
+          );
+          verdict = `失败（收口引擎异常，兜底 failBatch 成功：${(err as Error).message}）`;
+          if (retryScheduled) redispatched = await this.reDispatch(loop, batch);
+        } catch (retryErr) {
+          verdict = `收口处理异常且兜底 failBatch 仍失败（批次滞留 running，需人工介入：${(retryErr as Error).message}）`;
+          this.warn(
+            `兜底 failBatch 仍失败（任务 ${loop.jobId} 批次 ${batch.id}）：${(retryErr as Error).message}——批次滞留 running，需人工介入（task.retry / cancel）`,
+          );
+        }
       }
     }
     // 批次收口 = 实质推进事件：推进检查重驱机会复位（有界语义的界针对单次
@@ -606,6 +620,11 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   /** job 的全部批次行（跨 stage）。 */
   private allBatches(jobId: string): BatchData[] {
     return this.deps.store.getStages(jobId).flatMap((stage) => this.deps.store.getBatches(jobId, stage.seq));
+  }
+
+  /** 按 id 复读批次行（收口兜底分支判据面：locate 时读的行为历史快照，主路径写入后需重读）。 */
+  private batchRowOf(jobId: string, batchId: string): BatchData | undefined {
+    return this.allBatches(jobId).find((b) => b.id === batchId);
   }
 
   // ── 内部：自动重派（§4.5 死批次接力） ─────────────────────

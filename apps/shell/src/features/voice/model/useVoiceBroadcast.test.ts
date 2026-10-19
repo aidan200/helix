@@ -145,6 +145,42 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
     off();
   });
 
+  it("完成回调世代闸（中危 F3a）：同一坏帧 error + play.reject 双触发不把在播新条目拍飞——无双播、顺序不变量保持", async () => {
+    const seen: number[] = [];
+    await act(async () => {
+      renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    });
+    const off = onNotificationQueueChange((d) => seen.push(d));
+    // 坏帧 seq1：play() 拒绝（autoplay 策略）——catch 通道先行收口
+    rejectPlay = true;
+    await act(async () => {
+      frameListener!(broadcastFrame(1));
+    });
+    // 新帧 seq2 正常起播（在播 1）
+    rejectPlay = false;
+    await act(async () => {
+      frameListener!(broadcastFrame(2));
+    });
+    expect(seen[seen.length - 1]).toBe(1);
+    const second = FakeAudio.instances[1]!;
+    // seq1 同一元素的 error 事件迟到（同一坏帧两通道都会走）：不得把 seq2
+    // 的在播位拍成 false 并再续一链（否则后续帧双音频并发、顺序破坏）
+    await act(async () => {
+      FakeAudio.instances[0]!.onerror!();
+    });
+    expect(seen[seen.length - 1]).toBe(1); // 深度不变（在播仍 1）——旧实现被拍 0
+    // seq3 入队：单链顺序（seq2 在播 + seq3 排队）
+    await act(async () => {
+      frameListener!(broadcastFrame(3));
+    });
+    expect(seen[seen.length - 1]).toBe(2);
+    await act(async () => {
+      second.onended!();
+    });
+    expect(seen[seen.length - 1]).toBe(1); // seq3 接续在播（无双链并发）
+    off();
+  });
+
   it("seq 去重：重复/回退帧丢弃（只播一次）", async () => {
     await act(async () => {
       renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });

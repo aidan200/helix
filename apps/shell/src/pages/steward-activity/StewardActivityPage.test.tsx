@@ -145,3 +145,36 @@ describe("管家活动时间线页（M3-d1）", () => {
     expect(sendStewardActivityList).toHaveBeenCalledTimes(3); // 进入 + 切窗 + 刷新
   });
 });
+
+// ── 昨天窗上界（评审 StewardActivityPage:31-39,86-87）──────────────
+describe("「昨天」窗上界：今天 0 点后的条目不入列", () => {
+  const today0 = (() => {
+    const d = new Date(NOW);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  })();
+
+  it("回执整表按窗过滤：昨天档只留 [今日0点-24h, 今日0点)（daemon 下推 since-only 的今天条目被滤掉）", () => {
+    const { container } = ui();
+    fireEvent.click(container.querySelector("[data-activity-range='yesterday']")!);
+    feed("steward.activity.result", {
+      entries: [
+        { at: today0 + 60_000, domain: "task", attribution: "system", text: "今天做的事" },
+        { at: today0 - 3_600_000, domain: "task", attribution: "system", text: "昨天做的事" },
+      ],
+    });
+    expect(container.querySelector("[data-activity-item-text='0']")!.textContent).toBe("昨天做的事");
+    expect(container.querySelector("[data-activity-item-text='1']")).toBeNull();
+  });
+
+  it("实时帧同判：昨天档下今天条目零入列（只在 [since, today0) 内插头）", () => {
+    const { container } = ui();
+    fireEvent.click(container.querySelector("[data-activity-range='yesterday']")!);
+    feed("steward.activity.result", {
+      entries: [{ at: today0 - 3_600_000, domain: "task", attribution: "system", text: "昨天做的事" }],
+    });
+    feed("steward.activity", { at: Date.now(), domain: "agent", attribution: "system", text: "刚刚做的事", seq: 11 });
+    expect(container.querySelector("[data-activity-item-text='0']")!.textContent).toBe("昨天做的事");
+    expect(container.querySelectorAll("[data-activity-item-text]").length).toBe(1);
+  });
+});

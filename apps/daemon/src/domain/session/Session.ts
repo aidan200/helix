@@ -326,8 +326,13 @@ export class Session {
   get turnCount(): number {
     return this.turns.length;
   }
-  get openTurn(): Turn | null {
-    return this.currentTurn;
+  /** 在飞轮次只读投影（评审 F1：原直接返 Turn 活引用，调用方 can 绕开聚合调
+   *  turn.complete()/markToolRunning()——Session.currentTurn 不置空则轮次悬挂、
+   *  beginTurn 恒抛，TR-25「绕开聚合的直接状态修改会被拦下」在此路径不成立）。
+   *  投影面只读：状态迁移唯一入口仍是聚合方法（completeTurn/interruptTurn/
+   *  markTurnToolRunning/resumeTurnGenerating）。每次现造快照，写入不回写聚合。 */
+  get openTurn(): TurnData | null {
+    return this.currentTurn?.toData() ?? null;
   }
   entryList(): SessionEntryData[] {
     return this.entries.map((e) => e.toData());

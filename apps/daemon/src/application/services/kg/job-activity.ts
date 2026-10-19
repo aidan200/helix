@@ -23,6 +23,17 @@ export function hasActiveJob(jobs: readonly JobData[], type: string, projectName
   return jobs.some((j) => j.type === type && j.projects.includes(projectName) && !isTerminalJob(j.status));
 }
 
+/** 会写 kg 库的任务类型族（清单以 SubAgentKgWriterProfile 分流面为单源：
+ *  kg-bootstrap / kg-triage / kg-review——走 subagent-kg-writer、携 kg-update
+ *  豁免面的类型都会写库）。purge 门禁按族判定（评审 F1：在途 triage 写库
+ *  与 bootstrap 同构——清库清零发号计数器后恢复写入破坏 E-8「id 永不复用」）。 */
+export const KG_WRITING_TASK_TYPES: readonly string[] = ["kg-bootstrap", "kg-triage", "kg-review"];
+
+/** 该项目存在任一 kg 写任务族的非终态 job（purge 门禁口径）。 */
+export function hasActiveKgWritingJob(jobs: readonly JobData[], projectName: string): boolean {
+  return KG_WRITING_TASK_TYPES.some((type) => hasActiveJob(jobs, type, projectName));
+}
+
 /**
  * create check-then-act 互斥槽（code-review M10）：hasActiveJob 检查与
  * createTask 落库之间的 await 窗口内，并发 create 可双双通过检查——claim 与

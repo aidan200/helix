@@ -26,6 +26,7 @@ import type { KgReportService } from "./KgReportService";
 import { KG_DEGRADED_NOTE, type KgProjectRowView, type KgProjectService } from "./KgProjectService";
 import type { KgSyncService, KgIndexPhase } from "./KgSyncService";
 import type { ConflictItem, DraftItem, KgVerifyService, OrphanItem } from "./KgVerifyService";
+import { countTriageBacklog } from "../../../domain/kg/verify/backlog";
 import type { KgWriteService } from "./KgWriteService";
 import type {
   CandidateListQuery,
@@ -457,13 +458,10 @@ export class KgViewerService {
     const orphans = this.deps.verify.findOrphans(resolved);
     const drafts = this.deps.verify.findDrafts(resolved);
     const candidates = this.deps.graph.countCandidatesByStatus(resolved);
-    // triage 积压提示（P2；P3 扩五计数）：口径与 KgTriageService.pendingCount
-    // 同源——候选 pending+deferred + dead_anchor + 无锚节点（②③）+ draft
-    // ready/stale（anchor-debt 不重复计数，过宽限即入②③）；阈值 10 = 单批 20 的半批。
-    const deadAnchors = orphans.filter((o) => o.kind === "dead_anchor").length;
-    const unanchored = orphans.filter((o) => o.kind === "orphan_node" || o.kind === "unanchored_node").length;
-    const readyOrStale = drafts.filter((d) => d.kind === "ready" || d.kind === "stale").length;
-    const pendingTotal = candidates.pending + candidates.deferred + deadAnchors + unanchored + readyOrStale;
+    // triage 积压提示（P2；P3 扩五计数）：countTriageBacklog 单点——与
+    // KgTriageService.pendingCount 机械同源（评审 F1：原内联口径漏「带声明
+    // anchor-debt」项，积压提示低于准入计数、阈值 10 失真）；阈值 10 = 单批 20 的半批。
+    const pendingTotal = countTriageBacklog({ candidates, orphans, drafts });
     return {
       ok: true,
       value: {

@@ -77,7 +77,10 @@ function feedList(endpoints: typeof ENDPOINTS, defaultClassifierEndpointId: stri
   });
 }
 
-function feedVerify(id: string, payload: { state: "ok"; prob: number } | { state: "fail"; error: string }) {
+function feedVerify(
+  id: string,
+  payload: { state: "ok"; kind: "classifier"; prob: number } | { state: "fail"; error: string },
+) {
   const frame = {
     v: PROTOCOL_VERSION,
     sessionId: "__system__",
@@ -99,6 +102,21 @@ function ui() {
       </ToastProvider>
     </I18nProvider>,
   );
+}
+
+/** daemon 命令失败回执（connection.error——commandError 尾缀「（命令 <type>）」）。 */
+function feedConnError(message: string) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    channel: "notification",
+    type: "connection.error",
+    ts: 1,
+    payload: { code: "command.invalid_payload", message },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of embeddingListeners) l(frame);
+  });
 }
 
 describe("分类模型 tab（判官 pi-ai 批）", () => {
@@ -132,7 +150,7 @@ describe("分类模型 tab（判官 pi-ai 批）", () => {
     expect(sendEmbeddingVerify).toHaveBeenCalledWith("ep-4");
     expect(container.querySelector("[data-clf-conn=verifying]")!).not.toBeNull();
     expect(verifyBtn.disabled).toBe(true);
-    act(() => feedVerify("ep-4", { state: "ok", prob: 0.96 }));
+    act(() => feedVerify("ep-4", { state: "ok", kind: "classifier", prob: 0.96 }));
     expect(container.querySelector("[data-clf-row=ep-4] [data-clf-conn=ok]")!.textContent).toContain("96");
   });
 
@@ -233,7 +251,7 @@ describe("D1 全局默认分类模型（渐进收编 UI 契约）", () => {
     expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-4", "classifier");
   });
 
-  it("修改口交互：点「设置默认模型」开面板 → 选端点即 set_default(kind=classifier) + 关面板；默认项带 sel+chip", () => {
+  it("修改口交互：点「设置默认模型」开面板 → 选端点即 set_default(kind=classifier)；回执新默认才关面板；默认项带 sel+chip", () => {
     const { container } = ui();
     act(() => feedList(ENDPOINTS, "ep-3"));
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-change-default]")!);
@@ -242,7 +260,22 @@ describe("D1 全局默认分类模型（渐进收编 UI 契约）", () => {
     expect(container.querySelector("[data-clf-default-picker-item=ep-4]")).not.toBeNull();
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-default-picker-item=ep-4]")!);
     expect(sendEmbeddingSetDefault).toHaveBeenCalledWith("ep-4", "classifier");
-    expect(container.querySelector("[data-clf-default-picker]")).toBeNull(); // 成功关面板
+    // 族B：不乐观关面板（daemon 三拒无结果帧）；回执新默认才关
+    expect(container.querySelector("[data-clf-default-picker]")).not.toBeNull();
+    act(() => feedList(ENDPOINTS, "ep-4"));
+    expect(container.querySelector("[data-clf-default-picker]")).toBeNull();
+  });
+
+  it("set_default 被 daemon 拒 → 行内交代原因 + 面板不关（尾缀归因：他命令拒绝不误消费）", () => {
+    const { container } = ui();
+    act(() => feedList(ENDPOINTS, "ep-3"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-change-default]")!);
+    fireEvent.click(container.querySelector<HTMLButtonElement>("[data-clf-default-picker-item=ep-4]")!);
+    feedConnError("追踪查询失败（命令 trace.query）");
+    expect(container.querySelector("[data-clf-default-error]")).toBeNull();
+    feedConnError("端点未通过连通测试，不能设为默认（命令 embedding.set_default）");
+    expect(container.querySelector("[data-clf-default-error]")!.textContent).toContain("未通过连通测试");
+    expect(container.querySelector("[data-clf-default-picker]")).not.toBeNull();
   });
 
   it("修改口空态：无 classifier 端点 → 面板内空态提示", () => {

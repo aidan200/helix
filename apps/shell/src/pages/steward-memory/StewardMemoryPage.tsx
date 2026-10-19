@@ -129,6 +129,16 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   /** 向量化在途行（memory_append/update 的回执等待面）。 */
   const [vectorizing, setVectorizing] = useState<number | "new" | null>(null);
+  /** 向量化在途镜像（订阅 listener 闭包读最新值——markVectorizing 同点写，
+   *  TR-173：禁渲染体裸写）。 */
+  const vectorizingRef = useRef<number | "new" | null>(null);
+  const markVectorizing = (v: number | "new" | null): void => {
+    vectorizingRef.current = v;
+    setVectorizing(v);
+  };
+  /** 写面失败交代（connection.error 尾缀归因：steward.memory_* 写命令无结果帧
+   *  ——不清在途则「向量化中」整行占位永挂且失败静默；TR-272 清位面）。 */
+  const [writeError, setWriteError] = useState<string | null>(null);
   /** 新增弹窗（text + kind + domain 打标；project = domain=project 时配对
    * 的项目名——显式通道，随载荷透传）。 */
   const [adding, setAdding] = useState<{
@@ -153,7 +163,23 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
         if (e.type === "steward.memory_list.result") {
           const payload = e.payload as { entries: readonly StewardMemoryEntryView[] };
           setEntries(payload.entries);
-          setVectorizing(null); // 写后即回新清单——清在途态
+          markVectorizing(null); // 写后即回新清单——清在途态
+          setWriteError(null); // 回执成功即清写面失败交代
+          return;
+        }
+        if (e.type === "connection.error") {
+          // 写命令失败收口（评审 :131；TR-272）：daemon commandError 走
+          // connection.error 无结果帧——尾缀归因（「（命令 <type>）」单一构造点），
+          // 只消费 steward.memory_* 写命令（读命令 memory_list 归拉取侧，不误报）；
+          // 清向量化在途位 + 行内交代（否则该行整行占位、不可编辑删除、失败静默）
+          const message =
+            (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
+          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          if (cmd !== undefined && !cmd.startsWith("steward.memory_")) return; // 非本族不消费
+          if (cmd === "steward.memory_list") return; // 读面失败归拉取（骨架）侧
+          if (cmd === undefined && vectorizingRef.current === null) return; // 无尾缀旧 daemon：有在途写才按本面收口
+          markVectorizing(null);
+          setWriteError(message);
           return;
         }
         if (e.type === "steward.config.result") {
@@ -242,7 +268,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     setAddErr(null);
     // 重开弹窗：清上一条新增的在途展示态（不卡第二次写入；行级在途不动，
     // 回执照常刷新列表）
-    setVectorizing((v) => (v === "new" ? null : v));
+    if (vectorizingRef.current === "new") markVectorizing(null);
     setAdding({ text: "", kind: "fact", domain: "general", project: "" });
     window.setTimeout(() => addInputRef.current?.focus(), 60);
   };
@@ -256,7 +282,8 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     // domain=project 配对项目名显式通道；空名回落 daemon 侧一致性约束兜底
     const project = adding.domain === "project" && adding.project.trim() !== "" ? adding.project.trim() : undefined;
     if (sendStewardMemoryAppend(adding.text, adding.kind, adding.domain, project) === false) return; // 未连接：保留弹窗可重试
-    setVectorizing("new");
+    setWriteError(null); // 新写面动作清上次失败交代
+    markVectorizing("new");
     setAdding(null);
   };
 
@@ -264,24 +291,28 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     if (editing === null || editing.text.trim() === "") return;
     if (sendStewardMemoryUpdate(editing.id, editing.text) === false) return;
     notePageAnchor(pageItems);
-    setVectorizing(editing.id);
+    setWriteError(null);
+    markVectorizing(editing.id);
     setEditing(null);
   };
 
   const onDelete = (id: number): void => {
     confirmDelete(String(id), () => {
       notePageAnchor(pageItems);
+      setWriteError(null);
       sendStewardMemoryDelete(id);
     });
   };
 
   const onPin = (id: number, pinned: boolean): void => {
     notePageAnchor(pageItems);
+    setWriteError(null);
     sendStewardMemoryPin(id, pinned);
   };
 
   const onRestore = (id: number): void => {
     notePageAnchor(pageItems);
+    setWriteError(null);
     sendStewardMemoryRestore(id);
   };
 
@@ -477,6 +508,14 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
             </div>
             {!available && <span className="ag-note" data-memory-unavailable>{t("steward.memory.unavailable")}</span>}
           </div>
+
+          {/* 写面失败交代（族B/TR-272：steward.memory_* 写命令无结果帧——行内
+              交代原因，下次写动作/回执成功清） */}
+          {writeError !== null && (
+            <p className="ag-note mcp-err" data-memory-write-error role="alert">
+              {writeError}
+            </p>
+          )}
 
           {/* 列表：两行卡片（行1 text + pin + kind；行2 meta + 动作） */}
           {entries !== null && view !== null && view.sorted.length === 0 && (

@@ -59,30 +59,44 @@ export function computeMeterFrame(samples: ArrayLike<number>): MeterFrame {
 }
 
 /** AudioWorklet 处理器源码（Blob URL 装载；16kHz 采样率下 128 帧量子 ≈ 8ms）。
- *  帧计算与 computeMeterFrame 同构（RMS + ZCR；量子窗口径两路径一致；
- *  零样本跳过符号追踪，越零变号计一次过零）。 */
-const WORKLET_SRC = `
+ *  帧计算与 computeMeterFrame 同构（RMS + ZCR）且**窗口累积**：帧间隔内全部
+ *  量子都参与计量（符号追踪跨量子连续——与 Analyser 兜底 fftSize=1024 窗
+ *  同窗口径；中危 F3a 修：旧实现只计触发节流门那一拍的单量子 ≈ 8ms，
+ *  100ms 帧间 90%+ 音频不参与 RMS/ZCR，键盘脉冲类瞬态大概率漏帧）。导出供
+ *  测试 shim 装载验证（零音频环境可测）。 */
+export const WORKLET_SRC = `
 class HelixRmsProcessor extends AudioWorkletProcessor {
-  constructor() { super(); this.lastPost = 0; }
+  constructor() {
+    super();
+    this.lastPost = 0;
+    this.sum = 0;
+    this.crossings = 0;
+    this.count = 0;
+    this.sign = 0;
+  }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
     if (ch) {
+      for (let i = 0; i < ch.length; i += 1) {
+        const s = ch[i];
+        this.sum += s * s;
+        const sgn = s > 0 ? 1 : s < 0 ? -1 : 0;
+        if (sgn !== 0) {
+          if (this.sign !== 0 && sgn !== this.sign) this.crossings += 1;
+          this.sign = sgn;
+        }
+      }
+      this.count += ch.length;
       const now = currentTime;
       if (now - this.lastPost >= ${VOICE_METER_INTERVAL_MS} / 1000) {
         this.lastPost = now;
-        let sum = 0;
-        let crossings = 0;
-        let sign = 0;
-        for (let i = 0; i < ch.length; i += 1) {
-          const s = ch[i];
-          sum += s * s;
-          const sgn = s > 0 ? 1 : s < 0 ? -1 : 0;
-          if (sgn !== 0) {
-            if (sign !== 0 && sgn !== sign) crossings += 1;
-            sign = sgn;
-          }
-        }
-        this.port.postMessage({ rms: Math.sqrt(sum / ch.length), zcr: crossings / ch.length });
+        this.port.postMessage({
+          rms: this.count > 0 ? Math.sqrt(this.sum / this.count) : 0,
+          zcr: this.count > 0 ? this.crossings / this.count : 0,
+        });
+        this.sum = 0;
+        this.crossings = 0;
+        this.count = 0;
       }
     }
     return true;

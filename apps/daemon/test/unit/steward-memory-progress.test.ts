@@ -75,6 +75,7 @@ function fakeStore(opts: { hits?: readonly StewardMemoryEntry[]; progressId?: nu
     updated,
     append(items: readonly StewardMemoryAppendItem[]) {
       appended.push(...items);
+      return items.map((_, i) => i + 1);
     },
     search(): readonly import("../../src/application/ports/outbound/StewardMemoryPort").StewardMemoryHit[] {
       return [];

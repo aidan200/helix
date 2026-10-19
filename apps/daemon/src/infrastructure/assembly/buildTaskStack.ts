@@ -19,6 +19,8 @@ import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import type { AgentProjectionStore } from "../../application/ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../../application/ports/outbound/EventPublisherPort";
 import type { TaskManifest } from "../../domain/task/types";
+import type { InstanceState } from "../../domain/agent/AgentInstance";
+import type { JobStatus } from "../../domain/task/types";
 
 /**
  * 装配函数 ④ 任务栈（architecture §4/§10）：组合根的一部分（AG-02④ 豁免面
@@ -71,7 +73,7 @@ export interface BuildTaskStackDeps {
    * 组合根接 EventStream.broadcastTaskChanged 同一广播单点（生命周期三
    * 命令面归 handler，不双发）。缺省不推送（隔离测试形态）。
    */
-  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
+  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: JobStatus }) => void;
   /**
    * 装配完成唤醒钩子（A 批第四 wake 点）：透传 TaskEngineService——组合根
    * 晚绑闭包接编排服务 notifyAssemblyDone（引擎先于编排服务构造）。缺省
@@ -82,7 +84,7 @@ export interface BuildTaskStackDeps {
    * 批次实例调度态读面（⑤ 链 A：组合根接 scheduler.status——晚绑闭包，
    * 调度器在 sessionStack 之后建；未注入 → DTO instanceState 省略）。
    */
-  readonly instanceStateOf?: (agentId: string) => string | undefined;
+  readonly instanceStateOf?: (agentId: string) => InstanceState | undefined;
   /**
    * 任务报告目录清理（F3.6 级联扩展）：组合根注入 fs 实现（~<home>/reports/
    *  task:<jobId>/ 整目录 rm）；缺省跳过（隔离测试形态零 fs）。

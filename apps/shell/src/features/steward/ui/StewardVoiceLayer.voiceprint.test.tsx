@@ -284,3 +284,55 @@ describe("StewardVoiceLayer 声纹总闸（链路重排：机械→声纹→Jev�
     expect(sendStewardConfirm).toHaveBeenCalledWith("act-retry");
   });
 });
+
+// ── 输入流水行身份（评审 StewardVoiceLayer:118）：异步门内新行不得抢占尾位 ──
+describe("输入流水终态按行 id 定向标记（尾行约定在异步门窗口内失效）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stewardListeners.clear();
+    fireWakeHotkey = null;
+    localStorage.setItem("helix-lang", "zh-CN");
+  });
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("首句声纹判定在途时第二句入列 → 拒绝注记落首句行，第二句行不被误标", async () => {
+    // 可控门：首句判定挂起（真实链路 = verifyGate 推理 + judgeStopIntent 最长 2.5s）
+    let releaseFirst: ((d: VerifyDecision) => void) | null = null;
+    const gate: VoiceprintGate = {
+      async verifyGate() {
+        if (releaseFirst === null) {
+          return await new Promise<VerifyDecision>((res) => {
+            releaseFirst = res;
+          });
+        }
+        return { kind: "skip", reason: "unregistered" };
+      },
+    };
+    renderLayer(gate);
+    act(() => {
+      expect(capturedOnFinalText?.("第一句")).toBe("consumed");
+    });
+    // 判定在途：第二句 final 到达并入列（成为尾行）
+    act(() => {
+      expect(capturedOnFinalText?.("第二句")).toBe("consumed");
+    });
+    const rowsNow = document.querySelectorAll('[data-testid="steward-input-row"]');
+    expect(rowsNow.length).toBe(2);
+    expect(rowsNow[1]!.textContent).toContain("第二句");
+    // 首句判决归来（拒绝）：注记必须落首句行
+    await act(async () => {
+      releaseFirst?.({ kind: "reject", score: 0.3 });
+    });
+    await waitFor(() => {
+      const rows = Array.from(document.querySelectorAll('[data-testid="steward-input-row"]'));
+      expect(rows[0]!.getAttribute("data-state")).toBe("rejected");
+      expect(rows[0]!.textContent).toContain("第一句");
+      expect(rows[0]!.querySelector('[data-testid="steward-input-note"]')).not.toBeNull();
+      // 第二句行不被误标（修复前尾行约定把它标 rejected 且首句滞留 confirmed）
+      expect(rows[1]!.getAttribute("data-state")).not.toBe("rejected");
+      expect(rows[1]!.querySelector('[data-testid="steward-input-note"]')).toBeNull();
+    });
+  });
+});

@@ -363,6 +363,9 @@ function batchToDto(b: AppTaskBatchDto): TaskBatchDto {
     retryCount: b.retryCount,
     retryNote: b.retryNote,
     instanceId: b.instanceId,
+    // ⑤ 链 A：批次实例调度态（parked 徽标数据源）——实例不在册/读面未装配
+    // 时应用层为 undefined，此处按「字段省略」透传（wire 面缺席 = 无实例态）
+    ...(b.instanceState !== undefined ? { instanceState: b.instanceState } : {}),
     plan: b.plan === null ? null : b.plan.map(workItemToDto),
     ledger: b.ledger === null ? null : { total: b.ledger.total, done: b.ledger.done, inProgress: b.ledger.inProgress },
   };

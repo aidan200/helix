@@ -18,6 +18,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const sendMcpServersList = vi.fn();
 const sendMcpServersAdd = vi.fn();
@@ -372,5 +375,16 @@ describe("code-review 族A：connection.error 按在途 kind 归因收口（TR-1
     fireEvent.click(btn); // 二击执行
     // 现行红：send 返回值未消费——静默失败零交代
     await waitFor(() => expect(document.querySelector(".toast.err")!.textContent).toContain("未连接"));
+  });
+});
+
+// ── TR-173 源码定式（评审 :100：testing 镜像 ref 渲染体裸写）──────────
+describe("TR-173：state 镜像 ref 翻转走 markTest 包装（禁渲染体裸写）", () => {
+  it("testingRef 不再在渲染体按 test.kind 直写；markTest 同点写 ref + setState", () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ui/McpSettingsSection.tsx"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    // 旧形态：渲染体裸写（并发渲染废弃腿可写陈旧 testing 位误消费 connection.error）
+    expect(src).not.toMatch(/^\s*testingRef\.current\s*=\s*test\.kind\s*===/m);
+    expect(src).toMatch(/markTest/);
+    expect(src).toMatch(/testingRef\.current\s*=\s*next\.kind\s*===\s*"testing"/);
   });
 });

@@ -11,15 +11,18 @@
  * 语义与 v0/v0.1 完全一致（AD-3 取代边界）。
  */
 
-/** 协议版本位。v0.13 帧 `v` 恒为 "0.13"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+/**
+ * 协议版本位。当前批帧 `v` 恒等于本常量；handshake 以此协商（旧客户端
+ * fail-fast 拒绝）。版本字面**只在本常量登记**，注释不复述（bump 即腐）。
+ */
 export const PROTOCOL_VERSION = "0.14" as const;
 
 /**
- * 帧版本位取值域："0.13" = 当前批（v0.13）帧；`0` = v0/v0.1 历史帧（v0.1 未
- * bump 版本位，全部历史帧与既有测试/剧本字面量为 0——信封兼容读的类型面）。
- * v0.12→v0.13 为单仓同发一步替换（Q-1c：版本位是批次集合标记非协商位），
- * 仓内无 v0.12 帧存量。
- * handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.13" 单值）。
+ * 帧版本位取值域：`typeof PROTOCOL_VERSION` = 当前批帧；`0` = v0/v0.1 历史帧
+ * （v0.1 未 bump 版本位，全部历史帧与既有测试/剧本字面量为 0——信封兼容读的
+ * 类型面）。版本 bump 为单仓同发一步替换（Q-1c：版本位是批次集合标记非协商
+ * 位），仓内不留旧版本帧存量。
+ * handshake 的 HelloPayload.protocolVersion 不取联合（PROTOCOL_VERSION 单值）。
  */
 export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 
@@ -93,7 +96,7 @@ export interface WorkspaceRoute {
  * 实例化 `payload`（commands.ts），联合后即判别式联合。
  */
 export interface CommandFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.13"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：PROTOCOL_VERSION = 当前批帧；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
@@ -121,7 +124,7 @@ export interface CommandFrame<T = unknown> {
  * 按 `channel` 分族 → 按 `type` 交消费者注册表。
  */
 export interface EventFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.13"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：PROTOCOL_VERSION = 当前批帧；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /**
    * 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发——会话无关系统事件

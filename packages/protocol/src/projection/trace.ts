@@ -56,6 +56,11 @@ export class TraceQueryInvalidError extends Error {
  * 矛盾拒绝（归一后比较——Date.parse 可解析写法先回写为 ISO 8601 UTC 毫秒
  * 形态，与 ts 文本比较同口径，B29）；limit 正整数鉗制 MAX_PAGE；beforeId
  * 正整数。违反即 TraceQueryInvalidError（中文说明）。
+ *
+ * **容器级宽容（与字段级严格区分，勿混谈）**：顶层 input、timeRange、page
+ * 本身非对象（含 null）→ 归一为缺省（= 不过滤 / 默认分页，不抛错）；只有
+ * 容器内部字段违规才抛 TraceQueryInvalidError。要拒收畸形容器须改此处语义
+ * （行为变更，非注释对齐）。
  */
 export function normalizeTraceQuery(input: unknown): NormalizedTraceQuery {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;

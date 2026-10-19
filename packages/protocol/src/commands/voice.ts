@@ -14,6 +14,7 @@
  *   偏好同构存储面）。
  */
 import type { CommandFrame } from "../envelope";
+import type { EmptyPayload } from "./session";
 
 /** voice.synthesize 载荷。 */
 export interface VoiceSynthesizePayload {
@@ -42,7 +43,7 @@ export interface VoiceSubscribeCommand extends CommandFrame<VoiceSubscribePayloa
 }
 
 /** voice.unsubscribe：播报退订（断连自动等效——连接级状态随连接销毁）。 */
-export interface VoiceUnsubscribeCommand extends CommandFrame<Record<string, never>> {
+export interface VoiceUnsubscribeCommand extends CommandFrame<EmptyPayload> {
   type: "voice.unsubscribe";
 }
 
@@ -71,7 +72,7 @@ export interface VoiceSynthesizeStreamCommand extends CommandFrame<VoiceSynthesi
 }
 
 /**
- * voice.synthesize.stop 载荷：中正在途流式合成（静音钮/面板卸载消费）。
+ * voice.synthesize.stop 载荷：中止在途流式合成（静音钮/面板卸载消费）。
  * utterId 携带 = 定向取消该句；省略 = 取消该连接全部在途句。无回执
  * （已发出的 chunk 帧照旧消费，被取消句以 error 判别收口或不再发帧）。
  */

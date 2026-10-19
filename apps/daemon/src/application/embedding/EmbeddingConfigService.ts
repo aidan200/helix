@@ -133,6 +133,41 @@ export function resolveJudgeRecord(
   return record !== null && record.kind === "classifier" ? record : null;
 }
 
+/** 端点记录 → 端口配置窄投影（apiKey 缺席即不传键——与 set 的凭据"空串清除/缺省不动"语义同源）。 */
+export function endpointConfigOf(record: EmbeddingEndpointRecord): EmbeddingEndpointConfig {
+  return {
+    baseUrl: record.baseUrl,
+    model: record.model,
+    ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
+  };
+}
+
+/** 默认端点解析纯函数（评审 F1 单点收编）：records + 默认引用 id → 记录|null。
+ *  判据：引用未设/空串 → null；悬空（条目已删）→ null；kind 不吻合（缺省 = embedding）
+ *  → null。无 IO 无状态——子进程（ChildMain 本地记忆/向量栈）与独立脚本
+ *  （backfill-kg-vectors）无需构造 EmbeddingConfigService 全量装配即可复用同一
+ *  判据，E-306「resolveDefault 全消费面唯一取用单点」不再靠注释"与父进程同判"维系。 */
+export function resolveDefaultRecordOf(
+  records: readonly EmbeddingEndpointRecord[],
+  defaultId: string | undefined,
+  kind: EndpointKind = "embedding",
+): EmbeddingEndpointRecord | null {
+  if (defaultId === undefined || defaultId.trim() === "") return null;
+  const record = records.find((r) => r.id === defaultId) ?? null;
+  if (record === null || (record.kind ?? "embedding") !== kind) return null;
+  return record;
+}
+
+/** 默认端点配置纯函数（resolveDefaultRecordOf 的窄投影面——消费面直取端口配置时用）。 */
+export function resolveDefaultConfigOf(
+  records: readonly EmbeddingEndpointRecord[],
+  defaultId: string | undefined,
+  kind: EndpointKind = "embedding",
+): EmbeddingEndpointConfig | null {
+  const record = resolveDefaultRecordOf(records, defaultId, kind);
+  return record === null ? null : endpointConfigOf(record);
+}
+
 /** KV JSON 防御解析（形态非法视同空表）。导出（批E）：ChildMain 本地 memory_search 栈复用同源解析（子进程无 EmbeddingConfigService 全量装配——只消费记录查我丽 resolveRecord 面，parse 不另写一份）。 */
 export function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
   if (raw === undefined || raw.trim() === "") return [];
@@ -165,10 +200,22 @@ export function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[]
 export class EmbeddingConfigService {
   private readonly deps: EmbeddingConfigServiceDeps;
   private readonly now: () => number;
+  /** 端点清单写面互斥链（评审 F1）：set/delete/markVerified 都是「同步读
+   *  KV → await 写回」的读改写序列，config.set 虽走 WriteQueue 单写但读
+   *  发生在入队前——并发交错时后写基于旧快照覆盖先写（丢更新）。三写面
+   *  经本链串行化：读快照必在前一笔写回落定之后。 */
+  private mutationChain: Promise<unknown> = Promise.resolve();
 
   constructor(deps: EmbeddingConfigServiceDeps) {
     this.deps = deps;
     this.now = deps.clock ?? Date.now;
+  }
+
+  /** 写面互斥入口（前手失败不断链——失败已由各写面自身收口为结果值）。 */
+  private enqueueMutation<T>(op: () => Promise<T>): Promise<T> {
+    const next = this.mutationChain.then(op, op);
+    this.mutationChain = next.catch(() => undefined);
+    return next;
   }
 
   /** 全量端点（daemon 内——含 apiKey；勿直接进回执帧。kind 归一显式：
@@ -205,6 +252,19 @@ export class EmbeddingConfigService {
     id?: string;
     name: string;
     /** 直连型必填（variant=pi-ai 目录型免填——缺省空串）。 */
+    baseUrl?: string;
+    apiKey?: string;
+    model: string;
+    kind?: EndpointKind;
+    variant?: string;
+  }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+    // 入参校验互斥外先行（只读面无临界区）
+    return this.enqueueMutation(() => this.setInner(input));
+  }
+
+  private async setInner(input: {
+    id?: string;
+    name: string;
     baseUrl?: string;
     apiKey?: string;
     model: string;
@@ -271,13 +331,15 @@ export class EmbeddingConfigService {
     return { ok: true, id: input.id };
   }
 
-  /** 删除（id 不存在 → error）。 */
+  /** 删除（id 不存在 → error）。写面互斥内执行（读改写丢更新防护）。 */
   async delete(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
-    const records = this.list();
-    const next = records.filter((r) => r.id !== id);
-    if (next.length === records.length) return { ok: false, error: `端点不存在：${id}` };
-    await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(next));
-    return { ok: true };
+    return this.enqueueMutation(async () => {
+      const records = this.list();
+      const next = records.filter((r) => r.id !== id);
+      if (next.length === records.length) return { ok: false as const, error: `端点不存在：${id}` };
+      await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(next));
+      return { ok: true as const };
+    });
   }
 
   /**
@@ -286,8 +348,8 @@ export class EmbeddingConfigService {
    * fail → error 含定位信息（verifiedAt 不动——上次成功时间保留）。
    */
   async verify(id: string): Promise<
-    | { state: "ok"; dim: number }
-    | { state: "ok"; prob: number }
+    | { state: "ok"; kind: "embedding"; dim: number }
+    | { state: "ok"; kind: "classifier"; prob: number }
     | { state: "fail"; error: string }
   > {
     const record = this.list().find((r) => r.id === id);
@@ -314,25 +376,28 @@ export class EmbeddingConfigService {
           "Is the number two even?",
         );
         await this.markVerified(id);
-        return { state: "ok", prob };
+        return { state: "ok", kind: "classifier", prob };
       }
       const probe = this.deps.createProbe(endpointCfg);
       const { dim } = await probe.embed(["hi"]);
       await this.markVerified(id);
-      return { state: "ok", dim };
+      return { state: "ok", kind: "embedding", dim };
     } catch (err) {
       return { state: "fail", error: (err as Error).message };
     }
   }
 
-  /** verifiedAt 落盘（verify 成功路径共用）。 */
-  private async markVerified(id: string): Promise<void> {
-    const records = [...this.list()];
-    const idx = records.findIndex((r) => r.id === id);
-    if (idx !== -1) {
-      records[idx] = { ...records[idx]!, verifiedAt: this.now() };
-      await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
-    }
+  /** verifiedAt 落盘（verify 成功路径共用）。写面互斥内执行（读改写丢更新
+   *  防护——verify 的网络探测在互斥外，只有落盘段进临界区）。 */
+  private markVerified(id: string): Promise<void> {
+    return this.enqueueMutation(async () => {
+      const records = [...this.list()];
+      const idx = records.findIndex((r) => r.id === id);
+      if (idx !== -1) {
+        records[idx] = { ...records[idx]!, verifiedAt: this.now() };
+        await this.deps.config.set(EMBEDDING_ENDPOINTS_KEY, JSON.stringify(records));
+      }
+    });
   }
 
   /** endpointId → 端点记录（含 name 等元数据；条目已删/不存在 → null——记忆
@@ -383,34 +448,18 @@ export class EmbeddingConfigService {
    * （记忆拒开、kg 嵌入降级 warn）。
    */
   resolveDefault(): EmbeddingEndpointConfig | null {
-    const record = this.resolveDefaultRecord("embedding");
-    if (record === null) return null;
-    return {
-      baseUrl: record.baseUrl,
-      model: record.model,
-      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-    };
+    return resolveDefaultConfigOf(this.list(), this.deps.config.get(EMBEDDING_DEFAULT_ENDPOINT_ID_KEY), "embedding");
   }
 
   /** 默认分类端点配置（D1 对称面：判官消费面兜底取用；未设/悬空/误指 → null）。 */
   resolveDefaultClassifier(): EmbeddingEndpointConfig | null {
-    const record = this.resolveDefaultRecord("classifier");
-    if (record === null) return null;
-    return {
-      baseUrl: record.baseUrl,
-      model: record.model,
-      ...(record.apiKey !== undefined ? { apiKey: record.apiKey } : {}),
-    };
+    return resolveDefaultConfigOf(this.list(), this.deps.config.get(CLASSIFIER_DEFAULT_ENDPOINT_ID_KEY), "classifier");
   }
 
   /** 默认端点记录（含 id/name 等元数据；悬空/非本 kind/不完整 → null。
    *  kind 缺省 = embedding（E-306 契约零变化）。 */
   resolveDefaultRecord(kind: EndpointKind = "embedding"): EmbeddingEndpointRecord | null {
-    const id = this.deps.config.get(defaultKeyOf(kind));
-    if (id === undefined || id.trim() === "") return null;
-    const record = this.resolveRecord(id);
-    if (record === null || (record.kind ?? "embedding") !== kind) return null;
-    return record;
+    return resolveDefaultRecordOf(this.list(), this.deps.config.get(defaultKeyOf(kind)), kind);
   }
 
   /** 默认分类端点记录（D1：resolveJudgeRecord 兑底层的默认档数据源——含 variant）。 */

@@ -106,6 +106,9 @@ const CustomProvidersTab = function CustomProvidersTab({ onGoAuth }: { onGoAuth?
   const [providers, setProviders] = useState<readonly ProviderView[] | null>(null);
   const [form, setForm] = useState<ProviderForm | null>(null);
   const [formErr, setFormErr] = useState<string | null>(null);
+  /** 保存已发出、等 provider.list.result 回执（结果帧驱动关弹层——daemon 拒
+   *  绝走 connection.error 无结果帧，乐观关会吞整表输入）。 */
+  const savePendingRef = useRef(false);
   const idInputRef = useRef<HTMLInputElement | null>(null);
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
@@ -123,9 +126,34 @@ const CustomProvidersTab = function CustomProvidersTab({ onGoAuth }: { onGoAuth?
           // 静默重拉（无 loading 态；send false 静默容错，下次进入页面自然
           // 重拉）。
           pullModelCatalog();
+          // 保存回执对账（族B）：provider.set 成功 → 关弹层（结果帧驱动，
+          // 不乐观置位——拒绝路径无该回执，弹层与输入必须保留）
+          if (savePendingRef.current) {
+            savePendingRef.current = false;
+            setForm(null);
+          }
+          return;
+        }
+        if (e.type === "connection.error") {
+          // 族B（评审 :191）：provider.set/delete 拒绝走 connection.error 无
+          // 结果帧——尾缀归因（「（命令 <type>）」单一构造点 WsServerAdapter）：
+          // set → 弹层不关 + 行内交代（含无尾缀旧 daemon 容忍）；delete →
+          // toast（无弹层在途位，fire-and-forget + 回执重拉对账）
+          const message =
+            (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
+          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          if (cmd === "provider.delete") {
+            toast.push("err", message);
+            return;
+          }
+          if (cmd !== undefined && cmd !== "provider.set") return; // 他命令不归本 tab
+          if (!savePendingRef.current) return; // 单飞门控：本 tab 无在途保存不消费
+          savePendingRef.current = false;
+          setFormErr(message);
+          return;
         }
       }),
-    [subscribeProviderFrames, pullModelCatalog],
+    [subscribeProviderFrames, pullModelCatalog, toast],
   );
 
   // 弹层 Escape 关闭（key 弹层先例同构）
@@ -204,8 +232,13 @@ const CustomProvidersTab = function CustomProvidersTab({ onGoAuth }: { onGoAuth?
         ...(r.outputPrice.trim() !== "" ? { outputPrice: Number(r.outputPrice.trim()) } : {}),
       })),
     });
-    if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
-    setForm(null);
+    if (ok === false) {
+      toast.push("err", t("chat.modelsConfig.sendFailToast"));
+      return;
+    }
+    // 发出后不乐观关弹层（族B）：等 provider.list.result 回执收口；拒绝经
+    // connection.error 回填 formErr（弹层保留，整表输入不丢）
+    savePendingRef.current = true;
   };
 
   const onDelete = (id: string): void => {

@@ -359,8 +359,15 @@ export class KgSyncService {
         state.forceFullOnce = true;
       } else {
         state.forceFullOnce = false;
-        // 域：full=引擎面全量∪窗口（手动/启动/首建/无基准/恢复后首次）；窗口路径=只处理窗口内变更文件
-        const domainPaths: readonly string[] = effectiveFull ? [...filePaths, ...windowKinds.keys()] : [...windowKinds.keys()];
+        // 域：full=引擎面全量∪窗口∪上一基准（手动/启动/首建/无基准/恢复后
+        // 首次）；窗口路径=只处理窗口内变更文件。full 域并入 prevFiles：
+        // 「引擎面已无、无窗口事件」的文件（停机期/事件丢失期被删）也要
+        // 走删除通道——否则 deletedFiles 是唯一删除通道的前提下这些文件的
+        // files/symbols 行永久残留，symbolCount 虚高（头注「引擎面消失=删除」
+        // 对全量域才真正成立）。
+        const domainPaths: readonly string[] = effectiveFull
+          ? [...filePaths, ...windowKinds.keys(), ...prevFiles.keys()]
+          : [...windowKinds.keys()];
         for (const p of domainPaths) {
           if (seen.has(p)) continue;
           seen.add(p);

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { withTaskEnv, launchRunningJob, childLedger, type TaskEngineEnv } from "../helpers/task-fixtures";
 import { TaskError } from "../../src/application/services/task/TaskError";
+import type { InstanceState } from "../../src/domain/agent/AgentInstance";
 
 /**
  * 任务引擎服务（TaskEngineService，architecture §4；testing/test-design.md 映射）：
@@ -872,7 +873,7 @@ describe("接管激活对称与阶段顺序守卫（B 批：激活放宽 + O-2 �
  */
 describe("dispatchBatch 实例终态守卫（task-efd68911 迟到接线事故）", () => {
   const statesOf =
-    (map: Record<string, string>): ((agentId: string) => string | undefined) =>
+    (map: Record<string, InstanceState>): ((agentId: string) => InstanceState | undefined) =>
     (agentId) =>
       map[agentId];
 
@@ -932,6 +933,42 @@ describe("dispatchBatch 实例终态守卫（task-efd68911 迟到接线事故）
       expect(batch.status).toBe("pending");
       expect(batch.instanceId).toBeNull();
     });
+  });
+
+  test("终态转化只对可派发态（pending/failed）：已 done 批次补调 dispatch → 拒绝，不把 done 回退 running/failed", async () => {
+    // 评审 F1：转化路径原无态限定——批次已 done 后 LLM 仍按旧三步补调
+    // task_dispatch_batch（携已收口实例），守卫把 done 行改写成 running 再
+    // failBatch，把「已完成」倒灌成「失败」。可派发态限定后：done 直接由
+    // assertBatchRunnable 拒绝（invalid_state），行状态零迁移。
+    await withTaskEnv(
+      { instanceStateOf: statesOf({ "inst-live": "running", "agent-dead": "done" }) },
+      async (env) => {
+        const { batchId } = await setupJob(env);
+        await env.engine.dispatchBatch(batchId, "inst-live");
+        await env.engine.completeBatch(batchId);
+        await expect(env.engine.dispatchBatch(batchId, "agent-dead")).rejects.toMatchObject({
+          code: "task.invalid_state",
+        });
+        expect(env.store.getBatch(batchId)!).toMatchObject({ status: "done", instanceId: "inst-live" });
+      },
+    );
+  });
+
+  test("running 批次不可换接到终态实例（在跑工作不被倒灌失败）：实例面与批次面均不动", async () => {
+    // 评审 F1：同实例重复落章在上方幂等短路；但换实例 + 新实例已终态时会走进
+    // 转化路径——把在跑的 running 批次 instanceId 置 null 再 failBatch，真实
+    // 在飞实例的收口随后被判「游离丢弃」，批次永久 failed。可派发态限定后拒。
+    await withTaskEnv(
+      { instanceStateOf: statesOf({ "inst-live": "running", "agent-dead": "cancelled" }) },
+      async (env) => {
+        const { batchId } = await setupJob(env);
+        await env.engine.dispatchBatch(batchId, "inst-live");
+        await expect(env.engine.dispatchBatch(batchId, "agent-dead")).rejects.toMatchObject({
+          code: "task.invalid_state",
+        });
+        expect(env.store.getBatch(batchId)!).toMatchObject({ status: "running", instanceId: "inst-live" });
+      },
+    );
   });
 
   test("queued/running 实例照常接线（守卫不误伤正常派发）", async () => {

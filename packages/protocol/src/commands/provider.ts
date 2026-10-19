@@ -17,9 +17,10 @@
  *   key 录入复用 auth.set_key——本族刻意不含 key/verify 命令。
  */
 import type { CommandFrame } from "../envelope";
+import type { EmptyPayload } from "./session";
 
 /** provider.list：读三方平台清单（点对点回执 provider.list.result）。 */
-export interface ProviderListCommand extends CommandFrame<Record<string, never>> {
+export interface ProviderListCommand extends CommandFrame<EmptyPayload> {
   type: "provider.list";
 }
 

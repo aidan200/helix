@@ -61,6 +61,9 @@ interface Entry {
   session: SttStreamSession;
   /** buildContext 在途的 chunk 缓冲（open 后冲刷）。 */
   pending: string[];
+  /** buildContext 在途收到的 finish 意图（open 就绪冲刷 chunk 后补发——否则
+   *  用户松手事件被占位句柄吞掉，上游永不收尾，只能等超时/dispose）。 */
+  pendingFinish: boolean;
   /** started(ok) 已发（后续 onError 归 final error 语义）。 */
   startedSent: boolean;
   /** 终帧已发（流关闭）。 */
@@ -85,17 +88,21 @@ export class SttStreamService {
     const streamId = this.newStreamId();
     const entry: Entry = {
       streamId,
-      // pending 占位句柄：chunk → pending 缓冲；finish/stop 静默（未就绪）
+      // pending 占位句柄：chunk → pending 缓冲；finish 记意图（open 就绪后补发）；
+      // abort 即清位（异步链看到 closed 后立即关上游或不再 open）
       session: {
         appendAudio: (a) => {
           if (!entry.closed) entry.pending.push(a);
         },
-        finish: () => undefined,
+        finish: () => {
+          if (!entry.closed) entry.pendingFinish = true;
+        },
         abort: () => {
           entry.closed = true;
         },
       },
       pending: [],
+      pendingFinish: false,
       startedSent: false,
       closed: false,
     };
@@ -204,6 +211,11 @@ export class SttStreamService {
       entry.session = upstream;
       for (const a of entry.pending) upstream.appendAudio(a);
       entry.pending = [];
+      // 冲刷后再补发 pending 期 finish（顺序即语义：音频全上行后才收尾）
+      if (entry.pendingFinish) {
+        entry.pendingFinish = false;
+        upstream.finish();
+      }
     })();
   }
 

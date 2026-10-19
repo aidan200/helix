@@ -1030,6 +1030,17 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     feed("kg.candidates.list.result", { total: 3, rows: CAND_ROWS });
   }
 
+  it("中危 F3a：过滤重拉失败 → failed 置位（「加载失败」两态区分）——不残留旧过滤行集误导", () => {
+    inCandPanel();
+    kgHealthSendOk = false; // 过滤重拉 send false（断线窗口）
+    fireEvent.click(qs('[data-cand-filter="pending"]')!);
+    expect(sent.candidatesList.at(-1)).toMatchObject({ project: "helix", status: "pending" });
+    // 失败面：与首进拉取同置位口径（line 置位口径一致），不展示旧全量行集
+    expect(qs('[data-kg-cand="failed"]')).not.toBeNull();
+    expect(qs('[data-kg-cand="failed"]')!.textContent).toContain("加载失败");
+    expect(qs('[data-kg-cand-list]')).toBeNull(); // 旧过滤集不残留（过滤态与行集不错位）
+  });
+
   it("列表渲染（title/status 徽章/created_at）+ 只读零裁决（无任何裁决按钮）", () => {
     inCandPanel();
     const panel = qs("[data-kg-cand-panel]");

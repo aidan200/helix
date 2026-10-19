@@ -63,13 +63,16 @@ function configDtoOf(config: McpServerConfigInput): McpServerConfigDto {
     ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
     ...(config.enabled !== undefined ? { enabled: config.enabled } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.deferred !== undefined ? { deferred: config.deferred } : {}),
   };
 }
 
 /**
  * server 配置输入解析（add/update/test 共用）：name/command 必填非空
- * string；args 为 string[]；env 值全 string；cwd/enabled/timeoutMs 各按型。
- * 非法即返回错误文案（调用方 commandError），合法返回规范输入。
+ * string；args 为 string[]；env 值全 string；cwd/enabled/timeoutMs/deferred
+ * 各按型。非法即返回错误文案（调用方 commandError），合法返回规范输入。
+ * ⚠ 透传面完整性：本函数是 add/update 唯一入口，漏透某可选位 = 该位经 WS
+ * 不可达（deferred 曾如此——update 全量覆盖语义下缺席恒回落缺省 true）。
  */
 function parseServerInput(
   payload: Record<string, unknown>,
@@ -98,6 +101,10 @@ function parseServerInput(
   if (enabled !== undefined && typeof enabled !== "boolean") return { ok: false, error: "payload.enabled 应为 boolean" };
   const timeoutMs = payload.timeoutMs;
   if (timeoutMs !== undefined && typeof timeoutMs !== "number") return { ok: false, error: "payload.timeoutMs 应为 number" };
+  const deferred = payload.deferred;
+  if (deferred !== undefined && typeof deferred !== "boolean") {
+    return { ok: false, error: "payload.deferred 应为 boolean（true = 懒加载，缺省）" };
+  }
   return {
     ok: true,
     input: {
@@ -108,6 +115,7 @@ function parseServerInput(
       ...(cwd !== undefined ? { cwd } : {}),
       ...(enabled !== undefined ? { enabled } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(deferred !== undefined ? { deferred } : {}),
     },
   };
 }

@@ -9,9 +9,10 @@ import type { CommandFrame, PROTOCOL_VERSION } from "./envelope";
 import type { ConnectionErrorEvent, ConnectionWelcomeEvent } from "./events";
 
 /**
- * hello 载荷。protocolVersion 为严格单值（typeof PROTOCOL_VERSION = "0.13"）：
- * v0.13 合规客户端必发 "0.13"；daemon 收到 ≠"0.13" 值以 protocol.version_unsupported
- * 拒绝（TP-CL6-5；帧版本位 FrameVersion 的 0 历史值不参与握手协商）。
+ * hello 载荷。protocolVersion 为严格单值（= typeof PROTOCOL_VERSION，非联合）：
+ * 合规客户端必发当前 PROTOCOL_VERSION；daemon 收到 ≠ 该值以
+ * protocol.version_unsupported 拒绝（TP-CL6-5；帧版本位 FrameVersion 的 0 历史值
+ * 不参与握手协商）。版本字面以 envelope.ts 的 PROTOCOL_VERSION 为单源，注释不复述。
  */
 export interface HelloPayload {
   token: string;

@@ -116,9 +116,18 @@ export interface AgentInstanceDto {
 
 /**
  * 实例通道历史分组（AgentInstanceDto.channels 载体；EntryDto 归 kind 分组）。
- * 快照体量批（v0.14 微批）：daemon 组装对每通道保最新 channelTail 条且
- * 主轴+通道合计受字节预算约束——被裁时 truncated=true（additive，缺省 =
- * 未截断全量）；深历史经主轴 loadHistory 分页/后续通道分页面补拉。
+ *
+ * 快照体量批（v0.14 微批）的**现行口径**（条数单源 = daemon SnapshotMapper
+ * 的 SNAPSHOT_CHANNEL_PREVIEW 常量，本注不复述数字）：
+ * - 快照内每实例每通道只携带最新 SNAPSHOT_CHANNEL_PREVIEW 条预览（末条状态
+ *   + 倒数第二条上下文，够抽屉摘要与首屏）；
+ * - 任一通道被裁 → truncated=true（additive；缺省 = 未截断）；
+ * - **完整通道历史不在快照内**：走 session.instanceChannels 按需游标分页
+ *   （instanceId/beforeEntryId/limit，与 session.loadHistory 同构；抽屉打开时
+ *   无条件拉全量重建）。主轴历史仍走 session.loadHistory（main 实例无
+ *   channels 深历史）。
+ * 注：CHANNEL_TAIL_SIZE 已退役快照职责（仅作历史参考值保留），勿据旧注释
+ * 按「每通道保 N 条尾窗」找深历史——那会找错通道。
  */
 export interface InstanceChannelHistory {
   thinking?: EntryDto[];

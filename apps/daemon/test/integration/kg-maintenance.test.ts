@@ -415,6 +415,31 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     expect(allowed.result.purged).toBe(true);
   });
 
+  test("②b purge 门禁扩 kg 写任务族：在途 kg-triage 同样拒绝（发号计数器清零防 E-8 复用破坏）", async () => {
+    // 直接落一行在途 kg-triage job（triage 同样写 kg：proposeCandidate/
+    // decideCandidate/建点——清库清零发号后恢复写入会破坏 E-8「id 永不复用」）
+    await rig.taskStore.insertJob({
+      id: "job-triage-gate",
+      type: "kg-triage",
+      params: {},
+      projects: ["beta"],
+      status: "running",
+      createdBy: "auto",
+      createdAt: "2026-10-19T00:00:00.000Z",
+      updatedAt: "2026-10-19T00:00:00.000Z",
+      error: null,
+    });
+    const blocked = await rig.client.kg("kg.graph.purge", { project: "beta" });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error?.code).toBe("kg.graph.purge_blocked");
+
+    // 终态后放行（running→cancelled 合法出边）
+    await rig.taskEngine.cancel("job-triage-gate");
+    const allowed = await rig.client.kg("kg.graph.purge", { project: "beta" });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.result.purged).toBe(true);
+  });
+
   test("③ index.delete：.codegraph 删除 + 状态 absent + watcher 停 + 重建自动重挂（AC5）", async () => {
     // alpha 在 ② 被 purge（M7② 起联动停 watcher + 索引态 absent）——先重建恢复
     // synced + watched 前提

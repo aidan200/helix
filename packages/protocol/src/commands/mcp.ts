@@ -37,7 +37,15 @@ export interface McpServersAddCommand extends CommandFrame<McpServerInput> {
   type: "mcp.servers.add";
 }
 
-/** mcp.servers.update 载荷：按 name 覆盖配置（重连刷新）。 */
+/**
+ * mcp.servers.update 载荷：按 name **全量覆盖**配置后重连刷新（name 不存在 →
+ * command.invalid_payload）。
+ *
+ * 覆盖语义（不是逐字段部分更新）：可选字段缺席 = 回落各自缺省而非保留现值
+ * ——args/env/cwd 缺省无值、enabled 缺省 true、timeoutMs 缺省 30000、
+ * deferred 缺省 true（缺省值单源 = daemon McpServerConfig 类型注释）。故编辑
+ * 面须回传完整表单值，勿依赖「缺省 = 保持」。
+ */
 export interface McpServersUpdateCommand extends CommandFrame<McpServerInput> {
   type: "mcp.servers.update";
 }

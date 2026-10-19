@@ -28,11 +28,16 @@ function PermissionRequestContent({ ask }: { ask: PendingAskDto }) {
   );
 }
 
-/** 内容区分发（kind 缺省 = permission_request——本族首个消费者，additive 兼容）。 */
+/** 内容区分发（kind 缺省 = permission_request——本族首个消费者，additive 兼容）。
+ *  未知/新增 kind（AskKind 是 additive 扩展面）同按 permission_request 回落：
+ *  switch 无 default 时返回 undefined 会致 React 渲染抛错整树崩（全应用无
+ *  ErrorBoundary，中危 F3a）——崩树比降级展示危害大，缺省口径兼承未知值。 */
 function AskContent({ ask }: { ask: PendingAskDto }) {
   const kind = ask.kind ?? "permission_request";
   switch (kind) {
     case "permission_request":
+      return <PermissionRequestContent ask={ask} />;
+    default:
       return <PermissionRequestContent ask={ask} />;
   }
 }
