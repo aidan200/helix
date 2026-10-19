@@ -41,22 +41,26 @@ const HotkeyRecorder = function HotkeyRecorder() {
     setRecording(true);
     setHint("none");
     setRegisterError(false);
-    void syncWakeHotkeyRegistration({ suspend: true }); // 录制期间暂注（防自激）
   }, []);
 
   // 录制态按键捕获（capture 监听 + 阻断下沉——录制按键不得触发他域 Esc/
-  // 快捷键处理）；非录制态零全局监听
+  // 快捷键处理）；非录制态零全局监听。暂注（防自激）与恢复归本 effect：
+  // 挂载即 suspend、卸载/离开录制即 sync 恢复（B22 #2：录制态组件卸载
+  //（切设置分区/离开页面）不经 Esc/commit 收尾路径，cleanup 兑底恢复——
+  // 否则唤醒组合键静默失灵直到重新录制；StrictMode 双效应重挂下
+  // cleanup→mount 序列稳态回到暂注，自激防线不破；commit 路径另有 await
+  // 版 sync 取注册结果，此处恢复幂等重放无害）
   useEffect(() => {
     if (!recording) return;
+    void syncWakeHotkeyRegistration({ suspend: true }); // 录制期间暂注（防自激）
     const onKey = (e: KeyboardEvent) => {
       const cap = captureCombo(e);
       if (cap.kind === "none") return; // 修饰键单独按下：不完整组合，继续等
       e.preventDefault();
       e.stopPropagation();
       if (cap.kind === "cancel") {
-        setRecording(false);
+        setRecording(false); // 取消收尾：恢复注册由本 effect cleanup 收口
         setHint("none");
-        void syncWakeHotkeyRegistration(); // 取消收尾：恢复注册
         return;
       }
       if (cap.kind === "need-modifier") {
@@ -70,7 +74,10 @@ const HotkeyRecorder = function HotkeyRecorder() {
       void commit(cap.combo);
     };
     window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      void syncWakeHotkeyRegistration(); // 离开录制/卸载：恢复注册
+    };
   }, [recording, value, commit]);
 
   return (
