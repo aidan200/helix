@@ -36,6 +36,7 @@ const input = () => screen.getByRole("textbox") as HTMLInputElement;
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  steerInstance.mockReturnValue(true);
 });
 
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
@@ -66,6 +67,19 @@ describe("SteerComposer Enter 发送（IME 组合态门控）", () => {
     // 组合结束后的确认 Enter 正常发送
     fireEvent.keyDown(input(), { key: "Enter", isComposing: false });
     expect(steerInstance).toHaveBeenCalledWith("拼音未上屏", "agent-run");
+  });
+
+  it("send false（未发出/草稿无会话）→ 输入文本保留不静默丢失（TR-168 返回值必消费——中危 F3a）", () => {
+    steerInstance.mockReturnValue(false);
+    ui();
+    fireEvent.change(input(), { target: { value: "断线窗口的话" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(steerInstance).toHaveBeenCalledWith("断线窗口的话", "agent-run");
+    expect(input().value).toBe("断线窗口的话"); // 未发出：零本地 echo 零清空，文本不丢
+    // 重试通道：连接恢复后再 Enter 正常送出清空
+    steerInstance.mockReturnValue(true);
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input().value).toBe("");
   });
 });
 

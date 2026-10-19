@@ -6,8 +6,10 @@
  * 目标绑定当前展开实例（抽屉上下文自明，不重复展示 agentid——头部
  * d-id 行已是唯一身份面；placeholder/标签均不带 id）。Enter 非空 →
  * chatSteerCommand(text, sessionId, instanceId)（经 SessionContext.steerInstance）
- * + 本地 echo 进共享 store（双处立即可见）+ 输入即清空；空输入 Enter 零动作；
- * 无阻塞发送态（不设 isSending、不 await 回执——非运行中目标的
+ * + 本地 echo 进共享 store（双处立即可见）+ 输入即清空（send false 除外）；
+ * 空输入 Enter 零动作；send 返回值必消费（TR-168，中危 F3a）：false =
+ * 未发出（断线窗口/草稿无会话）→ 零本地 echo 零清空，输入文本保留不静默
+ * 丢失（重试通道在连接恢复后再 Enter）；无阻塞发送态（不设 isSending、
  * connection.error 回执走既有错误提示通道，不阻塞输入栏复用，契约 §3.2
  * 错误模型）。violet 变体（SubAgent 域副强调槽位，--violet-rgb 既有通道，
  * 无新 token）。
@@ -33,7 +35,8 @@ const SteerComposer = memo(function SteerComposer({ instanceId }: SteerComposerP
     if (e.nativeEvent.isComposing) return;
     const text = value.trim();
     if (text === "") return; // 空输入零动作（Q-3b：不触发任何转换）
-    steerInstance(text, instanceId);
+    const sent = steerInstance(text, instanceId);
+    if (sent === false) return; // 未发出（断线窗口/草稿）：零 echo 零清空——文本保留待重试，不静默丢失
     setValue(""); // 发送即清空，无阻塞发送态
   };
 
