@@ -165,8 +165,12 @@ class StewardStore {
   private unsubscribeFrames: (() => void) | null = null;
   private senders: StewardSenders = {};
   private t: Translate = (key) => key;
-  private getConfigSentFor: string | null = null;
-  private historySentFor: string | null = null;
+  private getConfigSentFor: number | null = null;
+  private historySentFor: number | null = null;
+  /** 连接代次（断连递增）：读命令幂等键——同代幂等防重渲染重发，换代重发
+   *（daemon 重启/重连后 config 与 history 必须重拉；代次只随连接态变迁，
+   * 不由 send 结果驱动——无 TR-169 自激面）。 */
+  private connEpoch = 0;
   private installedSub: StewardSenders["subscribeStewardFrames"];
 
   subscribe = (listener: () => void): (() => void) => {
@@ -186,6 +190,7 @@ class StewardStore {
     this.state = EMPTY_STATE;
     this.getConfigSentFor = null;
     this.historySentFor = null;
+    this.connEpoch = 0;
   }
 
   /**
@@ -228,22 +233,24 @@ class StewardStore {
     this.installedSub = sub;
   }
 
-  /** 断连即弃流式缓冲（daemon 不持 delta 状态，重连不重放——终态权威面另达）。 */
+  /** 断连即弃流式缓冲（daemon 不持 delta 状态，重连不重放——终态权威面另达）；
+   *  连接代次递增（重连后读命令幂等键换代重拉）。 */
   onDisconnect(): void {
+    this.connEpoch += 1;
     if (this.state.streamingText !== null) this.setState({ streamingText: null });
   }
 
-  /** 配置读面（同连接幂等——防重渲染重发）。 */
-  requestConfigOnce(conn: string): void {
-    if (this.getConfigSentFor === conn) return;
-    this.getConfigSentFor = conn;
+  /** 配置读面（同连接代次幂等——防重渲染重发；重连换代重拉）。 */
+  requestConfigOnce(): void {
+    if (this.getConfigSentFor === this.connEpoch) return;
+    this.getConfigSentFor = this.connEpoch;
     this.senders.sendStewardGetConfig?.();
   }
 
-  /** 回放面（同连接幂等）。 */
-  requestHistoryOnce(conn: string): void {
-    if (this.historySentFor === conn) return;
-    this.historySentFor = conn;
+  /** 回放面（同连接代次幂等；重连换代重拉）。 */
+  requestHistoryOnce(): void {
+    if (this.historySentFor === this.connEpoch) return;
+    this.historySentFor = this.connEpoch;
     this.senders.sendStewardHistory?.();
   }
 

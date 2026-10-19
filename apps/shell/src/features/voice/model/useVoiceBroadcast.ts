@@ -72,8 +72,7 @@ export function useVoiceBroadcast(): VoiceBroadcast {
   }, [conn, sendVoiceSubscribe, sendVoiceUnsubscribe]);
 
   // ── 播放面：voice.broadcast → seq 去重保序 → 顺序播放（① 对话发言期延后）──
-  const lastSeqRef = useRef(0);
-  const pendingRef = useRef<BroadcastPayload[]>([]);
+  const lastSeqRef = useRef(0);  const pendingRef = useRef<BroadcastPayload[]>([]);
   const playingRef = useRef(false);
   /** 当前在播 Audio（① 对话收编/全轨停止的 pause 面）。 */
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -82,6 +81,16 @@ export function useVoiceBroadcast(): VoiceBroadcast {
   const syncQueueDepth = (): void => {
     setNotificationQueue(pendingRef.current.length + (playingRef.current ? 1 : 0));
   };
+
+  // ── seq 高水位世代复位：daemon 广播 seq 是进程级计数（重启归零），
+  //    客户端 lastSeqRef 高水位不跨连接世代——conn 离开 connected 即复位，
+  //    否则重连后新 seq 从 1 起步全部命中「<= 高水位」被当重复静默丢弃，
+  //    直到 seq 追平重启前高水位才恢复（高水位越高丢得越久）。同世代内
+  //    去重保护不变（重复/回退帧照丢）。──
+  useEffect(() => {
+    if (conn === "connected") return;
+    lastSeqRef.current = 0;
+  }, [conn]);
 
   useEffect(() => {
     if (subscribeVoiceFrames === undefined) return;

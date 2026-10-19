@@ -154,8 +154,7 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
   });
 
   it("点击开始 → recording（getUserMedia + mime 首选 + meter 挂载 + level 初值 0）", async () => {
-    const restore = installRecorder();
-    const meter = makeFakeMeter();
+    const restore = installRecorder();    const meter = makeFakeMeter();
     const factory = vi.fn(() => Promise.resolve(meter));
     const { result } = renderHook(() => useVoiceInput(vi.fn(), { ...deps, createMeter: factory }), {
       wrapper: I18nProvider,
@@ -297,6 +296,39 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     expect(result.current.state).toBe("idle");
     expect(sendSttTranscribe).not.toHaveBeenCalled();
     restore();
+  });
+
+  it("卸载落 getUserMedia 在途窗口：迟归 stream 即刻释放零续行（不建 recorder 不开麦）", async () => {
+    // TR-215 回归钉子（漏网通路）：unmount/StrictMode 重挂落在 getUserMedia
+    // 在途窗口时，迟归 stream 必须凭取消代数失配即刻释放——否则续行创建
+    // MediaRecorder 开麦且卸载后无人再释放（孤儿开麦/麦克风指示常亮）。
+    let resolveGum: (s: MediaStream) => void = () => undefined;
+    const track = { stop: vi.fn() };
+    const fakeStream = { getTracks: () => [track] } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: {
+        getUserMedia: vi.fn(
+          () =>
+            new Promise<MediaStream>((resolve) => {
+              resolveGum = resolve;
+            }),
+        ),
+      },
+      configurable: true,
+    });
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = FakeMediaRecorder;
+    const { result, unmount } = renderHook(() => useVoiceInput(vi.fn(), deps), { wrapper: I18nProvider });
+    act(() => {
+      void result.current.start(); // 领当代 → 进入 await getUserMedia 在途窗口
+    });
+    unmount(); // 卸载落窗口内（修复前：不递增代数，迟归必续行）
+    await act(async () => {
+      resolveGum(fakeStream);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(FakeMediaRecorder.instances.length).toBe(0); // 零续行：不建 recorder
+    expect(track.stop).toHaveBeenCalled(); // 迟归 stream 同步释放（零孤儿开麦）
   });
 
   it("转写中互斥：transcribing 态 start() no-op（不二次 getUserMedia）", async () => {

@@ -274,6 +274,46 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
       expect(senders.fallbacks).toEqual(["第一句。第二句。"]);
     });
 
+    it("结果先行 + chunk 入队失败（播放面 enqueue 死）→ 自愈一次性回退（按发句序）", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      player.enqueue = () => false; // 播放面不可用（AudioContext 构造失败等）
+      o.resetAnswer();
+      o.feedRawDelta("第一句。第二句。");
+      const id1 = senders.streams[0]![0]!;
+      expect(o.answerResult("answer", "第一句。第二句。")).toBe("stream"); // 在途判 stream（置闩）
+      o.onChunkFrame(id1, "QUJD"); // 结果后 chunk 到达但入队失败 → 链死
+      expect(senders.fallbacks).toEqual(["第一句。第二句。"]); // 修复前：只降级不自愈，整轮静默
+      expect(onLateFallback).toHaveBeenCalledTimes(1);
+      o.close();
+    });
+
+    it("结果先行 + 闸后 flush 入队失败（后句 buffered，头句收口推闸放行）→ 同样自愈", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("第一句。第二句。");
+      const [id1, id2] = [senders.streams[0]![0]!, senders.streams[1]![0]!];
+      o.onChunkFrame(id2, "QUJD"); // 后句 chunk 先到——头句未收口，闸住缓冲
+      expect(player.enqueued.length).toBe(0);
+      expect(o.answerResult("answer", "第一句。第二句。")).toBe("stream");
+      player.enqueue = () => false; // 放行前播放面死
+      o.onDoneFrame(id1); // 头句收口（零 chunk 形态）→ 闸推进 flush 后句缓冲 → 入队失败
+      expect(senders.fallbacks).toEqual(["第二句。"]); // 零出声链死 → 自愈（含入队失败句）
+      expect(onLateFallback).toHaveBeenCalledTimes(1);
+      o.close();
+    });
+
     it("已出声后链死 → 不自愈（中途失败只丢句，现语义回归）", () => {
       const onLateFallback = vi.fn();
       const o = new StewardSpeechOut({

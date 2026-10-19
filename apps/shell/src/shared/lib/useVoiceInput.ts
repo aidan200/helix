@@ -300,6 +300,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
 
   useEffect(
     () => () => {
+      // 取消代数 +1（TR-215 漏网通路）：unmount/StrictMode 重挂落在
+      // getUserMedia 在途窗口时，迟归 stream 凭代数失配即刻释放——否则续行
+      // 创建 MediaRecorder 开麦且卸载后无人再释放（孤儿开麦/麦克风指示常亮）。
+      cancelGenRef.current += 1;
       closeMeter();
       closePump();
       cleanupMedia();

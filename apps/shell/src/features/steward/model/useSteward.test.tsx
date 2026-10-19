@@ -77,6 +77,32 @@ describe("useSteward（V2.5 文本管家）", () => {
     });
   });
 
+  it("重连重拉：断线重连后 get_config 与 history 重发（同连接幂等不变）", async () => {
+    const { rerender } = renderSteward();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(sendStewardGetConfig).toHaveBeenCalledTimes(1);
+    expect(sendStewardHistoryMock).toHaveBeenCalledTimes(1);
+    // 同连接内重渲染不重发（幂等防重渲染重发语义不变）
+    await act(async () => {
+      rerender();
+    });
+    expect(sendStewardGetConfig).toHaveBeenCalledTimes(1);
+    expect(sendStewardHistoryMock).toHaveBeenCalledTimes(1);
+    // 断线 → 重连（daemon 重启形态）：读命令重发
+    connState = "disconnected";
+    await act(async () => {
+      rerender();
+    });
+    connState = "connected";
+    await act(async () => {
+      rerender();
+    });
+    expect(sendStewardGetConfig).toHaveBeenCalledTimes(2); // 修复前：幂等键是 "connected" 字面量，重连后同键短路永不再拉
+    expect(sendStewardHistoryMock).toHaveBeenCalledTimes(2);
+  });
+
   it("B1 订阅解绑：connected + enabled → subscribe——面板开合零影响（关面板不 unsubscribe）", async () => {
     const { result } = renderSteward();
     act(() => {

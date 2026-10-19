@@ -130,19 +130,19 @@ export function useSteward(): UseSteward {
     if (conn !== "connected") stewardStore.onDisconnect();
   }, [conn]);
 
-  // ── 配置读面（mount / 重连 → get_config 幂等读）──
+  // ── 配置读面（mount / 重连 → get_config 同代幂等读；换代重拉）──
   useEffect(() => {
     if (conn !== "connected") return;
     if (typeof sendStewardGetConfig !== "function") return;
-    stewardStore.requestConfigOnce(conn);
+    stewardStore.requestConfigOnce();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn, sendStewardGetConfig]);
 
-  // ── 回放面（conn=connected → history 同源重建）──
+  // ── 回放面（conn=connected → history 同源重建；重连换代重拉）──
   useEffect(() => {
     if (conn !== "connected") return;
     if (typeof sendStewardHistory !== "function") return;
-    stewardStore.requestHistoryOnce(conn);
+    stewardStore.requestHistoryOnce();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn, sendStewardHistory]);
 
