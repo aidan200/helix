@@ -470,6 +470,32 @@ describe("KgSyncService：degraded 收敛与无基准全量域（code-review M7�
     // 全量域：未被触的 b.ts 同样导入——不会只导入 a.ts 就推进基准戳
     expect(store.batches[0]!.files.map((f) => f.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
   });
+
+  test("⑭ 全量域并上一基准：引擎面已无且无窗口事件的文件走删除通道（停机期删除残留收敛）", async () => {
+    const { service, store, graph, engine } = makeService();
+    active.push(service);
+    engine.setSymbols({
+      files: [{ path: "src/a.ts", contentHash: "ha", modifiedAt: 1, indexedAt: 1 }],
+      symbols: [],
+      containsEdges: [],
+    });
+    // 基准在位（非 M7② 无基准路径）：上一基准含引擎面已无、且无任何窗口
+    // 事件的文件——daemon 停机期/事件丢失期被删，全量域必须补删除扫描
+    graph.status = { baseline: "1", symbolCount: 2, degraded: false };
+    graph.view = {
+      files: [
+        { path: "src/a.ts", mtime: 1, sha256: "ha" }, // 与引擎面一致：不导入
+        { path: "src/gone-in-downtime.ts", mtime: 1, sha256: "hx" }, // 停机期删除：引擎面已无
+      ],
+      symbols: [],
+      activeAnchors: [],
+      anchorDeclarations: [],
+    };
+    await service.triggerManual(ROOT); // 手动触发 = full 域
+    expect(store.batches.length).toBe(1);
+    expect(store.batches[0]!.deletedFiles).toEqual(["src/gone-in-downtime.ts"]);
+    expect(store.batches[0]!.files).toEqual([]); // a.ts mtime/hash 未变不导入
+  });
 });
 
 /** code-review M 破窗防护用 gated 引擎：exportSymbols 等待手动放行（dispose 窗口注入点）。 */
