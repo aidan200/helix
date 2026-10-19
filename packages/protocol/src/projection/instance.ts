@@ -32,8 +32,9 @@ export function isMainInstance(instanceId: string | undefined): boolean {
 
 // ── 条目排序基元（daemon entrySortKey ↔ shell entryTimelineKey 同构收敛） ──
 
-/** 排序统一键：message/tool 用 ts（epoch ms）；thinking/compaction 用
- *  createdAt（ISO，契约 §6.1）——两类字段同一时间轴。 */
+/** 排序统一键：message/tool 用 ts（epoch ms）；thinking/compaction/**error**
+ *  用 createdAt（ISO，契约 §6.1）——两类字段同一时间轴（判据是「ts 携带者
+ *  vs createdAt 携带者」，不是变体枚举，新增变体按此归类）。 */
 export function entrySortKey(entry: EntryDto): number {
   return "ts" in entry ? entry.ts : Date.parse(entry.createdAt);
 }
@@ -45,9 +46,9 @@ export interface AnchorScanEntry {
   readonly id: string;
   readonly instanceId?: string;
   readonly kind?: string;
-  /** 时间键源（message/tool = ts epoch ms；thinking/compaction = createdAt ISO，
-   *  entrySortKey 同口径）——仅恢复边界 createdAt 截断推导使用；双缺 = 不可比
-   *  （不作锚候选）。 */
+  /** 时间键源（message/tool = ts epoch ms；thinking/compaction/error =
+   *  createdAt ISO，entrySortKey 同口径）——仅恢复边界 createdAt 截断推导
+   *  使用；双缺 = 不可比（不作锚候选）。 */
   readonly ts?: number;
   readonly createdAt?: string;
 }

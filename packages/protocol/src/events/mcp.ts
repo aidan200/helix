@@ -19,10 +19,10 @@ import type { McpServerInput } from "../commands/mcp";
 /** MCP server 运行状态（与 daemon McpRegistry 状态机对齐）。 */
 export type McpServerRuntimeState = "idle" | "connecting" | "running" | "error" | "stopped";
 
-/** server 配置详情（list 回执内嵌；形态 = McpServerInput 同形 + name 必填）。 */
-export interface McpServerConfigDto extends McpServerInput {
-  name: string;
-}
+/** server 配置详情（list 回执内嵌）：McpServerInput 的**同形别名**——name
+ *  的必填性以基型为单源，此处不重声明（重声明是空操作，易被误读为「基型
+ *  name 可选」）。 */
+export interface McpServerConfigDto extends McpServerInput {}
 
 /** server 运行态行（list 回执 / status.changed 广播共用形状）。 */
 export interface McpServerStatusDto {

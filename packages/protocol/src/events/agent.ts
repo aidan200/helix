@@ -9,6 +9,14 @@ import type { TraceProfileSnapshot } from "../types/trace";
 export interface AgentSpawnedPayload {
   agentId: string;
   task: string;
+  /**
+   * profile 标识：**有意保持 string 透传**（不收窄 ProfileKind）——值来自
+   * spawn 入参（agent_spawn 工具/WS 命令的自由串，daemon 调度层按
+   * DEFAULT_PROFILE_KIND 兜底但不做封闭校验），且历史事件含已撤 kind
+   * （task-worker 等）与自定义 profile 名，收窄会与实际 wire 值脱钩
+   * （trace 回放/旧事件消费面）。封闭集面板见 types/agent.ts ProfileKind
+   * （写面命令用，非本帧值域）。
+   */
   profileKind: string;
   /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
   model?: string;
@@ -88,6 +96,7 @@ export interface AgentResumedPayload {
  */
 export interface AgentInstantiatedPayload {
   instanceId: string;
+  /** profile 标识：同 AgentSpawnedPayload 口径的 string 透传（落盘快照回放面，含历史/已撤 kind）。 */
   profileKind: string;
   /**
    * SubAgent spawn 解析的 thinkingLevel 快照（v0.11 新增，thinking 批④，
@@ -143,8 +152,9 @@ export interface AgentConfigMcpServerRow {
  * 兼容；零 server/未接 MCP 的 kind 恒缺省）。
  */
 export interface AgentConfigProfileBlock {
-  /** 配置单元 kind（T2.2 additive 扩第三值：任务编排主 agent——读面透传；
-   *  写面（set_enabled）仍两值——编排工具配置 UI 归后续迭代）。 */
+  /** 配置单元 kind（本块 = 读面可配置块，取值以 types/agent.ts
+   *  ReadableProfileKind 为单源；写面 kind 全集见同文件 ProfileKind
+   *  ——编排主 agent 归位 SystemProfileKind 后不进本块）。 */
   profileKind: ReadableProfileKind;
   tools: ReadonlyArray<{ name: string; enabled: boolean; snippet: string }>;
   /** MCP server 行（server 级配置面批 additive；缺省不携带——零 server kind）。 */
@@ -384,15 +394,25 @@ export interface AgentSkillContentGetResultEvent extends EventFrame<AgentSkillCo
   type: "agent.skill_content.get.result";
 }
 
-/** agent.skill.create.result 载荷：用户级技能创建写面回执（点对点）。 */
-export interface AgentSkillCreateResultPayload {
-  /** applied：name 回显（落盘目录名）；skipped：不落盘。 */
-  status: "applied" | "skipped";
-  /** applied 回显技能名（目录名）。 */
-  name?: string;
-  /** skipped 原因码：invalid-name（含路径穿越）/ missing-description / already-exists / bad-frontmatter。 */
-  reason?: string;
-}
+/**
+ * agent.skill.create.result 载荷：用户级技能创建写面回执（点对点）。
+ *
+ * 真判别联合（`status` 为判别位）：applied **必带** name、skipped **必带**
+ * reason——条件字段不再全可选（拍平写法下「applied 却无 name」无编译期信号）。
+ * 消费端窄化后按变体取字段，勿先判 status 再裸取可选字段。
+ */
+export type AgentSkillCreateResultPayload =
+  | {
+      status: "applied";
+      /** 落盘目录名回显（applied 必带）。 */
+      name: string;
+    }
+  | {
+      status: "skipped";
+      /** 不落盘；原因码：invalid-name（含路径穿越）/ missing-description /
+       *  already-exists / bad-frontmatter。 */
+      reason: string;
+    };
 
 /** agent.skill.create.result：用户级技能创建写面回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
 export interface AgentSkillCreateResultEvent extends EventFrame<AgentSkillCreateResultPayload> {

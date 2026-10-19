@@ -13,9 +13,10 @@
  *   normalizePhrase 与 shell stripTailPunct 同构收编。
  */
 
-/** 停止词归一（trim + 尾部标点剥除；中部不改）。确认/取消词族匹配共用。 */
+/** 口令词归一（trim + 尾部标点剥除；中部不改）——确认/取消/全取消词族匹配
+ *  共用（停止词族已退役，本函数不再服务停止判定）。 */
 export function normalizeStewardPhrase(text: string): string {
-  return text.trim().replace(/[。．.!！?？?，,、；;～~\s]+$/u, "");
+  return text.trim().replace(/[。．.!！?？，,、；;～~\s]+$/u, "");
 }
 
 // ── 确认/取消词族单源（闸门对应修复批）：双端同义口语应答词（「好的」vs

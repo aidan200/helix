@@ -19,6 +19,7 @@
  */
 
 import type { EventFrame } from "../envelope";
+import type { InstanceState } from "./agent";
 
 /** 任务六态（wire 值 = 后端状态机原值；前端展示映射 pending→装配中/done→已完成只发生在展示层，契约 §0）。 */
 export type TaskStatus = "pending" | "running" | "paused" | "done" | "failed" | "cancelled";
@@ -98,12 +99,12 @@ export interface TaskBatchDto {
   /** 当前/最近执行 SubAgent 实例（data-id；未派发 null）。 */
   instanceId: string | null;
   /**
-   * 批次实例调度态（⑤ 链 A additive：queued/running/parked/done/failed/
-   * cancelled——parked = 挂起徽标数据源「agent-3 · 挂起(任务暂停)」；批次行
-   * 状态保持 running，实例级态经本字段透出。实例已不在调度注册表（重启
-   * 清理后）或缺省未装配读面 → 省略）。
+   * 批次实例调度态（⑤ 链 A additive：取值以 types/agent.ts InstanceState 为
+   * 单源——parked = 挂起徽标数据源「agent-3 · 挂起(任务暂停)」；批次行状态
+   * 保持 running，实例级态经本字段透出。实例已不在调度注册表（重启清理后）
+   * 或缺省未装配读面 → 省略）。
    */
-  instanceState?: string;
+  instanceState?: InstanceState;
   /** 批次实例 plan（running/done/failed 批次携带；未派发或无台账 null）。 */
   plan: WorkItemDto[] | null;
   /** 台账计数摘要（P1-⑥ additive；与 plan 同源同 null 语义：未派发或无台账 null）。 */
@@ -152,7 +153,12 @@ export interface TaskChangedPayload {
   jobId: string;
   /** 变更面（stage/batch/work_item 级变更前端按需重拉 detail）。 */
   changed: "job" | "stage" | "batch" | "work_item";
-  /** job 级变更携带新状态。 */
+  /**
+   * job 级变更携带新状态（值集 = 本文件 TaskStatus，以其为单源）。类型层
+   * 保持 string：daemon 广播签名（EventStream.broadcastTaskChanged /
+   * TaskEngineService.notify）为 string 透传，收窄需两端同动 —— 待后续
+   * 契约批一并收紧，新增状态请先落 TaskStatus。
+   */
   status?: string;
   /**
    * kg sync 提示（W2-D R13，additive 可选字段）：job 终态时 pending_sync

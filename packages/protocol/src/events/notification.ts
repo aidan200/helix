@@ -48,6 +48,13 @@ export interface DaemonFreshnessDto {
 /** connection.error：握手拒绝 / 命令错误回执（notification 通道） */
 export interface ConnectionErrorPayload {
   code: ErrorCode;
+  /**
+   * 人读错误说明。**命令类错误的 message 带机器可解析尾缀「（命令 <type>）」**
+   * （TR-145 契约）：daemon WsServerAdapter.commandError 单点拼接，shell 侧
+   * 按该尾缀做跨命令归因过滤（如 TracePage 只认本族错误帧；无尾缀帧容忍为
+   * 旧 daemon）。改尾缀格式/语言/去掉尾缀 = 破坏该归因且无编译期信号——
+   * 必须同步 shell 归因正则（两端同动）。
+   */
   message: string;
 }
 

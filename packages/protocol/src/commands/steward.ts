@@ -18,6 +18,7 @@
  */
 import type { CommandFrame } from "../envelope";
 import type { StewardMemoryDomain } from "../events/steward";
+import type { EmptyPayload } from "./session";
 
 /** steward.ask 输入来源（additive——addressee 判定触发面的判据）。
  *  "voice-duplex" = 双工常开麦收音段的语音 final：语义有歧义（是叫管家还是
@@ -65,12 +66,12 @@ export interface StewardCancelCommand extends CommandFrame<StewardCancelPayload>
 }
 
 /** steward.subscribe：事件 feed 连接级订阅登记（断连自动等效）。 */
-export interface StewardSubscribeCommand extends CommandFrame<Record<string, never>> {
+export interface StewardSubscribeCommand extends CommandFrame<EmptyPayload> {
   type: "steward.subscribe";
 }
 
 /** steward.unsubscribe：事件 feed 退订（对称语义）。 */
-export interface StewardUnsubscribeCommand extends CommandFrame<Record<string, never>> {
+export interface StewardUnsubscribeCommand extends CommandFrame<EmptyPayload> {
   type: "steward.unsubscribe";
 }
 
@@ -123,7 +124,7 @@ export interface StewardSetConfigCommand extends CommandFrame<StewardSetConfigPa
 }
 
 /** steward.get_config：读管家设置（点对点回执 steward.config.result）。 */
-export interface StewardGetConfigCommand extends CommandFrame<Record<string, never>> {
+export interface StewardGetConfigCommand extends CommandFrame<EmptyPayload> {
   type: "steward.get_config";
 }
 
@@ -143,7 +144,7 @@ export interface StewardHistoryCommand extends CommandFrame<StewardHistoryPayloa
 /** steward.memory_list：长期记忆条目读面（管家记忆 B2；回执
  *  steward.memory_list.result——四命令共用：append/update/delete 写后
  *  即回新清单，与 embedding 族回执同构）。 */
-export interface StewardMemoryListCommand extends CommandFrame<Record<string, never>> {
+export interface StewardMemoryListCommand extends CommandFrame<EmptyPayload> {
   type: "steward.memory_list";
 }
 
@@ -151,7 +152,12 @@ export interface StewardMemoryListCommand extends CommandFrame<Record<string, ne
 export interface StewardMemoryAppendPayload {
   /** 记忆文本（非空；daemon 校验）。 */
   text: string;
-  /** 条目类别（缺省 "fact"；枚举对齐存储面既有 kind 值）。 */
+  /**
+   * 条目类别（缺省 "fact"）：**人工可建集 = fact | preference 两值**。
+   * 读面（StewardMemoryEntryView.kind）另有 "progress"——那是轮末联合摘要器
+   * 写的系统产出（source = session-progress，走 remember 两段闸），不开放
+   * 手建；本载荷携 "progress" → command.invalid_payload。
+   */
   kind?: "fact" | "preference";
   /** 项目作用域（项目隔离批，additive："global" 或项目目录名；缺省按
    *  domain 一致性约束裁定——habit/general → global，domain=project 必绑
@@ -279,6 +285,6 @@ export interface StewardActivityListCommand extends CommandFrame<StewardActivity
 
 /** steward.activity.clear：活动账清理（回执 steward.activity.result——
  *  落盘条目全清后回空窗新态；幂等）。 */
-export interface StewardActivityClearCommand extends CommandFrame<Record<string, never>> {
+export interface StewardActivityClearCommand extends CommandFrame<EmptyPayload> {
   type: "steward.activity.clear";
 }

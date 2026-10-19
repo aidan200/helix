@@ -41,7 +41,11 @@ export interface ChatSteerPayload {
   instanceId?: string;
 }
 
-/** 无载荷命令的空 payload */
+/**
+ * 无载荷命令的空 payload（**无参命令的载荷单点**：新命令一律用本别名，
+ * 勿再就地写 Record<string, never>——两写法并存会让「无载荷」失去可 grep
+ * 的单一形状；别名保留 additive 纪律不删）。
+ */
 export type EmptyPayload = Record<string, never>;
 
 export interface ChatSendCommand extends CommandFrame<ChatSendPayload> {

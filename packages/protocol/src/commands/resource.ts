@@ -1,6 +1,6 @@
 /** 资源与观测域命令族：trace.query / agent.config.* / web.*。 */
 import type { CommandFrame } from "../envelope";
-import type { ProfileKind } from "../types/agent";
+import type { ProfileKind, ReadableProfileKind } from "../types/agent";
 import type { TraceQueryPageInput, TraceTimeRange } from "../types/trace";
 import type { EmptyPayload } from "./session";
 
@@ -37,8 +37,8 @@ export interface TraceQueryCommand extends CommandFrame<TraceQueryPayload> {
  * 结果帧 = agent.config.list.result 点对点回执（TR-AD-21 模式）。
  */
 export interface AgentConfigListPayload {
-  /** 目标 kind：缺省 = 全部可配置 kind（main-session + subagent-worker 双块，序固定；task-worker 已撤）；携带 = 单块。 */
-  profileKind?: "main-session" | "subagent-worker";
+  /** 目标 kind：缺省 = 全部可配置块（取值以 types/agent.ts ReadableProfileKind 为单源，序固定；task-worker 已撤）；携带 = 单块。 */
+  profileKind?: ReadableProfileKind;
 }
 
 export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayload> {
@@ -84,7 +84,7 @@ export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSe
  * 回执（TR-AD-21 模式）。
  */
 export interface AgentBasePromptGetPayload {
-  /** 目标 kind（四值全可读——含系统派生两 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
+  /** 目标 kind（可读全集以 types/agent.ts ProfileKind 为单源——含系统派生 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
   profileKind: ProfileKind;
 }
 
@@ -131,7 +131,7 @@ export interface AgentSkillCreateCommand extends CommandFrame<AgentSkillCreatePa
  * 避免「可配置」误解。结果帧 = agent.steward_profile.get.result 点对点
  * 回执（TR-AD-21 模式，agent.base_prompt.get 同构）。
  */
-export interface AgentStewardProfileGetCommand extends CommandFrame<Record<string, never>> {
+export interface AgentStewardProfileGetCommand extends CommandFrame<EmptyPayload> {
   type: "agent.steward_profile.get";
 }
 
