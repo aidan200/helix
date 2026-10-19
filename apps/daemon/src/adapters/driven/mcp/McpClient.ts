@@ -58,6 +58,9 @@ export class McpClient {
   private transport?: StdioTransport;
   private ready = false;
   private connecting?: Promise<void>;
+  /** 停止代数（F2 #29）：stop() 递增；doConnect 建连在途跨代即判「已停止」，
+   *  不得把落定的旧连接标 ready（否则 ready=true 且 piClient=undefined 僵死）。 */
+  private stopEpoch = 0;
   private closeUnbind?: () => void;
   private readonly config: McpServerConfig;
   private readonly name: string;
@@ -111,6 +114,7 @@ export class McpClient {
    * 同步签名保持 registry 同步消费面（removeServer/stopAll）。
    */
   stop(): void {
+    this.stopEpoch += 1;
     const piClient = this.piClient;
     this.piClient = undefined;
     this.transport = undefined;
@@ -134,6 +138,7 @@ export class McpClient {
 
   private async doConnect(): Promise<void> {
     if (this.piClient) return;
+    const epoch = this.stopEpoch;
     const config = this.config;
     // 落点规范批（2026-10-10）：uvx/npx 类 server 的用户级缓存散落
     // （~/.cache/uv、~/.npm）重定向到 <cwd>/.helix/tool-cache；cwd 基准 =
@@ -186,12 +191,21 @@ export class McpClient {
       // （协议版本协商——server 侧回它支持的版本；capabilities 缺省最小
       // 声明：不传 roots，roots/list 请求按协议拒绝）。
       await piClient.connect(transport);
-      this.ready = true;
     } catch (err) {
       // initialize 失败：清连接防僵尸，错误上抛（调用方定 error 状态）
       this.stop();
       throw err instanceof Error ? err : new Error(String(err));
     }
+    // 竞态守卫（F2 #29）：connect 在途时 stop() 已清空引用——旧连接即便落定也
+    // 必须就地关掉并拒绝，绝不置 ready（已停止 client 的 ready 位会与
+    // piClient=undefined 组成僵死态，后续调用恒 TypeError 且不自愈）。
+    if (this.stopEpoch !== epoch || this.piClient !== piClient) {
+      void piClient.close().catch((err) => {
+        this.logger.warn(`mcp[${this.name}] 停止期连接回收异常：${(err as Error).message}`);
+      });
+      throw new Error(`mcp[${this.name}] 连接在途时已被停止（请求取消）`);
+    }
+    this.ready = true;
   }
 }
 
