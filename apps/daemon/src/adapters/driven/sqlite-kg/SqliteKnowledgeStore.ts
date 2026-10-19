@@ -31,8 +31,11 @@ import type {
  * SqliteKnowledgeStore —— KnowledgeStorePort 的 SQLite 实现（.helix-kg 单库）。
  *
  * 写点纪律（AG-06 白名单写点之二，本文件与 WriteQueue 并列）：知识层
- * 写语句唯一收口于此；按表分域与符号层通道（applySync）互不竞争
- * （AD-15：两通道不同表集、各自连接+事务）。
+ * 写语句唯一收口于此。两通道表集**不是完全互斥**（F2 #12 校正）：符号层通道
+ * applySync 在同一 sync 事务内除符号三表/物化锚/meta 外，还机械维护
+ * anchor_decl（L0 行级重定位）与 change_log（anchorRelocate/prune 审计）——
+ * 与 writeKnowledge 的表集在这两表上重叠。互不竞争靠「各自连接 + 各自事务」
+ * （AD-15）+「同步单飞」（KgSyncService 串行），不是靠表集隔离。
  *
  * - writeKnowledge：单 op 单事务（BEGIN IMMEDIATE）——编号事务内分配、
  *   change_log 自动追加、引用完整性（存在性/冲突/supersede 状态机）事务内
