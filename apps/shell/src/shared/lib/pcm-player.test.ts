@@ -111,6 +111,25 @@ describe("createWebAudioSpeechPlayer（Web Audio PCM 播放队列）", () => {
     expect(ctx.sources[1]!.stopped).toBe(true);
   });
 
+  it("drop 弃播覆盖队尾 → nextStart 回拨：新块紧贴当前时刻续排，不留弃播残长静音空洞（中危 F3a）", () => {
+    player.enqueue("u1", pcmBlock(24000)); // 1s——排至 [0.08, 1.08]
+    ctx.currentTime = 0.1; // 已开播 0.1s（残长 ~0.98s）
+    player.drop("u1"); // 弃播：旧排期尾巴 1.08 不应继续占用时间线
+    player.enqueue("u2", pcmBlock(2400)); // 新句：应从 ~0.12 续排，而非 1.08
+    const s2 = ctx.sources[1]!;
+    expect(s2.startedAt!).toBeLessThan(0.2); // 回拨生效（旧行为 = 1.08）
+    expect(s2.startedAt!).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it("drop 被弃源不覆盖队尾（有更晚在排源）→ nextStart 不回拨（gapless 链不动）", () => {
+    player.enqueue("u1", pcmBlock(24000)); // 1s——排至 1.08
+    player.enqueue("u2", pcmBlock(12000)); // 0.5s——排至 1.58（队尾）
+    player.drop("u1"); // 弃播非队尾源
+    player.enqueue("u3", pcmBlock(2400)); // 新句仍接在队尾 1.58 之后
+    const s3 = ctx.sources[2]!;
+    expect(s3.startedAt!).toBeCloseTo(1.58, 5);
+  });
+
   it("stop()：全部 stop + active 回调 false", () => {
     player.enqueue("u1", pcmBlock(2400));
     player.enqueue("u2", pcmBlock(2400));

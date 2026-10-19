@@ -111,6 +111,8 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
   let active = false;
   let nextStart: number | null = null;
   const byUtter = new Map<string, Set<AudioBufferSourceLike>>();
+  /** 源 → 排期终点（drop 回拨队尾判定面：被弃源覆盖队尾时 nextStart 回收） */
+  const sourceEnd = new Map<AudioBufferSourceLike, number>();
   const activeListeners = new Set<(active: boolean) => void>();
 
   const setActive = (next: boolean): void => {
@@ -153,6 +155,7 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
   };
 
   const retireSource = (utterId: string, source: AudioBufferSourceLike): void => {
+    sourceEnd.delete(source);
     const set = byUtter.get(utterId);
     if (set === undefined) return;
     set.delete(source);
@@ -177,6 +180,7 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
         source.start(when);
         source.onended = () => retireSource(utterId, source);
         nextStart = when + samples.length / sampleRate;
+        sourceEnd.set(source, nextStart);
         let set = byUtter.get(utterId);
         if (set === undefined) {
           set = new Set();
@@ -197,7 +201,14 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
     drop(utterId: string): void {
       const set = byUtter.get(utterId);
       if (set === undefined) return;
+      // 队尾回拨判定（中危 F3a）：被弃源的排期终点覆盖全局队尾（无更晚在排
+      // 源）时回收排期尾巴——新入队块紧贴当前时刻续排，不留与弃播残长相等
+      // 的静音空洞；仍有更晚在排源则保持（gapless 链不动）
+      const now = ctx?.currentTime ?? 0;
+      let droppedTail = -Infinity;
+      for (const source of set) droppedTail = Math.max(droppedTail, sourceEnd.get(source) ?? -Infinity);
       for (const source of [...set]) {
+        sourceEnd.delete(source);
         try {
           source.stop();
         } catch {
@@ -205,6 +216,13 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
         }
       }
       byUtter.delete(utterId);
+      let remainingTail = -Infinity;
+      for (const end of sourceEnd.values()) remainingTail = Math.max(remainingTail, end);
+      if (droppedTail >= remainingTail) {
+        // 被弃源覆盖（或并列）队尾：回拨到剩余队尾与当前时刻+最小前瞻的较大者
+        //（无剩余源时即 now+RESUME——新句紧贴当前时刻续排）
+        nextStart = Math.max(remainingTail, now + RESUME_LOOKAHEAD_S);
+      }
       if (byUtter.size === 0) setActive(false);
     },
     stop(): void {
@@ -218,6 +236,7 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
         }
       }
       byUtter.clear();
+      sourceEnd.clear();
       nextStart = null;
       setActive(false);
     },
