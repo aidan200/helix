@@ -366,7 +366,9 @@ export class KgMockStore {
     return this.frame("kg.bootstrap.create.result", { ok: true, jobId: `job-mock-${this.jobSeq}` });
   }
 
-  /** kg.graph.purge：清空 mock 图谱镜像（节点/报告清零 + 索引态复位 absent）。 */
+  /** kg.graph.purge：清空 mock 图谱镜像（节点/报告清零 + 索引态复位 absent；
+   *  在途构建时基同清——否则 advanceBuilds 把已删索引复活为 building→synced，
+   *  中危 F3a）。 */
   private replyGraphPurge(p: Record<string, unknown>): EventEnvelope {
     const row = resolveProjectName(p.project, this.projects);
     if (row === undefined) return this.paramError();
@@ -374,14 +376,17 @@ export class KgMockStore {
     const symbolsRemoved = row.symbolCount ?? 0;
     this.nodes = [];
     this.report = { iterationId: ITER, entries: [] };
+    this.buildingSince.delete(row.name);
     Object.assign(row, { status: "absent" as const, symbolCount: undefined, nodeCount: undefined, syncedAt: undefined, degradedNote: undefined });
     return this.frame("kg.graph.purge.result", { purged: true, nodesRemoved, symbolsRemoved, filesRemoved: symbolsRemoved > 0 ? 1 : 0 });
   }
 
-  /** kg.index.delete：删索引镜像（状态复位 absent；知识节点保留——职责分层）。 */
+  /** kg.index.delete：删索引镜像（状态复位 absent；在途构建时基同清——同
+   *  purge 复活防线，中危 F3a；知识节点保留——职责分层）。 */
   private replyIndexDelete(p: Record<string, unknown>): EventEnvelope {
     const row = resolveProjectName(p.project, this.projects);
     if (row === undefined) return this.paramError();
+    this.buildingSince.delete(row.name);
     Object.assign(row, { status: "absent" as const, symbolCount: undefined, syncedAt: undefined, degradedNote: undefined });
     return this.frame("kg.index.delete.result", { deleted: true, state: "absent", watcherStopped: true });
   }
