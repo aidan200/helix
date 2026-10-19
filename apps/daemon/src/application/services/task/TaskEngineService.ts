@@ -137,35 +137,47 @@ export class TaskEngineService implements TaskEnginePort {
       error: null,
     });
     this.notify({ jobId, changed: "job", status: "pending" }); // 创建帧（双宿主同源：/project 与 chat 工具面）
-    for (const stage of stagePlan) {
-      await this.deps.store.insertStage({
-        jobId,
-        seq: stage.seq,
-        name: stage.name,
-        status: "pending",
-        artifact: null,
-        updatedAt: now,
-      });
-      this.notify({ jobId, changed: "stage", status: "pending" });
+    try {
+      for (const stage of stagePlan) {
+        await this.deps.store.insertStage({
+          jobId,
+          seq: stage.seq,
+          name: stage.name,
+          status: "pending",
+          artifact: null,
+          updatedAt: now,
+        });
+        this.notify({ jobId, changed: "stage", status: "pending" });
+      }
+    } catch (err) {
+      // stage 插入中途失败回补（评审 F1）：job 行已落而阶段计划残缺——既不满足
+      // TR-72「创建时一次定格」，也不是终态（只能靠重启恢复扫描捞，残缺行会
+      // 错判阶段完成度）。与下方 starter 失败同口径就地收口为 cancelled 后再上抛。
+      await this.abortPendingTask(jobId, `阶段计划写入失败：${(err as Error).message}`);
+      throw err;
     }
     try {
       await this.deps.starter.startOrchestrator(jobId);
     } catch (err) {
       // starter 失败回补（清单 #2.5）：job/stage 行已产而编排未起——不回补会
-      // 滞留 pending 仅重启恢复扫描可捞。就地按 cancel 语义收口（无批次可收：
-      // pending stage 标 failed——cancel 显性出边先例；job pending→cancelled
-      // 合法迁移），再上抛原错给发起方。
-      for (const stage of this.deps.store.getStages(jobId)) {
-        if (isTerminalStage(stage.status)) continue;
-        await this.deps.store.updateStageStatus(jobId, stage.seq, "failed").catch(() => undefined);
-      }
-      await this.deps.store
-        .updateJobStatus(jobId, "cancelled", `编排启动失败：${(err as Error).message}`)
-        .catch(() => undefined);
-      this.notify({ jobId, changed: "job", status: "cancelled" });
+      // 滞留 pending 仅重启恢复扫描可捞。就地按 cancel 语义收口，再上抛原错给发起方。
+      await this.abortPendingTask(jobId, `编排启动失败：${(err as Error).message}`);
       throw err;
     }
     return { jobId };
+  }
+
+  /** 创建期失败回补（stage 插入中途失败 / 编排启动失败共用）：非终态 stage 标
+   *  failed（无批次可收，cancel 显性出边先例）+ job pending→cancelled（合法迁移）
+   *  ——残留行是「终态可见」而非滞留在飞面。回补本身失败静默：不掩盖原错
+   *  （原错由调用方上抛），与既有 starter 回补同姿态。 */
+  private async abortPendingTask(jobId: string, reason: string): Promise<void> {
+    for (const stage of this.deps.store.getStages(jobId)) {
+      if (isTerminalStage(stage.status)) continue;
+      await this.deps.store.updateStageStatus(jobId, stage.seq, "failed").catch(() => undefined);
+    }
+    await this.deps.store.updateJobStatus(jobId, "cancelled", reason).catch(() => undefined);
+    this.notify({ jobId, changed: "job", status: "cancelled" });
   }
 
   // ── 生命周期（§4.2，AD-2：零内容干预） ──────────────────────
