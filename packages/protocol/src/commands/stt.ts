@@ -43,8 +43,11 @@ export interface SttTranscribePayload {
 
 /**
  * stt.transcribe：一次性音频转写（点对点回执 stt.transcribe.result）。
- * 信封 sessionId 可选：携带时 daemon 用于会话词汇表组装（P1 会话源）与
- * 会话归属自查；省略 = 无会话裸转写（词汇表仅基础词表）。
+ * 信封 sessionId 可选携带且**被 daemon 消费**：携带时用于会话词汇表组装
+ * （P1 会话源）+ 会话归属自查；省略 = 无会话裸转写（词汇表仅基础词表）。
+ * 归类澄清：本命令**不属**「全局命令省略 sessionId」族（E-84 全局族清单
+ * 与本条归类冲突时，以 daemon handlers/stt.ts 的消费现实为准——另有
+ * stt.stream.start 同口径）。shell 侧 sttTranscribeCommand 已透出该参数。
  */
 export interface SttTranscribeCommand extends CommandFrame<SttTranscribePayload> {
   type: "stt.transcribe";
@@ -61,10 +64,14 @@ export interface SttStreamStartPayload {
 }
 
 /**
- * stt.stream.start：开流（全局命令；点对点回执 stt.stream.started 两判别）。
+ * stt.stream.start：开流（点对点回执 stt.stream.started 两判别；本命令
+ * 信封 sessionId 可选——故不按「全局命令省略 sessionId」归类）。
  * 连接级生命周期：每连接同时至多一条活动流；重复 start = 废弃旧流（abort
- * 旧上游）再开新流。信封 sessionId 可选（携带时 daemon 组装会话词汇表进
- * corpus 偏置，语义同 stt.transcribe）。
+ * 旧上游）再开新流。信封 sessionId 携带时 daemon 组装会话词汇表进 corpus
+ * 偏置（语义同 stt.transcribe，**已被消费**）。
+ * ⚠ 能力悬空登记：shell 侧 sttStreamStartCommand 当前**未透出** sessionId
+ * ——协议能力已备而 UI 链路不可达（语音模式 corpus 暂无会话词汇表偏置）；
+ * 消费方勿假定已偏置，接线需与构造器同动。
  */
 export interface SttStreamStartCommand extends CommandFrame<SttStreamStartPayload> {
   type: "stt.stream.start";

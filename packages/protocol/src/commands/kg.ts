@@ -75,13 +75,22 @@ export interface KgProjectsCommand extends CommandFrame<EmptyPayload> {
 // ── kg-bootstrap 批新增（iter-20260829-ys7q T3.2，/project 页 bootstrap 数据面五命令；契约 = contracts/kg-bootstrap-api.md）──
 
 /**
- * kg-bootstrap 批通则：五命令全部为全局命令（信封 sessionId 省略），携带
+ * kg-bootstrap 批通则：本批命令全部为全局命令（信封 sessionId 省略），携带
  * 必填 project（项目名或绝对路径，daemon 单点解析）；结果 = kg.*.result
- * 点对点回执帧（events/kg.ts，O-6 零推送同规）。V-1 语义：bootstrap 无
- * draft——产出落盘即 confirmed；修正 = kg.node.update / kg.node.supersede
- * （理由必填，走 KgWriteService 唯一写入口）；连带标记 = kg.bootstrap.impact
- * 只读推导零写。准入机械定义 = 索引 synced/degraded ∧ nodeCount==0（前后端
+ * 点对点回执帧（events/kg.ts，O-6 零推送同规）。命令清单以 COMMAND_TYPES
+ * 为单源（本注不记计数）。V-1 语义：bootstrap 无 draft——产出落盘即
+ * confirmed。准入机械定义 = 索引 synced/degraded ∧ nodeCount==0（前后端
  * 双保险复核；contracts/kg-bootstrap-api.md §1）。
+ *
+ * ⚠ 退役注记（**新消费面禁接线**，第 1 条为现状裁决）：kg.bootstrap.produce /
+ * kg.node.update / kg.node.supersede / kg.bootstrap.impact 四条**无 UI 消费者**
+ * ——shell 构造器已撤（「kg-bootstrap 仅 create」，见 E-84 现口径）；协议
+ * 类型与 daemon 分发分支（WsServerAdapter + handlers/kg.ts）仍在册 =
+ * 存量程序化入口（维护/只读推导语义在 service 内仍实现）。正式退役 = 同批
+ * 清理类型目录 + 分发分支 + handler（E-118 裁决），单独删注释不算退役。
+ * 未加 DEPRECATED_* 登记常量：事件侧先例（DEPRECATED_EVENT_TYPES）登记的是
+ * daemon 双发兼容期帧，本四命令是「UI 消费者退役而 handler 存活」，登记为
+ * 常量会与活体实现相反 —— 故用注记。
  */
 export interface KgBootstrapCreatePayload {
   /** 项目名（kg.projects 项目标识；daemon 复核准入后调 createTask 同源 API）。 */
@@ -97,7 +106,8 @@ export interface KgBootstrapCreateCommand extends CommandFrame<KgBootstrapCreate
 export interface KgBootstrapProducePayload {
   project: string;
 }
-/** CL-4 F4.1：产出呈现读面（任务→阶段→批次三级分组，originBatchId+layer 元数据驱动）。 */
+/** CL-4 F4.1：产出呈现读面（任务→阶段→批次三级分组，originBatchId+layer 元数据驱动）。
+ *  ⚠ 无 UI 消费者（退役注记见本段通则）——禁新接线。 */
 export interface KgBootstrapProduceCommand extends CommandFrame<KgBootstrapProducePayload> {
   type: "kg.bootstrap.produce";
 }
@@ -109,7 +119,8 @@ export interface KgNodeUpdatePayload {
   digest?: string;
   body?: string;
 }
-/** CL-4 F4.2 修正写面（一）：内联编辑保存即 updateNode，节点保持 confirmed。 */
+/** CL-4 F4.2 修正写面（一）：内联编辑保存即 updateNode，节点保持 confirmed。
+ *  ⚠ 无 UI 消费者（退役注记见本段通则）——禁新接线。 */
 export interface KgNodeUpdateCommand extends CommandFrame<KgNodeUpdatePayload> {
   type: "kg.node.update";
 }
@@ -120,7 +131,8 @@ export interface KgNodeSupersedePayload {
   /** 必填非空（前后端双防线；空 → task.validation_failed）。 */
   reason: string;
 }
-/** CL-4 F4.2 修正写面（二）：superseded 留史 + change_log 记理由；无转正无否决。 */
+/** CL-4 F4.2 修正写面（二）：superseded 留史 + change_log 记理由；无转正无否决。
+ *  ⚠ 无 UI 消费者（退役注记见本段通则）——禁新接线。 */
 export interface KgNodeSupersedeCommand extends CommandFrame<KgNodeSupersedePayload> {
   type: "kg.node.supersede";
 }
@@ -130,7 +142,8 @@ export interface KgBootstrapImpactPayload {
   /** 被修正（update/supersede）的节点 id。 */
   nodeId: string;
 }
-/** CL-4 F4.3：受影响连带只读推导（edges 引用方；不落库零自动写）。 */
+/** CL-4 F4.3：受影响连带只读推导（edges 引用方；不落库零自动写）。
+ *  ⚠ 无 UI 消费者（退役注记见本段通则）——禁新接线。 */
 export interface KgBootstrapImpactCommand extends CommandFrame<KgBootstrapImpactPayload> {
   type: "kg.bootstrap.impact";
 }
