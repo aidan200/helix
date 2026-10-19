@@ -26,6 +26,7 @@ import {
   createKgViewState,
   filterRows,
   kgReducer,
+  type KgAction,
 } from "./model/kg-model";
 import { bootstrapEntryMode, KG_INDEX_POLL_MS, type ProjectAction } from "./model/project-model";
 import { createKgFramesListener } from "./model/kg-frames-listener";
@@ -88,8 +89,18 @@ const KgViewer = function KgViewer({
   const conn = sessionState.conn;
 
   const [state, dispatch] = useReducer(kgReducer, undefined, createKgViewState);
+  // 族A（TR-173）：listener 闭包（kg-frames-listener 经 deps.stateRef 读
+  // sel/idxRebuilding）读最新在途态的镜像 ref——写入走 dispatchSync 包装
+  //（ref 与 dispatch 同点写，eager reduce），禁渲染体裸写（React 并发渲染废弃
+  // 腿可写陈旧值）；本组件全部 dispatch 一律经 dispatchSync，镜像不漂移。
   const stateRef = useRef(state);
-  stateRef.current = state;
+  const dispatchSync = useCallback(
+    (action: KgAction) => {
+      stateRef.current = kgReducer(stateRef.current, action);
+      dispatch(action);
+    },
+    [dispatch],
+  );
 
   /** 写面单飞（M9 #2.31 统一 hook）：bootstrap create / purge / indexDelete /
    *  review / codeReview 在途收敛单一带类型 flight（一次一个在途）——发起 /
@@ -141,7 +152,7 @@ const KgViewer = function KgViewer({
         createKgFramesListener({
           projectName: project.name,
           stateRef,
-          dispatch,
+          dispatch: dispatchSync,
           flight: { settle, notifyError },
           sendKgNodeDetail,
           sendKgList,
@@ -184,10 +195,10 @@ const KgViewer = function KgViewer({
   // ── 交互回调 ─────────────────────────────────────────────
   const onSelectNode = useCallback(
     (id: string) => {
-      dispatch({ type: "select-node", id });
+      dispatchSync({ type: "select-node", id });
       sendKgNodeDetail({ project: project.name, id });
     },
-    [project.name, sendKgNodeDetail],
+    [project.name, sendKgNodeDetail, dispatchSync],
   );
 
   const onConfirm = useCallback(
@@ -201,14 +212,14 @@ const KgViewer = function KgViewer({
     [project.name, sendKgNodeConfirm, toast, t],
   );
 
-  const onFilterQ = useCallback((q: string) => dispatch({ type: "filter-q", q }), []);
-  const onFilterKind = useCallback((kind: "all" | "rule" | "entity") => dispatch({ type: "filter-kind", kind }), []);
+  const onFilterQ = useCallback((q: string) => dispatchSync({ type: "filter-q", q }), [dispatchSync]);
+  const onFilterKind = useCallback((kind: "all" | "rule" | "entity") => dispatchSync({ type: "filter-kind", kind }), [dispatchSync]);
   const onFilterStatus = useCallback(
-    (status: "all" | "confirmed" | "draft" | "superseded") => dispatch({ type: "filter-status", status }),
-    [],
+    (status: "all" | "confirmed" | "draft" | "superseded") => dispatchSync({ type: "filter-status", status }),
+    [dispatchSync],
   );
-  const onClearFilter = useCallback(() => dispatch({ type: "clear-filter" }), []);
-  const onTab = useCallback((tab: "detail" | "report" | "health") => dispatch({ type: "tab", tab }), []);
+  const onClearFilter = useCallback(() => dispatchSync({ type: "clear-filter" }), [dispatchSync]);
+  const onTab = useCallback((tab: "detail" | "report" | "health") => dispatchSync({ type: "tab", tab }), [dispatchSync]);
   const onRebuild = useCallback(() => {
     // send 先行（TR-84：返回值必消费）——失败不进乐观「重建中」态（面板
     // 不卡死，toast 交代）；与同文件其他发送点口径一致
@@ -216,8 +227,8 @@ const KgViewer = function KgViewer({
       toast.push("err", t("pj.boot.sendFail"));
       return;
     }
-    dispatch({ type: "idx-rebuild-started" });
-  }, [project.name, sendKgIndexStatus, toast, t]);
+    dispatchSync({ type: "idx-rebuild-started" });
+  }, [project.name, sendKgIndexStatus, toast, t, dispatchSync]);
 
   // ── kg 维护批写面回调（C1；单飞锁在统一 hook，Panel 纯展示）──
   const onLaunchPurge = useCallback(() => {
@@ -481,7 +492,7 @@ const KgViewer = function KgViewer({
                       className="kgv-sup-toggle"
                       data-kg-sup-toggle
                       aria-expanded={state.supersededOpen}
-                      onClick={() => dispatch({ type: "toggle-superseded" })}
+                      onClick={() => dispatchSync({ type: "toggle-superseded" })}
                     >
                       {state.supersededOpen
                         ? t("pj.kg.supToggleClose", { n: supersededRows.length })

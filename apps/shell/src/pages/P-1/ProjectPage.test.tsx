@@ -1355,3 +1355,35 @@ describe("TR-173 state 镜像 ref 纪律（B21 #1：ProjectPage stateRef 渲染�
     expect(stripped).toMatch(/stateRef\.current\s*=\s*projectReducer\(/);
   });
 });
+
+// ── TR-173 state 镜像 ref 纪律（code-review task-91e2e2f9 B21 #2）──────
+// KgViewer stateRef 被 kg-frames-listener 闭包读取（pickInitial 首载判定 /
+// idxRebuilding 判定）。渲染体裸写下，同一 React 批内到达的第二帧读到重渲染
+// 前的陈旧 sel——首载后刷新帧被误判首载：重置选中 + 重拉 detail；镜像写入
+// 收敛 dispatchSync（ref 与 dispatch 同点写）后批内帧立即可见最新 sel。
+describe("TR-173 state 镜像 ref 纪律（B21 #2：KgViewer stateRef 渲染体裸写）", () => {
+  it("同一 act 内连续两帧 kg.list.result：第二帧不是首载——不重置选中/不重拉 detail（镜像批内新鲜）", () => {
+    ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    const before = sent.detail.length;
+    const frame = {
+      v: "0.14", type: "kg.list.result", sessionId: "__system__", channel: "kg",
+      payload: { total: NODES.length, matched: NODES.length, nodes: [...NODES] },
+    } as EventEnvelope;
+    act(() => {
+      for (const l of [...listeners]) l(frame);
+      for (const l of [...listeners]) l(frame);
+    });
+    // 旧形态（渲染体裸写）：第二帧读 sel 仍 null → pickInitial 再置 initialSel
+    // → 重拉 detail（before+2）；修复后仅首帧拉一次（before+1）
+    expect(sent.detail.length).toBe(before + 1);
+  });
+
+  it("源码定式：kg-viewer 无「stateRef.current = state」直写形态，dispatchSync 包装在位", () => {
+    const stripped = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "kg-viewer.tsx"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(stripped).not.toMatch(/^\s*stateRef\.current\s*=\s*state\s*;?\s*$/m);
+    expect(stripped).toMatch(/dispatchSync/);
+    expect(stripped).toMatch(/stateRef\.current\s*=\s*kgReducer\(/);
+  });
+});
