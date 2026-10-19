@@ -144,7 +144,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
   /** skill 正文缓存（技能名 → 剥离 frontmatter 后的 md 正文；同名跨 kind 同文）。 */
   const [contents, setContents] = useState<Readonly<Record<string, string>>>({});
   /** 正文懒查询在途名集（按钮 loading + 防重复发）。 */
-  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [pending, setPendingState] = useState<ReadonlySet<string>>(new Set());
   /** 恰一展开技能名；null = 全收（视图态）。 */
   const [open, setOpen] = useState<string | null>(null);
   // ── 添加表单（skills 添加批）：两渠道——form = 页面三字段拼 frontmatter / file = 导入 SKILL.md 原文（可编辑）──
@@ -161,16 +161,23 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
   const [contentError, setContentError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   /** connection.error 单飞门控判据（本组件在途才消费——其他域错误不误清，
-   *  trace/workspace 先例）。addPending 位走 markAddPending 包装翻转
-   *  （MCP 区同模式——渲染期不裸写 ref）；pending 集仍 state 镜像（Set 新引用
-   *  翻转处均经 setPending，镜像无窗口）。 */
+   *  trace/workspace 先例）。addPending 与 pending 集两处 state 镜像 ref 翻转
+   *  一律走 markXxx 包装（TR-173：ref 与 setState 同点写，禁渲染体裸写——
+   *  并发渲染废弃腿可把陈旧 pending 集写回 ref，致单飞门控判据失真）。 */
   const addPendingRef = useRef(false);
   const markAddPending = (v: boolean): void => {
     addPendingRef.current = v;
     setAddPending(v);
   };
-  const pendingRef = useRef(pending);
-  pendingRef.current = pending;
+  /** pending 集镜像（eager：以上一值为基算新值，ref 即最新态无窗口）。 */
+  const pendingRef = useRef<ReadonlySet<string>>(pending);
+  const markPending = (
+    next: ReadonlySet<string> | ((prev: ReadonlySet<string>) => ReadonlySet<string>),
+  ): void => {
+    const value = typeof next === "function" ? next(pendingRef.current) : next;
+    pendingRef.current = value;
+    setPendingState(value);
+  };
 
   // 进入分区拉取（条件渲染重挂即重拉；启停变更经智能体页操作后切回自然刷新）
   useEffect(() => {
@@ -190,7 +197,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
         }
         if (frame.type === "agent.skill_content.get.result") {
           const { name: skillName, content } = frame.payload as { name: string; content: string };
-          setPending((prev) => {
+          markPending((prev) => {
             const next = new Set(prev);
             next.delete(skillName);
             return next;
@@ -233,7 +240,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
             setFormError(t("chat.settings.skills.requestFailed", { message: msg }));
           }
           if (pendingRef.current.size > 0) {
-            setPending(new Set());
+            markPending(new Set());
             setContentError(t("chat.settings.skills.requestFailed", { message: msg }));
           }
         }
@@ -256,7 +263,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
         setContentError(t("chat.settings.skills.sendFail"));
         return;
       }
-      setPending((prev) => new Set(prev).add(name));
+      markPending((prev) => new Set(prev).add(name));
     }
   };
 

@@ -102,10 +102,15 @@ const McpSettingsSection = function McpSettingsSection() {
     savePendingRef.current = v;
     setSavePending(v);
   };
-  const [test, setTest] = useState<TestState>({ kind: "idle" });
-  // 族A：testing 在途位 ref 镜像（订阅 effect 真挂载一次——listener 读 ref 不进 deps）
+  const [test, setTestState] = useState<TestState>({ kind: "idle" });
+  // 族A（TR-173）：testing 在途位 ref 镜像（订阅 effect 真挂载一次——listener 读
+  // ref 不进 deps）；翻转走 markTest 包装（ref 与 setState 同点写），禁渲染体裸写
+  // （并发渲染废弃腿可写陈旧 testing 位误消费 connection.error）
   const testingRef = useRef(false);
-  testingRef.current = test.kind === "testing";
+  const markTest = (next: TestState): void => {
+    testingRef.current = next.kind === "testing";
+    setTestState(next);
+  };
   /** 删除两段式：normal|armed（armed 2.5s 超时复原）——M10 批⑤ hook 单点承载。 */
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
@@ -156,7 +161,7 @@ const McpSettingsSection = function McpSettingsSection() {
               setEnabled(true);
               setDeferred(true);
               setFormError("");
-              setTest({ kind: "idle" });
+              markTest({ kind: "idle" });
               setImportNote("");
             }
           }
@@ -164,7 +169,7 @@ const McpSettingsSection = function McpSettingsSection() {
         }
         if (type === "mcp.servers.test.result") {
           const payload = frame.payload as { status: string; toolCount?: number; error?: string };
-          setTest(
+          markTest(
             payload.status === "applied"
               ? { kind: "ok", toolCount: payload.toolCount ?? 0 }
               : { kind: "fail", error: payload.error ?? "" },
@@ -189,7 +194,7 @@ const McpSettingsSection = function McpSettingsSection() {
             return;
           }
           if (testingRef.current) {
-            setTest({ kind: "fail", error: message }); // testing 收口：行内失败态交代
+            markTest({ kind: "fail", error: message }); // testing 收口：行内失败态交代
             return;
           }
           if (cmd === "mcp.servers.remove") {
@@ -246,7 +251,7 @@ function parseArgs(input: string): string[] {
     setCommand(cfg.command);
     setArgs(Array.isArray(cfg.args) && cfg.args.every((a) => typeof a === "string") ? serializeArgs(cfg.args as string[]) : "");
     setFormError("");
-    setTest({ kind: "idle" });
+    markTest({ kind: "idle" });
     // 成功：收起面板清文本 + 展开表单（预填后焦点交给表单补填/提交）
     setImportOpen(false);
     setImportText("");
@@ -284,7 +289,7 @@ function parseArgs(input: string): string[] {
     setEnabled(true);
     setDeferred(true);
     setFormError("");
-    setTest({ kind: "idle" });
+    markTest({ kind: "idle" });
     setImportNote("");
   };
 
@@ -298,7 +303,7 @@ function parseArgs(input: string): string[] {
     setDeferred(row.config.deferred !== false);
     setFormError("");
     setImportNote("");
-    setTest({ kind: "idle" });
+    markTest({ kind: "idle" });
     setFormOpen(true);
   };
 
@@ -323,10 +328,10 @@ function parseArgs(input: string): string[] {
   const submitTest = (): void => {
     // code-review H9：send false → 不进 testing（钮不永挂）+ fail 态行内交代
     if (sendMcpServersTest(formInput()) === false) {
-      setTest({ kind: "fail", error: t("chat.settings.mcp.sendFail") });
+      markTest({ kind: "fail", error: t("chat.settings.mcp.sendFail") });
       return;
     }
-    setTest({ kind: "testing" }); // 重测先清旧态
+    markTest({ kind: "testing" }); // 重测先清旧态
   };
 
   /** 两段式删除：首击 armed（2.5s 复原），二击执行。 */
