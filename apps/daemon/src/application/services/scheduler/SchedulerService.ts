@@ -198,6 +198,11 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private readonly registry = new AgentLifecycle();
   /** FIFO 队列（instanceId 有序；内存队列不落盘，AD-10——重启清队归恢复链）。 */
   private readonly queue: string[] = [];
+  /** spawn 注入在途占位（agentId → 已获判定将占的预算槽位）：taskInjector
+   * await 窗口内实例已 register（current=queued）但既不计 runningCount 也不
+   * 在 queue——不占位则并发 spawn 双读同窗口双双获 run 突破 maxConcurrent
+   *（或双双入队突破 maxQueued）；completeSpawn 落地后出占（review B5）。 */
+  private readonly pendingSpawns = new Map<string, "run" | "enqueue">();
   /** 实例 → task（出队时 launch 入参；报告/观测面留档）。 */
   private readonly tasks = new Map<string, string>();
   /** spawn 时刻的透传模型 id（组合根两级链解析产物——AgentInstanceDto.model 空槽位填充链——出卡即知；T12 起不进 launcher 解析链）。 */
@@ -438,12 +443,13 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     reportIntervalMs?: number,
     options?: { writes?: WriteMode },
   ): SpawnOutcome | Promise<SpawnOutcome> {
-    const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
+    const budget = this.budgetSnapshot();
+    const decision = this.deps.policy().decideSpawn(budget.running, budget.queued);
     if (decision.action === "reject") {
       return {
         status: "rejected",
         error:
-          `调度预算已耗尽：${this.runningCount()} 个实例运行中（maxConcurrent=` +
+          `调度预算已耗尽：${budget.running} 个实例运行中（maxConcurrent=` +
           `${this.deps.policy().maxConcurrent}）且队列已满（maxQueued=${this.deps.policy().maxQueued}），` +
           `请稍后重试或先结束现有实例`,
       };
@@ -460,8 +466,20 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       ...(options?.writes !== undefined ? { writeMode: options.writes } : {}),
     });
     this.registry.registerInstance(instance);
+    // 在途占位（含同步直通路径：set/delete 同拍完成，无观测面差异）
+    this.pendingSpawns.set(agentId, decision.action === "run" ? "run" : "enqueue");
     // 后半程（注入后的登记/出卡/派发）——注入器缺席时同步直通（行为零变化）
     const completeSpawn = (effectiveTask: string): SpawnOutcome => {
+      this.pendingSpawns.delete(agentId);
+      // 注入窗口终态复查（review B5）：kill/cancelSession 可在窗口内把实例
+      // 收口终态（queued→cancelled/failed）——终态实例不发 spawned/queued、
+      // 不 startInstance（markRunning 对终态抛非法迁移）、不落门面 Map。
+      if (instance.isTerminal) {
+        return {
+          status: "rejected",
+          error: `实例 ${agentId} 在派发前已终止（${instance.current}）——本次 spawn 未执行`,
+        };
+      }
       this.tasks.set(agentId, effectiveTask);
       if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传解析后模型 id（DTO 填充）
       // T3-A：报告间隔校验（>0 且有限才启用；负数/NaN/0 视为不报告）
@@ -499,7 +517,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
         return { status: "run", agentId };
       }
 
-      const position = this.deps.policy().nextPosition(this.queue.length);
+      // 位次计入在途 enqueue 占位（并发入队不重号：占位落地后实际推送序一致）
+      const position = this.deps.policy().nextPosition(this.budgetSnapshot().queued);
       this.queue.push(agentId);
       this.persistLifecycle(instance); // queued 投影（重启 cancelled 收口语义的读面）
       this.publish(instance, "agent.queued", { agentId, position } satisfies AgentQueuedPayload);
@@ -667,7 +686,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     if (this.resumePending.has(agentId)) {
       return { resumed: true, queued: true, position: this.queue.indexOf(agentId) + 1 }; // 已在恢复队列幂等
     }
-    const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
+    const resumeBudget = this.budgetSnapshot();
+    const decision = this.deps.policy().decideSpawn(resumeBudget.running, resumeBudget.queued);
     if (decision.action === "reject") {
       return { resumed: false, error: `恢复预算已耗尽（运行位满且队列满），无法排队恢复实例 ${agentId}` };
     }
@@ -905,7 +925,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   /** 出队：预算允许则队首启动（循环直至预算耗尽或队列空）。 */
   private maybeDequeue(): void {
     while (this.queue.length > 0) {
-      const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
+      const dequeueBudget = this.budgetSnapshot();
+      const decision = this.deps.policy().decideSpawn(dequeueBudget.running, dequeueBudget.queued);
       if (decision.action !== "run") break;
       const agentId = this.queue.shift()!;
       this.republishPositions(); // 剩余位次整体递减重发（仅出队触发）
@@ -950,6 +971,20 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private runningCount(): number {
     // 预算口径 = 运行中 SubAgent 数（AD-7①；主实例不计入）
     return this.registry.listInstances().filter((i) => i.kind === "subagent" && i.current === "running").length;
+  }
+
+  /** 预算读数（review B5）：注入在途占位并入——注入窗口内实例已 register
+   *（current=queued）但既不计 runningCount 也不在 queue，不占位则并发
+   * spawn 双读同窗口双双获 run 突破 maxConcurrent（或双双入队突破 maxQueued）。
+   * 占位按已获判定归类（run 计运行位、enqueue 计队列位）；出队/恢复同口径。 */
+  private budgetSnapshot(): { running: number; queued: number } {
+    let running = this.runningCount();
+    let queued = this.queue.length;
+    for (const slot of this.pendingSpawns.values()) {
+      if (slot === "run") running += 1;
+      else queued += 1;
+    }
+    return { running, queued };
   }
 
   /** AgentInstance → agent_status 观测条目（位次/任务/终态摘要按态携带；park/resume 批：挂起原因/时刻）。 */
