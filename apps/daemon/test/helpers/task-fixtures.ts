@@ -6,6 +6,7 @@ import { TaskStore } from "../../src/adapters/driven/sqlite-session/TaskStore";
 import { WorkLedger, parentWorkLedger, type WorkLedgerParentFace } from "../../src/adapters/driven/sqlite-session/WorkLedger";
 import { TaskEngineService } from "../../src/application/services/task/TaskEngineService";
 import { TaskQueryService } from "../../src/application/services/task/TaskQueryService";
+import type { InstanceState } from "../../src/domain/agent/AgentInstance";
 import type {
   TaskSkillRegistryPort,
   TaskTypeInfo,
@@ -158,7 +159,7 @@ export interface TaskEngineEnv {
 
 export interface TaskEnvOverrides {
   /** 批次实例调度态读面（⑤ 链 A：parked 徽标数据源；缺省不装配 → DTO instanceState 省略）。 */
-  readonly instanceStateOf?: (agentId: string) => string | undefined;
+  readonly instanceStateOf?: (agentId: string) => InstanceState | undefined;
   /** 装配完成唤醒记录面（A 批：assemblyDone 钩子断言）。 */
   readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
 }

@@ -3,6 +3,7 @@ import { isTerminalJob, isTerminalStage, assertBatchTransition } from "../../../
 import { resolveStagePlan, stageKindOfManifest, validateTaskParams } from "../../../domain/task/manifest";
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
 import type { StageKind, StagePlan } from "../../../domain/task/types";
+import type { InstanceState } from "../../../domain/agent/AgentInstance";
 import type { TaskEnginePort, CreateTaskInput, DispatchBatchOutcome } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
 import { taskSessionIdOf } from "./TaskOrchestratorService";
@@ -70,11 +71,11 @@ export interface TaskEngineServiceDeps {
   readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
   /**
    * 实例调度态读面（迟到接线守卫，task-efd68911 事故收敛）：agentId →
-   * queued/running/parked/终态（done/failed/killed/cancelled）或 undefined
+   * queued/running/parked/终态（done/failed/cancelled）或 undefined
    * （查无）。组合根接 scheduler.status 映射；缺省不守卫（纯引擎测试形态——
    * 现有测试以假实例 id 直落章，零破坏过渡）。
    */
-  readonly instanceStateOf?: (agentId: string) => string | undefined;
+  readonly instanceStateOf?: (agentId: string) => InstanceState | undefined;
   /**
    * 实例生命周期投影族（恢复链幽灵收口；组合根接 persistence.repository，
    * 缺省不装配——纯引擎测试形态零依赖）。

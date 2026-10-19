@@ -8,6 +8,7 @@ import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue"
 import { TaskStore } from "../../src/adapters/driven/sqlite-session/TaskStore";
 import { parentWorkLedger } from "../../src/adapters/driven/sqlite-session/WorkLedger";
 import { TaskEngineService } from "../../src/application/services/task/TaskEngineService";
+import type { InstanceState } from "../../src/domain/agent/AgentInstance";
 import { WorkLedgerService } from "../../src/application/services/task/WorkLedgerService";
 import { TaskOrchestratorService } from "../../src/application/services/task/TaskOrchestratorService";
 import type { OrchestratorSessionFace } from "../../src/application/services/task/TaskOrchestratorService";
@@ -298,10 +299,12 @@ export async function withOrchestratorEnv(
     clock,
     // 迟到接线守卫（task-efd68911）：与编排器 instanceOutcome 同源——终态实例
     // 接线被机械转失败收口；查无拒绝（剧本链路全真走引擎守卫面）
+    // 剧本面 state 为自由串（fake recorder），DTO 值域收窄后此处显式转域类型
+    //（运行时值恒为 InstanceState 词表：done/failed/running）
     instanceStateOf: (agentId) =>
-      over.instanceOutcome !== undefined
+      (over.instanceOutcome !== undefined
         ? over.instanceOutcome(agentId)?.state
-        : (recorder.outcomes.get(agentId)?.state ?? "running"),
+        : (recorder.outcomes.get(agentId)?.state ?? "running")) as InstanceState | undefined,
   });
 
   const recorder = new FakeSpawnRecorder((jobId) =>

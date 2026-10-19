@@ -4,6 +4,7 @@ import type { TaskStorePort, BatchData, JobData, JobProgressRows, StageData, Sta
 import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
 import type { JobStatus, WorkItemStatus } from "../../../domain/task/types";
+import type { InstanceState } from "../../../domain/agent/AgentInstance";
 import { stageKindOfManifest } from "../../../domain/task/manifest";
 
 /**
@@ -64,7 +65,7 @@ export interface TaskBatchDto {
   readonly retryNote: string | null;
   readonly instanceId: string | null;
   /** 批次实例调度态（⑤ 链 A：parked = 挂起徽标数据源；未装配/不在册省略）。 */
-  readonly instanceState: string | undefined;
+  readonly instanceState: InstanceState | undefined;
   readonly plan: readonly WorkItemDto[] | null;
   readonly ledger: TaskBatchLedger | null;
 }
@@ -106,8 +107,10 @@ export interface TaskQueryServiceDeps {
   /**
    * 批次实例调度态读面（⑤ 链 A：组合根接 scheduler.status——任务页批次行
    * 实例徽标 parked 形态数据源；未注入/实例不在注册表 → 字段省略）。
+   * 值域以 domain AgentInstance.InstanceState 为单源（与 wire DTO 同词表——
+   * 协议 TaskBatchDto.instanceState 收窄为 InstanceState 后的 daemon 侧同动）。
    */
-  readonly instanceStateOf?: (agentId: string) => string | undefined;
+  readonly instanceStateOf?: (agentId: string) => InstanceState | undefined;
 }
 
 export class TaskQueryService {
