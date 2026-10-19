@@ -88,6 +88,24 @@ describe("AG-02：依赖方向矩阵", () => {
     }
   });
 
+  test("①b domain 不得 import 外层（application/adapters/infrastructure 的相对路径面）", () => {
+    // 评审 F1 缺口补强：①只看包外 import（相对路径一律放行），domain →
+    // application 的相对 type-import 因此漏网（ProposalLedger 曾引
+    // application/ports/outbound/StewardSurfacePort 的请求类型，自记临时债）。
+    // TR-13 依赖单向向内：domain 是被依赖方，不得反向引 applicaton/adapters/
+    // infrastructure 的任何符号（含 type-only——类型也是层间契约面）。
+    for (const rel of listFiles(path.join(srcRoot, "domain"))) {
+      for (const spec of importSpecifiers(read(path.join("domain", rel)))) {
+        if (!spec.startsWith(".")) continue; // 包外形态归①的白名单规则
+        const resolved = path.posix.normalize(path.posix.join("domain", path.posix.dirname(rel), spec));
+        expect(
+          /^(application|adapters|infrastructure)(\/|$)/.test(resolved),
+          `domain/${rel} 不得 import 外层符号（依赖方向 domain ← application ← adapters）：${spec}`,
+        ).toBe(false);
+      }
+    }
+  });
+
   test("② application 包外 import 显式白名单 = {@helix/common, @helix/protocol, node:path}（禁 adapters/infrastructure）", () => {
     // T4.1（TP-CL5-2，CL-5 裁决）：白名单是断言数据不是注释——新增包外
     // import 未进白名单 = 测试红（防复发）。旧实现以 `continue` 静默放行

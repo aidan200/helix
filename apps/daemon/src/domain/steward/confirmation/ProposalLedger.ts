@@ -21,17 +21,29 @@
  * （action.completed/notify/日志）的发射点与顺序保留在应用层逐点翻译，
  * ws 帧序列逐帧一致是批 1 的硬验收；domain 零 IO 零依赖注入端口（时钟
  * 注入除外）。executePending 执行体/口令路由/挂闸 gate 校验留应用层（批 3
- * 工具面子域归位）。PendingAction.surfaceAct 类型暂 type-import application
- * port（批 3 port 家族归位 domain 时一并迁——记录于 deviation）。
+ * 工具面子域归位）。PendingAction.surfaceAct 用本层自有的结构形状
+ * （SurfaceActPayload）——不引 application 端口类型、也不引 protocol 的
+ * SurfaceRisk（TR-13 双向禁令：domain 是依赖方向的被依赖端且 framework-free
+ * 才可纯单测）：两侧字面量同值域时结构双向可赋值，跨层传递零转换。
  *
  * 为什么存在：确认闸是管家事故最高频区（10-06 确认链路修复批问题 1-7 +
  * 10-07 热修批③④），状态迁移全部隐式是根因；聚合化后卡生命周期判定
  * （到期/成熟/续活/收敛）表驱动可测，应用层只做编排与翻译。
  */
 
-import type { StewardSurfaceActRequest } from "../../../application/ports/outbound/StewardSurfacePort";
+// ── 值对象与类型 ───────────────────────────────────
 
-// ── 值对象与类型 ───────────────────────────────────────────
+/** 表面动作请求的域内只读形状（M2；评审 F1：自
+ *  application/ports/outbound/StewardSurfacePort 的 StewardSurfaceActRequest
+ *  拆出——域层不得反向依赖 application，也不得 import protocol 类型）。
+ *  risk 以域内字面量联合表达：应用层请求与本形状字段同值域时结构双向可
+ *  赋值（协议 risk 词表若扩值，应用层赋值点先编译错，不会静默漂移）。 */
+export interface SurfaceActPayload {
+  readonly surfaceId: string;
+  readonly verb: string;
+  readonly args: Record<string, unknown>;
+  readonly risk: "read" | "write" | "destructive";
+}
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
  *  spawnReview = 动作标识；deliverSession = 递话目标会话；surfaceAct = 表面
@@ -58,7 +70,7 @@ export interface PendingAction {
     params: Record<string, unknown>;
   };
   /** surfaceAct 形态载荷（M2 表面动作——risk 已定档，经确认闸后走同一动作管道）。 */
-  readonly surfaceAct?: StewardSurfaceActRequest;
+  readonly surfaceAct?: SurfaceActPayload;
 }
 
 /** 在途确认卡条目（自 StewardService 迁入——pending Map 的值形态）。 */
