@@ -8,6 +8,9 @@
  * + subscribeKgFrames 帧注入回放（页面私有链）。中文断言语言钉 zh-CN。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { EventEnvelope, KgProjectRow } from "@helix/protocol";
 import type {
@@ -1330,5 +1333,25 @@ describe("code-review 低危组10（shell pages P-1）", () => {
       ],
     } satisfies KgProjectsResultPayload);
     expect(screen.getByText("workspace · foo")).toBeTruthy();
+  });
+});
+
+// ── TR-173 state 镜像 ref 纪律（code-review task-91e2e2f9 B21 #1）──────
+// ProjectPage stateRef 被 subscribeKgFrames listener 闭包读取（构建完成 toast
+// 判定），渲染体裸写违反 TR-173「写入必须收敛 setter 包装（ref 与 setState/
+// dispatch 同点写）」——React 并发渲染废弃腿可写陈旧值（行为面在 RTL 不可
+// 复现，按 B22 对 TR-173 类既例采用源码不变式守护）。
+describe("TR-173 state 镜像 ref 纪律（B21 #1：ProjectPage stateRef 渲染体裸写）", () => {
+  /** 被测源码（剥行注释——防注释内示例形态误伤断言；fileURLToPath 字符串
+   * 解析——jsdom 环境 new URL 全局非 node 实现，相对解析会报 scheme 错）。 */
+  const stripped = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ProjectPage.tsx"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+
+  it("渲染体禁裸写 state 镜像 ref：源码无「stateRef.current = state」直写形态", () => {
+    expect(stripped).not.toMatch(/^\s*stateRef\.current\s*=\s*state\s*;?\s*$/m);
+  });
+
+  it("TR-173 定式在位：写入收敛 dispatch 同点写包装（reducer 形态的 markXxx setter）", () => {
+    expect(stripped).toMatch(/dispatchSync/);
+    expect(stripped).toMatch(/stateRef\.current\s*=\s*projectReducer\(/);
   });
 });
