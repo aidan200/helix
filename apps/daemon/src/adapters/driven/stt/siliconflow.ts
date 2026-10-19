@@ -15,6 +15,10 @@ import { DEFAULT_VOICE_MODEL_CONFIG } from "../../../application/voice/voiceMode
 /** SiliconFlow OpenAI 兼容转写端点。 */
 const SILICONFLOW_TRANSCRIPTIONS_ENDPOINT = "https://api.siliconflow.cn/v1/audio/transcriptions";
 
+/** 单次 HTTP 超时（F2 #25，与 stt/dashscope 同口径）：multipart 上传挂起时
+ *  transcribe 必须能中断——否则语音输入链无声永挂。 */
+const STT_HTTP_TIMEOUT_MS = 30_000;
+
 /** 兜底模型（中文优先 SenseVoice）。
  *  别名 = voiceModelConfig 默认值单源字段（模型配置接入 P0；getModel 可覆盖）。 */
 export const SILICONFLOW_ASR_MODEL = DEFAULT_VOICE_MODEL_CONFIG.sttSiliconflowModel;
@@ -78,6 +82,7 @@ export class SiliconFlowSttAdapter implements SttPort {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
+      signal: AbortSignal.timeout(STT_HTTP_TIMEOUT_MS),
     });
     const parsed = (await res.json().catch(() => ({}))) as { text?: string; message?: string; error?: { message?: string } };
     if (!res.ok) {
