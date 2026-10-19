@@ -18,11 +18,24 @@ function getState(env: ExecutionEnv): MutationQueueState {
 	return state;
 }
 
-async function getMutationQueueKey(env: ExecutionEnv, path: string, context: Context): Promise<string> {
+/* LOCAL PATCH (helix, code-review B13): queue key must be stable across the
+ * file creation boundary. Upstream keyed the queue by canonical path when the
+ * target exists and by absolute path when it does not — the same file flips
+ * queue keys on create/delete, so a mutation registered while the file was
+ * missing (key = abs) races a later mutation registered after creation
+ * (key = canonical) in two non-serializing queues, silently dropping updates
+ * (read-modify-write edit vs. write). Fix: occupy BOTH keys — the absolute
+ * path plus the canonical path when resolvable — so any view of the same
+ * file serializes on a shared key. Upstream fix pending; drop this patch when
+ * vendoring a release that keys stably. */
+async function getMutationQueueKeys(env: ExecutionEnv, path: string, context: Context): Promise<string[]> {
 	const absolutePath = getOrThrow(await env.absolutePath(path, context));
 	const canonicalPath = await env.canonicalPath(absolutePath, context);
-	if (canonicalPath.ok) return canonicalPath.value;
-	if (canonicalPath.error.code === "not_found" || canonicalPath.error.code === "not_supported") return absolutePath;
+	if (canonicalPath.ok) {
+		// 双键去重：canonical 与 abs 同值（无 symlink/归一化差异）时只占一键
+		return canonicalPath.value === absolutePath ? [absolutePath] : [absolutePath, canonicalPath.value];
+	}
+	if (canonicalPath.error.code === "not_found" || canonicalPath.error.code === "not_supported") return [absolutePath];
 	throw canonicalPath.error;
 }
 
@@ -35,28 +48,35 @@ export async function withFileMutationQueue<T>(
 ): Promise<T> {
 	const state = getState(env);
 	const registration = state.registration.then(async () => {
-		const key = await getMutationQueueKey(env, path, context);
-		const currentQueue = state.queues.get(key) ?? Promise.resolve();
+		// LOCAL PATCH (helix, B13)：abs+canonical 双键原子占位（注册链内串行，
+		// 无死锁：键链 FIFO 且占位按注册全序进行）；同文件任意视角共享至少一键。
+		const keys = await getMutationQueueKeys(env, path, context);
+		const entries = keys.map((key) => {
+			const currentQueue = state.queues.get(key) ?? Promise.resolve();
 
-		let releaseNext = () => {};
-		const nextQueue = new Promise<void>((resolve) => {
-			releaseNext = resolve;
+			let releaseNext = () => {};
+			const nextQueue = new Promise<void>((resolve) => {
+				releaseNext = resolve;
+			});
+			const chainedQueue = currentQueue.then(() => nextQueue);
+			state.queues.set(key, chainedQueue);
+			return { key, currentQueue, chainedQueue, releaseNext };
 		});
-		const chainedQueue = currentQueue.then(() => nextQueue);
-		state.queues.set(key, chainedQueue);
-		return { key, currentQueue, chainedQueue, releaseNext };
+		return entries;
 	});
 	state.registration = registration.then(
 		() => undefined,
 		() => undefined,
 	);
 
-	const { key, currentQueue, chainedQueue, releaseNext } = await registration;
-	await currentQueue;
+	const entries = await registration;
+	await Promise.all(entries.map((entry) => entry.currentQueue));
 	try {
 		return await fn();
 	} finally {
-		releaseNext();
-		if (state.queues.get(key) === chainedQueue) state.queues.delete(key);
+		for (const entry of entries) {
+			entry.releaseNext();
+			if (state.queues.get(entry.key) === entry.chainedQueue) state.queues.delete(entry.key);
+		}
 	}
 }
