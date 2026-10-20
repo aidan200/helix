@@ -146,6 +146,13 @@ export class AgentInstance {
         `AgentInstance ${data.instanceId} 非 running 态（${data.state}）不得携带 startedAtMs（当前段起点仅 running 态合法）`,
       );
     }
+    // 已结算时长校验（评审 low #68）：NaN/负数入对象会污染 elapsedMs 计算
+    //（elapsedMs() = 已结算段 + 当前段），且非法值无任何出口可自愈。
+    if (data.elapsedMs !== undefined && (!Number.isFinite(data.elapsedMs) || data.elapsedMs < 0)) {
+      throw new DomainError(
+        `AgentInstance ${data.instanceId} elapsedMs 非法（${String(data.elapsedMs)}——须为非负有限数）`,
+      );
+    }
     return new AgentInstance({ ...data });
   }
 

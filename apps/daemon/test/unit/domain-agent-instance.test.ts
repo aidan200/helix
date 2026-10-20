@@ -194,6 +194,17 @@ describe("③ 终态封闭（F1.9：终态不回 running）", () => {
   });
 });
 
+describe("restore 值校验（评审 low #68：elapsedMs 非负有限数）", () => {
+  test("elapsedMs = NaN / 负数 → restore 抛 DomainError（不污染 elapsedMs() 计算）", () => {
+    const base = { instanceId: "a-x", kind: "subagent" as const, profileKind: "subagent-worker", sessionId: "s-1", createdAt: "2026-01-01T00:00:00.000Z" };
+    expect(() => AgentInstance.restore({ ...base, state: "done", elapsedMs: Number.NaN })).toThrow(/elapsedMs 非法/);
+    expect(() => AgentInstance.restore({ ...base, state: "done", elapsedMs: -1 })).toThrow(/elapsedMs 非法/);
+    // Infinity 同属非有限数 → 同样拒绝；合法值照收
+    expect(() => AgentInstance.restore({ ...base, state: "done", elapsedMs: Number.POSITIVE_INFINITY })).toThrow(/elapsedMs 非法/);
+    expect(AgentInstance.restore({ ...base, state: "done", elapsedMs: 1234 }).elapsedMs()).toBe(1234);
+  });
+});
+
 describe("④ 多实例并存：乱序交错序列互不干扰（F1.9）", () => {
   test("两个同类型 worker（agent-1/agent-2）仅凭 instanceId 可区分，状态机各自独立", () => {
     const a1 = subagent(1);
