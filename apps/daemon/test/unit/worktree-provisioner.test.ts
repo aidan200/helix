@@ -55,6 +55,22 @@ describe("GitWorktreeProvisioner", () => {
     }
   });
 
+  test("provision：slug 字符门——路径分隔/.. /空 一律拒（落点不越 .worktrees/）", async () => {
+    const repo = await mkRepo();
+    try {
+      const p = new GitWorktreeProvisioner();
+      for (const bad of ["a/b", "..", "../escape", "", "-lead", "a/../b", "agent/x"]) {
+        const r = await p.provision(bad, repo);
+        expect("error" in r).toBe(true);
+      }
+      // 合法形态（instanceId 字符集）照常建树
+      const ok = await p.provision("agent-0123456789abcdef", repo);
+      expect("error" in ok).toBe(false);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   test("provision：幂等（同 slug 重跑复用既有树）", async () => {
     const repo = await mkRepo();
     try {
