@@ -170,8 +170,15 @@ function parseMcpServers(value: unknown): McpServerConfig[] {
     if (r.args !== undefined && (!Array.isArray(r.args) || r.args.some((a) => typeof a !== "string"))) {
       throw new Error(`config.json mcpServers[${index}].args 应为 string[]`);
     }
-    if (r.env !== undefined && (typeof r.env !== "object" || r.env === null || Array.isArray(r.env))) {
-      throw new Error(`config.json mcpServers[${index}].env 应为 Record<string, string>`);
+    if (r.env !== undefined) {
+      if (typeof r.env !== "object" || r.env === null || Array.isArray(r.env)) {
+        throw new Error(`config.json mcpServers[${index}].env 应为 Record<string, string>`);
+      }
+      // 值类型逐项校验（评审 low #34）：只判「是对象」会把非 string 值
+      // as Record<string,string> 直接带给子进程 spawn env（args 有对称校验）。
+      if (Object.values(r.env as Record<string, unknown>).some((v) => typeof v !== "string")) {
+        throw new Error(`config.json mcpServers[${index}].env 的值应全为 string`);
+      }
     }
     if (r.timeoutMs !== undefined && (typeof r.timeoutMs !== "number" || r.timeoutMs <= 0)) {
       throw new Error(`config.json mcpServers[${index}].timeoutMs 应为正数`);
