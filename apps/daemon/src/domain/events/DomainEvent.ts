@@ -180,7 +180,9 @@ export interface AgentSpawnedPayload {
   readonly agentId: string;
   readonly task: string;
   readonly profileKind: string;
-  /** "provider/model-id"；缺省继承当前模型（解析归，此处可选）。 */
+  /** "provider/model-id"；缺省不携带（可选）。模型解析归属 = spawn 请求侧
+   *  的两级链（显式指定 → 会话/全局默认），本字段只透传解析结果；消费面
+   *  缺省时回落快照 model / 模型时间线（TraceQuery.assembleExecutionContext）。 */
   readonly model?: string;
 }
 
