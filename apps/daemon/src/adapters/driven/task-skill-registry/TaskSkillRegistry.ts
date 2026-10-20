@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { parse as parseYaml } from "yaml";
+import { parseSkillFrontmatter } from "../skill-frontmatter";
 import { DomainError } from "../../../domain/DomainError";
 import { parseTaskManifest } from "../../../domain/task/manifest";
 import type { TaskManifest } from "../../../domain/task/types";
@@ -101,26 +101,14 @@ export class TaskSkillRegistry implements TaskSkillRegistryPort {
       this.deps.warn(`任务类型 skill "${skillName}" 文件读取失败，跳过（${filePath}）：${String(error)}`);
       return { kind: "failed" };
     }
-    const normalized = raw.replace(/\r\n/g, "\n");
-    if (!normalized.startsWith("---\n")) return { kind: "absent" };
-    // 闭合标记行级精确判定：单独一行恰为 "---"（容行尾空白）。宽松的
-    // indexOf("\n---") 会把 frontmatter 值或正文中以 "---" 开头的行
-    // （"----" 分隔线、"---foo" 等）误判为闭合，截断 YAML 或吞正文——
-    // pi loadSourcedSkills 的 parseFrontmatter 同款宽松实现，不可复用。
-    const close = /\n---[ \t]*(?=\n|$)/.exec(normalized);
-    if (close === null) return { kind: "absent" };
-    try {
-      const parsed = parseYaml(normalized.slice(4, close.index));
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        return { kind: "present", value: parsed as Record<string, unknown> };
-      }
-      this.deps.warn(
-        `任务类型 skill "${skillName}" frontmatter 非映射形状（解析得到 ${typeof parsed}），跳过（${filePath}）`,
-      );
-      return { kind: "failed" };
-    } catch (error) {
-      this.deps.warn(`任务类型 skill "${skillName}" frontmatter YAML 解析失败，跳过（${filePath}）：${String(error)}`);
+    // 解析走 adapters/driven/skill-frontmatter 单点（行级精确闭合判定、CRLF
+    // 归一、YAML 三态——与 SkillScanner 两处消费同源，低危批上收）。
+    const front = parseSkillFrontmatter(raw);
+    if (front.kind === "absent") return { kind: "absent" };
+    if (front.kind === "invalid") {
+      this.deps.warn(`任务类型 skill "${skillName}" frontmatter ${front.reason}，跳过（${filePath}）`);
       return { kind: "failed" };
     }
+    return { kind: "present", value: front.value };
   }
 }
