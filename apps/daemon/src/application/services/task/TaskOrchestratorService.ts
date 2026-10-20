@@ -62,7 +62,7 @@ export function isTaskSessionId(sessionId: string): boolean {
 const DISPATCH_PROFILE_KINDS: Readonly<Record<string, DispatchProfileKind>> = {
   "kg-bootstrap": "subagent-kg-writer",
   "kg-review": "subagent-kg-writer",
-  "kg-triage": "subagent-kg-writer", // 图谱写面任务（裁决落地）；2026-09-29 triage 首跑暴露缺口：未映射回落 worker 工具集，编排层临时显式传参兑底
+  "kg-triage": "subagent-kg-writer", // 图谱写面任务（裁决落地）；2026-09-29 triage 首跑暴露「未映射回落 worker 工具集」缺口，映射已收口进本表——映射判据单源只此一处，别处勿再显式传 profileKind 兜底
   "code-review": "subagent-code-reviewer",
 };
 
@@ -101,8 +101,9 @@ export type BatchResumeOutcome = { readonly resumed: boolean; readonly queued?: 
 export interface TaskOrchestratorServiceDeps {
   readonly store: TaskStorePort;
   readonly taskEngine: TaskEnginePort;
-  /** 台账读面（isFullyResolved 硬判据 + 前序 plan 摘要装配）。 */
-  readonly ledger: WorkLedgerService;
+  /** 台账读面窄结构（评审 low #54：只消费 isFullyResolved 硬判据 + getPlan
+   *  前序摘要，不绑具体类——与 CoordinationService 的最小接缝风格一致）。 */
+  readonly ledger: Pick<WorkLedgerService, "isFullyResolved" | "getPlan">;
   readonly skills: TaskSkillRegistryPort;
   /** 任务 skill 全文取数（kickoff 装配；组合根/测试注入）。 */
   readonly skillTextOf: (type: string) => Promise<string | undefined>;
@@ -430,7 +431,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         this.warn(`编排会话驱动异常（任务 ${loop.jobId}）：${message}——5s 后单次重试`);
         loop.backingOff = true; // 窗内 wake 只暂存（见 LoopState.backingOff 注释）
         await new Promise((r) => setTimeout(r, 5000));
-        if (!loop.stopped) {
+        // 退避窗内被暂停（parked）或被停（stopped）都不再驱动：parked 只暂存
+        // 唤醒信号，驱动回合归 resume 面（评审 low #52：烧 token 的空转回合）。
+        if (!loop.stopped && !loop.parked) {
           try {
             await loop.session.drive(prompt);
             this.warn(`编排会话重试驱动成功（任务 ${loop.jobId}）`);
