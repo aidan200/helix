@@ -12,6 +12,7 @@ import type {
   TabInfo,
 } from "../../../../application/ports/outbound/BrowserPort";
 import type { ChildOutboundLine, ToolResponseLine } from "../transport/wire";
+import { RemoteToolBridge } from "./remote-tool-bridge";
 
 /**
  * RemoteBrowserPort —— BrowserPort 进程外实现（H-3 方案 A 转发通道，子进程侧）。
@@ -32,55 +33,37 @@ import type { ChildOutboundLine, ToolResponseLine } from "../transport/wire";
 /** 转发缺省超时（可注入——测试小值；daemon 侧 CDP 操作自身有独立超时）。 */
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 
-interface PendingEntry {
-  readonly resolve: (value: unknown) => void;
-  readonly reject: (err: Error) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
-}
-
 export class RemoteBrowserPort implements BrowserPort {
-  private nextReqId = 0;
-  private readonly pending = new Map<number, PendingEntry>();
-  private readonly timeoutMs: number;
+  /** 转发机制单点（pending/reqId/超时/清场与 RemoteAskPort 同源）。 */
+  private readonly bridge: RemoteToolBridge;
 
   constructor(
-    private readonly instanceId: string,
-    private readonly writeLine: (line: ChildOutboundLine) => void,
+    instanceId: string,
+    writeLine: (line: ChildOutboundLine) => void,
     timeoutMs: number = DEFAULT_TOOL_TIMEOUT_MS,
   ) {
-    this.timeoutMs = timeoutMs;
+    this.bridge = new RemoteToolBridge({
+      instanceId,
+      writeLine,
+      timeoutMs,
+      firstReqId: 0,
+      timeoutMessage: (method) => `browser 转发超时（${method}，${timeoutMs}ms 无 daemon 回执）`,
+    });
   }
 
   /** ChildMain stdin 路由馈入：reqId 关联 settle。未知/迟到 reqId 静默忽略。 */
   handleResponse(line: ToolResponseLine): void {
-    const entry = this.pending.get(line.reqId);
-    if (entry === undefined) return; // 迟到/未知回执：pending 已清（超时/清场），静默
-    this.pending.delete(line.reqId);
-    clearTimeout(entry.timer);
-    if (line.ok) entry.resolve(line.value);
-    else entry.reject(new Error(line.error));
+    this.bridge.handleResponse(line);
   }
 
   /** 子进程退出清场：全部在飞请求以 reason 拒绝（定时器同清）。 */
   rejectAll(reason: string): void {
-    for (const entry of this.pending.values()) {
-      clearTimeout(entry.timer);
-      entry.reject(new Error(reason));
-    }
-    this.pending.clear();
+    this.bridge.rejectAll(reason);
   }
 
-  /** 转发单点：reqId 递增 → pending 登记 → tool-req 上 wire → 等 tool-res。 */
+  /** 转发单点（机制在 RemoteToolBridge：reqId 递增 → pending 登记 → 上 wire → 等回执）。 */
   private call<T>(method: string, args: readonly unknown[]): Promise<T> {
-    const reqId = ++this.nextReqId;
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(reqId);
-        reject(new Error(`browser 转发超时（${method}，${this.timeoutMs}ms 无 daemon 回执）`));
-      }, this.timeoutMs);
-      this.pending.set(reqId, { resolve: resolve as (value: unknown) => void, reject, timer });
-      this.writeLine({ type: "tool-req", instanceId: this.instanceId, reqId, method, args });
-    });
+    return this.bridge.call<T>(method, args);
   }
 
   // ── 转发面（12 白名单方法；尾缺省参裁 undefined——JSON null 不越线） ──
