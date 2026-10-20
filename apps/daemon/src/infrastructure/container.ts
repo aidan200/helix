@@ -83,7 +83,8 @@ import {
   KG_SIMILARITY_WARN_DEFAULT,
 } from "../application/services/kg/kgConfig";
 import { migrateLegacySummaryKeys, readSummaryConfig } from "../application/summary/summaryConfig";
-import type { DomainEvent } from "../domain/events/DomainEvent";import {
+import type { DomainEvent } from "../domain/events/DomainEvent";
+import {
   StewardMemoryService,
   STEWARD_MEMORY_EMBEDDING_KEY,
 } from "../application/steward/StewardMemoryService";
@@ -332,21 +333,31 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // 目录不存在则 ENOENT）——ensureHome 是 home 目录创建的单点（TR-AD-6）。
   paths.ensureHome();
   const lock: SingletonLock | undefined = acquireSingletonLock(paths.lockPath());
-  // 配置：首次创建模板（0600，AG-09）+ 加载（瘦身：纯运行参数；旧
-  // 格式 model/apiKeys 读入 legacy 由装配核心迁移落新位）
-  ensureConfigTemplate(paths.configPath());
-  const loaded = loadConfig(paths.configPath());
-  return assembleDaemon({
-    home: options.home,
-    port: options.port,
-    cliInput: options.cliInput,
-    cliOutput: options.cliOutput,
-    engineMode: { kind: "production" },
-    lock,
-    config: loaded.config,
-    legacy: loaded.legacy,
-    browserPort: new CdpConnectionManager({ homeDir: osHomeDir() }),
-  });
+  // 锁释放兜底（评审 low #30）：拿到锁后到装配成功之前任何抛错（loadConfig
+  // 配置损坏/assembleDaemon 中途失败）都必须释放 daemon.lock——否则遗留锁
+  // 下次启动被当陈锁接管并误报「上次非正常退出」（previousCrash 假信号）。
+  let assembled: Daemon;
+  try {
+    // 配置：首次创建模板（0600，AG-09）+ 加载（瘦身：纯运行参数；旧
+    // 格式 model/apiKeys 读入 legacy 由装配核心迁移落新位）
+    ensureConfigTemplate(paths.configPath());
+    const loaded = loadConfig(paths.configPath());
+    assembled = await assembleDaemon({
+      home: options.home,
+      port: options.port,
+      cliInput: options.cliInput,
+      cliOutput: options.cliOutput,
+      engineMode: { kind: "production" },
+      lock,
+      config: loaded.config,
+      legacy: loaded.legacy,
+      browserPort: new CdpConnectionManager({ homeDir: osHomeDir() }),
+    });
+  } catch (err) {
+    lock?.release(); // 幂等
+    throw err;
+  }
+  return assembled;
 }
 
 /**
