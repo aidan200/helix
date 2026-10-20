@@ -1,5 +1,5 @@
 /**
- * shared/api —— C→S 命令帧构造器（v0.2 信封；契约 A §1.1 / 契约 B §1 /
+ * shared/api/commands —— C→S 命令帧构造器（v0.2 信封；契约 A §1.1 / 契约 B §1 /
  * 契约 C §1；T3.1）。
  *
  * 全部形状直引 @helix/protocol（AG-13 两端同源；TR-TEST 纪律②——harness
@@ -8,7 +8,14 @@
  * 等）省略——类型层可选、本构造器纪律保证。
  * 草稿首条消息（契约 B §1.5）：chat.send 信封省略 sessionId + payload
  * draft:true（daemon 建聚合 + 回推 list_changed{created} + 订阅切换 + 快照）。
+ *
+ * 单源面（E-84 修订 · 体量门 P3）：构造器实现按命令域落在 commands/ 目录
+ * （commands/<domain>.ts），本文件（原路径 shared/api/commands.ts）为
+ * barrel——精确再导出全族符号，公共 API 面与拆分前逐符号一致（消费方
+ * import 路径 "@/shared/api/commands" 零改动）。新增/修改构造器改对应域
+ * 模块，barrel 只加导出行；清单以 commands/ 目录为单源。
  */
+
 import { DEFAULT_MODE_ID, PROTOCOL_VERSION } from "@helix/protocol";
 import type {
   AgentBasePromptGetCommand,
@@ -171,55 +178,15 @@ import type {
   AskAnswerCommand,
 } from "@helix/protocol";
 
-/** chat.send：既有会话发送（信封 sessionId = 活跃会话）。
- *  T9（v0.10）：images 可选——未传时省略（传空数组 [] 仍按携带出帧，
- *  additive 纪律：只判 undefined 不加空数组特判）。 */
-export function chatSendCommand(text: string, sessionId: string, images?: readonly string[]): ChatSendCommand {
-  return {
-    v: PROTOCOL_VERSION,
-    type: "chat.send",
-    sessionId,
-    payload: images === undefined ? { text } : { text, images },
-  };
-}
+export {
+  chatSendCommand,
+  chatSendDraftCommand,
+  chatSteerCommand,
+  askAnswerCommand,
+  chatAbortCommand,
+} from "./commands/chat";
 
-/** chat.send 草稿首条消息：无信封 sessionId + draft:true（契约 B §1.5）。
- *  T3（bug4）：model 可选——**仅非空时携带**（ChatSendPayload.model?，仅
- *  draft:true 建会话链消费；缺省 = 全局默认不换模。空串与缺省同义：不发空
- *  model 键——daemon 侧不再需要空防御兜底）。
- *  T9（v0.10）：images 可选——三可选共存（draft + model + images）。
- *  P1 T4：mode 可选——仅非 default 携带（DEFAULT_MODE_ID 走协议缺省，
- *  减少帧噪音；建会话定格链消费，此后无写路径）。 */
-export function chatSendDraftCommand(
-  text: string,
-  model?: string,
-  images?: readonly string[],
-  mode?: string,
-): ChatSendCommand {
-  const payload: ChatSendCommand["payload"] = { text, draft: true };
-  if (model !== undefined && model !== "") payload.model = model; // 空串 = 未选模型（不携带，帧噪音最小）
-  if (images !== undefined) payload.images = images;
-  if (mode !== undefined && mode !== DEFAULT_MODE_ID) payload.mode = mode;
-  return { v: PROTOCOL_VERSION, type: "chat.send", payload };
-}
-
-/** chat.steer：生成中注入（信封 sessionId = 活跃会话）。v0.3（契约 §3.1，
- *  CL-3）：instanceId 可选——携带 = 定向寻址目标 SubAgent 实例（抽屉 steer
- *  输入栏）；缺省 = 主实例（主 Composer 既有语义零变更，payload 不携带 key）。
- *  sessionId 可选（M9 收编草稿防御分支）：省略 = 信封不携带 sessionId
- * （daemon 解析当前会话——理论上生成中必有活跃会话，此为防御形态）。 */
-export function chatSteerCommand(text: string, sessionId?: string, instanceId?: string): ChatSteerCommand {
-  const payload: ChatSteerPayload = instanceId === undefined ? { text } : { text, instanceId };
-  return sessionId === undefined
-    ? { v: PROTOCOL_VERSION, type: "chat.steer", payload }
-    : { v: PROTOCOL_VERSION, type: "chat.steer", sessionId, payload };
-}
-
-/** ask.answer：提权申请裁决（permission_request 批；信封 sessionId = 申请归属会话——
- *  会话作用域命令，daemon 按信封路由 AskService 单 pending 槽）。 */
-export function askAnswerCommand(askId: string, approved: boolean, sessionId: string): AskAnswerCommand {
-  return { v: PROTOCOL_VERSION, type: "ask.answer", sessionId, payload: { askId, approved } };
-}
+// ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
 
 // ── agent 实例三命令（契约 v0.1 §4；抽屉 kill 两步确认 / 订阅全流）────
 // 全部全局命令（信封 sessionId 省略，payload.agentId 寻址）。
@@ -237,11 +204,6 @@ export function agentSubscribeCommand(agentId: string): AgentSubscribeCommand {
 /** agent.unsubscribe：退订实例事件流（抽屉关闭/换订）。 */
 export function agentUnsubscribeCommand(agentId: string): AgentUnsubscribeCommand {
   return { v: PROTOCOL_VERSION, type: "agent.unsubscribe", payload: { agentId } };
-}
-
-/** chat.abort：中断当前生成（信封 sessionId = 活跃会话）。 */
-export function chatAbortCommand(sessionId: string): ChatAbortCommand {
-  return { v: PROTOCOL_VERSION, type: "chat.abort", sessionId, payload: {} };
 }
 
 /** session.subscribe：切换/建连订阅（信封 sessionId 必填；daemon 重推该会话全量快照 = ack，
