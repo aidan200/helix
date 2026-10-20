@@ -18,6 +18,20 @@ import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../../application/ports/outbound/BrowserPort";
 import type { ProfileKind } from "../../application/ports/outbound/ResourceStatePort";
 import type { ProfileSnapshotData } from "../../domain/events/DomainEvent";
+import { isAbsolute, join } from "node:path";
+
+/** win32 盘符绝对形态（posix 宿主收到同一形态时也按绝对处理——与
+ *  application/services/kg/rel-path 的 WIN_DRIVE_ABSOLUTE 同口径）。 */
+const WIN_DRIVE_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
+
+/** 写事实登记路径解析（writeHook 面纯函数，导出供单测）：绝对形态（POSIX
+ *  `/` 或 win32 盘符 `C:\` / `C:/`）原样返回，相对形态 join 到 toolCwd。
+ *  评审 low #36：原内联 `p.startsWith("/")` 硬编码 POSIX，win32 宿主下
+ *  盘符路径被误判相对再拼 toolCwd，写事实登记路径错（与 rel-path 的
+ *  isAbsolute+WIN_DRIVE 同口径）。 */
+export function writeFactPathOf(toolCwd: string, p: string): string {
+  return isAbsolute(p) || WIN_DRIVE_ABSOLUTE.test(p) ? p : join(toolCwd, p);
+}
 import { ChatService } from "../../application/services/ChatService";
 import { SessionProjection } from "../../application/services/SessionProjection";
 import { profileKindOf } from "../../application/services/modes";
@@ -287,7 +301,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
             writeHook: (p: string, content: string | Uint8Array) => {
               const wf = ctx.writeFacts;
               if (wf !== undefined) {
-                const abs = p.startsWith("/") ? p : `${ctx.toolCwdOf().replace(/\/+$/, "")}/${p}`;
+                const abs = writeFactPathOf(ctx.toolCwdOf(), p);
                 wf.record({ instanceId: bind.mainInstanceId, sessionId, path: abs, at: Date.now(), confidence: "precise" });
               }
               return ctx.turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId, content);
