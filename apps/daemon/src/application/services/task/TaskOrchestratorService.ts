@@ -1,8 +1,6 @@
 import type { TaskStorePort, BatchData, JobData } from "../../ports/outbound/TaskStorePort";
 import { displayStateOf } from "../../../domain/agent/ObservabilityState";
-import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskOrchestratorStarterPort } from "../../ports/outbound/TaskOrchestratorStarterPort";
-import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
 import type {
   AgentOrchestrationPort,
   SpawnOutcome,
@@ -11,8 +9,6 @@ import type { WorkItemData } from "../../ports/outbound/WorkLedgerPort";
 import { isTerminalJob } from "../../../domain/task/job";
 import { MAX_BATCH_RETRY } from "../../../domain/task/retry";
 import { DEFAULT_PROFILE_KIND } from "../../ports/outbound/ResourceStatePort"; // profileKind 缺省单源（与 SchedulerService.spawn 缺省同值）
-import type { ParkReason } from "../../../domain/events/DomainEvent";
-import type { WorkLedgerService } from "./WorkLedgerService";
 import { titleOf } from "./TaskQueryService";
 
 /**
@@ -79,152 +75,18 @@ export function dispatchProfileKindOf(jobType: string): DispatchProfileKind {
   return DISPATCH_PROFILE_KINDS[jobType] ?? DEFAULT_PROFILE_KIND;
 }
 
-/** 编排会话驱动面（编排服务消费的最小接缝；生产实现 = pi 引擎装配，组合根注入）。 */
-export interface OrchestratorSessionFace {
-  /** 驱动一轮 run（含工具轮与注入 drain 轮；run 结束 resolve）。 */
-  drive(prompt: string): Promise<void>;
-  /** 运行中注入（turn 边界 drain；闲时注入由调用方改为 drive）。 */
-  inject(text: string): void;
-  /** 中断当前 run（stop 通路）。 */
-  abort(): void;
-}
-
-/** 实例终态读面（closure 判据：state done=收口成功，failed/killed=收口失败）。 */
-export type InstanceOutcomeFace = { readonly state: string; readonly summary?: string } | undefined;
-
-/** 批次实例挂起请求结果（SchedulerService.park 结构面；拒绝附中文原因）。 */
-export type BatchParkOutcome = { readonly parked: boolean; readonly error?: string };
-
-/** 批次实例恢复结果（SchedulerService.resume 结构面；queued=true = 预算满排队恢复）。 */
-export type BatchResumeOutcome = { readonly resumed: boolean; readonly queued?: boolean; readonly error?: string };
-
-export interface TaskOrchestratorServiceDeps {
-  readonly store: TaskStorePort;
-  readonly taskEngine: TaskEnginePort;
-  /** 台账读面窄结构（评审 low #54：只消费 isFullyResolved 硬判据 + getPlan
-   *  前序摘要，不绑具体类——与 CoordinationService 的最小接缝风格一致）。 */
-  readonly ledger: Pick<WorkLedgerService, "isFullyResolved" | "getPlan">;
-  readonly skills: TaskSkillRegistryPort;
-  /** 任务 skill 全文取数（kickoff 装配；组合根/测试注入）。 */
-  readonly skillTextOf: (type: string) => Promise<string | undefined>;
-  /**
-   * 批次 SubAgent spawn 原面（调度器绑定：task:* 会话归属；占预算）。
-   * 第三参 profileKind（D8 W-R6 分流产物：kg-bootstrap/kg-review →
-   * subagent-kg-writer，其余 subagent-worker）透传 scheduler.spawn 登记。
-   */
-  readonly rawSpawn: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome | Promise<SpawnOutcome>;
-  /**
-   * kg-bootstrap 硬闸（D2，批1）：默认 embedding 端点在场判据（全消费面
-   *  resolveDefault 单点的窄投影；false = 向量面不可用）——kg-bootstrap
-   *  任务开工前检查，缺席即任务失败并提示去配置（构建知识库必须有向量
-   *  端点：节点向量化是基建单点依赖）。可选——测试/非 kg 场景不注入零影响。
-   */
-  readonly hasDefaultEmbeddingEndpoint?: () => boolean;
-  /** 实例终态读面（调度器 status 映射）。 */
-  readonly instanceOutcome: (agentId: string) => InstanceOutcomeFace;
-  /** 在跑批次 SIGTERM（cancel 通路收口在调度器 kill）。 */
-  readonly killInstance: (agentId: string) => void;
-  /**
-   * 批次实例挂起原语（⑤ 链 A：组合根接 scheduler.park——parkAll 消费，
-   * reason=taskPause；协作式：指令经 steer 通道注入，PARK 确认上行后
-   * 实例转 parked 释放预算）。
-   */
-  readonly parkInstance: (agentId: string, reason: ParkReason) => BatchParkOutcome;
-  /**
-   * parked 批次实例复活原语（⑤ 链 A：组合根接 scheduler.resume——resumeAll
-   * 消费；同实例同会话续跑，预算满与重派同队排队恢复）。未挂起/终态实例
-   * 拒绝（resumed=false）为良性——resumeAll 按批次行全量调用。
-   */
-  readonly resumeInstance: (agentId: string) => BatchResumeOutcome;
-  /** 编排会话工厂（每任务一个；ports = 派批次 SubAgent 的任务绑定编排口）。 */
-  readonly createSession: (jobId: string, orchestration: AgentOrchestrationPort) => OrchestratorSessionFace;
-  /** plan 硬约束段全文（模板层硬约束——plan=enforced 任务派发面机械追加；段库 catalog 同源注入）。 */
-  readonly planHardConstraint: string;
-  /**
-   * 任务报告目录解析（D6：kickoff 起跑信息携带——任务级汇总报告固定落点
-   * <home>/reports/task:<jobId>，orchestrator 持 write 自己写不绕道汇总批次）；
-   * 与 SubagentLauncher reportDirFor / ClosureRecorder reportsDirFor 同源同式
-   * （paths.home/reports/<sessionId>，组合根注入）。
-   */
-  readonly reportsDirFor: (sessionId: string) => string;
-  /**
-   * job 终态提示面（W2-D R13：reap 终态任务时回调——组合根接 pending_sync
-   * 扫描 + 用户提示广播；编排层挂点不进引擎，守 AD-10）。仅在循环被 reap
-   * 时触发一次（cancel 走 stopOrchestrator 用户主动路径，不触发）；缺省不提示。
-   * title = 任务标题机械字段（titleOf 同源；管家 notify title 用，非 UUID）。
-   */
-  readonly onJobTerminal?: (jobId: string, status: JobData["status"], title?: string) => void;
-  /** 卡装配修复：info 面（驱动开始/完成可观测）+ warn 面（异常/重试链）。 */
-  readonly logger?: { info(message: string): void; warn(message: string): void };
-  /**
-   * 推进检查延迟窗（毫秒，缺省 30s）：驱动收场后静置此刻仍无事件驱动才判
-   * 死局（重驱/failJob）。测试注入短窗（50ms）确定性触发；生产缺省长窗——
-   * 插行收场/装配轮间隙等合法短暂收场不被误杀。
-   */
-  readonly progressCheckDelayMs?: number;
-}
-
-/** 单任务编排循环态（会话 + 派发 brief 登记簿 + 驱动中标记）。 */
-interface LoopState {
-  readonly jobId: string;
-  readonly session: OrchestratorSessionFace;
-  /** instanceId → 派发 brief（重派接力源；会话可丢弃，此簿随会话同寿）。 */
-  readonly briefs: Map<string, string>;
-  running: boolean;
-  stopped: boolean;
-  /**
-   * 退避窗位（清单 #2.5：drive 异常 5s 重试等待期）：窗内会话实际空闲，
-   * wake 走 inject 会注入非运行会话丢失（OrchestratorSessionFace 契约
-   * ：81-83 声明闲时注入由调用方改为 drive）——置位期间 wake 暂存
-   * stashedWakes，重试轮收口后回放（resume 回放同构）。
-   */
-  backingOff: boolean;
-  /**
-   * 链 A 挂起位（任务 pause 置位 / resume 清位）：置位期间 wake 只入
-   * stashedWakes 暂存队列，不驱动编排器回合。编排器自身是 daemon 内会话
-   * ——不需要子进程 PARK 协议（pause 时它通常在等批次 closure，无「回合中」
-   * 挂起问题；恰逢回合中则当前 drive 自然收口后挂起生效）。
-   */
-  parked: boolean;
-  /** 挂起期间暂存的唤醒（resume 时回放驱动编排器）。 */
-  readonly stashedWakes: string[];
-  /**
-   * 失败停摆位（haltJob：failBatch 超限上浮 → job failed）：置位后不再
-   * 驱动任何编排回合（wake 全丢）但保留收口落库（locate 放行）——在跑
-   * 实例自然收口、排队实例已摘队，全部 in-flight 收口后循环自清
-   * （reapDrained）。区别于 stopped 单用：stopped 循环收口被丢弃，drain
-   * 循环收口照常落库（done 行保留，人工重试不重跑）。
-   */
-  drain: boolean;
-  /**
-   * 对账扫描防重入位（task-efd68911）：startOrchestrator/resume 与驱动回合
-   * 结束点都触发 sweepBatches，异步并发双扫会双派——置位期间后续触发跳过
-   * （failBatch running 断言兜底竞态，此处前置消解）。
-   */
-  sweeping: boolean;
-  /**
-   * 推进检查重驱位（task-efd68911 第二重事故）：编排会话收场且无在跑实例
-   * 但任务存在未完批次/阶段 → 重驱一次提示推进；置位后再次检测仍此态 →
-   * failJob 收口（有界：防网络持续断/LLM 持续不推进时永久 running）。界 =
-   * 单次静置死局非全生命周期一次：批次收口（settleInstance 尾）复位——
-   * 长任务每次实质推进后重获一次重驱机会。
-   */
-  progressRedriven: boolean;
-  /** 推进检查定时器（收场后延迟窗；新收场重置，循环满退/停摆清理）。 */
-  progressTimer?: ReturnType<typeof setTimeout>;
-}
-
-const RESUME_NOTICE = "【恢复通知】任务已恢复（running）——按现场摘要与任务 skill SOP 续跑。";
-
-/** 推进检查重驱文案（收场后无在跑实例 + 未完批次/阶段：提示 LLM 推进或收口——涵盖装配期零批次死局）。 */
-const PROGRESS_CHECK_NOTICE = [
-  "【推进检查】驱动收场后系统检测：无在跑实例但任务存在未完批次/阶段。",
-  "请按任务 skill SOP 与批次行现场继续推进：尚未划批的先划分批次并 task_insert_batch 落行；已划批的派发 pending 批次（agent_spawn 携带 batchId 即自动接线；仅补接线才单独 task_dispatch_batch）；聚合已收口阶段产物；或申报任务完成/失败。",
-  "若无实质推进动作，系统将把任务失败收口（failJob）。",
-].join("\n");
-
-/** 推进检查延迟窗缺省（毫秒）：收场后静置此刻仍无事件驱动才判死局——插行收场/装配轮间隙等合法短暂收场不被误杀。 */
-const PROGRESS_CHECK_DELAY_MS = 30_000;
+/** 契约面（接缝类型 + 注入面）拆分至 orchestrator-contract.ts、循环态与
+ *  注入文案拆分至 orchestrator-loop-state.ts（P2 体量门 ④ 轻拆批：机械迁出
+ *  零逻辑改动）；此处 re-export 保公共 API 面不变（消费方零感知）。 */
+export type {
+  BatchParkOutcome,
+  BatchResumeOutcome,
+  InstanceOutcomeFace,
+  OrchestratorSessionFace,
+  TaskOrchestratorServiceDeps,
+} from "./orchestrator-contract";
+import type { TaskOrchestratorServiceDeps } from "./orchestrator-contract";
+import { PROGRESS_CHECK_DELAY_MS, PROGRESS_CHECK_NOTICE, RESUME_NOTICE, type LoopState } from "./orchestrator-loop-state";
 
 export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   private readonly loops = new Map<string, LoopState>();
