@@ -204,6 +204,24 @@ export class CdpConnectionManager implements BrowserPort {
    */
   setAwarenessSink(sink: BrowserAwarenessSink | undefined): void {
     this.awareness = sink;
+    // 晚绑即补下发（低危批）：Target.setAutoAttach 只在 doConnect 成功时下发过
+    // ——连接已建立后才挂上 sink（或有感知开关后置打开的路径）时，既有连接上
+    // 的用户 tab 不会进观察面，直到断线重连才生效。
+    void this.refreshAwareness();
+  }
+
+  /**
+   * 感知开关翻转后同步到既有连接（低危批）：重下发 Target.setAutoAttach +
+   * 给既有会话补观察者注入。开关 off / 未连接 → no-op（幂等，可反复调用）。
+   * 触发面：setAwarenessSink 晚绑、以及任何运行期打开感知开关的路径
+   * （KV surface.awareness 写入方）。
+   */
+  async refreshAwareness(): Promise<void> {
+    if (this.awareness === undefined || !this.awareness.isEnabled() || !this.isOpen()) return;
+    await this.enableAutoAttach();
+    for (const sessionId of [...this.sessions.values()]) {
+      void this.ensureObserver(sessionId);
+    }
   }
 
   /** 手动停止：关全部 managed tabs → 断 WS → 回 idle。幂等；未连接安全 no-op。 */
@@ -536,18 +554,32 @@ export class CdpConnectionManager implements BrowserPort {
 
     // targetId → sessionId 映射维护（flatten attach 事件通道）
     if (msg.method === "Target.attachedToTarget") {
-      const { sessionId, targetInfo } = msg.params;
-      this.registry.update(targetInfo.targetId, { url: targetInfo.url, title: targetInfo.title });
-      const existing = this.sessions.get(targetInfo.targetId);
-      if (existing !== undefined && existing !== sessionId) {
-        // 同一 target 的第二个会话（auto-attach 与显式 attach 竞态）：保留既有映射，
-        // 新会话就地解绑——覆盖映射会让旧会话成孤儿，且新会话的注入面只挂一半。
-        void this.sendCDP("Target.detachFromTarget", { sessionId }).catch(() => undefined);
+      // 形状守卫（低危批）：畸形帧（缺陷版 CDP 目标/第三方调试端）缺 params 或
+      // targetInfo 时，旧实现直接解构即 TypeError——ws message 监听链上抛成
+      // uncaughtException（整 daemon 崩）。非字符串形状一律忽略该帧。
+      const params = msg.params as
+        | { sessionId?: unknown; targetInfo?: { targetId?: unknown; url?: unknown; title?: unknown } }
+        | undefined;
+      const sessionId = typeof params?.sessionId === "string" ? params.sessionId : undefined;
+      const targetId = typeof params?.targetInfo?.targetId === "string" ? params.targetInfo.targetId : undefined;
+      if (sessionId === undefined || targetId === undefined) {
+        /* 畸形 attachedToTarget 帧：丢弃（不影响命令面） */
       } else {
-        this.sessions.set(targetInfo.targetId, sessionId);
-        // 反风控端口守卫 + M1 观察者注入（F2 #28：auto-attach 来的 tab 与显式
-        // attach 同等待遇——否则感知开关开时新 tab 全部漏挂端口拦截）
-        void this.enablePortGuard(sessionId).then(() => this.ensureObserver(sessionId));
+        this.registry.update(targetId, {
+          url: typeof params?.targetInfo?.url === "string" ? params.targetInfo.url : "",
+          title: typeof params?.targetInfo?.title === "string" ? params.targetInfo.title : "",
+        });
+        const existing = this.sessions.get(targetId);
+        if (existing !== undefined && existing !== sessionId) {
+          // 同一 target 的第二个会话（auto-attach 与显式 attach 竞态）：保留既有映射，
+          // 新会话就地解绑——覆盖映射会让旧会话成孤儿，且新会话的注入面只挂一半。
+          void this.sendCDP("Target.detachFromTarget", { sessionId }).catch(() => undefined);
+        } else {
+          this.sessions.set(targetId, sessionId);
+          // 反风控端口守卫 + M1 观察者注入（F2 #28：auto-attach 来的 tab 与显式
+          // attach 同等待遇——否则感知开关开时新 tab 全部漏挂端口拦截）
+          void this.enablePortGuard(sessionId).then(() => this.ensureObserver(sessionId));
+        }
       }
     }
     // 目标生命周期对称：detach/destroy 同步出册清 session——外部关 tab
@@ -666,7 +698,16 @@ export class CdpConnectionManager implements BrowserPort {
         reject(new Error(`CDP 命令超时: ${method}`));
       }, this.commandTimeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.ws!.send(JSON.stringify(msg));
+      // 同步 send 失败承接（低危批）：readyState 检查与 send 之间 WS 关闭时
+      // send 可能同步抛——旧实现让 Promise 由 executor 抛错 reject，但 pending
+      // 条目与定时器不清理（悬挂至 30s 超时二次 reject 留污）。
+      try {
+        this.ws!.send(JSON.stringify(msg));
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -806,12 +847,9 @@ export class CdpConnectionManager implements BrowserPort {
   /** detachedFromTarget 的 targetId 解析：flatten 模式 params.targetId 可选，缺席时按 sessionId 反查。 */
   private targetIdOfDetach(params: any): string | undefined {
     if (typeof params?.targetId === "string") return params.targetId;
-    const sessionId = params?.sessionId;
-    if (typeof sessionId !== "string") return undefined;
-    for (const [targetId, sid] of this.sessions) {
-      if (sid === sessionId) return targetId;
-    }
-    return undefined;
+    // 反查复用归一点（低危批）：旧实现逐行复制 targetIdOfSession 的反查体，
+    // 两处维护必漂移。
+    return this.targetIdOfSession(params?.sessionId);
   }
 
   /** 目标出册：清 session 映射 + 上下文归属 + tab 注册（命中时广播状态——tab 减）。 */
