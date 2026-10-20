@@ -4,12 +4,14 @@
  * 拓扑（AD-3 §3.4，T3.1）：TopologyState = 活跃会话完整 store（state 字段，
  * 既有消费面零改动）× 后台会话轻量 store × 会话清单。帧经 dispatcher
  * （dispatchFrame）按信封 sessionId 路由；v0.3（T3.2，契约 v0.3 §2）订阅
- * 生命周期 = 全图订阅模型：启动 list 后活跃 full + 其余全部 monitor /
- * created 补订 monitor / deleted 退订 / 切换先升后降（subscribe(new,full)
- * ack——session.snapshot 帧——后才 subscribe(old,monitor)，瞬时双 full）/
- * 断连重连重放全订阅图（helix-ws onReconnect 挂点）。簿记归
+ * 生命周期 = 监控窗口订阅模型（E-192，取代旧的全量订阅语义）：启动 list 后活跃
+ * full + 清单前 N 个（monitor 档 LRU 容量）订 monitor / created 补订 monitor /
+ * deleted 退订 / 切换先升后降（subscribe(new,full) ack——session.snapshot
+ * 帧——后才 subscribe(old,monitor)，瞬时双 full）/ 断连重连按 LRU 序重放
+ * 订阅簿（helix-ws onReconnect 挂点，重放条数 ≤ 容量+活跃）。簿记归
  * model/subscription-ledger（纯函数可单测）；daemon 对每次 subscribe 重推
  * 快照，monitor 档 ack 快照经 ledger 判定吞帧（不进 dispatcher 防串台）。
+ * 窗口容量/LRU/窗口对齐语义以 model/subscription-ledger.ts 为单源（本注不重复）。
  *
  * 发送语义按生成态自动分流：空闲 → chat.send（气泡由 daemon 事件投影）；
  * 生成中 → chat.steer（本地 echo + STEER 徽标）。v0.2 起命令带信封
@@ -111,7 +113,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // 提交后 effect 同步；读点（命令构造/事件处理器）均在 effect 之后执行，
   // 滞后一个提交可接受
   const topologyRef = useRef(topology);
-  // v0.3 订阅图簿记（T3.2）：全图订阅生命周期唯一权威（见 model/subscription-ledger）
+  // v0.3 订阅图簿记（T3.2）：订阅生命周期唯一权威（监控窗口模型，见
+  // model/subscription-ledger / E-192）
   const ledgerRef = useRef<SubscriptionLedger | null>(null);
   if (ledgerRef.current === null) ledgerRef.current = new SubscriptionLedger();
   const generatingRef = useRef(false);
@@ -188,7 +191,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       };
       switch (event.type) {
         case "session.list.result":
-          // 启动/重连全图订阅（活跃 full 先行 + 其余 monitor + 清单外退订）
+          // 启动/重连订阅簿对齐（活跃 full 先行 + 窗口内 monitor + 清单外退订；
+          // 窗口容量/LRU 语义归 subscription-ledger 单源）
           sendAll(ledger.syncList(event.payload.sessions.map((s) => s.sessionId)));
           return false;
         case "session.list_changed": {

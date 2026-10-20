@@ -55,6 +55,9 @@ interface WorkspaceContextValue {
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
+/** get 帧发送失败的退避重试延迟（每连接世代一次机会；下次连接迁移另给）。 */
+const GET_RETRY_DELAY_MS = 500;
+
 export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; children: ReactNode }) {
   const [state, dispatch] = useReducer(workspaceReducer, undefined, createInitialWorkspaceState);
   // 帧消费面读点（connection.error 的 opening 单飞门控判据）——渲染体不写
@@ -68,10 +71,23 @@ export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; chi
   // 连接就绪 → 自动 workspace.get 一次（重连重发；webStatus 先例）：
   // get-started 同时重置 open 在途/行内错误（断连期回执永不达防卡死）
   const { connected, sendGet } = deps;
+  /** 发送失败退避重试已用（每连接世代一次）——防失败自激循环。 */
+  const getRetriedRef = useRef(false);
   useEffect(() => {
-    if (connected) {
-      dispatch({ type: "get-started" });
-      sendGet();
+    if (!connected) {
+      getRetriedRef.current = false; // 连接世代复位（下次就绪重新给一次重试额度）
+      return;
+    }
+    dispatch({ type: "get-started" });
+    // send 返回值必消费（TR-84：=== false 严格判 = 帧未发出）——conn 刚迁
+    // connected 而 socket 已断的窗口里 get 帧被丢，phase 会停在 connecting 屏
+    // 直到下次连接迁移；此处一次退避重试，仍失败则如实停在连接屏（不谎报）。
+    if (sendGet() === false && !getRetriedRef.current) {
+      getRetriedRef.current = true;
+      const timer = setTimeout(() => {
+        sendGet();
+      }, GET_RETRY_DELAY_MS);
+      return () => clearTimeout(timer);
     }
   }, [connected, sendGet]);
 
@@ -117,7 +133,9 @@ export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; chi
     (root: string) => {
       dispatch({ type: "open-started" });
       const ok = sendOpen(root);
-      if (!ok) dispatch({ type: "open-failed", error: { code: "send-failed", message: "" } });
+      // TR-84 定式：send 族 `=== false` 严格判（void/undefined 视为已发——
+      // 旧 `!ok` 会把 mock/未接线返回 undefined 误判为失败并弹行内错误）
+      if (ok === false) dispatch({ type: "open-failed", error: { code: "send-failed", message: "" } });
       return ok;
     },
     [sendOpen],

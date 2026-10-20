@@ -193,10 +193,26 @@ export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: numb
         killToast: { instanceId: event.payload.agentId }, // F1.2 终止链末端 toast（一次性）
       };
     }
-    // park/resume 批：parked 卡片形态/徽标归后续波次；resumed 最小动作 = 时长
-    // 记账对齐（park 期间挂载钟虚增段由 resume 帧的基线+新段起点自动校正）
+    // park/resume 批：parked 落卡片挂起位（**与快照路同源**——快照 instances
+    // 直取 DTO state，事件路不得停在 running：两路不同源会让同一实例「事件期
+    // 显示执行中、重连快照后变挂起」）。parked 非终态：不清 closure、不触发
+    // 收口链，只停段计时（startedAtMs 清位，elapsedMs 由 daemon 结算基线）。
+    // 专用卡片形态/徽标（挂起文案）归后续波次——本批只保证状态与徽标口径正确。
     case "agent.parked":
-      return s;
+      return {
+        ...s,
+        instances: updateCard(s.instances, event.payload.agentId, (c) =>
+          isTerminal(c.state)
+            ? c
+            : {
+                ...c,
+                parked: true, // 与快照路同源（快照 instances 直取 DTO state 时同置此位）
+                startedAtMs: undefined, // 挂起即停段计时（elapsedMs 用 daemon 结算基线）
+                stalledMs: undefined,
+                queuedPosition: undefined,
+              },
+        ),
+      };
     case "agent.resumed": {
       const { agentId, startedAtMs, elapsedMs } = event.payload;
       return {
@@ -208,6 +224,7 @@ export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: numb
                 ...c,
                 ...(startedAtMs !== undefined ? { startedAtMs } : {}),
                 ...(elapsedMs !== undefined ? { elapsedMs } : {}),
+                parked: false, // 恢复即摘挂起位（与 parked 帧对称）
               },
         ),
       };

@@ -37,10 +37,12 @@ export type {
 } from "./state";
 
 /** 活跃会话运行态投影（侧栏活跃卡片徽标与 demoteToBackground 同源）：
- *  有非终态 SubAgent → subagent_running；agentState 流式/转向 → streaming；
- *  否则 idle。纯函数（AG-14）。 */
+ *  有**在跑**的 SubAgent（非终态且未挂起）→ subagent_running；agentState
+ *  流式/转向 → streaming；否则 idle。纯函数（AG-14）。
+ *  挂起（parked）不计入：挂着不干活——与 SessionStats 实例 chip 的 parked
+ *  = idle 点同口径（旧实现按「非终态」计，parked 实例把徽标钉在运行中）。 */
 export function selectActiveRunState(active: SessionState): BackgroundSessionState["runState"] {
-  const subagentActive = active.instances.some((c) => !isTerminal(c.state));
+  const subagentActive = active.instances.some((c) => !isTerminal(c.state) && c.parked !== true);
   if (subagentActive) return "subagent_running";
   return active.agentState === "idle" ? "idle" : "streaming";
 }
