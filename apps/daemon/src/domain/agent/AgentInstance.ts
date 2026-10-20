@@ -288,8 +288,12 @@ export class AgentInstance {
 
   /**
    * 一等销毁 API（F1.9）：从任意非终态显式收口到终态并销毁实例窗口。
-   * 目标须为当前态合法迁移（如 running 不可 destroy("cancelled")）；
-   * 已终态幂等 no-op。实例窗口销毁后会话聚合持续存在（AD-1 三层模型）。
+   * 目标须为当前态合法迁移（迁移矩阵单源 LEGAL_TRANSITIONS，与 TR-35 一致）：
+   * running 不可 destroy("cancelled")；queued/parked 不可 destroy("done")
+   *（它们的终态路径是 failed/cancelled——挂起期无自然收口）。已终态幂等
+   * no-op。实例窗口销毁后会话聚合持续存在（AD-1 三层模型）。
+   * 注：E-13 正文「任意非终态收口到终态」是矩阵约束前的旧口径（评审 low #69
+   * 已申报修订），实现以本节为准。
    */
   destroy(final: TerminalInstanceState, now: number = Date.now()): void {
     if (this.isTerminal) return;
