@@ -530,16 +530,17 @@ export class SqliteKnowledgeStore {
     const victims = db
       .prepare(
         op.nodeId !== undefined
-          ? "SELECT node_id FROM materialized_anchors WHERE orphan = 1 AND node_id = ? GROUP BY node_id"
-          : "SELECT node_id FROM materialized_anchors WHERE orphan = 1 GROUP BY node_id",
+          ? "SELECT node_id, COUNT(*) AS cnt FROM materialized_anchors WHERE orphan = 1 AND node_id = ? GROUP BY node_id"
+          : "SELECT node_id, COUNT(*) AS cnt FROM materialized_anchors WHERE orphan = 1 GROUP BY node_id",
       )
-      .all(...(op.nodeId !== undefined ? [op.nodeId] : [])) as { node_id: string }[];
+      .all(...(op.nodeId !== undefined ? [op.nodeId] : [])) as { node_id: string; cnt: number }[];
     const deleted =
       op.nodeId !== undefined
         ? db.prepare("DELETE FROM materialized_anchors WHERE orphan = 1 AND node_id = ?").run(op.nodeId).changes
         : db.prepare("DELETE FROM materialized_anchors WHERE orphan = 1").run().changes;
     for (const victim of victims) {
-      this.appendChangeLog(db, op.iterationId, "prune", victim.node_id, null, null, op.taskId);
+      // CAND-842：prune 是机器裁决，审计行必须落 auto: 前缀（E-230 前缀契约）
+      this.appendChangeLog(db, op.iterationId, "prune", victim.node_id, null, `auto: prune ${victim.cnt} 行 orphan tombstone（物理清理）`, op.taskId);
     }
     return { ok: true, ...(op.nodeId !== undefined ? { nodeId: op.nodeId } : {}), prunedCount: deleted };
   }

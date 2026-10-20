@@ -83,6 +83,37 @@ describe("listAutoAdjudications（port 读面：auto: 前缀过滤）", () => {
     const graph = new SqliteKnowledgeGraph({ database: new KgDatabase() });
     expect(graph.listAutoAdjudications(root)).toEqual([]);
   });
+
+  test("prune 机器裁决行落 auto: 前缀（CAND-842：审计面必须可见）", () => {
+    const root = makeRoot();
+    const database = new KgDatabase();
+    const store = new SqliteKnowledgeStore({ database });
+    const graph = new SqliteKnowledgeGraph({ database });
+
+    const n = store.writeKnowledge(root, {
+      kind: "createNode",
+      iterationId: "it",
+      draft: { kind: "entity", name: "p", digest: "d", scene: "测试" },
+    });
+    expect(n.ok).toBe(true);
+    const nodeId = (n as { nodeId: string }).nodeId;
+    // 造两条 orphan tombstone 锚行（direct SQL，绕开 sync 管道）
+    const db = database.knowledgeConnection(root);
+    db.prepare("INSERT INTO materialized_anchors (node_id, anchor_kind, anchor_path, anchor_symbol, orphan) VALUES (?, 'path', ?, '', 1)").run(nodeId, "a/x.ts");
+    db.prepare("INSERT INTO materialized_anchors (node_id, anchor_kind, anchor_path, anchor_symbol, orphan) VALUES (?, 'path', ?, '', 1)").run(nodeId, "a/y.ts");
+
+    const pr = store.writeKnowledge(root, { kind: "prune", iterationId: "it", nodeId });
+    expect(pr.ok).toBe(true);
+    expect((pr as { prunedCount: number }).prunedCount).toBe(2);
+
+    // 修复前：prune 审计行 reason=null → auto 审计面零命中（红）
+    const entries = graph.listAutoAdjudications(root);
+    const pruneRows = entries.filter((e) => e.op === "prune");
+    expect(pruneRows.length).toBe(1);
+    expect(pruneRows[0]!.reason.startsWith("auto: ")).toBe(true);
+    expect(pruneRows[0]!.reason).toContain("2 行");
+    expect(pruneRows[0]!.nodeId).toBe(nodeId);
+  });
 });
 
 // ── ② viewer：autoAudit 聚合 + health triageHint（mock 面同 triage 测试范式） ──
