@@ -2,8 +2,11 @@
 //!
 //! 机制：对每个 writableRoot 目录，向其 DACL 追加 grant(cap SID) 的
 //! FILE_GENERIC_WRITE | DELETE | READ_CONTROL ACE（对象+容器继承）。
-//! 受限 token 的写检查（全部 restricting SIDs 须 grant）因此只在
-//! 这些目录内放行。既有 DACL 不清除（合并追加）；
+//! 受限 token 的写检查为 additional check **at-least-one**——任意一枚
+//! restricting SID 在该对象上有 grant 即放行（E-162/TR-164 CI 实证；
+//! 不是「逐枚 restricting SID 全须 grant」——照后者直觉扩 restricting 面
+//! 反而会放宽：CI run32 混入 user 后被用户目录恒 grant 放行）。因此写面
+//! 只在预写了 cap grant 的这些目录内放行。既有 DACL 不清除（合并追加）；
 //! 残留 ACE 指向随机死 SID，无害且不累积（SID 随机不复用）。
 
 use std::ffi::c_void;

@@ -46,6 +46,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -56,7 +57,12 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 
 const root = join(import.meta.dir, "..");
 const DEFAULT_APP = join(root, "apps/shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/helix.app");
-const DEFAULT_REPORT = join(root, "docs/iterations/iter-20260822-m1uc/evidence/CL-1-smoke.md");
+/**
+ * 默认报告落点：`<workspace>/.helix/tmp/`（工程纪律③a——过程/验证记录不落项目仓
+ * docs/；旧值曾写死 `docs/iterations/iter-<旧迭代>/evidence/CL-1-smoke.md`，既是退役
+ * 迭代号又违反落点规范；评审 F5 #12）。迭代/任务信息随 `--report` 显式传参注入。
+ */
+export const DEFAULT_REPORT = join(root, "..", ".helix", "tmp", "helix-cl1-smoke.md");
 /** 净化 PATH 缺省值：系统最小集（无 Bun/rg/node——干净机等效判据）。 */
 const DEFAULT_SANITIZED_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 /** 默认模型（model-provider DEFAULT_MODEL_ID 同源：builtin 兜底位）。 */
@@ -69,6 +75,46 @@ const LAUNCH_TIMEOUT_MS = 45_000;
 const RESTART_TIMEOUT_MS = 45_000;
 /** 单轮 grep 探针全链超时。 */
 const PROBE_TIMEOUT_MS = 60_000;
+
+// ── daemon 端口发现（评审 F5 #10）───────────────────────
+
+/**
+ * 从 daemon 日志里取实际监听端口（「WS 服务监听 ws://127.0.0.1:<port>」行）。
+ *
+ * 为什么不预绑端口：本脚本起的是打包 .app，壳固定以 `--sidecar` 拉 daemon
+ * （supervisor spec args 硬编），argv 侧无法注入 `--port`；而旧路写
+ * `<home>/config.json {port}` 依赖已退役字段的 legacy 迁移（port → KV
+ * daemon_port）才生效——迁移收口后端口静默回落 7333，探针以 45s 握手超时误报。
+ * 改为读 daemon 自己日志里的监听行：daemon 解析链（argv > KV > 7333）定格后
+ * 的客观产物，不依赖任何可能退役的外部约定。多行取末次（重启后新端口优先）。
+ */
+export function parseListenPort(log: string): number | undefined {
+  const re = /WS 服务监听 ws:\/\/127\.0\.0\.1:(\d+)/g;
+  let port: number | undefined;
+  for (const m of log.matchAll(re)) {
+    const n = Number(m[1]);
+    if (Number.isInteger(n) && n > 0 && n <= 65535) port = n;
+  }
+  return port;
+}
+
+/** 轮询 daemon 日志直到监听行出现（或超时 → undefined）。 */
+async function discoverDaemonPort(home: string, timeoutMs: number): Promise<number | undefined> {
+  const logPath = join(home, "logs/daemon.log");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let text = "";
+    try {
+      text = readFileSync(logPath, "utf8");
+    } catch {
+      /* 日志尚未创建 */
+    }
+    const port = parseListenPort(text);
+    if (port !== undefined) return port;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return undefined;
+}
 
 // ── argv ────────────────────────────────────────────────────
 
@@ -319,13 +365,6 @@ class WsProbe {
 
 // ── 工具 ────────────────────────────────────────────────────
 
-function freePort(): number {
-  const s = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = s.port ?? 0;
-  s.stop(true);
-  return port;
-}
-
 async function waitUntil(pred: () => Promise<boolean> | boolean, timeoutMs: number, stepMs = 250): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -437,7 +476,8 @@ function checkSanitizer(): boolean {
 interface RunContext {
   readonly tmp: string;
   readonly home: string;
-  readonly port: number;
+  /** daemon 实际监听端口（启动后从日志发现，评审 F5 #10）。 */
+  port: number;
   readonly rgPath: string;
   readonly rgMode: number;
   shell: ReturnType<typeof Bun.spawn> | undefined;
@@ -496,8 +536,9 @@ async function runSmoke(layout: { rgPath: string; shellExe: string }): Promise<v
   mkdirSync(searchDir, { recursive: true });
   writeFileSync(join(searchDir, "notes.txt"), `${SEARCH_TOKEN} 第一行命中\n第二行噪音\n`);
 
-  const port = freePort();
-  writeFileSync(join(home, "config.json"), JSON.stringify({ port }));
+  // 端口不预绑：从 daemon 日志发现（see discoverDaemonPort——壳固定 --sidecar，
+  // argv 不可达；config.json port 字段已退役，评审 F5 #10）。
+  let port = 0;
   const fake = startFakeLlm({ pattern: SEARCH_TOKEN, path: searchDir });
   seedModelsStore(home, `http://127.0.0.1:${fake.port}`);
 
@@ -561,6 +602,19 @@ async function runSmoke(layout: { rgPath: string; shellExe: string }): Promise<v
         /* 进程已退出 */
       }
     })();
+
+    const discovered = await discoverDaemonPort(home, LAUNCH_TIMEOUT_MS);
+    if (discovered === undefined) {
+      record(
+        "launch.handshake",
+        "遮蔽启动握手",
+        false,
+        `env -i 启动后 ${LAUNCH_TIMEOUT_MS / 1000}s 内 daemon 日志未见「WS 服务监听」行；壳 stderr 尾：${ctx.shellStderrTail.slice(-300)}；daemon 日志尾：${daemonLog().slice(-300)}`,
+      );
+      return;
+    }
+    port = discovered;
+    ctx.port = discovered;
 
     const token = await waitUntil(async () => fetchToken(port), LAUNCH_TIMEOUT_MS).then(async (ok_) => {
       if (!ok_) return undefined;
@@ -810,4 +864,6 @@ async function main(): Promise<void> {
   console.log(`✓ CL-1 冒烟通过：${checks.length} 项断言全 ✓`);
 }
 
-await main();
+if (import.meta.main) {
+  await main();
+}

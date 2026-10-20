@@ -22,6 +22,9 @@ mod quoting;
 mod spawn;
 #[cfg(target_os = "windows")]
 mod token;
+// 权限启用结果判定（纯逻辑，非 Windows 宿主可单测——评审 F5 #2 ①）
+#[cfg(any(test, target_os = "windows"))]
+mod privileges;
 
 use std::path::PathBuf;
 

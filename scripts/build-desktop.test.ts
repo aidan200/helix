@@ -275,3 +275,24 @@ test("根 package.json build:desktop 接线，既有 dev/test 不受影响", () 
   // test 脚本可挂后缀链（如 test:protocol），只锚 daemon 测试主链仍在首位
   expect(pkg.scripts["test"]).toContain("bun test apps/daemon");
 });
+
+// ── 头注口径（评审 F5 #7/#8：手维护步骤计数在 additive 演进下必腐）──────
+//
+// build-desktop.ts 头注曾写「六步依序」并手工编号 ①…⑥——实际 darwin 档 7 步
+// （漏 fetch-vec0、compile 被编成 ③ 而实为第 4 步、F2.2 验证为条件步）；
+// compile-daemon.ts 头注写「管线第一段」，而 compile 现居 fetch-* 步之后。
+// 定案：步骤清单与顺序以 pipelineSteps 为单源，头注只述职责不记硬计数。
+describe("管线头注口径（步骤清单以 pipelineSteps 为单源）", () => {
+  test("build-desktop.ts 头注不记硬计数、不手工编号，指向 pipelineSteps 单源", () => {
+    const src = readFileSync(join(root, "scripts/build-desktop.ts"), "utf8");
+    expect(src).toContain("步骤清单与顺序以 pipelineSteps() 为单源");
+    expect(src).not.toContain("六步依序");
+    expect(src).not.toContain("① fetch-rg");
+  });
+
+  test("compile-daemon.ts 头注不自称「管线第一段」，指向 pipelineSteps 单源", () => {
+    const src = readFileSync(join(root, "scripts/compile-daemon.ts"), "utf8");
+    expect(src).toContain("次序归 scripts/build-desktop.ts pipelineSteps 单源");
+    expect(src).not.toContain("管线第一段");
+  });
+});

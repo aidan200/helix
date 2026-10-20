@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
 /**
- * compile-daemon —— CL-2/F2.1 管线第一段：daemon → 单文件可执行（平台化，
+ * compile-daemon —— CL-2/F2.1 编译步：daemon → 单文件可执行（平台化，
  * TR-95：{darwin-arm64, win32-x64} 双档）。
+ *
+ * 在构建管线中的位置：次序归 scripts/build-desktop.ts pipelineSteps 单源
+ * （fetch-* 资产步之后、vite/tauri 步之前；本头注不自称「第一段」——评审 F5 #8），
+ * 本脚本只负责自身一步的语义。
  *
  * 产物落位（F2.3 / AD-4）：apps/shell/src-tauri/binaries/helix-daemon-<triple>[.exe]
  * ——Tauri externalBin target-triple 命名约定，T3.1 tauri.conf 接线直接消费；
