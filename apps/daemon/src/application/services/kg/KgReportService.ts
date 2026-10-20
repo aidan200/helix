@@ -89,7 +89,9 @@ export class KgReportService {
         kind: "rule_conflict",
         sev: "warn",
         label: "规则冲突",
-        body: `本迭代机械检查发现：${conflict.summary}`,
+        // 口径（评审 low #23）：findConflicts/findOrphans 是全量现状扫描，
+        // 非「本迭代新增」——存量问题每迭代都出现，不得归因本迭代。
+        body: `机械检查发现（全量现状扫描）：${conflict.summary}`,
         refs: { nodes: conflict.nodes, symbols: [] },
       });
     }
@@ -99,7 +101,7 @@ export class KgReportService {
         kind: "dead_anchor",
         sev: "warn",
         label: "失效锚点",
-        body: `本迭代机械检查发现：${orphan.summary}`,
+        body: `机械检查发现（全量现状扫描）：${orphan.summary}`,
         refs: {
           nodes: [orphan.node],
           symbols: [symbolRefOf(orphan.anchor.anchorPath, orphan.anchor.anchorSymbol)],
