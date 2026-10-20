@@ -5,7 +5,11 @@
  * `window.helixPickDirectory`（内部走 tauri-plugin-dialog 的目录选择，
  * 平台差异由插件消化：macOS NSOpenPanel / Windows IFileOpenDialog / Linux
  * GTK）。本 seam 是前端唯一访问点——受控 `globalThis` 访问，探测 + 调用
- * 两函数；零 Tauri 内部形态词（AG-17：该字样只许在 Rust 源码字符串里），
+ * 两函数；零 Tauri 内部形态词（该字样只许在 Rust 源码字符串里——守护面 =
+ * apps/daemon/test/arch-guard/form-isomorphism.test.ts 的 AG-17/TR-AD-12
+ * 禁区②③扫描（形态分支词 __TAURI__/_INTERNALS__ 扫 shell src）；本文件
+ * 注释旧引「AG-17」在 ag-scans（=页面域/会话域分离）与 daemon（=单例锁）
+ * 各有一套编号，故改为直指守护文件），
  * 纯浏览器 dev 无此挂载点 → hasNativePicker()=false，调用面自然降级。
  *
  * 路径零变换透传（W6a 验收 4）：选中返回的是平台原生路径串（Windows 反斜杠

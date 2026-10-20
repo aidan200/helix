@@ -449,8 +449,28 @@ export class TasksMockStore {
     row.updatedAt = new Date().toISOString();
     const d = this.details.get(jobId);
     if (d !== undefined) d.status = next;
-    const changed: TaskChangedPayload = { jobId, changed: "job", status: next };
-    return [this.frame(`task.${cmd}.result`, { ok: true, status: next }), this.event("task.changed", changed)];
+    const frames: EventEnvelope[] = [this.frame(`task.${cmd}.result`, { ok: true, status: next })];
+    // task.retry 的台账镜像（TR-155；daemon TaskEngineService.retry 序②③④）：
+    // 残留 running 批次收口 failed → failed 批次 retryCount 归零留痕 → failed
+    // stage 重开 running。旧实现只翻 job.status，retry 后 detail 仍是 failed
+    // 阶段行 / retryCount>0 批次行（mock 与 daemon 语义分叉）。
+    if (cmd === "retry" && d !== undefined) {
+      for (const batch of d.batches) {
+        if (batch.status === "running") batch.status = "failed";
+      }
+      for (const batch of d.batches) {
+        if (batch.status !== "failed" || batch.retryCount === 0) continue;
+        batch.retryNote = `人工重试：重试预算重置（此前失败 ${batch.retryCount} 次${batch.retryNote !== null ? `——${batch.retryNote}` : ""}）`;
+        batch.retryCount = 0;
+      }
+      for (const stage of d.stages) {
+        if (stage.status !== "failed") continue;
+        stage.status = "running";
+        frames.push(this.event("task.changed", { jobId, changed: "stage", status: "running" } satisfies TaskChangedPayload));
+      }
+    }
+    frames.push(this.event("task.changed", { jobId, changed: "job", status: next } satisfies TaskChangedPayload));
+    return frames;
   }
 
   /** task.list 行（服务端排序 = 运行中置顶 + 创建时间倒序，契约 §2 镜像）。 */
@@ -469,10 +489,26 @@ export class TasksMockStore {
     return sorted.map((t) => ({ ...t }));
   }
 
-  /** detail 输出隔离：浅拷贝 + projects 克隆——spec 持回执引用改写不落
-   *  mock 台账（progress/status 一致性由各回执构造时自行保证，此处不派生）。 */
+  /** detail 输出隔离：逐层克隆到可写面（projects/progress/stages/batches/
+   *  plan/ledger/artifact）——spec 持回执引用改写不落 mock 台账。旧实现只
+   *  克隆 projects，stages/batches/plan 引用共享：spec 侧改一行就污染单例
+   *  台账（后续用例串台），与注释承诺的隔离相反。 */
   private syncedDetail(d: TaskDetailDto): TaskDetailDto {
-    return { ...d, projects: [...d.projects] };
+    return {
+      ...d,
+      projects: [...d.projects],
+      ...(d.progress !== null ? { progress: { ...d.progress } } : {}),
+      stages: d.stages.map((st) => ({
+        ...st,
+        ...(st.artifact !== null ? { artifact: { ...st.artifact } } : {}),
+      })),
+      batches: d.batches.map((b) => ({
+        ...b,
+        ...(b.plan !== null ? { plan: b.plan.map((w) => ({ ...w })) } : {}),
+        ...(b.ledger !== null ? { ledger: { ...b.ledger } } : {}),
+      })),
+      params: { ...d.params },
+    };
   }
 
   private frame(type: string, payload: unknown): EventEnvelope {

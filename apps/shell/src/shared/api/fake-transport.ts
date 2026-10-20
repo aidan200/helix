@@ -400,7 +400,10 @@ class FakeSocket {
     this.url = url;
   }
 
-  /** 仅 OPEN 态透传（readyState 门控； CONNECTING 期帧按 WebSocket 语义丢弃）。 */
+  /** 仅 OPEN 态透传（readyState 门控； CONNECTING 期帧按 WebSocket 语义丢弃）。
+   *  职责分层（评审 fake-transport #27：单函数曾 132 行、四组订阅簿记 + 五族
+   *  自动应答内联）：本函数只做解析 + 分发，簿记/应答各归私有方法——镜像面
+   *  （TR-142 对 daemon 整面核验）因此可按面逐段对照，不再一坨。 */
   send(data: string): void {
     if (this.readyState !== FakeSocket.OPEN) return;
     let frame: CommandEnvelope | null = null;
@@ -410,8 +413,27 @@ class FakeSocket {
       frame = null;
     }
     this.registry.clientFrames.push(frame);
-    // 订阅簿记（v0.3 map<sessionId, tier>：daemon EventStream.sessionTiers
-    // 语义镜像——subscribe 幂等覆盖（payload.tier 缺省 full）；unsubscribe 删档）
+
+    // ── 订阅簿记（连接级状态镜像）──
+    this.bookSessionSubscription(frame);
+    this.bookTaskSubscription(frame);
+    this.bookStewardSubscription(frame);
+
+    // ── 命令等待者（spec 侧 awaitCommand 形状）──
+    const hit: ClientWaiter[] = [];
+    const rest: ClientWaiter[] = [];
+    for (const w of this.registry.commandWaiters) (w.type === frame?.type ? hit : rest).push(w);
+    this.registry.commandWaiters = rest;
+    for (const w of hit) w.resolve(frame!);
+
+    // ── 写面应答（steward.confirm 两段式 + 各族自动应答）──
+    this.replyStewardConfirm(frame);
+    this.dispatchAutoReply(frame);
+  }
+
+  /** session 族订阅簿记（v0.3 map<sessionId, tier>：daemon EventStream.sessionTiers
+   *  语义镜像——subscribe 幂等覆盖（payload.tier 缺省 full）；unsubscribe 删档）。 */
+  private bookSessionSubscription(frame: CommandEnvelope | null): void {
     if (frame?.type === "session.subscribe" && typeof frame.sessionId === "string" && frame.sessionId !== "") {
       const tierRaw = (frame.payload as { tier?: unknown } | undefined)?.tier;
       const tier: SubscriptionTier = tierRaw === "monitor" ? "monitor" : "full";
@@ -421,81 +443,86 @@ class FakeSocket {
       this.registry.sessionTiers.delete(frame.sessionId);
       if (this.registry.lastFullSessionId === frame.sessionId) this.registry.lastFullSessionId = null;
     }
-    // task 族订阅簿记（D-2；task-api.md §3 连接级订阅表 + §2 payload 语义镜像）：
-    // subscribe{jobId} 按 jobId 登记；subscribe{} 订阅全部（"*" 通配）；
-    // unsubscribe{jobId} 仅移除该 jobId（通配 "*" 保留——对齐 daemon
-    // EventStream.unsubscribeTask：携带 jobId 时只删该 jobId）；
-    // unsubscribe{} 清空订阅集（commands.ts「对称语义」）。
-    if (frame?.type === "task.subscribe" || frame?.type === "task.unsubscribe") {
-      const jobId = (frame.payload as { jobId?: unknown } | undefined)?.jobId;
-      const specific = typeof jobId === "string" && jobId !== "" ? jobId : null;
-      if (frame.type === "task.subscribe") {
-        if (this.taskSubs === null) this.taskSubs = new Set();
-        this.taskSubs.add(specific ?? "*");
-      } else if (specific !== null) {
-        this.taskSubs?.delete(specific);
-      } else {
-        this.taskSubs = new Set();
-      }
+  }
+
+  /** task 族订阅簿记（D-2；task-api.md §3 连接级订阅表 + §2 payload 语义镜像）：
+   *  subscribe{jobId} 按 jobId 登记；subscribe{} 订阅全部（"*" 通配）；
+   *  unsubscribe{jobId} 仅移除该 jobId（通配 "*" 保留——对齐 daemon
+   *  EventStream.unsubscribeTask：携带 jobId 时只删该 jobId）；
+   *  unsubscribe{} 清空订阅集（commands.ts「对称语义」）。 */
+  private bookTaskSubscription(frame: CommandEnvelope | null): void {
+    if (frame?.type !== "task.subscribe" && frame?.type !== "task.unsubscribe") return;
+    const jobId = (frame.payload as { jobId?: unknown } | undefined)?.jobId;
+    const specific = typeof jobId === "string" && jobId !== "" ? jobId : null;
+    if (frame.type === "task.subscribe") {
+      if (this.taskSubs === null) this.taskSubs = new Set();
+      this.taskSubs.add(specific ?? "*");
+    } else if (specific !== null) {
+      this.taskSubs?.delete(specific);
+    } else {
+      this.taskSubs = new Set();
     }
-    // steward 订阅位（镜像 daemon EventStream.subscribeSteward/unsubscribeSteward：
-    // steward.subscribe 幂等置位 / unsubscribe 清位）
+  }
+
+  /** steward 订阅位（镜像 daemon EventStream.subscribeSteward/unsubscribeSteward：
+   *  steward.subscribe 幂等置位 / unsubscribe 清位）；steward.cancel 簿记（镜像
+   *  daemon handleStewardCancel → StewardService.cancel：pending 作废幂等，零回执）。 */
+  private bookStewardSubscription(frame: CommandEnvelope | null): void {
     if (frame?.type === "steward.subscribe") this.stewardSubscribed = true;
     else if (frame?.type === "steward.unsubscribe") this.stewardSubscribed = false;
-    // steward.cancel 簿记（镜像 daemon handleStewardCancel → StewardService.cancel：
-    // pending 作废幂等，零回执——interrupt 同构先例）
     if (frame?.type === "steward.cancel") {
       const actionId = (frame.payload as { actionId?: unknown } | undefined)?.actionId;
       if (typeof actionId === "string" && actionId !== "") this.stewardCanceled.add(actionId);
     }
-    // steward.confirm 两段式应答（镜像 daemon handleStewardConfirm +
-    // StewardService.confirm：①受理即回 confirm.result{accepted}（毫秒级
-    // ——不阻塞）；②延迟 action.completed{ok:true}——执行体异步收口形态。
-    // 单次消费镜像：已消费/已作废 actionId 回 error「不存在或已消费」）。
-    if (frame?.type === "steward.confirm") {
-      const actionId = (frame.payload as { actionId?: unknown } | undefined)?.actionId;
-      if (typeof actionId === "string" && actionId !== "") {
-        const acceptNow = (): void => {
-          this.fireMessage({
-            v: PROTOCOL_VERSION,
-            sessionId: SYSTEM_SESSION_ID,
-            channel: "steward",
-            type: "steward.confirm.result",
-            payload: { status: "accepted", actionId },
-          } satisfies EventEnvelope);
-        };
-        const sendCompleted = (): void => {
-          this.fireMessage({
-            v: PROTOCOL_VERSION,
-            sessionId: SYSTEM_SESSION_ID,
-            channel: "steward",
-            type: "steward.action.completed",
-            payload: { actionId, ok: true, detail: "(mock) confirmed action executed" },
-          } satisfies EventEnvelope);
-        };
-        if (this.stewardConsumed.has(actionId) || this.stewardCanceled.has(actionId)) {
-          this.fireMessage({
-            v: PROTOCOL_VERSION,
-            sessionId: SYSTEM_SESSION_ID,
-            channel: "steward",
-            type: "steward.confirm.result",
-            // daemon 中文文案镜像（AG-16 前端零 CJK——语义判别对齐：error 判别 + reason 非空）
-            payload: { status: "error", reason: `pending action missing or already consumed (actionId=${actionId})` },
-          } satisfies EventEnvelope);
-        } else {
-          this.stewardConsumed.add(actionId); // 先消费（单次语义镜像）
-          acceptNow();
-          setTimeout(() => {
-            if (this.readyState === FakeSocket.OPEN) sendCompleted();
-          }, STEWARD_MOCK_LATENCY_MS);
-        }
-      }
+  }
+
+  /** steward.confirm 两段式应答（镜像 daemon handleStewardConfirm +
+   *  StewardService.confirm：①受理即回 confirm.result{accepted}（毫秒级
+   *  ——不阻塞）；②延迟 action.completed{ok:true}——执行体异步收口形态。
+   *  单次消费镜像：已消费/已作废 actionId 回 error「不存在或已消费」）。 */
+  private replyStewardConfirm(frame: CommandEnvelope | null): void {
+    if (frame?.type !== "steward.confirm") return;
+    const actionId = (frame.payload as { actionId?: unknown } | undefined)?.actionId;
+    if (typeof actionId !== "string" || actionId === "") return;
+    const acceptNow = (): void => {
+      this.fireMessage({
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "steward",
+        type: "steward.confirm.result",
+        payload: { status: "accepted", actionId },
+      } satisfies EventEnvelope);
+    };
+    const sendCompleted = (): void => {
+      this.fireMessage({
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "steward",
+        type: "steward.action.completed",
+        payload: { actionId, ok: true, detail: "(mock) confirmed action executed" },
+      } satisfies EventEnvelope);
+    };
+    if (this.stewardConsumed.has(actionId) || this.stewardCanceled.has(actionId)) {
+      this.fireMessage({
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "steward",
+        type: "steward.confirm.result",
+        // daemon 中文文案镜像（AG-16 前端零 CJK——语义判别对齐：error 判别 + reason 非空）
+        payload: { status: "error", reason: `pending action missing or already consumed (actionId=${actionId})` },
+      } satisfies EventEnvelope);
+      return;
     }
-    const hit: ClientWaiter[] = [];
-    const rest: ClientWaiter[] = [];
-    for (const w of this.registry.commandWaiters) (w.type === frame?.type ? hit : rest).push(w);
-    this.registry.commandWaiters = rest;
-    for (const w of hit) w.resolve(frame!);
+    this.stewardConsumed.add(actionId); // 先消费（单次语义镜像）
+    acceptNow();
+    setTimeout(() => {
+      if (this.readyState === FakeSocket.OPEN) sendCompleted();
+    }, STEWARD_MOCK_LATENCY_MS);
+  }
+
+  /** 五族自动应答分发（trace/kg/task/workspace 各族延迟镜像；task 族含
+   *  task.changed 订阅闸与 autoReplyHold 挂起面）。 */
+  private dispatchAutoReply(frame: CommandEnvelope | null): void {
     // trace.query 自动应答（mock daemon 读面镜像；点对点回执，延迟 = loading 态触发面）
     if (frame?.type === "trace.query") {
       const reply = buildTraceReply(frame.payload);
@@ -506,8 +533,9 @@ class FakeSocket {
       const reply = kgMockStore.reply(frame.type, frame.payload);
       this.sendAutoReply(reply, KG_MOCK_LATENCY_MS);
     }
-    // task 族自动应答（T3.1；九命令 mock daemon 镜像——结果帧 + 生命周期
-    // 成功伴发的 task.changed 广播，帧数组逐帧下发）
+    // task 族自动应答（T3.1；task-api.md §2 全集 mock daemon 镜像——结果帧 +
+    // 生命周期成功伴发的 task.changed 广播，帧数组逐帧下发；清单以 isTaskCommand
+    // 与 tasks-mock 为单源）
     if (frame !== null && isTaskCommand(frame.type)) {
       const frames = tasksMockStore.reply(frame.type, frame.payload);
       if (this.registry.autoReplyHold) {
@@ -758,7 +786,9 @@ const mockApi: HelixMockApi = {
   async failHandshake() {
     // 模拟网络层失败（error+close，无 connection.error 帧）：客户端走到的是
     // 断连重连路径而非握手拒绝处理；握手拒绝契约（E-54）剧本请用
-    // emit(connection.error) + netClose 组合（spec 已无消费者，仅 API 保留）
+    // emit(connection.error) + netClose 组合。
+    // 消费者：e2e/CL-7-fidelity-conn-states.spec.ts（首连 token 500 剧本——
+    // 手动夭折首个 transport，使后续重试 token fetch 全吃 500）。
     const inst = await registry.nextActive();
     inst.fireError();
     inst.fireClose(1006);
