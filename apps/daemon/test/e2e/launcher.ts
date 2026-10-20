@@ -31,7 +31,7 @@ import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecut
 import { CdpConnectionManager } from "../../src/adapters/driven/cdp/CdpConnectionManager";
 import { buildModels } from "../../src/adapters/driven/llm";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
-import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
+import type { AgentOrchestrationPort, SpawnOutcome, InstanceSendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import type { DaemonScript, DaemonScriptEntry, SubagentScript, OrchestratorScript, OrchestratorScriptEntry } from "../../../../e2e/harness/daemon-script";
 import type { Api, AssistantMessage, Context, JsonObject, JsonValue, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
@@ -327,7 +327,7 @@ const lazyOrchestration: AgentOrchestrationPort = {
   spawn(task, profileKind): SpawnOutcome | Promise<SpawnOutcome> {
     return orchestrationRef!.spawn(task, profileKind);
   },
-  send(agentId, message): SendOutcome {
+  send(agentId, message): InstanceSendOutcome {
     return orchestrationRef!.send(agentId, message);
   },
   status(agentId?): AgentInstanceStatus[] {

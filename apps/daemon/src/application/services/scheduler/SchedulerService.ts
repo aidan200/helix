@@ -27,7 +27,7 @@ import type {
   KillOutcome,
   ParkOutcome,
   ResumeOutcome,
-  SendOutcome,
+  InstanceSendOutcome,
   SpawnOutcome,
 } from "../../ports/inbound/AgentOrchestrationPort";
 import type { InstanceClosureOutcome, InstanceRunner } from "../InstanceRunner";
@@ -561,7 +561,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
    * AgentOrchestrationPort.send：向运行中实例转投消息（AD-7⑤）。
    * 未知/排队/终态实例不可注入（排队实例尚无执行载体，等 started 后再发）。
    */
-  send(agentId: string, message: string): SendOutcome {
+  send(agentId: string, message: string): InstanceSendOutcome {
     const instance = this.registry.findInstance(agentId);
     if (!instance) return { delivered: false, detail: `实例 ${agentId} 不存在` };
     if (instance.current === "queued") {
