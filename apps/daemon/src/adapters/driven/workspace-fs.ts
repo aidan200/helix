@@ -32,8 +32,10 @@ export function createWorkspaceFs(): WorkspaceFsPort {
     homeDir(): string {
       return osHomeDir(); // AG-07：主目录展开单点（infrastructure/paths.ts）
     },
-    fsRoot(): string {
-      return path.parse(process.cwd()).root;
+    isFsRoot(p: string): boolean {
+      // 判据按被检路径取根（WIN32 盘符/UNC 同判）：不再用 process.cwd() 的根——
+      // 多盘符下两边根不同，守卫会漏判（低危批）。
+      return path.parse(path.resolve(p)).root === path.resolve(p);
     },
   };
 }
