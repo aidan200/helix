@@ -127,6 +127,36 @@ async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分流", () => {
+  test("coord（U6 协调冲突通知）同 closure 走 T2 续送链，不落丢弃分支（评审 low #56）", async () => {
+    const engine = new NoDrainEngine();
+    const { chat, publisher, domainEvents } = makeChat(engine);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 1);
+    chat.injectClosure("文件写冲突：proj-a/src/x.ts 被两个实例同时声明", "coord");
+    await run;
+
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+    // coord 是机械事实：不得走「注入被丢弃」
+    expect(
+      domainEvents.some(
+        (e) => e.type === "engine.error" && String((e.payload as { message?: string }).message).includes("注入被丢弃"),
+      ),
+    ).toBe(false);
+    const outAccount = domainEvents.filter((e) => e.type === "steer.discarded");
+    expect(outAccount).toHaveLength(1);
+    expect((outAccount[0]!.payload as { reason?: string }).reason).toBe("buffered");
+    // T2 续送：idle 后落时间轴条目
+    await until(() =>
+      domainEvents.some(
+        (e) =>
+          e.type === "message.completed" &&
+          String((e.payload as { text?: string }).text).includes("文件写冲突"),
+      ),
+    );
+    await until(() => chat.agentState === "idle");
+  });
+
   test("closure 入队但 run 收尾不消费（8c1c 现场）→ 不丢弃，T2 续送链落时间轴", async () => {
     const engine = new NoDrainEngine();
     const { chat, publisher, domainEvents } = makeChat(engine);
