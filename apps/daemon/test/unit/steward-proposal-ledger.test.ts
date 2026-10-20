@@ -18,11 +18,26 @@
  * 测试全绿 = 行为等价证明（本文件只钉聚合内聚行为）。
  */
 import { describe, expect, test } from "bun:test";
+import { DomainError } from "../../src/domain/DomainError";
 import {
   ProposalLedger,
   type PendingAction,
   pendingKeyOf,
 } from "../../src/domain/steward/confirmation/ProposalLedger";
+
+describe("载荷/上限守卫（评审 low #75/#76）", () => {
+  test("kind 与载荷形状不匹配 → pendingKeyOf 抛 DomainError（不是 TypeError）", () => {
+    const broken = { kind: "send", displayTarget: "x", message: "m", toolCall: { id: "", name: "propose_send" } } as PendingAction;
+    expect(() => pendingKeyOf(broken)).toThrow(DomainError);
+    expect(() => pendingKeyOf(broken)).toThrow(/缺少对应载荷/);
+  });
+
+  test("registryMax < 1 / 非整数 → 构造抛 DomainError（原本 0 会让上限失效）", () => {
+    expect(() => new ProposalLedger({ now: () => 0, registryMax: 0 })).toThrow(/registryMax 非法/);
+    expect(() => new ProposalLedger({ now: () => 0, registryMax: 1.5 })).toThrow(/registryMax 非法/);
+    expect(() => new ProposalLedger({ now: () => 0, registryMax: 1 })).not.toThrow();
+  });
+});
 
 // ── fixtures ───────────────────────────────────────────────
 
