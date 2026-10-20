@@ -8,6 +8,10 @@
  *   红（不静默放行），真检出漏洞不重试直接红；单次尝试带 timeout 兜底
  *   （code-review M13 批 #2.40：子进程自身联网遇 TCP 半死零超时即永久
  *   挂起，4 次退避重试救不了单次挂死——TR-104 同类半死面）；
+ *   豁免通道（AUDIT_EXEMPT）：上游无修复版/修复需跨 major 的已评估漏洞
+ *   登记放行（GHSA id + 理由留痕，对称于 ④ 的 SIZE_EXEMPT）；对账语义：
+ *   检出 id 全部命中登记且无过期登记才绿；登记 id 未再被报（上游已修/
+ *   依赖已换）= 过期登记即红——撤销豁免与升级被门自身强制，不靠人记。
  * ② 版本地板：实装面（node_modules 包清单）vite ≥8.2.0 + vitest ≥4.1.0
  *   （防 lock 回退到漏洞窗；T1.2 升级至 latest 线 vite 8.2.2 / vitest
  *   4.1.11，地板随实装 major.minor 线上调）；
@@ -97,6 +101,52 @@ export function runAuditAttempt(
   return { ok: false, requestFailed, out };
 }
 
+// ── ① 豁免登记（唯一通道：GHSA id + 理由留痕；过期即红见 reconcileAuditExemptions）──
+
+/** 已评估放行的漏洞登记（检出的 GHSA 全部命中且无过期登记才绿）。 */
+const AUDIT_EXEMPT: ReadonlyArray<{ ghsa: string; reason: string }> = [
+  {
+    ghsa: "GHSA-vfj7-8cjw-p6xm",
+    reason:
+      "braces ≤3.0.3 栈耗尽 DoS——dev 链（tailwind→micromatch），上游无修复版（3.x 最新即 3.0.3）；上游发版后本登记自动过期（核销红）",
+  },
+  {
+    ghsa: "GHSA-rj75-hqrm-r3gf",
+    reason:
+      "postcss-selector-parser 6.1.4 选择器解析 CPU 耗尽——dev 链（tailwind→postcss-nested）；修复版仅 7.1.6（跨 major，tailwind 内部消费 6.x，override 有构建破坏风险）；tailwind 链升级至 7.x 后本登记自动过期",
+  },
+];
+
+/** 豁免对账结果（全部为 GHSA id 集合）。 */
+export interface AuditExemptionRecon {
+  /** bun audit 输出中检出的全部 GHSA id。 */
+  readonly detected: string[];
+  /** 检出且命中登记（放行面，打印豁免生效）。 */
+  readonly exempted: string[];
+  /** 检出但未登记——真新漏洞，红。 */
+  readonly unexempted: string[];
+  /** 登记但未被报——过期登记（上游已修/依赖已换），红提醒撤销。 */
+  readonly stale: string[];
+}
+
+/**
+ * 豁免对账纯函数：从 bun audit 输出提取 GHSA id 集合，与登记清单对账。
+ * 提取依据：advisory 行尾 `https://github.com/advisories/GHSA-xxxx-xxxx-xxxx`
+ * （标准三段 4-4-4 形态，本地与 CI 实测）；输出无任何 id 且登记非空 →
+ * 全部 stale（含输出格式漂移场景——提取面失灵响亮红而非误放行）。
+ */
+export function reconcileAuditExemptions(
+  out: string,
+  exemptions: ReadonlyArray<{ ghsa: string }>,
+): AuditExemptionRecon {
+  const detected = [...new Set(out.match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/g) ?? [])];
+  const registered = new Set(exemptions.map((e) => e.ghsa));
+  const exempted = detected.filter((g) => registered.has(g));
+  const unexempted = detected.filter((g) => !registered.has(g));
+  const stale = exemptions.map((e) => e.ghsa).filter((g) => !detected.includes(g));
+  return { detected, exempted, unexempted, stale };
+}
+
 async function main(): Promise<void> {
   // ── ① bun audit 全链零漏洞 ──
   // bun audit 需联网拉漏洞库，CI 网络瞬断会报 "audit request failed"（非漏洞
@@ -113,9 +163,15 @@ async function main(): Promise<void> {
       break;
     }
     if (!result.requestFailed) {
-      // 非请求类失败 = 真漏洞检出（或其它断言级失败），不重试直接红
-      console.error(result.out);
-      fail("bun audit 检出漏洞（期望清零）");
+      // 非请求类失败 = 漏洞检出（或其它断言级失败）：先对账豁免清单——
+      // 检出全部命中登记才放行（过期登记在下方统一核销面判），否则原样红。
+      const rec = reconcileAuditExemptions(result.out, AUDIT_EXEMPT);
+      if (rec.unexempted.length > 0) {
+        console.error(result.out);
+        fail(`bun audit 检出未豁免漏洞（期望清零）：${rec.unexempted.join(", ")}`);
+      }
+      auditOk = true;
+      break;
     }
     if (attempt < AUDIT_ATTEMPTS) {
       const waitMs = 5000 * attempt;
@@ -127,7 +183,18 @@ async function main(): Promise<void> {
     console.error(auditLastOut);
     fail(`bun audit 连续 ${AUDIT_ATTEMPTS} 次请求失败（registry 不可达/网络故障，非漏洞检出）——人工重跑确认`);
   }
-  console.log("✓ ① bun audit 全链零漏洞");
+  // 豁免核销面（对称于 ④ 的过期豁免核销）：登记 id 未被本次输出报告 =
+  // 上游已修/依赖已换——过期登记即红，撤销豁免与升级由门自身强制。
+  // exit 0 路径：输出无任何 id → 全部登记 stale（零漏洞与残留登记互斥）。
+  const recon = reconcileAuditExemptions(auditLastOut, AUDIT_EXEMPT);
+  if (recon.stale.length > 0) {
+    fail(`① 过期豁免登记（bun audit 未再报 ${recon.stale.join(", ")}）——上游已修复或依赖已换，请撤销登记并升级依赖`);
+  }
+  for (const g of recon.exempted) {
+    const e = AUDIT_EXEMPT.find((x) => x.ghsa === g);
+    console.warn(`⚠ ① 豁免生效：${g}（${e?.reason ?? ""}）`);
+  }
+  console.log("✓ ① bun audit 全链零漏洞（含豁免对账）");
 
   // ── ② 版本地板（实装面：workspace node_modules 包清单） ──
   const moduleRoots = [join(root, "node_modules"), join(root, "apps", "shell", "node_modules")];

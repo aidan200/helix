@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   AUDIT_TIMEOUT_MS,
+  reconcileAuditExemptions,
   runAuditAttempt,
   type AuditSpawnSync,
 } from "./audit-assert";
@@ -82,5 +83,60 @@ describe("runAuditAttempt（①节单次尝试，M13 批 #2.40）", () => {
     const elapsed = Date.now() - t0;
     expect(r.exitCode).toBeNull();
     expect(elapsed).toBeLessThan(5_000); // 零超时即永久挂起的对照：超时兜底按时返回
+  });
+});
+
+describe("reconcileAuditExemptions（①节豁免对账，2026-10 上游无解洞登记）", () => {
+  const EXEMPT = [{ ghsa: "GHSA-aaaa-bbbb-1111" }, { ghsa: "GHSA-cccc-dddd-2222" }];
+
+  const outWith = (...ghsas: string[]) =>
+    ghsas
+      .map((g) => `  high: something bad - https://github.com/advisories/${g}`)
+      .join("\n");
+
+  test("检出全部命中登记 → 放行（exempted=detected，无 stale 无 unexempted）", () => {
+    const r = reconcileAuditExemptions(outWith("GHSA-aaaa-bbbb-1111", "GHSA-cccc-dddd-2222"), EXEMPT);
+    expect(r.detected).toEqual(["GHSA-aaaa-bbbb-1111", "GHSA-cccc-dddd-2222"]);
+    expect(r.exempted).toEqual(["GHSA-aaaa-bbbb-1111", "GHSA-cccc-dddd-2222"]);
+    expect(r.unexempted).toEqual([]);
+    expect(r.stale).toEqual([]);
+  });
+
+  test("检出含未登记 id → unexempted 非空（真新漏洞红）", () => {
+    const r = reconcileAuditExemptions(outWith("GHSA-aaaa-bbbb-1111", "GHSA-eeee-ffff-3333"), EXEMPT);
+    expect(r.unexempted).toEqual(["GHSA-eeee-ffff-3333"]);
+    expect(r.exempted).toEqual(["GHSA-aaaa-bbbb-1111"]);
+    expect(r.stale).toEqual(["GHSA-cccc-dddd-2222"]);
+  });
+
+  test("登记 id 未被报 → stale 非空（上游已修/依赖已换，过期登记红提醒撤销）", () => {
+    const r = reconcileAuditExemptions(outWith("GHSA-aaaa-bbbb-1111"), EXEMPT);
+    expect(r.stale).toEqual(["GHSA-cccc-dddd-2222"]);
+    expect(r.unexempted).toEqual([]);
+  });
+
+  test("输出零 id 且登记非空 → 全 stale（零漏洞与残留登记互斥；输出格式漂移同入此面响亮红）", () => {
+    const r = reconcileAuditExemptions("No vulnerabilities found", EXEMPT);
+    expect(r.detected).toEqual([]);
+    expect(r.stale).toEqual(["GHSA-aaaa-bbbb-1111", "GHSA-cccc-dddd-2222"]);
+  });
+
+  test("同 id 多次出现去重（多链路引同一 advisory）", () => {
+    const out = outWith("GHSA-aaaa-bbbb-1111") + "\n" + outWith("GHSA-aaaa-bbbb-1111");
+    const r = reconcileAuditExemptions(out, EXEMPT);
+    expect(r.detected).toEqual(["GHSA-aaaa-bbbb-1111"]);
+  });
+
+  test("GHSA 提取正则形态（三段 4-4-4）不误吞两段/普通文本", () => {
+    const r = reconcileAuditExemptions("some GHSA text, GHSA-xx id, GHSA-aaaa-bbbb partial", []);
+    expect(r.detected).toEqual([]);
+  });
+
+  test("实测样例：真实 audit 输出片段提取（形态回归钉）", () => {
+    const realLine =
+      "  high: braces vulnerable to stack-exhaustion denial of service through deeply nested patterns (<=3.0.3) - https://github.com/advisories/GHSA-vfj7-8cjw-p6xm";
+    const r = reconcileAuditExemptions(realLine, [{ ghsa: "GHSA-vfj7-8cjw-p6xm" }]);
+    expect(r.exempted).toEqual(["GHSA-vfj7-8cjw-p6xm"]);
+    expect(r.unexempted).toEqual([]);
   });
 });
