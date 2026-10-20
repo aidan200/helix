@@ -148,6 +148,14 @@ describe("① todo_write（建清单 + 入参校验）", () => {
     expect(f.parent.getPlan("agent-p2")).toHaveLength(0);
   });
 
+  test("服务面直连写非法 status 被拒（评审 low #59：不只驱动层把关），零部分落库", async () => {
+    const f = makeFixture("agent-p4");
+    await expect(
+      f.service.writeTodos("agent-p4", [{ content: "x", status: "completed" as never }]),
+    ).rejects.toThrow(/status 非法/);
+    expect(f.parent.getPlan("agent-p4")).toHaveLength(0);
+  });
+
   test("abandoned 无 note / 空白 note / 非法 status → error", async () => {
     const f = makeFixture("agent-p3");
     const noNote = await run(f.todoWrite, { todos: [{ content: "x", status: "abandoned" }] }, f.env);

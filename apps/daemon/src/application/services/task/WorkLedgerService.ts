@@ -1,5 +1,5 @@
 import type { WorkItemData, WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
-import type { WorkItemStatus } from "../../../domain/task/types";
+import { WORK_ITEM_STATUSES, type WorkItemStatus } from "../../../domain/task/types";
 
 /**
  * WorkLedgerService —— work_item（实例 todo，AD-6①）应用服务：todo 工具族
@@ -65,6 +65,12 @@ export class WorkLedgerService {
       const item = items[i]!;
       if (typeof item.content !== "string" || item.content.trim() === "") {
         throw new Error(`第 ${i + 1} 条待办内容为空（每条须为一项非空工作描述）`);
+      }
+      // status 枚举校验落在服务面（评审 low #59）：类头声明「校验 status 合法」，
+      // 此前只有 TodoTools 驱动层把关——直连本服务的写面可写入非法 status。
+      // 词表单源 = domain WORK_ITEM_STATUSES。
+      if (!(WORK_ITEM_STATUSES as readonly string[]).includes(item.status)) {
+        throw new Error(`第 ${i + 1} 条待办 status 非法（${String(item.status)}）——仅接受 ${WORK_ITEM_STATUSES.join(" / ")}`);
       }
       if (item.status === "abandoned" && (item.note ?? "").trim() === "") {
         throw new Error(`第 ${i + 1} 条 abandoned 必须携带非空 note（放弃理由/替代方案）`);
