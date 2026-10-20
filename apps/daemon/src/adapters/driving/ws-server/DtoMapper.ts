@@ -15,3 +15,4 @@
 export * from "./EntryDtoMapper";
 export * from "./SnapshotMapper";
 export * from "./EnvelopeMapper";
+export * from "./ProjectDtoMapper";

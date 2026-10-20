@@ -79,6 +79,7 @@ import type { OrphanItem } from "../../../../application/services/kg/KgVerifySer
 import type { NodeDigestRow } from "../../../../domain/kg/types";
 import type { KgCommandContext } from "./context";
 import { optionalPayloadString, requirePayloadString, reportInternalFailure } from "./payload-guards";
+import { projectRowToDto } from "../DtoMapper";
 
 /** kg.projects（F5.0：宽松口径一层扫描；只读零写）。W1：unbound 防御契约——空集结果非报错。 */
 export function handleKgProjects(ctx: KgCommandContext): void {
@@ -650,27 +651,6 @@ export function handleCodeReviewCreate(ctx: KgCommandContext): void {
 }
 
 // ── 应用层视图 → 协议 DTO（逐字段直拷；readonly → 可变帧形态） ──
-
-/** 项目行 DTO 映射（kg.projects / workspace.open.result 两处共用同一口径）。 */
-export function projectRowToDto(row: KgProjectRowView): KgProjectRow {
-  return {
-    name: row.name,
-    path: row.path,
-    status: row.status,
-    ...(row.symbolCount !== undefined ? { symbolCount: row.symbolCount } : {}),
-    ...(row.nodeCount !== undefined ? { nodeCount: row.nodeCount } : {}),
-    ...(row.syncedAt !== undefined ? { syncedAt: row.syncedAt } : {}),
-    ...(row.degradedNote !== undefined ? { degradedNote: row.degradedNote } : {}),
-    // P0① 运行中标志：true 才携带（false/缺省省略——旧 shell 兼容零感知）
-    ...(row.bootstrapRunning ? { bootstrapRunning: true } : {}),
-    // 体检入口运行态同规：非终态 kg-review job 覆盖项目时携带
-    ...(row.reviewRunning ? { reviewRunning: true } : {}),
-    // code-review v1.5 体检区代码评审入口运行态同规
-    ...(row.codeReviewRunning ? { codeReviewRunning: true } : {}),
-    // P2 kg-triage 待办面裁决入口运行态同规
-    ...(row.triageRunning ? { triageRunning: true } : {}),
-  };
-}
 
 function listRowToDto(row: NodeDigestRow): KgNodeListRow {
   return { id: row.id, name: row.name, kind: row.kind, domain: row.domain, status: row.status, digest: row.digest };

@@ -11,7 +11,7 @@
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { WorkspaceGetResultEvent, WorkspaceOpenResultEvent } from "@helix/protocol";
 import type { WorkspaceCommandContext } from "./context";
-import { projectRowToDto } from "./kg";
+import { projectRowToDto } from "../DtoMapper";
 import { reportInternalFailure } from "./payload-guards";
 
 /** workspace.get（门禁判定读面：current/recents/notice 快照）。 */
