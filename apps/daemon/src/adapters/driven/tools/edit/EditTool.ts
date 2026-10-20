@@ -68,7 +68,12 @@ export interface EditAppliedEvent {
     readonly editLineStart: number;
     readonly editLineEnd: number;
   }>;
-  /** 落盘后内容按 \n 切分（含尾换行产生的空尾元素）。 */
+  /**
+   * 编辑后内容按 \n 切分（含尾换行产生的空尾元素）——**不是磁盘原样**：
+   * 取自 LF 归一、已去 BOM 的 workContent（低危批口径更正；旧注称「落盘后
+   * 内容」，CRLF/BOM 文件上与磁盘行文本不同——按行对齐磁盘请自行处理行尾，
+   * 按行号定位（scope-matcher 消费面）则无差异）。
+   */
   readonly fileLines: readonly string[];
 }
 

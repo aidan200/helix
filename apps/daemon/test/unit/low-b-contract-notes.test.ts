@@ -53,6 +53,14 @@ describe("adapters 域注释口径（低危批 L2）", () => {
     }
   });
 
+  test("EditTool.EditAppliedEvent.fileLines：注明非磁盘原样（LF 归一/去 BOM）", () => {
+    const src = read(path.join(import.meta.dir, "..", "..", "src", "adapters", "driven", "tools", "edit", "EditTool.ts"));
+    expect(src).toContain("**不是磁盘原样**");
+    expect(src).toContain("LF 归一、已去 BOM");
+    const banned = "/** 落盘后内容按 \\n 切分";
+    expect(src).not.toContain(banned);
+  });
+
   test("validateBrief 标题判据：口径 = 标题包含要素词（非「收窄枚举」）", () => {
     const src = read(ENGINE_SHARED, "templates", "validate.ts");
     expect(src).toContain("标题**包含**要素词");
