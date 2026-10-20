@@ -282,8 +282,10 @@ export class WriteQueue {
   }
 
   /**
-   * 会话删除入队（AD-4 删除收口链的删库步）：七表按 session_id 清行
-   *（六表 + W2-D pending_sync 台账行）；
+   * 会话删除入队（AD-4 删除收口链的删库步）：会话维各表按 session_id 清行
+   * + 主会话台账行按 instance 维清单（表清单见执行面 write-jobs.ts
+   * `deleteSession` 声明与下方 applyJob 清行块，两处同源——本注释不计数，
+   * 计数快照必随表增删漂移）；
    * 入本会话仓位尾部（此前已入队的写全部先落盘——删除不会被早到的状态写复活）。
    */
   deleteSession(sessionId: string): Promise<void> {
