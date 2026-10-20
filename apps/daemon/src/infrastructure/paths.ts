@@ -38,7 +38,9 @@ export interface HelixPaths {
   /** 单例幂等锁：`<home>/daemon.lock`（AG-17，同 --home 二启拒绝）。 */
   readonly lockPath: () => string;
   /** 本地模型资产目录：`<home>/models/`（声纹等本地推理模型的磁盘归位——
-   *  手动放置与导入上行共同落点；ensureHome 时一并补建）。 */
+   *  手动放置与导入上行共同落点）。**ensureHome 不补建本目录**（只建 home
+   *  根）：目录由首个写入面自建（WsServerAdapter 模型上传 PUT 路由
+   *  mkdirSync recursive；读取面 exists 探测缺席即 404）。 */
   readonly modelsDir: () => string;
   /** 确保主目录存在（递归创建；首启目录不存在时的目录补建单点）。 */
   readonly ensureHome: () => void;
