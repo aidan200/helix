@@ -25,9 +25,11 @@ export interface StreamDelta {
   readonly instanceId?: string;
   /**
    * diff 通道结构化载荷（channel="diff" 必携带；sessionId 必携带——路由位）。
-   * 形状 = 轮次 diff 状态三态快照（AG-02：ports 零包外 import，故此处
-   * 内联结构形状——与 @helix/protocol DiffChangedPayload 结构兼容，赋值
-   * 方向 application → driving 单向，帧翻译单点在 EnvelopeMapper）。
+   * 形状 = 轮次 diff 状态三态快照。端口面刻意不 import @helix/protocol 的
+   * wire DTO（AG-02 白名单虽允许 application 引 protocol，端口自持结构形状
+   * 才是「端口不绑 wire」的实际口径；旧注释把理由写成端口不得有包外 import，
+   * 与白名单实态不符，属错误归因）。与 @helix/protocol DiffChangedPayload
+   * 结构兼容，赋值方向 application → driving 单向，帧翻译单点在 EnvelopeMapper。
    */
   readonly diff?: {
     readonly turnId: string;
