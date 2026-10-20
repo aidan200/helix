@@ -22,9 +22,6 @@ const CLOSING_QUOTES = new Set<string>([
   "」", "』", "）", "】", "》", '"', "'", ")", "]", ">",
 ]);
 
-/** 句尾保留字符：换行（TTS 韵律信号）不剥除 */
-const TRAILING_KEEP = new Set<string>(["\n"]);
-
 export class SentenceBuffer {
   private buffer = "";
 

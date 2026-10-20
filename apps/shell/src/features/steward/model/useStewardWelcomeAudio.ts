@@ -14,8 +14,11 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
 import { beginSpeechLease, endSpeechLease } from "@/shared/lib/speech-mutex";
 import { beginDialogueSpeech, endDialogueSpeech } from "@/shared/lib/speech-floor";
-import { readWelcomeAudioPref, readWelcomeTextPref } from "@/shared/lib/voice-pref";
-import { readVoiceVolumePref } from "@/shared/lib/voice-pref";
+import {
+  readVoiceVolumePref,
+  readWelcomeAudioPref,
+  readWelcomeTextPref,
+} from "@/shared/lib/voice-pref";
 
 /** 欢迎语音轨租约源（speech-mutex/speech-floor 同源常量——迁移原值）。 */
 const SPEECH_LEASE_WELCOME = "steward-welcome-audio";

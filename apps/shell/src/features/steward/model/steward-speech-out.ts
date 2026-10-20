@@ -357,6 +357,10 @@ export class StewardSpeechOut {
     this.answerActive = false;
     this.muted = false;
     this.streamDead = false; // 上轮 stopSpeaking 链死位复位（主动发言独立开流）
+    // 迟到自愈闩锁同步复位（与 muted/streamDead/fallbackText 同组）：主动发言
+    // 独立开新 utterance，旧轮闩锁若留着，其后链死零出声会把**旧轮**残余文本
+    // 当自愈一次性播出（跨轮回退旧轮内容）
+    this.awaitingLateFallback = false;
     this.fallbackText = "";
     this.clearCutTimer();
     const speech = mdToSpeechText(text, SPEECH_AGGREGATE_MAX);

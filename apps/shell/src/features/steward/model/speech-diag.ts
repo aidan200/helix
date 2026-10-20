@@ -123,7 +123,9 @@ export function hydrateDiagFromStorage(): number {
     );
     ring.length = 0;
     ring.push(...entries.slice(-DIAG_RING_CAPACITY));
-    return entries.length;
+    // 返回**实际入环条数**（旧实现返回合法条目数：超容量截断后两者不等，
+    // 调用方当「恢复计数」展示会虚高）
+    return ring.length;
   } catch {
     return 0;
   }

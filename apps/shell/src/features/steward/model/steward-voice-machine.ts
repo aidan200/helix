@@ -111,9 +111,13 @@ export function mdToSpeechText(md: string, max = STEWARD_SPEECH_TEXT_MAX): strin
     .replace(/^>\s?/gm, "")
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\d+\.\s+/gm, "")
-    // 强调标记（**bold** / *em* / __bold__ / _em_ / ~~del~~）
+    // 强调标记（**bold** / *em* / __bold__ / _em_ / ~~del~~）——单星/单下划线
+    // 只在**词边界外**成立：旧 `(\*|_)(.*?)\1` 会把 snake_case 标识符当强调
+    // 剥掉（foo_bar_baz → foobarbaz，朗读吞词）；前后 lookaround 要求定界符
+    // 不贴词字符，`2*3*4` 这类算式同样不再误剥
     .replace(/(\*\*|__)(.*?)\1/g, "$2")
-    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])/g, "$1")
+    .replace(/(?<![\w_])_(?=\S)(.+?)(?<=\S)_(?![\w_])/g, "$1")
     .replace(/~~(.*?)~~/g, "$1")
     // 水平线
     .replace(/^\s*([-*_]\s*){3,}$/gm, " ")

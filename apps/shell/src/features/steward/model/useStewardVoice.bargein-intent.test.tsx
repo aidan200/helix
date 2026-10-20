@@ -41,6 +41,8 @@ const sendSttStreamChunk = vi.fn(() => true);
 const sendSttStreamFinish = vi.fn(() => true);
 const sendSttStreamStop = vi.fn(() => true);
 const sendStewardJudgeStopIntent = vi.fn(() => true);
+/** 判官命令面未装配（旧装配面/测试替身形态）：useSession 不提供该 sender。 */
+let judgeSenderUnwired = false;
 
 const listeners: Record<string, Set<(e: EventEnvelope) => void>> = {
   steward: new Set(),
@@ -82,7 +84,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendVoiceSynthesizeStream,
     sendVoiceSynthesizeStop,
     subscribeVoiceFrames,
-    sendStewardJudgeStopIntent,
+    ...(judgeSenderUnwired ? {} : { sendStewardJudgeStopIntent }),
   }),
 }));
 
@@ -322,6 +324,35 @@ describe("useStewardVoice barge-in 意图窗（意图门控打断——停止意
     expect(sendSttStreamStart.mock.calls.length).toBeGreaterThan(0);
   });
 
+  it("T1b 卸载收口意图窗：duck 音量恢复 + 超时 timer 不漏（卸载后不再 setState）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const hook = renderHook(() => useStewardVoice({ createMeter: fakeCreateMeter, createPlayer }), {
+        wrapper: I18nProvider,
+      });
+      const r = hook.result;
+      await pressHotkey(r);
+      await stewardSpeaking(r);
+      playerSetVolumeCalls.length = 0;
+      await voiceBargeInFrames();
+      await waitFor(() => expect(r.current.bargeInIntentActive).toBe(true));
+      expect(playerSetVolumeCalls).toEqual([0.2]); // duck 在场
+      act(() => {
+        hook.unmount(); // 卸载（面板退场/路由外弹层关闭）
+      });
+      // 收口面：三轨音量回原值（这里 player 轨道=1）
+      expect(playerSetVolumeCalls[playerSetVolumeCalls.length - 1]).toBe(1);
+      // 5s 窗超时 timer 已清：推进过窗不再触发任何回调（旧实现 timer 裸跑）
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("T2 interim 快通道保持退役：窗内 interim 全等停止文本「停」→ 不触发三步序（声纹→ASR→判官链——停止判定必经 final 路径声纹验后）", async () => {
     const env = installEnv();
     restoreEnv = env.restore;
@@ -508,6 +539,21 @@ describe("useStewardVoice judgeStopIntent（Jev 停止判定单轨：RPC 判定�
     sendStewardJudgeStopIntent.mockImplementationOnce(() => false);
     await expect(r.current.judgeStopIntent("先别说了")).resolves.toBe("unjudged");
     expect(sendStewardJudgeStopIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it("T7b 判官 sender 未装配（undefined）→ 立即 \"unjudged\"（不白等 2.5s 超时）", async () => {
+    const env = installEnv();
+    restoreEnv = env.restore;
+    judgeSenderUnwired = true;
+    vi.useFakeTimers();
+    try {
+      const r = renderVoice({ createMeter: fakeCreateMeter, createPlayer });
+      // 无 timer 推进即收敛 = 走未装配快径（旧实现要挂满 JUDGE_STOP 超时）
+      await expect(r.current.judgeStopIntent("先别说了")).resolves.toBe("unjudged");
+    } finally {
+      vi.useRealTimers();
+      judgeSenderUnwired = false;
+    }
   });
 
   it("T8 判官超时 → \"unjudged\"（判不出归一——真停语义归消费面）", async () => {

@@ -563,3 +563,21 @@ describe("deriveOrbPhase（B2 光球相位状态机）", () => {
     expect(deriveOrbPhase({ phase: "idle", duplex: false, fading: false, welcome: false })).toBeNull();
   });
 });
+
+describe("mdToSpeechText 强调剥除的词边界（snake_case 不吞词）", () => {
+  it("snake_case 标识符原样保留（foo_bar_baz 不被当 _em_ 剥）", () => {
+    expect(mdToSpeechText("调用 foo_bar_baz 函数")).toBe("调用 foo_bar_baz 函数");
+    expect(mdToSpeechText("use_steward_voice 与 steward_speech_out")).toBe(
+      "use_steward_voice 与 steward_speech_out",
+    );
+  });
+
+  it("正常强调照旧剥除（*em* / **bold** / _em_ / __bold__）", () => {
+    expect(mdToSpeechText("*强调*与**加粗**")).toBe("强调与加粗");
+    expect(mdToSpeechText("_斜体_ 和 __加粗__")).toBe("斜体 和 加粗");
+  });
+
+  it("算式星号不误剥（2*3*4 保持原样——旧正则会把 3 吃掉）", () => {
+    expect(mdToSpeechText("面积 2*3*4 平方")).toBe("面积 2*3*4 平方");
+  });
+});

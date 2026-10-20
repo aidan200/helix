@@ -92,12 +92,17 @@ export function inputResolve(
   return next;
 }
 
-/** 闸门异步回判（judge dropped 在 dispatch 之后才回执）：最近可判行（终态
- *  done 优先——刚发问那行）翻 rejected 带注记；无可判行补注记行。 */
+/** 闸门异步回判（judge dropped 在 dispatch 之后才回执）：最近可判行翻 rejected
+ *  带注记——**优先序 done > confirmed**（刚发问那行已 done；旧实现单一倒序扫
+ *  首个 done|confirmed，注释承诺的 done 优先并不成立：中间夹一条 confirmed 时
+ *  会先命中它）；无可判行补注记行（text 空串是有意形态：异步回执可能先于输入
+ *  行到达，渲染面只呈现注记、随 TTL 自行消失）。 */
 export function inputAnnotate(rows: readonly InputRow[], note: InputNote, at: number = Date.now()): InputRow[] {
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
-    const r = rows[i]!;
-    if (r.state === "done" || r.state === "confirmed") {
+  // ① done 优先（刚完成的那问）；② 退 confirmed（已确认未完成）
+  for (const preferred of ["done", "confirmed"] as const) {
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const r = rows[i]!;
+      if (r.state !== preferred) continue;
       const next = [...rows];
       next[i] = { ...r, state: "rejected", note, at };
       return next;
