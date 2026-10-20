@@ -204,6 +204,7 @@ export {
   sessionLoadHistoryCommand,
   sessionInstanceChannelsCommand,
 } from "./commands/session";
+export { workspaceGetCommand, workspaceOpenCommand } from "./commands/workspace";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
 
@@ -854,22 +855,6 @@ export function kgReviewCreateCommand(payload: KgReviewCreatePayload): KgReviewC
 /** code.review.create：发起代码评审任务（code-review v1.5；准入从简——无索引门槛，允许反复发起）。 */
 export function codeReviewCreateCommand(payload: CodeReviewCreatePayload): CodeReviewCreateCommand {
   return { v: PROTOCOL_VERSION, type: "code.review.create", payload };
-}
-
-// ── workspace 族命令（W3 门禁；契约 PROTOCOL.md §15.10）──────────────
-// 两命令均为全局命令（信封 sessionId 省略）；回执 = §16.10 点对点结果帧
-//（workspace.get.result / workspace.open.result，SessionContext 转发层
-// → entities/workspace 状态机消费）；校验/持久化全在 daemon 单点，前端
-// 零重复实现（W3 门禁读/写面）。
-
-/** workspace.get：门禁读面（无参；current 非 null → 主壳 / null → 选择页）。 */
-export function workspaceGetCommand(): WorkspaceGetCommand {
-  return { v: PROTOCOL_VERSION, type: "workspace.get", payload: {} };
-}
-
-/** workspace.open：显式绑定写面（daemon realpath 规范化 + 危险根校验）。 */
-export function workspaceOpenCommand(root: string): WorkspaceOpenCommand {
-  return { v: PROTOCOL_VERSION, type: "workspace.open", payload: { root } };
 }
 
 // ── task 族命令（T3.1；契约 contracts/task-api.md §2；iter-20260829-ys7q）──
