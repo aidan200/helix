@@ -1257,6 +1257,8 @@ export class StewardService implements StewardComponent {
    *  （askSettler/pendingRunAsk/askStreamEvents/projectionChain/runSettled）
    *  与 engine 代际守卫留应用层——与 promise 编排/引擎调用深度耦合。 ── */
   private readonly run: StewardRun<StewardAskErrorKind>;
+  /** 当前 run 供判官/看门狗持有的代际号（occupy 时递增——异步判定只作用于发问时那一代）。 */
+  private runEpoch = 0;
   /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
   private notifySeq = 0;
   /** 主动汇报实时帧序（emitProactive 单调 seq——M3-a，与 notify 同构口径）。 */
@@ -1312,12 +1314,30 @@ export class StewardService implements StewardComponent {
     // 逻辑会把停止表达当新 ask abort-再驱动——语义错位）；pending 卡不动
     //（卡生命周期 TTL 域独立）。
     if (this.run.active) {
+      // 判定 await 竞态守卫（评审 low #2）：判官判定是异步 LLM 调用，期间在途
+      // run 可能自然收口（判停结论悬空）或被排队接管换代（新 run 与这句停止
+      // 表达无关）。记下发问时的 run 代际号（runEpoch，occupy 递增）再判定：
+      // ——同 run 仍在途：全停（abort + 清队列）；
+      // ——run 已自然收口：停止表达不回落成新一轮 LLM 提问（清队列 + stopped
+      //   回执），而不是当新问题再交一次 LLM；
+      // ——run 已换代（后继在途）：判停结论对后继无失（后代在服队列里的旧
+      //   ask），不误杀后继（abortInFlight 会杀掉它）——交回正常漏斗排队，
+      //   与判官缺席的 fail-open 同姿态。
+      const epochAtJudge = this.runEpoch;
       const stopVerdict = await this.judgeStopIntent(text);
-      if (stopVerdict.stop && this.run.active) {
-        const dropped = this.askQueue.clearAll();
-        this.abortInFlight("停止判定全停");
-        this.logInfo(`管家手动停止（停止判定判停）：丢弃排队 ${dropped} 条`);
-        return { status: "stopped", reason: "已停止当前处理", dropped };
+      if (stopVerdict.stop) {
+        const sameRunInFlight = this.run.active && this.runEpoch === epochAtJudge;
+        if (sameRunInFlight) {
+          const dropped = this.askQueue.clearAll();
+          this.abortInFlight("停止判定全停");
+          this.logInfo(`管家手动停止（停止判定判停）：丢弃排队 ${dropped} 条`);
+          return { status: "stopped", reason: "已停止当前处理", dropped };
+        }
+        if (!this.run.active) {
+          const dropped = this.askQueue.clearAll();
+          this.logInfo(`管家手动停止（判定期间 run 已收口）：丢弃排队 ${dropped} 条`);
+          return { status: "stopped", reason: "已停止当前处理", dropped };
+        }
       }
     }
     // 判官泛化层（M3-a：三级漏斗第二级）：词表未命中 ∧ pending 卡在场 →
@@ -1398,8 +1418,7 @@ export class StewardService implements StewardComponent {
 
   /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt
    *  组装（感知快照 + 记忆召回——setSystemPrompt 运行期变异面）+ B4a 补偿
-   *  （队列接管轮）+ 事件收口挂载。
-   *
+   *  （队列接管轮）+ 事件收口挂载。   *
    *  事故热修批④（队列并发锁）：runActive 提前到本同步段置位——原实现置位
    *  在 await 装配段之后，ask 检查面在「run 收口（runActive=false）→ driveAsk
    *  装配 await → runActive=true」的间隙里看到假空闲态，相邻 ask 并发直驱双
@@ -1409,6 +1428,7 @@ export class StewardService implements StewardComponent {
    *  装配失败，释放占位并收口 error 回执（防 runActive 永真死锁队列）。 */
   private driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
     this.run.occupy(); // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
+    this.runEpoch += 1; // run 代际号（评审 low #2：异步判定回来时认「是不是同一个 run」）
     const run = this.assembleAndRun(item);
     run.catch(() => undefined); // 兕底异常不经本链传播（收口在内部处理）
     return run;

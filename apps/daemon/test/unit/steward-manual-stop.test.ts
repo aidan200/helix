@@ -395,3 +395,96 @@ describe("手动停止②：强制停止判定（判官单轨——在途全停 
     expect((await hung2).status).toBe("error");
   });
 });
+
+// ── ③ 判定 await 竞态（评审 low #2：判停期间 run 换代/自然收口） ─────────
+
+/** 可控收口 LLM：首轮挂到 holder.release 才返回（模拟判定期间 run 自然收口）；
+ *  次轮按 hang 参数决定「直接作答」（被当新提问会露馅）或「永久挂起」（后继在途形态）。 */
+function gatedLlm(holder: { release?: (r: StewardLlmResponse) => void }, hang: boolean): StewardLlmPort {
+  let round = 0;
+  return {
+    modelId: "fake/flash",
+    complete(): Promise<StewardLlmResponse> {
+      const current = round;
+      round += 1;
+      if (current === 0) return new Promise<StewardLlmResponse>((r) => { holder.release = r; });
+      if (hang) return new Promise<StewardLlmResponse>(() => {}); // 后继 run 在途（永不收口）
+      return Promise.resolve(answer("后续 LLM 答（停止表达不应到达此处）"));
+    },
+  };
+}
+
+describe("手动停止③：停止判定 await 竞态（判停结论只作用于发问时的那个 run）", () => {
+  test("判定期间 run 自然收口 → 停止表达不落 LLM 当新提问（stopped 回执）", async () => {
+    const nowRef = { now: 0 };
+    const holder: { release?: (r: StewardLlmResponse) => void } = {};
+    const llm = gatedLlm(holder, false);
+    let unblockJudge: (() => void) | undefined;
+    const judge: IntentJudgeFace = {
+      enabled: () => true,
+      ready: () => true,
+      noul: async () => {
+        await new Promise<void>((r) => { unblockJudge = () => r(); });
+        return 0.9; // 判停
+      },
+    };
+    const { svc, aborts } = makeStopService({ llm, nowRef, intentJudge: judge });
+
+    const first = svc.ask("第一问");
+    await settle(6); // run 在位
+    const stopAsk = svc.ask("别说了"); // 进判官判定（挂住）
+    await settle(4);
+
+    // 判定期间 run 自然收口
+    holder.release?.(answer("答一"));
+    expect((await first).status).toBe("answer");
+
+    unblockJudge?.(); // 判官回判停
+    const stopped = await stopAsk;
+    // 停止表达已被判停：不得因「run 恰好收口」而回落成新一轮 LLM 提问
+    expect(stopped.status).toBe("stopped");
+    expect(aborts.length).toBe(0);
+  });
+
+  test("判定期间 run 换代（排队接管）→ 不误杀后继 run（停止结论对后继无失，交回漏斗排队）", async () => {
+    const nowRef = { now: 0 };
+    const holder: { release?: (r: StewardLlmResponse) => void } = {};
+    const llm = gatedLlm(holder, true); // 后继 run 在途形态：次轮永不收口
+    let armed = false; // 未备前判「非停」（排队提问不被判定挂住）
+    let unblockJudge: (() => void) | undefined;
+    const judge: IntentJudgeFace = {
+      enabled: () => true,
+      ready: () => true,
+      noul: async () => {
+        if (!armed) return 0.1;
+        await new Promise<void>((r) => { unblockJudge = () => r(); });
+        return 0.9;
+      },
+    };
+    const { svc, aborts } = makeStopService({ llm, nowRef, intentJudge: judge });
+
+    const first = svc.ask("第一问");
+    await settle(6);
+    const queued = await svc.ask("排队问");
+    expect(queued.status).toBe("queued");
+    armed = true;
+    const stopAsk = svc.ask("别说了"); // 判官判定（挂住）
+    await settle(4);
+
+    // 判定期间：首 run 收口 → 排队的第二问接管（换代）
+    holder.release?.(answer("答一"));
+    expect((await first).status).toBe("answer");
+    await settle(4); // 后继 run 已占位（在途、无收口）
+
+    unblockJudge?.();
+    const r = await stopAsk;
+    // 后继 run 不是判停对象：零 abort（误杀修复），本表达交回漏斗（在途 → 排队）
+    expect(aborts.length).toBe(0);
+    expect(r.status).toBe("queued");
+
+    // 收尾：快进轨清场（挂起流强制收口）
+    nowRef.now = 60_000;
+    svc.reliabilityTick();
+    await settle();
+  });
+});
