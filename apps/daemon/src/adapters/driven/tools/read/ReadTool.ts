@@ -111,7 +111,10 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
         usedBytes += lineBytes;
       }
       let output = rendered.join("\n");
-      const lastShown = startLine + rendered.length; // 0 起末行索引
+      // lastShown = 本次展示的末行**行号**（1 起；末行号 = startLine + 展示行数）。
+      // 低危批口径更正：旧注称「0 起末行索引」与语义不符，按注释改续读指针会
+      // off-by-one（续读 offset 用的是行号 +1，两者都以 1 起计）。
+      const lastShown = startLine + rendered.length;
       if (lastShown < totalLines) {
         output += `\n\n[Showing lines ${startLine + 1}-${lastShown} of ${totalLines}. Use offset=${lastShown + 1} to continue.]`;
       }
