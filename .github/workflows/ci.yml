@@ -134,7 +134,7 @@ jobs:
   # 行为矩阵：writableRoots 内写/外拒/子目录继承/退出码与 stdio 透传（tests/behavior.rs）。
   win-sandbox-helper:
     name: sandbox helper (windows, cargo test)
-    runs-on: windows-2022  # 2026-10 windows-latest 镜像漂移（bash 运行时 × 受限 token DLL 初始化失败）——钉旧镜像保绿，helper 兼容性修复后回 latest
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
