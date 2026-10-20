@@ -76,6 +76,22 @@ fn token_privilege_enable_checks_not_all_assigned_and_closes_handle() {
     );
 }
 
+/// 评审 F5 #3（acl.rs:5 模块头）：注释称「写检查（全部 restricting SIDs 须
+/// grant）」——与 E-162/TR-164 实证的 at-least-one 语义相反（现 [cap] 单元素两
+/// 语义等价故无行为差异，但照注释扩 restricting 面会重蹈 run32「混 user 反被放行」）。
+#[test]
+fn acl_header_states_at_least_one_semantics() {
+    let acl = read_src("acl.rs");
+    assert!(
+        acl.contains("at-least-one"),
+        "acl.rs 模块头须点明 additional check 为 at-least-one（E-162/TR-164）"
+    );
+    assert!(
+        !acl.contains("全部 restricting SIDs 须 grant"),
+        "acl.rs 不得回潮「全部 restricting SIDs 须 grant」的错口径"
+    );
+}
+
 /// 评审 F5 #2 的逻辑面单元测试在 src/privileges.rs 内（纯逻辑，非 Windows
 /// host 可跑）；此处只钉 token.rs 的接线与句柄回收。
 #[test]
