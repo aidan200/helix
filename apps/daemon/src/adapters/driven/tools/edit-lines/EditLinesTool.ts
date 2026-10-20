@@ -89,7 +89,10 @@ export function createEditLinesTool(
       const absoluteResult = await env.absolutePath(file, context);
       if (!absoluteResult.ok) throw absoluteResult.error;
       const absolutePath = absoluteResult.value;
-      return withFileMutationQueue(env, absolutePath, async () => {
+      // 临界区（withFileMutationQueue）：只包「读 → 校验 → 写」——挂点投递
+      // （deliverNotify）移出临界区（低危批，与 EditTool 的既有裁决同口径）：
+      // 文件已落盘，挂点只消费既定内容，与同文件后续读改写无需互斥。
+      const { result, writtenContent } = await withFileMutationQueue(env, absolutePath, async () => {
         if (context.abortSignal?.aborted) throw new Error("Operation aborted");
         const info = await env.fileInfo(absolutePath, context);
         if (!info.ok) {
@@ -142,19 +145,24 @@ export function createEditLinesTool(
             cause: writeResult.error as Error,
           });
         }
-        deliverNotify(deps, absolutePath, finalContent);
         const diffResult = generateDiffString(lf, newLf);
         return {
-          content: [
-            { type: "text", text: `Successfully replaced lines ${startLine}-${endLine} in ${file}.` },
-          ],
-          details: {
-            diff: diffResult.diff,
-            patch: generateUnifiedPatch(file, lf, newLf),
-            firstChangedLine: diffResult.firstChangedLine,
+          result: {
+            content: [
+              { type: "text" as const, text: `Successfully replaced lines ${startLine}-${endLine} in ${file}.` },
+            ],
+            details: {
+              diff: diffResult.diff,
+              patch: generateUnifiedPatch(file, lf, newLf),
+              firstChangedLine: diffResult.firstChangedLine,
+            },
           },
+          writtenContent: finalContent,
         };
       }, context);
+      // 临界区外投递（M23 同构：文件已落盘，写后 abort 不应吞掉成功回执）
+      deliverNotify(deps, absolutePath, writtenContent);
+      return result;
     },
   };
 }
