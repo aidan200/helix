@@ -85,3 +85,32 @@ describe("⑤ steward.notify 出口日志（发出 INFO / 去重丢弃 WARN）",
     ).not.toThrow();
   });
 });
+
+describe("steward.notify 去重键 LRU 刷新（低危批）", () => {
+  test("过窗重设的 key 重排到队尾——键量过 MAX 时不被优先淘汰（60s 窗不静默失效）", () => {
+    const logger = makeLogger();
+    const sent: EventEnvelope[] = [];
+    let now = 1_000;
+    const stream = new EventStream({ clock: () => now, logger });
+    const sender = (frame: EventEnvelope) => sent.push(frame);
+    stream.attach(sender);
+    stream.subscribeSteward(sender);
+
+    const notify = (title: string, seq: number): void =>
+      stream.broadcastStewardNotify({ urgency: "normal", title, body: "b", seq });
+
+    // 首个 key 入表，随后灌满 MAX 个其他 key（首个被挤到队首）
+    notify("key-0", 1);
+    for (let i = 1; i < 64; i += 1) notify(`key-${i}`, i + 1);
+    // 过窗后重设 key-0：旧实现 set 覆盖不移动插入位 → 它仍是「最老」
+    now += 61_000;
+    notify("key-0", 100);
+    // 再入一个新 key 触发淘汰：重排后淘汰的应是 key-1（真 LRU），不是 key-0
+    notify("key-new", 200);
+    const before = sent.length;
+    // key-0 仍应在去重窗内 → 短窗重复被丢弃（不再重复弹通知）
+    notify("key-0", 300);
+    expect(sent.length).toBe(before);
+    expect(logger.warns.some((w) => w.includes("去重丢弃"))).toBe(true);
+  });
+});

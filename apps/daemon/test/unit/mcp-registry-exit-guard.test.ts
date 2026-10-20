@@ -41,3 +41,15 @@ describe("McpRegistry onExit 身份守卫（code-review 低危）", () => {
     expect(addServerBody).toMatch(/client,\n/);
   });
 });
+
+describe("McpRegistry setStatus 身份守卫（低危批：discover 异步竞态）", () => {
+  test("结构：discover 收尾的 setStatus 前置注册表身份比对（孤儿 entry 不广播过期状态）", () => {
+    const setStatusIdx = src.indexOf("private setStatus(");
+    expect(setStatusIdx).toBeGreaterThan(0);
+    const body = src.slice(setStatusIdx, src.indexOf("async addServer(", setStatusIdx));
+    expect(body).toContain("if (this.servers.get(entry.config.name) !== entry) return;");
+    // 守卫必须先于状态写入与广播（顺序即语义）
+    expect(body.indexOf("!== entry) return")).toBeLessThan(body.indexOf("entry.status = { ...entry.status, ...patch }"));
+    expect(body.indexOf("!== entry) return")).toBeLessThan(body.indexOf("this.publishStatus(entry.status)"));
+  });
+});

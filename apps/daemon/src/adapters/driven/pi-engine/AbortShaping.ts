@@ -74,6 +74,18 @@ export function abortShapingConvertToLlm(
 	};
 }
 
+/**
+ * thinking 块正文抽取：pi ThinkingContent 的正文在 `thinking` 字段
+ * （pi-ai dist/types.d.ts ThinkingContent），非 `text`——审计摘要读错字段即恒空串。
+ * 容忍非标准形状（text 兜底），坏形状返回空串。
+ */
+function thinkingTextOf(block: unknown): string {
+	const raw = block as { thinking?: unknown; text?: unknown };
+	if (typeof raw?.thinking === "string") return raw.thinking;
+	if (typeof raw?.text === "string") return raw.text;
+	return "";
+}
+
 /** aborted/error assistant → 修形 user 消息（text 保留 + thinking/toolCall 剔除 + 标记）。 */
 function shapeAbortedAssistant(
 	message: AgentMessage,
@@ -89,7 +101,9 @@ function shapeAbortedAssistant(
 		if (block?.type === "text") {
 			parts.push((block as TextContent).text);
 		} else if (block?.type === "thinking") {
-			onDropped?.({ kind: "thinking", summary: String((block as { text?: string }).text ?? "").slice(0, 80) });
+			// pi ThinkingContent 的正文在 thinking 字段（pi-ai dist/types.d.ts
+			// ThinkingContent），非 text——读 text 会令审计摘要恒空串（低危批）。
+			onDropped?.({ kind: "thinking", summary: thinkingTextOf(block).slice(0, 80) });
 		} else if (block?.type === "toolCall") {
 			const call = block as { id?: string; name?: string };
 			if (call.id !== undefined) droppedToolCallIds.add(call.id);

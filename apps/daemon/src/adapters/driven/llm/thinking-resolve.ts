@@ -20,8 +20,10 @@ import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
  *   → 按未配置跳过，链继续；全链落 off → undefined；
  * - 缺位（undefined/空串）= 未配置 → 后续档。
  *
- * 防腐墙：pi-ai 类型不出本域（driven/llm 引擎中立层（adapters/driven/pi-engine）；调用面全链字符串
- * 透传。覆盖值本体不丢（换模只改生效档，切回自动恢复——意图/生效分离 AD-3）。
+ * 防腐墙：pi-ai 类型不出本域（本文件所在 adapters/driven/llm 即引擎中立层——
+ * 低危批口径更正：旧注括注的 "adapters/driven/pi-engine" 是 Phase 0b 拆分前的
+ * 旧位置，当前 pi 类型只经 clampThinkingLevel 的入参类型进来）；调用面全链
+ * 字符串透传。覆盖值本体不丢（换模只改生效档，切回自动恢复——意图/生效分离 AD-3）。
  */
 export function resolveEffectiveThinking(
   chain: readonly (string | undefined)[],

@@ -14,8 +14,8 @@ export type { AgentMessage } from "@earendil-works/pi-agent-core";
  *
  * 防腐原则（AD-16）：pi 的消息类型只进 pi-engine 目录，domain 不见 pi
  * 类型；映射层刻意薄——本任务只需文本抽取（引擎事件翻译）与用户消息
- * 构造（steer/prompt 注入），Entry 树/LaneRecord 的完整持久化映射随
- * 完整持久化映射由 sqlite-session 适配器承载。
+ * 构造（steer/prompt 注入）；Entry 树/LaneRecord 的完整持久化映射由
+ * sqlite-session 适配器承载（不在本层）。
  */
 
 /** 内容块 → 纯文本（text 块拼接；toolCall/thinking 块贡献空串——

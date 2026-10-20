@@ -44,18 +44,38 @@ export function codegraphDbPath(projectRoot: string): string {
   return `${codegraphDirPath(projectRoot)}/codegraph.db`;
 }
 
-/** 只读打开：plain path readonly 优先（bun:sqlite URI 打开 linux 必败，见头注；双平台 WAL 两态实测可读）；打开惰性，用探活查询逼出真实打开失败后回退 immutable URI 只读快照。 */
+/** 错误文案归一（首因不丢：抛给调用方/degraded 诊断的是双通道合并结果）。 */
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** 只读打开：plain path readonly 优先（bun:sqlite URI 打开 linux 必败，见头注；双平台 WAL 两态实测可读）；打开惰性，用探活查询逼出真实打开失败后回退 immutable URI 只读快照。
+ *  两条通道都失败时抛合并错误（含首因——旧实现 catch 丢弃首因，degraded 诊断只剩回退尝试的错误）。 */
 export function openCodegraphReadonly(dbPath: string): Database {
+  let primaryReason: string;
   try {
     const db = new Database(dbPath, { readonly: true, create: false });
-    db.query("SELECT count(*) FROM sqlite_schema LIMIT 1").get(); // 探活：CANTOPEN 在首个查询才抛（惰性打开）
-    return db;
-  } catch {
-    // 极端态回退（库目录只读/-shm 不可建）：immutable URI 同为只读旗标组合，
-    // 绕过 wal-index 直读主库文件（AF-2「或等价 readonly 连接选项」句）。
-    // 注意 bun:sqlite URI 打开在 linux 必败——本回退仅在 mac 有实际意义，
-    // linux 下 plain 失败即整体 degraded（绝不写/迁移语义不变）。
+    try {
+      db.query("SELECT count(*) FROM sqlite_schema LIMIT 1").get(); // 探活：CANTOPEN 在首个查询才抛（惰性打开）
+      return db;
+    } catch (error) {
+      db.close(); // 探活失败：句柄先收再回退，不留半开连接（低危批）
+      throw error;
+    }
+  } catch (error) {
+    primaryReason = reasonOf(error);
+  }
+  // 极端态回退（库目录只读/-shm 不可建）：immutable URI 同为只读旗标组合，
+  // 绕过 wal-index 直读主库文件（AF-2「或等价 readonly 连接选项」句）。
+  // 注意 bun:sqlite URI 打开在 linux 必败——本回退仅在 mac 有实际意义，
+  // linux 下 plain 失败即整体 degraded（绝不写/迁移语义不变）。
+  try {
     return new Database(`file:${dbPath}?mode=ro&immutable=1`, { readonly: true, create: false });
+  } catch (fallbackError) {
+    throw new Error(
+      `codegraph 库只读打开失败（${dbPath}）：plain-ro 首因 ${primaryReason}；immutable URI 回退 ${reasonOf(fallbackError)}`,
+      { cause: fallbackError },
+    );
   }
 }
 

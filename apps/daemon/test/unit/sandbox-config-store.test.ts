@@ -130,3 +130,20 @@ describe("F2 #10：写未落盘期间 current() 不得用旧 KV 值覆盖刚写�
     }
   });
 });
+
+// ── 读面出参克隆（低危批） ──
+
+describe("KvConfigStore 读面出参解耦", () => {
+  test("current() 返回副本：调用方可变改不回写缓存（与 set 的克隆对称）", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "helix-kv-clone-"));
+    try {
+      const store = makeStore(dir);
+      const first = store.current();
+      (first as { extraRoots: string[] }).extraRoots.push("/污染");
+      expect(store.current().extraRoots).toEqual([]);
+      expect(store.current().enabled).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

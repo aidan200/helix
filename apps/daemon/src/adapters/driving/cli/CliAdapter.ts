@@ -6,6 +6,49 @@ import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { AgentStateChangedPayload, MessageCompletedPayload, SteerDiscardedPayload, SteerPayload, ToolResultPayload } from "../../../domain/events/DomainEvent";
 
 /**
+ * GuardedWriter —— CLI stdout 守卫写面（低危批上收：StdoutEventPublisher.write
+ * 与 CliAdapter.writeGuarded 曾各写一份同构三面守卫，单侧改动必漂移）。
+ *
+ * 三面（EPIPE 修复批② 事故链定式）：
+ * ① 写前 writable/destroyed 检查（已销毁流直接跳过）；
+ * ② 写同步异常 try/catch（任何情况不向上抛）；
+ * ③ 异步 'error' 事件吸收（无监听时将成为进程级 uncaughtException 的路径）。
+ * broken 后静默 no-op：终端可观测性让位于 daemon 存活（消费端已死，写无人读）。
+ */
+export class GuardedWriter {
+  /** 降级标记：流已断（同步抛/异步 error/destroyed），后续写全部静默丢弃。 */
+  private broken = false;
+
+  constructor(private readonly output: NodeJS.WritableStream) {
+    // 可选链防御非 EventEmitter 形态的注入流。
+    (this.output as { on?: (event: string, listener: (err: Error) => void) => unknown }).on?.("error", () => {
+      this.broken = true;
+    });
+  }
+
+  /** 守卫写；broken/不可写/同步抛一律静默（返回是否实际写入）。 */
+  write(text: string): boolean {
+    if (this.broken) return false;
+    const stream = this.output as NodeJS.WritableStream & { destroyed?: boolean; writable?: boolean };
+    if (stream.destroyed === true || stream.writable === false) {
+      this.broken = true; // 已销毁/不可写：直接降级（写必失败或无意义）
+      return false;
+    }
+    try {
+      this.output.write(text);
+      return true;
+    } catch {
+      this.broken = true; // EPIPE 等同步写失败：降级标记，后续静默 no-op
+      return false;
+    }
+  }
+
+  get isBroken(): boolean {
+    return this.broken;
+  }
+}
+
+/**
  * StdoutEventPublisher —— EventPublisherPort 的 CLI 实现（driving 侧实现
  * outbound 的标准形态，architecture.md §3.4）：领域事件 → 终端可读行；
  * 流式 delta → 原样写出（打字机效果）。
@@ -21,16 +64,11 @@ import type { AgentStateChangedPayload, MessageCompletedPayload, SteerDiscardedP
  * 让位于 daemon 存活——stdout 消费端已死，写无人读无意义）。
  */
 export class StdoutEventPublisher implements EventPublisherPort {
-  /** 降级标记：流已断（同步抛/异步 error/destroyed），后续写全部静默丢弃。 */
-  private broken = false;
+  /** 守卫写面（GuardedWriter 单点：三类失败面的唯一实现处）。 */
+  private readonly writer: GuardedWriter;
 
-  constructor(private readonly output: NodeJS.WritableStream) {
-    // 异步错误吸收：EPIPE/ECONNRESET 常以 'error' 事件投递（非同步抛），
-    // 无监听时升级为 uncaughtException 崩溃进程——此处吸收并降级（可选链
-    // 防御非 EventEmitter 形态的注入流）。
-    (this.output as { on?: (event: string, listener: (err: Error) => void) => unknown }).on?.("error", () => {
-      this.broken = true;
-    });
+  constructor(output: NodeJS.WritableStream) {
+    this.writer = new GuardedWriter(output);
   }
 
   publishDelta(delta: StreamDelta): void {
@@ -88,19 +126,9 @@ export class StdoutEventPublisher implements EventPublisherPort {
     }
   }
 
-  /** stdout 守卫写面：broken 降级 no-op；writable/destroyed 先行检查；同步异常不向上抛。 */
+  /** stdout 守卫写面（机制在 GuardedWriter：检查/同步抛/异步 error 三面）。 */
   private write(text: string): void {
-    if (this.broken) return;
-    const stream = this.output as NodeJS.WritableStream & { destroyed?: boolean; writable?: boolean };
-    if (stream.destroyed === true || stream.writable === false) {
-      this.broken = true; // 已销毁/不可写：直接降级（写必失败或无意义）
-      return;
-    }
-    try {
-      this.output.write(text);
-    } catch {
-      this.broken = true; // EPIPE 等同步写失败：降级标记，后续静默 no-op
-    }
+    this.writer.write(text);
   }
 }
 
@@ -131,19 +159,17 @@ export interface CliAdapterDeps {
  */
 export class CliAdapter {
   private readonly output: NodeJS.WritableStream;
+  /** 守卫写面（GuardedWriter 单点——与 StdoutEventPublisher 同一实现，
+   *  终端消费端死亡后提示符/回显静默 no-op）。 */
+  private readonly writer: GuardedWriter;
   private readonly showPrompt: boolean;
-  /** EPIPE 降级标记（修复批②，StdoutEventPublisher 同构三面守卫）：终端
-   *  消费端死亡（管道读端退出——如 `helix | head`）后提示符/回显不再写。 */
-  private outputBroken = false;
   private agentState = "idle";
   private exitRequested: (() => void) | null = null;
 
   constructor(private readonly deps: CliAdapterDeps) {
     this.output = deps.output ?? process.stdout;
+    this.writer = new GuardedWriter(this.output);
     this.showPrompt = deps.showPrompt ?? true;
-    (this.output as { on?: (event: string, listener: (err: Error) => void) => unknown }).on?.("error", () => {
-      this.outputBroken = true; // 异步 EPIPE 吸收（无监听 = uncaughtException）
-    });
     // 从事件流跟踪 agent 状态（interrupt 分流依据：生成中→abort，空闲→退出）
     deps.session.subscribe((event) => {
       if ("type" in event && event.type === "agent.state.changed") {
@@ -183,7 +209,16 @@ export class CliAdapter {
    */
   interrupt(): void {
     if (this.agentState === "running" || this.agentState === "steering" || this.agentState === "aborting") {
-      if (this.agentState !== "aborting") this.deps.chat.abort();
+      if (this.agentState !== "aborting") {
+        // SIGINT 处理器内异常 = uncaughtException 崩进程（终端死亡不崩进程的
+        // 守卫哲学同理，低危批）：abort 失败退化为「本次 Ctrl-C 不动」，
+        // 用户可再按一次或 /exit——不因中断调用抛错整进程退出。
+        try {
+          this.deps.chat.abort();
+        } catch (err) {
+          this.writeLine(`\n[错误] 中断失败：${(err as Error).message}`);
+        }
+      }
     } else {
       this.exitRequested?.();
     }
@@ -205,7 +240,9 @@ export class CliAdapter {
     }
     try {
       const outcome: SendOutcome = await this.deps.chat.sendMessage(text);
-      if (outcome.mode === "turn") this.writeLine(""); // 新轮次换行，流式输出从行首开始
+      // 轮次收尾换行（低危批口径更正）：sendMessage 的 Promise 在本轮 run 结束才
+      // resolve（ChatPort 契约），此刻流式输出早已写完——这里补的是收尾空行，
+      // 不是「让流式输出从行首开始」。
     } catch (err) {
       this.writeLine(`\n[错误] ${(err as Error).message}`);
     }
@@ -220,20 +257,8 @@ export class CliAdapter {
     this.writeGuarded(`${text}\n`);
   }
 
-  /** stdout 守卫写面（StdoutEventPublisher.write 同构）：broken 降级 no-op，
-   *  writable/destroyed 先行检查，同步异常不向上抛（CLI 主循环不因终端
-   *  消费端死亡崩溃）。 */
+  /** stdout 守卫写面（GuardedWriter 单点——CLI 主循环不因终端消费端死亡崩溃）。 */
   private writeGuarded(text: string): void {
-    if (this.outputBroken) return;
-    const stream = this.output as NodeJS.WritableStream & { destroyed?: boolean; writable?: boolean };
-    if (stream.destroyed === true || stream.writable === false) {
-      this.outputBroken = true;
-      return;
-    }
-    try {
-      this.output.write(text);
-    } catch {
-      this.outputBroken = true;
-    }
+    this.writer.write(text);
   }
 }

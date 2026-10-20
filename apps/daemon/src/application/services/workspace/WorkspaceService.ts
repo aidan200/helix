@@ -90,8 +90,10 @@ export interface WorkspaceFsPort {
   isReadableDir(p: string): boolean;
   /** 用户主目录（危险根判定输入）。 */
   homeDir(): string;
-  /** 文件系统根（如 "/"；危险根判定输入）。 */
-  fsRoot(): string;
+  /** 被检路径本身即文件系统根（如 "/"、"C:\\"、"D:\\"——危险根判定输入）。
+   *  判据按**被检路径**取根（低危批：旧 fsRoot() 语义 = 取 process.cwd() 的根，
+   *  Windows 多盘符下 daemon 在 C:、候选根 D:\ 时守卫漏判放行盘根）。 */
+  isFsRoot(p: string): boolean;
 }
 
 /** recents 持久化条目（KV JSON 行形状）。 */
@@ -394,7 +396,7 @@ export class WorkspaceService {
     // 会漏拒主目录——与 realpath(homeDir()) 比较；realpath 失败回退原值
     // （经注入 fs 端口，application 层零直接 fs）。
     const home = this.deps.fs.realpath(this.deps.fs.homeDir()) ?? this.deps.fs.homeDir();
-    if (real === this.deps.fs.fsRoot() || real === home) {
+    if (this.deps.fs.isFsRoot(real) || real === home) {
       return {
         ok: false,
         reason: `拒绝以 ${real} 作为工作空间（文件系统根/主目录扫描面失控），请选择具体的工作区目录`,

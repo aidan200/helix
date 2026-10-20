@@ -73,20 +73,30 @@ export class KgDatabase {
     const dbPath = kgDbPath(projectRoot);
     mkdirSync(path.dirname(dbPath), { recursive: true });
     const db = new Database(dbPath);
-    db.exec("PRAGMA journal_mode = WAL;"); // 持久库级设置；崩溃一致 + 页面读不阻塞写
-    db.exec("PRAGMA busy_timeout = 10000;"); // 双通道并发时另一写者等待而非 BUSY 失败
-    db.exec(KG_SCHEMA_SQL); // 幂等直建（冷启动首建 / 旧库重开 no-op）
-    ensureSchemaEvolved(db); // 列级演进守护（老库 ALTER 补列；已演进 no-op）
+    try {
+      db.exec("PRAGMA journal_mode = WAL;"); // 持久库级设置；崩溃一致 + 页面读不阻塞写
+      db.exec("PRAGMA busy_timeout = 10000;"); // 双通道并发时另一写者等待而非 BUSY 失败
+      db.exec(KG_SCHEMA_SQL); // 幂等直建（冷启动首建 / 旧库重开 no-op）
+      ensureSchemaEvolved(db); // schema 演进守护（老库补列/补表/表重建；已演进 no-op）
+    } catch (error) {
+      // 建库/演进中途抛错：句柄既不入缓存也无外部持有者——就地关闭再上抛，
+      // 否则连接泄漏（低危批：旧实现只 new 不 close）
+      db.close();
+      throw error;
+    }
     channels.set(projectRoot, db);
     return db;
   }
 }
 
-// ── 守护式 schema 演进（T2.1 两列 additive 迁移） ─────────
+// ── 守护式 schema 演进（幂等检测即修：列/表/表重建三类面） ─────────
 
 /**
- * 启动期列级演进（幂等，每次打开执行，已演进则 no-op；镜像 sqlite-session
- * WriteQueue.ensureSchemaEvolved 先例——hasColumn 守卫 + ALTER ADD COLUMN）：
+ * 启动期 schema 演进（幂等，每次打开执行，已演进则 no-op；镜像 sqlite-session
+ * WriteQueue.ensureSchemaEvolved 先例——hasColumn/hasTable 守卫 + ALTER ADD
+ * COLUMN）。演进面不止列级 additive：本函数同时承担缺表补建（node_vectors）
+ * 与一次性表重建（change_log 约束放宽）——「两列 additive 迁移」是 T2.1
+ * 时期的起点口径，不是现状，改动前按下方清单核对：
  *
  * - nodes.origin_batch_id / change_log.task_id（AD-10 任务→kg 唯一衔接面）
  *   缺列 → ALTER ADD COLUMN TEXT（可空无默认——旧行 NULL = 无任务元数据，
@@ -102,6 +112,8 @@ export class KgDatabase {
  *   重建后索引原位恢复、AUTOINCREMENT 计数器随 max(seq) 续号不回卷）。
  *   已是新形状 → no-op。
  *
+ * - candidates.target_node / candidates.anchors_json（候选台账读面 + 建议锚
+ *   通道）：缺列 → ALTER ADD COLUMN TEXT（可空——存量行 NULL = 无目标/无建议）。
  * - materialized_anchors.evidence（T2.2 锚失效检测）：断链快照列——缺列 →
  *   ALTER ADD COLUMN（存量行 '' = 无快照不判）。
  * - node_vectors（批1 WP-B 向量基建）：老库补表（KG_SCHEMA_SQL additive 同款

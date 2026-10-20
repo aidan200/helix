@@ -337,3 +337,20 @@ describe("channels 惰性化批（快照预览 + 按需分页）", () => {
     expect(full.nextCursor).toBe(full.channels.tools![0]!.id);
   });
 });
+
+// ── instanceChannelsPage limit 防御钳制（低危批：与 historyPage 同口径） ──
+
+describe("instanceChannelsPage limit 钳制", () => {
+  test("NaN / 0 / 负数 / Infinity → 回落缺省页宽或钳到边（不整段返回、不空页）", () => {
+    const view = bigView();
+    // NaN：旧实现 earlier.length > NaN 恒 false → 整段（300 条 tools）返回
+    const nan = instanceChannelsPage(view, "agent-1", undefined, Number.NaN);
+    expect((nan.channels.tools?.length ?? 0) + (nan.channels.thinking?.length ?? 0) + (nan.channels.messages?.length ?? 0)).toBe(50);
+    // 0 → 钳到 1（保最新一条），不是空页
+    const zero = instanceChannelsPage(view, "agent-1", undefined, 0);
+    expect(zero.channels.tools?.length).toBe(1);
+    // 负数 → 同钳到 1（旧实现 slice(len-(-5)) 反向取尾 5 条语义错乱）
+    const neg = instanceChannelsPage(view, "agent-1", undefined, -5);
+    expect(neg.channels.tools?.length).toBe(1);
+  });
+});

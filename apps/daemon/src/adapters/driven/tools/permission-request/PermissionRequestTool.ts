@@ -18,12 +18,23 @@ import type { AskService } from "../../../../application/services/AskService";
  * - **提权自动通过**（autoApprove 配置）：AskService 短路裁 auto_approved
  *   （异步版）/ 闸前短路批准（闸制版）→ 免弹卡直接裸跑，工具结果附注记行
  *   留痕（A① 完全静默裁决的唯一留痕面）；
- * - 结果（stdout/stderr/exitCode）直接作为工具结果返回——与 bash 工具同形态。
+ * - 结果（合并输出 + exitCode）直接作为工具结果返回——与 bash 工具同形态。
+ *   输出是**单合并流**（pi 0.85 exec 的 onUpdate 不分 stdout/stderr，裸执行面
+ *   只挂一级 tap 收全文）：契约因此只声明 output，不再声明拿不到的 stderr
+ *   （低危批：旧契约声明 stderr 而两条实现恒返 ""，[stderr] 分支永不可达）。
  *
  * 注册门控：仅沙箱开启时注册（装配面判定——沙箱 off 无提权语义）；
  * main/subagent 双 profile 声明，SubAgent 经 ask-request wire 行转发父进程
  * 仲裁（父持 AskService 单例——卡片弹在归属会话页）。
  */
+
+/** 裸执行面超时/输出契约说明见 PermissionRequestToolDeps.unsandboxedExec。 */
+
+/** 裸跑结果 → 工具文本（合并输出流 + 非零退出附注；低危批上收两处同构拼接）。 */
+function formatExecOutput(res: { output: string; exitCode: number }): string {
+  const text = res.output + (res.exitCode !== 0 ? `\n[exit ${res.exitCode}]` : "");
+  return text === "" ? "(no output)" : text;
+}
 
 const permissionRequestParameters = {
   type: "object",
@@ -53,9 +64,7 @@ export interface PermissionRequestToolDeps {
    * NodeExecutionEnv 原型的 exec 绑定（与 CoreToolExecutor 共享 env 同
    * cwd/shellEnv，仅无沙箱装饰）。
    */
-  readonly unsandboxedExec: (
-    command: string,
-  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  readonly unsandboxedExec: (command: string) => Promise<{ output: string; exitCode: number }>;
   /**
    * 提权自动通过判定（autoApprove 配置；可选——缺省不注记）：闸制版审批在
    * beforeToolCall 闸完成、execute 不接触 ask，故闸制版的「未经用户确认」
@@ -110,12 +119,8 @@ export function createPermissionRequestTool(
       const note = outcome === "auto_approved" ? `\n${AUTO_APPROVE_NOTE}` : "";
       try {
         const res = await deps.unsandboxedExec(command);
-        const text =
-          (res.stdout !== "" ? res.stdout : "") +
-          (res.stderr !== "" ? `${res.stdout !== "" ? "\n" : ""}[stderr]\n${res.stderr}` : "") +
-          (res.exitCode !== 0 ? `\n[exit ${res.exitCode}]` : "");
         return {
-          content: [{ type: "text", text: (text === "" ? "(no output)" : text) + note }],
+          content: [{ type: "text", text: formatExecOutput(res) + note }],
           details: undefined,
         };
       } catch (err) {
@@ -153,12 +158,8 @@ export function createPermissionRequestGatedTool(
       const note = deps.autoApprove?.() === true ? `\n${AUTO_APPROVE_NOTE}` : "";
       try {
         const res = await deps.unsandboxedExec(command);
-        const text =
-          (res.stdout !== "" ? res.stdout : "") +
-          (res.stderr !== "" ? `${res.stdout !== "" ? "\n" : ""}[stderr]\n${res.stderr}` : "") +
-          (res.exitCode !== 0 ? `\n[exit ${res.exitCode}]` : "");
         return {
-          content: [{ type: "text", text: (text === "" ? "(no output)" : text) + note }],
+          content: [{ type: "text", text: formatExecOutput(res) + note }],
           details: undefined,
         };
       } catch (err) {

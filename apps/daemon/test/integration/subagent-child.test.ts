@@ -6,7 +6,7 @@ import path from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
-import { parseClosureBlock } from "../../src/adapters/driven/subagent/child/ChildMain";
+import { filterNamespaceTools, parseClosureBlock, parseExtraRootsEnv } from "../../src/adapters/driven/subagent/child/ChildMain";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
@@ -182,6 +182,36 @@ describe("closure 块解析（子进程收口协议）", () => {
     expect(parseClosureBlock('<CLOSURE\n{"status":"done","summary":"x"}\nCLOSURE>>>')).toBeUndefined();
     // 闭标记残缺 + JSON 非法 → 仍拒（JSON 合法是容错的强门梣）
     expect(parseClosureBlock('<<<CLOSURE\n{坏了}\nCLOSURE>>')).toBeUndefined();
+  });
+
+  // 低危批：开标记恰好 3 个 `<`（前置 `<` 不认）+ 多块取末个合法块
+  test("开标记前置 `<` 不命中：`<<<<CLOSURE` 不误收口（注释口径与实现一致）", () => {
+    expect(parseClosureBlock('<<<<CLOSURE\n{"status":"done","summary":"x"}\nCLOSURE>>>')).toBeUndefined();
+  });
+
+  test("正文引用协议字面示例 + 文末真收口 → 取末个合法块（示例不得顶掉真收口）", () => {
+    const text = [
+      "说明：收口块的形状如下（示例，非本次结论）：",
+      '<<<CLOSURE {"status":"failed","summary":"示例：这里写失败原因"} CLOSURE>>>',
+      "",
+      "本次实际结论：",
+      '<<<CLOSURE {"status":"done","summary":"本次真的做完了","taskId":"t-1"} CLOSURE>>>',
+    ].join("\n");
+    expect(parseClosureBlock(text)).toEqual({
+      status: "done",
+      summary: "本次真的做完了",
+      reportPath: null,
+      findings: null,
+      taskId: "t-1",
+    });
+  });
+
+  test("末块非法 JSON → 回退前一个合法块（末块坏不连累整体）", () => {
+    const text = [
+      '<<<CLOSURE {"status":"done","summary":"合法结论"} CLOSURE>>>',
+      '<<<CLOSURE {坏掉的示例} CLOSURE>>>',
+    ].join("\n");
+    expect(parseClosureBlock(text)?.summary).toBe("合法结论");
   });
 });
 
@@ -884,3 +914,23 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
   });
 });
 
+
+// ── main 体量收窄（低危批）：从 main 抽出的纯函数 ──
+
+describe("ChildMain 装配纯函数（低危批自 main 抽出）", () => {
+  test("parseExtraRootsEnv：JSON 字符串数组 → 字符串项；坏形状/缺省 → 空清单", () => {
+    expect(parseExtraRootsEnv(undefined)).toEqual([]);
+    expect(parseExtraRootsEnv('["/a","/b"]')).toEqual(["/a", "/b"]);
+    expect(parseExtraRootsEnv('[1,"/a",null]')).toEqual(["/a"]);
+    expect(parseExtraRootsEnv("not json")).toEqual([]);
+    expect(parseExtraRootsEnv('{"a":1}')).toEqual([]);
+  });
+
+  test("filterNamespaceTools：非 running server 的命名空间工具剔除；静态名恒保留", () => {
+    const tools = ["read", "kg", "alpha__search", "beta__write", "noNs"];
+    const running = new Set(["alpha"]);
+    expect(filterNamespaceTools(tools, running)).toEqual(["read", "kg", "alpha__search", "noNs"]);
+    // 空 running 集：全部命名空间工具出局（配置了但没起来 = 工具缺席优于 spawn 失败）
+    expect(filterNamespaceTools(tools, new Set())).toEqual(["read", "kg", "noNs"]);
+  });
+});

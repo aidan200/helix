@@ -331,7 +331,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
               ask: ctx.askService,
               sessionId,
               instanceId: bind?.mainInstanceId ?? "main",
-              unsandboxedExec: (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> =>
+              unsandboxedExec: (command: string): Promise<{ output: string; exitCode: number }> =>
                 toolExecutor.unsandboxedExec(command),
               ...(ctx.autoApproveOf !== undefined ? { autoApprove: ctx.autoApproveOf } : {}),
             },

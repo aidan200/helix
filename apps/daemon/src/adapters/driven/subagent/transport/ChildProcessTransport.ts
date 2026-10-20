@@ -23,6 +23,8 @@ export class ChildProcessTransport {
 
   private lineCb: ((line: ChildOutboundLine) => void) | undefined;
   private settled = false;
+  /** stdin 已坏（同步写抛错或流上 error）：后续写静默丢弃，不再冒泡。 */
+  private stdinBroken = false;
 
   constructor(
     private readonly proc: ReturnType<typeof Bun.spawn>,
@@ -36,6 +38,13 @@ export class ChildProcessTransport {
       });
     });
     this.drained = this.readStdout();
+    // 异步 EPIPE（管道对端已退）：Bun FileSink 在部分形态下以 error 事件报告，
+    // 无人监听即 uncaught。有 on 面则挂一次性监听，无（旧形态）则跳过——
+    // 同步抛路径已由 writeLine 承接。
+    const stdin = proc.stdin as unknown as { on?: (event: "error", cb: (e: unknown) => void) => void };
+    stdin?.on?.("error", () => {
+      this.stdinBroken = true;
+    });
   }
 
   /** 注册 stdout 行回调（单订阅者；Launcher 侧转发）。 */
@@ -53,9 +62,22 @@ export class ChildProcessTransport {
     this.writeLine(line);
   }
 
-  /** stdin 行写入单点（send 与 tool-res 共用）。 */
+  /**
+   * stdin 行写入单点（send 与 tool-res 共用）。
+   *
+   * 写失败承接（低危批）：子进程已死/管道关闭时 `stdin.write` 既可能同步抛
+   * （管道已关，调用方 try/catch 兜不住时即崩父进程），也可能以异步 `error`
+   * 事件形态出现（EPIPE——无人监听则是 uncaught）。两形态都归一到 `stdinBroken`：
+   * 首次失败置位并静默（写入面是「尽力送达」语义，子进程死了上游自会经
+   * exited/closure 判定），后续写直接短路——不再重复试探已死管道。
+   */
   private writeLine(line: SendLine | ToolResponseLine): void {
-    (this.proc.stdin as { write: (s: string) => unknown }).write(encodeLine(line));
+    if (this.stdinBroken) return;
+    try {
+      (this.proc.stdin as { write: (s: string) => unknown }).write(encodeLine(line));
+    } catch {
+      this.stdinBroken = true; // 同步抛（管道已关）：置位后静默
+    }
   }
 
   /**

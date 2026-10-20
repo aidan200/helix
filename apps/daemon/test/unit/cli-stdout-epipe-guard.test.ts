@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { StdoutEventPublisher } from "../../src/adapters/driving/cli/CliAdapter";
+import { CliAdapter, StdoutEventPublisher } from "../../src/adapters/driving/cli/CliAdapter";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { StreamDelta } from "../../src/application/ports/outbound/EventPublisherPort";
 
@@ -104,5 +104,42 @@ describe("修复② StdoutEventPublisher EPIPE 守卫", () => {
     // 降级后不再写
     publisher.publish(toolResultEvent());
     expect(chunks.length).toBe(1);
+  });
+});
+
+// ── SIGINT 处理器内 abort 抛错不崩进程（低危批） ──
+
+describe("interrupt：chat.abort 抛错不越出 SIGINT 处理器", () => {
+  test("running 态 abort 同步抛 → interrupt() 不抛（打印错误行，进程不崩）", () => {
+    const chunks: string[] = [];
+    const output = {
+      write: (s: string) => {
+        chunks.push(s);
+        return true;
+      },
+      writable: true,
+    } as unknown as NodeJS.WritableStream;
+    let pushEvent: ((e: DomainEvent) => void) | undefined;
+    const adapter = new CliAdapter({
+      chat: {
+        sendMessage: async () => ({ mode: "turn" }) as never,
+        abort: () => {
+          throw new Error("port 内部炸了");
+        },
+      } as never,
+      session: {
+        subscribe: (cb: (e: DomainEvent) => void) => {
+          pushEvent = cb;
+          return () => undefined;
+        },
+      } as never,
+      output,
+      showPrompt: false,
+    } as never);
+    // 构造期订阅回调已登记：推一条 running 态事件把分流面推到 abort 分支
+    pushEvent?.({ type: "agent.state.changed", sessionId: "s", payload: { state: "running" } } as never);
+    expect(() => adapter.interrupt()).not.toThrow();
+    expect(chunks.join("")).toContain("中断失败");
+    expect(chunks.join("")).toContain("port 内部炸了");
   });
 });

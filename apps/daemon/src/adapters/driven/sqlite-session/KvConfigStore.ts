@@ -56,7 +56,10 @@ export function makeKvConfigStore<T>(
   let pendingWrites = 0;
   return {
     current(): T {
-      if (pendingWrites > 0) return cached;
+      // 读面同样经 clone 出参（低危批）：写面 set 已克隆入参，读面若直接返内部
+      // 引用，调用方一次可变改就污染缓存（解耦不对称）——两侧口径对齐后
+      // cached 恒为内部私有副本。
+      if (pendingWrites > 0) return options.clone(cached);
       try {
         const parsed = options.parse(runtimeConfig.get(options.key));
         if (parsed !== undefined) cached = parsed;
@@ -66,7 +69,7 @@ export function makeKvConfigStore<T>(
           console.warn(`${options.warnLabel} 读面异常（非 db 关闭类）：${(error as Error).message}`);
         }
       }
-      return cached;
+      return options.clone(cached);
     },
     async set(value: T): Promise<void> {
       cached = options.clone(value);

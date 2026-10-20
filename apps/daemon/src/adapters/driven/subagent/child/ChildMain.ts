@@ -128,14 +128,19 @@ export interface ParsedClosure {
  * 闭标记容错（task-778eb18a 三连败修复）：provider SSE 丢尾 delta 会
  * 精确截掉最后一个字符（6 样本 5 截，`CLOSURE>>>` → `CLOSURE>>`）——
  * 闭标记放宽为 ≥2 个 `>`，信封残缺但信件（JSON）完整即接受；开标记
- * 保持恰好 3 个 `<` 不放宽（报告/正文讨论协议的字面示例不误收口），
+ * 恰好 3 个 `<`（前置 `<` 不认：`<<<<CLOSURE` 不命中，低危批），
  * JSON 合法性仍是从严门梣（残缺标记 + 非法 JSON 照拒）。
+ *
+ * 多块取末（低危批）：末轮正文常把协议当示例引用（字面块 + 合法 JSON），
+ * 首个匹配会把正文示例当真收口、顶掉文末真收口块（示例若写 failed 直接
+ * 反转结论）。故扫全部匹配、从尾部取第一个合法块。
  */
-export function parseClosureBlock(text: string): ParsedClosure | undefined {
-  const match = text.match(/<<<CLOSURE\s*([\s\S]*?)\s*CLOSURE>{2,}/);
-  if (!match) return undefined;
+const CLOSURE_BLOCK_RE = /(?<!<)<<<CLOSURE\s*([\s\S]*?)\s*CLOSURE>{2,}/g;
+
+/** 单块 JSON → ParsedClosure（协议字段从严：status 二值 + summary 必填）。 */
+function parseClosureJson(body: string): ParsedClosure | undefined {
   try {
-    const raw = JSON.parse(match[1]!) as {
+    const raw = JSON.parse(body) as {
       status?: unknown;
       summary?: unknown;
       reportPath?: unknown;
@@ -155,6 +160,15 @@ export function parseClosureBlock(text: string): ParsedClosure | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function parseClosureBlock(text: string): ParsedClosure | undefined {
+  const matches = [...text.matchAll(CLOSURE_BLOCK_RE)];
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    const parsed = parseClosureJson(matches[i]![1]!);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
 }
 
 // ── closure 兜底摘要（并入 engine 错误原因） ─────────
@@ -666,14 +680,23 @@ export function buildLocalMemorySearchStack(
       path.join(path.dirname(dbPath), "steward_memory.db"),
       vec0.path,
     );
-    // 配置只读直连（LazyWorkLedger 同构；子进程不写配置——set 面
-    // 静默不落盘，读面 runtime_config 单点）
-    const db = openTaskLedgerDatabase(dbPath);
+    // 配置只读直连（子进程不写配置——set 面静默不落盘，读面 runtime_config 单点）。
+    // 连接纪律 = 逐次开合短连接（与 buildLocalVectorStack 同源，低危批）：
+    // 构造期开一次不关会漏句柄（本函数返回后无收尾面），而闭包内一次性
+    // close 又会令运行期 readKey 撞「database is closed」。
     const readKey = (key: string): string | undefined => {
-      const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
-        | { value: string }
-        | null;
-      return row === null ? undefined : row.value;
+      let db: ReturnType<typeof openTaskLedgerDatabase> | undefined;
+      try {
+        db = openTaskLedgerDatabase(dbPath);
+        const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
+          | { value: string }
+          | null;
+        return row === null ? undefined : row.value;
+      } catch {
+        return undefined; // 库不可开/形态异常 → 按未配置态（读面兑底，不抛）
+      } finally {
+        db?.close();
+      }
     };
     const config: RuntimeConfigPort = {
       get: readKey,
@@ -747,6 +770,31 @@ function makeFileWriteReporter(instanceId: string, toolCwd: string) {
       nextSize: typeof content === "string" ? Buffer.byteLength(content, "utf8") : content.byteLength,
     });
   };
+}
+
+/** HELIX_SANDBOX_EXTRA_ROOTS 解析（低危批抽纯函数，main 体量收窄）：JSON 数组里
+ *  只认字符串项；缺省/非法/非数组 → 空清单（沙箱额外可写根是可选件，坏形状不阻断装配）。 */
+export function parseExtraRootsEnv(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 按 running server 集过滤命名空间工具名（低危批抽纯函数）：`${server}__${tool}`
+ *  的 server 不在 running 集则剔除；静态工具名（无 `__` 或无前缀）恒保留。
+ *  配置集与 running 集做差的意义见 main 内调用点注释（工具缺席优于整个 spawn 失败）。 */
+export function filterNamespaceTools(
+  tools: readonly string[],
+  runningServers: ReadonlySet<string>,
+): readonly string[] {
+  return tools.filter((name) => {
+    const sep = name.indexOf("__");
+    return sep <= 0 || runningServers.has(name.slice(0, sep));
+  });
 }
 
 async function main(): Promise<void> {
@@ -825,10 +873,7 @@ async function main(): Promise<void> {
     // 命名空间为 MCP 专属约定，静态工具名无碰撞）——配置集与 running 集
     // 做差：配置了但未 running 的 server 工具名全部出局（工具缺席优于
     // 整个 spawn 失败）
-    const filteredTools = profile.tools.filter((name) => {
-      const sep = name.indexOf("__");
-      return sep <= 0 || runningServers.has(name.slice(0, sep));
-    });
+    const filteredTools = filterNamespaceTools(profile.tools, runningServers);
     if (filteredTools.length !== profile.tools.length) {
       profile = { ...profile, tools: filteredTools }; // tools readonly：重建对象
     }
@@ -849,16 +894,7 @@ async function main(): Promise<void> {
   // off/自检失败 → undefined。
   const childDbPath = process.env.HELIX_DB_PATH;
   // 用户额外可写根随开关同帧透传（JSON 数组；解析失败/缺省 = 空清单不阻断）
-  const childSandboxExtraRoots = (() => {
-    try {
-      const raw = process.env.HELIX_SANDBOX_EXTRA_ROOTS;
-      if (raw === undefined) return [];
-      const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
-    } catch {
-      return [];
-    }
-  })();
+  const childSandboxExtraRoots = parseExtraRootsEnv(process.env.HELIX_SANDBOX_EXTRA_ROOTS);
   const childSandbox =
     process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
       ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd, childSandboxExtraRoots)
@@ -891,7 +927,7 @@ async function main(): Promise<void> {
             ask: remoteAsk,
             sessionId: process.env.HELIX_SESSION_ID ?? instanceId,
             instanceId,
-            unsandboxedExec: async (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+            unsandboxedExec: async (command: string): Promise<{ output: string; exitCode: number }> => {
               let text = "";
               const res = await childRawExecEnv.exec(command, {
                 onUpdate: (update: { kind: string; text?: string; output?: { text: string } }) => {
@@ -900,7 +936,7 @@ async function main(): Promise<void> {
                 },
               }, BACKGROUND_CONTEXT);
               if (!res.ok) throw new Error(res.error.message);
-              return { stdout: text, stderr: "", exitCode: res.value.exitCode };
+              return { output: text, exitCode: res.value.exitCode };
             },
           },
         }

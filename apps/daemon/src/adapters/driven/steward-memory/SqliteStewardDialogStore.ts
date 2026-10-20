@@ -142,7 +142,11 @@ export function migrateStewardDialogKv(store: StewardDialogStorePort, kv: Runtim
   const raw = kv.get(STEWARD_DIALOG_KEY);
   if (raw === undefined || raw === "") return false;
   const parsed = parseStewardDialogKv(raw);
-  if (parsed !== undefined && parsed.records.length > 0) {
+  // 坏形状/坏 JSON → 不导入**也不墓碑**（低危批）：旧实现无条件墓碑会把解析
+  // 失败的旧数据直接抹掉——迁移失败不可重试、用户对话历史即失。返回 false
+  // 表示「本次未迁移」，旧键原样留存待人工/后续修复后重试。
+  if (parsed === undefined) return false;
+  if (parsed.records.length > 0) {
     store.replaceAll(parsed.records, parsed.lastActiveAt);
   }
   // 墓碑（best-effort——写失败下次重试导入，幂等无害）

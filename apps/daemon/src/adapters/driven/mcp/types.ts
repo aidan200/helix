@@ -26,8 +26,14 @@ export interface McpServerConfig {
   timeoutMs?: number;
   /**
    * 懒加载开关（deferred 批，缺省 true）：true = 具体工具不进初始生效集，
-   * 经 `${server}__discover` meta 工具按需装载（工具池物化）；false = 全量
-   * 急发（mcp 批现状）。见 PROTOCOL-CHANGELOG §28。
+   * 经 `${server}__discover` meta 工具按需装载（物化链 onDiscover →
+   * refreshAssembly 赋 agent.state.tools）；false = 全量急发。见
+   * PROTOCOL-CHANGELOG §28。
+   *
+   * 工具宣告机制（低危批口径更正）：0.87 起 pi agent-loop 每请求前自动对比
+   * context.tools 与 transcript 声明的差异并注入 toolsAdded/toolsRemoved
+   * system message——旧注所称「addedToolNames + 工具池物化」的标记机制已随
+   * AgentToolResult 移除（见 mcp-tool.ts 的 meta 工具注）。
    */
   deferred?: boolean;
 }

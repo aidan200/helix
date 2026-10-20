@@ -11,7 +11,7 @@ function depsOf(overrides: Partial<PermissionRequestToolDeps> = {}): PermissionR
     ask: { request: async () => "approved" as const },
     sessionId: "s1",
     instanceId: "i1",
-    unsandboxedExec: async () => ({ stdout: "ok\n", stderr: "", exitCode: 0 }),
+    unsandboxedExec: async () => ({ output: "ok\n", exitCode: 0 }),
     ...overrides,
   };
 }
@@ -28,17 +28,17 @@ describe("createPermissionRequestTool", () => {
     expect(text).toBe("ok\n");
   });
 
-  test("批准 → stderr 与 exit code 拼入结果", async () => {
+  test("批准 → 合并输出 + exit code 拼入结果（pi exec 不分流：契约只声明 output）", async () => {
     const text = await run(
-      depsOf({ unsandboxedExec: async () => ({ stdout: "", stderr: "warn", exitCode: 3 }) }),
+      depsOf({ unsandboxedExec: async () => ({ output: "warn", exitCode: 3 }) }),
     );
-    expect(text).toContain("[stderr]\nwarn");
-    expect(text).toContain("[exit 3]");
+    expect(text).toBe("warn\n[exit 3]"); // 旧实现的 [stderr] 分支永不可达，已随契约收敛删除
+    expect(text).not.toContain("[stderr]");
   });
 
   test("批准 → 空输出回 (no output)", async () => {
     const text = await run(
-      depsOf({ unsandboxedExec: async () => ({ stdout: "", stderr: "", exitCode: 0 }) }),
+      depsOf({ unsandboxedExec: async () => ({ output: "", exitCode: 0 }) }),
     );
     expect(text).toBe("(no output)");
   });
@@ -50,7 +50,7 @@ describe("createPermissionRequestTool", () => {
         ask: { request: async () => "denied" as const },
         unsandboxedExec: async () => {
           executed = true;
-          return { stdout: "", stderr: "", exitCode: 0 };
+          return { output: "", exitCode: 0 };
         },
       }),
     );
@@ -66,7 +66,7 @@ describe("createPermissionRequestTool", () => {
         ask: { request: async () => "timeout" as const },
         unsandboxedExec: async () => {
           executed = true;
-          return { stdout: "", stderr: "", exitCode: 0 };
+          return { output: "", exitCode: 0 };
         },
       }),
     );
@@ -147,7 +147,7 @@ describe("createPermissionRequestTool", () => {
 describe("createPermissionRequestGatedTool（闸制版——审批在闸前完成）", () => {
   async function runGated(autoApprove?: () => boolean) {
     const tool = createPermissionRequestGatedTool({
-      unsandboxedExec: async () => ({ stdout: "ok\n", stderr: "", exitCode: 0 }),
+      unsandboxedExec: async () => ({ output: "ok\n", exitCode: 0 }),
       ...(autoApprove !== undefined ? { autoApprove } : {}),
     });
     const result = await tool.execute("tc1", { command: "echo hi", reason: "r" }, undefined as never, undefined as never, undefined as never, BACKGROUND_CONTEXT);

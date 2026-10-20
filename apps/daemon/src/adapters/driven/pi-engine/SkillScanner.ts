@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT, loadSourcedSkills, NodeExecutionEnv } from "../../../adapters/driven/tools/vendor/pi-harness";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { parseSkillFrontmatter } from "../skill-frontmatter";
 import { dirname } from "node:path";
-import { parse as parseYaml } from "yaml";
 import type {
   SkillAudience,
   SkillCreateOutcome,
@@ -108,20 +108,16 @@ export class SkillScanner implements SkillSourcePort {
     } catch {
       return {};
     }
-    const normalized = raw.replace(/\r\n/g, "\n");
-    if (!normalized.startsWith("---\n")) return {};
-    const endIndex = normalized.indexOf("\n---", 3);
-    if (endIndex === -1) return {};
-    try {
-      const parsed = parseYaml(normalized.slice(4, endIndex)) as Record<string, unknown> | null;
-      const tools = parsed?.["tools"];
-      if (Array.isArray(tools) && tools.every((t) => typeof t === "string")) {
-        return { tools: tools as readonly string[] };
-      }
-      return {};
-    } catch {
-      return {};
+    // 解析走 adapters/driven/skill-frontmatter 单点（行级精确闭合判定——
+    // 旧 indexOf("\n---") 前缀匹配会把 "----"/"---foo" 顶格行当闭合线，
+    // 把 YAML 截在非法行前静默回落）。
+    const front = parseSkillFrontmatter(raw);
+    if (front.kind !== "present") return {};
+    const tools = front.value["tools"];
+    if (Array.isArray(tools) && tools.every((t) => typeof t === "string")) {
+      return { tools: tools as readonly string[] };
     }
+    return {};
   }
 
   /**
@@ -131,18 +127,12 @@ export class SkillScanner implements SkillSourcePort {
    * 不落盘。与 scan 同哲学：文件系统是事实源，写后下次 scan 即见。
    */
   async createSkill(content: string): Promise<SkillCreateOutcome> {
-    const normalized = content.replace(/\r\n/g, "\n");
-    if (!normalized.startsWith("---\n")) return { status: "skipped", reason: "bad-frontmatter" };
-    const endIndex = normalized.indexOf("\n---", 3);
-    if (endIndex === -1) return { status: "skipped", reason: "bad-frontmatter" };
-    let front: { name?: unknown; description?: unknown };
-    try {
-      front = (parseYaml(normalized.slice(4, endIndex)) as Record<string, unknown> | null) ?? {};
-    } catch {
-      return { status: "skipped", reason: "bad-frontmatter" };
-    }
-    const name = typeof front.name === "string" ? front.name.trim() : "";
-    const description = typeof front.description === "string" ? front.description.trim() : "";
+    // 同 readCompanionTools：解析单点（三态——无/非法 frontmatter 同归 skipped）。
+    const front = parseSkillFrontmatter(content);
+    if (front.kind !== "present") return { status: "skipped", reason: "bad-frontmatter" };
+    const name = typeof front.value["name"] === "string" ? (front.value["name"] as string).trim() : "";
+    const description =
+      typeof front.value["description"] === "string" ? (front.value["description"] as string).trim() : "";
     // name = 目录名：字母数字开头，仅限安全字符（防路径穿越/隐藏目录）
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return { status: "skipped", reason: "invalid-name" };
     if (description === "") return { status: "skipped", reason: "missing-description" };

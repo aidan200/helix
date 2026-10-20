@@ -63,7 +63,9 @@ export interface SnapshotTailOptions {
   readonly tailSize?: number;
   /** 快照字节预算（主轴 + 通道合计；缺省 SNAPSHOT_BUDGET_BYTES）。 */
   readonly budgetBytes?: number;
-  /** 单通道条数尾窗（缺省 CHANNEL_TAIL_SIZE）。 */
+  /** 单通道条数尾窗（缺省 SNAPSHOT_CHANNEL_PREVIEW——快照只带预览条数，
+   *  完整通道历史经 session.instanceChannels 按需分页；CHANNEL_TAIL_SIZE 已
+   *  退役快照职责，见上方常量注）。 */
   readonly channelTail?: number;
 }
 
@@ -441,7 +443,13 @@ export function instanceChannelsPage(
     }
     earlier = timeline.slice(0, cursorIndex); // 严格早于游标（升序）
   }
-  const countPage = earlier.length > limit ? earlier.slice(earlier.length - limit) : [...earlier];
+  // 钳制与 historyPage 同口径（低危批：此前 limit 直进 slice 数学，NaN/0/负数
+  // 未防御——NaN 使比较恒 false 整段返回、0 得空页、负数 slice 反向取尾）。
+  // 入口已校验正整数（handlers/session.ts），此处纯防御兑底：回落缺省页宽。
+  const size = Number.isFinite(limit)
+    ? Math.min(Math.max(1, Math.floor(limit)), HISTORY_PAGE_MAX)
+    : HISTORY_PAGE_DEFAULT;
+  const countPage = earlier.length > size ? earlier.slice(earlier.length - size) : [...earlier];
   const { entries: page } = byteTailNewest(countPage, SNAPSHOT_BUDGET_BYTES);
   const hasMore = earlier.length > page.length;
   const channels: InstanceChannelHistory = {};

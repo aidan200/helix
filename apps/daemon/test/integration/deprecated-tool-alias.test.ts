@@ -47,7 +47,7 @@ const fakePermissionRequestDeps = () => ({
   ask: { request: async () => "approved" as const },
   sessionId: "s-ghost",
   instanceId: "agent-ghost",
-  unsandboxedExec: async (command: string) => ({ stdout: `[outside] ${command}`, stderr: "", exitCode: 0 }),
+  unsandboxedExec: async (command: string) => ({ output: `[outside] ${command}`, exitCode: 0 }),
 });
 
 /** 工具结果文本（content 块拼接）。 */

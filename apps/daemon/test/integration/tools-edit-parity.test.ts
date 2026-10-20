@@ -692,3 +692,25 @@ describe("⑨ 注入面：notifyWrite（T2.2 契约）与 onEditApplied（T3.2 �
     expect(notified.length).toBe(1);
   });
 });
+
+// ── edit-lines 挂点投递在临界区外（低危批：与 edit 的裁决同口径） ──
+
+describe("⑨b edit-lines notifyWrite 时机（临界区外投递）", () => {
+  test("写成功后 notifyWrite 恰投递一次（项目域内）；异常面不抛不吞结果", async () => {
+    const { dir: d, env: e } = makeEnv();
+    const notified: Array<{ projectRoot: string; path: string; hash: string }> = [];
+    const tool = createEditLinesTool({
+      projectRoot: "/proj",
+      notifyWrite: (projectRoot, p, hash) => notified.push({ projectRoot, path: p, hash }),
+    });
+    writeFileSync(path.join(d, "l.txt"), "a\nb\nc\n");
+    const ok = await run(tool, { file: "l.txt", startLine: 2, endLine: 2, expectedText: "b", newText: "B" }, e);
+    expect(ok.ok).toBe(true);
+    expect(notified.length).toBe(1);
+    expect(notified[0]!.hash).toBe(createHash("sha256").update("a\nB\nc\n").digest("hex"));
+    // 校验失败（expectedText 不符）→ 不投递
+    const fail = await run(tool, { file: "l.txt", startLine: 2, endLine: 2, expectedText: "zzz", newText: "B" }, e);
+    expect(fail.ok).toBe(false);
+    expect(notified.length).toBe(1);
+  });
+});

@@ -49,6 +49,11 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
   if (id !== undefined && (typeof id !== "string" || id === "")) {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.id 应为非空 string（缺省 = 新增）");
   }
+  // variant 类型闸前置（低危批）：variant 非 string 时若先跑下面的条件必填判定，
+  // 会按「非 pi-ai」分支要求 baseUrl——错误归因指向 baseUrl 而非真正的错处。
+  if (variant !== undefined && (typeof variant !== "string" || variant.trim() === "")) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.variant 应为非空 string（缺省 = jev 直连）");
+  }
   // baseUrl 按 variant 条件必填：目录型（pi-ai）免填，直连型（jev 存量
   // 形态）仍必填——与 EmbeddingConfigService.set 同口径
   const requiredKeys: readonly string[] =
@@ -65,9 +70,6 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
   if (kind !== undefined && kind !== "embedding" && kind !== "classifier") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.kind 应为 \"embedding\" | \"classifier\"（缺省 = embedding）");
   }
-  if (variant !== undefined && (typeof variant !== "string" || variant.trim() === "")) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.variant 应为非空 string（缺省 = jev 直连）");
-  }
   void ctx.embedding.service
     .set({
       ...(id !== undefined ? { id } : {}),
@@ -76,7 +78,7 @@ export function handleEmbeddingSet(ctx: EmbeddingCommandContext): void {
       model: model as string,
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(kind !== undefined ? { kind } : {}),
-      ...(variant !== undefined && variant !== "" ? { variant } : {}),
+      ...(variant !== undefined ? { variant } : {}), // 上方类型闸已保证非空串（低危批：旧 !== "" 恒真死条件已删）
     })
     .then((outcome) => {
       if (!outcome.ok) {

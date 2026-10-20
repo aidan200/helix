@@ -97,8 +97,9 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
         value TEXT NOT NULL
       );
     `);
-    // B5 幂等补列：存量库无 updated_at（首记 = created_at；新库建表即含——
-    // CREATE TABLE IF NOT EXISTS 对已有表零动作，两形态统一在此补齐）。
+    // B5 幂等补列：entries.updated_at 不在上方 CREATE TABLE 里——**新库与存量库
+    // 都靠这里补列**（低危批口径更正：旧注称「新库建表即含」与建表语句不符；
+    // CREATE TABLE IF NOT EXISTS 对已有表零动作，故两形态统一在下补）。
     const columns = this.db.prepare("PRAGMA table_info(entries)").all() as { name: string }[];
     if (!columns.some((c) => c.name === "updated_at")) {
       this.db.exec("ALTER TABLE entries ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0");
@@ -156,13 +157,21 @@ export class SqliteVecMemoryStore implements StewardMemoryPort {
     if (!Number.isInteger(newDim) || newDim <= 0) {
       throw new Error(`vec0 维度非法：${newDim}（应为正整数）`);
     }
-    this.db.exec(`DROP TABLE IF EXISTS vec_items`);
-    this.db.exec(
-      `CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[${newDim}] distance_metric=cosine)`,
-    );
-    this.db.prepare("INSERT INTO meta(key, value) VALUES('dim', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
-      String(newDim),
-    );
+    // 三步包事务（低危批）：DROP vec_items / CREATE VIRTUAL TABLE / meta.dim 更新
+    // 必须原子——中途崩溃会让 meta 维度与 vec_items 实际形态错位（表缺失或维度
+    // 不符），而 ensureVecTable 按 meta 短路（storedDim 相等即 return）→ 后续
+    // append/search 持续抛错且无自愈路径。
+    this.db.transaction(() => {
+      this.db.exec(`DROP TABLE IF EXISTS vec_items`);
+      this.db.exec(
+        `CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[${newDim}] distance_metric=cosine)`,
+      );
+      this.db
+        .prepare(
+          "INSERT INTO meta(key, value) VALUES('dim', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .run(String(newDim));
+    })();
   }
 
   append(items: readonly StewardMemoryAppendItem[]): readonly number[] {

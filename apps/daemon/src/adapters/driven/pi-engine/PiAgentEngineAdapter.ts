@@ -370,20 +370,16 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
    * 逐 run listener（start/continueRun）之外，常驻监听器（persistentListener）
    * 同步转发——跨 run 消费面（followUp 后继 run）可见。 */
   private onPiEvent(event: AgentEvent): void {
-    const emit = (e: AgentEngineEvent) => {
-      this.listener?.(e);
-      this.persistentListener?.(e);
-    };
     switch (event.type) {
       case "agent_start":
         this.seenUserInRun = false; // run 边界重置（首条 user 判别计数位）
-        return emit({ type: "agent_start" });
+        return this.emitAll({ type: "agent_start" });
       case "agent_end":
-        return emit({ type: "agent_end", messageCount: event.messages.length });
+        return this.emitAll({ type: "agent_end", messageCount: event.messages.length });
       case "turn_start":
-        return emit({ type: "turn_start" });
+        return this.emitAll({ type: "turn_start" });
       case "turn_end":
-        return emit({ type: "turn_end", toolResultCount: event.toolResults.length });
+        return this.emitAll({ type: "turn_end", toolResultCount: event.toolResults.length });
       case "message_start": {
         // 0.87：loop 会以正常事件流发出 system 消息（prompt/工具宣告载体）——
         // 引擎内部机制不进对话流事件面（port role 封闭三角色），静默滤除。
@@ -403,19 +399,19 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
             this.steeredTexts.shift();
           }
         }
-        return emit({ type: "message_start", role, source });
+        return this.emitAll({ type: "message_start", role, source });
       }
       case "message_update": {
         // 文本增量透传对话流；thinking 块流透传通道族（不再丢弃）
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
-          emit({ type: "message_update", delta: ame.delta });
+          this.emitAll({ type: "message_update", delta: ame.delta });
         } else if (ame.type === "thinking_start") {
-          emit({ type: "thinking_started", contentIndex: ame.contentIndex });
+          this.emitAll({ type: "thinking_started", contentIndex: ame.contentIndex });
         } else if (ame.type === "thinking_delta") {
-          emit({ type: "thinking_delta", contentIndex: ame.contentIndex, delta: ame.delta });
+          this.emitAll({ type: "thinking_delta", contentIndex: ame.contentIndex, delta: ame.delta });
         } else if (ame.type === "thinking_end") {
-          emit({ type: "thinking_end", contentIndex: ame.contentIndex, content: ame.content });
+          this.emitAll({ type: "thinking_end", contentIndex: ame.contentIndex, content: ame.content });
         }
         return;
       }
@@ -431,7 +427,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         const toolCallId = tr?.toolCallId;
         const toolName = tr?.toolName;
         const blocks = role === "assistant" ? engineBlocksOf((event.message as { content?: readonly unknown[] }).content) : undefined;
-        emit({
+        this.emitAll({
           type: "message_end",
           role,
           text: textOfMessage(event.message),
@@ -444,12 +440,12 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         // 终验热修：模型调用失败（stopReason=error，pi 归一化帧/消息）→
         // engine_error 事件透传 provider 原文（adapter 不吞错，不崩会话）。
         if (role === "assistant" && stopReason === "error") {
-          emit({ type: "engine_error", message: errorMessageOf(event.message) });
+          this.emitAll({ type: "engine_error", message: errorMessageOf(event.message) });
         }
         return;
       }
       case "tool_execution_start":
-        return emit({
+        return this.emitAll({
           type: "tool_execution_start",
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -459,7 +455,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         // 图片下行：工具结果 content 内 image 块 → images data URL
         //（textOfResult 同源逻辑不动；模型在 pi 侧已直接收到 image 块）
         const images = imagesOfContent((event.result as { content?: unknown } | undefined)?.content);
-        return emit({
+        return this.emitAll({
           type: "tool_execution_end",
           toolCallId: event.toolCallId,
           toolName: event.toolName,

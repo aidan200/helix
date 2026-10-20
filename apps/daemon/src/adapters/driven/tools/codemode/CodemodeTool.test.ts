@@ -112,6 +112,36 @@ const permissionRequestStub: AgentHarnessTool<ExecutionToolContext> = {
   },
 };
 
+const taskCreateStub: AgentHarnessTool<ExecutionToolContext> = {
+  name: "task_create",
+  label: "task_create",
+  description: "任务创建（排除面：对话即确认的重型副作用）",
+  parameters: { type: "object", properties: {} } as never,
+  async execute() {
+    return textResult("SHOULD-NOT-BE-CALLABLE");
+  },
+};
+
+const coordClaimStub: AgentHarnessTool<ExecutionToolContext> = {
+  name: "coord_claim",
+  label: "coord_claim",
+  description: "占用声明（排除面：决策工具）",
+  parameters: { type: "object", properties: {} } as never,
+  async execute() {
+    return textResult("SHOULD-NOT-BE-CALLABLE");
+  },
+};
+
+const coordQueryStub: AgentHarnessTool<ExecutionToolContext> = {
+  name: "coord_query",
+  label: "coord_query",
+  description: "占用查询（只读——保留可编排）",
+  parameters: { type: "object", properties: {} } as never,
+  async execute() {
+    return textResult("queried");
+  },
+};
+
 const agentSpawnStub: AgentHarnessTool<ExecutionToolContext> = {
   name: "agent_spawn",
   label: "agent_spawn",
@@ -178,6 +208,26 @@ describe("CodemodeTool（真沙箱往返）", () => {
       .filter((c) => c.type === "text")
       .map((c) => c.text);
     expect(texts[0]).toBe("echo");
+  });
+
+  test("排除集补入：task_create / coord_claim 不进沙箱面；coord_query 只读仍可编排（低危批）", async () => {
+    const tool = createCodemodeTool({
+      getTools: () => [echoTool, taskCreateStub, coordClaimStub, coordQueryStub],
+    });
+    const result = await runCodemode(tool, `return ALL_TOOLS.map(t => t.name).sort().join(",");`);
+    const texts = (result.content as { type: string; text?: string }[])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text);
+    expect(texts[0]).toBe("coord_query,echo");
+    // 被排除工具在脚本内不可见（tools.task_create 不存在 → TypeError 捕获面）
+    const probe = await runCodemode(
+      tool,
+      `try { await tools.task_create({}); return "callable"; } catch (e) { return "blocked"; }`,
+    );
+    const probeTexts = (probe.content as { type: string; text?: string }[])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text);
+    expect(probeTexts.join("")).toContain("blocked");
   });
 
   test("工具失败 → 脚本内 rejected promise（catch 得到 Error）", async () => {

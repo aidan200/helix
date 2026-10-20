@@ -39,13 +39,15 @@ function makeFs(opts: {
   realpaths?: Record<string, string>;
   readableDirs?: Set<string>;
   homeDir?: string;
-  fsRoot?: string;
+  /** 判为文件系统根的路径集合（缺省仅 "/"）。 */
+  fsRoots?: readonly string[];
 }): WorkspaceFsPort {
+  const roots = new Set(opts.fsRoots ?? ["/"]);
   return {
     realpath: (p) => opts.realpaths?.[p],
     isReadableDir: (p) => opts.readableDirs?.has(p) ?? false,
     homeDir: () => opts.homeDir ?? "/home/tester",
-    fsRoot: () => opts.fsRoot ?? "/",
+    isFsRoot: (p) => roots.has(p),
   };
 }
 

@@ -231,8 +231,10 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
   };
 
   w.renameFile = async (sourcePath, destinationPath, context) => {
-    if (!(await writable(sourcePath, context)) || !(await writable(destinationPath, context)))
-      return deny(destinationPath, policy);
+    // 逐端判定、拒在越界那一端（低危批）：源越界却报目标路径，会让「目标在可写根
+    // 内」的调用方按错误方向排障（文案说目标不可写，实际是源越界）。
+    if (!(await writable(sourcePath, context))) return deny(sourcePath, policy);
+    if (!(await writable(destinationPath, context))) return deny(destinationPath, policy);
     return base.renameFile(sourcePath, destinationPath, context);
   };
 

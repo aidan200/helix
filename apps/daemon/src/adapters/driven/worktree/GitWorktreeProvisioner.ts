@@ -50,6 +50,13 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
   }
 
   async provision(slug: string, baseCwd: string): Promise<WorktreeProvisionResult> {
+    // slug 字符门（低危批）：slug 直接拼 worktreePath 与分支名——含 `/` 或 `..`
+    // 时落点可越出 .worktrees/（当前调用面是内部生成的 instanceId 故不可达，
+    // 但契约面不该留裸拼接）。白名单 = 字母数字开头的 [A-Za-z0-9._-]（实例 id
+    // 形态），越界即拒。
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug) || slug.includes("..")) {
+      return { error: `worktree slug 非法（${JSON.stringify(slug)}）——只允许字母数字开头的 [A-Za-z0-9._-]，禁路径分隔与 ..` };
+    }
     let root: string;
     try {
       const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], {

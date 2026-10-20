@@ -742,3 +742,61 @@ describe("M3 修复（task-8213de82 review #2.13）：close 身份守卫 / detac
     await h.manager.stop();
   });
 });
+
+// ── 低危批：畸形帧 / send 同步抛 / 感知补下发 / detach 反查复用 ──────────
+
+describe("低危批守卫（畸形帧、send 抛错清理、感知补下发）", () => {
+  test("① 畸形 Target.attachedToTarget（缺 params/targetInfo）→ 不抛（不炸消息链）", async () => {
+    const h = createHarness({});
+    await h.manager.connect();
+    const ws = h.sockets[0]!;
+    expect(() => ws.receive({ method: "Target.attachedToTarget" })).not.toThrow();
+    expect(() => ws.receive({ method: "Target.attachedToTarget", params: { sessionId: 42 } })).not.toThrow();
+    expect(() => ws.receive({ method: "Target.attachedToTarget", params: { sessionId: "s1" } })).not.toThrow();
+    // 正常帧仍照常维护映射（守卫不越位）
+    ws.receive({
+      method: "Target.attachedToTarget",
+      params: { sessionId: "sess-tab-ok", targetInfo: { targetId: "tab-ok", url: "https://x/", title: "t" } },
+    });
+    // 正常帧仍维护 targetId→sessionId 映射（守卫不越位；registry.update 只改已登记 tab，
+    // 故断言落在会话映射上）
+    const sessions = (h.manager as unknown as { sessions: Map<string, string> }).sessions;
+    expect(sessions.get("tab-ok")).toBe("sess-tab-ok");
+    await h.manager.stop();
+  });
+
+  test("② ws.send 同步抛 → Promise reject 且 pending 清空（不留 30s 悬挂条目）", async () => {
+    const h = createHarness({
+      respond: defaultRespond(),
+    });
+    await h.manager.connect();
+    const ws = h.sockets[0]!;
+    ws.send = () => {
+      throw new Error("WS 已关闭（send 同步抛）");
+    };
+    const pendingBefore = (h.manager as unknown as { pending: Map<number, unknown> }).pending.size;
+    await expect(
+      (h.manager as unknown as { sendCDP: (m: string, p?: object) => Promise<unknown> }).sendCDP("Runtime.evaluate", {
+        expression: "1",
+      }),
+    ).rejects.toThrow(/WS 已关闭/);
+    const pendingAfter = (h.manager as unknown as { pending: Map<number, unknown> }).pending.size;
+    expect(pendingAfter).toBe(pendingBefore); // 条目已清理，未增加悬挂
+    await h.manager.stop();
+  });
+
+  test("③ 感知开关晚绑/翻转 → refreshAwareness 对既有连接补下发 setAutoAttach", async () => {
+    const h = createHarness({});
+    await h.manager.connect();
+    const ws = h.sockets[0]!;
+    ws.sent.length = 0;
+    let enabled = false;
+    h.manager.setAwarenessSink({ isEnabled: () => enabled } as never);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ws.sent.some((m) => m.method === "Target.setAutoAttach")).toBe(false); // off → 零注入
+    enabled = true;
+    await h.manager.refreshAwareness();
+    expect(ws.sent.some((m) => m.method === "Target.setAutoAttach")).toBe(true);
+    await h.manager.stop();
+  });
+});
