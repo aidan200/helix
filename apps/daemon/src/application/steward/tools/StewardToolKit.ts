@@ -1,11 +1,13 @@
 /**
  * StewardToolKit —— 管家工具面注册与执行体（DDD 重构批 3a：工具面抽取）。
  *
- * 定位：registerTools 16 工具（spec + 执行体 + 挂闸五件 + 表面四件 +
+ * 定位：registerTools 收编全部工具（spec + 执行体 + 挂闸件 + 表面件 +
  * remember + kg 二件 + read_session）从 StewardService 150 行内联闭包
  * 收编本类——**加工具 = 类内加一条 spec.push + 一个执行体**（原三处散布：
  * TOOL_* 常量 + 注册点 + 执行体）；风险闸（gateWriteTool/gateSurfaceAct 的
  * read/write/destructive 三档）与 pendingActionOf* 提案构造同面内聚。
+ * **工具清单与计数一律以 registerTools 注册点为准**（注释不抄计数——历史
+ * 「16 工具 / 八工具」两处计数已随工具面扩张漂移，TR-206）。
  *
  * 形态（批 3a 绞杀取舍）：deps 全量透传（StewardServiceDeps 子集消费）+
  * executePending 经 deps 注入（确认执行体归确认闸域共用——批 1 的
@@ -16,7 +18,7 @@
  *
  * 为什么存在：工具面是管家能力扩张的主入口（kg 二件/read_session/表面
  * 四件历次新增都在 registerTools 内联），「加工具耗时且易漏」（排查清单
- * A-15 证据：16 工具三处散布）；收编后新增工具只动本类。
+ * A-15 证据：工具面三处散布）；收编后新增工具只动本类。
  */
 import type { StewardToolSpec } from "../../ports/outbound/StewardToolSpec";
 import type { StewardSurfaceActRequest } from "../../ports/outbound/StewardSurfacePort";
@@ -93,12 +95,14 @@ export class StewardToolKit {
   }
 
   /**
-   * 八工具注册 ToolRegistry（迁移即验证——runTool 大 if-else 链退役）：
-   * - 只读三件（list_instances/list_tasks/query_recent_work）：handler 直查；
-   * - 写注入四件（propose_send/deliver_to_session/create_session/
-   *   spawn_review_task）：挂闸工具——beforeToolCallPause 暂停点（gateWriteTool
-   *   前置校验 + PendingAction 构造），handler 不执行写动作（L0 管家走
-   *   confirm→resolve 路径；execute 直调一律拒绝——防绕过确认闸）；
+   * 工具注册 ToolRegistry（迁移即验证——runTool 大 if-else 链退役；名目与
+   * 计数以本方法注册点为准）：
+   * - 只读类（list_instances/list_tasks/query_recent_work/read_session/
+   *   kg_search/kg_get）：handler 直查；
+   * - 写注入类（propose_send/deliver_to_session/create_session/
+   *   start_session/spawn_review_task）：挂闸工具——beforeToolCallPause 暂停点
+   *   （gateWriteTool 前置校验 + PendingAction 构造），handler 不执行写动作
+   *   （L0 管家走 confirm→resolve 路径；execute 直调一律拒绝——防绕过确认闸）；
    * - steward_confirm：hidden 注册（面板确认原语——不进 LLM 工具投影，
    *   E-46「注册面恒宽、声明面管控谁可见」同构）。
    */
@@ -150,15 +154,15 @@ export class StewardToolKit {
     });
     // 写注入五件：挂闸工具（GATED_TOOLS 命中即 engine_paused）——execute
     // 重新过闸校验后拒绝直行（挂闸动作须经 confirm→executePending 执行，
-    // 未确认零执行防火墙不因执行面扩张松动）
-    for (const [tool, actionOf] of [
-      [TOOL_PROPOSE_SEND, this.pendingActionOfProposeSend.bind(this)],
-      [TOOL_DELIVER_TO_SESSION, this.pendingActionOfDeliverToSession.bind(this)],
-      [TOOL_CREATE_SESSION, this.pendingActionOfCreateSession.bind(this)],
-      [TOOL_START_SESSION, this.pendingActionOfStartSession.bind(this)],
-      [TOOL_SPAWN_REVIEW_TASK, this.pendingActionOfSpawnReview.bind(this)],
+    // 未确认零执行防火墙不因执行面扩张松动）。提案构造按 tool.name 在
+    // gateWriteTool 内分派（本循环只负责注册 execute 面）。
+    for (const tool of [
+      TOOL_PROPOSE_SEND,
+      TOOL_DELIVER_TO_SESSION,
+      TOOL_CREATE_SESSION,
+      TOOL_START_SESSION,
+      TOOL_SPAWN_REVIEW_TASK,
     ] as const) {
-      void actionOf;
       this.specs.push({
         ...tool,
         execute: async (args) => {
@@ -454,13 +458,6 @@ export class StewardToolKit {
     };
   }
 
-  /** start_session 提案判定（同 create_session 动作体，initial_message 必填兑底）。 */
-  private async pendingActionOfStartSession(
-    args: Record<string, unknown>,
-  ): Promise<PendingAction | { guidance: true; outcome: GateToolOutcome }> {
-    return this.pendingActionOfCreateSession(args, { requireInitialMessage: true });
-  }
-
   /** deliver_to_session 提案判定（驾驶舱批逻辑平移：参数 → 装配面 → 会话存在性）。 */
   private async pendingActionOfDeliverToSession(
     args: Record<string, unknown>,
@@ -695,15 +692,10 @@ export class StewardToolKit {
     }
     const taskRows = this.deps.tasks
       .listTasks({})
-      .filter(
-        (t) =>
-          inWindow((t as unknown as { createdAt?: string }).createdAt ?? "") &&
-          (project === undefined || (t as unknown as { projects?: readonly string[] }).projects?.includes(project)),
-      );
+      .filter((t) => inWindow(t.createdAt ?? "") && (project === undefined || t.projects?.includes(project)));
     const taskLines = taskRows.slice(0, RECENT_WORK_LINES_MAX).map((t) => {
-      const meta = t as unknown as { type?: string; createdAt?: string };
       const tail = t.error !== null && t.error !== "" ? capChars(t.error, 40) : t.progress === null ? "" : `${t.progress.percent}%`;
-      const type = meta.type ?? "task";
+      const type = t.type ?? "task";
       return `[${type}] ${capChars(t.title, RECENT_WORK_TITLE_MAX_CHARS)}——${t.status}${tail !== "" ? `（${tail}）` : ""}`;
     });
     if (taskRows.length > RECENT_WORK_LINES_MAX) {

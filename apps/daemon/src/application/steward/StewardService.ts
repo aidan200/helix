@@ -679,6 +679,13 @@ export interface StewardTasksSource {
     jobId: string;
     title: string;
     status: string;
+    /** 任务类型（= skill 名）；缺省消费面回落 "task"（additive——旧读面/测试
+     *  替身不携带）。 */
+    type?: string;
+    /** 归属项目徽章（projects 过滤判据）；缺省 = 无归属（additive）。 */
+    projects?: readonly string[];
+    /** 创建时间（ISO；时间窗过滤判据）；缺省 = 不入窗（additive）。 */
+    createdAt?: string;
     progress: { stageName: string | null; batchesDone: number; batchesTotal: number; percent: number } | null;
     error: string | null;
   }[];
