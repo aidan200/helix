@@ -26,8 +26,9 @@ import type { HookSet } from "../HookSet";
  * 【链位序契约】排在 CompactionHook 之后（AgentRuntime 装配序）：
  * - Compaction 未触发（返回 undefined）→ 本钩子正常检测；
  * - Compaction 触发 → 其替换 context 的 tools 已取 state.tools 现值
- *   （CompactionHook:122），漂移已对齐，本钩子被「首个非空生效」短路
- *   但语义已满足。
+ *   （CompactionHook turn/request 双档的 context.tools 同源取 state.tools
+ *   现值——本注释不引行号：行号引用必随编辑漂移，口径看取源不看位置），
+ *   漂移已对齐，本钩子被「首个非空生效」短路但语义已满足。
  *
  * 【非 MCP 场景零干扰】无 MCP 配置/无物化时 state.tools 恒等于快照
  * （仅 toggle/refreshAssembly 会改 state——改后首 turn 对齐一次即静默）。
