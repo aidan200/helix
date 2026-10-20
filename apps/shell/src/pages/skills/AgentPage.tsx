@@ -53,6 +53,7 @@ import {
   agentPageReducer,
   createAgentPageState,
   isSystemAgentKind,
+  pendingKeyOf,
   selectAgentPageView,
   type AgentId,
   type AgentKind,
@@ -221,15 +222,27 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       subscribeAgentConfigFrames((e: EventEnvelope) => {
         if (e.type === "agent.config.list.result") {
           const p = (e as { payload: AgentConfigListResultPayload }).payload;
-          dispatch({ type: "list-result", profiles: p.profiles, system: p.system });
+          // 在途写面的 key 跨重拉保留（TR-84 单飞不收错）：异步 runList
+          // （mcp.status.changed / 拓扑 revision）在写在途期到达时，全清 pending
+          // 会提前解锁开关单飞、并让随后的 skipped 回执清错 key。无在途则按
+          // 新鲜数据全清（applied 的 relist 收口路径）并清掉陈旧归因位。
+          const w = lastWriteRef.current;
+          const key = w !== null ? pendingKeyOf(w.kind, w.resourceType, w.name) : null;
+          const inFlightKey = key !== null && stateRef.current.pending.has(key) ? key : null;
+          dispatch({ type: "list-result", profiles: p.profiles, system: p.system, inFlightKey });
+          if (inFlightKey === null) lastWriteRef.current = null; // 无在途：归因位不残留
         } else if (e.type === "agent.config.set_enabled.result") {
           const p = (e as { payload: { status: string; reason?: string } }).payload;
           if (p.status === "skipped") {
             const w = lastWriteRef.current;
             if (w !== null) dispatch({ type: "toggle-settled", ...w });
+            lastWriteRef.current = null; // 已消费：不留陈旧归因位（否则后续无尾缀错误帧误归因）
             toast.push("err", t("agents.skippedToast", { reason: p.reason ?? "" }));
           }
-          // applied：不清在途——等 changed 广播 → 重拉的新鲜数据收口（防闪回）
+          // applied：pending 不清（等 changed 广播 → 重拉的新鲜数据收口，防闪回），
+          // 但归因位清掉——写面已落，后续异步重拉（mcp.status.changed / revision）
+          // 不得因陈旧归因位再「保留在途」（否则 relist 永远收不了口）
+          else lastWriteRef.current = null;
         } else if (e.type === "agent.base_prompt.get.result") {
           // base prompt 批：回执带 profileKind 回显——定向归位缓存
           const p = (e as { payload: AgentBasePromptGetResultPayload }).payload;

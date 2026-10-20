@@ -66,6 +66,59 @@ function renderCard(onToggle: (kind: string, rt: string, name: string, enabled: 
   );
 }
 
+describe("ProfileCard · MCP 归属（工具组 vs server 组）", () => {
+  /** 带 MCP server + 三类工具（真 MCP 归属 / 名字含 __ 但无 server 归属 / 普通）。 */
+  function renderMcp() {
+    const block: AgentConfigProfileBlock = {
+      profileKind: "main-session",
+      mcpServers: [{ name: "codegraph", state: "running", enabled: true, toolCount: 1 } as never],
+      tools: [
+        { name: "codegraph__search", snippet: "MCP 工具", enabled: false },
+        { name: "my_tool__v2", snippet: "普通工具（名里带双下划线）", enabled: false },
+        { name: "bash", snippet: "普通工具", enabled: false },
+      ],
+      skills: [],
+      diagnostics: [],
+      model: null,
+      thinkingLevel: null,
+    } as AgentConfigProfileBlock;
+    return render(
+      <I18nProvider>
+        <ProfileCard
+          kind="main-session"
+          block={block}
+          skeleton={false}
+          catalog={null}
+          defaultModel={undefined}
+          auth={{}}
+          authLoaded={false}
+          writePending={false}
+          onToggle={() => {}}
+          onModelChange={() => {}}
+          basePrompt={null}
+          skillContents={{}}
+          skillContentPending={new Set<string>()}
+          skillContentOpen={null}
+          onSkillContentToggle={() => {}}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  it("归属按 server 前缀判（非裸 includes \"__\"）：无归属的 __ 工具不丢行", () => {
+    const { container } = renderMcp();
+    // MCP 归属行在 server 组
+    expect(container.querySelector('[data-mcp-server="codegraph"] [data-mcp-server-row]')).not.toBeNull();
+    // 工具组：含普通工具 + 名字带 __ 但无 server 归属的工具（旧实现会被 includes("__") 吞掉）
+    expect(container.querySelector('[data-tool-row="bash"]')).not.toBeNull();
+    expect(container.querySelector('[data-tool-row="my_tool__v2"]')).not.toBeNull();
+    // MCP 归属工具只在 server 组渲染（带 sub 变体），不再进「工具」组
+    const mcpRow = container.querySelector('[data-tool-row="codegraph__search"]')!;
+    expect(mcpRow.closest("[data-mcp-server]")).not.toBeNull();
+    expect(container.querySelectorAll('[data-tool-row="codegraph__search"]')).toHaveLength(1); // 不重复出现
+  });
+});
+
 describe("ProfileCard · audience=task 技能开关", () => {
   it("task 受众行开关置灰且点击不触发写命令（可写卡亦然）", () => {
     const onToggle = vi.fn();

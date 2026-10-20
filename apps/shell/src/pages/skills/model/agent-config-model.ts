@@ -128,7 +128,14 @@ export function createAgentPageState(): AgentPageState {
 
 export type AgentPageAction =
   | { type: "list-started" }
-  | { type: "list-result"; profiles: readonly AgentConfigProfileBlock[]; system?: readonly AgentConfigSystemBlock[] }
+  | {
+      type: "list-result";
+      profiles: readonly AgentConfigProfileBlock[];
+      system?: readonly AgentConfigSystemBlock[];
+      /** 在途写面 key（跨重拉保留标记）：异步 runList（mcp.status.changed /
+       *  revision）在写在途期到达时，全清 pending 会提前解锁单飞——保留该键。 */
+      inFlightKey?: string | null;
+    }
   | { type: "list-failed"; reason: string }
   | { type: "select-agent"; id: AgentSelection | null }
   | { type: "toggle-started"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
@@ -172,7 +179,13 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
         }
         system = next;
       }
-      return { ...s, status: "ready", error: null, profiles, system, pending: new Set<string>() };
+      // pending 收口：无在途写面 → 按新鲜数据全清（applied 的 relist 收口路径）；
+      // 有在途写面 → 只保留该键（异步重拉到达不得提前解锁单飞/让 skipped 回执
+      // 归因落空——code-review 低危）
+      const inFlight = action.inFlightKey ?? null;
+      const pending =
+        inFlight !== null && s.pending.has(inFlight) ? new Set<string>([inFlight]) : new Set<string>();
+      return { ...s, status: "ready", error: null, profiles, system, pending };
     }
     case "select-agent":
       return { ...s, selected: action.id };

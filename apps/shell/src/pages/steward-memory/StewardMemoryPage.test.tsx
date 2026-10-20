@@ -239,6 +239,9 @@ describe("管家记忆独立页（遗忘机制批）", () => {
     // 零值场景：无 faded 条目 → chip 隐藏
     act(() => feedList(LIFE_ENTRIES.filter((e) => e.id !== 3)));
     expect(container.querySelector("[data-memory-filter='faded']")).toBeNull();
+    // 且活跃的 faded 过滤自动回落 all（否则隐形生效 → 空列表误导「无记忆」）
+    expect(container.querySelector("[data-memory-filter='all']")!.className).toContain("hud-btn-cyan");
+    expect(container.querySelector('[data-memory-item="1"]')).not.toBeNull();
   });
 
   it("pin/restore 接线：pin 钮 → sendStewardMemoryPin(id, !pinned)；恢复钮 → sendStewardMemoryRestore", () => {

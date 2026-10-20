@@ -32,7 +32,6 @@ import {
   instanceTimes,
   instanceDisplayName,
   isCategoryOn,
-  selectTraceView,
   summarizeTraceEvent,
   toggleTypeCategory,
   traceReducer,
@@ -102,7 +101,7 @@ function feedResult(
 describe("1. 五态互斥转换与新查询清旧态", () => {
   it("初始 idle → query-started → loading（清 errorReason/分页/展开/提示词）", () => {
     const s0 = createTracePageState();
-    expect(selectTraceView(s0)).toBe("idle");
+    expect(s0.view).toBe("idle");
     const dirty: TracePageState = {
       ...s0,
       view: "error",

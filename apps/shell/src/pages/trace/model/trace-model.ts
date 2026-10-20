@@ -551,11 +551,6 @@ export type TraceAction =
   | { type: "toggle-row"; id: number }
   | { type: "toggle-prompt" };
 
-/** 展示视图（五态互斥状态机的当前态）。 */
-export function selectTraceView(s: TracePageState): TraceView {
-  return s.view;
-}
-
 function isUnfilteredEcho(echo: TraceQueryFilterEcho): boolean {
   return echo.instanceIds === null && echo.types === null && echo.timeRange === null;
 }

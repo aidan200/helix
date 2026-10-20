@@ -37,7 +37,6 @@ import {
   TRACE_TYPE_CATEGORIES,
   buildTraceQuery,
   createTracePageState,
-  selectTraceView,
   toggleTypeCategory,
   traceReducer,
   type TraceFilter,
@@ -299,7 +298,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
   }, [runQuery]);
 
   // ── 展示派生 ─────────────────────────────────────────────
-  const view = selectTraceView(state);
+  const view = state.view; // 视图态直取（原 selectTraceView = 恒等透传，已删）
   const detail = state.filter.instanceId !== null;
   const connOff = conn === "disconnected" || conn === "error";
   const selectedRecord = detail

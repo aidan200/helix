@@ -263,6 +263,15 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
     };
   }, [entries]);
 
+  /** 零值 chip 隐藏 ≠ 过滤条件失效：恢复最后一条 faded / 取消最后一个 pinned
+   *  后，活跃 filter 会隐形生效（chip 已不渲染，列表空且空态文案误导为「无
+   *  记忆」）——回落 all，保证筛选项始终有可见 chip 对应。 */
+  useEffect(() => {
+    if (stats === null) return;
+    if (filter === "faded" && stats.faded === 0) setFilter("all");
+    else if (filter === "pinned" && stats.pinned === 0) setFilter("all");
+  }, [filter, stats]);
+
   const available = memoryState?.available === true;
 
   const openAdd = (): void => {

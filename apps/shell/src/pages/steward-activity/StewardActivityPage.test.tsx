@@ -92,7 +92,7 @@ describe("管家活动时间线页（M3-d1）", () => {
   it("进入拉取：steward.activity.list(today)；回执整表替换 + 域/归因/白话句渲染", () => {
     const { container } = ui();
     expect(sendStewardActivityList).toHaveBeenCalledTimes(1);
-    expect(sendStewardActivityList).toHaveBeenCalledWith("today");
+    expect(sendStewardActivityList).toHaveBeenCalledWith("today", 500); // 查询面与实时累积同一上限（daemon 缺省 200 会让刷新骤缩）
     feed("steward.activity.result", { entries: ENTRIES });
     expect(container.querySelector("[data-activity-item-text='0']")!.textContent).toBe("「登录修复」完成了");
     expect(container.querySelector("[data-activity-item-domain='0']")!.textContent).toContain("任务");
@@ -105,7 +105,7 @@ describe("管家活动时间线页（M3-d1）", () => {
     const { container } = ui();
     feed("steward.activity.result", { entries: ENTRIES });
     fireEvent.click(container.querySelector("[data-activity-range='this_week']")!);
-    expect(sendStewardActivityList).toHaveBeenLastCalledWith("this_week");
+    expect(sendStewardActivityList).toHaveBeenLastCalledWith("this_week", 500);
     feed("steward.activity.result", { entries: [] });
     expect(container.querySelector("[data-activity-empty]")).not.toBeNull();
   });
@@ -141,7 +141,7 @@ describe("管家活动时间线页（M3-d1）", () => {
     const { container } = ui();
     fireEvent.click(container.querySelector("[data-activity-range='all']")!);
     fireEvent.click(container.querySelector("[data-activity-refresh]")!);
-    expect(sendStewardActivityList).toHaveBeenLastCalledWith("all");
+    expect(sendStewardActivityList).toHaveBeenLastCalledWith("all", 500);
     expect(sendStewardActivityList).toHaveBeenCalledTimes(3); // 进入 + 切窗 + 刷新
   });
 });
