@@ -10,6 +10,7 @@
  *
  * vi.mock SessionContext 先例（ChatPage.test.tsx / TracePage.test.tsx）。
  */
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
@@ -18,6 +19,11 @@ import type { ModelConfigState } from "@/entities/session/model/state";
 
 const requestModelConfig = vi.fn();
 const requestAuthList = vi.fn();
+
+// 通用分区轻量替身（本文件只验壳/导航/指路信号；通用分区数据面另有专测）
+vi.mock("./ui/GeneralSettingsSection", () => ({
+  default: () => <div className="pg" data-general-section />,
+}));
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -57,6 +63,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
 });
 
 import SettingsPage from "./SettingsPage";
+import { peekPendingSection, requestSettingsSection } from "./settings-section-bus";
 
 afterEach(() => {
   cleanup();
@@ -108,6 +115,35 @@ describe("S2 设置页实页化", () => {
     expect(nav.querySelector('[data-section="general"]')!.textContent).toBe("通用设置");
     expect(nav.querySelector('[data-section="mcp"]')!.textContent).toBe("MCP 服务");
     expect(nav.querySelector('[data-section="skills"]')!.textContent).toBe("技能管理");
+  });
+
+  it("跨页指路信号：挂载时消费一次（分区 + 模型 tab）；清位后重挂载回缺省（一次性语义）", () => {
+    requestSettingsSection("general");
+    const first = ui();
+    expect(document.querySelector("[data-settings-page]")).not.toBeNull();
+    // 信号已清位（渲染期不再 consume——StrictMode 双渲染腿不丢信号）
+    expect(peekPendingSection()).toBeNull();
+    first.unmount();
+    // 重挂载：无信号 → 回缺省分区（模型设置）
+    ui();
+    expect(document.querySelector("[data-models-section]")).not.toBeNull();
+    cleanup();
+  });
+
+  it("StrictMode 双渲染腿不丢指路信号（渲染期 peek 只读 + 挂载 effect 清位）", () => {
+    requestSettingsSection("general");
+    render(
+      <StrictMode>
+        <I18nProvider>
+          <ToastProvider>
+            <SettingsPage path="/settings" onOpenStewardMemory={vi.fn()} />
+          </ToastProvider>
+        </I18nProvider>
+      </StrictMode>,
+    );
+    // 旧实现：渲染期 consume → 第二腿得 null → 落缺省（models 分区）
+    expect(document.querySelector(".pg[data-general-section]")).not.toBeNull();
+    expect(document.querySelector("[data-models-section]")).toBeNull();
   });
 
   it("main = 模型分区（原 P-4 迁入）：进入拉数据链零变更（requestModelConfig + requestAuthList）", () => {

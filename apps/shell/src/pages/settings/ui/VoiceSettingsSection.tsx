@@ -132,15 +132,30 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
     requestVoiceModelConfig();
   }, [requestVoiceModelConfig]);
 
+  /** 用户未保存编辑（M46 脏态门控；settings-hooks 同款）：回执到达时不得覆写
+   *  用户正在改的槽位（此前任意 voiceModels 变化即整组覆写，编辑中的输入被吞）。 */
+  const modelsDirtyRef = useRef(false);
+  /** 保存在途（结果帧对账锚：算清脏态 + 落回执值）。 */
+  const modelsPendingRef = useRef(false);
+
   useEffect(() => {
     if (voiceModels === null) return;
-    setModelDrafts({
+    const sync = {
       sttModel: voiceModels.sttModel,
       sttSiliconflowModel: voiceModels.sttSiliconflowModel,
       sttRealtimeModel: voiceModels.sttRealtimeModel,
       ttsModel: voiceModels.ttsModel,
       ttsStreamModel: voiceModels.ttsStreamModel,
-    });
+    };
+    if (modelsPendingRef.current) {
+      // 本卡保存在途 → 结果帧对账：落回执值并清脏（用户意图已兑现）
+      modelsPendingRef.current = false;
+      modelsDirtyRef.current = false;
+      setModelDrafts(sync);
+      return;
+    }
+    if (modelsDirtyRef.current) return; // 脏态门控：不覆写用户编辑中的草稿
+    setModelDrafts(sync);
   }, [voiceModels]);
 
   const onSaveVoiceModels = () => {
@@ -150,13 +165,21 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
       if (draft !== (voiceModels?.[field] ?? "")) patch[field] = draft; // 空串 = 回落默认
     }
     if (Object.keys(patch).length === 0) return; // 无改动不发
-    if (setVoiceModelConfig(patch) === false) toast.push("err", t("chat.settings.voiceModels.saveFail"));
+    if (setVoiceModelConfig(patch) === false) {
+      toast.push("err", t("chat.settings.voiceModels.saveFail"));
+      return;
+    }
+    modelsPendingRef.current = true; // 已发出：等 config 回执对账（不乐观落值）
   };
 
   const onResetVoiceModels = () => {
     const patch: Partial<Record<VoiceModelField, string>> = {};
     for (const field of VOICE_MODEL_FIELDS) patch[field] = "";
-    if (setVoiceModelConfig(patch) === false) toast.push("err", t("chat.settings.voiceModels.resetFail"));
+    if (setVoiceModelConfig(patch) === false) {
+      toast.push("err", t("chat.settings.voiceModels.resetFail"));
+      return;
+    }
+    modelsPendingRef.current = true;
   };
 
   useEffect(() => {
@@ -214,9 +237,11 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
     setBroadcastOn(on);
     writeVoiceBroadcastPref(on);
     // 即时生效：订阅是连接级闸门，useVoiceBroadcast 的重放 effect 仅依赖 conn——
-    // 开关切换必须当场补发，否则要等下次重连（V2 缺陷修复）
-    if (on) sendVoiceSubscribe(readTtsVoicePref());
-    else sendVoiceUnsubscribe();
+    // 开关切换必须当场补发，否则要等下次重连（V2 缺陷修复）。
+    // send 返回值必消费（TR-84）：断线窗口未发出 → 行内/ toast 交代（订阅态
+    // 错位由重连重放自愈，故不回滚偏好）；与 useVoiceBroadcast 同一失败口径。
+    const sent = on ? sendVoiceSubscribe(readTtsVoicePref()) : sendVoiceUnsubscribe();
+    if (sent === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
   };
 
   const onPickVoice = (id: string) => {
@@ -227,7 +252,12 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
     // 播放面不查偏好照播——用户显式关闭的「不偷偷发音频」开关不得被绕过
     //（开=订阅/关=退订契约，docblock；off 态只写音色偏好，开启时
     // onToggleBroadcast 以 readTtsVoicePref() 现值订阅）
-    if (readVoiceBroadcastPref()) sendVoiceSubscribe(id);
+    if (readVoiceBroadcastPref()) {
+      // 返回值必消费（TR-84 同 onToggleBroadcast）：断线窗口换音色未下发 →
+      // 交代；重连重放按偏好补订阅可自愈
+      const sent = sendVoiceSubscribe(id);
+      if (sent === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+    }
   };
 
   const onVolume = (v: number) => {
@@ -582,7 +612,10 @@ const VoiceSettingsSection = function VoiceSettingsSection() {
               type="text"
               value={modelDrafts[field]}
               placeholder={DEFAULT_VOICE_MODELS[field]}
-              onChange={(e) => setModelDrafts((prev) => ({ ...prev, [field]: e.target.value }))}
+              onChange={(e) => {
+                modelsDirtyRef.current = true; // 脏态门控（回执不覆写编辑中的草稿）
+                setModelDrafts((prev) => ({ ...prev, [field]: e.target.value }));
+              }}
             />
           </div>
         ))}
