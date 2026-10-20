@@ -680,14 +680,23 @@ export function buildLocalMemorySearchStack(
       path.join(path.dirname(dbPath), "steward_memory.db"),
       vec0.path,
     );
-    // 配置只读直连（LazyWorkLedger 同构；子进程不写配置——set 面
-    // 静默不落盘，读面 runtime_config 单点）
-    const db = openTaskLedgerDatabase(dbPath);
+    // 配置只读直连（子进程不写配置——set 面静默不落盘，读面 runtime_config 单点）。
+    // 连接纪律 = 逐次开合短连接（与 buildLocalVectorStack 同源，低危批）：
+    // 构造期开一次不关会漏句柄（本函数返回后无收尾面），而闭包内一次性
+    // close 又会令运行期 readKey 撞「database is closed」。
     const readKey = (key: string): string | undefined => {
-      const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
-        | { value: string }
-        | null;
-      return row === null ? undefined : row.value;
+      let db: ReturnType<typeof openTaskLedgerDatabase> | undefined;
+      try {
+        db = openTaskLedgerDatabase(dbPath);
+        const row = db.prepare("SELECT value FROM runtime_config WHERE key = ?").get(key) as
+          | { value: string }
+          | null;
+        return row === null ? undefined : row.value;
+      } catch {
+        return undefined; // 库不可开/形态异常 → 按未配置态（读面兑底，不抛）
+      } finally {
+        db?.close();
+      }
     };
     const config: RuntimeConfigPort = {
       get: readKey,
