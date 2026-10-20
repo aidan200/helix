@@ -252,36 +252,14 @@ export {
   voiceSynthesizeStreamCommand,
   voiceSynthesizeStopCommand,
 } from "./commands/voice";
+export {
+  surfaceRegisterCommand,
+  surfaceUnregisterCommand,
+  surfaceEventCommand,
+  surfaceActionResultCommand,
+} from "./commands/surface";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-// ── surface 族命令（M0 表面协议地基批）：注册/事件上行/动作回执 ──
-// 全局命令（信封省略 sessionId——表面是连接级概念，E-84）；上行 = 表面→
-// daemon（SurfaceRegistry 归一/路由/销账）。
-
-/** surface.register：表面自述注册（幂等；回执 surface.registered 点对点）。 */
-export function surfaceRegisterCommand(descriptor: SurfaceDescriptor): SurfaceRegisterCommand {
-  return { v: PROTOCOL_VERSION, type: "surface.register", payload: { descriptor } };
-}
-
-/** surface.unregister：注销（断连自动等效）。 */
-export function surfaceUnregisterCommand(): SurfaceUnregisterCommand {
-  return { v: PROTOCOL_VERSION, type: "surface.unregister", payload: {} };
-}
-
-/** surface.event：页面级事件上行（感知开关默认 off——off 时 adapter 不发）。 */
-export function surfaceEventCommand(payload: SurfaceEventUplinkPayload): SurfaceEventCommand {
-  return { v: PROTOCOL_VERSION, type: "surface.event", payload };
-}
-
-/** surface.action.result：动作执行回执（D7-1 seq 对账；呈现即回）。 */
-export function surfaceActionResultCommand(seq: number, ok: boolean, detail?: string): SurfaceActionResultCommand {
-  return {
-    v: PROTOCOL_VERSION,
-    type: "surface.action.result",
-    payload: { seq, ok, ...(detail !== undefined ? { detail } : {}) },
-  };
-}
 
 // ── steward 族命令（V2.5 文本管家）：对话 + 确认闸 + feed 订阅 + 设置面 ──
 // 回执 = steward.ask.result / confirm.result / config.result 点对点；
