@@ -82,6 +82,35 @@ function makeService(opts?: {
   return { service, config, registered };
 }
 
+describe("写面串行（评审 low #62：并发 set 不丢更新）", () => {
+  test("并发 set 两个不同平台 → 两条都落盘（读改写串行化，无后写覆盖先写）", async () => {
+    // KV 写面显式异步（真实 RuntimeConfigPort 是排队的 IO 写）——同步落盘的
+    // 假实现会掩盖读改写竞态，故此处注入延迟写。
+    const store = new Map<string, string>();
+    const config: RuntimeConfigPort = {
+      get: () => store.get(CUSTOM_PROVIDERS_KEY),
+      set: async (key: string, value: string) => {
+        await new Promise((r) => setTimeout(r, 1));
+        store.set(key, value);
+      },
+    };
+    const { registry } = makeRegistry();
+    const service = new CustomProviderService({
+      config,
+      registry,
+      auth: makeAuth([]),
+      defaultModel: makeDefaultModel("x/y"),
+    });
+    const [a, b] = await Promise.all([
+      service.set({ ...VALID_INPUT, id: "alpha" }),
+      service.set({ ...VALID_INPUT, id: "beta" }),
+    ]);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    expect(service.list().map((r) => r.id).sort()).toEqual(["alpha", "beta"]);
+  });
+});
+
 describe("set 校验（invalid → 中文 error；valid → KV + 活注册）", () => {
   test("id 规则：非法字符/大写/超长拒绝", async () => {
     const { service } = makeService();
