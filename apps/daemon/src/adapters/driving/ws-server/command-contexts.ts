@@ -49,7 +49,7 @@ import type { TaskQueryService } from "../../../application/services/task/TaskQu
 import type { TaskEnginePort } from "../../../application/ports/inbound/TaskEnginePort";
 import type { TurnDiffService, TurnDiffState } from "../../../application/services/TurnDiffService";
 import type { ServerWebSocket } from "bun";
-import { type FrameSender, EventStream } from "./EventStream";
+import { type EventStream, type FrameSender } from "./EventStream";
 import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
 import type {
   AgentCommandContext,
@@ -348,6 +348,25 @@ export function modelErrorCode(err: Error): ConnectionErrorEvent["payload"]["cod
   return "command.invalid_payload";
 }
 
+/**
+ * 每连接的共享闭包（低危批上收）：commandError / rawSender / sendNow 是
+ * 「把 ctx 收到的东西转给 ws 层辅助」的纯转发样板，此前在近二十个族构造器里
+ * 逐处重写同一行 —— 单侧改签名即漏改一批。返回对象用展开并入各族 ctx。
+ */
+interface SharedClosures {
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  rawSender(): FrameSender;
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+function sharedClosures(ws: ServerWebSocket<ConnState>, helpers: ContextHelpers): SharedClosures {
+  return {
+    commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+    rawSender: () => helpers.rawSender(ws),
+    sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+  };
+}
+
 /** 全命令族 context 构造器（routeCommand 分发用；只组装不决策；返回对象即族清单）。 */
 export function createCommandContexts(deps: WsServerAdapterDeps, helpers: ContextHelpers) {
   const commandContext = (
@@ -371,10 +390,9 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       voiceModelConfig: deps.voiceModelConfig,
       askService: deps.askService,
       system: deps.system,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      ...sharedClosures(ws, helpers),
       modelErrorCode: (err) => modelErrorCode(err),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -401,8 +419,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       snapshotFrame: (view, model, agentState) => helpers.snapshotFrame(view, model, agentState),
       // W1 绑定闭环：草稿建会话门禁判别面（未装配 workspace 面时缺省视为已绑定）
       ...(deps.workspace !== undefined ? { workspaceBound: () => deps.workspace!.isBound() } : {}),
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -425,9 +442,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       events: deps.events,
       sessionStamp: (view) => helpers.sessionStamp(view),
       snapshotFrame: (view, model, agentState) => helpers.snapshotFrame(view, model, agentState),
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -443,7 +458,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       payload,
       orchestration: deps.orchestration,
       events: deps.events,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -458,9 +473,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       traceQuery: deps.traceQuery,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -490,9 +503,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       triage: resolveService(deps.kgTriage),
       codeReview: resolveService(deps.codeReview),
       workspaceUnbound: deps.workspace !== undefined && !deps.workspace.isBound(),
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -513,9 +524,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       workspace,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -540,9 +549,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       skillContentOf: deps.skillContentOf ?? (() => Promise.resolve(undefined)), // 未装配（stub rig）→ handler 回「未知技能名或正文不可读」防御
       skillCreateOf: deps.skillCreateOf,
       events: deps.events,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -565,9 +572,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       taskQuery: deps.taskQuery,
       taskEngine: deps.taskEngine,
       events: deps.events,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -588,9 +593,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       payload,
       envelope,
       diff: deps.diff,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -607,9 +610,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       ws,
       type,
       browser: deps.browser,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -631,9 +632,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       payload,
       mcp: mcp.registry,
       saveMcpServers: (servers) => mcp.saveServers(servers), // async 链（TR-106 纪律 4：落盘先于连接）
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -655,9 +654,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       envelope,
       directory: deps.directory,
       stt: deps.stt!,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -676,9 +673,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       voice: deps.voice!,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -697,9 +692,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       steward: deps.steward!,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -718,9 +711,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       surface: deps.surface!,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -739,9 +730,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       embedding: deps.embedding!,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
@@ -760,9 +749,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       provider: deps.provider!,
-      commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
-      rawSender: () => helpers.rawSender(ws),
-      sendNow: (sender, frame) => helpers.sendNow(sender, frame),
+      ...sharedClosures(ws, helpers),
     };
   };
 
