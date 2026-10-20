@@ -81,7 +81,9 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
 
   test("①~④ 子串命中全集：输出 `path:行号: 行内容`，hidden/gitignore 命中，具名目录跳过", async () => {
     const { context } = setup();
-    const tool = createGrepTool({ rgPath: hostRgPath() });
+    const rg = Bun.which("rg");
+    if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+    const tool = createGrepTool({ rgPath: rg });
     const run = await runGrep(tool, context, { pattern: "HELIX" });
     expect(run.isError).toBe(false);
     expect(run.text).toBe(
@@ -98,14 +100,18 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
   test("① fixed-strings：正则元字符 pattern 按字面子串（不误中、不报错）", async () => {
     const { context } = setup();
     writeFileSync(path.join(dir as string, "src", "re.ts"), "a.b 字面\naxb 误中\n");
-    const tool = createGrepTool({ rgPath: hostRgPath() });
+    const rg = Bun.which("rg");
+    if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+    const tool = createGrepTool({ rgPath: rg });
     const run = await runGrep(tool, context, { pattern: "a.b" });
     expect(run.text).toBe("src/re.ts:1: a.b 字面");
   });
 
   test("⑤ glob 单源过滤（* 跨目录）；ignoreCase 开关", async () => {
     const { context } = setup();
-    const tool = createGrepTool({ rgPath: hostRgPath() });
+    const rg = Bun.which("rg");
+    if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+    const tool = createGrepTool({ rgPath: rg });
     const tsOnly = await runGrep(tool, context, { pattern: "HELIX", glob: "*.ts" });
     expect(tsOnly.text).toBe("src/a.ts:1: const marker = 'HELIX';\nsrc/a.ts:2: // HELIX 注释");
     const ci = await runGrep(tool, context, { pattern: "helix", ignoreCase: true });
@@ -114,7 +120,9 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
 
   test("⑥ 零命中：`(no matches for \"...\")` 文案；空 pattern 抛语义错", async () => {
     const { context } = setup();
-    const tool = createGrepTool({ rgPath: hostRgPath() });
+    const rg = Bun.which("rg");
+    if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+    const tool = createGrepTool({ rgPath: rg });
     const none = await runGrep(tool, context, { pattern: "NO_SUCH_TOKEN_42" });
     expect(none.isError).toBe(false);
     expect(none.text).toBe('(no matches for "NO_SUCH_TOKEN_42")');
@@ -126,7 +134,9 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
   test("⑦ regex=true：pattern 按 ripgrep 正则解释；非法正则响亮失败（RgExecError）", async () => {
     const { context } = setup();
     writeFileSync(path.join(dir as string, "src", "re.ts"), "a.b 字面\naxb 正则才命中\n");
-    const tool = createGrepTool({ rgPath: hostRgPath() });
+    const rg = Bun.which("rg");
+    if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+    const tool = createGrepTool({ rgPath: rg });
     // 同一 pattern 两语义对照：缺省字面（仅命中字面行），regex=true 正则（两行全中）
     const literal = await runGrep(tool, context, { pattern: "a.b" });
     expect(literal.text).toBe("src/re.ts:1: a.b 字面");
@@ -145,5 +155,42 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
     await expect(
       tool.execute("tc-2", { pattern: "x", path: "." }, undefined as never, context, undefined as never, BACKGROUND_CONTEXT),
     ).rejects.toBeInstanceOf(RgExecError);
+  });
+});
+
+// ── 输出截断按 UTF-8 字节（低危批：与 ReadTool 的 Buffer.byteLength 口径一致） ──
+
+describe("grep 截断字节口径", () => {
+  let dir2: string | undefined;
+  afterEach(() => {
+    if (dir2) rmSync(dir2, { recursive: true, force: true });
+    dir2 = undefined;
+  });
+
+  test("CJK 命中：字符数 < 50K 但字节数 > 50K → 仍按 50KB 截断并注明", async () => {
+    dir2 = mkdtempSync(path.join(tmpdir(), "helix-grep-bytes-"));
+    // 100 行 × 400 汉字 ≈ 4 万字符（< 50K 字符）但 ≈ 12 万 UTF-8 字节（> 50KB）
+    const line = `MARK ${"甲".repeat(396)}`;
+    writeFileSync(path.join(dir2, "big.txt"), `${Array.from({ length: 100 }, () => line).join("\n")}\n`);
+    const rg = Bun.which("rg");
+    if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+    const tool = createGrepTool({ rgPath: rg });
+    const result = await tool.execute(
+      "tc-1",
+      { pattern: "MARK", path: "big.txt" },
+      undefined as never,
+      { env: new NodeExecutionEnv({ cwd: dir2 }) } as ExecutionToolContext,
+      undefined as never,
+      BACKGROUND_CONTEXT,
+    );
+    const out = {
+      text: result.content.map((b) => (b as { text?: string }).text ?? "").join("\n"),
+      isError: false,
+    };
+    expect(out.isError).toBe(false);
+    expect(out.text).toContain("按 50KB 截断");
+    const body = out.text.split("\n\n（命中过多已截断")[0]!;
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(50 * 1024);
+    expect(Buffer.byteLength(body, "utf8")).toBeGreaterThan(40 * 1024); // 确实用满了预算（没被字符口径提前砍半）
   });
 });

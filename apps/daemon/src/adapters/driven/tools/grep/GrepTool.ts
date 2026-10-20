@@ -29,9 +29,12 @@ import type { GrepMatch, GrepQuery } from "./contract";
 /** grep 工具参数（JSON Schema，手写；与 typebox Type.Object 产物同构，
  *  pi-ai 校验层兼容；daemon 不直接依赖 typebox）。 */
 
-/** 输出截断口径（code-review M24，与 read/bash 的 2000 行/50KB 同轨）。 */
+/** 输出截断口径（code-review M24，与 read/bash 的 2000 行/50KB 同轨）。
+ *  字节口径 = **UTF-8 字节**（Buffer.byteLength），非 UTF-16 字符数——低危批：
+ *  旧 body.length 判 50KB 时 CJK 内容实际字节可近 3 倍，与 ReadTool 的
+ *  Buffer.byteLength 口径不一致（文案说 50KB 实则最多 150KB）。 */
 const MAX_GREP_LINES = 2000;
-const MAX_GREP_CHARS = 50 * 1024;
+const MAX_GREP_BYTES = 50 * 1024;
 
 const grepParameters = {
   type: "object",
@@ -125,14 +128,26 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
         text = `(no matches for "${pattern}")`;
       } else {
         const lines = matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line}`);
+        // 单趟按「行数 + UTF-8 字节」双闸累加（低危批）：逐行入箱即不会切断
+        // 多字节字符，字节预算按真实字节计（旧实现先 join 再 slice 字符位）。
         let truncatedByLines = false;
-        let body = lines.slice(0, MAX_GREP_LINES).join("\n");
-        if (lines.length > MAX_GREP_LINES) truncatedByLines = true;
         let truncatedByBytes = false;
-        if (body.length > MAX_GREP_CHARS) {
-          body = body.slice(0, MAX_GREP_CHARS);
-          truncatedByBytes = true;
+        const kept: string[] = [];
+        let usedBytes = 0;
+        for (const line of lines) {
+          if (kept.length >= MAX_GREP_LINES) {
+            truncatedByLines = true;
+            break;
+          }
+          const addBytes = Buffer.byteLength(line, "utf8") + (kept.length > 0 ? 1 : 0); // +1 = 换行
+          if (usedBytes + addBytes > MAX_GREP_BYTES) {
+            truncatedByBytes = true;
+            break;
+          }
+          kept.push(line);
+          usedBytes += addBytes;
         }
+        const body = kept.join("\n");
         text =
           truncatedByLines || truncatedByBytes
             ? `${body}\n\n（命中过多已截断：共 ${matches.length} 行命中${truncatedByLines ? `，仅保留前 ${MAX_GREP_LINES} 行` : ""}${truncatedByBytes ? "，按 50KB 截断" : ""}——请收窄 path 或加 glob/更精确 pattern 后重试）`
