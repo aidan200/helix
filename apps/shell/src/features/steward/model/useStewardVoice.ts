@@ -88,22 +88,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
-import { useI18n } from "@/shared/i18n";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
-import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";
-import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
-import { recordSpeechDiag } from "./speech-diag";
 import { createPcmRing, type PcmRing } from "../voiceprint/model/pcm-ring";
 import { BargeInIntentWindow } from "./steward-bargein-window";
-import { useStewardWelcomeAudio } from "./useStewardWelcomeAudio";
 import { NoiseCalibration } from "./steward-ear-calibration";
-import type { SpeechPlayerFactory } from "@/shared/lib/pcm-player";
 import { readSttProviderPref } from "@/shared/lib/stt-provider-pref";
 import {
-  readTtsVoicePref,
-  readVoiceVolumePref,
-  readStewardSpeakReplyPref,
   readVoiceVadSensitivityPref,
   readVoiceMinDurationPref,
   readVoiceSilenceWindowPref,
@@ -116,31 +107,26 @@ import {
 } from "@/shared/lib/voice-pref";
 import { setWakeHotkeyFireHandler, syncWakeHotkeyRegistration } from "@/shared/lib/wake-hotkey";
 import { warmAudioOutputOnce } from "./audio-output-warmup";
-import { beginSpeechLease, endSpeechLease, speechLeaseActive } from "@/shared/lib/speech-mutex";
+import { speechLeaseActive } from "@/shared/lib/speech-mutex";
 import {
-  beginDialogueSpeech,
-  endDialogueSpeech,
   notificationSpeechActive,
   onNotificationPlaybackChange,
   onNotificationQueueChange,
   setMicOccupied,
-  stopNotificationSpeech,
 } from "@/shared/lib/speech-floor";
 import { recordBargeInTrace } from "@/shared/lib/barge-in-trace";
 import {
   effectiveRmsThreshold,
 } from "@/shared/lib/voice-gate";
 import type { MeterFrame } from "@/shared/lib/rms-meter";
-import type { EventEnvelope, StewardAskSource } from "@helix/protocol";
-import { useSteward, type StewardAskActivity, type StewardPanelItem } from "./useSteward";
-import { StewardSpeechOut } from "./steward-speech-out";
+import type { EventEnvelope } from "@helix/protocol";
+import { useSteward } from "./useSteward";
+import { useStewardVoiceSpeechOut } from "./useStewardVoiceSpeechOut";
 import {
   deriveStewardVoicePhase,
-  shouldSpeakReply,
   mdToSpeechText,
   planTranscript,
   stepBargeInGate,
-  openBargeInSilenceWindow,
   isBargeInArmed,
   INITIAL_BARGE_IN_GATE,
   type BargeInGateState,
@@ -151,13 +137,8 @@ import {
 /** 终帧等待上限（ms）：超时自动回落非流式（V3a 行为等价）。 */
 export const STREAM_FINAL_TIMEOUT_MS = 4_000;
 
-// ── ⑥ speech-mutex 租约源（播报-收音互斥：发言期登记，收音侧逐帧查互斥态
-//    暂停 STT 上行——流保持开不重开不关，播报完自动恢复；多源幂等计数，
-//    嵌套播报正确配对。本钩子内的发言源三个：speechOut 流式队列 / 一次性
-//    回执 legacy Audio / 欢迎语固化音频；全局播报源在 useVoiceBroadcast。──
-const SPEECH_LEASE_SPEECH_OUT = "steward-speech";
-const SPEECH_LEASE_LEGACY = "steward-legacy-audio";
-const SPEECH_LEASE_WELCOME = "steward-welcome-audio";
+// ⑥ speech-mutex 租约源随出声面协调迁出 useStewardVoiceSpeechFace.ts
+// （P2 体量门 ④ 轻拆批）。
 
 // ── barge-in 意图窗参数（意图门控打断批）──
 /** duck 音量比例（播报不停但压低——降自声回灌 + 插话清晰）。 */
@@ -170,128 +151,15 @@ const JUDGE_STOP_TIMEOUT_MS = 2_500;
 // 批 3b 退役：BARGE_IN_QUEUE_MAX（排队插话）随裁决 #2 拆除——判非 stop
 // 丢弃关窗，无排队。
 
-// ── ① speech-floor 对话源（出声面协调器：播×播互斥——对话 > 通知）：
-//    回答轮在途（askInFlight）/ a 流式播放器在播 / b 一次性回执在播三源
-//    任一在场 = 对话发言期——通知播报面（c）被压制（延后/收编，见
-//    speech-floor）。源 id 与租约同串（两套计数客自独立，互不混）。──
-const SPEECH_FLOOR_ROUND = "steward-answer-round";
-
-/** useStewardVoice 注入面（测试缝：设备面/时钟面可注入——生产调用方缺省）。 */
-export interface UseStewardVoiceOptions {
-  /** RMS meter 工厂（透传 useVoiceInput；测试注入 fake）。 */
-  readonly createMeter?: RmsMeterFactory;
-  /** PCM 泵工厂（透传 useVoiceInput；测试注入 fake）。 */
-  readonly createPump?: PcmPumpFactory;
-  /** 终帧等待上限 ms（缺省 STREAM_FINAL_TIMEOUT_MS；测试注入短窗）。 */
-  readonly streamFinalTimeoutMs?: number;
-  /** 流式朗读播放器工厂（缺省 Web Audio；测试注入 fake——jsdom 无音频设备）。 */
-  readonly createPlayer?: SpeechPlayerFactory;
-  /** B2 欢迎语文本（缺省 i18n 常量；Layer 注入）。 */
-  readonly welcomeText?: string;
-  /** B2 终帧拦截钩（D3=b 语音口令）：返回 "consumed" = 前端本地消费零 ask
-   *  （口令解析/执行面 voice-command.ts + StewardVoiceLayer）；"pass" = 照发。
-   *  第二参 ctx（意图窗批）：bargeInIntent = final 落在意图窗内——消费方
-   *  （Layer）走意图判定分支（声纹→Jev 停止判定→真停/丢弃）而非常规口令/ask 链。 */
-  readonly onFinalText?: (text: string, ctx?: { bargeInIntent: boolean }) => "consumed" | "pass";
-}
-
-export interface UseStewardVoice {
-  // ── useSteward 整面透传（面板数据面不二开；A1：messages → items 过程条目）──
-  readonly items: readonly StewardPanelItem[];
-  readonly streamingText: string | null;
-  /** ask 进行中态投影（过程活动行数据面——useSteward 同构透传：phase 随最近
-   *  过程帧切 thinking/tool + thinking 首行摘要窗；null = 非在途。光球字幕
-   *  活动行与面板状态区同源同形（TR-241 语音版）。 */
-  readonly askActivity: StewardAskActivity | null;
-  readonly feed: ReturnType<typeof useSteward>["feed"];
-  readonly askInFlight: boolean;
-  readonly config: ReturnType<typeof useSteward>["config"];
-  /** dropped 通知序号（闸门对应修复批：addressee 静默丢弃时递增——光球字幕
-   *  note 淡行消费；零播报零条目不变）。 */
-  readonly dropNoticeSeq: number;
-  ask(text: string, source?: StewardAskSource): boolean;
-  /** 声纹总闸放行后的 utterance 派发口（StewardVoiceLayer consumed 自派发
-   *  专用）：发问 + planTranscript 回退（与 routeToAsk 同构）；source 按
-   *  双工态自动归类（voice-duplex = addressee 判定触发面）。 */
-  submitUtterance(text: string): void;
-  newDialog(): boolean;
-  // ── 双模（互斥；打开默认 voice）──
-  readonly mode: StewardInputMode;
-  setMode(mode: StewardInputMode): void;
-  // ── 语音面 ──
-  /** 面板唯一阶段事实源（idle/listening/transcribing/asking/speaking/unsupported）。 */
-  readonly phase: StewardVoicePhase;
-  /** 实时电平 0..1（listening 波形可视化数据源；他态恒 0）。 */
-  readonly level: number;
-  /** 用户正在发声（最近 ~900ms 人声判据帧；recording 外恒 false）——光球
-   *  相位细分：开麦未开口 → 待机驻留（waking），开口才转倾听。 */
-  readonly userSpeaking: boolean;
-  /** 流式 interim 文本（listening/transcribing 态实时上屏；prior+text+stash
-   *  拼接态；final 到达替换、出态清空；null = 无）。 */
-  readonly interim: string | null;
-  /** 流式链已降级（开流失败/终帧超时/error——本轮回落非流式；不弹错误卡，
-   *  面板一处不显眼提示消费）。 */
-  readonly streamDegraded: boolean;
-  /** TTS 朗读中（speaking 态同义布尔——静音钮显隐）。 */
-  readonly speaking: boolean;
-  /** TTS 在途队列深度（光球左上角计数徽标：流式在途句 + 一次性回执在播）。 */
-  readonly ttsQueue: number;
-  /** 转写/录音侧最近失败原因（toast 消费；null = 无）。 */
-  readonly voiceError: string | null;
-  /** ask 发送失败的转写文本（面板采纳进输入框后 clearVoiceDraft 清位）。 */
-  readonly voiceDraft: string | null;
-  /** 点击 mic 开始说话（新一轮：先停上轮朗读；流式开流同步发出）。 */
-  startListening(): Promise<void>;
-  /** 录音中点击 = 强制停（转写链照常：流式 finish 或回落非流式）。 */
-  stopListening(): void;
-  /** 静音钮：一键停读（在播音频即停；无播报 no-op）。 */
-  stopSpeaking(): void;
-  /** 面板采纳转写回填后清位。 */
-  clearVoiceDraft(): void;
-  /** 手动退出双工会话（Esc / 组合键再按）：关麦收场，零 ask。
-   *  B2 起 = duplex 会话收口（停采集 + 停朗读 + duplex 落）。 */
-  cancelWake(): void;
-  // ── B2 双工会话面（光球层数据源）──
-  /** 双工会话活跃（组合键开 → 关麦收口落；光球可见性/耳 meter 采样窗）。 */
-  readonly duplexActive: boolean;
-  /** 欢迎语期（duplex 开启后、用户开口前——欢迎语音频在播标记；光球待机驻留）。 */
-  readonly welcomeActive: boolean;
-  /** 通知轨播报占用镜像（speech-floor 边沿订阅——光球说话姿驱动；与 barge-in
-   *  门武装面同信号源：通知语音不驱动 speaking 相位，视觉面由此镜像补齐）。 */
-  readonly notifSpeaking: boolean;
-  // ── barge-in 意图窗（意图门控打断：停止意图才真停，其余声音保持播报）──
-  /** 意图窗并（barge-in 声学触发后→意图判定中：播报 duck 不停、收音豁免门控
-   *  收插话）；Layer 的 onFinalText 读 ctx.bargeInIntent 分流，窗收口由
-   *  executeBargeInStop（真停）/ closeBargeInIntentWindow（不打断）驱动。 */
-  readonly bargeInIntentActive: boolean;
-  /** 真停（停止意图确认）：三步打断序（停播全轨 + interrupt + 靠自动续听重开
-   *  收音）——窗先关再执行，录音链/续听照常。 */
-  executeBargeInStop(): void;
-  /** 窗收口不真停（噪音/旁人/非停止插话）：恢复音量 + 回收音门控；录音链
-   *  照常（自动续听边沿重开）。 */
-  closeBargeInIntentWindow(): void;
-  // 批 3b 退役（裁决 #2）：queueUtterance（排队插话）拆除——播报期单向
-  // 广播，判非 stop = 丢弃关窗。
-  /** 停止意图判定（Jev 单轨——停止词表退役批，daemon 判官 noul 回执
-   *  steward.judge_stop_intent.result）。三态判定："stop" = 判要打断；
-   *  "other" = 判不打断；"unjudged" = 判不出（判官降级/抛错/超时/不可达
-   *  ——fail-stop 归消费面：窗内判不出=真停宁误停不漏停，非窗内判不出=
-   *  照常派发不吞用户发言）。不抛异常（异常归一 unjudged）。 */
-  judgeStopIntent(text: string): Promise<"stop" | "other" | "unjudged">;
-  /** 临时静音（D5：listening 点击切换——静音期续听挂起，duplex 会话保持）。 */
-  readonly muted: boolean;
-  /** D5 点击行为：listening 点击 = 临时静音切换（speaking 停读归 stopSpeaking）。 */
-  toggleMute(): void;
-  /** B2 光球唤起入口（wake-hotkey / steward-open-signal 接线共径——Layer 消费）。 */
-  toggleWake(): void;
-  /** B2 主动发言（欢迎语/口令回读同链；money 闸内判——偏好关零合成）。 */
-  say(text: string): void;
-  /** M3-c 声纹面：取本句音频（授权点专用——尾部语音段 Int16 域 PCM；
-   *  null = 无语音可用。duplex 收口清环，跨会话旧音频不泄入）。
-   *  fromMark = 从 barge-in 开窗标记帧起选（声纹防自声污染——duck 期管家
-   *  自声持续过门限，常规回溯会扩到窗前独白导致恒 reject）。 */
-  lastUtterancePcm(opts?: { fromMark?: boolean }): Float32Array | null;
-}
+// ① speech-floor 对话源（SPEECH_FLOOR_ROUND）随对话面帧订阅装配迁出
+// useStewardVoiceFrames.ts（P2 体量门 ④ 轻拆批）。
+/** 接口面契约迁出 steward-voice-contract.ts（P2 体量门 ④ 轻拆批：声明逐字
+ *  迁移零语义改动）；此处 re-export 保公共 API 面不变（消费方零感知）。 */
+export type { UseStewardVoiceOptions, UseStewardVoice } from "./steward-voice-contract";
+import type { UseStewardVoiceOptions, UseStewardVoice } from "./steward-voice-contract";
+import { useStewardVoiceSpeechFrames, useStewardVoiceSttFrames } from "./useStewardVoiceFrames";
+import { useStewardVoiceEarMeter } from "./useStewardVoiceEarMeter";
+import { useStewardVoiceSpeechFace } from "./useStewardVoiceSpeechFace";
 
 export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoice {
   const {
@@ -407,48 +275,17 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   //    （回执/超时唤醒；迟到回执无等待者即幂等吞）。──
   const judgeStopWaitersRef = useRef<((verdict: "stop" | "other" | "unjudged") => void)[]>([]);
 
-  // 发送面 ref 转发（speechOut 单例构造——发送器随连接态重绑，streamSenders 先例）
-  const speechSendersRef = useRef({
-    sendStream: sendVoiceSynthesizeStream,
-    sendStopFor: (utterId: string) => sendVoiceSynthesizeStop?.(utterId) ?? false,
-    sendStopAll: () => sendVoiceSynthesizeStop?.() ?? false,
-    sendFallback: sendVoiceSynthesize,
+  // 出声面单例装配迁出 useStewardVoiceSpeechOut.ts（P2 体量门 ④ 轻拆批：
+  // 构造体逐字迁移、调用点原位——单例与 sender 重绑语义不变）。
+  const speechOut = useStewardVoiceSpeechOut({
+    sendVoiceSynthesize,
+    sendVoiceSynthesizeStream,
+    sendVoiceSynthesizeStop,
+    createPlayer: options?.createPlayer,
+    speakPendingRef,
+    speakRoundRef,
+    answerRoundRef,
   });
-  speechSendersRef.current = {
-    sendStream: sendVoiceSynthesizeStream,
-    sendStopFor: (utterId: string) => sendVoiceSynthesizeStop?.(utterId) ?? false,
-    sendStopAll: () => sendVoiceSynthesizeStop?.() ?? false,
-    sendFallback: sendVoiceSynthesize,
-  };
-  const speechOutRef = useRef<StewardSpeechOut | null>(null);
-  if (speechOutRef.current === null) {
-    speechOutRef.current = new StewardSpeechOut({
-      senders: {
-        sendStream: (utterId, text, opts) => speechSendersRef.current.sendStream?.(utterId, text, opts) ?? false,
-        sendStopFor: (utterId) => speechSendersRef.current.sendStopFor(utterId),
-        sendStopAll: () => speechSendersRef.current.sendStopAll(),
-        sendFallback: (text, opts) => speechSendersRef.current.sendFallback?.(text, opts) ?? false,
-      },
-      voiceProvider: () => readTtsVoicePref(),
-      // 兜底盲区修复：结果先行判 stream 后链死自愈回退——消费端开单飞门
-      //（与 answerResult fallback 判决同径：回执到达才播放，轮次校验防旧轮覆盖）
-      onLateFallback: () => {
-        recordSpeechDiag("fallback.late-gate", "speakPending=on");
-        speakPendingRef.current = true;
-        speakRoundRef.current = answerRoundRef.current;
-      },
-      ...(options?.createPlayer !== undefined
-        ? {
-            createPlayer: () => {
-              const player = options.createPlayer!();
-              player.setVolume(Math.max(0, Math.min(1, readVoiceVolumePref() / 100)));
-              return player;
-            },
-          }
-        : {}),
-    });
-  }
-  const speechOut = speechOutRef.current;
 
   // ── barge-in 意图窗状态机（批 4b 收口：duck 三轨记账/超时 timer/mark 锚
   //    全部内聚纯类 steward-bargein-window.ts）──
@@ -472,144 +309,31 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     });
   }
   const bargeInWindow = bargeInWindowRef.current;
-  // ── b 面（一次性回执）让位停播：a×b 互斥反向边（b 起播已停 a，本边补齐
-  //    a 起播/新轮开轮收编 b——单向收编是双声重叠残留缺口）。租约/协调位
-  //    同点收位（幂等——unmount/stopSpeaking 共径零双发）。──
-  const stopLegacyAudio = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio === null) return;
-    audioRef.current = null;
-    audio.onended = null;
-    audio.onerror = null;
-    audio.pause();
-    setLegacySpeaking(false);
-    endSpeechLease(SPEECH_LEASE_LEGACY);
-    endDialogueSpeech(SPEECH_LEASE_LEGACY);
-  }, []);
-  useEffect(() => {
-    // ⑥ 播放态边沿 = 租约边沿（首块入队播放 → 发言期；播尽/停 → 释放）
-    // ① 同边沿接协调器：a 面在播 = 对话发言期（通知面被压制/收编）
-    return speechOut.onSpeakingChange((active) => {
-      if (active) {
-        stopLegacyAudio(); // 反向互斥：a 起播收编 b（旧回执不让位就双声）
-        cedeWelcomeRef.current(); // d×a 反向让位：回答起播收编欢迎语（问题 1 让位哲学延伸，零双声）
-        beginSpeechLease(SPEECH_LEASE_SPEECH_OUT);
-        beginDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
-      } else {
-        endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
-        endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
-      }
-      setStreamSpeaking(active);
-    });
-  }, [speechOut]);
-  // 队列深度透出订阅（光球角标数据源——pending 变化即推）
-  useEffect(() => speechOut.onQueueChange(setStreamQueue), [speechOut]);
-
-  /** 一次性回执播放态（legacy Audio）：状态 + 租约 + ① 协调器同点写
-   * （播放即持、播毕释放；b 面在播 = 对话发言期）。 */
-  const markLegacySpeaking = useCallback((active: boolean) => {
-    if (active) {
-      cedeWelcomeRef.current(); // d×b 反向让位：回执起播收编欢迎语（零双声）
-      beginSpeechLease(SPEECH_LEASE_LEGACY);
-      beginDialogueSpeech(SPEECH_LEASE_LEGACY);
-    } else {
-      endSpeechLease(SPEECH_LEASE_LEGACY);
-      endDialogueSpeech(SPEECH_LEASE_LEGACY);
-    }
-    setLegacySpeaking(active);
-  }, []);
-
-  // ── barge-in 意图窗：settle（批 4b：委托状态机——原 duckVolume/restoreVolume/
-  //    settleBargeInWindow 三函数收口：duck 三轨记账恢复/timer 清位/mark 锚内聚）──
-  const settleBargeInWindow = useCallback(() => {
-    bargeInWindow.settle();
-    setBargeInIntentActive(false);
-  }, [bargeInWindow]);
-  settleRef.current = settleBargeInWindow; // ref 转发（window onTimeout 延绑）
-
-  const stopSpeaking = useCallback(() => {
-    // 停播即开残响静默窗（B2：防 TTS 残响被耳 meter 再触发——静音钮/打断同径；
-    // B3：窗长取偏好值，设置面改参即时生效）
-    bargeInGateRef.current = openBargeInSilenceWindow(bargeInGateRef.current, Date.now(), readVoiceSilenceWindowPref());
-    settleBargeInWindow(); // 意图窗随停播收位（手动停读/新轮清在途同径——播都停了判定窗无义）
-    speakPendingRef.current = false;
-    const audio = audioRef.current;
-    audioRef.current = null;
-    if (audio !== null) {
-      audio.onended = null;
-      audio.onerror = null;
-      audio.pause();
-    }
-    setLegacySpeaking(false);
-    setStreamSpeaking(false); // 静音即停——不依赖播放器回调时序（fake/真体一致）
-    // ④ 全轨停止：c 通知面先清（弃播不续）——先于对话面收位，防收编边沿
-    //（末源退出 → resume）在队列清空前误放行延后通知
-    stopNotificationSpeech();
-    // ⑥ 租约同点收位（幂等；不依赖播放器回调时序——同上假/真体一致）
-    endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
-    endSpeechLease(SPEECH_LEASE_LEGACY);
-    // ① 协调器同点收位（幂等——a/b 对话面离场；末源退出 resume 时队列已空
-    // → no-op，零误放行）
-    endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
-    endDialogueSpeech(SPEECH_LEASE_LEGACY);
-    speechOut.stopSpeaking(); // stop 命令 + 队列清空 + 分句缓冲 reset + 本轮静音
-  }, [speechOut, settleBargeInWindow]);
-
-  // ── B2 欢迎语（进入双工时 TTS；字幕同步归 Layer）：speechOut 主动发言
-  //    入口 sayNow（切句发流——闸/播放队列全复用，TR-200 播放闸零改动）；
-  //    money 闸同构（偏好关零合成，字幕照显）。──
-  const { t } = useI18n();
-  const say = useCallback(
-    (text: string) => {
-      if (
-        !shouldSpeakReply({ mode: "voice", speakEnabled: readStewardSpeakReplyPref(), askResult: { status: "answer" } })
-      ) {
-        return;
-      }
-      speechOut.sayNow(text);
-    },
-    [speechOut],
-  );
-  // ── 欢迎语固化音频（批 4b：域收口 useStewardWelcomeAudio——行为等价；
-  //    welcomeAudioRef 声明上移 barge-in 区（window tracks 三轨共享））──
-  const { stop: stopWelcomeAudio, speak: speakWelcome } = useStewardWelcomeAudio({
-    audioRef: welcomeAudioRef,
+  // 出声面协调与停播序迁出 useStewardVoiceSpeechFace.ts（P2 体量门 ④ 轻拆批：
+  // hook 体逐字迁移、调用点原位——effect 注册序不变）。
+  const {
+    stopLegacyAudio,
+    markLegacySpeaking,
+    settleBargeInWindow,
+    stopSpeaking,
     say,
+    stopWelcomeAudio,
+    speakWelcome,
+  } = useStewardVoiceSpeechFace({
+    speechOut,
+    audioRef,
+    welcomeAudioRef,
+    bargeInWindow,
+    bargeInGateRef,
+    speakPendingRef,
+    cedeWelcomeRef,
+    setLegacySpeaking,
+    setStreamSpeaking,
+    setStreamQueue,
+    setBargeInIntentActive,
+    settleRef,
     welcomeText: options?.welcomeText,
-    fallbackText: t("steward.voice.welcome"),
   });
-
-  // 面板卸载（Dock 关/路由外弹层退场）即停读——不留幽灵音频/孤儿在途句。
-  // StrictMode 双效应兼容：cleanup 先跑 close() 毒死 useRef 实例，重挂 setup
-  // 必须显式 reopen()（否则 disposed 永真 → 朗读全链静默）。
-  useEffect(
-    () => {
-      speechOut.reopen();
-      return () => {
-        speakPendingRef.current = false;
-        const audio = audioRef.current;
-        audioRef.current = null;
-        if (audio !== null) {
-          audio.onended = null;
-          audio.onerror = null;
-          audio.pause();
-        }
-        speechOut.close();
-        // ⑥ 租约收位（卸载不留幽灵租约——否则后续收音永久暂停）
-        endSpeechLease(SPEECH_LEASE_SPEECH_OUT);
-        endSpeechLease(SPEECH_LEASE_LEGACY);
-        // ① 协调器同点收位（卸载不留幽灵对话位——否则通知面永久延后）
-        endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
-        endDialogueSpeech(SPEECH_LEASE_LEGACY);
-        // barge-in 意图窗收口（timer + duck 三轨音量）：不 dispose 则 5s 超时
-        // timer 在卸载后照跑——onTimeout 经 settleRef 调 setState（卸载后 setState
-        // 残留形态），且 duck 音量永无恢复面（三轨停在压低音量）
-        bargeInWindow.dispose();
-        stopWelcomeAudio();
-      };
-    },
-    [speechOut, stopWelcomeAudio, bargeInWindow],
-  );
 
   // 回答终态 → 朗读闸（money 纪律：语音模式 × 偏好开；answer 判别在
   // speechOut 内收口）。流式优先：delta 已切句发流的轮次不再重复一次性。
@@ -710,172 +434,31 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
     [onBargeInLevel],
   );
 
-  // ── B2 barge-in 耳朵：双工会话期 RMS 采样（duplex 活跃 × 语音模式；
-  //    meter 注入面从「面板活跃」平移「双工会话活跃」——语义同构，判据
-  //    零改动 E-200；duplex 落即刻 track.stop。mic 不可用/被拒 → barge-in
-  //    降级关闭，语音主链不受影响）──
-  const earMeterFactoryRef = useRef(options?.createMeter ?? createWorkletRmsMeter);
-  earMeterFactoryRef.current = options?.createMeter ?? createWorkletRmsMeter;
-  useEffect(() => {
-    if (!duplexActive || mode !== "voice") return;
-    if (typeof navigator === "undefined" || navigator.mediaDevices === undefined) return;
-    let cancelled = false;
-    let meter: RmsMeter | null = null;
-    let stream: MediaStream | null = null;
-    void (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) {
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-        const created = await earMeterFactoryRef.current(stream);
-        if (created === null || cancelled) {
-          created?.close();
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-        meter = created;
-        created.onLevel((frame) => {
-          if (cancelled) return;
-          onEarFrame(frame);
-        });
-      } catch {
-        // 麦不可用/被拒：barge-in 降级关闭（环境面——语音主链不受影响）
-      }
-    })();
-    return () => {
-      cancelled = true;
-      meter?.close();
-      if (stream !== null) for (const track of stream.getTracks()) track.stop();
-    };
-  }, [duplexActive, mode, onEarFrame]);
-  useEffect(() => {
-    if (subscribeStewardFrames === undefined) return;
-    return subscribeStewardFrames((event: EventEnvelope) => {
-      if (event.type === "steward.ask.delta") {
-        // 流式朗读闸（money 纪律）：语音模式 × 偏好开才喂（文本模式零合成）
-        const p = event.payload as { delta?: unknown };
-        if (modeRef.current !== "voice" || !readStewardSpeakReplyPref()) {
-          recordSpeechDiag("gate.drop.frame.steward.ask.delta", `mode=${modeRef.current} pref=${readStewardSpeakReplyPref()}`);
-          return;
-        }
-        if (typeof p.delta !== "string" || p.delta === "") return;
-        speechOut.feedRawDelta(p.delta);
-        return;
-      }
-      if (event.type === "steward.judge_stop_intent.result") {
-        // 停止意图判定回执（Jev 单轨）：等待队列整体唤醒；判不出归一
-        // （stop=false + degraded = 判官降级/抛错 → unjudged，fail-stop 归
-        // 消费面）；迟到回执无等待者幂等吞。
-        const p = event.payload as { stop?: unknown; degraded?: unknown };
-        const waiters = judgeStopWaitersRef.current;
-        if (waiters.length === 0) return;
-        judgeStopWaitersRef.current = [];
-        const verdict = p.stop === true ? "stop" : p.degraded !== undefined ? "unjudged" : "other";
-        for (const w of waiters) w(verdict);
-        return;
-      }
-      if (event.type !== "steward.ask.result") return;
-      const payload = event.payload as { status?: unknown; text?: unknown };
-      const status = String(payload.status ?? "");
-      // 闸不过（非语音模式/偏好关/非 answer 不合成——confirm/error 零朗读）
-      // 时：语音模式下非 answer 终态仍收口轮次（废弃在途未读句缓冲）
-      if (!shouldSpeakReply({ mode: modeRef.current, speakEnabled: readStewardSpeakReplyPref(), askResult: { status } })) {
-        if (modeRef.current === "voice" && readStewardSpeakReplyPref()) {
-          speechOut.answerResult(status, typeof payload.text === "string" ? payload.text : "");
-        }
-        return;
-      }
-      const verdict = speechOut.answerResult(status, typeof payload.text === "string" ? payload.text : "");
-      recordSpeechDiag("result.consumed", `verdict=${verdict}`);
-      if (verdict === "fallback") {
-        speakPendingRef.current = true; // 一次性回执单飞门控位
-        speakRoundRef.current = answerRoundRef.current; // ③ 记轮次 id（迟到回执弃播判据）
-      }
-    });
-  }, [subscribeStewardFrames, speechOut]);
-
-  // ask 在途 → 新一轮朗读开轮（迟到 delta 归零——句不跨轮泄漏）
-  const askInFlight = steward.askInFlight;
-  useEffect(() => {
-    if (!askInFlight) return;
-    recordSpeechDiag("ask.in-flight", "edge");
-    // ① 对话发言期开轮（先占面再清在途——防清理边沿瞬时放行通知面）
-    beginDialogueSpeech(SPEECH_FLOOR_ROUND);
-    answerRoundRef.current += 1; // ③ 轮次 id 递增（旧轮回执自此判为迟到）
-    stopLegacyAudio(); // ② 补边：旧轮一次性回执让位（新轮清在途的 b 面）
-    speechOut.resetAnswer(); // ② 新轮清在途（在途句定向 stop + player 旧尾音停 + 闸复位）
-    return () => endDialogueSpeech(SPEECH_FLOOR_ROUND); // 收口（含卸载）——a/b 在播仍持面
-  }, [askInFlight, speechOut, stopLegacyAudio]);
-
-  // 一次性回退回执 → 播放（单飞门控：仅本面 pending 消费——设置页试听回执
-  // 不串台；useVoiceBroadcast 顺序播放是全局订阅面，与本点对点面互不相干）
-  useEffect(() => {
-    if (subscribeVoiceFrames === undefined) return;
-    return subscribeVoiceFrames((event: EventEnvelope) => {
-      if (event.type === "voice.synthesize.chunk") {
-        const p = event.payload as { utterId?: unknown; audio?: unknown; seq?: unknown };
-        if (typeof p.utterId === "string" && typeof p.audio === "string")
-          speechOut.onChunkFrame(p.utterId, p.audio, typeof p.seq === "number" ? p.seq : undefined);
-        return;
-      }
-      if (event.type === "voice.synthesize.done") {
-        const p = event.payload as { utterId?: unknown };
-        if (typeof p.utterId === "string") speechOut.onDoneFrame(p.utterId);
-        return;
-      }
-      if (event.type === "voice.synthesize.error") {
-        const p = event.payload as { utterId?: unknown };
-        if (typeof p.utterId === "string") speechOut.onErrorFrame(p.utterId);
-        return;
-      }
-      if (event.type !== "voice.synthesize.result") return;
-      if (!speakPendingRef.current) {
-        recordSpeechDiag("fallback.result-drop", "no-pending");
-        return;
-      }
-      speakPendingRef.current = false;
-      // ③ 迟到回执弃播：fallback 发出后新 ask 已开轮（轮次 id 已变）→ 旧轮
-      // 音频不覆盖新轮——零 new Audio（内容在活动流/toast 可查）
-      if (speakRoundRef.current !== answerRoundRef.current) {
-        recordSpeechDiag("fallback.result-drop", "round-mismatch");
-        return;
-      }
-      const payload = event.payload as { status?: unknown; audio?: unknown };
-      if (payload.status !== "ok" || typeof payload.audio !== "string") {
-        recordSpeechDiag("fallback.result-drop", `status=${String(payload.status)}`);
-        markLegacySpeaking(false);
-        return;
-      }
-      try {
-        markLegacySpeaking(true); // ⑥ 回执发言期登记租约 + ① b 面起播占对话面
-        // ① a×b 互斥：b 起播即停 a——旧流式尾音/在途句不与回执同时出声
-        //（money：在途句逐条定向 stop）
-        speechOut.stopInFlightPlayback();
-        const audio = new Audio(payload.audio);
-        audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
-        audioRef.current = audio;
-        audio.onended = () => {
-          audioRef.current = null;
-          markLegacySpeaking(false);
-        };
-        audio.onerror = () => {
-          audioRef.current = null;
-          markLegacySpeaking(false);
-        };
-        void audio.play().catch(() => {
-          // 自动播放策略拒绝等：跳过（不重试不打扰——面板交互态在场，
-          // 下轮用户点击后天然解锁）
-          recordSpeechDiag("fallback.play-reject", "autoplay-or-decode");
-          audioRef.current = null;
-          markLegacySpeaking(false);
-        });
-      } catch {
-        markLegacySpeaking(false);
-      }
-    });
-  }, [subscribeVoiceFrames, speechOut, markLegacySpeaking]);
+  // 耳 meter 采样装配迁出 useStewardVoiceEarMeter.ts（P2 体量门 ④ 轻拆批：
+  // hook 体逐字迁移、调用点原位——effect 注册序不变）。
+  useStewardVoiceEarMeter({
+    active: duplexActive,
+    mode,
+    onEarFrame,
+    createMeter: options?.createMeter,
+  });
+  // 帧订阅面（对话面三件：steward 帧消费 + ask 在途开轮 + voice 回执帧）
+  // 迁出 useStewardVoiceFrames.ts（P2 体量门 ④ 轻拆批：钩子体逐字迁移、
+  // 调用点原位——effect 注册序不变）。
+  useStewardVoiceSpeechFrames({
+    subscribeStewardFrames,
+    subscribeVoiceFrames,
+    modeRef,
+    speechOut,
+    judgeStopWaitersRef,
+    speakPendingRef,
+    speakRoundRef,
+    answerRoundRef,
+    audioRef,
+    stopLegacyAudio,
+    markLegacySpeaking,
+    askInFlight: steward.askInFlight,
+  });
 
   // ── 录音 + 转写 → ask（转写文本一次性喂 ask；失败回填草稿可重试）──
   const [voiceDraft, setVoiceDraft] = useState<string | null>(null);
@@ -1034,52 +617,19 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
   }, [voice.state]);
   useEffect(() => () => setMicOccupied(false), []);
 
-  // 流式帧消费（与 useVoiceInput 回执面双订阅扇出——LISTEN_SURFACE 官方
-  // 形态；streamId 单飞门控：他流/旧流帧丢弃，非 pending 终帧丢弃）
-  useEffect(() => {
-    if (subscribeSttFrames === undefined) return;
-    return subscribeSttFrames((event: EventEnvelope) => {
-      if (event.type === "stt.stream.started") {
-        if (!streamArmedRef.current) return; // 非本轮（他面/迟到）不消费
-        const p = event.payload as { status?: unknown; streamId?: unknown; reason?: unknown };
-        if (p.status === "ok" && typeof p.streamId === "string") {
-          streamIdRef.current = p.streamId;
-        } else {
-          // 开流失败：静默降级（录音照常，停后 blob 回落非流式）
-          streamDeadRef.current = true;
-          setStreamDegraded(true);
-        }
-      } else if (event.type === "stt.stream.interim") {
-        const p = event.payload as { streamId?: unknown; prior?: unknown; text?: unknown; stash?: unknown };
-        if (p.streamId !== streamIdRef.current) return; // 单飞门控
-        const prior = typeof p.prior === "string" ? p.prior : "";
-        const text = typeof p.text === "string" ? p.text : "";
-        const stash = typeof p.stash === "string" ? p.stash : "";
-        const accumulated = `${prior}${text}${stash}`;
-        setInterim(accumulated);
-        // 判定必经 final 路径（批 3b 链路重排后单轨化）：interim 级停止快通道
-        // 已拆（绕声纹总闸的通道不复辟）——interim 帧仅上屏（字幕），停止判定
-        // 延迟回到 final 级（VAD 收口+声纹+Jev 停止判定，判停即停）。
-      } else if (event.type === "stt.stream.final") {
-        const p = event.payload as { status?: unknown; streamId?: unknown; text?: unknown };
-        if (p.streamId !== streamIdRef.current) return; // 单飞门控
-        if (!finalPendingRef.current) return; // 未在等终帧（已废弃/未 finish）→ 丢弃
-        clearFallbackTimer();
-        finalPendingRef.current = false;
-        streamIdRef.current = null;
-        if (p.status === "ok") {
-          const text = typeof p.text === "string" ? p.text : "";
-          if (text.trim() !== "") setInterim(text); // final 替换 interim（转正前闪现）
-          voiceRef.current.resolveStreaming(text);
-        } else {
-          // 流失败 → 回落非流式（blob 整段转写，V3a 行为等价）
-          streamDeadRef.current = true;
-          setStreamDegraded(true);
-          voiceRef.current.transcribeNow();
-        }
-      }
-    });
-  }, [subscribeSttFrames, clearFallbackTimer]);
+  // 流式帧消费面迁出 useStewardVoiceFrames.ts（P2 体量门 ④ 轻拆批：钩子体
+  // 逐字迁移、调用点原位——effect 注册序不变）。
+  useStewardVoiceSttFrames({
+    subscribeSttFrames,
+    streamArmedRef,
+    streamIdRef,
+    streamDeadRef,
+    finalPendingRef,
+    clearFallbackTimer,
+    voiceRef,
+    setInterim,
+    setStreamDegraded,
+  });
 
   // 听音本体（手动点击与 barge-in 共用）：流式复位 + 开流（同步发——失败
   // 静默降级）+ 录音启动；不带停播序（调用方按打断序安排）
