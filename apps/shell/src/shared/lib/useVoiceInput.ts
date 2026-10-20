@@ -212,6 +212,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   /** 取消代数（修复排查）：cancel 递增——start 在 await getUserMedia 窗口内
    *  被 cancel 时，迟归 stream 凭代数失配立即释放，零孤儿开麦。 */
   const cancelGenRef = useRef(0);
+  /** 停录收口在途位（stop→onstop 异步窗口）：在途期间二次 stop（VAD 自动停与
+   *  手动停相撞）不得清 chunks/媒体——清场归在途 onstop 链自己做，否则 onstop
+   *  读到空 chunks → blob.size===0 → 整段录音静默丢弃。 */
+  const stopPendingRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
   const createMeter = options?.createMeter ?? createWorkletRmsMeter;
@@ -280,6 +284,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
   }, [subscribeSttFrames, setStateSafe, t]);
 
   const cleanupMedia = useCallback(() => {
+    stopPendingRef.current = false;
     recorderRef.current = null;
     for (const track of streamRef.current?.getTracks() ?? []) track.stop();
     streamRef.current = null;
@@ -355,7 +360,10 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       const recorder = recorderRef.current;
       const wasRecording = isRecording();
       if (recorder === null || recorder === undefined || !wasRecording) {
-        cleanupMedia();
+        // stop→onstop 在途窗口内的二次 stop（VAD 自动停与手动停相撞）：在途
+        // 收口链自己清场，此处不得清 chunks（否则 onstop 读空 blob 静默丢整段
+        // 录音）；仅无在途链时才做无主媒体清理。
+        if (!stopPendingRef.current) cleanupMedia();
         if (wasRecording) setStateSafe("idle");
         return;
       }
@@ -363,11 +371,12 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
       const speechMs = speechMsRef.current;
       const durationMs = Date.now() - startedAtRef.current;
       const stopGen = cancelGenRef.current; // onstop 迟归守卫（4282f4ca 同根族）：
-      // 关麦落在 stop→onstop 异步窗口时，迟归 onstop 凭代数失配全弃。当前
-      // 实际被 cancel 清空 chunksRef + blob.size===0 守卫双重堵死（单线程下
-      // onstop 必在 cancel 后读空 chunks）——此守卫把「巧合安全」变为显式契约。
+      // 关麦落在 stop→onstop 异步窗口时，迟归 onstop 凭代数失配全弃。
+      // 注意区分两条迟归面：cancel（废弃链，清空 chunksRef 故 blob.size===0）与
+      // 二次 stop（在途收口链，stopPendingRef 守住 chunks 不被清——见早退分支）。
       closeMeter();
       closePump();
+      stopPendingRef.current = true;
       recorder.onstop = () => {
         const chunks = chunksRef.current;
         cleanupMedia();
@@ -539,6 +548,7 @@ export function useVoiceInput(onTranscript: (text: string) => void, options?: Us
     closePump();
     pendingBlobRef.current = null;
     uploadInFlightRef.current = false;
+    stopPendingRef.current = false;
     chunksRef.current = [];
     recorderRef.current = null;
     for (const track of streamRef.current?.getTracks() ?? []) track.stop();

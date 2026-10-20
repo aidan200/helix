@@ -88,8 +88,10 @@ export interface WebAudioSpeechPlayerOptions {
   readonly sampleRate?: number;
 }
 
-/** base64 PCM（16bit LE mono）→ Float32 [-1,1]。 */
-function base64PcmToFloat32(base64: string, sampleRate: number): Float32Array {
+/** base64 PCM（16bit LE mono）→ Float32 [-1,1]。
+ *  （纯字节→样本换算，不参与重采样/采样率换算——采样率由调用方交给
+ *  ctx.createBuffer/排期计算，故本函数不收该参数。） */
+function base64PcmToFloat32(base64: string): Float32Array {
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -168,7 +170,7 @@ export function createWebAudioSpeechPlayer(options: WebAudioSpeechPlayerOptions 
       if (!ensureCtx() || ctx === null || gain === null) return false;
       wakeCtx();
       try {
-        const samples = base64PcmToFloat32(base64Pcm, sampleRate);
+        const samples = base64PcmToFloat32(base64Pcm);
         if (samples.length === 0) return true; // 空块——no-op（不视为失败）
         const buffer = ctx.createBuffer(1, samples.length, sampleRate);
         buffer.getChannelData(0).set(samples);

@@ -116,4 +116,22 @@ describe("syncWakeHotkeyRegistration（装载注册 + 设置热更新）", () =>
     localStorage.setItem(STEWARD_WAKE_HOTKEY_PREF_KEY, "⌘⇧K");
     await expect(syncWakeHotkeyRegistration()).resolves.toBe("failed");
   });
+
+  it("并发 sync 串行化：两次未 await 的 sync 不双注册（镜像读-改-写原子）", async () => {
+    installSeam();
+    localStorage.setItem(STEWARD_WAKE_HOTKEY_PREF_KEY, "⌘⇧K");
+    // 挂载 sync 与设置热更新相交错（同一拍两个调用）：后到者必读到前者的
+    //  注册结果镜像，不得在镜仍为 null 时再 register（壳侧组合键被双写）
+    const [r1, r2] = await Promise.all([syncWakeHotkeyRegistration(), syncWakeHotkeyRegistration()]);
+    expect([r1, r2]).toEqual(["ok", "ok"]);
+    expect(callOrder).toEqual(["register:CommandOrControl+Shift+K"]);
+  });
+
+  it("并发 sync 串行化：先挂载注册后 suspend，末次调用定终态（不交错漏注销）", async () => {
+    installSeam();
+    localStorage.setItem(STEWARD_WAKE_HOTKEY_PREF_KEY, "⌘⇧K");
+    await Promise.all([syncWakeHotkeyRegistration(), syncWakeHotkeyRegistration({ suspend: true })]);
+    expect(callOrder).toEqual(["register:CommandOrControl+Shift+K", "unregister:CommandOrControl+Shift+K"]);
+    expect(registeredAccel).toBeNull();
+  });
 });

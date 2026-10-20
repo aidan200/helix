@@ -30,6 +30,10 @@ export type WakeHotkeySyncResult =
 
 let fireHandler: (() => void) | null = null;
 let registeredAccel: string | null = null;
+/** sync 串行链（尾指针）：并发调用（挂载 sync + 设置热更新）串行化——
+ *  registeredAccel 镜像的读-改-写必须原子，否则 await 交错可致漏注册/双注册
+ *  （后到的 sync 读到旧镜像又 register，壳侧已注册组合键被覆盖）。 */
+let syncChain: Promise<unknown> = Promise.resolve();
 
 /** 接线触发回调（useStewardVoice 挂载时持有、卸载清位）。 */
 export function setWakeHotkeyFireHandler(handler: (() => void) | null): void {
@@ -49,6 +53,15 @@ export function resetWakeHotkeyRegistration(): void {
  * - 换值/清值 → 先 unregister 旧值（注销失败不阻塞重注册）再 register 新值。
  */
 export async function syncWakeHotkeyRegistration(opts?: { readonly suspend?: boolean }): Promise<WakeHotkeySyncResult> {
+  // 串行化：入链尾排队（失败不阻断后缠）；链上的任务按调用序执行，最后
+  // 一次调用决定最终注册态（与用户最后的偏好一致）。
+  const task = syncChain.then(() => runSync(opts));
+  syncChain = task.catch(() => undefined);
+  return task;
+}
+
+/** 串行链内的实际对齐体（仅供 syncWakeHotkeyRegistration 入链调用）。 */
+async function runSync(opts?: { readonly suspend?: boolean }): Promise<WakeHotkeySyncResult> {
   const pref = readWakeHotkeyPref();
   const target = opts?.suspend === true ? null : pref !== null ? comboToAccel(pref) : null;
   if (!hasHotkeyCapability()) return "unavailable";

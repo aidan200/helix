@@ -42,14 +42,20 @@ export function writeVoiceBroadcastPref(on: boolean): void {
   }
 }
 
-/** 读音色偏好（非法值/缺省回落 Cherry）。 */
+/** 读音色偏好（缺省/非法值回落 Cherry）：白名单按 TTS_VOICE_OPTIONS 收口——
+ *  历史脏值（旧版本音色 id/手改 localStorage）不得原样送进 TTS 请求。 */
 export function readTtsVoicePref(): string {
   try {
     const v = localStorage.getItem(VOICE_TTS_VOICE_PREF_KEY);
-    return v !== null && v !== "" ? v : DEFAULT_TTS_VOICE;
+    return isTtsVoiceId(v) ? v : DEFAULT_TTS_VOICE;
   } catch {
     return DEFAULT_TTS_VOICE;
   }
+}
+
+/** 音色 id 白名单判定（窄化用；读写两侧共用同一判定面）。 */
+function isTtsVoiceId(value: string | null): value is TtsVoiceId {
+  return value !== null && (TTS_VOICE_OPTIONS as readonly string[]).includes(value);
 }
 
 /** 写音色偏好。 */

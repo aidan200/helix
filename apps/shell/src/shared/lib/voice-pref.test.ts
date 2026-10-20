@@ -63,6 +63,16 @@ describe("voice-pref（语音播报偏好）", () => {
     expect(readTtsVoicePref()).toBe(DEFAULT_TTS_VOICE);
   });
 
+  it("音色白名单外脏值回落默认（历史脏值不原样送进 TTS 请求）", () => {
+    localStorage.setItem(VOICE_TTS_VOICE_PREF_KEY, "Ghost");
+    expect(readTtsVoicePref()).toBe(DEFAULT_TTS_VOICE);
+    // 白名单内照常透传（列表单一来源 TTS_VOICE_OPTIONS）
+    for (const id of TTS_VOICE_OPTIONS) {
+      localStorage.setItem(VOICE_TTS_VOICE_PREF_KEY, id);
+      expect(readTtsVoicePref()).toBe(id);
+    }
+  });
+
   it("音量默认 80；写后读回；非法值（NaN/越界/负数）回落默认", () => {
     expect(readVoiceVolumePref()).toBe(80);
     writeVoiceVolumePref(30);

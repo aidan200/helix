@@ -78,7 +78,9 @@ class HelixPcmProcessor extends AudioWorkletProcessor {
 registerProcessor("helix-pcm", HelixPcmProcessor);
 `;
 
-/** 默认泵工厂：AudioWorklet 主路径；环境缺失/拒绝 → null（流式降级不阻断录音）。 */
+/** 默认泵工厂：AudioWorklet 主路径；环境缺失/拒绝 → null（流式降级不阻断录音）。
+ *  工厂无中途取消面（addModule 在途不可打断）：调用方 await 返回后自查录音态，
+ *  已停则 close() 释放——不在工厂内造「await 期间被关」的假分支。 */
 export const createWorkletPcmPump: PcmPumpFactory = async (stream: MediaStream): Promise<PcmPump | null> => {
   const Ctor = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
   if (typeof Ctor === "undefined") return null;
@@ -102,10 +104,6 @@ export const createWorkletPcmPump: PcmPumpFactory = async (stream: MediaStream):
       await ctx.audioWorklet.addModule(url);
     } finally {
       URL.revokeObjectURL(url);
-    }
-    if (closed) {
-      teardown();
-      return null;
     }
     const node = new AudioWorkletNode(ctx, "helix-pcm");
     let listener: ((e: MessageEvent) => void) | null = null;
