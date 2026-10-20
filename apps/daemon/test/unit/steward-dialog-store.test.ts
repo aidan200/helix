@@ -137,3 +137,25 @@ describe("SqliteStewardDialogStore（真库）", () => {
     store.close();
   });
 });
+
+// ── 迁移失败不墓碑（低危批） ──
+
+describe("migrateStewardDialogKv 坏形状不墓碑", () => {
+  test("坏 JSON / 形状错位 → 不导入也不清键（false，旧数据留存可重试）", () => {
+    const store = makeStore();
+    for (const bad of ["{不是json", '{"records":"nope","lastActiveAt":1}', '{"lastActiveAt":1}']) {
+      const kv = fakeKv({ steward_dialog: bad });
+      expect(migrateStewardDialogKv(store, kv)).toBe(false);
+      expect(kv.kv.get("steward_dialog")).toBe(bad); // 旧数据不抹
+    }
+    store.close();
+  });
+
+  test("合法形状但零记录 → 仍墓碑（已迁移语义）", () => {
+    const store = makeStore();
+    const kv = fakeKv({ steward_dialog: JSON.stringify({ records: [], lastActiveAt: 5 }) });
+    expect(migrateStewardDialogKv(store, kv)).toBe(true);
+    expect(kv.kv.get("steward_dialog")).toBe("");
+    store.close();
+  });
+});
