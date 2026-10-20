@@ -145,6 +145,16 @@ export class Session {
    * 输入，Turn.inputEntryId 反向关联）；id = 入队时预分配的 entryId（D-2 同源）。
    */
   appendSteerEntryAtDrain(item: SteerItem, at?: string): Entry {
+    // 契约守卫（评审 low #65）：Entry.create 无 id 唯一域——同一队列项被重复
+    // 落盘（重放/双触发）会静默产出重复 id 条目，聚合无法自愈。此处校验
+    // entryId 在场且未被占用（drain 先从队列取项再落盘，故不校验队列归属）。
+    const id = item.entryId;
+    if (typeof id !== "string" || id.trim() === "") {
+      throw new DomainError("steer 队列项缺少 entryId（drain 落盘须用入队时预分配的 id）");
+    }
+    if (this.entries.some((e) => e.id === id)) {
+      throw new DomainError(`steer 队列项 entryId ${id} 已落盘（重复 drain 被拒——id 唯一域不容重复条目）`);
+    }
     return this.pushEntry("user", item.text, null, true, at, item.entryId, undefined, undefined, item.source);
   }
 

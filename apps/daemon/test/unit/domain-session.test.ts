@@ -136,6 +136,19 @@ describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reser
     expect(u2.id).not.toBe(reserved);
   });
 
+  test("appendSteerEntryAtDrain 契约守卫：重复 entryId 落盘被拒（评审 low #65）", () => {
+    const s = Session.create("s-dup");
+    const u = s.appendUserEntry("q");
+    s.beginTurn(u.id);
+    const id = s.applySteer("注入一");
+    const drained = s.drainAllSteer();
+    expect(drained).toHaveLength(1);
+    s.appendSteerEntryAtDrain(drained[0]!, "2026-01-01T00:00:00.000Z");
+    // 同一 item 二次落盘：Entry.create 无 id 唯一域，聚合必须拦
+    expect(() => s.appendSteerEntryAtDrain(drained[0]!)).toThrow(/已落盘/);
+    expect(s.entryList().filter((e) => e.id === id)).toHaveLength(1);
+  });
+
   test("脏快照多 open turn：更早的显式收口 interrupted，只保留最后一个为 currentTurn（评审 low #64）", () => {
     // 构造脏快照：手工把两个已完成 turn 改回 generating（over-crash 双 open 形态）
     const s = Session.create("s-dirty");
