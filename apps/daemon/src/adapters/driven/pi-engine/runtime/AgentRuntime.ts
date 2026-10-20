@@ -253,7 +253,9 @@ export class AgentRuntime {
 
 // ── 钩子组合（装配期纯函数，无状态） ────────────────────────
 
-/** beforeToolCall 链：依序执行，首个非空结果（block）短路返回。 */
+/** beforeToolCall 链：依序执行，首个 **block** 结果短路返回（语义见 HookSet 位注释、E-72）。
+ *  非 block 结果（如显式纵行 {block:false}）不短路——否则排后的审批闸类
+ *  钩子会被「首个非空即返回」静默跳过（低危批）。 */
 function combineBeforeToolCall(hooks: readonly HookSet[]) {
   if (!hooks.some((h) => h.beforeToolCall)) return undefined;
   return async (
@@ -263,7 +265,7 @@ function combineBeforeToolCall(hooks: readonly HookSet[]) {
     for (const hook of hooks) {
       if (!hook.beforeToolCall) continue;
       const result = await hook.beforeToolCall(context, signal);
-      if (result) return result;
+      if (result?.block === true) return result;
     }
     return undefined;
   };
