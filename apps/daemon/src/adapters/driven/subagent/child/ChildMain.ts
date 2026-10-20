@@ -772,6 +772,31 @@ function makeFileWriteReporter(instanceId: string, toolCwd: string) {
   };
 }
 
+/** HELIX_SANDBOX_EXTRA_ROOTS 解析（低危批抽纯函数，main 体量收窄）：JSON 数组里
+ *  只认字符串项；缺省/非法/非数组 → 空清单（沙箱额外可写根是可选件，坏形状不阻断装配）。 */
+export function parseExtraRootsEnv(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 按 running server 集过滤命名空间工具名（低危批抽纯函数）：`${server}__${tool}`
+ *  的 server 不在 running 集则剔除；静态工具名（无 `__` 或无前缀）恒保留。
+ *  配置集与 running 集做差的意义见 main 内调用点注释（工具缺席优于整个 spawn 失败）。 */
+export function filterNamespaceTools(
+  tools: readonly string[],
+  runningServers: ReadonlySet<string>,
+): readonly string[] {
+  return tools.filter((name) => {
+    const sep = name.indexOf("__");
+    return sep <= 0 || runningServers.has(name.slice(0, sep));
+  });
+}
+
 async function main(): Promise<void> {
   const task = argValue("--task") ?? "";
   const instanceId = process.env.HELIX_INSTANCE_ID ?? "agent-?";
@@ -848,10 +873,7 @@ async function main(): Promise<void> {
     // 命名空间为 MCP 专属约定，静态工具名无碰撞）——配置集与 running 集
     // 做差：配置了但未 running 的 server 工具名全部出局（工具缺席优于
     // 整个 spawn 失败）
-    const filteredTools = profile.tools.filter((name) => {
-      const sep = name.indexOf("__");
-      return sep <= 0 || runningServers.has(name.slice(0, sep));
-    });
+    const filteredTools = filterNamespaceTools(profile.tools, runningServers);
     if (filteredTools.length !== profile.tools.length) {
       profile = { ...profile, tools: filteredTools }; // tools readonly：重建对象
     }
@@ -872,16 +894,7 @@ async function main(): Promise<void> {
   // off/自检失败 → undefined。
   const childDbPath = process.env.HELIX_DB_PATH;
   // 用户额外可写根随开关同帧透传（JSON 数组；解析失败/缺省 = 空清单不阻断）
-  const childSandboxExtraRoots = (() => {
-    try {
-      const raw = process.env.HELIX_SANDBOX_EXTRA_ROOTS;
-      if (raw === undefined) return [];
-      const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
-    } catch {
-      return [];
-    }
-  })();
+  const childSandboxExtraRoots = parseExtraRootsEnv(process.env.HELIX_SANDBOX_EXTRA_ROOTS);
   const childSandbox =
     process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
       ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd, childSandboxExtraRoots)

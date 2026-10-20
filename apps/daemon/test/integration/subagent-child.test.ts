@@ -6,7 +6,7 @@ import path from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
-import { parseClosureBlock } from "../../src/adapters/driven/subagent/child/ChildMain";
+import { filterNamespaceTools, parseClosureBlock, parseExtraRootsEnv } from "../../src/adapters/driven/subagent/child/ChildMain";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
@@ -914,3 +914,23 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
   });
 });
 
+
+// ── main 体量收窄（低危批）：从 main 抽出的纯函数 ──
+
+describe("ChildMain 装配纯函数（低危批自 main 抽出）", () => {
+  test("parseExtraRootsEnv：JSON 字符串数组 → 字符串项；坏形状/缺省 → 空清单", () => {
+    expect(parseExtraRootsEnv(undefined)).toEqual([]);
+    expect(parseExtraRootsEnv('["/a","/b"]')).toEqual(["/a", "/b"]);
+    expect(parseExtraRootsEnv('[1,"/a",null]')).toEqual(["/a"]);
+    expect(parseExtraRootsEnv("not json")).toEqual([]);
+    expect(parseExtraRootsEnv('{"a":1}')).toEqual([]);
+  });
+
+  test("filterNamespaceTools：非 running server 的命名空间工具剔除；静态名恒保留", () => {
+    const tools = ["read", "kg", "alpha__search", "beta__write", "noNs"];
+    const running = new Set(["alpha"]);
+    expect(filterNamespaceTools(tools, running)).toEqual(["read", "kg", "alpha__search", "noNs"]);
+    // 空 running 集：全部命名空间工具出局（配置了但没起来 = 工具缺席优于 spawn 失败）
+    expect(filterNamespaceTools(tools, new Set())).toEqual(["read", "kg", "noNs"]);
+  });
+});
