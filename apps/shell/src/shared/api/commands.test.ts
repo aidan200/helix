@@ -4,6 +4,7 @@
  * 契约（packages/protocol ChatSendPayload.model?，T4 已落地）：model 仅
  * draft:true 建会话链消费；缺省 = 全局默认（payload 不携带 model 键）。
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardCancelCommand, stewardSetConfigCommand,
@@ -22,6 +23,24 @@ describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上�
     const cmd = chatSendDraftCommand("你好", "openai/gpt-5");
     expect(cmd.payload).toEqual({ text: "你好", draft: true, model: "openai/gpt-5" });
     expect(cmd.sessionId).toBeUndefined();
+  });
+
+  it("空串 model → 不携带 model 键（与注释「仅非空时携带」一致；空串 = 未选模型）", () => {
+    const cmd = chatSendDraftCommand("你好", "");
+    expect("model" in cmd.payload).toBe(false);
+    expect(cmd.payload).toEqual({ text: "你好", draft: true });
+  });
+});
+
+// ── 源码定式断言（TR-285：注释口径漂移无行为面可测，用源码断言钉住）──
+describe("commands.ts 注释口径定式（TR-285）", () => {
+  const SRC = readFileSync(new URL("./commands.ts", import.meta.url), "utf8");
+
+  it("task 族头注释不写计数快照、如实登记 task.retry（曾写死「九命令…无 steer/重试」而 task.retryCommand 在位）", () => {
+    // 计数一律引用式（TR-206）：头注释以「本族全部…清单以本文件构造器为单源」表述
+    expect(SRC).not.toContain("九命令");
+    expect(SRC).toContain("人工复活 = task.retry");
+    expect(SRC).toContain("命令清单以本文件构造器为单源");
   });
 });
 

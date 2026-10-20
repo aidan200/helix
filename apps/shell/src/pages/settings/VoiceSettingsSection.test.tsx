@@ -222,6 +222,14 @@ describe("VoiceSettingsSection TTS 段（语音播报批 V2 + checkbox 重排）
     expect(sendVoiceUnsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it("订阅 send false（断线窗口）→ toast 交代（TR-84 返回值必消费；偏好保留由重连重放自愈）", () => {
+    sendVoiceSubscribe.mockImplementationOnce(() => false);
+    const r = rig();
+    fireEvent.click(broadcastCheckbox(r));
+    expect(r.container.textContent).toContain("未连接 daemon");
+    expect(localStorage.getItem("helix.voice.broadcast")).toBe("1"); // 偏好照写（重连重放补订阅）
+  });
+
   it("订阅态下切音色 → sendVoiceSubscribe(新音色) 即时重报（音色随订阅上报）", () => {
     // B22 #3 后前提为真：播报开关 on（订阅态）才随订阅上报；off 态选音色
     // 只写偏好（旧测试依赖的「无条件订阅」正是被修的绕开关缺陷）
@@ -489,6 +497,52 @@ describe("VoiceSettingsSection 模型配置组（config.get/set_voice_models）"
       ttsModel: "",
       ttsStreamModel: "",
     });
+  });
+
+  it("脏态门控（M46）：编辑中回执到达不覆写草稿；保存后回执落值并清脏（后续回执再同步）", () => {
+    const base = {
+      sttModel: "custom-asr-v2",
+      sttSiliconflowModel: "FunAudioLLM/SenseVoiceSmall",
+      sttRealtimeModel: "qwen3-asr-flash-realtime",
+      ttsModel: "qwen3-tts-flash",
+      ttsStreamModel: "qwen-audio-3.0-tts-flash",
+    };
+    mockVoiceModels = { ...base };
+    const r = rig();
+    const stt = () => r.container.querySelector('[data-voice-model="sttModel"]') as HTMLInputElement;
+    const tts = () => r.container.querySelector('[data-voice-model="ttsModel"]') as HTMLInputElement;
+    fireEvent.change(stt(), { target: { value: "typing-asr" } });
+    // 用户编辑期间他处触发的回执到达：不得吞掉用户草稿
+    mockVoiceModels = { ...base, ttsModel: "server-tts" };
+    r.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <VoiceSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(stt().value).toBe("typing-asr");
+    // 保存 → 在途 → 回执兑现（落值 + 清脏）
+    fireEvent.click(r.container.querySelector("[data-voice-models-save]") as HTMLButtonElement);
+    mockVoiceModels = { ...base, sttModel: "typing-asr", ttsModel: "server-tts" };
+    r.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <VoiceSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(stt().value).toBe("typing-asr");
+    // 脏态已清：后续他处回执照常回填
+    mockVoiceModels = { ...base, sttModel: "typing-asr", ttsModel: "external-tts" };
+    r.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <VoiceSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(tts().value).toBe("external-tts");
   });
 
   it("保存未发出（send false）→ toast 行内交代（TR-168）", () => {

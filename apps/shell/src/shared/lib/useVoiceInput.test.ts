@@ -336,6 +336,38 @@ describe("useVoiceInput（语音输入 V2：点击 + VAD）", () => {
     restore();
   });
 
+  it("stop→onstop 在途窗口二次 stop 不清 chunks（VAD 自动停与手动停相撞不丢整段录音）", async () => {
+    const restore = installRecorder();
+    const clock = useFakeClock();
+    clockRestore = clock.restore;
+    const { result } = renderHook(() => useVoiceInput(vi.fn(), deps), { wrapper: I18nProvider });
+    await act(async () => {
+      await result.current.start();
+    });
+    clock.advance(VOICE_MIN_DURATION_MS + 100);
+    await tick(); // 分片落地（在途 chunks 已入篮）
+    // 在途化 onstop：接管 fake recorder.stop，不立即回调（模拟 stop→onstop 异步窗口）
+    const rec = FakeMediaRecorder.instances[0]!;
+    let deferredOnstop: (() => void) | null = null;
+    rec.stop = () => {
+      deferredOnstop = rec.onstop;
+    };
+    act(() => {
+      result.current.stop(); // 首次停（收口链在途）
+    });
+    expect(result.current.state).toBe("transcribing");
+    act(() => {
+      result.current.stop(); // 窗口内二次停（VAD 自动停/连点）：不得清 chunks
+    });
+    await act(async () => {
+      deferredOnstop?.();
+    });
+    await waitFor(() => {
+      expect(sendSttTranscribe).toHaveBeenCalledTimes(1); // 录音未被静默丢弃
+    }, { timeout: 2000 });
+    restore();
+  });
+
   it("卸载落 getUserMedia 在途窗口：迟归 stream 即刻释放零续行（不建 recorder 不开麦）", async () => {
     // TR-215 回归钉子（漏网通路）：unmount/StrictMode 重挂落在 getUserMedia
     // 在途窗口时，迟归 stream 必须凭取消代数失配即刻释放——否则续行创建

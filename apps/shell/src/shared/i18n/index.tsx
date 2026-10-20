@@ -55,7 +55,9 @@ export function t(
   vars?: Record<string, string | number>,
 ): string {
   const value = getValue(translations, key);
-  if (!value) {
+  // 缺词判定按 undefined（非 falsy）：空串是「显式留空」的合法词条值，不该
+  // 被当缺词回退 key（当前词典零空串，属潜在边界——判定面先按语义收口）
+  if (value === undefined) {
     if (import.meta.env.DEV) console.warn(`[i18n] missing key: ${key}`);
     return key;
   }

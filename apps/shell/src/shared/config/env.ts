@@ -5,10 +5,13 @@
  * daemon 用随机端口（port=0）时启动日志输出实际地址，开发期可用 env 覆盖。
  */
 
-function resolvePort(): number {
+/** 端口解析（缺省 7333）：必须 1..65535 的**整数**——「7333.5」「65536」这类
+ *  非端口值拼出的 WS 地址不可用（`ws://127.0.0.1:7333.5` 必连不上），静默回退
+ *  缺省比带着非法地址去打 daemon 更容易诊断。 */
+export function resolvePort(): number {
   const raw = import.meta.env.VITE_HELIX_PORT as unknown;
   const n = Number(raw ?? 0);
-  return Number.isFinite(n) && n > 0 ? n : 7333;
+  return Number.isInteger(n) && n > 0 && n <= 65_535 ? n : 7333;
 }
 
 export const DAEMON_PORT = resolvePort();

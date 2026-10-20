@@ -46,6 +46,29 @@ describe("ImageStrip（T9 图片渲染共用件）", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("点遮罩关闭；点大图本体不关（关闭面 = Esc/遮罩，非任意点击）", () => {
+    ui([TINY_PNG]);
+    fireEvent.click(screen.getByRole("img"));
+    const dialog = screen.getByRole("dialog");
+    // 逐级验证：点大图/图片本体不关闭（旧实现冒泡到遮罩即关）
+    fireEvent.click(dialog.querySelector("img")!);
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    // 点遮罩（target===currentTarget）关闭
+    fireEvent.click(dialog);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a11y：开层焦点移入 dialog，关层还原到开层前元素", () => {
+    ui([TINY_PNG]);
+    const thumb = screen.getByRole("button");
+    thumb.focus();
+    fireEvent.click(thumb);
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(thumb);
+  });
+
   it("空数组不渲染任何 img", () => {
     const { container } = ui([]);
     expect(container.querySelector("img")).toBeNull();

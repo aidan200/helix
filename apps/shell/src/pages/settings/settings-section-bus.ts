@@ -19,7 +19,22 @@ export function requestSettingsSection(section: string, tab?: ModelsTab): void {
   pendingSection = { section, ...(tab !== undefined ? { tab } : {}) };
 }
 
-/** SettingsPage 挂载时消费（一次性——读后即清）。 */
+/**
+ * 读 pending 信号**不清位**（渲染期只读面）：SettingsPage 在 useState 惰性初值
+ * 里读它——StrictMode/并发渲染会多次跑渲染腿，渲染期 consume（读后即清）
+ * 会让「第二次读」必得 null（状态初值落缺省，指路信号丢失）。清位交给挂载
+ * effect 的 clearPendingSection（双跑幂等）。
+ */
+export function peekPendingSection(): { section: string; tab?: ModelsTab } | null {
+  return pendingSection;
+}
+
+/** 清位（SettingsPage 挂载后调用一次；一次性信号语义的写面）。 */
+export function clearPendingSection(): void {
+  pendingSection = null;
+}
+
+/** 兼容面：读并清（非渲染期调用方用；渲染期一律 peek）。 */
 export function consumePendingSection(): { section: string; tab?: ModelsTab } | null {
   const value = pendingSection;
   pendingSection = null;

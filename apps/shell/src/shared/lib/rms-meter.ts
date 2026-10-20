@@ -108,6 +108,8 @@ registerProcessor("helix-rms", HelixRmsProcessor);
 /**
  * 默认 meter 工厂：AudioWorklet 主路径 + AnalyserNode 轮询兜底。
  * 无 AudioContext → null（不抛错；调用方降级为无 VAD 手动停）。
+ * 工厂无中途取消面（addModule 在途不可打断）：调用方 await 返回后自查录音态，
+ * 已停则 close() 释放——不在工厂内造「await 期间被关」的假分支。
  */
 export const createWorkletRmsMeter: RmsMeterFactory = async (stream: MediaStream): Promise<RmsMeter | null> => {
   const Ctor = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
@@ -137,10 +139,6 @@ export const createWorkletRmsMeter: RmsMeterFactory = async (stream: MediaStream
       await ctx.audioWorklet.addModule(url);
     } finally {
       URL.revokeObjectURL(url);
-    }
-    if (closed) {
-      teardown();
-      return null;
     }
     const node = new AudioWorkletNode(ctx, "helix-rms");
     let listener: ((e: MessageEvent) => void) | null = null;

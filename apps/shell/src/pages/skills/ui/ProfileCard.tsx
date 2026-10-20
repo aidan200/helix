@@ -231,6 +231,11 @@ export default function ProfileCard({
     currentModel: block?.model ?? undefined,
     capabilityModel: block?.model ?? defaultModel ?? "",
   });
+  /** MCP 归属判定（server 前缀集，单源 = 已配置 server 名）：归属 = 工具名以
+   *  `<server>__` 开头。旧实现用 `name.includes("__")` 当归属启发式——普通工具名
+   *  含 `__` 会从工具组消失且不归任何 server 组（展示面整行丢失）。 */
+  const mcpPrefixes = (block?.mcpServers ?? []).map((server) => `${server.name}__`);
+  const belongsToMcp = (name: string): boolean => mcpPrefixes.some((prefix) => name.startsWith(prefix));
 
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
@@ -307,7 +312,7 @@ export default function ProfileCard({
             ))}
           </div>
         ) : (
-          (block?.tools ?? []).filter((tool) => !tool.name.includes("__")).map((tool) => (
+          (block?.tools ?? []).filter((tool) => !belongsToMcp(tool.name)).map((tool) => (
             <ToolRow
               key={tool.name}
               name={tool.name}
@@ -396,7 +401,9 @@ export default function ProfileCard({
         ) : (block?.skills ?? []).length === 0 ? (
           <p className="ag-empty-hint">{t("agents.skillsEmpty")}</p>
         ) : (
-          // 双源分组：builtin（内置——不可禁用，开关恒禁用态）/ user；project 层已删（单源管理裁决）
+          // 双源分组：builtin（内置）/ user——**同轨可开关**（同轨批 builtin-immutable
+          // 已撤：ResourceService 不分 source，默认关、用户自开；builtin 差异行由
+          // daemon 播种成开箱即用）；project 层已删（单源管理裁决）
           (["user", "builtin"] as const).map((source) => {
             const rows = (block?.skills ?? []).filter((s) => s.source === source);
             if (rows.length === 0) return null;

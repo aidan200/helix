@@ -63,6 +63,14 @@ export interface KgFramesListenerDeps {
 /** 构造 KgViewer 的 kg 族帧 listener（deps 全经调用方 ref/稳定引用间接取值）。 */
 export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnvelope) => void {
   const { projectName, stateRef, dispatch, flight, toast, t } = deps;
+  /** 回执后刷新链统一出口（TR-84：send 返回值必消费）——断连窗口未发出的
+   *  刷新不静默：多面同断只交代一次，界面按陈旧数据处理（旧实现吞返回值，
+   *  刷新丢失零反馈）。 */
+  const refreshFaces = (sends: readonly (() => boolean)[]): void => {
+    let lost = false;
+    for (const send of sends) if (send() === false) lost = true;
+    if (lost) toast.push("err", t("pj.kg.refreshLostToast"));
+  };
   return (e: EventEnvelope) => {
     switch (e.type) {
       case "kg.list.result": {
@@ -106,16 +114,15 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
         if (deps.sendKgNodeDetail({ project: projectName, id: e.payload.node.id }) === false) {
           dispatch({ type: "detail-failed", id: e.payload.node.id });
         }
-        deps.sendKgList({ project: projectName });
-        deps.sendKgHealth({ project: projectName }); // P5：草稿栏随转正实时收敛
+        // P5：列表/体检面双刷新（草稿栏随转正实时收敛）
+        refreshFaces([() => deps.sendKgList({ project: projectName }), () => deps.sendKgHealth({ project: projectName })]);
         toast.push("ok", t("pj.kg.promoteToast", { name: e.payload.node.name }));
         return;
       }
       case "kg.node.discard.result": {
         // P5 草稿人审驳回回执：superseded 终态——列表/体检面双刷新（无 detail
         // 重发：驳回节点退出可选面，重拉详情无消费面）
-        deps.sendKgList({ project: projectName });
-        deps.sendKgHealth({ project: projectName });
+        refreshFaces([() => deps.sendKgList({ project: projectName }), () => deps.sendKgHealth({ project: projectName })]);
         toast.push("ok", t("pj.kg.discardToast", { name: e.payload.node.name }));
         return;
       }
@@ -131,17 +138,19 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
         if (!flight.settle("purge")) return; // 非本视图发起
         toast.push("ok", t("pj.kg.purgedToast", { name: projectName, nodes: e.payload.nodesRemoved, symbols: e.payload.symbolsRemoved }));
         // 空态呈现链：列表/报告/索引态三面刷新
-        deps.sendKgList({ project: projectName });
-        deps.sendKgChangeReport({ project: projectName });
-        deps.sendKgIndexStatus({ project: projectName });
-        deps.sendKgProjects(); // 左栏 nodeCount 权威刷新
+        refreshFaces([
+          () => deps.sendKgList({ project: projectName }),
+          () => deps.sendKgChangeReport({ project: projectName }),
+          () => deps.sendKgIndexStatus({ project: projectName }),
+          () => deps.sendKgProjects(), // 左栏 nodeCount 权威刷新
+        ]);
         return;
       }
       case "kg.index.delete.result": {
         if (!flight.settle("indexDelete")) return;
         toast.push("ok", t("pj.kg.idxDeletedToast", { name: projectName }));
-        deps.sendKgIndexStatus({ project: projectName }); // 面板 → absent 徽章
-        deps.sendKgProjects(); // 左栏徽章权威刷新
+        // 面板 → absent 徽章 + 左栏徽章权威刷新
+        refreshFaces([() => deps.sendKgIndexStatus({ project: projectName }), () => deps.sendKgProjects()]);
         return;
       }
       // ── kg.health 批 + kg 评审批回执（W2-E/W2-F；review 单飞归因）──
@@ -156,14 +165,14 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
       case "kg.review.create.result": {
         if (!flight.settle("review")) return; // 非本视图发起
         deps.markReviewLaunched();
-        deps.sendKgProjects(); // 行级 reviewRunning 权威化（体检入口运行态数据源）
+        refreshFaces([() => deps.sendKgProjects()]); // 行级 reviewRunning 权威化（体检入口运行态数据源）
         toast.push("ok", t("pj.health.reviewOkToast", { name: projectName }));
         return;
       }
       case "code.review.create.result": {
         if (!flight.settle("codeReview")) return; // 非本视图发起
         deps.markCodeReviewLaunched();
-        deps.sendKgProjects(); // 行级 codeReviewRunning 权威化（运行态数据源）
+        refreshFaces([() => deps.sendKgProjects()]); // 行级 codeReviewRunning 权威化（运行态数据源）
         toast.push("ok", t("pj.health.codeReviewOkToast", { name: projectName }));
         return;
       }
@@ -171,7 +180,7 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
       case "kg.triage.create.result": {
         if (!flight.settle("triage")) return; // 非本视图发起
         deps.markTriageLaunched();
-        deps.sendKgProjects(); // 任务运行态权威化（triage 按钮随 job 状态翻转）
+        refreshFaces([() => deps.sendKgProjects()]); // 任务运行态权威化（triage 按钮随 job 状态翻转）
         toast.push("ok", t("pj.health.triageOkToast", { name: projectName }));
         return;
       }

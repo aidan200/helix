@@ -25,7 +25,11 @@ export function useRunningElapsed(
       setMountAnchor(null);
       return;
     }
-    setMountAnchor((prev) => prev ?? Date.now());
+    const at = Date.now();
+    setMountAnchor((prev) => prev ?? at);
+    // 翻转拍同刻收 now：停表期 now 停留在旧刻（interval 已清），若只抬 anchor
+    // 则 now-anchor 为负 → 首秒闪现负数耗时；重锚那拍一并抬 now。
+    setNow(at);
     // 取舍（钉死）：不按页面可见性/活跃路由门控本 interval——now 仅驱动显示
     // 刷新，耗时精度由真实锚点（startedAtMs/baseMs）保证，隐藏期空转的 1s
     // timer 无精度损失；门控需接 visibilitychange + 路由活跃面，复杂度大于

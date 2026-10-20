@@ -42,6 +42,13 @@ describe("code-review 族B：context-card 状态徽标 displayState 词表（B4�
     expect(badge.textContent).not.toContain("运行中");
   });
 
+  it("steward 实例显示名与实例面板同源：trace.panel.stewardName（「管家」），非 steward.title（「文本管家」）", () => {
+    ui(recordOf({ agentKind: "subagent", profileKind: "steward", status: "running" }));
+    const name = document.querySelector(".inst-badge") as HTMLElement;
+    expect(name.textContent).toContain("管家");
+    expect(name.textContent).not.toContain("文本管家"); // 旧实现借用面板标题词条，两处不一致
+  });
+
   it("无 displayState（旧数据降级窗口）→ 回落 status 词表（「运行中」）", () => {
     ui(recordOf({ status: "running" }));
     const badge = document.querySelector(".st-badge") as HTMLElement;

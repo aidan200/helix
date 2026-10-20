@@ -31,13 +31,19 @@ import type { TaskArtifactsDto, TaskDetailDto, TaskStatus, TaskSummaryDto } from
 /** 状态过滤器（"all" = 不过滤；六态取 wire 值）。 */
 export type TaskStatusFilter = "all" | TaskStatus;
 
-/** 列表排序（CL-3-T1）：running 置顶，其余创建时间倒序；running 之间同样倒序。 */
+/** 列表排序（CL-3-T1）：running 置顶，其余创建时间倒序；running 之间同样倒序。
+ *  时间戳非法（Date.parse NaN）按最旧处理——比较器返回 NaN 会让排序结果依赖
+ *  引擎实现（V8 下不保证稳定顺序），与 taskElapsedMs 的 NaN 防护同口径。 */
 export function sortTasks(tasks: readonly TaskSummaryDto[]): TaskSummaryDto[] {
+  const createdAtMs = (t: TaskSummaryDto): number => {
+    const ms = Date.parse(t.createdAt);
+    return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+  };
   return [...tasks].sort((a, b) => {
     const ar = a.status === "running" ? 0 : 1;
     const br = b.status === "running" ? 0 : 1;
     if (ar !== br) return ar - br;
-    return Date.parse(b.createdAt) - Date.parse(a.createdAt);
+    return createdAtMs(b) - createdAtMs(a);
   });
 }
 

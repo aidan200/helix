@@ -14,7 +14,8 @@ declare const __HELIX_FAKE_TRANSPORT__: string | undefined;
  * `window.helixPickDirectory`（tauri-plugin-dialog 目录选择，F3 裁决的壳
  * 唯一原生 UX 能力）。纯浏览器 dev 无此挂载点 → undefined，消费面经
  * shared/api/native-capability.ts seam 受控访问（探测/调用，前端零
- * Tauri 内部形态词，AG-17）。
+ * Tauri 内部形态词——词面守护见 daemon arch-guard form-isomorphism.test.ts
+ * 的 AG-17/TR-AD-12 禁区②③扫描）。
  */
 declare var helixPickDirectory:
   | ((initial?: string) => Promise<string | null>)
@@ -25,7 +26,7 @@ declare var helixPickDirectory:
  * 主题变更时调用；壳侧写入 <app_config_dir>/theme-hint，作为下次启动的
  * 窗口底色（light=#F4F2EC / dark=#060910）——窗口创建早于 webview 文档，
  * 壳读不到 localStorage，故经此回写链。纯浏览器 dev 无此挂载点 → 可选
- * 链降级静默跳过（零形态分支，AG-17）。
+ * 链降级静默跳过（零形态分支；同上守护面）。
  */
 declare var helixThemeHint:
   | ((theme: "dark" | "light") => void)
@@ -36,7 +37,8 @@ declare var helixThemeHint:
  * initialization_script 在页面脚本前挂 helixHotkeyRegister / helixHotkeyUnregister
  *（tauri-plugin-global-shortcut 自带命令面 + ShortcutJsEvent 通道）。纯浏览器
  * dev 无挂载点 → undefined，消费面经 shared/api/native-capability.ts seam
- * 受控访问（前端零 Tauri 内部形态词，AG-17）。
+ * 受控访问（前端零 Tauri 内部形态词；词面守护见 daemon arch-guard
+ * form-isomorphism.test.ts 的 AG-17/TR-AD-12 禁区②③扫描）。
  */
 declare var helixHotkeyRegister:
   | ((accel: string, onFire: () => void) => Promise<void>)

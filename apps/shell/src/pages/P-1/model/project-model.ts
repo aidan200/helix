@@ -24,7 +24,8 @@ export type MainMode = "empty" | "absent" | "building" | "graph";
 // ── bootstrap 扩面（T3.2，CL-1 F1.1 + CL-4 F4.1~F4.3）──
 
 /**
- * bootstrap 入口五态（互斥，review.md P-1 状态模型）：hidden=已有图谱静默
+ * bootstrap 入口态（互斥，review.md P-1 状态模型；清单以本类型
+ * BootstrapEntryMode 为单源，正文不写计数）：hidden=已有图谱静默
  * 不渲染 / guide=absent 引导态 / building=构建中 / ready=可发起 /
  * launched=已启动（ok-strip）/ running=任务运行中（P0① 双启动防护：
  * bootstrapRunning=true 优先于其他条件——窗口期入口不再现启动钮）。前四
@@ -39,7 +40,8 @@ export interface BootstrapAreaState {
 }
 
 /**
- * 准入四态判定纯函数（CL-1 F1.1 机械定义，contracts/kg-bootstrap-api.md §1）：
+ * 准入判定纯函数（CL-1 F1.1 机械定义，contracts/kg-bootstrap-api.md §1；返回
+ * 值集 = BootstrapEntryMode 单源）：
  * 显示 bootstrap 入口 ⟺ indexStatus ∈ {synced, degraded} 且 nodeCount === 0
  *（nodeCount 缺省 = 未知 = 视为非空不显示）；absent → 引导态；building →
  * 构建中；已有图谱 → 静默。launched 仅叠加在 ready 上（不改变其余态）。

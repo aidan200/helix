@@ -90,7 +90,7 @@ const ContextCard = function ContextCard({
           <div className="ctx-id">
             <span className={cn("inst-badge", isMain ? "main" : "sub")}>
               <span className="hud-dot" aria-hidden="true" />
-              {instanceDisplayName(record, t("trace.panel.mainName"), t("steward.title"))}
+              {instanceDisplayName(record, t("trace.panel.mainName"), t("trace.panel.stewardName"))}
             </span>
             <span className={cn("st-badge", `st-${record.status}`)}>
               <span className="hud-dot" aria-hidden="true" />

@@ -49,7 +49,9 @@ function inWindow(at: number, range: StewardActivityRange, nowMs: number): boole
   return at >= since && (until === null || at < until);
 }
 
-/** 列表长度上限（呈现面自律——清一屏可读量级）。 */
+/** 列表长度上限（呈现面自律——清一屏可读量级）。查询面显式携带同一上限：
+ *  daemon 缺省 limit = 200，若只靠实时帧累积到本上限，刷新后列表会骤缩
+ *  （回执整表替换）——两面同源上限消除该落差（daemon 侧上限更高，可容）。 */
 const LIST_MAX = 500;
 
 const StewardActivityPage = function StewardActivityPage({ path }: { path: string }) {
@@ -69,7 +71,7 @@ const StewardActivityPage = function StewardActivityPage({ path }: { path: strin
   // 查询面：挂载/切窗 → steward.activity.list（回执整表替换——权威面）。
   useEffect(() => {
     if (sendStewardActivityList === undefined) return;
-    sendStewardActivityList(range);
+    sendStewardActivityList(range, LIST_MAX); // 查询面与实时累积面同一上限
     setEntries(null); // 切窗回到加载态（回执权威覆盖）
   }, [sendStewardActivityList, range]);
 
@@ -183,7 +185,7 @@ const StewardActivityPage = function StewardActivityPage({ path }: { path: strin
                 className="hud-btn hud-btn-ghost sm"
                 type="button"
                 data-activity-refresh
-                onClick={() => sendStewardActivityList?.(range)}
+                onClick={() => sendStewardActivityList?.(range, LIST_MAX)}
               >
                 <RotateCcw size={14} strokeWidth={1.75} aria-hidden="true" />
                 {t("steward.activity.refresh")}

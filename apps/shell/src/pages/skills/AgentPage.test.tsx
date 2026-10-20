@@ -489,6 +489,24 @@ describe("智能体页组件（M6 T4）", () => {
     void view;
   });
 
+  it("③a 写在途期异步重拉（mcp.status.changed / revision）不清在途单飞（低危：list-result 全清）", () => {
+    const view = ui();
+    act(() => feedList());
+    act(() => selectAgent("main-session"));
+    const bashSwitch = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    fireEvent.click(bashSwitch);
+    expect(bashSwitch.disabled).toBe(true); // 写面在途
+    // 他处触发静默重拉（未收到 set_enabled 回执前）：不得提前解锁单飞
+    act(() => feedList());
+    const stillPending = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    expect(stillPending.disabled).toBe(true);
+    // 回执 skipped 才收口（归因仍指向本次写面，不漏 toast）
+    act(() => feedSetResult({ status: "skipped", reason: "audience-guard" }));
+    const settled = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    expect(settled.disabled).toBe(false);
+    void view;
+  });
+
   it("③b set_enabled 在途收 connection.error → 定向清在途 + err toast（F5 批 #2）", async () => {
     const view = ui();
     act(() => feedList());

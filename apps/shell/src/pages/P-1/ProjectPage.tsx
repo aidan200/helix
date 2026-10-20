@@ -222,14 +222,21 @@ const ProjectPage = function ProjectPage({
   const mainMode = state.mainMode;
   useEffect(() => {
     if (mainMode !== "building" || selected === null) return;
-    idxReqRef.current = selected;
-    sendKgIndexStatus({ project: selected });
-    const timer = setInterval(() => {
+    // 轮询 send 返回值必消费（TR-84，与 onBuild「send 先行」同口径）：断连窗口
+    // 每 tick 都发不出去——本轮只交代一次（防 750ms 刷屏），自愈仍靠既有
+    // 750ms 重试与重连后轮询继续。
+    let lostReported = false;
+    const request = (): void => {
       idxReqRef.current = selected;
-      sendKgIndexStatus({ project: selected });
-    }, KG_INDEX_POLL_MS);
+      if (sendKgIndexStatus({ project: selected }) === false && !lostReported) {
+        lostReported = true;
+        toast.push("err", t("pj.kg.refreshLostToast"));
+      }
+    };
+    request();
+    const timer = setInterval(request, KG_INDEX_POLL_MS);
     return () => clearInterval(timer);
-  }, [mainMode, selected, sendKgIndexStatus]);
+  }, [mainMode, selected, sendKgIndexStatus, toast, t]);
 
   // B1 冷启动：absent 主区「构建索引」CTA（左栏行无任何按钮——入口唯一）
   const onBuild = useCallback(() => {

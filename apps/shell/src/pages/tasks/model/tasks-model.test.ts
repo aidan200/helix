@@ -98,6 +98,15 @@ describe("① 列表排序：运行中置顶 + 创建时间倒序", () => {
     expect(running.map((t) => t.createdAt)).toEqual([...running.map((t) => t.createdAt)].sort().reverse());
   });
 
+  it("createdAt 非法（Date.parse NaN）按最旧处理——比较器不返回 NaN，排序结果确定", () => {
+    const rows = [
+      { ...mixedTasks()[2]!, jobId: "j-bad", status: "done" as const, createdAt: "not-a-date" },
+      { ...mixedTasks()[2]!, jobId: "j-ok", status: "done" as const, createdAt: "2026-08-29T09:00:00+08:00" },
+    ];
+    const sorted = sortTasks(rows);
+    expect(sorted.map((t) => t.jobId)).toEqual(["j-ok", "j-bad"]); // 合法时间在前，非法落最旧
+  });
+
   it("空列表与单元素恒等（不炸不重排异常）", () => {
     expect(sortTasks([])).toEqual([]);
     const one = mixedTasks().slice(0, 1)!;

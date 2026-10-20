@@ -49,7 +49,7 @@ function verifiedLabel(at: number, t: (k: string, v?: Record<string, string | nu
   const span = relativeTimeSpan(at, Date.now());
   switch (span.key) {
     case "justNow":
-      return t("chat.modelsConfig.refreshedJustNow", { n: 0 });
+      return t("chat.sidebar.timeJustNow");
     case "minutes":
       return t("chat.sidebar.timeMinutes", { n: span.n });
     case "hours":
@@ -82,7 +82,7 @@ function ClfConnBadge({ verify, endpoint }: { verify: VerifyState | undefined; e
     return (
       <span className="conn hud-badge hud-badge-error" data-clf-conn="fail" title={verify.error}>
         <span className="hud-dot hud-dot-error" aria-hidden="true" />
-        {t("chat.modelsConfig.connFail", { reason: "" })}
+        {t("chat.modelsConfig.connFailPlain")}
       </span>
     );
   }

@@ -51,8 +51,9 @@ import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/
 import HotkeyRecorder from "./HotkeyRecorder";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import { useConfigField } from "./settings-hooks";
-import { filterAvailableModels } from "@/features/model-switch/model/available-models";
+import { filterAvailableModels, type AvailabilityFilterInput } from "@/features/model-switch/model/available-models";
 import type { CatalogModel, EmbeddingEndpointView } from "@helix/protocol";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 /** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
 const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
@@ -71,6 +72,29 @@ const MEMORY_POOL_FALLBACK = 24;
 const MEMORY_SCORE_FALLBACK = 0.3;
 /** 召回量上界（topK ≤ pool ≤ 200 传递上界；非法值 UI 侧回落零命令）。 */
 const MEMORY_RECALL_INPUT_MAX = 200;
+
+/** 模型下拉分组（provider → 模型清单）：可用性过滤 + 现值兑底（现值不在
+ *  可见清单时补一行，select 不说谎——provider 未 configured / 已下架仍可显示）。
+ *  总结/任务总结两槽位同口径，唯一差异 = currentModel 来源。 */
+function groupModelsByProvider(
+  models: AvailabilityFilterInput["models"],
+  auth: AvailabilityFilterInput["auth"],
+  authLoaded: boolean,
+  currentModel: string | null,
+): Map<string, CatalogModel[]> {
+  const visible = filterAvailableModels({ models, auth, authLoaded, currentModel: currentModel ?? undefined, query: "" });
+  const withCurrent =
+    currentModel !== null && !visible.some((m) => m.id === currentModel)
+      ? [{ id: currentModel, providerId: currentModel.split("/", 1)[0] ?? currentModel } as CatalogModel, ...visible]
+      : visible;
+  const map = new Map<string, CatalogModel[]>();
+  for (const m of withCurrent) {
+    const list = map.get(m.providerId);
+    if (list) list.push(m);
+    else map.set(m.providerId, [m]);
+  }
+  return map;
+}
 
 const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenMemory,
@@ -254,6 +278,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     () => (embeddingEndpoints ?? []).filter((ep) => ep.kind === "classifier"),
     [embeddingEndpoints],
   );
+  // 清单到达标记（ embedding.list.result 同帧下发 defaultEndpointId）：记忆开关
+  // 准入/无默认引导条的判据只在拉取后成立——「未拉取」不等于「确实无默认」。
+  const embeddingListLoaded = embeddingEndpoints !== null;
   // 总结组写面（总结器独立化批①）：config.set_summary 部分更新；空串/null
   // = 清空槽位回未配置态；轮次失焦/回车提交（非法值回落最近已提交值零命令）；
   // 回执驱动回填不乐观
@@ -380,51 +407,16 @@ const GeneralSettingsSection = function GeneralSettingsSection({
 
   const { auth, authLoaded } = topology.modelConfig;
   // 总结模型下拉（总结器独立化批①：管家模型选择同款口径——filterAvailableModels
-  // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
-  const summaryModelsByProvider = useMemo(() => {
-    const visible = filterAvailableModels({
-      models: topology.modelConfig.catalog?.models ?? [],
-      auth,
-      authLoaded,
-      currentModel: summaryCfg?.model ?? undefined,
-      query: "",
-    });
-    const current = summaryCfg?.model ?? null;
-    const withCurrent =
-      current !== null && !visible.some((m) => m.id === current)
-        ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
-        : visible;
-    const map = new Map<string, CatalogModel[]>();
-    for (const m of withCurrent) {
-      const list = map.get(m.providerId);
-      if (list) list.push(m);
-      else map.set(m.providerId, [m]);
-    }
-    return map;
-  }, [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.model]);
-  // 任务总结模型下拉（总结器独立化批①：同款口径——filterAvailableModels
-  // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）
-  const summaryTaskModelsByProvider = useMemo(() => {
-    const visible = filterAvailableModels({
-      models: topology.modelConfig.catalog?.models ?? [],
-      auth,
-      authLoaded,
-      currentModel: summaryCfg?.task.model ?? undefined,
-      query: "",
-    });
-    const current = summaryCfg?.task.model ?? null;
-    const withCurrent =
-      current !== null && !visible.some((m) => m.id === current)
-        ? [{ id: current, providerId: current.split("/", 1)[0] ?? current } as CatalogModel, ...visible]
-        : visible;
-    const map = new Map<string, CatalogModel[]>();
-    for (const m of withCurrent) {
-      const list = map.get(m.providerId);
-      if (list) list.push(m);
-      else map.set(m.providerId, [m]);
-    }
-    return map;
-  }, [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.task.model]);
+  // 可用性过滤 + provider optgroup，现值兑底 select 不说谎）；任务总结同构——
+  // 两槽位共用同一分组函数（唯一差异 = 现值来源）
+  const summaryModelsByProvider = useMemo(
+    () => groupModelsByProvider(topology.modelConfig.catalog?.models ?? [], auth, authLoaded, summaryCfg?.model ?? null),
+    [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.model],
+  );
+  const summaryTaskModelsByProvider = useMemo(
+    () => groupModelsByProvider(topology.modelConfig.catalog?.models ?? [], auth, authLoaded, summaryCfg?.task.model ?? null),
+    [topology.modelConfig.catalog, auth, authLoaded, summaryCfg?.task.model],
+  );
 
   // 额外可写目录（B 全局清单）：本地编辑态 null = 未编辑（展示现值）；
   // 保存走部分更新（仅 extraRoots），结果帧回填后清编辑态。
@@ -453,7 +445,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
       subscribeConfigFrames((e) => {
         if (e.type !== "connection.error") return;
         const message = (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
-        const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+        const cmd = commandOfConnectionError(message);
         if (cmd === undefined) return;
         // steward.set_config 拒答双交代（命令名无法区分 payload 组）：管家组
         // （enabled/model）与长期记忆组（memory）同帧各自行内交代——归因粒度
@@ -572,7 +564,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               checked={stewardEnabled === true}
               onChange={(e) => toggleSteward(e.target.checked)}
             />
-            {t("chat.settings.general.stewardSwitchOn")}
+            {t("chat.settings.general.switchOn")}
           </label>
           {stewardError !== null && (
             <span className="mcp-err" data-steward-save-error role="alert">
@@ -592,7 +584,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                   writeStewardSpeakReplyPref(e.target.checked);
                 }}
               />
-              {t("chat.settings.general.stewardSwitchOn")}
+              {t("chat.settings.general.switchOn")}
             </label>
           </div>
         )}
@@ -619,7 +611,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                 checked={triageCfg?.judgeEnabled === true}
                 onChange={(e) => sendTriage({ judgeEnabled: e.target.checked })}
               />
-              {t("chat.settings.general.stewardSwitchOn")}
+              {t("chat.settings.general.switchOn")}
             </label>
             {triageCfg?.judgeEnabled === true && (
               <div className="sel-wrap" data-steward-triage-endpoint>
@@ -934,7 +926,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               aria-pressed={summaryCfg?.enabled === true}
               onClick={() => toggleSummary(true)}
             >
-              {t("chat.settings.general.sandboxOn")}
+              {t("chat.settings.general.switchOn")}
             </button>
             <button
               type="button"
@@ -943,7 +935,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               aria-pressed={summaryCfg?.enabled === false}
               onClick={() => toggleSummary(false)}
             >
-              {t("chat.settings.general.sandboxOff")}
+              {t("chat.settings.general.switchOff")}
             </button>
           </div>
           {summaryError !== null && (
@@ -1012,7 +1004,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               checked={summaryCfg?.task.enabled === true}
               onChange={(e) => toggleSummaryTask(e.target.checked)}
             />
-            {t("chat.settings.general.sandboxOn")}
+            {t("chat.settings.general.switchOn")}
           </label>
         </div>
         {summaryCfg?.task.enabled === true && (
@@ -1059,10 +1051,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               className={cn("hud-btn sm", memoryCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
               data-memory-option="on"
               aria-pressed={memoryCfg?.enabled === true}
-              disabled={defaultEmbeddingEndpointId === null}
+              disabled={embeddingListLoaded && defaultEmbeddingEndpointId === null}
               onClick={() => toggleMemory(true)}
             >
-              {t("chat.settings.general.sandboxOn")}
+              {t("chat.settings.general.switchOn")}
             </button>
             <button
               type="button"
@@ -1071,12 +1063,14 @@ const GeneralSettingsSection = function GeneralSettingsSection({
               aria-pressed={memoryCfg?.enabled === false}
               onClick={() => toggleMemory(false)}
             >
-              {t("chat.settings.general.sandboxOff")}
+              {t("chat.settings.general.switchOff")}
             </button>
           </div>
           {/* 批1：无默认 embedding 端点 → 记忆不可开启（开关置灰 + 引导去向量
-              tab 设默认——与服务闸同判据：默认端点在场才可用） */}
-          {defaultEmbeddingEndpointId === null && (
+              tab 设默认——与服务闸同判据：默认端点在场才可用）。判据只在
+              embedding.list.result 到达后成立：「未拉取」不等于「确实无默认」，
+              否则冷启动瞬间误显引导条并锁开关。 */}
+          {embeddingListLoaded && defaultEmbeddingEndpointId === null && (
             <span className="ag-note" data-memory-no-default role="note">
               {t("chat.settings.general.memoryNoDefaultEndpoint")}
             </span>
@@ -1092,7 +1086,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             {/* 判官端点（B4a：kind=classifier 端点——查重精判；未配 = 精判静默
                 回退纯向量高阈值） */}
             <div className="fld fld-sub" data-memory-judge>
-              {embeddingEndpoints !== null && embeddingEndpoints.filter((ep) => ep.kind === "classifier").length > 0 ? (
+              {classifierEndpoints.length > 0 ? (
                 <div className="sel-wrap">
                   <select
                     className="hud-input"
@@ -1101,13 +1095,20 @@ const GeneralSettingsSection = function GeneralSettingsSection({
                     onChange={(e) => selectJudgeEndpoint(e.target.value)}
                   >
                     <option value="">{t("chat.settings.general.memoryJudgePlaceholder")}</option>
-                    {embeddingEndpoints
-                      .filter((ep) => ep.kind === "classifier")
-                      .map((ep) => (
-                        <option key={ep.id} value={ep.id}>
-                          {`${ep.name} (${ep.model})`}
+                    {/* 现值兑底（同总结/任务总结下拉「select 不说谎」口径）：
+                        引用态端点不在已配分类清单（他处删除/改 kind 竞态）时
+                        仍以真值占位，不静默落 placeholder 假装未配置 */}
+                    {memoryCfg.judgeEndpoint !== null &&
+                      !classifierEndpoints.some((ep) => ep.id === memoryCfg.judgeEndpoint?.id) && (
+                        <option value={memoryCfg.judgeEndpoint.id}>
+                          {`${memoryCfg.judgeEndpoint.name} (${memoryCfg.judgeEndpoint.model})`}
                         </option>
-                      ))}
+                      )}
+                    {classifierEndpoints.map((ep) => (
+                      <option key={ep.id} value={ep.id}>
+                        {`${ep.name} (${ep.model})`}
+                      </option>
+                    ))}
                   </select>
                 </div>
               ) : (

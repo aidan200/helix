@@ -27,6 +27,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { useArmedConfirm } from "./settings-hooks";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 /** 弹层打开后聚焦延迟（key 弹层先例同值）。 */
 const MODAL_FOCUS_DELAY_MS = 60;
@@ -141,7 +142,7 @@ const CustomProvidersTab = function CustomProvidersTab({ onGoAuth }: { onGoAuth?
           // toast（无弹层在途位，fire-and-forget + 回执重拉对账）
           const message =
             (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
-          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          const cmd = commandOfConnectionError(message);
           if (cmd === "provider.delete") {
             toast.push("err", message);
             return;
