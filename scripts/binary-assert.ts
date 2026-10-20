@@ -15,6 +15,19 @@ import { openSync, readSync, closeSync } from "node:fs";
 import { platformSpec, type DesktopPlatform } from "./desktop-platform";
 
 /**
+ * arm64 反断言的失败文案（单点构造，兼可测面）。
+ *
+ * 引 TR-95：平台档裁决已从 AD-6 的 arm64-only 扩为 {darwin-arm64, win32-x64}
+ * 双档，AD-6 的适用范围被取代——文案再引 AD-6 会把排障人引到过期裁决上
+ * （评审 F5 #6）。
+ */
+export function arm64AssertionFailure(path: string, lipoOut: string): Error {
+  return new Error(
+    `arm64 单架构断言失败（TR-95 darwin-arm64 档）：${path} → ${lipoOut.trim()}`,
+  );
+}
+
+/**
  * lipo -info 断言 arm64 单架构（darwin 档反向断言）。
  * 非 Mach-O（lipo 非零退出）/ 含 x86_64 切片 / 缺 arm64 → 抛错。
  */
@@ -34,7 +47,7 @@ export async function assertArm64Only(path: string): Promise<void> {
   }
   const info = out.trim().toLowerCase();
   if (!info.includes("arm64") || info.includes("x86_64")) {
-    throw new Error(`arm64 单架构断言失败（AD-6）：${path} → ${out.trim()}`);
+    throw arm64AssertionFailure(path, out);
   }
 }
 
