@@ -1,8 +1,7 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
-import { REPORT_ASSEMBLY_GUIDE } from "../../../engine-shared";
-import { loadPrompt } from "../../../engine-shared";
+import { REPORT_ASSEMBLY_GUIDE, loadPrompt } from "../../../engine-shared";
 
 /**
  * SubAgent worker profile（architecture.md §4.4「实例化」）。

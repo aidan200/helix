@@ -1,8 +1,7 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
-import { BRIEF_ASSEMBLY_GUIDE } from "../../../engine-shared";
-import { loadPrompt } from "../../../engine-shared";
+import { BRIEF_ASSEMBLY_GUIDE, loadPrompt } from "../../../engine-shared";
 
 /**
  * OrchestratorProfile —— 任务编排主 agent profile（architecture.md §5.1，
