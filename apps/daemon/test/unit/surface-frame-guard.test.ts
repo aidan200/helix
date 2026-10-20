@@ -65,16 +65,18 @@ describe("指令帧唯一性机械守护（D8：M0 验收基准）", () => {
     }
   });
 
-  test("② broadcastStewardNavigate 调用点恰两处（EventStream 定义 + container 兼容镜像）", () => {
+  test("② broadcastStewardNavigate 调用点恰两处（EventStream 定义 + 组合根兼容镜像）", () => {
     const hits = scan(/broadcastStewardNavigate\s*\(/);
-    const rels = hits.map((h) => h.rel).sort();
-    expect(rels).toEqual([
-      "adapters/driving/ws-server/EventStream.ts", // 定义（帧组装单点）
-      "infrastructure/container.ts", // 兼容期双发镜像接线（M1 前检查点删除点）
-    ]);
-    // container 内恰一行接线（防镜像面扩散）
-    const container = hits.find((h) => h.rel === "infrastructure/container.ts")!;
-    expect(container.text.match(/broadcastStewardNavigate\s*\(/g)?.length).toBe(1);
+    // 定义面唯一在 EventStream；镜像面唯一在组合根（infrastructure/——P5 体量门
+    // 拆分把管家/surface 接线自 container.ts 迁入 assembly/buildStewardStack，
+    // 断言按「组合根一处」而非固定文件名，后续切片不再打断本守护）。
+    const evtHits = hits.filter((h) => h.rel === "adapters/driving/ws-server/EventStream.ts");
+    const infraHits = hits.filter((h) => h.rel.startsWith("infrastructure/"));
+    expect(evtHits).toHaveLength(1); // 帧组装单点
+    expect(infraHits).toHaveLength(1); // 兼容期双发镜像接线（M1 前检查点删除点）
+    expect(hits).toHaveLength(2);
+    // 镜像面内恰一行接线（防镜像面扩散）
+    expect(infraHits[0]!.text.match(/broadcastStewardNavigate\s*\(/g)?.length).toBe(1);
   });
 
   test("② application 层零页面指令帧直发（域工具执行体不组帧/不直发广播）", () => {
