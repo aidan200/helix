@@ -315,13 +315,9 @@ export {
   kgAutoAuditCommand,
   kgReviewCreateCommand,
 } from "./commands/kg";
+export { codeReviewCreateCommand } from "./commands/code";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-/** code.review.create：发起代码评审任务（code-review v1.5；准入从简——无索引门槛，允许反复发起）。 */
-export function codeReviewCreateCommand(payload: CodeReviewCreatePayload): CodeReviewCreateCommand {
-  return { v: PROTOCOL_VERSION, type: "code.review.create", payload };
-}
 
 // ── task 族命令（T3.1；契约 contracts/task-api.md §2；iter-20260829-ys7q）──
 // 本族全部为全局命令（信封 sessionId 省略——任务为 daemon 级实体）；回执 =
