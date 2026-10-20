@@ -12,11 +12,11 @@
 
 import type { JobData } from "../../ports/outbound/TaskStorePort";
 import { isTerminalJob } from "../../../domain/task/job";
+import { projectNameOf } from "../../../domain/kg/project-name";
 
-/** projectRoot → workspace 一级目录名（job.projects 标签匹配键）。 */
-export function projectNameOf(projectRoot: string): string {
-  return projectRoot.split("/").filter((s) => s !== "").pop() ?? projectRoot;
-}
+/** projectRoot 尾段即项目名（单源：domain/kg/project-name.ts——job.projects
+ *  标签匹配键；本文件原实现不归一分隔符，已收编）。 */
+export { projectNameOf };
 
 /** 该项目存在指定类型的非终态 job（并发禁入 / 运行中标志判定）。 */
 export function hasActiveJob(jobs: readonly JobData[], type: string, projectName: string): boolean {

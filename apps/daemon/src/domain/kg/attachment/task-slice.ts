@@ -10,6 +10,7 @@
  */
 
 import type { NodeDigestRow } from "../types";
+import { projectNameOf } from "../project-name";
 import { ATTACHMENT_PROTOCOL_LINE } from "./render";
 import { extractIdentifiers } from "./identifier-extract";
 import { seenKeyOf } from "./budget";
@@ -68,12 +69,7 @@ function renderEntry(candidate: TaskSliceRow, multiProject: boolean): string {
   return renderKnowledgeEntry({ name: row.name, kind: row.kind, digest: row.digest, scene: row.scene }, pointer);
 }
 
-/** projectRoot 尾段即项目名（workspace 一级目录名；AD-16 项目名可见文本不受限）。 */
-function projectNameOf(projectRoot: string): string {
-  // 先归一分隔符再取尾段（win32 反斜杠路径下也能取到目录名，不回退整串）
-  const parts = projectRoot.replaceAll("\\", "/").split("/");
-  return parts[parts.length - 1] || projectRoot;
-}
+/** projectRoot 尾段即项目名（单源：domain/kg/project-name.ts）。 */
 
 /**
  * 渲染切片段；空候选返回 ''（空命中整段省略——调用方不拼接）。
