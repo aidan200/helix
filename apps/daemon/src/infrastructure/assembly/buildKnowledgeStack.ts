@@ -44,8 +44,9 @@ export { existingKgProjects, projectRootOfPath, scanWorkspaceProjects };
  * T1.1 骨架：接线 port↔adapter（.kg per-project 连接由 KgDatabase 懒开，
  * projectRoot 在每次调用时传入——无需 daemon 启动期枚举项目）。
  * T2.1（AF-2）：CodegraphEnginePort 适配挂入（三级解析定格产物由组合根
- * 注入——HELIX_CODEGRAPH_PATH/PATH 的 env 读取收束于 container.ts，
- * AG-08 唯一例外面；resolve-codegraph 本体零 env 依赖）。
+ * 注入——env 读取已随 M5 迁入装配前置统一面
+ * infrastructure/assembly/bootPrelude.freezeSearchBackends（HELIX_CODEGRAPH_PATH
+ * /HELIX_RG_PATH/HELIX_VEC_PATH 同面定格）；resolve-codegraph 本体零 env 依赖。
  * T2.2：KgSyncService 挂入（双源汇队列/去抖/单飞/四步编排；启动
  *   触发与 edit 写后 notifyWrite 挂接按 2026-08-29 用户裁决维持退役；
  *   fs-watch 监控 B3 重新挂接——KgFsWatchService per-project watcher →
