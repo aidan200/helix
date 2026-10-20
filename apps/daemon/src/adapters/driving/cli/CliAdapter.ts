@@ -209,7 +209,16 @@ export class CliAdapter {
    */
   interrupt(): void {
     if (this.agentState === "running" || this.agentState === "steering" || this.agentState === "aborting") {
-      if (this.agentState !== "aborting") this.deps.chat.abort();
+      if (this.agentState !== "aborting") {
+        // SIGINT 处理器内异常 = uncaughtException 崩进程（终端死亡不崩进程的
+        // 守卫哲学同理，低危批）：abort 失败退化为「本次 Ctrl-C 不动」，
+        // 用户可再按一次或 /exit——不因中断调用抛错整进程退出。
+        try {
+          this.deps.chat.abort();
+        } catch (err) {
+          this.writeLine(`\n[错误] 中断失败：${(err as Error).message}`);
+        }
+      }
     } else {
       this.exitRequested?.();
     }
