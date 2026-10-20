@@ -99,7 +99,9 @@ function renderMenu() {
 }
 
 beforeEach(() => {
-  stateRef.current = createInitialSessionState();
+  // 菜单只在连接就绪后打开（打开即拉数据链以 conn=connected 为前置——
+  // ComposerThinkingPicker/AgentPage 先例：握手前发送被 HelixWsClient 丢弃）
+  stateRef.current = { ...createInitialSessionState(), conn: "connected" };
   vi.clearAllMocks();
 });
 
@@ -115,6 +117,23 @@ describe("目录未到达加载空态（catalog===null；2026-09-13 菜单静默
     expect(container.querySelector("[data-mm-no-available]")).toBeNull();
     // 搜索零命中空态不渲染（loading 与 empty 互斥——empty 是唯一 data-mm-empty 非 loading 位）
     expect(container.querySelectorAll("[data-mm-empty]").length).toBe(0);
+    expect(requestModelConfig).toHaveBeenCalled();
+    expect(requestAuthList).toHaveBeenCalled();
+  });
+
+  it("连接态迁移 connected → 补拉目录/凭据（握手前开菜单不再停在空态）", () => {
+    setup({ catalog: null });
+    stateRef.current = { ...createInitialSessionState(), conn: "connecting" };
+    const { rerender } = renderMenu();
+    expect(requestModelConfig).not.toHaveBeenCalled();
+    stateRef.current = { ...createInitialSessionState(), conn: "connected" };
+    rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <ModelSwitchMenu onClose={() => {}} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
     expect(requestModelConfig).toHaveBeenCalled();
     expect(requestAuthList).toHaveBeenCalled();
   });

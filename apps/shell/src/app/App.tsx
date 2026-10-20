@@ -167,8 +167,14 @@ export function AppRoutes() {
   const onToggleTheme = useCallback(() => setTheme(theme === "dark" ? "light" : "dark"), [theme, setTheme]);
   const onWorkbench = route === ROUTE_WORKBENCH;
   // 语音播报批 V2：全局播放钩子（连接就绪 + 偏好开 → voice.subscribe；
-  // voice.broadcast → seq 去重保序 Audio 播放）——App 根单份，与会话无关
-  useVoiceBroadcast();
+  // voice.broadcast → seq 去重保序 Audio 播放）——App 根单份，与会话无关。
+  // 返回的 error 面必须消费（TR-84 反馈面纪律）：播放失败/自动播放被拒/
+  // 订阅发送未发出都在此交代——否则播报不响时用户零解释。error 每次失败
+  // 换对象身份（seq 递增），同文案连发也能再次 toast。
+  const broadcast = useVoiceBroadcast();
+  useEffect(() => {
+    if (broadcast.error !== null) toast.push("err", broadcast.error.message);
+  }, [broadcast.error, toast]);
   // navigate 动作消费（surface.action 收编 + 语义修正）：帧到达 = 确认闸
   // 已过的授权动作，直接切页（与侧栏点击同一路径）；回执真执行后发
   // （navigated）。toast+点按二次授权形态已退役（2026-10-07 实测事故）。

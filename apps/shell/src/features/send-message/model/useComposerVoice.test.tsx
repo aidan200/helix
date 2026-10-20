@@ -350,4 +350,75 @@ describe("useComposerVoice（Composer 流式实时识别接线）", () => {
     });
     expect(sendSttStreamStop).toHaveBeenCalledTimes(1);
   });
+
+  // ── code-review 低危两条（收口语义 + 旧轮回执串轮）──
+
+  it("正常收口（final ok）后卸载 → 不再补发 stt.stream.stop（收口流非在途流）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const hook = renderVoice();
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    await startStream(hook.result);
+    nowMs += 500;
+    act(() => {
+      hook.result.current.stop();
+    });
+    act(() => {
+      emit(frame("stt.stream.final", { status: "ok", streamId: "str-1", text: "收口文本", provider: "dashscope" }));
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(hook.result.current.state).toBe("idle"), { timeout: 2000 });
+    act(() => {
+      hook.unmount();
+    });
+    expect(sendSttStreamStop).not.toHaveBeenCalled(); // 已收口：零噪声 stop 帧
+  });
+
+  it("「启→停→启」且上一轮 started 未到 → 本轮不开流（旧轮回执不串轮，降级 blob 回落）", async () => {
+    restoreEnv = installEnv();
+    streamStartEnabled = true;
+    const r = renderVoice().result;
+    let nowMs = Date.now();
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    // 第一轮：开流但回执未到即停
+    await act(async () => {
+      await r.current.start();
+    });
+    await tick();
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    nowMs += 200;
+    act(() => {
+      r.current.stop();
+    });
+    // 第二轮（回执仍在途）：不武装、不发开流；旧流显式中止
+    await act(async () => {
+      await r.current.start();
+    });
+    await tick();
+    expect(sendSttStreamStart).toHaveBeenCalledTimes(1);
+    expect(sendSttStreamStop).toHaveBeenCalledTimes(1);
+    // 迟到的旧轮 started.ok：被 armed 闸挡下（不认作本轮权威 id）
+    act(() => {
+      emit(frame("stt.stream.started", { status: "ok", streamId: "str-OLD", provider: "dashscope" }));
+      emit(frame("stt.stream.interim", { streamId: "str-OLD", prior: "", text: "旧轮的浮字", stash: "" }));
+    });
+    expect(r.current.interim).toBeNull();
+    // 本轮录音照常，停后走 blob 整段回落（V3a 等价），不上屏旧流文本
+    nowMs += 500;
+    act(() => {
+      r.current.stop();
+    });
+    spy.mockRestore();
+    await waitFor(() => expect(sendSttTranscribe).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(sendSttStreamFinish).not.toHaveBeenCalled();
+    act(() => {
+      emit(frame("stt.transcribe.result", { status: "ok", text: "本轮整段转写", provider: "dashscope" }));
+    });
+    await waitFor(
+      () =>
+        expect((onTranscript.mock.calls as unknown as [string][])[onTranscript.mock.calls.length - 1]?.[0]).toBe("本轮整段转写"),
+      { timeout: 2000 },
+    );
+  });
 });

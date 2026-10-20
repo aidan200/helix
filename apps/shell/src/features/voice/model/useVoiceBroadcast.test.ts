@@ -102,6 +102,34 @@ describe("useVoiceBroadcast（语音播报批 V2）", () => {
     expect(sendVoiceUnsubscribe).not.toHaveBeenCalled();
   });
 
+  it("订阅发送失败（send=false）→ error 面交代（TR-84 消费返回值，不再静默）", async () => {
+    sendVoiceSubscribe.mockReturnValueOnce(false);
+    const { result } = renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    await act(async () => undefined);
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.error!.message).not.toBe(""); // 通用「未连接 daemon」文案（语言随 locale）
+    expect(result.current.error!.seq).toBe(1);
+    sendVoiceSubscribe.mockReturnValue(true);
+  });
+
+  it("error 面为实态且每次失败换身份（同文案连发 seq 递增；旧实现 ref 死面）", async () => {
+    rejectPlay = true; // 播放拒绝 → playBlocked 入账
+    const { result } = renderHook(() => useVoiceBroadcast(), { wrapper: I18nProvider });
+    await act(async () => {
+      frameListener?.(broadcastFrame(1));
+    });
+    const first = result.current.error;
+    expect(first).not.toBeNull();
+    await act(async () => {
+      frameListener?.(broadcastFrame(2));
+    });
+    const second = result.current.error;
+    expect(second).not.toBeNull();
+    expect(second!.seq).toBe(first!.seq + 1); // 同文案：靠对象身份/序号区分
+    expect(second).not.toBe(first);
+    rejectPlay = false;
+  });
+
   it("闸门：conn 非 connected → 零发送", async () => {
     connState = "connecting";
     await act(async () => {

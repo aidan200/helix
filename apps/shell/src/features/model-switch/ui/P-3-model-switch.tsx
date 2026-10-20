@@ -33,6 +33,8 @@ import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
 import { filterAvailableModels, resolveCatalogMatch, sameModel } from "../model/available-models";
 import { requestOpenSettings } from "@/shared/lib/open-settings-signal";
+import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
+import { MODEL_MENU_EXEMPT_SELECTOR } from "@/shared/lib/model-menu-contract";
 
 /** ctx chip 档位（200k / 400k / 1M…）。 */
 function fmtContext(tokens: number): string {
@@ -52,29 +54,21 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
   const mc = topology.modelConfig;
 
   // 打开即拉目录 + 全局默认（requestModelConfig 未请求态才发——重复打开零重发）
-  // + auth.list（T5.3 可用性过滤数据源；每次打开都刷新凭据面）
+  // + auth.list（T5.3 可用性过滤数据源；每次打开都刷新凭据面）。
+  // conn 入依赖（ComposerThinkingPicker/AgentPage 同规）：断连/握手前开菜单时
+  // 发送被 HelixWsClient 静默丢弃——连接态迁移即重发，否则停在这帧前的空态
+  // 直到关开菜单（用户以为「没有模型」）。
+  const conn = state.conn;
   useEffect(() => {
+    if (conn !== "connected") return;
     requestModelConfig();
     requestAuthList();
-  }, [requestModelConfig, requestAuthList]);
+  }, [conn, requestModelConfig, requestAuthList]);
 
-  // 点外关闭 / Esc（徽标点击归 TopBar toggle，不在此误关）
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target && typeof target.closest === "function" && target.closest('[data-model-badge], .model-menu')) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("click", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
+  // 点外关闭 / Esc（徽标点击归 TopBar toggle，不在此误关）——豁免选择器
+  // 走 shared 契约单点（MODEL_MENU_EXEMPT_SELECTOR）：触发钮属性与菜单根选择器
+  // 由 model-menu-contract 两侧同源消费，不再在 features 里写死跨组件魔法选择器。
+  useDismissOnOutside(true, MODEL_MENU_EXEMPT_SELECTOR, onClose);
 
   // 草稿态 currentModel 回退解析（T3，bug4）：state.model（本地暂存所选）
   // 空 → 全局默认——选中态/徽标同源（顶栏徽标同一回退口径）；非草稿不变。
