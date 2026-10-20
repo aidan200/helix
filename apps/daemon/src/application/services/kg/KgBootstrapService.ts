@@ -141,8 +141,9 @@ export class KgBootstrapService {
    * task_running：窗口期（job 已建、首节点未产出）内拒绝重复 create，堵双
    * 编排器并行产出；终态后放行）。 */
   eligibility(projectRoot: string): BootstrapEligibility {
-    if (this.deps.sync.isBuilding(projectRoot)) return { eligible: false, reason: "index_building" };
-    if (!this.deps.project.hasIndex(projectRoot)) return { eligible: false, reason: "index_absent" };
+    // 索引态单源 = getStatus().phase 四态（评审 low #28）：原 isBuilding ∧
+    // hasIndex ∧ phase 三重判定各自读不同面且语义重叠（building/absent 双判）
+    // ——phase 已同时含 building（运行中状态位）与 absent（baseline 为空）。
     const phase = this.deps.sync.getStatus(projectRoot).phase;
     if (phase === "building") return { eligible: false, reason: "index_building" };
     if (phase === "absent") return { eligible: false, reason: "index_absent" };
