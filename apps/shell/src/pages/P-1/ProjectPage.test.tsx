@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { EventEnvelope, KgProjectRow } from "@helix/protocol";
+import { KG_INDEX_POLL_MS } from "./model/project-model";
 import type {
   KgChangeReportResultPayload,
   KgIndexStatusPayload,
@@ -345,6 +346,31 @@ describe("F5.0 左栏项目域与主区状态机", () => {
     expect(qs('[data-pj-main="graph"]')).not.toBeNull();
     expect(qs(".toast-zone")!.textContent).toContain("索引构建完成");
     expect(within(qs('[aria-label="项目列表"]')!).getAllByText("已同步").length).toBeGreaterThan(0);
+  });
+
+  it("building 轮询 send 返回值消费（TR-84）：断连窗口未发出 → 一次性 err toast（不静默刷屏）", () => {
+    // 假时钟须在挂载前装（轮询 setInterval 在 effect 里创建）
+    vi.useFakeTimers();
+    try {
+      ui();
+      feedProjects();
+      fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("codegraph").closest(".pj-row")!);
+      fireEvent.click(screen.getByText("构建索引"));
+      expect(qs('[data-pj-main="building"]')).not.toBeNull();
+      // 断连窗口：轮询 send 返回 false（mock 面 kgReadSendOk 同源）
+      kgReadSendOk = false;
+      act(() => {
+        vi.advanceTimersByTime(KG_INDEX_POLL_MS);
+      });
+      expect(qs(".toast-zone")!.textContent).toContain("刷新未发出");
+      // 再推两拍：本批次已交代过，不重复刷屏
+      act(() => {
+        vi.advanceTimersByTime(KG_INDEX_POLL_MS * 2);
+      });
+      expect((qs(".toast-zone")!.textContent!.match(/刷新未发出/g) ?? []).length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("building 无真实进度（{state:\"building\"} 仅此）→ 主区/左栏行不确定态；progress 到位后转 N/M", () => {

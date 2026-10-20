@@ -50,8 +50,13 @@ export function useKgWriteFlight(handlers: KgWriteFlightHandlers): KgWriteFlight
   // ref 镜像供 listener 闭包读取（listener 不随重渲染重建）；state 驱动渲染。
   const flightRef = useRef<KgWriteKind | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // props 镜像 ref（listener/定时器闭包读最新回调）：效果期同步而非渲染体
+  // 裸写——并发渲染废弃腿的渲染体写可把陈旧 handlers 留在 ref 里（TR-173；
+  // 本 ref 是 props 面非 state 镜像，故不套 markXxx 形态，走 effect 同步）。
   const handlersRef = useRef(handlers);
-  handlersRef.current = handlers;
+  useEffect(() => {
+    handlersRef.current = handlers;
+  }, [handlers]);
 
   const clearTimer = () => {
     if (timerRef.current !== null) {

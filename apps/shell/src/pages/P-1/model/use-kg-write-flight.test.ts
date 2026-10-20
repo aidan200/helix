@@ -10,6 +10,9 @@
  * - notifyError 归因当前在途 kind（零顺序链）；
  * - 超时兜底清位 + onTimeout（结果帧丢失按钮不永久禁用）。
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useKgWriteFlight, KG_WRITE_FLIGHT_TIMEOUT_MS, type KgWriteFlightHandlers } from "./use-kg-write-flight";
@@ -30,6 +33,18 @@ afterEach(() => {
 });
 
 describe("useKgWriteFlight（M9 #2.31 写面单飞统一 hook）", () => {
+  it("源码定式（TR-285/TR-173）：handlers 镜像 ref 走效果期同步，渲染体不裸写", () => {
+    // props 镜像（非 state+setState 对，markXxx 形态不适用）：并发渲染废弃腿
+    // 的渲染体写可留下陈旧 handlers——形态断言钉住「不回到渲染体裸赋值」。
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "use-kg-write-flight.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/useEffect\(\(\) => \{\s*handlersRef\.current = handlers;\s*\}, \[handlers\]\);/);
+    // 渲染体顶层（两空格缩进）不得出现裸赋值
+    expect(src).not.toMatch(/^ {2}handlersRef\.current = handlers;$/m);
+  });
+
   it("launch 发起 → flight 置位；send true 不清位", () => {
     const { view } = setup();
     expect(view.result.current.flight).toBeNull();

@@ -139,6 +139,39 @@ describe("ChatPage 抽屉接线（P-1 → P-2）", () => {
     expect(document.querySelector(".app")!.getAttribute("data-drawer")).toBeNull();
   });
 
+  it("会话切换强制收起抽屉（与 DiffOverlay 同口径）：旧会话实例残影不留在抽屉里", () => {
+    stateRef.current = play([
+      ev({
+        v: 0,
+        type: "connection.welcome",
+        payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+      }),
+      ev({
+        v: 0,
+        type: "agent.spawned",
+        payload: { agentId: "agent-9", task: "残影用例", profileKind: "subagent-worker" },
+      }),
+    ]);
+    const view = ui();
+    fireEvent.click(document.querySelector(".sa-card")!);
+    expect(document.querySelector(".drawer")).not.toBeNull();
+    // 切到另一个会话（同一会话状态源换 sessionId）
+    stateRef.current = { ...stateRef.current, sessionId: "s2" };
+    view.rerender(
+      <ThemeProvider>
+        <I18nProvider>
+          <ToastProvider>
+            <ChatPage />
+          </ToastProvider>
+        </I18nProvider>
+      </ThemeProvider>,
+    );
+    // 抽屉随会话切换收起 + 对旧实例的订阅解除（旧实现抽屉常开、按死实例续订）
+    expect(document.querySelector(".drawer")).toBeNull();
+    expect(unsubscribeInstance).toHaveBeenCalledWith("agent-9");
+    expect(document.querySelector(".app")!.getAttribute("data-drawer")).toBeNull();
+  });
+
   it("agent.killed 到达 → kill toast 交代（终止链末端）", () => {
     stateRef.current = play([
       ev({

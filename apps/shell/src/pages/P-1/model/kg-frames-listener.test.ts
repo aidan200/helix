@@ -12,7 +12,10 @@ import type { EventEnvelope } from "@helix/protocol";
 import { createKgViewState, type KgAction, type KgViewState } from "./kg-model";
 import { createKgFramesListener, type KgFramesListenerDeps } from "./kg-frames-listener";
 
-function setup(opts: { sel?: string | null; settleResult?: boolean; detailSendOk?: boolean } = {}) {
+function setup(
+  opts: { sel?: string | null; settleResult?: boolean; detailSendOk?: boolean; refreshSendOk?: boolean } = {},
+) {
+  const refreshOk = opts.refreshSendOk ?? true;
   const state: KgViewState = { ...createKgViewState(), sel: opts.sel ?? null };
   const dispatched: KgAction[] = [];
   const toasts: { kind: string; text: string }[] = [];
@@ -27,11 +30,11 @@ function setup(opts: { sel?: string | null; settleResult?: boolean; detailSendOk
       notifyError: vi.fn(),
     },
     sendKgNodeDetail: vi.fn(() => opts.detailSendOk ?? true),
-    sendKgList: vi.fn(() => true),
-    sendKgChangeReport: vi.fn(() => true),
-    sendKgIndexStatus: vi.fn(() => true),
-    sendKgProjects: vi.fn(() => true),
-    sendKgHealth: vi.fn(() => true),
+    sendKgList: vi.fn(() => refreshOk),
+    sendKgChangeReport: vi.fn(() => refreshOk),
+    sendKgIndexStatus: vi.fn(() => refreshOk),
+    sendKgProjects: vi.fn(() => refreshOk),
+    sendKgHealth: vi.fn(() => refreshOk),
     projectDispatch: vi.fn(),
     toast: { push: (kind, text) => toasts.push({ kind, text }) },
     t: (key) => key,
@@ -62,6 +65,21 @@ describe("createKgFramesListener（M9 #2.31）", () => {
     const { deps, listener } = setup();
     listener(frame("connection.error", {}));
     expect(deps.flight.notifyError).toHaveBeenCalledWith("error");
+  });
+
+  it("刷新链 send 返回值消费（TR-84）：断连窗口刷新未发出 → 一次 err toast，不静默", () => {
+    // discard 回执（列表/体检双刷新均未发出）：旧实现吞返回值，界面陈旧零反馈
+    const { listener, toasts } = setup({ refreshSendOk: false });
+    listener(frame("kg.node.discard.result", { node: { id: "TR-47", name: "行动项规则", status: "superseded" } }));
+    const errs = toasts.filter((t) => t.kind === "err");
+    expect(errs).toHaveLength(1); // 两面同断只交代一次
+    expect(errs[0]!.text).toBe("pj.kg.refreshLostToast");
+  });
+
+  it("刷新链全部发出 → 零 err toast（正常路径不噪音）", () => {
+    const { listener, toasts } = setup();
+    listener(frame("kg.node.confirm.result", { node: { id: "TR-47", name: "行动项规则", status: "confirmed" } }));
+    expect(toasts.filter((t) => t.kind === "err")).toHaveLength(0);
   });
 
   it("写面回执 settle false（非本视图发起）→ 零副作用", () => {

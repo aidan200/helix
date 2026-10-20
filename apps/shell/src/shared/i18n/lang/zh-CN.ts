@@ -1040,6 +1040,7 @@ export const zhCN = {
       confirmNo: "取消",
       promoteToast: "已转正：『{name}』",
       discardToast: "已驳回（superseded 留审计链）：『{name}』",
+      refreshLostToast: "未连接 daemon——刷新未发出，界面数据可能陈旧",
       secBody: "正文",
       secAnchors: "锚点",
       secRelations: "关系",

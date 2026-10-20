@@ -312,7 +312,7 @@ export default function KgHealthPane({
           <ul className="kg-health-list" data-kg-auto-audit-entries>
             {audit.entries.slice(0, 5).map((e, i) => (
               <li key={i} className="kg-health-item" data-op={e.op}>
-                {`${e.ts.slice(0, 19).replace("T", " ")} · ${e.op} · ${e.reason}`}
+                {`${fmtLocaleDateTime(e.ts)} · ${e.op} · ${e.reason}`}
               </li>
             ))}
           </ul>

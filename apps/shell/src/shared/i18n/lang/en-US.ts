@@ -1034,6 +1034,7 @@ export const enUS = {
       confirmNo: "Cancel",
       promoteToast: "Promoted: \'{name}\'",
       discardToast: "Discarded (superseded, audit trail kept): \'{name}\'",
+      refreshLostToast: "Not connected to daemon — refresh was not sent; data may be stale",
       secBody: "Body",
       secAnchors: "Anchors",
       secRelations: "Relations",

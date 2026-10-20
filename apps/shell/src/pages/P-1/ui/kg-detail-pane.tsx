@@ -10,7 +10,7 @@
  * **『name』** 粗体引用形——模式同 chat MarkdownMessage，安全口径一致：
  * react-markdown 默认不渲染原始 HTML）。
  */
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { KgNodeDetailDto, KgNodeListRow } from "@helix/protocol";
@@ -116,14 +116,17 @@ const KgDetailPane = function KgDetailPane({
   onConfirm: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  // 确认条开态随 detail 切换复位：draft A 开确认条后切 draft B 不意外
-  // 转移开态；draft→confirmed→draft 路径同样不残留意外开态
-  const confirmForRef = useRef<string | null>(null);
-  if (confirmForRef.current !== detail?.id) {
-    confirmForRef.current = detail?.id ?? null;
-    if (confirmOpen) setConfirmOpen(false);
-  }
+  /** 确认条开态 = 「开给哪个节点」而非布尔位：判定按 detail.id 派生，draft A
+   *  开确认条后切 draft B 天然不转移开态（旧实现在渲染体裸写 ref + setState
+   *  守卫，并发渲染废弃腿可失效 → A 的开态转移到 B，误确认即误转正写面）。 */
+  const [confirmFor, setConfirmFor] = useState<string | null>(null);
+  const detailId = detail?.id ?? null;
+  const confirmOpen = confirmFor !== null && confirmFor === detailId;
+  // 残留开态清理（效果期写 state，非渲染体）：回到曾开过确认条的节点不复活
+  // 旧开态；开态判定本身已按 id 派生，故切换当拍不会错显/错转。
+  useEffect(() => {
+    setConfirmFor(null);
+  }, [detailId]);
 
   if (loading || detail === null)
     return (
@@ -151,7 +154,7 @@ const KgDetailPane = function KgDetailPane({
                 type="button"
                 className="hud-btn kg-btn-primary"
                 data-kg-promote
-                onClick={() => setConfirmOpen(true)}
+                onClick={() => setConfirmFor(detail.id)}
               >
                 {t("pj.kg.promote")}
               </button>
@@ -171,7 +174,7 @@ const KgDetailPane = function KgDetailPane({
                 className="hud-btn kg-btn-primary kg-btn-sm"
                 data-kg-promote-yes
                 onClick={() => {
-                  setConfirmOpen(false);
+                  setConfirmFor(null);
                   onConfirm(detail.id);
                 }}
               >
@@ -181,7 +184,7 @@ const KgDetailPane = function KgDetailPane({
                 type="button"
                 className="hud-btn hud-btn-ghost kg-btn-sm"
                 data-kg-promote-no
-                onClick={() => setConfirmOpen(false)}
+                onClick={() => setConfirmFor(null)}
               >
                 {t("pj.kg.confirmNo")}
               </button>

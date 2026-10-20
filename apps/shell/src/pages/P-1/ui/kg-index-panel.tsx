@@ -1,5 +1,6 @@
 /**
- * F5.5 索引状态紧凑形态（kgv-head 右侧；三态互斥：building / synced / degraded）。
+ * F5.5 索引状态紧凑形态（kgv-head 右侧；态互斥：building / synced /
+ * degraded / absent——清单以本文件 PanelState 为单源，正文不写计数）。
  *
  * 形态完全由 idx prop 驱动（kg.index.status 回执；null = 读取中）：
  * - building：pb-building 徽章 + 有真实 progress 时简短进度「N / M」

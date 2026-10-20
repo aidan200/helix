@@ -93,9 +93,13 @@ const ChatPage = function ChatPage() {
   // T3+T4 diff 批：diff 详情覆盖窗开合态（chip 点击开 / Esc・遮罩关）
   const [diffOverlayOpen, setDiffOverlayOpen] = useState(false);
   // v0.3.1 §29：会话切换强制收起详情窗——防止旧会话查询内容残影
-  //（DiffOverlay 单飞查询不随切会话重发，开着切走即陈旧展示）
+  //（DiffOverlay 单飞查询不随切会话重发，开着切走即陈旧展示）。
+  // 同拍收起 P-2 抽屉：旧会话实例在抽屉里是残影（instanceChannels 状态 +
+  // 对已死实例的 agent.subscribe 挂着不放）——与详情窗同一条口径，避免
+  // 两处残影纪律不一（抽屉组件自身只有 Esc/背板/✕ 三条关路）。
   useEffect(() => {
     setDiffOverlayOpen(false);
+    setSelectedAgentId(null);
   }, [state.sessionId]);
   return (
     <>
