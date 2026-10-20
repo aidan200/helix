@@ -592,6 +592,10 @@ export class EventStream implements EventPublisherPort {
       );
       return; // 短窗重复丢弃
     }
+    // 先删后插刷新插入序（低危批）：Map.set 覆盖既有键**不移动插入位**——
+    // 过窗重设的 key 若不重排，键量过 MAX 时淘汰的会是它（旧插入位），60s
+    // 去重窗静默失效放行重复通知。删后插 = 真 LRU 序。
+    this.notifyDedupRecent.delete(dedupKey);
     this.notifyDedupRecent.set(dedupKey, now);
     if (this.notifyDedupRecent.size > STEWARD_NOTIFY_DEDUP_KEYS_MAX) {
       const oldest = this.notifyDedupRecent.keys().next().value;
