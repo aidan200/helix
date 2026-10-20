@@ -199,11 +199,12 @@ export function applyDeclRewrites(
 ): readonly AnchorDeclRow[] {
   if (rewrites.length === 0) return declarations;
   const keyOf = (nodeId: string, scopeKind: string, pattern: string): string => `${nodeId}\u0000${scopeKind}\u0000${pattern}`;
-  const rewriteKeys = new Set(rewrites.map((rw) => keyOf(rw.nodeId, rw.scopeKind, rw.oldPattern)));
   const byKey = new Map(rewrites.map((rw) => [keyOf(rw.nodeId, rw.scopeKind, rw.oldPattern), rw]));
   return declarations.map((d) => {
+    // 命中判据单源 = byKey（评审 low #18）：原并列的 rewriteKeys.has(...) 与
+    // byKey.get(...) === undefined 恒同真值（两个 Map/Set 同源构造），故删死 Set。
     const rw = byKey.get(keyOf(d.nodeId, d.scopeKind, d.pattern));
-    if (rw === undefined || !rewriteKeys.has(keyOf(d.nodeId, d.scopeKind, d.pattern))) return d;
+    if (rw === undefined) return d;
     return { nodeId: d.nodeId, scopeKind: d.scopeKind, pattern: rw.newPattern };
   });
 }
