@@ -58,6 +58,11 @@ export class McpRegistry implements McpServerPort {
   }
 
   private setStatus(entry: ServerEntry, patch: Partial<McpServerStatus>): void {
+    // 身份守卫（低危批，onExit 同款先例）：discover 是异步的——await 期间同名
+    // server 可被 removeServer/addServer 替换，孤儿 entry 的状态仍按 name 广播
+    // 会覆盖新 entry 的 running/error 状态（客户端看到过期状态）。非注册表
+    // 当前本体 → 整体 no-op（状态与广播都不做）。
+    if (this.servers.get(entry.config.name) !== entry) return;
     entry.status = { ...entry.status, ...patch };
     this.publishStatus(entry.status);
   }
