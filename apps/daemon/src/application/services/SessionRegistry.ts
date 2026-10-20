@@ -425,15 +425,27 @@ export class SessionRegistry implements SessionDirectoryPort {
       this.sessions.delete(sessionId);
       this.deps.onSessionUnload?.(sessionId);
       if (this.current === sessionId) {
-        await this.rotateCurrent();
+        // 轮换失败不得吞掉删除广播（评审 low #57）：库已删、注册表已移除，
+        // 前端会话清单不刷新会留下幽灵条目——轮换异常只 warn。
+        try {
+          await this.rotateCurrent();
+        } catch (err) {
+          this.deps.logger?.warn(`当前会话轮换失败（删除已生效，继续广播）：${(err as Error).message}`);
+        }
       }
       // ④ 广播
       this.deps.onListChanged({ kind: "deleted", sessionId });
     } finally {
       // deleting 语义保持（原 finally 独走 Set 清理）：异常路径也解除标记；
-      // 成功路径 record 已整体销毁，此处天然 no-op
+      // 成功路径 record 已整体销毁，此处天然 no-op。
+      // 冷会话失败路径（评审 low #58）：占位 record（runtime=undefined）是
+      // 删除过程中的临时载体，删除失败后必须在册清理——否则占位行永驻
+      // sessions Map（unloadIdle/清单面都跳过无 runtime 的行）。
       const record = this.sessions.get(sessionId);
-      if (record !== undefined) record.deleting = false;
+      if (record !== undefined) {
+        if (record.runtime === undefined) this.sessions.delete(sessionId);
+        else record.deleting = false;
+      }
     }
   }
 
