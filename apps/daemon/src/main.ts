@@ -23,12 +23,18 @@ import { runChildMainEntry } from "./adapters/driven/subagent/child/ChildMain";
  * - 同 --home 已有实例运行（单例锁，AG-17）；
  * - --port 参数非法（0-65535 整数外）。
  */
+/** --home <dir>：缺值/值像另一个 flag（如 `--home --port 8080`）→ fail-fast
+ *  （评审 low #29）：原实现静默回落 ~/.helix，用户以为换了 home 实际写到默认
+ *  目录（且 `--port` 会被当成 home 路径建目录）。与 parsePortArg 同姿态。 */
 function parseHomeArg(argv: readonly string[]): string | undefined {
   const i = argv.indexOf("--home");
-  if (i !== -1 && i + 1 < argv.length) {
-    return argv[i + 1]!;
+  if (i === -1) return undefined;
+  const raw = (i + 1 < argv.length ? argv[i + 1] : "") ?? "";
+  if (raw.trim() === "" || raw.startsWith("--")) {
+    console.error(`[helix-daemon] --home 参数非法："${raw}"（应为目录路径，如 --home ~/.helix-dev）`);
+    process.exit(1);
   }
-  return undefined;
+  return raw;
 }
 
 /** --port <n>：0-65535 整数；非法值 fail-fast（中文报错 + 退出码 1）。 */
