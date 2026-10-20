@@ -344,6 +344,46 @@ async function waitExit(proc: { exited: Promise<number> }, ms: number): Promise<
   return Promise.race([proc.exited.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
 }
 
+// ── 启动 argv / ready 行解析（纯函数面——测试 import，评审 F5 #9/#11）──
+
+export interface DaemonLaunchOpts {
+  readonly form: "dev" | "compiled";
+  readonly devEntry: string;
+  readonly compiledPath: string;
+  readonly home: string;
+  readonly port: number;
+  readonly execPath: string;
+}
+
+/**
+ * 被测 daemon 的启动 argv（端口定值面）。
+ *
+ * 端口经 argv `--port` 注入（daemon 解析链首选位：argv --port > KV
+ * daemon_port > 缺省 7333，见 bootPrelude.resolveWsPort）；不再写
+ * `<home>/config.json {port}`——那依赖已退役字段的 legacy 迁移路径
+ * （config.json 瘦身批把 port 搬进 KV），迁移收口后端口会静默回落 7333
+ * 导致探针 (c) 超时误报（评审 F5 #9）。
+ */
+export function daemonLaunchArgs(o: DaemonLaunchOpts): string[] {
+  const entry = o.form === "dev" ? [o.execPath, o.devEntry] : [o.compiledPath];
+  return [...entry, "--sidecar", "--home", o.home, "--port", String(o.port)];
+}
+
+/**
+ * 从 stdout 缓冲里切出**全部**完整行（评审 F5 #11）。
+ *
+ * 旧实现每轮 chunk 只取 buf 里第一行即回到 read() 阻塞——多行日志与 ready
+ * 行同 chunk 合并（启动日志突发期常态）时，滞留在 buf 的 ready 行永不再解析，
+ * 直至 15s 超时误报「ready 行未就绪」。此处返回 { lines, rest }：lines = 本
+ * chunk 后可切的全部完整行，rest = 末尾未闭合残行（留给下次拼接）。
+ */
+export function drainCompleteLines(buf: string, chunk: string): { lines: string[]; rest: string } {
+  const combined = buf + chunk;
+  const parts = combined.split("\n");
+  const rest = parts.pop() ?? "";
+  return { lines: parts.map((l) => l.trim()).filter((l) => l.length > 0), rest };
+}
+
 // ── 单形态探针运行 ───────────────────────────────────────────
 
 async function runForm(form: "dev" | "compiled"): Promise<FormResult> {
@@ -353,16 +393,19 @@ async function runForm(form: "dev" | "compiled"): Promise<FormResult> {
   const home = join(tmp, "home");
   mkdirSync(home, { recursive: true });
   const port = freePort();
-  writeFileSync(join(home, "config.json"), JSON.stringify({ port }));
 
   const fake = startFakeAnthropic(CHILD_TASK);
   seedModelsStore(home, `http://127.0.0.1:${fake.port}`);
   const childScript = writeChildScript(tmp);
 
-  const cmd =
-    form === "dev"
-      ? [process.execPath, DEV_ENTRY, "--sidecar", "--home", home]
-      : [COMPILED_PATH, "--sidecar", "--home", home];
+  const cmd = daemonLaunchArgs({
+    form,
+    devEntry: DEV_ENTRY,
+    compiledPath: COMPILED_PATH,
+    home,
+    port,
+    execPath: process.execPath,
+  });
 
   let proc: ReturnType<typeof Bun.spawn> | undefined;
   let ws: WsProbe | undefined;
@@ -403,17 +446,17 @@ async function runForm(form: "dev" | "compiled"): Promise<FormResult> {
       const dec = new TextDecoder();
       let buf = "";
       const deadline = Date.now() + READY_TIMEOUT_MS;
-      while (Date.now() < deadline) {
+      while (ready === undefined && Date.now() < deadline) {
         const chunk = await Promise.race([
           reader.read(),
           new Promise<never>((_, rej) => setTimeout(() => rej(new Error("ready 行超时")), Math.max(1, deadline - Date.now()))),
         ]);
         if (chunk.done) break;
-        buf += dec.decode(chunk.value, { stream: true });
-        const nl = buf.indexOf("\n");
-        if (nl >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
+        // 排干本 chunk 的全部完整行（不得只取首行——多行同 chunk 时
+        // ready 行会被滞留在 buf 里永不再解析，评审 F5 #11）
+        const drained = drainCompleteLines(buf, dec.decode(chunk.value, { stream: true }));
+        buf = drained.rest;
+        for (const line of drained.lines) {
           try {
             const parsed = JSON.parse(line) as { type?: string; port?: number; token?: string };
             if (parsed.type === "ready") {
@@ -712,4 +755,6 @@ async function main(): Promise<void> {
   console.log("✓ F2.2 等价验证通过：双形态三探针逐项一致");
 }
 
-await main();
+if (import.meta.main) {
+  await main();
+}
