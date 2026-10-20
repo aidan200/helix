@@ -22,7 +22,7 @@ import type { AgentOrchestrationPort } from "../../../../application/ports/inbou
  *   错误形态对齐 agent_send——JSON outcome 携可读中文 error（调度器单源）。
  */
 
-/** 三工具共用的参数 schema 风格（手写 JSON Schema，与 GrepTool 同构）。 */
+/** 编排族工具共用的参数 schema 风格（手写 JSON Schema，与 GrepTool 同构；工具数随家族扩展——不写具体条数防漂移）。 */
 const spawnParameters = {
   type: "object",
   properties: {
