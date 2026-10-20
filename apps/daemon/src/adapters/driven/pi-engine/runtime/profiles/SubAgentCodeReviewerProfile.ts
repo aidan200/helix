@@ -32,9 +32,6 @@ import { loadPrompt } from "../../../engine-shared";
 
 /** reviewer 相对通用 worker 的摘除工具（代码写面机械关闭；组装快照派生单源）。
  * F4 接通批：edit-lines 同摘——行锚编辑与 edit 同属写工具，reviewer 是 worker
- * 摘 write/edit 的只读面，不随 worker 白名单接通而渗入。 */
-/** reviewer 相对通用 worker 的摘除工具（代码写面机械关闭；组装快照派生单源）。
- * F4 接通批：edit-lines 同摘——行锚编辑与 edit 同属写工具，reviewer 是 worker
  * 摘 write/edit 的只读面，不随 worker 白名单接通而渗入。
  * permission_request 批：提权裸跑是写面逃生舱（批准后可写任意路径），与只读
  * 评审面语义冲突——同摘不渗入。 */
