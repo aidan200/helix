@@ -653,7 +653,8 @@ export class SqliteKnowledgeStore {
   // ── 维护面（C1：kg.graph.purge / kg.index.delete 消费） ─────────
 
   /**
-   * purge 全清：KG_TABLES 全清单（9 域表 + meta）逐表清零，单事务（知识层
+   * purge 全清：KG_TABLES 全清单（域表 + meta + 向量缓存表；清单以 schema.ts
+   * KG_TABLES 为单源，本注释不计数——计数快照必随建表漂移）逐表清零，单事务（知识层
    * 通道连接跨面执行——purge 是跨双通道域的管理面操作，busy_timeout 吸收
    * 与在途 sync 写的事务竞争；调用方已先清 sync 定时器）。meta 全清含 seq
    * 发号计数器——全库归零后重新发号自 TR-1/E-1 起（历史行已随库清零，无
@@ -756,16 +757,42 @@ export class SqliteKnowledgeStore {
 
   listEmbedTargets(projectRoot: string): readonly NodeEmbedTarget[] {
     const db = this.deps.database.knowledgeConnection(projectRoot);
+    // 单次 LEFT JOIN 取向量元数据（低危批）：旧实现每节点调一次
+    // getNodeVectorMeta —— N+1 查询 + 每次重复 prepare（全库重嵌面 O(n) 放大）。
     const rows = db
-      .prepare("SELECT id, name, scene, digest, body FROM nodes WHERE status != 'superseded' ORDER BY id")
-      .all() as { id: string; name: string; scene: string; digest: string; body: string }[];
+      .prepare(
+        "SELECT n.id, n.name, n.scene, n.digest, n.body, " +
+          "v.content_hash, v.model, v.dim, v.embedded_at " +
+          "FROM nodes n LEFT JOIN node_vectors v ON v.node_id = n.id " +
+          "WHERE n.status != 'superseded' ORDER BY n.id",
+      )
+      .all() as {
+      id: string;
+      name: string;
+      scene: string;
+      digest: string;
+      body: string;
+      content_hash: string | null;
+      model: string | null;
+      dim: number | null;
+      embedded_at: number | null;
+    }[];
     return rows.map((node) => ({
       nodeId: node.id,
       name: node.name,
       scene: node.scene,
       digest: node.digest,
       body: node.body,
-      vector: this.getNodeVectorMeta(projectRoot, node.id),
+      vector:
+        node.content_hash === null
+          ? null
+          : {
+              nodeId: node.id,
+              contentHash: node.content_hash,
+              model: node.model ?? "",
+              dim: node.dim ?? 0,
+              embeddedAt: node.embedded_at ?? 0,
+            },
     }));
   }
 
