@@ -13,6 +13,8 @@
  * adapters/driven/sqlite-kg/node-vector-codec.ts（AG-02：domain 禁 node:，
  *  hash 经 KgVectorService 依赖注入）。
  */
+import { DomainError } from "../DomainError";
+
 /** body 截断上限（码元；§4.2 公式常量）。 */
 export const NODE_VECTOR_BODY_LIMIT = 1500;
 
@@ -36,7 +38,7 @@ export function buildNodeVectorDoc(node: NodeVectorSource): string {
  */
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) {
-    throw new Error(`向量维度不齐（${a.length} vs ${b.length}）——余弦不可算`);
+    throw new DomainError(`向量维度不齐（${a.length} vs ${b.length}）——余弦不可算`);
   }
   let dot = 0;
   let normA = 0;
@@ -47,6 +49,6 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
     normB += b[i]! * b[i]!;
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  if (denom === 0) throw new Error("零向量余弦无定义");
+  if (denom === 0) throw new DomainError("零向量余弦无定义");
   return dot / denom;
 }

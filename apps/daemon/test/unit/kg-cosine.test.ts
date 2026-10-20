@@ -9,6 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { cosineSimilarity } from "../../src/domain/kg/node-vector";
+import { DomainError } from "../../src/domain/DomainError";
 
 describe("cosineSimilarity（查重闸比对内核）", () => {
   test("① 同向 1 / 正交 0 / 反向 -1", () => {
@@ -25,11 +26,11 @@ describe("cosineSimilarity（查重闸比对内核）", () => {
     }
   });
 
-  test("③ 维度不齐抛错（降级路径输入面）", () => {
-    expect(() => cosineSimilarity(Float32Array.from([1, 0]), Float32Array.from([1, 0, 0]))).toThrow();
+  test("③ 维度不齐抛错（降级路径输入面；域错误契约 = DomainError）", () => {
+    expect(() => cosineSimilarity(Float32Array.from([1, 0]), Float32Array.from([1, 0, 0]))).toThrow(DomainError);
   });
 
-  test("④ 零向量抛错（余弦无定义）", () => {
-    expect(() => cosineSimilarity(Float32Array.from([0, 0]), Float32Array.from([1, 0]))).toThrow();
+  test("④ 零向量抛错（余弦无定义；域错误契约 = DomainError）", () => {
+    expect(() => cosineSimilarity(Float32Array.from([0, 0]), Float32Array.from([1, 0]))).toThrow(DomainError);
   });
 });
