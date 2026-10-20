@@ -183,6 +183,39 @@ describe("HelixWsClient", () => {
     expect(conn.at(-1)).toEqual({ kind: "connecting", attempt: 1 });
   });
 
+  it("退避等待期 start() 为 no-op：不清 timer、attempts 不归零（幂等承诺 + 指数退避不被截断）", async () => {
+    const { client, transports } = await setup();
+    transports[0]!.netClose(); // attempt1 失败 → 进入退避等待（baseMs=100）
+    await vi.advanceTimersByTimeAsync(60); // 等待期（timer 未到）
+    expect(transports).toHaveLength(1);
+    client.start(); // 旧实现：穿过 stopped 守卫 → 清 timer + attempts=0 + 立即重连
+    await vi.advanceTimersByTimeAsync(0);
+    expect(transports).toHaveLength(1); // 未被提前打断
+    await vi.advanceTimersByTimeAsync(60); // 原退避到点
+    expect(transports).toHaveLength(2); // 按原序重连，attempt 计数连续
+  });
+
+  it("transportFactory 同步抛出 → 计一次失败并走退避（不冻结 connecting、无 unhandled rejection）", async () => {
+    let created = 0;
+    const conn: { kind: string }[] = [];
+    const client = new HelixWsClient({
+      port: 7333,
+      getToken: async () => "dev-token",
+      transportFactory: () => {
+        created += 1;
+        throw new Error("boom");
+      },
+      backoff: { baseMs: 100, maxMs: 1_000, maxAttempts: 3 },
+    });
+    client.onConn((c) => conn.push(c));
+    client.start();
+    await vi.advanceTimersByTimeAsync(0); // token fetch → 工厂抛错
+    expect(created).toBe(1);
+    expect(conn.filter((c) => c.kind === "connecting")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(110); // 退避到点 → attempt2（计数连续）
+    expect(created).toBe(2);
+  });
+
   it("握手拒绝帧（connection.error + close）记录错误信息并进入退避", async () => {
     const { transports, conn } = await setup();
     transports[0]!.open();

@@ -125,6 +125,10 @@ export class HelixWsClient {
   /** 本次尝试已被握手超时收口（迟到的 close 回声不再计二次失败）。 */
   private attemptTimedOut = false;
   private lastErrorMessage: string | null = null;
+  /** 退避等待位（phase=stopped 的双语义拆分：用户停 vs 等下一次退避）。
+   *  start() 在等待期必须 no-op——否则穿过 stopped 守卫清 timer、attempts
+   *  归零立即重连，指数退避与「start 幂等」承诺双双被破。 */
+  private awaitingRetry = false;
   /** 曾成功握手标记：welcome 再临 = 重连（onReconnect 挂点判定） */
   private connectedOnce = false;
   private readonly frameHandlers = new Set<(e: EventEnvelope) => void>();
@@ -161,9 +165,11 @@ export class HelixWsClient {
 
   // ── 生命周期 ──────────────────────────────────────────────
 
-  /** 启动（幂等）：立即开始首次连接。 */
+  /** 启动（幂等）：立即开始首次连接。退避等待期的 start() 为 no-op（不得
+   *  打断退避序列——等待位与用户停共用 phase=stopped，靠 awaitingRetry 区分）。 */
   start(): void {
     if (this.phase !== "stopped") return;
+    if (this.awaitingRetry) return; // 退避等待期：幂等空转（不重置 attempts/不清 timer）
     this.clearTimer();
     this.clearHandshakeTimer();
     this.attempts = 0;
@@ -175,6 +181,7 @@ export class HelixWsClient {
     this.clearTimer();
     this.clearHandshakeTimer();
     this.generation += 1;
+    this.awaitingRetry = false;
     this.phase = "stopped";
     this.transport?.close();
     this.transport = null;
@@ -266,6 +273,7 @@ export class HelixWsClient {
 
   private async attemptConnect(): Promise<void> {
     const gen = this.generation;
+    this.awaitingRetry = false;
     this.attempts += 1;
     this.phase = "connecting";
     this.attemptTimedOut = false;
@@ -289,33 +297,43 @@ export class HelixWsClient {
     if (gen !== this.generation) return; // stop()/超时已夭折本次尝试
 
     const url = `ws://127.0.0.1:${this.opts.port}`;
-    const transport = this.opts.transportFactory(url, {
-      onOpen: () => {
-        const hello: HelloCommand = {
-          v: PROTOCOL_VERSION,
-          type: "hello",
-          payload: { token, protocolVersion: PROTOCOL_VERSION },
-        };
-        transport.send(JSON.stringify(hello));
-      },
-      onMessage: (data) => {
-        // 陈旧 transport 身份守卫（中危 F3a，E-83）：非当前连接的迟到帧（僵尸
-        // welcome 可把 phase 翻 connected——握手完成前拒发保证被破）直接丢弃
-        if (this.transport !== transport) return;
-        this.handleMessage(data);
-      },
-      onClose: (info) => {
-        // 陈旧 transport 身份守卫（同上）：迟到 close 不误计新尝试失败、不清其
-        // 握手计时器（attemptTimedOut 是客户端级共享标志，不足以区分代次）
-        if (this.transport !== transport) return;
-        // 超时自清已收口的尝试：close 事件是自身断开的事后回声，不二次计失败
-        if (this.attemptTimedOut) return;
-        this.handleClose(info);
-      },
-      onError: () => {
-        /* close 事件紧随其后，作为失败收口的唯一依据 */
-      },
-    });
+    // 工厂同步抛出兜底（getToken/connect 均有 try/catch，工厂此前裸奔）：
+    // 未捕获 = unhandled rejection + 本次尝试不计数，phase 冻结在 connecting
+    let transport: Transport;
+    try {
+      transport = this.opts.transportFactory(url, {
+        onOpen: () => {
+          const hello: HelloCommand = {
+            v: PROTOCOL_VERSION,
+            type: "hello",
+            payload: { token, protocolVersion: PROTOCOL_VERSION },
+          };
+          transport.send(JSON.stringify(hello));
+        },
+        onMessage: (data) => {
+          // 陈旧 transport 身份守卫（中危 F3a，E-83）：非当前连接的迟到帧（僵尸
+          // welcome 可把 phase 翻 connected——握手完成前拒发保证被破）直接丢弃
+          if (this.transport !== transport) return;
+          this.handleMessage(data);
+        },
+        onClose: (info) => {
+          // 陈旧 transport 身份守卫（同上）：迟到 close 不误计新尝试失败、不清其
+          // 握手计时器（attemptTimedOut 是客户端级共享标志，不足以区分代次）
+          if (this.transport !== transport) return;
+          // 超时自清已收口的尝试：close 事件是自身断开的事后回声，不二次计失败
+          if (this.attemptTimedOut) return;
+          this.handleClose(info);
+        },
+        onError: () => {
+          /* close 事件紧随其后，作为失败收口的唯一依据 */
+        },
+      });
+    } catch (err) {
+      if (gen !== this.generation) return; // stop()/超时已夭折本次尝试
+      this.lastErrorMessage = `transport create failed (${(err as Error).message})`;
+      this.handleFailure(); // 走既有退避/gave-up 链（attempts 已计本次）
+      return;
+    }
     this.transport = transport;
     try {
       transport.connect();
@@ -384,6 +402,7 @@ export class HelixWsClient {
     this.clearTimer();
     this.clearHandshakeTimer(); // 旧尝试的握手计时器拆除（新尝试 attemptConnect 重新武装）
     this.phase = "stopped"; // 等待期；attemptConnect 会重新置 connecting
+    this.awaitingRetry = true; // 与「用户主动停」区分（start 幂等守卫读它）
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.attemptConnect();

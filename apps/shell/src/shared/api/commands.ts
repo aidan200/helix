@@ -184,8 +184,9 @@ export function chatSendCommand(text: string, sessionId: string, images?: readon
 }
 
 /** chat.send 草稿首条消息：无信封 sessionId + draft:true（契约 B §1.5）。
- *  T3（bug4）：model 可选——仅非空时携带（ChatSendPayload.model?，仅
- *  draft:true 建会话链消费；缺省 = 全局默认不换模）。
+ *  T3（bug4）：model 可选——**仅非空时携带**（ChatSendPayload.model?，仅
+ *  draft:true 建会话链消费；缺省 = 全局默认不换模。空串与缺省同义：不发空
+ *  model 键——daemon 侧不再需要空防御兜底）。
  *  T9（v0.10）：images 可选——三可选共存（draft + model + images）。
  *  P1 T4：mode 可选——仅非 default 携带（DEFAULT_MODE_ID 走协议缺省，
  *  减少帧噪音；建会话定格链消费，此后无写路径）。 */
@@ -196,7 +197,7 @@ export function chatSendDraftCommand(
   mode?: string,
 ): ChatSendCommand {
   const payload: ChatSendCommand["payload"] = { text, draft: true };
-  if (model !== undefined) payload.model = model;
+  if (model !== undefined && model !== "") payload.model = model; // 空串 = 未选模型（不携带，帧噪音最小）
   if (images !== undefined) payload.images = images;
   if (mode !== undefined && mode !== DEFAULT_MODE_ID) payload.mode = mode;
   return { v: PROTOCOL_VERSION, type: "chat.send", payload };
@@ -1010,10 +1011,12 @@ export function workspaceOpenCommand(root: string): WorkspaceOpenCommand {
 }
 
 // ── task 族命令（T3.1；契约 contracts/task-api.md §2；iter-20260829-ys7q）──
-// 九命令全部全局命令（信封 sessionId 省略——任务为 daemon 级实体）；
-// 回执 = task.*.result 点对点帧（SessionContext 转发层 → P-2 页面私有
-// reducer；错误走 connection.error，生命周期词表 = 契约 §4）。零内容干预
-//（AD-2）：无 steer/重试命令——九命令即全集。
+// 本族全部为全局命令（信封 sessionId 省略——任务为 daemon 级实体）；回执 =
+// task.*.result 点对点帧（SessionContext 转发层 → P-2 页面私有 reducer；
+// 错误走 connection.error，生命周期词表 = 契约 §4）。零内容干预（AD-2）：
+// 无 steer 命令（不给在跑任务插话改内容）；**人工复活 = task.retry**（仅
+// failed→running，非内容干预）。命令清单以本文件构造器为单源（正文不写
+// 计数快照——TR-206）。
 
 /** task.list：全局平铺列表（服务端排序 = 运行中置顶+创建时间倒序；
  *  过滤器入参服务端生效，页面另持客户端镜像派生）。 */
