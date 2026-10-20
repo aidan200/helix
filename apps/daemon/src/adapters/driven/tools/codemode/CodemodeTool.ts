@@ -32,11 +32,15 @@ import { BACKGROUND_CONTEXT, withAbortSignal } from "../../tools/vendor/pi-harne
  * S3 透传批）。
  */
 
-/** 沙箱不可编排面（v1 排除集——审批/编排语义不进脚本）：
+/** 沙箱不可编排面（排除集——审批/编排/重型副作用语义不进脚本）：
  * - codemode 自身（防嵌套递归）；
  * - permission_request：审批闸语义（beforeToolCall 用户卡片批准后才执行）——
  *   嵌套直执 = 绕过用户审批跑沙箱外命令，安全面硬排除；
- * - agent_* 编排六件：脚本化 spawn 风暴/挂起恢复语义复杂，v1 不进沙箱。 */
+ * - agent_* 编排六件：脚本化 spawn 风暴/挂起恢复语义复杂，不进沙箱；
+ * - task_create：任务创建 = 对话即确认的重型副作用（起编排/派子进程/落台账），
+ *   脚本循环里创造任务是逐调用引导的绕过面（低危批补入）；
+ * - coord_claim / coord_release：占用协调是决策动作（谁在改哪块），脚本循环
+ *   抢/放占用会让协调事实与真实工作脱节（coord_query 只读，保留可编排）。 */
 const CODEMODE_SANDBOX_EXCLUSIONS: ReadonlySet<string> = new Set([
   "codemode",
   "permission_request",
@@ -46,6 +50,9 @@ const CODEMODE_SANDBOX_EXCLUSIONS: ReadonlySet<string> = new Set([
   "agent_inspect",
   "agent_park",
   "agent_resume",
+  "task_create",
+  "coord_claim",
+  "coord_release",
 ]);
 
 /** codemode 工具名（profile 声明面 / 排除集自引用）。 */
@@ -116,7 +123,7 @@ export function createCodemodeTool(deps: CodemodeToolDeps): AgentHarnessTool<Exe
       '`await tools.<name>(args)` 调用工具（名字不是合法标识符时用 tools["<name>"]，如 MCP 命名空间名）；' +
       "`text(value)`/`console.log()` 输出、`return` 返回值（结构化值会 JSON 序列化）、`image(dataUrl)` 附图；" +
       "`ALL_TOOLS` 列出全部可用工具名。\n" +
-      "可编排面 = 本会话已声明的工具（codemode 自身、编排族 agent_*、permission_request 除外）。" +
+      "可编排面 = 本会话已声明的工具（codemode 自身、编排族 agent_*、permission_request、task_create、coord_claim/coord_release 除外）。" +
       "声明了结构化输出（outputSchema）的工具返回对象，其余返回文本。",
     parameters: {
       type: "object",
