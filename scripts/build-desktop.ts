@@ -3,20 +3,18 @@
  * build-desktop —— CL-2/F2.1/F2.4 一条命令桌面端构建管线（architecture §4.3/§4.7，
  * 平台化 TR-95：{darwin-arm64, win32-x64} 双档）。
  *
- * 六步依序（任一步非零退出即中断：打印 ✗ 步骤N + 透传 stderr 末 50 行 +
- * 以该 code 退出，后续步骤不启动——机械判据见 brief「决策消解」）：
- *   ① fetch-rg（bun scripts/fetch-rg.ts --platform <档>，幂等）
- *   ② fetch-codegraph（bun scripts/fetch-codegraph.ts --platform <档>，幂等）
- *   ③ compile（bun scripts/compile-daemon.ts --platform <档>，daemon → 单文件 sidecar）
- *   ④ F2.2 等价验证（bun smoke/verify-compiled-daemon.ts，双形态三探针对照，
- *      失败即断——管线内步骤，非手工检查项，架构 §4.3）——**仅 darwin-arm64 档
- *      编排**：windows-x64 档交叉编译产物（.exe）在 mac 宿主不可执行，F2.2
- *      双形态对照无从谈起；Windows 侧等价验证归 release workflow（Windows
- *      runner 原生跑）负责，不在本管线内。
- *   ⑤ vite build（apps/shell → 静态产物，frontendDist 消费位）
- *   ⑥ tauri build（cargo tauri build [--target <triple>]，捆绑 sidecar + rg +
- *      codegraph + 静态产物 → bundle；darwin 档保持裸 build 零回归，windows
- *      档显式 --target x86_64-pc-windows-msvc）
+ * 步骤清单与顺序以 pipelineSteps() 为单源（本头注不记硬计数、不排编号——
+ * 手维护清单在 additive 演进下必腐：fetch-vec0 入列时头注就漏了它，编号也错位；
+ * 评审 F5 #7）。管线形态：三类资产获取（fetch-rg / fetch-vec0 /
+ * fetch-codegraph，幂等，按 --platform 档）→ compile（daemon → 单文件 sidecar）
+ * → 可选 F2.2 等价验证（双形态三探针对照；**仅 darwin-arm64 档编排**：
+ * windows-x64 交叉编译产物在 mac 宿主不可执行，Windows 侧等价验证归 release
+ * workflow 的 Windows runner）→ vite build（apps/shell → 静态产物，
+ * frontendDist 消费位）→ tauri build（cargo tauri build --target <triple>，
+ * 捆绑 sidecar + rg + vec0 + codegraph + 静态产物 → bundle）。
+ *
+ * 中断语义：任一步非零退出即中断——打印 ✗ 步骤N + 透传 stderr 末 50 行 +
+ * 以该 code 退出，后续步骤不启动（机械判据见 brief「决策消解」）。
  *
  * 签名配置位（F2.4/AD-5）：resolveSigning 纯函数集中判定 tauri 官方环境
  * 变量键族，三分支——
