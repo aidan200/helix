@@ -90,6 +90,11 @@ import type { WorkspaceService } from "../application/services/workspace/Workspa
  * 均归 infrastructure/assembly（AG-02④ 豁免面），装配顺序语义不变。
  * M5 切片：启动序前置域（bootPrelude——grep/codegraph 定格 + legacy
  * 迁移两批 + WS 端口解析链）同归豁免面，原位调用零行为改动。
+ * P5 切片（体量门）：按域分组把接线密集段迁 assembly——会话栈依赖面组装
+ * （wireSessionStack）/ 管家域全栈（buildStewardStack）/ 总结与配置组
+ * （buildSummaryStack）/ workspace 绑定面（buildWorkspaceStack）/ MCP 预热
+ * （mcpWarmup）/ 回填面锚计算（spawnAnchor）；本文件保留容器骨架、装配序
+ * 编排与返回值。切片判据与晚绑回填处置见各切片头注释。
  *
  * 持久化：SQLite WAL `<home>/helix.db`；WriteQueue 是 daemon 内唯一
  * SQLite 写通道（AG-06），每会话独立仓位按 session_id 路由（分仓写队列）；
