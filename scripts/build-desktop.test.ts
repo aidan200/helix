@@ -289,4 +289,10 @@ describe("管线头注口径（步骤清单以 pipelineSteps 为单源）", () =
     expect(src).not.toContain("六步依序");
     expect(src).not.toContain("① fetch-rg");
   });
+
+  test("compile-daemon.ts 头注不自称「管线第一段」，指向 pipelineSteps 单源", () => {
+    const src = readFileSync(join(root, "scripts/compile-daemon.ts"), "utf8");
+    expect(src).toContain("次序归 scripts/build-desktop.ts pipelineSteps 单源");
+    expect(src).not.toContain("管线第一段");
+  });
 });
