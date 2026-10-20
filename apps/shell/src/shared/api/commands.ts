@@ -236,16 +236,9 @@ export {
   authDeleteKeyCommand,
   authVerifyCommand,
 } from "./commands/auth";
+export { traceQueryCommand } from "./commands/trace";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-// ── trace 命令族（契约 v0.4 §1；T2.2 P-1 TracePage）────────
-
-/** trace.query：会话历史事件查询（连接私有读面；信封 sessionId 位不消费，
- *  目标会话在 payload.sessionId；结果 = trace.query.result 点对点回执）。 */
-export function traceQueryCommand(payload: TraceQueryPayload): TraceQueryCommand {
-  return { v: PROTOCOL_VERSION, type: "trace.query", payload };
-}
 
 /** web.status：CDP 连接状态读面（全局命令；回执 = web.status.result 点对点）。 */
 export function webStatusCommand(): WebStatusCommand {
