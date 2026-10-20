@@ -141,5 +141,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Git Bash 上 PATH（2026-10 runner 镜像漂移：PATH 不再含 bash，checkout 的 git.exe 仍在）
+        if: runner.os == 'Windows'
+        run: Add-Content $env:GITHUB_PATH 'C:\Program Files\Git\bin'
       - name: Unit + behavior tests（真 spawn helper 断言 ACL 行为）
         run: cargo test --manifest-path apps/daemon/resources/win-sandbox-helper/Cargo.toml
