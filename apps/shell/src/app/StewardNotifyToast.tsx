@@ -30,7 +30,9 @@ export default function StewardNotifyToast({ onOpenTasks }: { onOpenTasks: () =>
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
   const toast = useToast();
-  /** 去重窗（组件级实例态——重挂载即新窗；键 title\u0000body → 上次渲染时刻）。 */
+  /** 去重窗（组件级实例态——重挂载即新窗；键 title\u0000body → 窗内首达时刻）。
+   *  Map 插入序即 LRU 序：命中先摘后插把键移到尾部，容量挤出取头部
+   *  （= 最久未用），复现频繁的通知键不再永久占据挤出位。 */
   const dedupRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
@@ -45,7 +47,13 @@ export default function StewardNotifyToast({ onOpenTasks }: { onOpenTasks: () =>
       const dedupKey = `${p.title}\u0000${p.body}`;
       const now = Date.now();
       const lastAt = dedupRef.current.get(dedupKey);
-      if (lastAt !== undefined && now - lastAt < NOTIFY_DEDUP_WINDOW_MS) return;
+      // 先摘后插：命中/新达都把键移到 Map 尾（最近使用位），挤出才按真 LRU 取头部
+      dedupRef.current.delete(dedupKey);
+      if (lastAt !== undefined && now - lastAt < NOTIFY_DEDUP_WINDOW_MS) {
+        // 窗内命中：保留首达时刻回填（窗不滑动，短路不变）
+        dedupRef.current.set(dedupKey, lastAt);
+        return;
+      }
       dedupRef.current.set(dedupKey, now);
       if (dedupRef.current.size > 32) {
         const oldest = dedupRef.current.keys().next().value;

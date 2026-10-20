@@ -1,5 +1,6 @@
 /**
- * app 路由层（F(4.4).2；CL-4，Q-4b；S2）：六路由位独立 URL。
+ * app 路由层（F(4.4).2；CL-4，Q-4b；S2）：各路由位独立 URL（路由清单
+ * = 下方 AppRoute 联合，本文不重复计数）。
  *
  * 机制：History API（pushState + popstate）；工作台常驻 DOM（display 切换
  * 保状态——活跃会话/输入/滚动位/WS 连接均不重建；SessionProvider 在路由层

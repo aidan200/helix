@@ -2,7 +2,7 @@
  * app 入口组装（FSD 顶层）：providers（主题/i18n/Toast/会话/workspace
  * 门禁）× 门禁分支（W3：phase !== main 全屏占位，主壳不渲染即无
  * kg/session 消费者——结构保证 gate 态零提权请求）× 应用壳
- * （IconRail 常驻导航 + 页面域五路由位）。
+ * （IconRail 常驻导航 + 页面域路由位——路由清单以 ./route 的 AppRoute 联合为单源）。
  *
  * 会话连接在 SessionProvider 挂载时自动启动（连接状态机见 shared/api）；
  * workspace 门禁（W3）在 SessionProvider 之内、主壳之外：连接就绪自动
@@ -14,7 +14,7 @@
  * （display 切换保状态，F(4.4).2），路由切换不重建 WS/不丢活跃会话与输入。
  * IconRail 为页面域纯展示组件（不读会话 store，TR-AD-8 页面域/会话域
  * 分离；主题态由本层 useTheme 注入，S1）；S2：models 独立页退役（模型
- * 配置迁入设置页分区，导航位五位）；skills 位已升格为智能体页（M6 T4，
+ * 配置迁入设置页分区）；skills 位已升格为智能体页（M6 T4，
  * 路由 /skills 不动），trace 实页，project 为 P-1 单页 master-detail 实页
  * （V-3：项目域+知识图谱查看）。scanline 氛围层全局单份（S1 上提）。
  */
@@ -25,7 +25,7 @@ import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider, useToast } from "@/shared/ui/Toast";
 import { subscribeOpenSettings } from "@/shared/lib/open-settings-signal";
 import { subscribeOpenSteward } from "@/shared/lib/steward-open-signal";
-import { requestSettingsSection } from "@/pages/settings/settings-section-bus";
+import { requestSettingsSection, type ModelsTab } from "@/pages/settings/settings-section-bus";
 import { SessionProvider } from "@/entities/session/SessionContext";
 import { useSession } from "@/entities/session/SessionContext";
 import { WorkspaceProvider, useWorkspace } from "@/entities/workspace/WorkspaceContext";
@@ -63,7 +63,25 @@ import StewardActivityPage from "@/pages/steward-activity/StewardActivityPage";
 import { useStewardNavigate } from "@/features/steward/model/useStewardNavigate";
 import { useShellSurface } from "@/features/surface/model/useShellSurface";
 
-/** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
+/**
+ * 设置页「模型分区」tab 白名单（shared 信号 → pages 类型的收敛闸）。
+ *
+ * Record<ModelsTab, true> 形态让「联合新增 tab 忘了接线」变成编译错误：
+ * 手写 `tab === "x" || ...` 串联漏项只会静默丢弃（classifier 曾漏一版）。
+ */
+const MODELS_TAB_SET: Record<ModelsTab, true> = {
+  chat: true,
+  embedding: true,
+  classifier: true,
+  provider: true,
+};
+
+/** shared 信号宽 string → ModelsTab 收敛（非白名单字面量丢 tab 只指路分区）。 */
+export function resolveModelsTab(tab: string | undefined): ModelsTab | undefined {
+  return tab !== undefined && tab in MODELS_TAB_SET ? (tab as ModelsTab) : undefined;
+}
+
+/** IconRail 导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列；清单以本数组为单源）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
   { id: "chat", route: ROUTE_WORKBENCH, labelKey: "chat.nav.pages.chat.label", icon: MessageSquare },
   { id: "skills", route: ROUTE_SKILLS, labelKey: "chat.nav.pages.skills.label", icon: Layers },
@@ -113,8 +131,10 @@ export function AppRoutes() {
     () =>
       subscribeOpenSettings((section, tab) => {
         // shared 信号 tab 为宽 string（依赖方向：shared 不引 pages 类型）；
-        // 本层收敛——非模型 tab 字面量直接丢弃（只指路，不猜义）
-        const modelsTab = tab === "chat" || tab === "embedding" || tab === "provider" ? tab : undefined;
+        // 本层收敛——非模型 tab 字面量直接丢弃（只指路，不猜义）。
+        // 白名单 = Record<ModelsTab, true> 形态：ModelsTab 联合新增成员时
+        // 编译期报缺键，避免手写联合白名单漏项被静默丢弃（classifier 曾漏）
+        const modelsTab = resolveModelsTab(tab);
         requestSettingsSection(section, modelsTab);
         navigate(ROUTE_SETTINGS);
       }),

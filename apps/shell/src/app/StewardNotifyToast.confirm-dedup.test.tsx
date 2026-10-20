@@ -70,6 +70,45 @@ describe("StewardNotifyToast 兜底去重（60s 同内容短窗）", () => {
     expect(toasts).toHaveLength(1);
   });
 
+  it("容量挤出按真 LRU：高频复现的键不占挤出位（先摘后插保新鲜）", () => {
+    render(
+      <I18nProvider>
+        <ToastProvider>
+          <StewardNotifyToast onOpenTasks={() => undefined} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    const key = (i: number) => ({ title: `通知${i}`, body: `内容${i}` });
+    // 填满容量窗（32 键）
+    act(() => {
+      for (let i = 0; i < 32; i++) stewardListener?.(notifyFrame(key(i)));
+    });
+    // 复现 k0（窗内命中：去重短路，但 LRU 位置应刷新到队尾）
+    act(() => {
+      stewardListener?.(notifyFrame(key(0)));
+    });
+    // 新增第 33 键触发挤出：旧实现按插入序挤掉 k0，修后挤掉最久未用的 k1
+    act(() => {
+      stewardListener?.(notifyFrame(key(99)));
+    });
+    // k0 仍在窗内 → 同内容再达仍去重（toast 里「通知0」只出现一次）
+    act(() => {
+      stewardListener?.(notifyFrame(key(0)));
+    });
+    const k0Toasts = [...document.querySelectorAll(".toast")].filter((t) =>
+      t.textContent?.includes("通知0"),
+    );
+    expect(k0Toasts).toHaveLength(1);
+    // 对照：k1 已被挤出窗口 → 同内容再达渲染新 toast
+    act(() => {
+      stewardListener?.(notifyFrame(key(1)));
+    });
+    const k1Toasts = [...document.querySelectorAll(".toast")].filter((t) =>
+      t.textContent?.includes("通知1"),
+    );
+    expect(k1Toasts.length).toBeGreaterThan(1);
+  });
+
   it("60s 窗外同内容再达 → 渲染第二条；不同内容不受影响", () => {
     render(
       <I18nProvider>
