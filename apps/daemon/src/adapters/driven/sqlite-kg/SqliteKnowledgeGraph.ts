@@ -374,7 +374,7 @@ export class SqliteKnowledgeGraph {
       scopeKind: row.scope_kind as AnchorDeclRow["scopeKind"],
       pattern: row.pattern,
     }));
-    return { files, symbols, activeAnchors, anchorDeclarations, orphanedAnchors: orphanedAnchors.length > 0 ? orphanedAnchors : [] };
+    return { files, symbols, activeAnchors, anchorDeclarations, orphanedAnchors };
   }
 
   getIndexStatus(projectRoot: string): IndexStatus {
@@ -645,8 +645,6 @@ export class SqliteKnowledgeGraph {
       scene: row.scene,
     }));
   }
-  // ── supersede 链组装（双向游走） ──────────────────────
-
   /** 读面连接（库文件缺席 → null，不新建库——统一缺库守卫收口点：
    *  connectionOf 会 mkdir+建库，读面调它即副作用建库；全公共读方法经
    *  此取连接，缺席时各自返回空形状/零计数，对齐 latestIteration 既有
