@@ -73,10 +73,17 @@ export class KgDatabase {
     const dbPath = kgDbPath(projectRoot);
     mkdirSync(path.dirname(dbPath), { recursive: true });
     const db = new Database(dbPath);
-    db.exec("PRAGMA journal_mode = WAL;"); // 持久库级设置；崩溃一致 + 页面读不阻塞写
-    db.exec("PRAGMA busy_timeout = 10000;"); // 双通道并发时另一写者等待而非 BUSY 失败
-    db.exec(KG_SCHEMA_SQL); // 幂等直建（冷启动首建 / 旧库重开 no-op）
-    ensureSchemaEvolved(db); // 列级演进守护（老库 ALTER 补列；已演进 no-op）
+    try {
+      db.exec("PRAGMA journal_mode = WAL;"); // 持久库级设置；崩溃一致 + 页面读不阻塞写
+      db.exec("PRAGMA busy_timeout = 10000;"); // 双通道并发时另一写者等待而非 BUSY 失败
+      db.exec(KG_SCHEMA_SQL); // 幂等直建（冷启动首建 / 旧库重开 no-op）
+      ensureSchemaEvolved(db); // schema 演进守护（老库补列/补表/表重建；已演进 no-op）
+    } catch (error) {
+      // 建库/演进中途抛错：句柄既不入缓存也无外部持有者——就地关闭再上抛，
+      // 否则连接泄漏（低危批：旧实现只 new 不 close）
+      db.close();
+      throw error;
+    }
     channels.set(projectRoot, db);
     return db;
   }
