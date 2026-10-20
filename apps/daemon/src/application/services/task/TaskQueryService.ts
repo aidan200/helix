@@ -144,7 +144,9 @@ export class TaskQueryService {
     // 也要可见）；序 = stage seq 升序 + 阶段内批次 seq 升序（落库序）。
     const batches = stages.flatMap((s) => this.deps.store.getBatches(jobId, s.seq));
     return {
-      ...this.summaryOf(job),
+      // 复用本请求已读的阶段/批次行（评审 low #60）：原 summaryOf(job) 内部再
+      // getStages+getBatches 一遍，同一请求内两读。
+      ...this.summaryOfRows({ job, stages, batches }),
       stages: stages.map((s) => stageDtoOf(s, this.stageKindOf(job.type, s.seq))),
       batches: batches.map((b) => this.batchDtoOf(b)),
       params: job.params,
