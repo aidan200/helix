@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   isWorkspaceProjectDir,
@@ -22,6 +22,18 @@ import {
 export { WORKSPACE_EXCLUDED, isWorkspaceProjectDir, resolveProjectArg };
 export type { ProjectDirEntry };
 
+/** 目录项是目录（含指向目录的 symlink——Dirent.isDirectory() 对 symlink 恒 false，
+ *  不 follow 会漏掉软链挂载的项目；低危批）。 */
+function isDirEntry(fullPath: string, isDirectory: boolean, isSymbolicLink: boolean): boolean {
+  if (isDirectory) return true;
+  if (!isSymbolicLink) return false;
+  try {
+    return statSync(fullPath).isDirectory(); // stat follow symlink；断链/循环 → 非目录
+  } catch {
+    return false;
+  }
+}
+
 export function scanWorkspaceProjects(workspaceRoot: string): string[] {
   let entries;
   try {
@@ -31,8 +43,13 @@ export function scanWorkspaceProjects(workspaceRoot: string): string[] {
   }
   const out: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || !isWorkspaceProjectDir(entry.name)) continue;
-    out.push(path.join(workspaceRoot, entry.name));
+    if (!isWorkspaceProjectDir(entry.name)) continue;
+    const full = path.join(workspaceRoot, entry.name);
+    // symlink→目录同判（低危批）：项目归属 projectRootOfPath 是词法判定（symlink
+    // 路径照常归属），扫描面若只认 Dirent.isDirectory() 则「行可归属但项目永
+    // 不可见」——两口径必须一致。
+    if (!isDirEntry(full, entry.isDirectory(), entry.isSymbolicLink())) continue;
+    out.push(full);
   }
   return out.sort();
 }
