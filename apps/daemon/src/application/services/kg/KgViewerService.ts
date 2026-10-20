@@ -192,6 +192,16 @@ export function logEventText(op: string, reason: string | null): string {
       return "声明锚点作用域";
     case "addEdge":
       return "添加知识边（约束/依赖关系）";
+    case "removeEdge":
+      return "移除知识边（约束/依赖关系解除）";
+    case "batchCreateNodes":
+      return "批量创建节点（新知识入库）";
+    case "anchorRelocate":
+      return reason === null || reason === "" ? "锚点机械重定位" : `锚点机械重定位：${reason}`;
+    case "proposeCandidate":
+      return "候选入库（待人工裁决）";
+    case "decideCandidate":
+      return reason === null || reason === "" ? "候选裁决" : `候选裁决：${reason}`;
     case "prune":
       return reason === null || reason === "" ? "物理清理失效锚点" : `物理清理失效锚点：${reason}`;
     default:
@@ -410,7 +420,10 @@ export class KgViewerService {
       }
       // 批1 WP-B：缺失向量修复路径——rebuild 顺带重算（hash 判据跳过未变；
       //  fire-and-forget，不阻塞索引状态回执；失败由 KgVectorService warn 留档）
-      void this.deps.vectorSync?.syncAll(projectRoot);
+      // 评审 low #27：fire-and-forget 必须自带终态吸收——syncAll 内
+      // listEmbedTargets 抛错（DB 故障）会成为 unhandledRejection 击穿进程，
+      // 而本面只承诺「不阻塞回执、失败不影响索引状态」。
+      void this.deps.vectorSync?.syncAll(projectRoot).catch(() => undefined);
       // W2-D R14：手动 sync 后 orphan>0 附一行体检提示（只提示不处置——
       // 体检清单归 kg.health 面板；hasIndex 判定同健康面读纪律）
       const rebuilt = this.statusView(projectRoot);
