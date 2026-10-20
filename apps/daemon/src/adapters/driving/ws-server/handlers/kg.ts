@@ -108,27 +108,10 @@ export function handleKgProjects(ctx: KgCommandContext): void {
 
 /** kg.list（F5.1：q×kind×status 三路过滤叠加 + total/matched）。W1：unbound → 空集结果。 */
 export function handleKgList(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) {
-    if (ctx.workspaceUnbound) {
-      const project = requireString(ctx, "project");
-      if (project === undefined) return;
-      const q = optionalString(ctx, "q");
-      if (q === null) return;
-      const kind = optionalString(ctx, "kind");
-      if (kind === null) return;
-      const status = optionalString(ctx, "status");
-      if (status === null) return;
-      const empty: KgListResultEvent = {
-        v: PROTOCOL_VERSION,
-        sessionId: SYSTEM_SESSION_ID,
-        channel: "kg",
-        type: "kg.list.result",
-        payload: { total: 0, matched: 0, nodes: [] },
-      };
-      return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
-    }
-    return unimplemented(ctx);
-  }
+  // 未装配且非 unbound → 未实现（先于载荷校验：保持既有回执优先序）
+  if (ctx.kg === undefined && !ctx.workspaceUnbound) return unimplemented(ctx);
+  // 载荷校验单点（低危批）：unbound 空集分支与主路径共用同一份校验，避免
+  // 两份逐行重复各自漂移
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const q = optionalString(ctx, "q");
@@ -137,6 +120,17 @@ export function handleKgList(ctx: KgCommandContext): void {
   if (kind === null) return;
   const status = optionalString(ctx, "status");
   if (status === null) return;
+  if (ctx.kg === undefined) {
+    // unbound → 空集结果（列表型读面同规：不报错）
+    const empty: KgListResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "kg",
+      type: "kg.list.result",
+      payload: { total: 0, matched: 0, nodes: [] },
+    };
+    return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
+  }
   const result = ctx.kg.list(project, { q, kind, status });
   if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgListResultEvent = {
@@ -550,23 +544,8 @@ export function handleKgTriageCreate(ctx: KgCommandContext): void {
  * （kg.list 列表型读面同规）；absent → KG_E_NOT_FOUND（读面不建库）。
  */
 export function handleKgCandidatesList(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) {
-    if (ctx.workspaceUnbound) {
-      const project = requireString(ctx, "project");
-      if (project === undefined) return;
-      const status = optionalString(ctx, "status");
-      if (status === null) return;
-      const empty: KgCandidatesListResultEvent = {
-        v: PROTOCOL_VERSION,
-        sessionId: SYSTEM_SESSION_ID,
-        channel: "kg",
-        type: "kg.candidates.list.result",
-        payload: { total: 0, rows: [] },
-      };
-      return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
-    }
-    return unimplemented(ctx);
-  }
+  if (ctx.kg === undefined && !ctx.workspaceUnbound) return unimplemented(ctx);
+  // 载荷校验单点（低危批）：unbound 空集分支与主路径共用（同 kg.list）
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const status = optionalString(ctx, "status");
@@ -578,6 +557,16 @@ export function handleKgCandidatesList(ctx: KgCommandContext): void {
       ctx.commandError(ctx.type, "KG_E_PARAM", `payload.${key} 应为非负整数`);
       return;
     }
+  }
+  if (ctx.kg === undefined) {
+    const empty: KgCandidatesListResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "kg",
+      type: "kg.candidates.list.result",
+      payload: { total: 0, rows: [] },
+    };
+    return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
   }
   const result = ctx.kg.candidatesList(project, {
     ...(status !== undefined ? { status: status as "pending" | "deferred" | "applied" | "discarded" } : {}),
