@@ -159,14 +159,19 @@ export class StewardRun<ErrorKind extends string = string> {
 
   /** run 收口清块（runActive=false + 三锚复位；幂等守卫在调用方）。 */
   finish(): void {
-    this._active = false;
-    this._lastProgressAt = undefined;
-    this._watchdogFiredAt = undefined;
-    this._manualAbortAt = undefined;
+    this.clearRunAnchors();
   }
 
-  /** 装配异常释放占位（占位提前后的必需兑底——防 runActive 永真死锁队列）。 */
+  /** 装配异常释放占位（占位提前后的必需兑底——防 runActive 永真死锁队列）。
+   *  与 finish 同为「清块」语义，差别只在调用时点（装配失败 vs 正常收口）——
+   *  两名共用一个实现（评审 low #77：原两份方法体逐字重复，语义分野只活在
+   *  调用点注释里，易误以为两者行为不同）。 */
   assemblyFailed(): void {
+    this.clearRunAnchors();
+  }
+
+  /** 清块本体（reset 面单点：占位复位 + 三锚归零）。 */
+  private clearRunAnchors(): void {
     this._active = false;
     this._lastProgressAt = undefined;
     this._watchdogFiredAt = undefined;
