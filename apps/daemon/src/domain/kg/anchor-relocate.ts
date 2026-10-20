@@ -24,7 +24,7 @@
  */
 
 import type { AnchorDeclRow, AnchorDeclRewrite, MaterializedAnchor } from "./types";
-import { globToRegExp } from "./anchor-materialize";
+import { anchorKey, globToRegExp } from "./anchor-materialize";
 
 export type { AnchorDeclRewrite };
 
@@ -141,7 +141,7 @@ export function relocateAnchors(input: RelocateInput): RelocationResult {
     if (rewrite !== null) {
       rewrites.push(rewrite);
       prunes.push(t);
-      relocatedKeys.add(anchorKeyOf(t));
+      relocatedKeys.add(anchorKey(t));
     }
   }
 
@@ -150,7 +150,7 @@ export function relocateAnchors(input: RelocateInput): RelocationResult {
   for (const m of input.materialized) healthyNodeIds.add(m.nodeId);
   const declaredNodeIds = new Set(input.declarations.filter((d) => d.scopeKind !== "global").map((d) => d.nodeId));
   for (const t of input.tombstones) {
-    if (relocatedKeys.has(anchorKeyOf(t))) continue;
+    if (relocatedKeys.has(anchorKey(t))) continue;
     if (canStillProduce(t, input.declarations)) continue; // 形态1 符号消亡：声明仍在 → 真信号保留
     const healthy = healthyNodeIds.has(t.nodeId) || declaredNodeIds.has(t.nodeId);
     if (!healthy) continue; // 节点零附着：保留 tombstone（归体检/orphan_node 口径）
@@ -158,10 +158,6 @@ export function relocateAnchors(input: RelocateInput): RelocationResult {
   }
 
   return { rewrites, prunes };
-}
-
-function anchorKeyOf(a: MaterializedAnchor): string {
-  return `${a.nodeId}\u0000${a.anchorKind}\u0000${a.anchorPath}\u0000${a.anchorSymbol ?? ""}`;
 }
 
 /**
@@ -183,10 +179,10 @@ export function buildOrphanEvidence(
   for (const t of orphans) {
     if (t.anchorKind === "symbol") {
       const row = (prevByFile.get(t.anchorPath) ?? []).find((s) => s.name === (t.anchorSymbol ?? ""));
-      if (row !== undefined) out.set(anchorKeyOf(t), JSON.stringify({ kind: row.kind, spanStart: row.spanStart, spanEnd: row.spanEnd }));
+      if (row !== undefined) out.set(anchorKey(t), JSON.stringify({ kind: row.kind, spanStart: row.spanStart, spanEnd: row.spanEnd }));
     } else {
       const names = (prevByFile.get(t.anchorPath) ?? []).map((s) => s.name);
-      if (names.length > 0) out.set(anchorKeyOf(t), JSON.stringify({ symbolNames: names }));
+      if (names.length > 0) out.set(anchorKey(t), JSON.stringify({ symbolNames: names }));
     }
   }
   return out;
