@@ -46,7 +46,7 @@ describe("AbortShaping（pi 通道打断善后修形层）", () => {
       user("问题"),
       abortedAssistant([
         text("已经说了一半的话"),
-        { type: "thinking", text: "推理链半截…", signature: undefined } as never,
+        { type: "thinking", thinking: "推理链半截…", thinkingSignature: undefined } as never,
         { type: "toolCall", id: "tc-1", name: "danger", arguments: { a: 1 } } as never,
       ]),
     ]);
@@ -114,10 +114,24 @@ describe("AbortShaping（pi 通道打断善后修形层）", () => {
     conv([
       abortedAssistant([
         text("t"),
-        { type: "thinking", text: "x" } as never,
+        { type: "thinking", thinking: "x" } as never,
         { type: "toolCall", id: "tc-1", name: "n", arguments: {} } as never,
       ]),
     ]);
     expect(dropped.sort()).toEqual(["thinking", "toolCall"]);
+  });
+
+  test("⑦ 审计摘要读 pi thinking 字段（非 text）：旧读 text 口径恒空串（低危批）", () => {
+    const summaries: { kind: string; summary: string }[] = [];
+    const conv = abortShapingConvertToLlm(baseConvertToLlm, (block) => summaries.push(block));
+    conv([
+      abortedAssistant([
+        text("半截正文"),
+        // pi ThinkingContent 真实形状：正文在 thinking 字段
+        { type: "thinking", thinking: "推理链半截…", thinkingSignature: "sig" } as never,
+      ]),
+    ]);
+    const thinking = summaries.find((s) => s.kind === "thinking");
+    expect(thinking?.summary).toBe("推理链半截…");
   });
 });
