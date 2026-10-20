@@ -38,14 +38,45 @@ fn run_helper(writable: &PathBuf, workdir: &PathBuf, inner_cmd: &str) -> (i32, S
     (code, stderr)
 }
 
-/// windows-latest 预装 Git for Windows（bash 在 PATH）——缺席则响亮报错而非误判沙箱失败。
-fn bash_available() -> bool {
-    Command::new("bash")
-        .arg("-c")
-        .arg("exit 0")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+/// 解析 Git Bash 绝对路径（2026-10 runner 镜像漂移：System32 的 WSL bash.exe 垫片
+/// （无发行版时 bash -c 必败）在 CreateProcess 搜索序里先于 PATH，会遮蔽
+/// PATH 上的真 Git bash——故不走 PATH 探测，直接从 git.exe 实位/常见安装位
+/// 拿绝对路径；测试传绝对路径给 helper，CreateProcess 绝对路径不搜索 PATH。）
+fn git_bash() -> Option<PathBuf> {
+    // ① 常见安装位直探（免子进程，最快）
+    for fixed in [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ] {
+        if PathBuf::from(fixed).exists() {
+            return Some(PathBuf::from(fixed));
+        }
+    }
+    // ② 从 PATH 上的 git.exe 实位推导 Git 根（git 在 cmd/ 而已，同根 bin/ 即 bash）
+    let where_git = Command::new("where").arg("git").output().ok()?;
+    if !where_git.status.success() {
+        return None;
+    }
+    let git_exe = String::from_utf8_lossy(&where_git.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    if git_exe.is_empty() {
+        return None;
+    }
+    let git_root = PathBuf::from(&git_exe)
+        .ancestors()
+        .nth(2)? // …/Git/cmd/git.exe → Git/
+        .to_path_buf();
+    for sub in ["bin", "usr\\bin"] {
+        let bash = git_root.join(sub).join("bash.exe");
+        if bash.exists() {
+            return Some(bash);
+        }
+    }
+    None
 }
 
 #[test]
@@ -149,14 +180,14 @@ fn multi_word_bash_c_script_boundaries_preserved() {
     // 沦为 $0/$1…），daemon 侧 SandboxEnvWrap 的 bash -c 改写形态全瘫。
     // 本用例：多词脚本（含内嵌空格/双引号）+ 带空格位置参数——$0/$1 与
     // stdout 逐字断言，证明 MSVC quoting 往返无损。
-    assert!(bash_available(), "windows-latest 预装 Git Bash 应在 PATH（缺席时本用例无法验证 argv 边界）");
+    let bash = git_bash().expect("Git Bash 不可达（常见位+where git 推导均无 bash.exe）——本用例无法验证 argv 边界");
     let root = temp_root("bashc");
     let out = Command::new(HELPER)
         .arg("--writable")
         .arg(&root)
         .arg("--")
         .args([
-            "bash",
+            bash.to_str().expect("bash 路径非 UTF-8"),
             "-c",
             "printf '[%s|%s]' \"$0\" \"$1\"",
             "first",
@@ -178,14 +209,14 @@ fn multi_word_bash_c_script_boundaries_preserved() {
 fn bash_c_write_with_quoted_path_succeeds() {
     // B28 配套：生产改写形态下沙箱内写（脚本含内嵌空格路径）——引用重建
     // 不损坏脚本语义时写链照常工作。
-    assert!(bash_available(), "windows-latest 预装 Git Bash 应在 PATH");
+    let bash = git_bash().expect("Git Bash 不可达（常见位+where git 推导均无 bash.exe）");
     let root = temp_root("bashw");
     let out = Command::new(HELPER)
         .arg("--writable")
         .arg(&root)
         .arg("--")
         .args([
-            "bash",
+            bash.to_str().expect("bash 路径非 UTF-8"),
             "-c",
             "echo quoted > 'out quoted.txt'",
         ])
