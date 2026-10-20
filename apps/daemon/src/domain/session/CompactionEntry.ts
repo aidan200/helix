@@ -35,7 +35,10 @@ export class CompactionEntry {
     if (!Number.isFinite(data.tokensBefore) || !Number.isFinite(data.tokensAfter)) {
       throw new DomainError(`compaction 条目 ${data.id} token 计数非法（${data.tokensBefore}→${data.tokensAfter}）`);
     }
-    return new CompactionEntry({ ...data });
+    // usage 深拷贝（评审 low #66）：浅拷贝会保留调用方对象引用——消费方
+    // mutate 即污染条目本体（账目数据被外部改写无痕）。UsageSummary 是扁平
+    // 七字段值对象，展开复制即真拷贝。
+    return new CompactionEntry({ ...data, usage: { ...data.usage } });
   }
 
   /** 条目 id（快照计数器重建用；只读观测面）。 */
@@ -44,6 +47,8 @@ export class CompactionEntry {
   }
 
   toData(): CompactionEntryData {
-    return { ...this.data };
+    // 出口同样深拷贝 usage（评审 low #66）：原浅拷贝把内部 usage 引用原样
+    // 带出，读面 mutate 回写条目本体。
+    return { ...this.data, usage: { ...this.data.usage } };
   }
 }

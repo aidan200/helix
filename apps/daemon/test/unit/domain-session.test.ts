@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Session } from "../../src/domain/session/Session";
+import { CompactionEntry } from "../../src/domain/session/CompactionEntry";
 import type { SessionSnapshot } from "../../src/domain/session/SessionSnapshot";
 
 /**
@@ -134,6 +135,25 @@ describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reser
     // 预分配之后正常续分配不碰撞
     const u2 = s.appendUserEntry("再问");
     expect(u2.id).not.toBe(reserved);
+  });
+
+  test("CompactionEntry usage 深拷贝：入参与 toData 出口都不共享引用（评审 low #66）", () => {
+    const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 5, totalTokens: 6, cost: 0.5 };
+    const entry = CompactionEntry.create({
+      kind: "compaction",
+      id: "c1",
+      instanceId: "agent-1",
+      tokensBefore: 100,
+      tokensAfter: 10,
+      summary: "摘要",
+      usage,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    usage.input = 999; // 调用方后续 mutate 不污染条目
+    expect(entry.toData().usage.input).toBe(1);
+    const out = entry.toData() as { usage: { output: number } };
+    out.usage.output = 888; // 读面 mutate 也不回写条目本体
+    expect(entry.toData().usage.output).toBe(2);
   });
 
   test("appendSteerEntryAtDrain 契约守卫：重复 entryId 落盘被拒（评审 low #65）", () => {
