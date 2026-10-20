@@ -96,3 +96,27 @@ describe("coord 工具族", () => {
     ).rejects.toThrow("不可同传");
   });
 });
+
+// ── scope 参数校验（低危批：缺失/形状错给可纠错文案，不抛裸 TypeError） ──
+
+describe("coord 工具族 scope 形状守卫", () => {
+  test("claim 缺 scope → 文案指明应为对象并给示例（不是 Cannot read properties of undefined）", async () => {
+    const { svc } = service();
+    const tool = createCoordClaimTool({ service: svc, sessionId: "s1", instanceId: "a1" });
+    await expect(run(tool, { intent: "x" })).rejects.toThrow(/scope 应为对象/);
+  });
+
+  test("scope.projectRoot 非 string / scope.paths 非 string[] → 各自精确指认", async () => {
+    const { svc } = service();
+    const claim = createCoordClaimTool({ service: svc, sessionId: "s1", instanceId: "a1" });
+    await expect(run(claim, { scope: { projectRoot: 42 }, intent: "x" })).rejects.toThrow(/scope.projectRoot 应为 string/);
+    await expect(run(claim, { scope: { paths: [1] }, intent: "x" })).rejects.toThrow(/scope.paths 应为 string\[\]/);
+  });
+
+  test("合法 scope 照常放行（守卫不越位）", async () => {
+    const { svc } = service();
+    const claim = createCoordClaimTool({ service: svc, sessionId: "s1", instanceId: "a1" });
+    const text = await run(claim, { scope: { projectRoot: "helix" }, intent: "改 adapters" });
+    expect(text).toContain("已登记占用");
+  });
+});

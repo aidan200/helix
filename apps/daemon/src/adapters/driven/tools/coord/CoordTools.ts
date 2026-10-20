@@ -32,6 +32,19 @@ interface ScopeParam {
 }
 
 function toScope(param: ScopeParam): LeaseScope {
+  // 形状守卫（低危批）：scope 缺失/非对象时属性访问抛裸 TypeError（"Cannot read
+  // properties of undefined"）——无可纠错文案，与本族其余参数校验水准不符。
+  if (param === undefined || param === null || typeof param !== "object") {
+    throw new Error(
+      'scope 应为对象：{projectRoot?: string, paths?: string[]}（至少给出 projectRoot 或 paths；例如 {"scope":{"projectRoot":"apps/daemon"}}）',
+    );
+  }
+  if (param.projectRoot !== undefined && typeof param.projectRoot !== "string") {
+    throw new Error("scope.projectRoot 应为 string（项目目录名或绝对路径）");
+  }
+  if (param.paths !== undefined && (!Array.isArray(param.paths) || param.paths.some((x) => typeof x !== "string"))) {
+    throw new Error("scope.paths 应为 string[]（路径 glob 模式清单）");
+  }
   const projectRoot = param.projectRoot !== undefined && param.projectRoot.trim() !== "" ? param.projectRoot : undefined;
   const paths = param.paths !== undefined && param.paths.length > 0 ? param.paths : undefined;
   // 同传抛错（code-review 低危）：两者同给时静默取 projectRoot 会把 LLM 的

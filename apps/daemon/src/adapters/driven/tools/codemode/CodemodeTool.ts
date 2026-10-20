@@ -81,7 +81,13 @@ export interface CodemodeToolDeps {
   readonly timeoutMs?: number;
 }
 
-/** 嵌套工具结果 → 脚本值：structuredContent（声明 outputSchema 的结构化源）优先，否则文本拼接。 */
+/**
+ * 嵌套工具结果的**文本拼接**（block 文本用分隔符连接；空结果回 "(no content)"）。
+ *
+ * 职责边界（低危批口径）：structuredContent 优先的分流在**调用点**（execute 里
+ * `result.structuredContent !== undefined` 分支），本函数只管文本形态——旧注把
+ * 「结构化优先」写在本函数上，与实现不符。
+ */
 function textOfContent(content: readonly { type: string; text?: unknown }[]): string {
   const text = content
     .map((block) => (typeof block.text === "string" ? block.text : JSON.stringify(block)))
