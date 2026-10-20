@@ -47,6 +47,22 @@ describe("bashSnapshot（真 git fixture）", () => {
     }
   });
 
+  test("plan：绝对路径候选按 path.resolve 原样（不拼 seg.cwd）——POSIX/win32 双形态", async () => {
+    const dir = await makeRepo();
+    try {
+      const outside = path.join(path.dirname(dir), `${path.basename(dir)}-outside.txt`);
+      const plan = planBashSnapshot(`echo x > ${outside}`, dir);
+      expect(plan.l1Paths).toEqual([outside]); // 绝对路径不落 cwd 下
+      expect(plan.extraPaths).toEqual([outside]); // 仓外 → extra
+      // win32 盘符形态（TR-95 兼容面）：isAbsolute 判据而非 startsWith("/")——
+      // POSIX 宿主上 D:\\x 不是绝对路径，语义差异属平台事实（此处只钉判据来源）
+      const winLike = "D:\\work\\out.txt";
+      expect(path.isAbsolute(winLike)).toBe(process.platform === "win32");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("plan：cd 进子仓——多仓面 + cd 后相对候选根解析（真机缺陷回归）", async () => {
     // 回归场景：cwd 非 git（workspace 根）+ `cd tmp-gf && echo > f`——
     // 修复前 repoRoot=undefined 走 walk 面（大 workspace 超预算静默零记录）

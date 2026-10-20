@@ -82,7 +82,10 @@ export function planBashSnapshot(command: string, cwd: string): BashSnapshotPlan
   for (const seg of segments) {
     if (seg.cwd !== null) segmentDirs.add(seg.cwd);
     for (const w of seg.writes) {
-      const abs = w.startsWith("/") ? path.resolve(w) : seg.cwd !== null ? path.resolve(seg.cwd, w) : null;
+      // 绝对路径判定走 path.isAbsolute（win32 盘符 `D:\\x` / UNC `\\\\srv\\share` 同判，
+      // TR-95 win32 兼容面；旧 w.startsWith("/") 仅 POSIX——盘符路径被当相对
+      // 按 seg.cwd 解析，候选路径落到错误位置 = 漏报方向）。
+      const abs = path.isAbsolute(w) ? path.resolve(w) : seg.cwd !== null ? path.resolve(seg.cwd, w) : null;
       if (abs !== null) resolvedKnown.add(abs);
     }
   }
