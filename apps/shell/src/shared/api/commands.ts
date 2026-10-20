@@ -285,27 +285,13 @@ export {
   embeddingSetDefaultCommand,
   embeddingVerifyCommand,
 } from "./commands/embedding";
+export {
+  providerListCommand,
+  providerSetCommand,
+  providerDeleteCommand,
+} from "./commands/provider";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-// ── provider 族命令（三方平台批：自定义 OpenAI 兼容平台 CRUD；全局命令）
-// 回执 = provider.list.result 点对点（list/set/delete 三命令共用——写后
-// 即刷新清单）；key 录入/连通验证走既有 auth 族（不另设通路）。
-
-/** provider.list：三方平台清单读面。 */
-export function providerListCommand(): ProviderListCommand {
-  return { v: PROTOCOL_VERSION, type: "provider.list", payload: {} };
-}
-
-/** provider.set：新增/更新平台（按 id upsert；id = 模型字符串前缀）。 */
-export function providerSetCommand(payload: ProviderSetPayload): ProviderSetCommand {
-  return { v: PROTOCOL_VERSION, type: "provider.set", payload };
-}
-
-/** provider.delete：删除平台（回执新清单）。 */
-export function providerDeleteCommand(id: string): ProviderDeleteCommand {
-  return { v: PROTOCOL_VERSION, type: "provider.delete", payload: { id } };
-}
 
 // ── mcp 族命令（mcp 批：MCP server 标准接入；六命令全全局命令）────
 // 回执 = mcp.*.result 点对点；状态迁移经 mcp.status.changed 全局广播
