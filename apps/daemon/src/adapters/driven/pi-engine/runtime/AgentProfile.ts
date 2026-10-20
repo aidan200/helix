@@ -9,7 +9,8 @@ import type { HookSet } from "./HookSet";
  * 新增编排形态 = 新 profile（+ 新 HookSet），runtime 零改动（AG-11）。
  */
 
-/** 生命周期策略：常驻多轮（可反复 drive）vs 单轮收敛（驱动一次即收口）。 */
+/** 生命周期策略取值：常驻多轮（可反复 drive）vs 单轮收敛（驱动一次即收口）。
+ *  仅声明面语义（`AgentProfile.lifecycle`）——无运行期分支消费，见字段注。 */
 export type LifecycleMode = "persistent" | "single-shot";
 
 /** compaction 声明（实测默认参数保留）。 */
@@ -51,7 +52,14 @@ export interface AgentProfile {
    * catalog 函数现拍 McpRegistry 值（buildSessionStack）。
    */
   readonly mcpServers?: readonly string[] | "*";
-  /** 生命周期策略。 */
+  /**
+   * 生命周期策略声明（**纯元数据，无运行期消费点**）：全仓只有 profile 声明
+   * 与 profile 契约测试读取它——驱动语义实际由承载方承担（单轮收敛 =
+   * ChildMain 驱动一次 run 后解析 closure 退出；多轮 = ChatService/编排
+   * 服务反复 sendMessage），AgentRuntime 不读本字段（AG-10 零 kind 分支的
+   * 同一纪律，读它即等于 runtime 按形态分支）。此处声明保留作诊断/文档
+   * 单一事实，不要新增「runtime 按 lifecycle 分支」的消费。
+   */
   readonly lifecycle: { readonly mode: LifecycleMode };
   /** 钩子装配（构造器引用声明，装配即启用且每 runtime 实例化，§4.2）。 */
   readonly hooks: readonly HookCtor[];
