@@ -36,6 +36,14 @@ describe("extractWriteCandidates", () => {
     expect(extractWriteCandidates("mv a.ts b.ts")).toContain("b.ts");
     expect(extractWriteCandidates("mv a.ts b.ts")).not.toContain("a.ts");
   });
+  test("多操作数写命令全部目标均提取（评审 low #14：原「单参」口径漏报后续操作数）", () => {
+    expect(extractWriteCandidates("tee a.txt b.txt")).toEqual(["a.txt", "b.txt"]);
+    expect(extractWriteCandidates("touch a.ts b.ts")).toEqual(["a.ts", "b.ts"]);
+    expect(extractWriteCandidates("rmdir x y")).toEqual(["x", "y"]);
+    // truncate 属无专门分支的写嫌疑头（WRITE_HEADERS 可达成员）
+    expect(extractWriteCandidates("truncate -s 0 out.log")).toContain("out.log");
+    expect(extractWriteCandidates("shred -u secret.key")).toContain("secret.key");
+  });
   test("git 写子命令", () => {
     expect(extractWriteCandidates("git checkout -- src/a.ts")).toContain("src/a.ts");
     expect(extractWriteCandidates("git apply patch.diff")).toContain("patch.diff");
