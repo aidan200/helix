@@ -22,13 +22,11 @@ import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManage
 import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { McpRegistry } from "../adapters/driven/mcp/McpRegistry";
-import { buildEditToolDeps } from "./assembly/buildKnowledgeStack";
 import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtime";
 import { TaskOrchestratorService } from "../application/services/task/TaskOrchestratorService";
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
 
 /** W2-D R13 job 终态同步提示文案随编排服务切片迁 assembly/buildTaskOrchestrator（M29）。 */
-import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
@@ -38,6 +36,7 @@ import { buildStewardStack } from "./assembly/buildStewardStack";
 import { buildWorkspaceStack } from "./assembly/buildWorkspaceStack";
 import { wireMcpWarmup } from "./assembly/mcpWarmup";
 import { computeSpawnAnchorOf, mainInstanceIdForOf } from "./assembly/spawnAnchor";
+import { wireSessionStack } from "./assembly/wireSessionStack";
 import { buildSummaryStack } from "./assembly/buildSummaryStack";
 import { AskService } from "../application/services/AskService";
 import type { SessionRunStateLike } from "../domain/agent/ObservabilityState";
@@ -48,7 +47,7 @@ import { buildTaskOrchestrator } from "./assembly/buildTaskOrchestrator";
 import { buildCliDriving, buildWsDriving } from "./assembly/buildDrivingAdapters";
 import { freezeSearchBackends, migrateLegacyModelConfig, migrateLegacyRuntimeConfig, resolveWsPort } from "./assembly/bootPrelude";
 import { KgTriageAutoTrigger } from "../application/services/kg/KgTriageAutoTrigger";
-import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
+import type { AssemblyBackfill, EngineAssemblyMode, MainSessionLlmOverride } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { TtsStreamService } from "../application/tts/TtsStreamService";
@@ -502,166 +501,40 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     defaultModel: persistence.defaultModel,
   });
 
-  const sessionStack = await buildSessionStack({
+  // ── 装配序步 2-4 会话/运行面接线（P5 体量门拆分，迁
+  //    assembly/wireSessionStack）：依赖面组装片——持久化族/模型域/任务栈/
+  //    workspace 持有者/启动定格产物 + 晚绑闭包（memory_search 读 stewardMemory
+  //    现值、批次收口转投编排服务）在此闭合，构造仍归 buildSessionStack。──
+  const sessionStack = await wireSessionStack({
     paths,
     config,
     logger,
-    repository: persistence.repository,
-    resourceState: persistence.resourceState,
     clock,
-    authStore: modelStack.authStore,
-    catalog: modelStack.catalog,
-    defaultModel: persistence.defaultModel,
-    defaultThinking: persistence.defaultThinking, // R7 全局兜底批
-    compactionConfig: persistence.compactionConfig, // 压缩参数可配置
-    schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
-    sandboxConfig: persistence.sandboxConfig, // 沙箱开关（装配期定格读取，沙箱开关批）
-    askService, // 提权申请批：permission_request 工具仲裁（沙箱 on 时注册）
-    // custom provider 子进程透传批：定义读面单源（CustomProviderService.list
-    // ——launcher env 定格透传，详见 SubagentLauncherDeps.customProviders）
+    persistence,
+    modelStack,
+    taskStack,
+    workspace,
+    askService,
     customProvidersOf: () => customProviderService.list(),
     browserPort,
-    events: fanoutPublisher,
-    publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
+    fanoutPublisher,
+    resourceEvents,
     mcpRegistry,
     backfill,
+    grepFreeze,
+    codegraphResolution,
     engineMode: deps.engineMode,
     mainSessionLlmOverride: deps.mainSessionLlmOverride,
     subagentRunnerOverride: deps.subagentRunnerOverride,
     toolCwd: deps.toolCwd,
-    // W1F-F1：会话工具沙箱 cwd 动态解析接线（评审缺口修复：此前仅传启动
-    // 定格面，生产恒回落启动 cwd）——经 workspace 持有者读现值（boundRoot()
-    // 规范形；未绑定回落启动 cwd）；deps.toolCwd 显式注入（测试面）时恒
-    // 优先（toolCwdOf 优先级链）。
-    resolveToolCwd: () => workspace.boundRoot() ?? process.cwd(),
-    // grep 启动定格产物（AF-1，rg 单后端）：rg 定格注入路径；unavailable
-    // 定格注入原因清单（门面响亮失败文案用）。
-    grep: {
-      rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
-      unavailableReasons: grepFreeze.kind === "unavailable" ? grepFreeze.reasons : undefined,
-    },
-    // kg 挂点（T3.2 附着接线）：每会话闭合 sessionId（跨通道去重键）——
-    // edit 成功路径附着 📎 块（notifyWrite 写后 sync 挂接按 2026-08-29
-    // 用户裁决退役，不注入）。W1：经
-    // workspace 持有者读现值（重绑后新会话跟随新栈；未绑定 → undefined
-    // 无挂点，EditTool 行为不变）。
-    editDeps: (sessionId) => {
-      const stack = workspace.stack();
-      const root = workspace.boundRoot();
-      return stack !== null && root !== null
-        ? buildEditToolDeps({
-            workspaceRoot: root,
-            attachment: stack.attachmentService,
-            sessionId,
-          })
-        : undefined;
-    },
-    // kg 双工具装配面（T3.3）：主会话 executor 注册 kg/kg-update（SubAgent
-    // 子进程侧由 ChildMain 本地栈自带）。W1：工厂形态经持有者读现值
-    //（重绑后新会话跟随新栈；未绑定 → 不注册）。
-    kgTools: () => {
-      const stack = workspace.stack();
-      const root = workspace.boundRoot();
-      return stack !== null && root !== null
-        ? {
-            query: stack.queryService,
-            write: stack.writeService,
-            workspaceRoot: root,
-            scanProjects: () => scanWorkspaceProjects(root),
-            // 批2 WP-C：写入口语义查重闸（向量面在场才挂——可选件纪律）
-            ...(stack.dedupService !== undefined ? { dedup: stack.dedupService } : {}),
-          }
-        : undefined;
-    },
-    // codegraph 工具装配面（W1-B，R5/R7）：主会话 executor 注册 codegraph
-    //（SubAgent 子进程侧由 ChildMain 本地栈自带）。W1 同 kgTools：工厂经
-    // 持有者读现值（重绑后新会话跟随；未绑定 → 不注册）。引擎适配器持有
-    // 启动定格二进制（buildKnowledgeStack 同源）；二进制不可达时工具仍在，
-    // 调用 degraded（EngineUnavailable），不阻断装配。
-    codegraphTool: () => {
-      const stack = workspace.stack();
-      const root = workspace.boundRoot();
-      return stack !== null && root !== null
-        ? { engine: stack.codegraphEngine, workspaceRoot: root }
-        : undefined;
-    },
-    // codegraph 二进制定格路径（W1-B）：透传 SubAgent 子进程 env（父子一致）
-    ...(codegraphResolution.kind === "resolved" ? { codegraphPath: codegraphResolution.path } : {}),
-    // rg 二进制定格路径（rg 唯一化）：透传 SubAgent 子进程 env（父子一致；
-    // config 级 rg 无此透传则子进程只剩 bundle 级）
-    ...(grepFreeze.kind === "rg" ? { rgPath: grepFreeze.rgPath } : {}),
-    // task_create 工具装配面（T2.4，AD-7）：主会话 executor 注册 chat 第二
-    // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
-    // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
-    taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
-    // 可用任务类型段数据源（audience 分类注入，批二）：MainAgent 提示的
-    // 任务类型清单 = 任务注册表读面（与 task_create 的类型校验同一事实源）
-    taskTypesOf: () => taskStack.orchestratorCore.skills.listTaskTypes(),
-    // 项目常驻规则段数据源（global 声明节点触发面索引，U7 去全扫化）：
-    // 纯查询面（会话足迹项目集 → 段或 null，足迹求值在 session 栈内）。
-    // kg 栈按足迹项目集聚合渲染；空足迹/未绑定/无图谱 → null → 段省略。
-    // 栈级快照不含此段，会话级应用点（engineFor/instantiatedSnapshot/
-    // toggle 推送/subagentAssemblyFor）应用时刻取现值。
-    residentRulesOf: (projectRoots: readonly string[]) =>
-      workspace.stack()?.queryService.residentRulesSection(projectRoots) ?? null,
-    // 批E：memory_search 检索面现值读口（编码 agent 记忆消费面工具化——
-    // 批D 静态段注入退役）。stewardMemory 在下方构造（晚绑闭包——运行期
-    // 触发时已就位）；缺席（vec0 不可解析/记忆存储开库失败）→ undefined →
-    // engineFor 不注册。记忆未配置（enabled 关/端点悬空）不影响 service
-    // 在场——工具注册面恒宽（toggle 推送兑底），广告面按 isAvailable
-    // 现值门控（sessionEngineFactory）。scope 项目解析在 session 栈内
-    // （writeFacts 足迹单项目归约——singleProjectDirOf 单点，与 progress
-    // 写入 scope 同源）。
-    memorySearchServiceOf: () => stewardMemory,
-    // task_report 工具装配面（D3）：主会话 executor 注册 chat 回流通用报告
-    // 查询面——任务读面（TaskQueryService list/detail）+ closure_records 读面
-    //（SessionRepositoryPort.queryClosureRecords）+ 报告目录约定（与
-    // ClosureRecorder 兜底 reportsDirFor 同源同式 <home>/reports/<sessionId>）；
-    // SubAgent 子进程本地栈与编排主 agent 不注入（生效集隔离）
-    taskReport: {
-      query: taskStack.query,
-      closureRecords: (sessionId) => persistence.repository.queryClosureRecords(sessionId),
-      reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
-    },
-    // 主会话 todo 双工具装配面（plan 三工具改名批）：instanceId = sessionId
-    // 作用域；写面 = 父进程 LazyWorkLedger 直连 helix.db（同库 WAL 跨进程
-    // 安全）；执行成功后装配层广播 session.plan.changed + 快照附 plan 读面
-    //（SubAgent 子进程本地栈不受影响——两栈独立）
-    mainPlan: {},
-    // spawn 派发任务切片注入（F1.3；检索语义化批双轨 async 化）：任务文本
-    //  → 图查询（关键词轨 ∪ 向量轨）→ digest+指针切片拼入 task 约束区；
-    // 注入后 markInjected 入跨通道去重注册表（T3.2 同源）。嵌入往返（超时
-    // 上限 800ms）随链落定，失败降级纯关键词轨。
-    // W1：未绑定 → 空切片（无图查询面，零副作用）。audience（D8 W-R6）：
-    // SubAgent spawn 链传 "worker"（协议行 findings 申报措辞），主会话
-    // ChatService 链传/缺省 "main"（kg-update 直落措辞）——buildSessionStack 按消费链分叉。
-    taskInjector: async (sessionId, task, audience, projectRoots) =>
-      (await workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience, projectRoots)) ?? "",
-    // findings 落账管道（F3.0，T4.1）：findings 文件 canonical → KgWriteService 唯一
-    // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
-    // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。
-    // W1：未绑定 → 落账拒绝（KG_E_STATE，不吞声）+ 空扫描。
-    findingsSink: deps.findingsSinkOverride ?? {
-      write: (projectRoot, op) =>
-        workspace.stack()?.writeService.write(projectRoot, op) ?? {
-          ok: false,
-          error: { code: "KG_E_STATE", message: "未绑定工作空间：findings 落账跳过（请先选择工作空间）" },
-        },
-      scanProjects: () => {
-        const root = workspace.boundRoot();
-        return root !== null ? scanWorkspaceProjects(root) : [];
-      },
-      // 迭代锚回落（缺口修复：findings 缺 iterationId 时回落库内锚——与 kg-update
-      // 工具 resolveIterationId 同语义；未绑定返回 null 不报错）
-      latestIteration: (projectRoot) => workspace.stack()?.queryService.latestIteration(projectRoot) ?? null,
-    },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
-    // T2.2：任务批次实例收口路由——task:* 会话归属 closure 转投编排服务
-    //（晚绑闭包：编排服务在本块之后构造回填）
-    taskClosureSink: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
+    findingsSinkOverride: deps.findingsSinkOverride,
+    stewardMemoryOf: () => stewardMemory,
+    onInstanceClosure: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
   });
+
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly, orchestratorMcpTools } = sessionStack;
 
   // ── 装配序步 3：管家域（P5 体量门拆分，迁 assembly/buildStewardStack）：
