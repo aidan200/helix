@@ -40,10 +40,8 @@ use windows_sys::Win32::Security::SID_AND_ATTRIBUTES;
 use windows_sys::Win32::Security::TOKEN_DUPLICATE;
 use windows_sys::Win32::Security::TOKEN_ADJUST_DEFAULT;
 use windows_sys::Win32::Security::TOKEN_QUERY;
-use windows_sys::Win32::Security::TOKEN_USER;
 use windows_sys::Win32::Security::TokenDefaultDacl;
 use windows_sys::Win32::Security::TokenGroups;
-use windows_sys::Win32::Security::TokenUser;
 
 const DISABLE_MAX_PRIVILEGE: u32 = 0x01;
 const LUA_TOKEN: u32 = 0x04;
@@ -125,30 +123,6 @@ pub unsafe fn world_sid() -> Result<Vec<u8>> {
     }
     buf.truncate(size as usize);
     Ok(buf)
-}
-
-/// token 的用户 SID（TOKEN_USER → CopySid）。
-unsafe fn user_sid_bytes(base_token: HANDLE) -> Result<Vec<u8>> {
-    let mut len: u32 = 0;
-    GetTokenInformation(base_token, TokenUser, std::ptr::null_mut(), 0, &mut len);
-    let mut buf = vec![0u8; len as usize];
-    let ok = GetTokenInformation(
-        base_token,
-        TokenUser,
-        buf.as_mut_ptr() as *mut c_void,
-        len,
-        &mut len,
-    );
-    if ok == 0 {
-        return Err(anyhow!("GetTokenInformation(TokenUser) failed: {}", GetLastError()));
-    }
-    let user = &*(buf.as_ptr() as *const TOKEN_USER);
-    let sid_len = GetLengthSid(user.User.Sid);
-    let mut out = vec![0u8; sid_len as usize];
-    if CopySid(sid_len, out.as_mut_ptr() as *mut c_void, user.User.Sid) == 0 {
-        return Err(anyhow!("CopySid(user) failed: {}", GetLastError()));
-    }
-    Ok(out)
 }
 
 /// token 的 logon SID（TOKEN_GROUPS 中 SE_GROUP_LOGON_ID 属性组）。
@@ -241,7 +215,6 @@ use windows_sys::Win32::Security::AdjustTokenPrivileges;
 /// # Safety
 /// 调用方负责关闭返回句柄；base_token 须为有效 primary token。
 pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result<HANDLE> {
-    let user = user_sid_bytes(base_token)?;
     let logon = logon_sid_bytes(base_token)?;
     let everyone = world_sid()?;
 
@@ -251,8 +224,10 @@ pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result
         .iter()
         .map(|s| SID_AND_ATTRIBUTES { Sid: s.as_ptr() as *mut c_void, Attributes: 0 })
         .collect();
-    // default DACL 与 user/logon/everyone 仍需其 SID 本体（新建对象权限面）
-    let _ = (&user, &logon, &everyone);
+    // default DACL = logon + everyone + cap（新建对象权限面，见下 set_default_dacl）——
+    // user SID 不入列：旧实现算出后仅 `let _` 吞掉（死计算），DACL 从不消费它
+    // （评审 F5 实证；user 即使入列也会因 at-least-one 语义放宽 additional check，
+    // 见 TR-164/CI run32）。
 
     let mut new_token: HANDLE = std::ptr::null_mut();
     let flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED;
@@ -271,7 +246,7 @@ pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result
         return Err(anyhow!("CreateRestrictedToken failed: {}", GetLastError()));
     }
 
-    // default DACL：logon + everyone + cap（新建管道/IPC 对象放行）
+    // default DACL = logon + everyone + cap（新建管道/IPC 对象放行）
     let dacl_sids: Vec<*mut c_void> = vec![
         logon.as_ptr() as *mut c_void,
         everyone.as_ptr() as *mut c_void,
