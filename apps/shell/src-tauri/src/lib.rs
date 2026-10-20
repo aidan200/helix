@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -318,10 +318,8 @@ pub fn run_supervisor(
                 stop_child(&mut child, config);
                 return SupervisorExit::Shutdown;
             }
-            if let Some(rx) = lines.as_ref() {
-                while let Ok(Ok(line)) = rx.try_recv() {
-                    forward_line(line, hooks);
-                }
+            if let Some(rx) = lines.as_mut() {
+                drain_stdout_lines(rx, hooks);
             }
             match child.try_wait() {
                 Ok(Some(status)) => break status,
@@ -339,10 +337,8 @@ pub fn run_supervisor(
         // 先 drain channel 残余行（W3 #2.38）：子进程退出到轮询发现之间已缓冲
         // 的 stdout 行会随下轮 lines 重建被丢弃——崩溃前最后几行日志（排障最
         // 需要）在重启判定前转发完
-        if let Some(rx) = lines.as_ref() {
-            while let Ok(Ok(line)) = rx.try_recv() {
-                forward_line(line, hooks);
-            }
+        if let Some(rx) = lines.as_mut() {
+            drain_stdout_lines(rx, hooks);
         }
         reap_process_tree(child.id()); // 兜底清可能持管道的子孙（同 stop_child）
         let cause = ExitCause::from(status);
@@ -377,6 +373,22 @@ fn forward_line(line: String, hooks: &mut dyn SupervisorHooks) {
             info.port
         )),
         other => hooks.on_log(format!("{other:?}")),
+    }
+}
+
+/// 排干 stdout 行通道（看护轮询与重启前残余 drain 共用）。
+///
+/// 为什么要逐条消费而非 `while let Ok(Ok(..))`：`spawn_line_reader` 一遇读错误
+/// 即退出线程（Err 后 return），而 try_recv 的 `Ok(Err(_))` 是**一条已入队的错误**
+/// ——旧实现对它静默退出循环，既丢掉错误本身（看护期 stdout 读错误完全不可观测）
+/// 也丢掉其后的缓冲行（评审 F5 #5）。此处把错误转成一条日志后继续排干。
+fn drain_stdout_lines(rx: &mut Receiver<std::io::Result<String>>, hooks: &mut dyn SupervisorHooks) {
+    loop {
+        match rx.try_recv() {
+            Ok(Ok(line)) => forward_line(line, hooks),
+            Ok(Err(e)) => hooks.on_log(format!("[supervisor] sidecar stdout 读错误：{e}")),
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+        }
     }
 }
 
@@ -826,6 +838,42 @@ mod tests {
             !hooks.logs[0].contains("secret-token"),
             "日志不得含 token：{}",
             hooks.logs[0]
+        );
+    }
+
+    #[test]
+    fn 看护期_stdout读错误可观测且不中断后续行转发() {
+        // 评审 F5 #5：旧实现 `while let Ok(Ok(line)) = rx.try_recv()` 遇
+        // Ok(Err(_)) 即退出循环——读错误静默丢弃，且错误行之后的缓冲行一并
+        // 不转发。此测试钉住：错误可观测 + 继续排干。
+        let (tx, mut rx) = mpsc::channel::<std::io::Result<String>>();
+        tx.send(Ok("第一行".to_string())).unwrap();
+        tx.send(Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "pipe boom",
+        )))
+        .unwrap();
+        tx.send(Ok("错误之后的行".to_string())).unwrap();
+        drop(tx); // 尾部 Disconnected 作为排干终止面
+
+        let mut hooks = RecordingHooks::new();
+        drain_stdout_lines(&mut rx, &mut hooks);
+
+        assert_eq!(
+            hooks.logs.len(),
+            3,
+            "两行日志 + 一条读错误日志，实际：{:?}",
+            hooks.logs
+        );
+        assert!(
+            hooks.logs.iter().any(|l| l.contains("pipe boom")),
+            "读错误内容须可观测：{:?}",
+            hooks.logs
+        );
+        assert!(
+            hooks.logs.last().is_some_and(|l| l.contains("错误之后的行")),
+            "错误行之后的缓冲行须继续转发：{:?}",
+            hooks.logs
         );
     }
 
