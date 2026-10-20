@@ -11,7 +11,31 @@
  * memoryConfig「读面兜底」哲学一致），协议 handler 只做类型闸 + everyTurns
  * 范围闸（invalid_payload）。
  */
-import type { SummaryConfigState } from "../../summary/summaryConfig";
+/**
+ * 现态类型定义在端口本身（评审 low #45：端口作为边界不得反向 import 服务
+ * 实现模块取类型——application/summary/summaryConfig 反向消费本文件并
+ * re-export 保既有 import 面）。
+ */
+
+/** 任务总结子功能现态（两键：开关 + 模型槽位）。 */
+export interface SummaryTaskConfigState {
+  /** 任务总结开关。 */
+  readonly enabled: boolean;
+  /** 任务总结模型槽位（null = 未配置——无默认模型）。 */
+  readonly model: string | null;
+}
+
+/** 总结配置域现态（读面产物——config.get/set_summary 回执与消费方共用形状）。 */
+export interface SummaryConfigState {
+  /** 三产物总开关。 */
+  readonly enabled: boolean;
+  /** 锚点轮次间隔（生效值——非法回退后的真实取数口径）。 */
+  readonly everyTurns: number;
+  /** 总结模型槽位（null = 未配置——进展/记忆点不产）。 */
+  readonly model: string | null;
+  /** 任务总结子功能现态。 */
+  readonly task: SummaryTaskConfigState;
+}
 
 /** 总结配置部分更新载荷（携带项写入，未携带项保留现值）。 */
 export interface SummaryConfigPatch {
