@@ -39,6 +39,7 @@ import { judgeOrFallback } from "../../domain/steward/utterance/JudgePolicy";
 import { judgeRunWatchdog } from "../../domain/steward/run/RunWatchdog";
 import { AskQueue } from "../../domain/steward/run/AskQueue";
 import { StewardToolKit } from "./tools/StewardToolKit";
+import { stewardBlocksText } from "./stewardBlocks";
 
 // 确认闸聚合域 re-export（批 1：定义已迁 domain/steward/confirmation——
 // 兼容既有引用面；行为零变更）
@@ -137,11 +138,6 @@ export function hasExemptionAffordance(args: Record<string, unknown>): boolean {
 /** act 回执文本（带序列号回流——D7-1）。 */
 export function formatActReceipt(result: { ok: boolean; seq: number; detail: string }): string {
   return `动作回执（seq=${result.seq}）：${result.ok ? "成功" : "失败"}——${result.detail}`;
-}
-
-/** 块集文本派生（port 块模型——text 块拼接；原 loopBlocksText 的 port 形态）。 */
-function portBlocksText(blocks: readonly import("../ports/outbound/StewardLlmPort").StewardLlmContentBlock[]): string {
-  return blocks.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
 }
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
@@ -1487,7 +1483,7 @@ export class StewardService implements StewardComponent {
             if (response.kind !== "blocks") {
               throw new Error(`压缩摘要响应非块集（${response.kind}）`);
             }
-            return portBlocksText(response.blocks);
+            return stewardBlocksText(response.blocks);
           },
         },
       });
@@ -2664,7 +2660,5 @@ export class StewardService implements StewardComponent {
       return undefined;
     }
   }
-
-  // ── A2：query_recent_work ───────────────────────────
 
 }
