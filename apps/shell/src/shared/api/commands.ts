@@ -237,25 +237,9 @@ export {
   authVerifyCommand,
 } from "./commands/auth";
 export { traceQueryCommand } from "./commands/trace";
+export { webStatusCommand, webStopCommand, webStartCommand } from "./commands/web";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-/** web.status：CDP 连接状态读面（全局命令；回执 = web.status.result 点对点）。 */
-export function webStatusCommand(): WebStatusCommand {
-  return { v: PROTOCOL_VERSION, type: "web.status", payload: {} };
-}
-
-/** web.stop：手动停止写面（全局命令；回执 = web.stop.result 点对点 +
- *  状态回 idle 经 web.status.changed 全局广播）。 */
-export function webStopCommand(): WebStopCommand {
-  return { v: PROTOCOL_VERSION, type: "web.stop", payload: {} };
-}
-
-/** web.start：显式启动写面（v0.9，T7；全局命令；回执 = web.start.result
- *  点对点 applied/skipped + 状态回流经 web.status.changed 全局广播）。 */
-export function webStartCommand(): WebStartCommand {
-  return { v: PROTOCOL_VERSION, type: "web.start", payload: {} };
-}
 
 /**
  * stt.transcribe：一次性音频转写（语音输入批 V1；回执 =
