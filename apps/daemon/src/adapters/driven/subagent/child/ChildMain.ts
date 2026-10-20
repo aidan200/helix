@@ -927,7 +927,7 @@ async function main(): Promise<void> {
             ask: remoteAsk,
             sessionId: process.env.HELIX_SESSION_ID ?? instanceId,
             instanceId,
-            unsandboxedExec: async (command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+            unsandboxedExec: async (command: string): Promise<{ output: string; exitCode: number }> => {
               let text = "";
               const res = await childRawExecEnv.exec(command, {
                 onUpdate: (update: { kind: string; text?: string; output?: { text: string } }) => {
@@ -936,7 +936,7 @@ async function main(): Promise<void> {
                 },
               }, BACKGROUND_CONTEXT);
               if (!res.ok) throw new Error(res.error.message);
-              return { stdout: text, stderr: "", exitCode: res.value.exitCode };
+              return { output: text, exitCode: res.value.exitCode };
             },
           },
         }

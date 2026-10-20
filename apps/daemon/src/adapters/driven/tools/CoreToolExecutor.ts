@@ -303,7 +303,8 @@ export class CoreToolExecutor implements ToolExecutorPort {
   private readonly context: ExecutionToolContext;
   private readonly registry: Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>;
   /** 提权申请批：permission_request 裸执行面（构造时绑 baseEnv；批准后的执行通道）。 */
-  readonly unsandboxedExec: (command: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  /** 裸执行面结果：**合并输出流**（pi exec 不分 stdout/stderr）+ 退出码。 */
+  readonly unsandboxedExec: (command: string) => Promise<{ output: string; exitCode: number }>;
 
   constructor(options: CoreToolExecutorOptions) {
     const baseEnv = new NodeExecutionEnv({
@@ -340,7 +341,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
         BACKGROUND_CONTEXT,
       );
       if (!res.ok) throw new Error(res.error.message);
-      return { stdout: text, stderr: "", exitCode: res.value.exitCode };
+      return { output: text, exitCode: res.value.exitCode };
     };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [
       // pi 内置四工具基线注册（F-20：registry 按 name 平铺，内置无特权）
