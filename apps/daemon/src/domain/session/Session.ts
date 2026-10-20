@@ -422,8 +422,14 @@ export class Session {
     if (typeof snapshot.topic === "string" && snapshot.topic.trim() !== "") {
       s.topic = snapshot.topic;
     }
-    // open turn（generating/toolRunning）恢复后仍是 open——由恢复方决定收口方式
-    s.currentTurn = [...s.turns].reverse().find((t) => t.status === "generating" || t.status === "toolRunning") ?? null;
+    // open turn（generating/toolRunning）恢复后仍是 open——由恢复方决定收口方式。
+    // 脏快照多 open turn（评审 low #64）：更早的 open turn 无任何后续收口路径
+    // （currentTurn 只指向最后一个，complete/interrupt 都经 currentTurn），
+    // 恢复即把它们显式收口为 interrupted（over-crash 事实的机械表达），
+    // 只保留最后一个为 currentTurn。
+    const openTurns = s.turns.filter((t) => t.status === "generating" || t.status === "toolRunning");
+    for (const stale of openTurns.slice(0, -1)) stale.interrupt(undefined);
+    s.currentTurn = openTurns[openTurns.length - 1] ?? null;
     return s;
   }
 

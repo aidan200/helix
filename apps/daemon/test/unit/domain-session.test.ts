@@ -136,6 +136,30 @@ describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reser
     expect(u2.id).not.toBe(reserved);
   });
 
+  test("脏快照多 open turn：更早的显式收口 interrupted，只保留最后一个为 currentTurn（评审 low #64）", () => {
+    // 构造脏快照：手工把两个已完成 turn 改回 generating（over-crash 双 open 形态）
+    const s = Session.create("s-dirty");
+    const u1 = s.appendUserEntry("q1");
+    s.beginTurn(u1.id);
+    s.appendAssistantEntry("a1");
+    s.completeTurn();
+    const u2 = s.appendUserEntry("q2");
+    s.beginTurn(u2.id);
+    s.appendAssistantEntry("a2");
+    s.completeTurn();
+    const snap = s.toSnapshot();
+    const dirty = {
+      ...snap,
+      turns: snap.turns.map((t) => ({ ...t, status: "generating" as const, endedAt: null })),
+    };
+    const restored = Session.restoreFrom(dirty);
+    const turns = restored.toSnapshot().turns;
+    // 更早的 open turn 收口为 interrupted（不再永久悬挂），最后一个仍是 open
+    expect(turns[0]?.status).toBe("interrupted");
+    expect(turns[1]?.status).toBe("generating");
+    expect(restored.openTurn?.id).toBe(turns[1]?.id);
+  });
+
   test("id 空洞（放弃的预留不回收）下 restoreFrom 计数器重建正常", () => {
     const s = Session.create("s-hole");
     const u = s.appendUserEntry("q"); // e1
