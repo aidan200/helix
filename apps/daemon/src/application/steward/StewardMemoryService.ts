@@ -24,7 +24,11 @@
  *    文本是唯一 source of truth，向量是可再生缓存；
  * ④ 遗忘治理（gcNow/maybeGc + pin/restore）：半衰强化（每被想起一次
  *    半衰期 ×2 封顶一年）→ 低强度 fade（退出召回池 + 观察窗）→ 零复活
- *    物理删除；manual/pinned 恒满强度永不 GC；软上限 append 后主动触发。
+ *    物理删除；manual/pinned 恒满强度永不 GC。容量收敛两条轨（软上限
+ *    非「任何 append 后即时触发」）：周期轨（startGcTimer 60s 首跑 + 24h
+ *    周期经 maybeGc 节流）恒在；人工新增路径（appendMemoryEntry）额外在
+ *    append 后超软上限时即时 gcNow——工具写路径（remember 直入）不走即时
+ *    触发，仅由周期轨收敛。
  *
  * 配置面（批B 配置独立化——通用记忆配置域 memory.* KV；键位单源
  * application/memory/memoryConfig.ts：未来不止管家使用记忆，配置不挂
@@ -858,12 +862,12 @@ export class StewardMemoryService implements StewardComponent {
     const trimmed = text.trim();
     if (trimmed === "") return { ok: false, error: "记忆文本不得为空" };
     const store = this.deps.store!;
-    if (!store.list().some((e) => e.id === id)) {
-      return { ok: false, error: `记忆条目不存在：${id}` };
-    }
     try {
       const { vectors, dim } = await this.deps.embedding.embed([trimmed]);
       await this.ensureDim(dim);
+      // 存在性判定单源 = updateEntry 返回位（评审 low #5）：原在此前再跑一遍
+      // store.list().some(...) 是 O(n) 全表扫描且与返回位双重判存——库里没有
+      // get(id)，无效 id 走 embed 之后由返回位拒（无效 id 属用户错输的罕见路）。
       if (!store.updateEntry(id, trimmed, vectors[0]!, this.now())) {
         return { ok: false, error: `记忆条目不存在：${id}` };
       }
