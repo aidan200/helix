@@ -884,9 +884,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
           {
             agentId,
             state,
-            // U2 观测态：批次实例均 subagent（窗口态直译；parked 不在批次
-            // 词汇——兑底窗口原值）
-            displayState: displayStateOf({ kind: "subagent", window: state === "queued" ? "queued" : state === "running" ? "running" : state }),
+            // U2 观测态：批次实例均 subagent（窗口态直译——state 已是窄化后的
+            // 窗口词汇，原三元恒等于 state 是冗余表达式，评审 low #53）
+            displayState: displayStateOf({ kind: "subagent", window: state }),
             profileKind,
             ...(outcome.summary !== undefined ? { summary: outcome.summary } : {}),
           },
