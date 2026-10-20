@@ -128,14 +128,19 @@ export interface ParsedClosure {
  * 闭标记容错（task-778eb18a 三连败修复）：provider SSE 丢尾 delta 会
  * 精确截掉最后一个字符（6 样本 5 截，`CLOSURE>>>` → `CLOSURE>>`）——
  * 闭标记放宽为 ≥2 个 `>`，信封残缺但信件（JSON）完整即接受；开标记
- * 保持恰好 3 个 `<` 不放宽（报告/正文讨论协议的字面示例不误收口），
+ * 恰好 3 个 `<`（前置 `<` 不认：`<<<<CLOSURE` 不命中，低危批），
  * JSON 合法性仍是从严门梣（残缺标记 + 非法 JSON 照拒）。
+ *
+ * 多块取末（低危批）：末轮正文常把协议当示例引用（字面块 + 合法 JSON），
+ * 首个匹配会把正文示例当真收口、顶掉文末真收口块（示例若写 failed 直接
+ * 反转结论）。故扫全部匹配、从尾部取第一个合法块。
  */
-export function parseClosureBlock(text: string): ParsedClosure | undefined {
-  const match = text.match(/<<<CLOSURE\s*([\s\S]*?)\s*CLOSURE>{2,}/);
-  if (!match) return undefined;
+const CLOSURE_BLOCK_RE = /(?<!<)<<<CLOSURE\s*([\s\S]*?)\s*CLOSURE>{2,}/g;
+
+/** 单块 JSON → ParsedClosure（协议字段从严：status 二值 + summary 必填）。 */
+function parseClosureJson(body: string): ParsedClosure | undefined {
   try {
-    const raw = JSON.parse(match[1]!) as {
+    const raw = JSON.parse(body) as {
       status?: unknown;
       summary?: unknown;
       reportPath?: unknown;
@@ -155,6 +160,15 @@ export function parseClosureBlock(text: string): ParsedClosure | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function parseClosureBlock(text: string): ParsedClosure | undefined {
+  const matches = [...text.matchAll(CLOSURE_BLOCK_RE)];
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    const parsed = parseClosureJson(matches[i]![1]!);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
 }
 
 // ── closure 兜底摘要（并入 engine 错误原因） ─────────

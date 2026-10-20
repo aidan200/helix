@@ -183,6 +183,36 @@ describe("closure 块解析（子进程收口协议）", () => {
     // 闭标记残缺 + JSON 非法 → 仍拒（JSON 合法是容错的强门梣）
     expect(parseClosureBlock('<<<CLOSURE\n{坏了}\nCLOSURE>>')).toBeUndefined();
   });
+
+  // 低危批：开标记恰好 3 个 `<`（前置 `<` 不认）+ 多块取末个合法块
+  test("开标记前置 `<` 不命中：`<<<<CLOSURE` 不误收口（注释口径与实现一致）", () => {
+    expect(parseClosureBlock('<<<<CLOSURE\n{"status":"done","summary":"x"}\nCLOSURE>>>')).toBeUndefined();
+  });
+
+  test("正文引用协议字面示例 + 文末真收口 → 取末个合法块（示例不得顶掉真收口）", () => {
+    const text = [
+      "说明：收口块的形状如下（示例，非本次结论）：",
+      '<<<CLOSURE {"status":"failed","summary":"示例：这里写失败原因"} CLOSURE>>>',
+      "",
+      "本次实际结论：",
+      '<<<CLOSURE {"status":"done","summary":"本次真的做完了","taskId":"t-1"} CLOSURE>>>',
+    ].join("\n");
+    expect(parseClosureBlock(text)).toEqual({
+      status: "done",
+      summary: "本次真的做完了",
+      reportPath: null,
+      findings: null,
+      taskId: "t-1",
+    });
+  });
+
+  test("末块非法 JSON → 回退前一个合法块（末块坏不连累整体）", () => {
+    const text = [
+      '<<<CLOSURE {"status":"done","summary":"合法结论"} CLOSURE>>>',
+      '<<<CLOSURE {坏掉的示例} CLOSURE>>>',
+    ].join("\n");
+    expect(parseClosureBlock(text)?.summary).toBe("合法结论");
+  });
 });
 
 describe("围栏收口容错（task-8213de82：真子进程端到端）", () => {
