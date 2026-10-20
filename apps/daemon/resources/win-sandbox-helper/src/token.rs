@@ -36,6 +36,7 @@ use windows_sys::Win32::Security::GetTokenInformation;
 use windows_sys::Win32::Security::LookupPrivilegeValueW;
 use windows_sys::Win32::Security::SetTokenInformation;
 use windows_sys::Win32::Security::ACL;
+use windows_sys::Win32::Security::AdjustTokenPrivileges;
 use windows_sys::Win32::Security::SID_AND_ATTRIBUTES;
 use windows_sys::Win32::Security::TOKEN_DUPLICATE;
 use windows_sys::Win32::Security::TOKEN_ADJUST_DEFAULT;
@@ -174,6 +175,8 @@ pub unsafe fn sid_from_string(s: &str) -> Result<Vec<u8>> {
 }
 
 /// 启用单权限（SeChangeNotifyPrivilege——目录遍历所需，照 codex）。
+/// 结果判定见 privileges::check_adjust_privileges：返回值非零不等于已获授，
+/// 须再查 GetLastError()==ERROR_NOT_ALL_ASSIGNED（评审 F5 #2 ①）。
 unsafe fn enable_single_privilege(h_token: HANDLE, name: &str) -> Result<()> {
     let mut luid = LUID { LowPart: 0, HighPart: 0 };
     let w = wide(name);
@@ -196,12 +199,9 @@ unsafe fn enable_single_privilege(h_token: HANDLE, name: &str) -> Result<()> {
         std::ptr::null_mut(),
         std::ptr::null_mut(),
     );
-    if ok == 0 {
-        return Err(anyhow!("AdjustTokenPrivileges({name}) failed: {}", GetLastError()));
-    }
-    Ok(())
+    // GetLastError() 必须紧跟调用取值（不得被后续 win32 调用覆写）。
+    crate::privileges::check_adjust_privileges(ok, GetLastError(), name)
 }
-use windows_sys::Win32::Security::AdjustTokenPrivileges;
 
 /// 构造受限 token：restricting SIDs = [cap]（仅 capability——CI run32 实证修正）。
 ///
@@ -256,7 +256,11 @@ pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result
         CloseHandle(new_token);
         return Err(e);
     }
-    enable_single_privilege(new_token, "SeChangeNotifyPrivilege")?;
+    // 失败路径同样回收句柄（评审 F5 #2 ②）：与上一行 set_default_dacl 失败同规。
+    if let Err(e) = enable_single_privilege(new_token, "SeChangeNotifyPrivilege") {
+        CloseHandle(new_token);
+        return Err(e);
+    }
     Ok(new_token)
 }
 
