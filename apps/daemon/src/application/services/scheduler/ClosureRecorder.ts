@@ -12,6 +12,7 @@ import type { ClockPort } from "../../ports/outbound/ClockPort";
 import type { SessionRepositoryPort } from "../../ports/outbound/SessionRepositoryPort";
 import type { InstanceClosureOutcome } from "../InstanceRunner";
 import type { KnowledgeWriteOp, WriteResult, AnchorDeclaration } from "../../../domain/kg/types";
+import { projectNameOf as projectName } from "../../../domain/kg/project-name";
 
 /**
  * ClosureRecorder —— closure 收口链（拆自 SchedulerService，
@@ -458,10 +459,6 @@ function resolveFindingProject(
   return scanned.length === 1 ? scanned[0] : undefined;
 }
 
-function projectName(projectRoot: string): string {
-  const parts = projectRoot.split("/");
-  return parts[parts.length - 1] || projectRoot;
-}
 
 function skip(reason: string): FindingOp {
   return { ok: false, reason };

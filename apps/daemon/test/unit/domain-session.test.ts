@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Session } from "../../src/domain/session/Session";
+import { CompactionEntry } from "../../src/domain/session/CompactionEntry";
 import type { SessionSnapshot } from "../../src/domain/session/SessionSnapshot";
 
 /**
@@ -134,6 +135,62 @@ describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reser
     // 预分配之后正常续分配不碰撞
     const u2 = s.appendUserEntry("再问");
     expect(u2.id).not.toBe(reserved);
+  });
+
+  test("CompactionEntry usage 深拷贝：入参与 toData 出口都不共享引用（评审 low #66）", () => {
+    const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 5, totalTokens: 6, cost: 0.5 };
+    const entry = CompactionEntry.create({
+      kind: "compaction",
+      id: "c1",
+      instanceId: "agent-1",
+      tokensBefore: 100,
+      tokensAfter: 10,
+      summary: "摘要",
+      usage,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    usage.input = 999; // 调用方后续 mutate 不污染条目
+    expect(entry.toData().usage.input).toBe(1);
+    const out = entry.toData() as { usage: { output: number } };
+    out.usage.output = 888; // 读面 mutate 也不回写条目本体
+    expect(entry.toData().usage.output).toBe(2);
+  });
+
+  test("appendSteerEntryAtDrain 契约守卫：重复 entryId 落盘被拒（评审 low #65）", () => {
+    const s = Session.create("s-dup");
+    const u = s.appendUserEntry("q");
+    s.beginTurn(u.id);
+    const id = s.applySteer("注入一");
+    const drained = s.drainAllSteer();
+    expect(drained).toHaveLength(1);
+    s.appendSteerEntryAtDrain(drained[0]!, "2026-01-01T00:00:00.000Z");
+    // 同一 item 二次落盘：Entry.create 无 id 唯一域，聚合必须拦
+    expect(() => s.appendSteerEntryAtDrain(drained[0]!)).toThrow(/已落盘/);
+    expect(s.entryList().filter((e) => e.id === id)).toHaveLength(1);
+  });
+
+  test("脏快照多 open turn：更早的显式收口 interrupted，只保留最后一个为 currentTurn（评审 low #64）", () => {
+    // 构造脏快照：手工把两个已完成 turn 改回 generating（over-crash 双 open 形态）
+    const s = Session.create("s-dirty");
+    const u1 = s.appendUserEntry("q1");
+    s.beginTurn(u1.id);
+    s.appendAssistantEntry("a1");
+    s.completeTurn();
+    const u2 = s.appendUserEntry("q2");
+    s.beginTurn(u2.id);
+    s.appendAssistantEntry("a2");
+    s.completeTurn();
+    const snap = s.toSnapshot();
+    const dirty = {
+      ...snap,
+      turns: snap.turns.map((t) => ({ ...t, status: "generating" as const, endedAt: null })),
+    };
+    const restored = Session.restoreFrom(dirty);
+    const turns = restored.toSnapshot().turns;
+    // 更早的 open turn 收口为 interrupted（不再永久悬挂），最后一个仍是 open
+    expect(turns[0]?.status).toBe("interrupted");
+    expect(turns[1]?.status).toBe("generating");
+    expect(restored.openTurn?.id).toBe(turns[1]?.id);
   });
 
   test("id 空洞（放弃的预留不回收）下 restoreFrom 计数器重建正常", () => {

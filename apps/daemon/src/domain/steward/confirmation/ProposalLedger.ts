@@ -1,3 +1,5 @@
+import { DomainError } from "../../DomainError";
+
 /**
  * ProposalLedger —— 确认闸聚合（DDD 重构批 1：确认闸子域抽取）。
  *
@@ -129,23 +131,37 @@ function contentHashOf(text: string): string {
  *  spawnReview=type@project / surfaceAct=verb@surfaceId）。 */
 export function pendingKeyOf(action: PendingAction): string {
   switch (action.kind) {
-    case "send":
-      return `send|${action.send!.agentId}|${contentHashOf(action.send!.message)}`;
-    case "deliverSession":
-      return `deliverSession|${action.deliverSession!.sessionId}|${contentHashOf(action.deliverSession!.text)}`;
+    // 载荷守卫（评审 low #75）：kind 与载荷形状不匹配时抛 DomainError（域纪律：
+    // 非法操作抛 DomainError），不再用非空断言炸成 TypeError。
+    case "send": {
+      const p = requirePayload(action.send, action.kind);
+      return `send|${p.agentId}|${contentHashOf(p.message)}`;
+    }
+    case "deliverSession": {
+      const p = requirePayload(action.deliverSession, action.kind);
+      return `deliverSession|${p.sessionId}|${contentHashOf(p.text)}`;
+    }
     case "createSession": {
-      const c = action.createSession!;
+      const c = requirePayload(action.createSession, action.kind);
       return `createSession|${c.title}|${contentHashOf(c.initialMessage ?? "")}`;
     }
     case "spawnReview": {
-      const r = action.spawnReview!;
+      const r = requirePayload(action.spawnReview, action.kind);
       return `spawnReview|${r.reviewType}@${r.project}|${contentHashOf(JSON.stringify(r.params))}`;
     }
     case "surfaceAct": {
-      const s = action.surfaceAct!;
+      const s = requirePayload(action.surfaceAct, action.kind);
       return `surfaceAct|${s.verb}@${s.surfaceId}|${s.risk}|${contentHashOf(JSON.stringify(s.args))}`;
     }
   }
+}
+
+/** 载荷存在性守卫（kind ↔ 载荷形状一致性；缺载荷 = 构造侧违约，抛 DomainError）。 */
+function requirePayload<T>(payload: T | undefined, kind: PendingAction["kind"]): T {
+  if (payload === undefined || payload === null) {
+    throw new DomainError(`提案 kind=${kind} 缺少对应载荷（PendingAction 形状违约）`);
+  }
+  return payload;
 }
 
 /** 提案终局登记簿上限（FIFO 淘汰——终局记录仅服务短窗幂等判定，无持久价值）。 */
@@ -166,7 +182,13 @@ export class ProposalLedger {
 
   constructor(deps: { now: () => number; registryMax?: number }) {
     this.now = deps.now;
-    this.registryMax = deps.registryMax ?? STEWARD_PROPOSAL_REGISTRY_MAX;
+    const max = deps.registryMax ?? STEWARD_PROPOSAL_REGISTRY_MAX;
+    // 下界校验（评审 low #76，对齐 SchedulingPolicy.assertIntAtLeast 先例）：
+    // registryMax=0 时淘汰分支因 oldest === key 恒跳过删除 → 上限失效。
+    if (!Number.isInteger(max) || max < 1) {
+      throw new DomainError(`ProposalLedger registryMax 非法（${String(deps.registryMax)}）——须为 ≥1 的整数`);
+    }
+    this.registryMax = max;
   }
 
   /** 在途卡数（应用层 pausedGateToken 清旗判据）。 */

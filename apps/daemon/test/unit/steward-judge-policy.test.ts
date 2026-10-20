@@ -62,6 +62,29 @@ describe("judgeOrFallback 降级链（三态统一骨架）", () => {
     expect(notified).toEqual(["unready:"]);
   });
 
+  test("非 Error 抛出物（string/undefined）→ 降级通知仍有原因文本（评审 low #78）", async () => {
+    const notified: string[] = [];
+    for (const thrown of ["纯字符串爆炸", undefined] as const) {
+      notified.length = 0;
+      const r = await judgeOrFallback({
+        judge: judgeFace({
+          noul: async () => {
+            throw thrown;
+          },
+        }),
+        question: "q",
+        text: "t",
+        interpret: () => true,
+        fallback: false,
+        onDegraded: (k, m) => notified.push(`${k}:${m ?? ""}`),
+      });
+      expect(r.degraded).toBe("error");
+      // 原因文本不得是 undefined（原 (err as Error).message 会给出 undefined）
+      expect(notified).toHaveLength(1);
+      expect(notified[0]).toBe(`error:${String(thrown)}`);
+    }
+  });
+
   test("抛错 → fallback + degraded=error + 通知携原文（不重试）", async () => {
     const notified: string[] = [];
     let calls = 0;

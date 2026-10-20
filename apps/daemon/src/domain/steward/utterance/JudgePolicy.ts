@@ -35,6 +35,14 @@ export interface JudgeOrFallbackInput<T> {
   readonly onDegraded?: (kind: JudgeDegradation, message?: string) => void;
 }
 
+/** 抛出物 → 原因文本（Error 取 message，其余 String(err) 兜底——降级通知
+ *  不得丢原因）。 */
+export function reasonOf(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return String(err);
+}
+
 /** 判定封装：降级链三态（off/unready/error）统一骨架，判定成功 = interpret(score)。 */
 export async function judgeOrFallback<T>(
   input: JudgeOrFallbackInput<T>,
@@ -50,7 +58,9 @@ export async function judgeOrFallback<T>(
     const score = await judge.noul(`用户这句话：${text}`, question);
     return { value: interpret(score) };
   } catch (err) {
-    onDegraded?.("error", (err as Error).message);
+    // 非 Error 抛出物（string/undefined）不得取 .message（评审 low #78）：
+    // 降级通知会丢原因文本（undefined）。统一经 reasonOf 归一。
+    onDegraded?.("error", reasonOf(err));
     return { value: fallback, degraded: "error" };
   }
 }

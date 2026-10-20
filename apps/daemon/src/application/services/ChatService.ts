@@ -711,10 +711,11 @@ export class ChatService implements ChatPort {
     // domain 队列残留若不清即孤儿（永久滞留 steer_queue 表，下次发消息还可能
     // 被补注入过时内容）。清账按 source 分流（task-20260909 8c1c closure 丢失
     // 修复）：
-    // - closure/progress（SubAgent 收口/进展报告）＝必须落时间轴的终态事实，
-    //   不是待回复的对话 steer——转 closureBuffer 走 T2 续送链（idle 后
-    //   fire-and-forget sendMessage 落条目）。被清项从未 drain（drain 才落盘，
-    //   appendSteerEntryAtDrain），续送无重复注入风险。
+    // - closure/progress/coord（SubAgent 收口/进展报告/U6 协调冲突通知）＝必须
+    //   落时间轴的终态事实，不是待回复的对话 steer——转 closureBuffer 走 T2 续送
+    //   链（idle 后 fire-and-forget sendMessage 落条目）。被清项从未 drain（drain
+    //   才落盘，appendSteerEntryAtDrain），续送无重复注入风险。coord 曾漏在本分流
+    //   外（评审 low #56）：与 closure 同为机械事实，落丢弃分支会永久丢冲突通知。
     // - user/缺省＝对话 steer，丢弃防过时注入（原 B 语义不变）：与 stopped
     //   分支同族文案可观测丢弃——注入对象已不在即放弃，不强行补注入（避免
     //   重复回复）；丢弃项未落时间轴条目（drain 落盘语义）——文本随本条
@@ -724,7 +725,7 @@ export class ChatService implements ChatPort {
     const droppedIds: string[] = [];
     const bufferedIds: string[] = [];
     for (const item of orphaned) {
-      if (item.source === "closure" || item.source === "progress") {
+      if (item.source === "closure" || item.source === "progress" || item.source === "coord") {
         this.closureBuffer.push({ text: item.text, source: item.source });
         bufferedIds.push(item.entryId);
       } else {

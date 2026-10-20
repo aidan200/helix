@@ -12,11 +12,11 @@
 
 import type { JobData } from "../../ports/outbound/TaskStorePort";
 import { isTerminalJob } from "../../../domain/task/job";
+import { projectNameOf } from "../../../domain/kg/project-name";
 
-/** projectRoot → workspace 一级目录名（job.projects 标签匹配键）。 */
-export function projectNameOf(projectRoot: string): string {
-  return projectRoot.split("/").filter((s) => s !== "").pop() ?? projectRoot;
-}
+/** projectRoot 尾段即项目名（单源：domain/kg/project-name.ts——job.projects
+ *  标签匹配键；本文件原实现不归一分隔符，已收编）。 */
+export { projectNameOf };
 
 /** 该项目存在指定类型的非终态 job（并发禁入 / 运行中标志判定）。 */
 export function hasActiveJob(jobs: readonly JobData[], type: string, projectName: string): boolean {
@@ -69,7 +69,9 @@ export interface NormalizedCreateError {
  * task.type_unknown 原码透传；其余 string code 透传原码；无 code → task.internal。
  */
 export function normalizeCreateTaskError(err: unknown): NormalizedCreateError {
-  const code = (err as { code?: unknown }).code;
+  // null/undefined 抛出物不得在这里二次抛（评审 low #26）：catch 内归一器再炸
+  // 会穿透 createTaskWithSlot 并跳过 finally 的槽释放。非对象一律无 code。
+  const code = typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
   const message = err instanceof Error ? err.message : String(err);
   if (code === "task.validation_failed" || code === "task.type_unknown") return { code, message };
   return { code: typeof code === "string" && code !== "" ? code : "task.internal", message };

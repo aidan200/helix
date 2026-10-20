@@ -192,6 +192,9 @@ export function assembleInstancePanel(
 
     const snapshot = ctx.snapshot;
     const model = snapshot?.model ?? spawned?.model;
+    // 当前生效模型 = 时间线末条 ?? 快照 model ?? spawn 透传值（单发 Sub 无快照
+    // 场景）——单次求值（评审 low #20：原条件与取值各算一遍同一表达式）
+    const currentModel = ctx.currentModel ?? spawned?.model;
     const status = terminal !== undefined ? TERMINAL_STATUS[terminal.type]! : ("running" as const);
     return {
       instanceId: agg.instanceId,
@@ -216,8 +219,7 @@ export function assembleInstancePanel(
       ...(snapshot !== undefined ? { snapshot } : {}),
       snapshotMissing: ctx.snapshotMissing,
       ...(ctx.modelTimeline.length > 0 ? { modelTimeline: ctx.modelTimeline } : {}),
-      // 当前生效模型 = 时间线末条 ?? 快照 model ?? spawn 透传值（单发 Sub 无快照场景）
-      ...((ctx.currentModel ?? spawned?.model) !== undefined ? { currentModel: ctx.currentModel ?? spawned?.model } : {}),
+      ...(currentModel !== undefined ? { currentModel } : {}),
     } satisfies TraceInstanceRecord;
   });
 

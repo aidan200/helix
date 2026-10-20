@@ -58,10 +58,13 @@ export function classifyBashOutput(
 }
 
 /** 沙箱拒绝引导文案（附原始 stderr 尾部，保诊断信息——平台无关：Seatbelt/helper 同面）。 */
-function violationMessage(stderr: string): string {
+export function violationMessage(stderr: string): string {
   const tail = stderr.length > 300 ? `…${stderr.slice(-300)}` : stderr;
   return (
-    `命令被 helix 沙箱拒绝：写入目标不在可写根（workspace 与 ~/.helix）内。\n` +
+    // 文案口径（评审 low #74）：可写面 = workspace + ~/.helix + 用户配置的额外
+    // 可写根 + 系统临时目录；且拒绝也可能是非写类（进程/网络等策略面）——
+    // 原文「只 workspace 与 ~/.helix 的写入」把面说小了、把因说窄了。
+    `命令被 helix 沙箱拒绝：目标不在可写根（workspace / ~/.helix / 设置页配置的额外可写根 / 系统临时目录）内，或该操作不属于沙箱放行面。\n` +
     `处置：① 确认目标路径是否应为 workspace 内路径；② 项目文件写入优先使用 write/edit 工具；` +
     `③ 确需越界操作时，请用户在设置页「通用 → 命令沙箱」调整沙箱开关。\n原始输出：${tail}`
   );

@@ -190,15 +190,21 @@ export class StewardDialogMemory {
   }
 
   /** 追加一条（预算闸：写入时裁剪老记录先弃——镜像裁剪量同步 deleteHead，
-   *  落盘单行追加；活跃时间随写更新）。 */
+   *  落盘单行追加；活跃时间随写更新）。
+   *  镜像/store 不分叉（评审 low #11）：新条目自身若被裁掉（budget 恰清空
+   *  旧窗致新 toolResult 成窗口头孤儿→dropHeadOrphanToolResults 连带弃它），
+   *  镜像已弃则落盘也不单写——否则重载后孤儿回流直达 provider 400。 */
   async append(record: StewardHistoryRecord): Promise<void> {
     this.ensureLoaded();
     const next = trimToBudget([...this.records, record], this.budgetTokens);
-    const dropped = this.records.length + 1 - next.length;
+    // 新条目存活判：trimToBudget 只从头部裁，存活则它恒在尾部
+    const keptNew = next.length > 0 && next[next.length - 1] === record;
+    // deleteHead 只计「旧记录被裁量」（新条目从未入 store，不算在已落盘行内）
+    const droppedOld = this.records.length + (keptNew ? 1 : 0) - next.length;
     this.records = next;
     if (this.store === undefined) return;
-    if (dropped > 0) this.store.deleteHead(dropped);
-    this.store.append(record, this.now());
+    if (droppedOld > 0) this.store.deleteHead(droppedOld);
+    if (keptNew) this.store.append(record, this.now());
   }
 
   /** 新对话闸：整库清空（回执面由 service 收口）。 */

@@ -44,7 +44,9 @@ export interface TaskEngineServiceDeps {
   readonly store: TaskStorePort;
   readonly skills: TaskSkillRegistryPort;
   readonly starter: TaskOrchestratorStarterPort;
-  /** 父进程面（getItems 读 + deleteByInstanceIds 清理；F3.6 唯一例外写点）。 */
+  /** 父进程面（仅 deleteByInstanceIds 清理；F3.6 唯一例外写点）。
+   *  只 Pick 这一口（评审 low #51）：plan 读面归 TaskQueryService，引擎不读
+   * 台账（原文「getItems 读 + …」与类型面不符）。 */
   readonly workLedger: Pick<WorkLedgerPort, "deleteByInstanceIds">;
   readonly clock: ClockPort;
   /**
@@ -333,7 +335,10 @@ export class TaskEngineService implements TaskEnginePort {
     return { deletedCounts };
   }
 
-  // ── 编排回口（T2.2 消费；推进动作前查 job.status==running） ──
+  // ── 编排回口（T2.2 消费；推进动作前经 ensureActiveForAdvance 门） ──
+  // 门语义（E-142 翻转，评审 low #50）：pending = 编排接管前态，推进动作即
+  // 接管激活（转 running）；paused/终态才拒绝。原文「查 job.status==running」
+  // 与实现相反（读注释会误以为 pending 必须外部先转 running）。
 
   async insertBatch(input: { jobId: string; stageSeq: number; scope: string }): Promise<{ batchId: string }> {
     const job = this.mustJob(input.jobId);

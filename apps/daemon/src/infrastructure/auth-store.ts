@@ -197,11 +197,13 @@ export class AuthStore implements AuthStorePort {
     return { keyMasked: maskKey(apiKey) };
   }
 
-  /** 移除 provider 凭据（auth.delete_key；未知 provider 静默幂等）。 */
+  /** 移除 provider 凭据（auth.delete_key；未知 provider 静默幂等——未知
+   *  provider 零变更也跳过 persist，与 modify 的「无变更不落盘」同口径）。 */
   async deleteKey(providerId: string): Promise<void> {
     await this.enqueue(() =>
       withFileLock(`${this.filePath}.lock`, async () => {
         const table = parseAuthFile(this.filePath);
+        if (!(providerId in table)) return; // 幂等：无此行不重写整表
         delete table[providerId];
         this.persist(table);
       }),

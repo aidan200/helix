@@ -39,6 +39,7 @@ import { judgeOrFallback } from "../../domain/steward/utterance/JudgePolicy";
 import { judgeRunWatchdog } from "../../domain/steward/run/RunWatchdog";
 import { AskQueue } from "../../domain/steward/run/AskQueue";
 import { StewardToolKit } from "./tools/StewardToolKit";
+import { stewardBlocksText } from "./stewardBlocks";
 
 // 确认闸聚合域 re-export（批 1：定义已迁 domain/steward/confirmation——
 // 兼容既有引用面；行为零变更）
@@ -137,11 +138,6 @@ export function hasExemptionAffordance(args: Record<string, unknown>): boolean {
 /** act 回执文本（带序列号回流——D7-1）。 */
 export function formatActReceipt(result: { ok: boolean; seq: number; detail: string }): string {
   return `动作回执（seq=${result.seq}）：${result.ok ? "成功" : "失败"}——${result.detail}`;
-}
-
-/** 块集文本派生（port 块模型——text 块拼接；原 loopBlocksText 的 port 形态）。 */
-function portBlocksText(blocks: readonly import("../ports/outbound/StewardLlmPort").StewardLlmContentBlock[]): string {
-  return blocks.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
 }
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
@@ -683,6 +679,13 @@ export interface StewardTasksSource {
     jobId: string;
     title: string;
     status: string;
+    /** 任务类型（= skill 名）；缺省消费面回落 "task"（additive——旧读面/测试
+     *  替身不携带）。 */
+    type?: string;
+    /** 归属项目徽章（projects 过滤判据）；缺省 = 无归属（additive）。 */
+    projects?: readonly string[];
+    /** 创建时间（ISO；时间窗过滤判据）；缺省 = 不入窗（additive）。 */
+    createdAt?: string;
     progress: { stageName: string | null; batchesDone: number; batchesTotal: number; percent: number } | null;
     error: string | null;
   }[];
@@ -1261,6 +1264,8 @@ export class StewardService implements StewardComponent {
    *  （askSettler/pendingRunAsk/askStreamEvents/projectionChain/runSettled）
    *  与 engine 代际守卫留应用层——与 promise 编排/引擎调用深度耦合。 ── */
   private readonly run: StewardRun<StewardAskErrorKind>;
+  /** 当前 run 供判官/看门狗持有的代际号（occupy 时递增——异步判定只作用于发问时那一代）。 */
+  private runEpoch = 0;
   /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
   private notifySeq = 0;
   /** 主动汇报实时帧序（emitProactive 单调 seq——M3-a，与 notify 同构口径）。 */
@@ -1316,12 +1321,30 @@ export class StewardService implements StewardComponent {
     // 逻辑会把停止表达当新 ask abort-再驱动——语义错位）；pending 卡不动
     //（卡生命周期 TTL 域独立）。
     if (this.run.active) {
+      // 判定 await 竞态守卫（评审 low #2）：判官判定是异步 LLM 调用，期间在途
+      // run 可能自然收口（判停结论悬空）或被排队接管换代（新 run 与这句停止
+      // 表达无关）。记下发问时的 run 代际号（runEpoch，occupy 递增）再判定：
+      // ——同 run 仍在途：全停（abort + 清队列）；
+      // ——run 已自然收口：停止表达不回落成新一轮 LLM 提问（清队列 + stopped
+      //   回执），而不是当新问题再交一次 LLM；
+      // ——run 已换代（后继在途）：判停结论对后继无失（后代在服队列里的旧
+      //   ask），不误杀后继（abortInFlight 会杀掉它）——交回正常漏斗排队，
+      //   与判官缺席的 fail-open 同姿态。
+      const epochAtJudge = this.runEpoch;
       const stopVerdict = await this.judgeStopIntent(text);
-      if (stopVerdict.stop && this.run.active) {
-        const dropped = this.askQueue.clearAll();
-        this.abortInFlight("停止判定全停");
-        this.logInfo(`管家手动停止（停止判定判停）：丢弃排队 ${dropped} 条`);
-        return { status: "stopped", reason: "已停止当前处理", dropped };
+      if (stopVerdict.stop) {
+        const sameRunInFlight = this.run.active && this.runEpoch === epochAtJudge;
+        if (sameRunInFlight) {
+          const dropped = this.askQueue.clearAll();
+          this.abortInFlight("停止判定全停");
+          this.logInfo(`管家手动停止（停止判定判停）：丢弃排队 ${dropped} 条`);
+          return { status: "stopped", reason: "已停止当前处理", dropped };
+        }
+        if (!this.run.active) {
+          const dropped = this.askQueue.clearAll();
+          this.logInfo(`管家手动停止（判定期间 run 已收口）：丢弃排队 ${dropped} 条`);
+          return { status: "stopped", reason: "已停止当前处理", dropped };
+        }
       }
     }
     // 判官泛化层（M3-a：三级漏斗第二级）：词表未命中 ∧ pending 卡在场 →
@@ -1402,8 +1425,7 @@ export class StewardService implements StewardComponent {
 
   /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt
    *  组装（感知快照 + 记忆召回——setSystemPrompt 运行期变异面）+ B4a 补偿
-   *  （队列接管轮）+ 事件收口挂载。
-   *
+   *  （队列接管轮）+ 事件收口挂载。   *
    *  事故热修批④（队列并发锁）：runActive 提前到本同步段置位——原实现置位
    *  在 await 装配段之后，ask 检查面在「run 收口（runActive=false）→ driveAsk
    *  装配 await → runActive=true」的间隙里看到假空闲态，相邻 ask 并发直驱双
@@ -1413,6 +1435,7 @@ export class StewardService implements StewardComponent {
    *  装配失败，释放占位并收口 error 回执（防 runActive 永真死锁队列）。 */
   private driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
     this.run.occupy(); // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
+    this.runEpoch += 1; // run 代际号（评审 low #2：异步判定回来时认「是不是同一个 run」）
     const run = this.assembleAndRun(item);
     run.catch(() => undefined); // 兕底异常不经本链传播（收口在内部处理）
     return run;
@@ -1487,7 +1510,7 @@ export class StewardService implements StewardComponent {
             if (response.kind !== "blocks") {
               throw new Error(`压缩摘要响应非块集（${response.kind}）`);
             }
-            return portBlocksText(response.blocks);
+            return stewardBlocksText(response.blocks);
           },
         },
       });
@@ -2653,8 +2676,8 @@ export class StewardService implements StewardComponent {
         totalAgents: statuses.length,
         sessionCount: rows.length,
         recentSessions: rows.slice(0, SNAPSHOT_RECENT_SESSIONS).map((r) => ({
-          // displayTitle 单源（TR-205 口径 + 动态主题批）：title > topic > firstUserText
-          title: r.title ?? r.topic ?? r.firstUserText ?? "（无主题会话）",
+          // displayTitle 单源（TR-207）：推导链只在 displayTitleOf，快照面禁另写
+          title: displayTitleOf(r),
           updatedAt: r.updatedAt,
         })),
         ...(recentActivity !== undefined && recentActivity.length > 0 ? { recentActivity } : {}),
@@ -2664,7 +2687,5 @@ export class StewardService implements StewardComponent {
       return undefined;
     }
   }
-
-  // ── A2：query_recent_work ───────────────────────────
 
 }

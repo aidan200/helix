@@ -15,6 +15,14 @@ import type {
   ResourceToggleOutcome,
 } from "../ports/inbound/ResourceConfigPort";
 
+/** 系统派生 kind（写面只读面 = tool/skill/mcp-server；model/thinking 槽位可配）。
+ *  单源：driving 层 handlers/resource.ts 的只读校验与本服务的写面守卫同集消费。 */
+export const DERIVED_PROFILE_KINDS: ReadonlySet<ProfileKind> = new Set([
+  "orchestrator",
+  "subagent-kg-writer",
+  "subagent-code-reviewer",
+]);
+
 /**
  * ResourceService —— profile kind 维资源启停的合取计算层（数据域
  * 终点：本服务只到「数据与合取计算」，刷新链经事件发布）。
@@ -161,6 +169,13 @@ export class ResourceService implements ResourceConfigPort {
     }
     if (resourceType === "thinking") {
       return { status: "skipped", reason: "thinking-uses-slot-api" };
+    }
+    // 系统派生 kind 的 tool/skill/mcp-server 写面只读（评审 low #61）：该不变式
+    // 此前只在 driving 层（handlers/resource.ts）收口，绕过 WS 命令面直连本
+    // 服务的调用（内部接线/未来接入面）可写出生效面无意义的差异行。
+    // 词表单源 = DERIVED_PROFILE_KINDS（与 handler 校验同集）。
+    if (DERIVED_PROFILE_KINDS.has(kind)) {
+      return { status: "skipped", reason: "derived-kind-read-only" };
     }
     if (resourceType === "skill") {
       const skill = (await this.deps.skills.scan()).skills.find((s) => s.name === name);

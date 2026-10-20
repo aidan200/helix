@@ -28,6 +28,10 @@
  */
 
 import type { RuntimeConfigPort } from "../../ports/outbound/RuntimeConfigPort";
+// 类型单源在端口（依赖方向：端口不 import 服务实现）——此处 re-export 保
+// 既有消费面 import 路径不变。
+import type { KgConfigEffective, KgConfigPatch, KgSimilarityThresholds } from "../../ports/outbound/KgConfigPort";
+export type { KgConfigEffective, KgConfigPatch, KgSimilarityThresholds };
 
 // ── kg.* 键位（知识库配置域）────────────────────────────────
 
@@ -53,21 +57,6 @@ export const KG_SEMANTIC_MINSCORE_DEFAULT = 0.35;
 /** semanticTopK 合法上限（噪声防御——超库容量的 K 只放大低质命中）。 */
 export const KG_SEMANTIC_TOPK_MAX = 50;
 
-/** 查重阈值生效对（读面解析产物——查重闸与 config.get/set_kg 回执同形取数）。 */
-export interface KgSimilarityThresholds {
-  /** 软警告 + similarTo 连线触发线。 */
-  readonly warn: number;
-  /** 疑似重复候选触发线。 */
-  readonly dup: number;
-}
-
-/** 配置写面部分更新（config.set_kg 载荷同形；携带项写入未携带项保留）。 */
-export interface KgConfigPatch {
-  readonly similarityWarn?: number;
-  readonly similarityDup?: number;
-  readonly semanticTopK?: number;
-  readonly semanticMinScore?: number;
-}
 
 /** 语义召回生效对（读面解析产物——向量轨与 config.get/set_kg 回执同形取数）。 */
 export interface KgSemanticRecallSettings {
@@ -77,12 +66,6 @@ export interface KgSemanticRecallSettings {
   readonly minScore: number;
 }
 
-/** 知识库配置组生效值（查重阈值对 + 语义召回对——config.get/set_kg 回执同形；
- *  结构上是 KgSimilarityThresholds 超集，既有阈值消费点结构性兼容）。 */
-export interface KgConfigEffective extends KgSimilarityThresholds {
-  readonly semanticTopK: number;
-  readonly semanticMinScore: number;
-}
 
 /** 单位区间文本解析（"0.5" → 0.5；[0,1] 外/非有限数 → null）。 */
 function parseUnitInterval(raw: string): number | null {

@@ -130,7 +130,6 @@ export class SttStreamService {
         return;
       }
       const selection = this.select(opts.provider);
-      if (selection === undefined) return; // 已发 started error
       if (!selection.configured) {
         emitStartedError(selection.reason);
         return;
@@ -254,7 +253,7 @@ export class SttStreamService {
   /** provider 选择（selectSttProvider 精简同构：仅流式 capable 清单）。 */
   private select(
     requested: string | undefined,
-  ): { port: SttStreamPort; configured: true } | { port: undefined; configured: false; reason: string } | undefined {
+  ): { port: SttStreamPort; configured: true } | { port: undefined; configured: false; reason: string } {
     if (requested !== undefined) {
       const found = this.adapters.find((a) => a.providerId === requested);
       if (found === undefined) {

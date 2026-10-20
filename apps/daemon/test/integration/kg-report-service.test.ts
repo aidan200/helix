@@ -132,7 +132,15 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     const report = s.report.buildChangeReport(s.root, ITER);
     expect(report.entries.length).toBeGreaterThan(0);
     for (const entry of report.entries) {
-      expect(entry.body).toContain("本迭代"); // 主语标记（事件导向非节点导向）
+      // 主语口径分流（评审 low #23）：knowledge_change / suspect_stale 是本迭代
+      // 事件面（主语 = 本迭代）；rule_conflict / dead_anchor 源于全量现状扫描
+      // （findConflicts/findOrphans），存量问题每迭代重现——禁归因本迭代。
+      if (entry.kind === "rule_conflict" || entry.kind === "dead_anchor") {
+        expect(entry.body).toContain("机械检查发现（全量现状扫描）");
+        expect(entry.body).not.toContain("本迭代");
+      } else {
+        expect(entry.body).toContain("本迭代"); // 主语标记（事件导向非节点导向）
+      }
       expect(entry.body).toMatch(/——|因此|导致|，而/); // 因果链连接词
       expect(entry.body.endsWith("。")).toBe(true); // 完整叙述句（非枚举片段）
       expect("options" in entry).toBe(false); // 报告=通知面非审核面：无行动项字段

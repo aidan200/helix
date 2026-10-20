@@ -44,6 +44,11 @@ describe("normalizeCreateTaskError 错误归一（M7④ 收口，含 M7 错误�
     expect(normalizeCreateTaskError("字符串异常")).toEqual({ code: "task.internal", message: "字符串异常" });
     expect(normalizeCreateTaskError(Object.assign(new Error("空码"), { code: "" })).code).toBe("task.internal");
   });
+
+  test("null/undefined 抛出物不二次抛（评审 low #26：归一器炸会穿透 finally 的槽释放）", () => {
+    expect(normalizeCreateTaskError(null)).toEqual({ code: "task.internal", message: "null" });
+    expect(normalizeCreateTaskError(undefined)).toEqual({ code: "task.internal", message: "undefined" });
+  });
 });
 
 describe("createTaskWithSlot 共享骨架（M7④）", () => {

@@ -34,7 +34,11 @@ export interface ChatPort {
 /**
  * 会话路由版 ChatPort（AD-4，driving 侧路由面）：sessionId 可选入参
  * 缺省 = 当前会话；多会话路由由实现（组合根 ChatRouter）解析目标运行时。
- * 少参实现（ChatService）天然可赋值（TS 参数逆变兼容）——单会话场景零改造。
+ * 少参实现（ChatService）可赋值，但机制是 **TS 方法双变**（method syntax 不做
+ * strictFunctionTypes 逆变检查）——旧注释把它写成参数位逆变，属误归因；且两
+ * 接口第 2 位语义并不同（本接口 = 路由 sessionId；基接口 ChatPort = images），
+ * 跨接口赋值只在本文件声明的占位兼容前提下成立，语义适配由实现面（ChatRouter）
+ * 负责。
  *
  * 注：不再 `extends ChatPort`——images 参数位（基接口第 2 位）与路由
  * sessionId（本接口第 2 位） positional 冲突，接口继承会拒绝重载；两接口

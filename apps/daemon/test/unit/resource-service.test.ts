@@ -257,6 +257,17 @@ describe("ResourceService：thinking 槽位（thinking 批 AD-6 扩维，T1.3）
     expect((await service.list("subagent-worker")).thinkingLevel).toBe("xhigh");
   });
 
+  test("系统派生 kind 的 tool/skill/mcp-server 写面只读（评审 low #61：服务面守卫，不只 driving 层）", async () => {
+    const { service, store } = makeService();
+    for (const kind of ["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"] as const) {
+      expect(await service.setEnabled(kind, "tool", "read", true)).toEqual({ status: "skipped", reason: "derived-kind-read-only" });
+      expect(await service.setEnabled(kind, "skill", "some-skill", true)).toEqual({ status: "skipped", reason: "derived-kind-read-only" });
+      expect(await service.setEnabled(kind, "mcp-server", "some-server", true)).toEqual({ status: "skipped", reason: "derived-kind-read-only" });
+    }
+    // 零落库（不产出永不生效的差异行）
+    expect(store.rows.size).toBe(0);
+  });
+
   test("setEnabled 对 thinking 型 → 显式 skipped（槽位走 set/clearThinkingSlot API，不承载启停语义）", async () => {
     const { service, store } = makeService();
     const outcome = await service.setEnabled("subagent-worker", "thinking", "xhigh", true);

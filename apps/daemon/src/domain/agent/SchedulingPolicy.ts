@@ -23,9 +23,10 @@ export const DEFAULT_SCHEDULING = {
   stalledThresholdMs: 300_000,
   /**
    * 终态保留窗口（CAND-399）：注册表内保留最近 N 条终态（done/failed/
-   * cancelled/killed 收口）实例，超窗者销户（unregisterInstance + 门面
-   * 侧留档 Map 对齐清理）——注册表内存与 status() 全量序列化体量有界；
-   * 持久化观测面（closure_records/agent_lifecycle）不受影响。测试可注入小值。
+   * cancelled 收口——InstanceState 三值，kill 收口统一落 failed，见 TR-35，
+   * 无 killed 态）实例，超窗者销户（unregisterInstance + 门面侧留档 Map 对齐
+   * 清理）——注册表内存与 status() 全量序列化体量有界；持久化观测面
+   * （closure_records/agent_lifecycle）不受影响。测试可注入小值。
    */
   terminalRetainCount: 50,
 } as const;

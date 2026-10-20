@@ -123,7 +123,18 @@ export interface CustomProviderServiceDeps {
 }
 
 export class CustomProviderService {
+  /** 写面串行链（评审 low #62）：set/delete 是 list→改→set 读改写，无串行
+   *  守卫时并发两次 set 各自读到旧表、后写覆盖先写（丢更新）。与
+   *  EmbeddingConfigService.enqueueMutation 同构。 */
+  private mutationChain: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly deps: CustomProviderServiceDeps) {}
+
+  private enqueueMutation<T>(op: () => Promise<T>): Promise<T> {
+    const next = this.mutationChain.then(op, op);
+    this.mutationChain = next.catch(() => undefined);
+    return next;
+  }
 
   /** 全量平台定义（daemon 内）。 */
   list(): readonly CustomProviderDef[] {
@@ -161,6 +172,10 @@ export class CustomProviderService {
    * 更新时旧模型清单整体替换）。
    */
   async set(input: CustomProviderSetInput): Promise<{ ok: true } | { ok: false; error: string }> {
+    return this.enqueueMutation(() => this.setInner(input));
+  }
+
+  private async setInner(input: CustomProviderSetInput): Promise<{ ok: true } | { ok: false; error: string }> {
     const id = input.id.trim();
     if (id === "" || !PROVIDER_ID_PATTERN.test(id) || id.length > PROVIDER_ID_MAX_LENGTH) {
       return {
@@ -238,6 +253,10 @@ export class CustomProviderService {
 
   /** 删除（id 不存在 → error；默认模型防线 → error；成功 = KV 落盘 + 活注册表撤销）。 */
   async delete(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    return this.enqueueMutation(() => this.deleteInner(id));
+  }
+
+  private async deleteInner(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const records = this.list();
     if (!records.some((r) => r.id === id)) return { ok: false, error: `平台不存在：${id}` };
     const prefix = `${id}/`;

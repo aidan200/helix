@@ -45,7 +45,23 @@ export class ImageValidationError extends Error {
   }
 }
 
-/** base64 字符串的解码后字节数（padding 折算；无需真实解码，长度推导）。 */
+/** base64 结构校验（评审 low #63：DATA_URL_RE 只把字符集，错位/多余 padding
+ *  能过闸）。规则：padding 只允许尾部且 ≤2；带 padding 时总长须被 4 整除；
+ *  body（去 padding）长度 mod 4 ∈ {0,2,3}——mod 4 === 1 不可能由任何字节序列
+ *  编码出（裸 base64 无 padding 形态照收：长度 mod 4 = 2/3 且字节数公式仍准）。 */
+export function isStructurallyValidBase64(base64: string): boolean {
+  if (base64.length === 0) return false;
+  const padAt = base64.indexOf("=");
+  const body = padAt === -1 ? base64 : base64.slice(0, padAt);
+  const pad = padAt === -1 ? "" : base64.slice(padAt);
+  if (pad.length > 2 || /[^=]/.test(pad)) return false; // 尾部段必须全 "="（且 ≤2）
+  if (body.length % 4 === 1) return false;
+  if (pad.length > 0 && base64.length % 4 !== 0) return false;
+  return true;
+}
+
+/** base64 字符串的解码后字节数（padding 折算；无需真实解码，长度推导——
+ *  对裸 base64（无 padding，长度 mod 4 = 2/3）同样成立）。 */
 export function base64ByteLength(base64: string): number {
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
   return Math.floor((base64.length * 3) / 4) - padding;
@@ -70,6 +86,13 @@ export function parseDataUrlImages(images: readonly string[]): DecodedImage[] {
       );
     }
     const { 1: mimeType, 2: data } = match;
+    // 结构闸（评审 low #63）：字符集之外还要形态合法——畸形串进 provider 会
+    // 在上行链末端才炸，且 base64ByteLength 的尺寸护栏对畸形串失真。
+    if (!isStructurallyValidBase64(data)) {
+      throw new ImageValidationError(
+        `第 ${index + 1} 张图片 base64 结构非法（padding 位置/长度不符 base64 规则）`,
+      );
+    }
     const bytes = base64ByteLength(data);
     if (bytes > MAX_IMAGE_BYTES) {
       throw new ImageValidationError(

@@ -8,6 +8,8 @@
  *   非跨项目混合）；无图谱项目空集 → 整段省略（零注入痕迹，AD-18 空段不占位）。
  */
 
+import { projectNameOf } from "../project-name";
+
 /** 常驻规则条目行：节点触发面最小集（id/kind/name/scene）+ 所属项目。 */
 export interface ResidentRuleRow {
   readonly project: string;
@@ -71,8 +73,5 @@ function truncateScene(value: string): string {
     : single;
 }
 
-/** projectRoot 尾段即项目名（与 task-slice 同口径）。 */
-function projectNameOf(projectRoot: string): string {
-  const parts = projectRoot.split("/");
-  return parts[parts.length - 1] || projectRoot;
-}
+/** projectRoot 尾段即项目名（单源：domain/kg/project-name.ts——本文件原版不
+ *  归一分隔符/不滤空段，win32 反斜杠与尾斜杠输入会回退整串，评审 low #15）。 */

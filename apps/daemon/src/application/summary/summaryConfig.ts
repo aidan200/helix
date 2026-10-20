@@ -73,25 +73,10 @@ export const LEGACY_STEWARD_SUMMARY_ENABLED_KEY = "steward.summary.enabled";
 /** 旧任务总结模型槽位 KV 键。 */
 export const LEGACY_STEWARD_SUMMARY_MODEL_KEY = "steward.summary.model";
 
-/** 任务总结面现态（E-250 分诊 gate 与播报摘要槽位共用读面）。 */
-export interface SummaryTaskConfigState {
-  /** 任务总结开关。 */
-  readonly enabled: boolean;
-  /** 任务总结模型槽位（null = 未配置——无默认模型）。 */
-  readonly model: string | null;
-}
-
-/** 总结配置域现态（读面产物——config.get/set_summary 回执与消费方共用形状）。 */
-export interface SummaryConfigState {
-  /** 三产物总开关。 */
-  readonly enabled: boolean;
-  /** 锚点轮次间隔（生效值——非法回退后的真实取数口径）。 */
-  readonly everyTurns: number;
-  /** 总结模型槽位（null = 未配置——进展/记忆点不产）。 */
-  readonly model: string | null;
-  /** 任务总结子功能现态。 */
-  readonly task: SummaryTaskConfigState;
-}
+// 现态类型单源在端口（依赖方向：端口不 import 服务实现）——此处 re-export
+// 保既有消费面 import 路径不变。
+import type { SummaryConfigState, SummaryTaskConfigState } from "../ports/outbound/SummaryConfigPort";
+export type { SummaryConfigState, SummaryTaskConfigState };
 
 /** 正整数文本解析（"5" → 5；0/负数/小数/非数字/超安全整数 → null）。 */
 function parsePositiveInt(raw: string): number | null {

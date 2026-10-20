@@ -138,6 +138,9 @@ export interface PerceptionRingEntry {
   /** 任务标题（任务终态机械字段——M3-d1 additive：活动账白话行文用，
    *  白话铁律禁 id 入句）。 */
   readonly title?: string;
+  /** 任务终态原词（done/failed/cancelled——additive：活动账白话尾词判据，
+   *  避免从 text 拼接串猜终态）。 */
+  readonly status?: string;
   /** 表面事件来源（E-251 三原语 origin 三值——M3-d1 additive：活动账
    *  attribution 归一用；缺席 = user（M0 shell 页面事件恒 user））。 */
   readonly origin?: "user" | "steward" | "system";
@@ -392,6 +395,8 @@ export class StewardPerceptionService {
       jobId,
       // 任务标题（M3-d1）：活动账白话行文用——白话铁律禁 jobId 入句
       ...(title !== undefined && title.trim() !== "" ? { title: title.trim().slice(0, 80) } : {}),
+      // 终态原词（活动账白话尾词判据单源——不从 text 猜）
+      status,
       text: `任务 ${jobId} 终态：${status}`,
     });
     // 机械短讯（白话硬约束）：任务状态是机械事实——零 LLM 零判官零分诊，
@@ -405,14 +410,8 @@ export class StewardPerceptionService {
     if (status === "failed" || this.isActive()) {
       this.deps.voice?.enqueueDiagnosed({ kind: "task.done", agentId: sessionId, text: body });
     }
-    const now = this.now();
     if (urgency !== "high") {
-      this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
-      if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
-        this.deps.logger?.warn(`管家通知预算超限（任务终态机械短讯丢弃）：${title ?? jobId}`);
-        return;
-      }
-      this.normalSentAt.push(now);
+      if (!this.tryTakeNormalNotifyBudget(`管家通知预算超限（任务终态机械短讯丢弃）：${title ?? jobId}`)) return;
     }
     const taskTitle = title !== undefined && title.trim() !== "" ? title.trim() : "后台任务";
     this.notifySeq += 1;
@@ -628,13 +627,7 @@ export class StewardPerceptionService {
         this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: voiceText });
       }
       // notify 机械短讯（白话——通知生命周期短，写多也看不完）
-      const now = this.now();
-      this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
-      if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
-        this.deps.logger?.warn(`管家通知预算超限（回复机械短讯丢弃）：${notifyBody.slice(0, 40)}`);
-        return result;
-      }
-      this.normalSentAt.push(now);
+      if (!this.tryTakeNormalNotifyBudget(`管家通知预算超限（回复机械短讯丢弃）：${notifyBody.slice(0, 40)}`)) return result;
       const title = input.taskTitle ?? "对话回复了";
       this.notifySeq += 1;
       this.deps.emitNotify?.({
@@ -716,17 +709,26 @@ export class StewardPerceptionService {
     };
   }
 
+  /** normal 档通知预算判（滑动窗：滤过期 → 判上限 → 记账）：三消费点（任务
+   *  终态机械短讯/分诊回复/保底投递）共用——窗口语义单源，禁各点自写
+   *  filter+length+push 三连（评审 low #9）。超限返回 false 且已 warn，调用
+   *  方直接丢弃本次通知。 */
+  private tryTakeNormalNotifyBudget(dropLabel: string): boolean {
+    const now = this.now();
+    this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
+    if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
+      this.deps.logger?.warn(dropLabel);
+      return false;
+    }
+    this.normalSentAt.push(now);
+    return true;
+  }
+
   /** 机械保底投递（未启用/分诊失败两路共用）：保底白话句 notify + 语音
    *  同句（预算照过——防降级风暴轰炸）；激活态补对话内汇报。 */
   private emitFallbackDelivery(input: DiagnosisInput): void {
     const text = input.fallbackText ?? "那个对话回你了";
-    const now = this.now();
-    this.normalSentAt = this.normalSentAt.filter((t) => now - t < NOTIFY_BUDGET_WINDOW_MS);
-    if (this.normalSentAt.length >= NOTIFY_NORMAL_HOURLY_LIMIT) {
-      this.deps.logger?.warn(`管家保底通知预算超限，丢弃：${text.slice(0, 40)}`);
-      return;
-    }
-    this.normalSentAt.push(now);
+    if (!this.tryTakeNormalNotifyBudget(`管家保底通知预算超限，丢弃：${text.slice(0, 40)}`)) return;
     if (this.isActive()) {
       this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text });
     }

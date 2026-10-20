@@ -88,4 +88,18 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("mcpServers[].env 值类型逐项校验（评审 low #34：非 string 值不得 as 成 Record<string,string> 带给 spawn env）", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "helix-cfg-"));
+    try {
+      const file = path.join(dir, "config.json");
+      writeFileSync(file, JSON.stringify({ mcpServers: [{ name: "s1", command: "npx", env: { TOKEN: 123 } }] }), "utf8");
+      expect(() => loadConfig(file)).toThrow(/env 的值应全为 string/);
+      // 合法 env 照常读入 legacy（同 key 顺序无关）
+      writeFileSync(file, JSON.stringify({ mcpServers: [{ name: "s2", command: "npx", env: { TOKEN: "t" } }] }), "utf8");
+      expect(loadConfig(file).legacy.mcpServers?.[0]?.env).toEqual({ TOKEN: "t" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

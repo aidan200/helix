@@ -146,6 +146,13 @@ export class AgentInstance {
         `AgentInstance ${data.instanceId} 非 running 态（${data.state}）不得携带 startedAtMs（当前段起点仅 running 态合法）`,
       );
     }
+    // 已结算时长校验（评审 low #68）：NaN/负数入对象会污染 elapsedMs 计算
+    //（elapsedMs() = 已结算段 + 当前段），且非法值无任何出口可自愈。
+    if (data.elapsedMs !== undefined && (!Number.isFinite(data.elapsedMs) || data.elapsedMs < 0)) {
+      throw new DomainError(
+        `AgentInstance ${data.instanceId} elapsedMs 非法（${String(data.elapsedMs)}——须为非负有限数）`,
+      );
+    }
     return new AgentInstance({ ...data });
   }
 
@@ -208,7 +215,11 @@ export class AgentInstance {
     return LEGAL_TRANSITIONS[this._state].includes(to);
   }
 
-  transition(to: InstanceState): void {
+  /** 状态迁移唯一执行点（私有——评审 low #67）：公开 transition 会让调用方
+   *  绕过 markRunning/complete/fail/cancel/park/resume/destroy 等命名迁移，
+   *  elapsed 记账（startedAtMs 置位/settle 结算）随之跳过。状态机判定面经
+   *  canTransition（只读）暴露，迁移请走命名方法。 */
+  private transitionTo(to: InstanceState): void {
     if (!this.canTransition(to)) {
       throw new DomainError(
         `AgentInstance ${this.instanceId} 非法迁移：${this._state} → ${to}（合法目标：${LEGAL_TRANSITIONS[this._state].join("、") || "无（终态）"}）`,
@@ -240,49 +251,53 @@ export class AgentInstance {
 
   /** 出队/预算内直跑：queued→running（首次起点定格；非幂等——running→running 抛非法迁移，调用方仅自 queued 调用）。 */
   markRunning(now: number = Date.now()): void {
-    this.transition("running");
+    this.transitionTo("running");
     if (this._startedAtMs === undefined) this._startedAtMs = now;
   }
 
   /** 挂起：running→parked（非终态——不写 closure/不收口；park/resume 批；当前段结算）。 */
   park(now: number = Date.now()): void {
-    this.transition("parked");
+    this.transitionTo("parked");
     this.settle(now);
   }
 
   /** 恢复：parked→running（同一实例同一会话继续，预算满则由调度器排队；开新段）。 */
   resume(now: number = Date.now()): void {
-    this.transition("running");
+    this.transitionTo("running");
     this._startedAtMs = now;
   }
 
   /** 自然收口：running→done（段结算定格）。 */
   complete(now: number = Date.now()): void {
-    this.transition("done");
+    this.transitionTo("done");
     this.settle(now);
   }
 
   /** 崩溃/kill/重启 running 收口（queued 也可直接收口 failed，F1.9 乱序）。 */
   fail(_reason?: string, now: number = Date.now()): void {
     void _reason; // 原因进 closure 记录（T2.x ClosureRecord），状态机只管状态
-    this.transition("failed");
+    this.transitionTo("failed");
     this.settle(now);
   }
 
   /** 重启清队收口（AD-10：仅自 queued）。 */
   cancel(now: number = Date.now()): void {
-    this.transition("cancelled");
+    this.transitionTo("cancelled");
     this.settle(now);
   }
 
   /**
    * 一等销毁 API（F1.9）：从任意非终态显式收口到终态并销毁实例窗口。
-   * 目标须为当前态合法迁移（如 running 不可 destroy("cancelled")）；
-   * 已终态幂等 no-op。实例窗口销毁后会话聚合持续存在（AD-1 三层模型）。
+   * 目标须为当前态合法迁移（迁移矩阵单源 LEGAL_TRANSITIONS，与 TR-35 一致）：
+   * running 不可 destroy("cancelled")；queued/parked 不可 destroy("done")
+   *（它们的终态路径是 failed/cancelled——挂起期无自然收口）。已终态幂等
+   * no-op。实例窗口销毁后会话聚合持续存在（AD-1 三层模型）。
+   * 注：E-13 正文「任意非终态收口到终态」是矩阵约束前的旧口径（评审 low #69
+   * 已申报修订），实现以本节为准。
    */
   destroy(final: TerminalInstanceState, now: number = Date.now()): void {
     if (this.isTerminal) return;
-    this.transition(final);
+    this.transitionTo(final);
     this.settle(now);
   }
 }

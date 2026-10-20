@@ -14,24 +14,10 @@
  * 字段的 re-export 别名（导出名与字面值不变）。
  */
 
-/** 语音模型配置全量态（5 槽位，均非空生效值——所见即所得，含默认值填充）。 */
-export interface VoiceModelConfigState {
-  /** STT 一次性转写 · DashScope 模型 id（默认 qwen-audio-3.0-asr-flash）。 */
-  sttModel: string;
-  /** STT 一次性转写 · SiliconFlow 模型 id（默认 FunAudioLLM/SenseVoiceSmall）。 */
-  sttSiliconflowModel: string;
-  /** STT 流式转写 · DashScope realtime 模型 id（默认 qwen3-asr-flash-realtime）。 */
-  sttRealtimeModel: string;
-  /** TTS 一次性合成 · DashScope 模型 id（默认 qwen3-tts-flash）。 */
-  ttsModel: string;
-  /** TTS 流式合成 · DashScope 模型 id（默认 qwen-audio-3.0-tts-flash）。 */
-  ttsStreamModel: string;
-}
-
-/** 部分更新载荷（携带项写入；字段空串 = 回落默认值）。 */
-export type VoiceModelConfigPatch = {
-  [K in keyof VoiceModelConfigState]?: string;
-};
+// 配置值类型单源在端口（依赖方向：端口不 import 服务实现）——此处 re-export
+// 保既有消费面 import 路径不变。
+import type { VoiceModelConfigPatch, VoiceModelConfigState } from "../ports/outbound/VoiceModelConfigPort";
+export type { VoiceModelConfigPatch, VoiceModelConfigState };
 
 /** 5 槽位字段名单（解析/合并遍历单源）——协议面 VOICE_MODEL_FIELDS 同源
  *（载荷字段名契约单源在 @helix/protocol，此处 re-export 保持应用面可用）。 */

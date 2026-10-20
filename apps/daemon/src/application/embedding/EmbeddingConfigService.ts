@@ -168,7 +168,9 @@ export function resolveDefaultConfigOf(
   return record === null ? null : endpointConfigOf(record);
 }
 
-/** KV JSON 防御解析（形态非法视同空表）。导出（批E）：ChildMain 本地 memory_search 栈复用同源解析（子进程无 EmbeddingConfigService 全量装配——只消费记录查我丽 resolveRecord 面，parse 不另写一份）。 */
+/** KV JSON 防御解析（形态非法视同空表）。导出（批E）：ChildMain 本地
+ *  memory_search 栈复用同源解析（子进程无 EmbeddingConfigService 全量装配——
+ *  只消费记录面与 resolveRecord 面，parse 不另写一份）。 */
 export function parseRecords(raw: string | undefined): EmbeddingEndpointRecord[] {
   if (raw === undefined || raw.trim() === "") return [];
   try {
@@ -245,8 +247,10 @@ export class EmbeddingConfigService {
 
   /**
    * 新增或更新（id 缺省新增；带 id 更新——name/baseUrl/model 覆盖写，
-   * apiKey 空串 = 清除、缺省 = 不动）。字段变更后旧 verifiedAt 语义失效
-   * （端点/模型可能已换）——编辑即清。
+   * apiKey 空串 = 清除、缺省 = 不动）。verifiedAt 是「该端点+模型可通」的
+   * 校准时间：**只在 baseUrl/model 变更时清**（换端点/换模型 → 旧校准不再代表
+   * 当前配置）；name/apiKey 变更保留（apiKey 轮换不清校准——旧校准仍说明
+   * 端点可达，凭据正确性下次验证/调用时暴露）。
    */
   async set(input: {
     id?: string;

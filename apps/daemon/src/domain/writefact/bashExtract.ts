@@ -1,3 +1,5 @@
+import { resolveWithinPath as resolveWithin } from "../path-fold";
+
 /**
  * bash 命令写候选静态提取（U0b L1——纯函数，framework-free）。
  *
@@ -23,23 +25,21 @@ function tokenize(segment: string): readonly string[] {
 /** 写目标形态：非 fd 重定向（排除 >&N / &>N / 2>&1 类；设备 /dev/null 排除）。 */
 const REDIRECT_RE = /(?:\d?>>?|&>>?)\s*([^\s<>&;|]+)|(?:\d?>>?|&>>?)([^\s<>&;|]+)/g;
 
-/** 单参写命令（参数即目标：tee/rmdir/touch/truncate——取首个非 flag 参数）。 */
-const ONE_ARG_WRITERS = new Set(["tee", "rmdir", "touch"]);
-
-/** 多参写命令（全部非 flag 参数都是目标——删除面：rm/unlink）。 */
-const MULTI_ARG_WRITERS = new Set(["rm", "unlink"]);
+/** 多目标写命令（全部非 flag 参数都是目标：rm/unlink 删除面；tee 可写多文件；
+ *  touch/rmdir 接受多操作数——评审 low #14：原「单参写命令」口径只取首个
+ *  非 flag 参数，`tee a b`/`touch a b`/`rmdir a b` 的后续目标漏报）。 */
+const MULTI_ARG_WRITERS = new Set(["rm", "unlink", "tee", "touch", "rmdir"]);
 
 /** 双参写命令（第二参数为目标：cp/mv/mkdir——mkdir -p dir 的 dir 是首个非 flag）。 */
 const TWO_ARG_WRITERS = new Set(["cp", "mv", "ln", "install"]);
 
-/** 写嫌疑子命令头（段内首 token 命中即提取后续非 flag 路径参数）。 */
+/** 写嫌疑子命令头（段内首 token 命中即提取后续非 flag 路径参数）。
+ *  集合里只允许放「无专门分支」的成员：sed/mkdir/dd/git 各有前置分支并
+ *  return，放进来不会被执行（评审 low #13 的不可达成员已摘）；新增专门
+ *  分支时同步把成员移出本集合。 */
 const WRITE_HEADERS = new Set([
-  "sed", // -i 就地写（见下方专门处理）
-  "mkdir",
-  "truncate",
-  "dd", // of= 目标
+  "truncate", // truncate -s N file（无专门分支；size 值属启发式噪声，与全量非 flag 口径一致）
   "shred",
-  "git", // 写子命令专门处理
 ]);
 
 /** git 写子命令（目标 = 后续非 flag 参数；checkout/restore 无参也改树——cwd 仓覆盖）。 */
@@ -88,16 +88,11 @@ function segmentWriteTokens(segment: string): readonly string[] {
     }
     return out;
   }
-  // 3) tee [-a]：首个非 flag 参数；rm/unlink：全部非 flag 参数（删除面）
+  // 3) tee/rm/unlink/touch/rmdir：全部非 flag 参数都是目标（删除面 + 多目标写）
   if (MULTI_ARG_WRITERS.has(head)) {
     for (const t of tokens.slice(1)) {
       if (!t.startsWith("-")) out.push(t);
     }
-    return out;
-  }
-  if (ONE_ARG_WRITERS.has(head)) {
-    const arg = tokens.slice(1).find((t) => !t.startsWith("-"));
-    if (arg !== undefined) out.push(arg);
     return out;
   }
     // 4) cp/mv：末参（目标）；mkdir [-p]：首个非 flag；ln/install：末参
@@ -137,21 +132,6 @@ export interface BashSegmentPlan {
   readonly writes: readonly string[];
 }
 
-/** 纯字符串路径解析（不用 node:path——domain 纪律）：base + rel 折叠 . / ..。 */
-function resolveWithin(base: string, rel: string): string {
-  const isAbs = rel.startsWith("/");
-  const parts = (isAbs ? rel : `${base}/${rel}`).split("/");
-  const out: string[] = [];
-  for (const p of parts) {
-    if (p === "" || p === ".") continue;
-    if (p === "..") {
-      if (out.length > 0) out.pop();
-      continue;
-    }
-    out.push(p);
-  }
-  return `/${out.join("/")}`;
-}
 
 /** cd 目标可解析形态判定（变量/命令替换/~-展开/~ 裸 → 失锁；绝对/相对字面量 → 可解析）。 */
 function cdTargetOf(tokens: readonly string[]): string | null | "unknown" {

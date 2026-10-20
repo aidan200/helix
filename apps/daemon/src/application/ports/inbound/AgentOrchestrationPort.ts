@@ -25,8 +25,10 @@ export type SpawnOutcome =
   | { readonly status: "queued"; readonly agentId: string; readonly position: number; readonly wiring?: BatchWiringOutcome }
   | { readonly status: "rejected"; readonly error: string };
 
-/** send 转投结果：delivered=已投给执行载体（turn 边界生效）；否则附原因说明。 */
-export interface SendOutcome {
+/** 实例投递结果：delivered=已投给执行载体（turn 边界生效）；否则附原因说明。
+ *  命名带 Instance 前缀（评审 low #49）：与 ChatPort 的同名 SendOutcome
+ *  （对话路由结果：mode=turn/steered）语义完全不同，跨文件混用/重导出易错。 */
+export interface InstanceSendOutcome {
   readonly delivered: boolean;
   readonly detail: string;
 }
@@ -135,7 +137,7 @@ export interface AgentOrchestrationPort {
    * 向运行中实例注入消息（AD-7⑤：SchedulerService.send → runner.send →
    * transport → 子进程 stdin → Agent.steer()，turn 边界 drain 生效）。
    */
-  send(agentId: string, message: string): SendOutcome;
+  send(agentId: string, message: string): InstanceSendOutcome;
   /** 实例状态查询：无参全量 / 有参单实例（不存在返回空数组）。 */
   status(agentId?: string): AgentInstanceStatus[];
   /**
