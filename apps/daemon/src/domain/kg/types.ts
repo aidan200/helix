@@ -209,7 +209,11 @@ export interface CandidateListQuery {
 
 // ── 变更日志（supersede 链载体，AD-9 库内审计界面） ──────────
 
-/** 写 op 种类（KnowledgeWriteOp 判别值；change_log.op 取值同源）。 */
+/** 写 op 种类（change_log.op 取值词表单源）。
+ *  不是 KnowledgeWriteOp 判别值的同义词（评审 low #16）：change_log 还记
+ *  机械审计行（anchorRelocate 由锚重定位批量写入面直写、prune 由 prune
+ *  op 落无节点级审计），而 KnowledgeWriteOp 只覆盖「知识写请求」联合体
+ *  （见下方 KnowledgeWriteOp——无 anchorRelocate 成员）。 */
 export type KnowledgeWriteOpKind =
   | "createNode"
   | "updateNode"
