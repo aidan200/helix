@@ -946,7 +946,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       },
     }),
     // CDP 地基：agent 终态 → 回收其全部 managed tabs（idle sweep 兼底）
-    onInstanceTerminal: (agentId) => void browserPort.reclaimOwner(agentId),
+    // 评审 low #37：reclaimOwner 是 async（内部 await closeTab）——fire-and-forget
+    // 必须自带终态吸收，否则回收失败（CDP 已断/标签页已关）成 unhandledRejection。
+    onInstanceTerminal: (agentId) =>
+      void browserPort.reclaimOwner(agentId).catch((err: unknown) => {
+        logger.warn(`agent 终态回收浏览器归属失败（ignored）：${(err as Error).message}`);
+      }),
     // closure 注入主线（AD-8 双通道；会话反向查找：实例归属会话 → 注册表
     // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在本函数内
