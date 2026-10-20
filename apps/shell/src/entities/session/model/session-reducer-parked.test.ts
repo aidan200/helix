@@ -7,7 +7,9 @@
  *（挂着不干活却把侧栏钉在运行中；SessionStats 实例 chip 的 parked 走 idle 点）。
  *
  * 钉法：①parked 帧落卡片挂起位并停段计时（非终态：不清 closure）；②快照路
- * 同置该位（两路同源）；③resumed 摘位；④挂起实例不计入 subagent_running。
+ * 同置该位（两路同源）；③resumed 摘位；④运行态徽标仍含 parked——与 daemon
+ * `hasActiveInstances`（queued/running/**parked** 均算活跃）同序（TR-213 硬约束；
+ * 「挂起不计徽标」的评审诉求经核实为误判，不采纳）。
  */
 import { describe, expect, it } from "vitest";
 import type { EventEnvelope } from "@helix/protocol";
@@ -71,11 +73,11 @@ describe("agent.parked 卡片投影（事件路 / 快照路同源）", () => {
     expect(card(s).closure).toBeUndefined();
   });
 
-  it("挂起实例不计入 subagent_running 徽标（挂着不干活）；resumed 摘位后恢复计数", () => {
+  it("运行态徽标仍含 parked（与 daemon hasActiveInstances 同序——进程驻留算活跃）", () => {
     const s = run(welcome(), spawned(), started());
     expect(selectActiveRunState(s)).toBe("subagent_running");
     const p = run(welcome(), spawned(), started(), parked());
-    expect(selectActiveRunState(p)).not.toBe("subagent_running");
+    expect(selectActiveRunState(p)).toBe("subagent_running"); // TR-213 同序，不得单边排除
     const r = run(welcome(), spawned(), started(), parked(), resumed());
     expect(card(r).parked).toBe(false);
     expect(card(r).startedAtMs).toBe(5_000);
@@ -123,6 +125,6 @@ describe("agent.parked 卡片投影（事件路 / 快照路同源）", () => {
     ).active;
     expect(card(s).parked).toBe(true);
     expect(card(s).state).toBe("running");
-    expect(selectActiveRunState(s)).not.toBe("subagent_running");
+    expect(selectActiveRunState(s)).toBe("subagent_running"); // 与事件路同口径
   });
 });

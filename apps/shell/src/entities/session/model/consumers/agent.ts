@@ -197,7 +197,9 @@ export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: numb
     // 直取 DTO state，事件路不得停在 running：两路不同源会让同一实例「事件期
     // 显示执行中、重连快照后变挂起」）。parked 非终态：不清 closure、不触发
     // 收口链，只停段计时（startedAtMs 清位，elapsedMs 由 daemon 结算基线）。
-    // 专用卡片形态/徽标（挂起文案）归后续波次——本批只保证状态与徽标口径正确。
+    // 专用卡片形态/徽标（挂起文案）归后续波次——本批只保证两路挂起位同源。
+    // 注意：运行态徽标仍把 parked 计为活跃（与 daemon hasActiveInstances 同序，
+    // TR-213），本处不排除。
     case "agent.parked":
       return {
         ...s,
