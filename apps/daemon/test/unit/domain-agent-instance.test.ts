@@ -183,7 +183,12 @@ describe("③ 终态封闭（F1.9：终态不回 running）", () => {
     }
     for (const to of ["queued", "running", "parked", "done", "failed", "cancelled"] as const) {
       expect(a.canTransition(to)).toBe(false);
-      expect(() => a.transition(to)).toThrow(DomainError);
+      // 迁移执行面私有（评审 low #67）：命名迁移是唯一入口，终态下同样抛错
+      if (to === "cancelled" || to === "failed" || to === "done") {
+        const named =
+          to === "cancelled" ? () => a.cancel() : to === "failed" ? () => a.fail("收口") : () => a.complete();
+        expect(named).toThrow(DomainError);
+      }
     }
     expect(a.current).toBe(final); // 全部非法尝试后状态不变（无半态）
   });
