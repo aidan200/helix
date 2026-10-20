@@ -350,6 +350,20 @@ describe("SurfaceRegistry：本地执行面（daemon 内 adapter——M2 browser
     expect(done[1]!.seq).toBe(out.seq);
   });
 
+  test("混路由同 seq：远端回执与本地 settled 并存时，本地销账不抢销量权（评审 low #47）", async () => {
+    const rig = makeRig();
+    rig.registry.register("conn-browser", BROWSER_DESC); // 远端连接目标（click 有能力）
+    const { executor } = fakeLocalExecutor();
+    rig.registry.registerLocal(executor); // 本地执行器目标（同 seq）
+    const out = rig.registry.act("click", { selector: "#a" }, { risk: "write" });
+    expect(out.delivered).toBe(2); // 远端 + 本地各一
+    await out.settled;
+    // 本地 settled 只入 completed，不销 pending——远端回执照常命中
+    expect(rig.registry.pendingActions().some((p) => p.seq === out.seq)).toBe(true);
+    expect(rig.registry.receipt("conn-browser", out.seq, true, "页面已点")).toBe(true);
+    expect(rig.registry.pendingActions()).toHaveLength(0);
+  });
+
   test("surfaceId 定向路由：只派发到目标命名空间执行器；动词不在执行器能力面 → 零目标拒绝", async () => {
     const rig = makeRig();
     const { executor, calls } = fakeLocalExecutor();

@@ -365,6 +365,10 @@ export class SurfaceRegistry {
         }),
       });
     }
+    // 混路由销账纪律（评审 low #47）：本 seq 若同时有远端连接目标，销账权归
+    // 远端 surface.action.result 回执——本地 settled 抢先 pending.delete(seq)
+    // 会让远端回执命中已销账态被当迟到丢弃（D7-1 对账断链）。
+    const hasRemoteTargets = targets.length > runs.length;
     const settled = (async (): Promise<SurfaceActReceipt> => {
       const results = await Promise.all(
         runs.map(async ({ target, run }) => {
@@ -378,7 +382,7 @@ export class SurfaceRegistry {
       );
       // D7-1 自动销账：本地执行器逐目标入环（多目标同 seq 各自一条回执）
       for (const r of results) {
-        this.pending.delete(seq);
+        if (!hasRemoteTargets) this.pending.delete(seq); // 混路由时销量权归远端回执
         this.completed.push({ seq, verb, targets, sentAt: this.deps.now?.() ?? Date.now(), ok: r.ok, ...(r.detail !== undefined ? { detail: r.detail } : {}) });
         if (this.completed.length > COMPLETED_RING_CAP) this.completed.shift();
       }
