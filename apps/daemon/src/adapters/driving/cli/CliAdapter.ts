@@ -231,7 +231,9 @@ export class CliAdapter {
     }
     try {
       const outcome: SendOutcome = await this.deps.chat.sendMessage(text);
-      if (outcome.mode === "turn") this.writeLine(""); // 新轮次换行，流式输出从行首开始
+      // 轮次收尾换行（低危批口径更正）：sendMessage 的 Promise 在本轮 run 结束才
+      // resolve（ChatPort 契约），此刻流式输出早已写完——这里补的是收尾空行，
+      // 不是「让流式输出从行首开始」。
     } catch (err) {
       this.writeLine(`\n[错误] ${(err as Error).message}`);
     }
