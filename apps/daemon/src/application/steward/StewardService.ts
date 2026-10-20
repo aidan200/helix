@@ -2653,8 +2653,8 @@ export class StewardService implements StewardComponent {
         totalAgents: statuses.length,
         sessionCount: rows.length,
         recentSessions: rows.slice(0, SNAPSHOT_RECENT_SESSIONS).map((r) => ({
-          // displayTitle 单源（TR-205 口径 + 动态主题批）：title > topic > firstUserText
-          title: r.title ?? r.topic ?? r.firstUserText ?? "（无主题会话）",
+          // displayTitle 单源（TR-207）：推导链只在 displayTitleOf，快照面禁另写
+          title: displayTitleOf(r),
           updatedAt: r.updatedAt,
         })),
         ...(recentActivity !== undefined && recentActivity.length > 0 ? { recentActivity } : {}),
