@@ -14,7 +14,7 @@ import { projectNameOf } from "../project-name";
 import { ATTACHMENT_PROTOCOL_LINE } from "./render";
 import { extractIdentifiers } from "./identifier-extract";
 import { seenKeyOf } from "./budget";
-
+import { renderKnowledgeEntry, greedyFit } from "./entry-format";
 /** 切片总 token 硬顶（同预算纪律：与 ATTACHMENT_TOKEN_BUDGET 同值起步）。 */
 export const TASK_SLICE_TOKEN_BUDGET = 800;
 
@@ -57,8 +57,6 @@ export interface TaskSliceRenderOptions {
    */
   readonly protocolLine?: string;
 }
-
-import { renderKnowledgeEntry, greedyFit } from "./entry-format";
 
 /** 单节点条目（共享渲染单源 entry-format.ts；multiProject 时指针携 project 名）。 */
 function renderEntry(candidate: TaskSliceRow, multiProject: boolean): string {
