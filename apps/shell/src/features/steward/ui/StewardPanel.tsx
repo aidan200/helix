@@ -252,8 +252,10 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
             )}
           </div>
           <div className="stp-msgs" ref={sticky.ref} onScroll={sticky.onScroll} data-testid="steward-msgs">
-            {sv.items.map((item, i) => (
-              <PanelItemRow key={i} item={item} />
+            {/* 渲染 key = 条目自带的稳定键（禁索引键：同索引复用组件实例会把
+                ThinkingRow/ToolRow 展开态带到下一条目上） */}
+            {sv.items.map((item) => (
+              <PanelItemRow key={item.key} item={item} />
             ))}
             {/* 流式气泡：delta 聚合文本 md 渲染；终态 result 到达即由正式
                 气泡接管（streamingText 清空 → 本槽退场） */}

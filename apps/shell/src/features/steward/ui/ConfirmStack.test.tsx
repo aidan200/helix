@@ -79,6 +79,24 @@ describe("ConfirmStack（B1 左下角全局确认卡栈）", () => {
     expect(screen.getAllByTestId("steward-confirm-card")[0]!.getAttribute("data-action-id")).toBe("act-2");
   });
 
+  it("记忆卡文本按码点截断：超 100 字不切断代理对（emoji/扩展字形不残缺）", async () => {
+    // 120 个 emoji（每个 2 个 UTF-16 码元）：码元口径会在第 100 个码元处切开
+    const emojiText = "😀".repeat(120);
+    renderStack();
+    act(() => {
+      frameListener?.(
+        frame("steward.memory_written", { text: emojiText, mode: "added" }),
+      );
+    });
+    const v = await screen.findByText(/…$/);
+    const shown = v.textContent ?? "";
+    // 末尾省略号 + 恰好 100 个完整 emoji（无替换字符/半个字符）
+    expect(shown.endsWith("…")).toBe(true);
+    expect(Array.from(shown).length).toBe(101); // 100 码点 + 省略号
+    expect(shown.startsWith("😀".repeat(100))).toBe(true);
+    expect(shown.includes("\uFFFD")).toBe(false);
+  });
+
   it("编号永不重排：前卡完成后后卡编号不变", async () => {
     renderStack();
     pushCard("act-1");

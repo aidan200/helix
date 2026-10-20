@@ -9,7 +9,7 @@ import {
   cosineSimilarity,
   decideVerify,
   synthesizeTemplate,
-  utteranceVectorsOf,
+  meanVectorOf,
 } from "./speaker-verify";
 
 describe("cosineSimilarity", () => {
@@ -18,6 +18,12 @@ describe("cosineSimilarity", () => {
     expect(cosineSimilarity(a, new Float32Array([1, 0, 2]))).toBeCloseTo(1, 6);
     expect(cosineSimilarity(a, new Float32Array([-1, 0, -2]))).toBeCloseTo(-1, 6);
     expect(cosineSimilarity(new Float32Array([1, 0]), new Float32Array([0, 3]))).toBeCloseTo(0, 6);
+  });
+
+  it("维度不一致 → 0（不再按 min 长度静默截断出「貌似合理」的前缀相似度）", () => {
+    // 前缀相同但维度不同：旧实现会得出 ~1.0 的相似度
+    expect(cosineSimilarity(new Float32Array([1, 0, 0]), new Float32Array([1, 0, 0, 0, 0]))).toBe(0);
+    expect(cosineSimilarity(new Float32Array([1, 0]), new Float32Array([1, 0, 0]))).toBe(0);
   });
 
   it("零向量防御（返回 0 不 NaN）", () => {
@@ -41,11 +47,11 @@ describe("synthesizeTemplate（均值 + L2 归一）", () => {
     expect(t.createdAt).toBeGreaterThan(0);
   });
 
-  it("utteranceVectorsOf（模板 → 句向量域回读投影）", () => {
+  it("meanVectorOf（模板 → 均值向量副本；非逐句向量）", () => {
     const t = synthesizeTemplate([new Float32Array([3, 4])]);
     expect(t.dim).toBe(2);
-    expect([...utteranceVectorsOf(t)][0]).toBeCloseTo(0.6, 6);
-    expect([...utteranceVectorsOf(t)][1]).toBeCloseTo(0.8, 6);
+    expect([...meanVectorOf(t)][0]).toBeCloseTo(0.6, 6);
+    expect([...meanVectorOf(t)][1]).toBeCloseTo(0.8, 6);
   });
 
   it("逐句明细随模板落盘：vectors 同构拷贝（槽位编辑数据面）", () => {

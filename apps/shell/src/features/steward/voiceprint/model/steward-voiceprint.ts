@@ -2,9 +2,10 @@
  * steward-voiceprint —— 声纹域组合根（M3-c 声纹批）。
  *
  * 生产单例：localStorage 模板存储 + wasm 引擎加载器（**动态 import**
- * embed-engine——onnxruntime-web bundle chunk 按需加载，主包零膨胀；
- * 26.5MB 模型经 IndexedDB 缓存后离线可用）。测试方（Layer/设置页）经
- * props/service 注入假实现，不触本单例。
+ * embed-engine——onnxruntime-web bundle chunk 按需加载，主包零膨胀）。
+ * 模型字节不落浏览器缓存层：v2 起 IndexedDB 缓存退役，磁盘即缓存
+ * （daemon 模型路由命中零成本，见 embed-engine 头注）。测试方（Layer/
+ * 设置页）经 props/service 注入假实现，不触本单例。
  */
 import { createVoiceprintService, type VoiceprintService } from "./voiceprint-service";
 import { createLocalVoiceprintStore } from "./voiceprint-store";

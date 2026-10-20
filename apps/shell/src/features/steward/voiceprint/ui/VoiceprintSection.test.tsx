@@ -331,3 +331,53 @@ describe("VoiceprintSection（v3 阈值参数 + 5 槽位编辑）", () => {
     await waitFor(() => expect(byVp("error").textContent).toContain("麦克风不可用"));
   });
 });
+
+describe("VoiceprintSection 卸载与注入面卫生（code-review 低危）", () => {
+  it("卸载 → 中止在途录音（recorder.abort 恰一次，不等 10s 兜底超时）", async () => {
+    const { service } = makeFakeService();
+    let resolveRecord: ((v: Float32Array | null) => void) | null = null;
+    const abort = vi.fn(() => resolveRecord?.(null));
+    const recorder = {
+      record: () =>
+        new Promise<Float32Array | null>((resolve) => {
+          resolveRecord = resolve;
+        }),
+      abort,
+    };
+    const view = renderSection({ service, recorder, prepareModel: noopPrepare });
+    await act(async () => {
+      fireEvent.click(slotBtn("record", 0));
+    });
+    expect(abort).not.toHaveBeenCalled(); // 录制中：未中止
+    act(() => {
+      view.unmount();
+    });
+    expect(abort).toHaveBeenCalledTimes(1); // 离开设置页即关麦
+  });
+
+  it("重渲染不重建录音器实例（旧写法每渲染调一次 createMicUtteranceRecorder）", async () => {
+    const { service } = makeFakeService();
+    const record = vi.fn(async () => fakeUtterance());
+    const recorder = { record };
+    const view = renderSection({ service, recorder, prepareModel: noopPrepare });
+    // 触发若干次重渲染（阈值滑杆输入）
+    const slider = document.querySelector("[data-vp-threshold]") as HTMLInputElement | null;
+    if (slider !== null) {
+      act(() => {
+        fireEvent.change(slider, { target: { value: "0.8" } });
+      });
+    }
+    act(() => {
+      view.rerender(
+        <I18nProvider>
+          <VoiceprintSection service={service} recorder={recorder} prepareModel={noopPrepare} probeModel={async () => false} />
+        </I18nProvider>,
+      );
+    });
+    // 注入面恒为同一实例：录一句仍走注入 recorder（未被渲染期新建实例替换）
+    await act(async () => {
+      fireEvent.click(slotBtn("record", 0));
+    });
+    await waitFor(() => expect(record).toHaveBeenCalledTimes(1));
+  });
+});

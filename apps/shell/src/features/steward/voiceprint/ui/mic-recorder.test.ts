@@ -101,3 +101,28 @@ describe("createMicUtteranceRecorder 未开口兜底（评审 :52）", () => {
     expect(trackStop).toHaveBeenCalled();
   });
 });
+
+describe("createMicUtteranceRecorder 中止通路（组件卸载即关麦）", () => {
+  it("abort() → 立即收口 null + 关泵 + 释放轨道（不等 maxSeconds+2 兜底超时）", async () => {
+    installEnv();
+    const rec = createMicUtteranceRecorder();
+    const pending = rec.record(1.2, 6);
+    await flush();
+    expect(onFrame).not.toBeNull();
+    feedFrame(20_000); // 已开口（即便开口，卸载也应立即中止）
+    rec.abort?.();
+    await expect(pending).resolves.toBeNull(); // 未完成句不作数
+    expect(pumpClosed).toBe(true);
+    expect(trackStop).toHaveBeenCalled();
+    // 中止后再推进时间也不产生第二次收口（幂等）
+    vi.advanceTimersByTime((6 + 2) * 1_000);
+    expect(trackStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("无在途录句时 abort() 零副作用（幂等可空调用）", () => {
+    installEnv();
+    const rec = createMicUtteranceRecorder();
+    expect(() => rec.abort?.()).not.toThrow();
+    expect(trackStop).not.toHaveBeenCalled();
+  });
+});

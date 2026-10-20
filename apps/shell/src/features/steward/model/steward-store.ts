@@ -31,7 +31,8 @@ const ARGS_SUMMARY_MAX = 80;
 /** 摘要行截断（密度面，ARGS_SUMMARY_MAX 同族）。 */
 const THINKING_SUMMARY_MAX = 60;
 
-export type StewardPanelItem =
+/** 面板条目内容面（产出方构造的数据形态；渲染 key 另由 store 统一补）。 */
+export type StewardPanelItemInput =
   | { readonly kind: "user"; readonly text: string }
   | { readonly kind: "assistant"; readonly text: string }
   | { readonly kind: "thinking"; readonly text: string }
@@ -44,6 +45,16 @@ export type StewardPanelItem =
       readonly startedAt: number | null;
       readonly endedAt: number | null;
     };
+
+/**
+ * 面板条目（渲染用）：内容面 + 稳定渲染键。
+ *
+ * **禁索引键**（code-review 低危）：items 由 history 同源重建或中途替换时，
+ * `key={i}` 会让同索引位置复用同一组件实例——ThinkingRow/ToolRow 的展开态
+ * 跨条目残留（A 条目展开着，B 条目顶到同一索引即继承展开）。
+ * key 形态：实时链 `it-<store 序号>`，回放链 `hist-<记录序>`。
+ */
+export type StewardPanelItem = StewardPanelItemInput & { readonly key: string };
 
 export interface StewardAskActivity {
   readonly phase: "thinking" | "tool";
@@ -115,12 +126,17 @@ function summarizeArgs(args: Record<string, unknown>): string {
  *  回填结果摘要）。 */
 export function recordsToItems(records: readonly StewardHistoryRecord[]): StewardPanelItem[] {
   const items: StewardPanelItem[] = [];
+  // 回放键 = 记录时刻 + 记录内分片（u/t/c/a 与 toolCallId）：**内容派生**——
+  // 同一记录重放键不变（展开态得以保留），不同记录即使落到同索引也不同键
+  //（批内序号键会让「整批替换后同位置新条目」继承上一展开态——索引键缺陷
+  // 换皮复发，实测踩中）
+  const histKey = (r: StewardHistoryRecord, part: string) => `hist-${r.at}-${part}`;
   for (const r of records) {
     if (r.kind === "compaction") {
       continue; // 压缩摘要记录（事故热修批⑤）：内部上下文状态非用户话轮——零渲染
     }
     if (r.kind === "user") {
-      items.push({ kind: "user", text: r.text });
+      items.push({ key: histKey(r, "u"), kind: "user", text: r.text });
       continue;
     }
     if (r.kind === "toolResult") {
@@ -130,6 +146,7 @@ export function recordsToItems(records: readonly StewardHistoryRecord[]): Stewar
         items[idx] = { ...target, resultSummary: r.text.slice(0, ARGS_SUMMARY_MAX) };
       } else {
         items.push({
+          key: histKey(r, `tr-${r.toolCallId}`),
           kind: "tool",
           toolCallId: r.toolCallId,
           name: r.name,
@@ -141,9 +158,11 @@ export function recordsToItems(records: readonly StewardHistoryRecord[]): Stewar
       }
       continue;
     }
-    if (r.thinking !== undefined && r.thinking.text !== "") items.push({ kind: "thinking", text: r.thinking.text });
+    if (r.thinking !== undefined && r.thinking.text !== "")
+      items.push({ key: histKey(r, "t"), kind: "thinking", text: r.thinking.text });
     if (r.toolCall !== undefined) {
       items.push({
+        key: histKey(r, `tc-${r.toolCall.id}`),
         kind: "tool",
         toolCallId: r.toolCall.id,
         name: r.toolCall.name,
@@ -153,7 +172,8 @@ export function recordsToItems(records: readonly StewardHistoryRecord[]): Stewar
         endedAt: null,
       });
     }
-    if (r.text !== undefined && r.text !== "") items.push({ kind: "assistant", text: r.text });
+    if (r.text !== undefined && r.text !== "")
+      items.push({ key: histKey(r, "a"), kind: "assistant", text: r.text });
   }
   return items;
 }
@@ -295,8 +315,11 @@ class StewardStore {
     return true;
   }
 
-  private pushItem(item: StewardPanelItem): void {
-    const next = [...this.state.items, item];
+  /** 条目序号（实时链 key 源——`it-<n>` 单调，禁索引键）。 */
+  private itemSeq = 0;
+
+  private pushItem(item: StewardPanelItemInput): void {
+    const next = [...this.state.items, { ...item, key: `it-${(this.itemSeq += 1)}` } as StewardPanelItem];
     this.setState({ items: next.length > ITEM_WINDOW ? next.slice(-ITEM_WINDOW) : next });
   }
 

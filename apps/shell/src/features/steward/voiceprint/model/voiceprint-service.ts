@@ -104,8 +104,9 @@ export function createVoiceprintService(options: VoiceprintServiceOptions) {
     },
 
     /**
-     * 注册（3-5 句 → 模板 = 句向量均值 + L2 归一）。句数/句长不达标
-     * 拒绝（Error.message 白话给注册 UI 直读）。
+     * 注册（3-5 句 → 模板 = 句向量均值 + L2 归一）。句数/句长不达标抛
+     * VoiceprintError（**code 为错误码，非白话**——model 层零 CJK，UI 层
+     * `messageOfError` 按 code 映射 i18n 文案；message 仅供日志/断言）。
      */
     async register(utterances: readonly Float32Array[]): Promise<VoiceprintTemplate> {
       if (utterances.length < VOICEPRINT_MIN_UTTERANCES) {

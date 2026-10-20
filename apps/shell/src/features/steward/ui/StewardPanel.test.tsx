@@ -303,6 +303,35 @@ describe("StewardPanel（A1 过程行渲染——真实 DOM 断言）", () => {
     expect(screen.getByTestId("steward-tool-body").textContent).toContain("1 个任务运行中");
   });
 
+  it("条目渲染键稳定：history 重建后同位置不同条目继承不了上一展开态（禁索引键）", async () => {
+    renderEnabledPanel();
+    await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());
+    // 第一批：一条 thinking；展开它
+    act(() => {
+      emitSteward(
+        frame("steward.history.result", {
+          records: [{ kind: "assistant", thinking: { text: "第一批思考" }, at: 1 }],
+        }),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId("steward-thinking-item")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("steward-thinking-toggle"));
+    expect(screen.getByTestId("steward-thinking-body").textContent).toContain("第一批思考");
+    // 第二批：同索引位置换成另一条 thinking（历史整批替换）→ 必须是收起态
+    act(() => {
+      emitSteward(
+        frame("steward.history.result", {
+          records: [{ kind: "assistant", thinking: { text: "第二批思考" }, at: 2 }],
+        }),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId("steward-thinking-item")).toBeTruthy());
+    // 索引键会残留上一条目的展开态（此处断言：新条目回到默认收起）
+    expect(screen.queryByTestId("steward-thinking-body")).toBeNull();
+    fireEvent.click(screen.getByTestId("steward-thinking-toggle"));
+    expect(screen.getByTestId("steward-thinking-body").textContent).toContain("第二批思考");
+  });
+
   it("实时过程帧：thinking 段级与工具两相帧渲染（在途 … → 完成 ✓）", async () => {
     renderEnabledPanel();
     await waitFor(() => expect(screen.getByTestId("steward-input")).toBeTruthy());

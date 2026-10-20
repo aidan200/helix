@@ -326,10 +326,12 @@ describe("useSteward（A1 工作记忆）", () => {
       );
     });
     await waitFor(() => expect(result.current.items.length).toBe(4));
-    expect(result.current.items[0]).toEqual({ kind: "user", text: "任务状态？" });
-    expect(result.current.items[1]).toEqual({ kind: "thinking", text: "先查任务清单。" });
+    // 条目自带稳定渲染键（禁索引键）：内容断言用 toMatchObject，键格式单独钉
+    expect(result.current.items[0]).toMatchObject({ kind: "user", text: "任务状态？" });
+    expect(result.current.items[0]!.key).toMatch(/^hist-/);
+    expect(result.current.items[1]).toMatchObject({ kind: "thinking", text: "先查任务清单。" });
     expect(result.current.items[2]).toMatchObject({ kind: "tool", name: "list_tasks", resultSummary: expect.stringContaining("job-1") });
-    expect(result.current.items[3]).toEqual({ kind: "assistant", text: "1 个任务在跑。" });
+    expect(result.current.items[3]).toMatchObject({ kind: "assistant", text: "1 个任务在跑。" });
   });
 
   it("实时过程帧：steward.thinking → thinking 条目；steward.tool start/end → 工具行两态", async () => {
@@ -342,7 +344,8 @@ describe("useSteward（A1 工作记忆）", () => {
       frameListener?.(frame("steward.tool", { phase: "start", name: "list_instances", argsSummary: "{}", seq: 2 }));
     });
     await waitFor(() => expect(result.current.items.length).toBe(3));
-    expect(result.current.items[1]).toEqual({ kind: "thinking", text: "需要先查实例。" });
+    expect(result.current.items[1]).toMatchObject({ kind: "thinking", text: "需要先查实例。" });
+    expect(result.current.items[1]!.key).toMatch(/^it-/); // 实时链键形态
     expect(result.current.items[2]).toMatchObject({ kind: "tool", name: "list_instances", resultSummary: null });
     act(() => {
       frameListener?.(frame("steward.tool", { phase: "end", name: "list_instances", resultSummary: "2 条记录", seq: 3 }));
@@ -497,7 +500,7 @@ describe("useSteward 同源共享（语音轮过程全程可见）", () => {
     });
     // 双实例同源：askInFlight/用户行同时可见（旧分叉：面板实例全不见）
     expect(panelSide.result.current.askInFlight).toBe(true);
-    expect(panelSide.result.current.items).toContainEqual({ kind: "user", text: "今天天气怎么样" });
+    expect(panelSide.result.current.items.some((it) => it.kind === "user" && it.text === "今天天气怎么样")).toBe(true);
     // 流式增量：回合中途可见（不是终态一次性出现）
     act(() => {
       frameListener?.(frame("steward.ask.delta", { delta: "今天" }));
@@ -517,8 +520,10 @@ describe("useSteward 同源共享（语音轮过程全程可见）", () => {
       frameListener?.(frame("steward.ask.result", { status: "answer", text: "今天晴。" }));
     });
     expect(panelSide.result.current.askInFlight).toBe(false);
-    expect(panelSide.result.current.items).toContainEqual({ kind: "assistant", text: "今天晴。" });
-    expect(voiceSide.result.current.items).toContainEqual({ kind: "assistant", text: "今天晴。" });
+    const hasAnswer = (side: typeof panelSide) =>
+      side.result.current.items.some((it) => it.kind === "assistant" && it.text === "今天晴。");
+    expect(hasAnswer(panelSide)).toBe(true);
+    expect(hasAnswer(voiceSide)).toBe(true);
   });
 
   it("双实例同挂共享单份状态（非各持一份）——任一实例 newDialog 双侧同清", async () => {

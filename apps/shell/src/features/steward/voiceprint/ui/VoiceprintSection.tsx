@@ -34,6 +34,9 @@ import {
   type VoiceprintTemplate,
 } from "../model/speaker-verify";
 import { createMicUtteranceRecorder, type UtteranceRecorder } from "./mic-recorder";
+// 模型体积常量（下载进度分母兜底单源；值由 embed-engine 侧实测维护）——
+// 只取常量不做整包 import，不拖 ort bundle
+import { VOICEPRINT_MODEL_BYTES } from "../model/embed-engine";
 
 /** 单句最长采集（秒；到点强制收口）。 */
 const UTTERANCE_MAX_SECONDS = 8;
@@ -79,10 +82,17 @@ const importModelViaEngine = async (file: File): Promise<void> => {
 
 const VoiceprintSection = function VoiceprintSection({ service, recorder, prepareModel, importModel, probeModel }: VoiceprintSectionProps) {
   const { t } = useI18n();
+  // 注入面 ref 一次建齐（渲染体不重复构造）：旧写法在渲染体里
+  // `recorderRef.current = recorder ?? createMicUtteranceRecorder()` 每次渲染
+  // 新建录音器实例（对象 churn + 渲染期副作用）；prop 变化经 effect 同步。
   const serviceRef = useRef<VoiceprintService>(service ?? getStewardVoiceprintService());
-  serviceRef.current = service ?? getStewardVoiceprintService();
   const recorderRef = useRef<UtteranceRecorder>(recorder ?? createMicUtteranceRecorder());
-  recorderRef.current = recorder ?? createMicUtteranceRecorder();
+  useEffect(() => {
+    serviceRef.current = service ?? getStewardVoiceprintService();
+  }, [service]);
+  useEffect(() => {
+    recorderRef.current = recorder ?? createMicUtteranceRecorder();
+  }, [recorder]);
   const prepareModelRef = useRef<NonNullable<VoiceprintSectionProps["prepareModel"]>>(prepareModel ?? prepareModelViaEngine);
   prepareModelRef.current = prepareModel ?? prepareModelViaEngine;
   const probeModelRef = useRef<NonNullable<VoiceprintSectionProps["probeModel"]>>(probeModel ?? probeModelViaEngine);
@@ -114,6 +124,16 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
       alive = false;
     };
   }, []);
+
+  // 卸载中止在途录句（离开设置页即关麦）：不中止则 getUserMedia 流会一直
+  // 采集到「未开口兜底超时」（maxSeconds+2 秒 = 10s）才释放——用户已走，
+  // 麦克风指示灯还亮着，且迟到结果无人消费。
+  useEffect(
+    () => () => {
+      recorderRef.current.abort?.();
+    },
+    [],
+  );
 
   const registered = template !== null;
   // 旧版模板（注册于逐句明细落地之前）：校验走均值向量照旧，单槽编辑不可用
@@ -397,7 +417,11 @@ const VoiceprintSection = function VoiceprintSection({ service, recorder, prepar
                 ? t("chat.settings.general.voiceprintPreparing")
                 : t("chat.settings.general.voiceprintDownloading", {
                     mb: (progress.received / 1e6).toFixed(1),
-                    total: progress.total === null ? "27" : (progress.total / 1e6).toFixed(0),
+                    // 分母兜底走 embed-engine 单源常量（不硬编码 27）
+                    total:
+                      progress.total === null
+                        ? (VOICEPRINT_MODEL_BYTES / 1e6).toFixed(0)
+                        : (progress.total / 1e6).toFixed(0),
                   })}
             </span>
           ) : phase === "saving" ? (
