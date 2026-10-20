@@ -35,7 +35,11 @@ export function useStewardNavigate(onNavigate: (sessionId: string) => void): voi
     if (subscribeSurfaceFrames === undefined) return;
     return subscribeSurfaceFrames((event: EventEnvelope) => {
       if (event.type !== "surface.action") return; // 兼容期旧帧零消费（D8 收编）
-      const payload = event.payload as { verb?: unknown; args?: unknown; seq?: unknown };
+      // 载荷本体防御（形状非法零动作）：payload 为 null/非对象时连 seq 锚都
+      // 没有——零回执（daemon 侧无对账锚），但绝不在订阅回调里抛 TypeError
+      const raw = event.payload as { verb?: unknown; args?: unknown; seq?: unknown } | null | undefined;
+      if (raw === null || typeof raw !== "object") return;
+      const payload = raw;
       // 拒签也回执（事故热修批②）：daemon 侧 surface.action 带回执超时等待面
       // ——零回执 = 60s 挂死（2026-10-07 事故实录：模型发明 url 参数 → 本面静
       // 默弃帧 → daemon 挂闸 60s 后 run error）。「不猜义」不等于「不应答」：

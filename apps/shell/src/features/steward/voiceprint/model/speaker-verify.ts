@@ -44,9 +44,16 @@ export interface VoiceprintTemplate {
   readonly createdAt: number;
 }
 
-/** 余弦相似度（零向量防御 → 0）。 */
+/**
+ * 余弦相似度（零向量防御 → 0；**维度不一致 → 0**）。
+ *
+ * 维度不一致旧实现按 min 长度静默截断：模板与引擎向量维度漂移（换模型/
+ * 坏模板）时得出「貌似合理的前缀相似度」，判定悄然失真且无任何信号。
+ * 维度不同即不可比——直接 0（reject 侧安全）。
+ */
 export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
-  const n = Math.min(a.length, b.length);
+  if (a.length !== b.length) return 0;
+  const n = a.length;
   let dot = 0;
   let na = 0;
   let nb = 0;
@@ -89,8 +96,11 @@ export function synthesizeTemplate(vectors: readonly Float32Array[], now: number
   };
 }
 
-/** 模板 → 句向量域回读投影（测试/日志用；同构拷贝）。 */
-export function utteranceVectorsOf(t: VoiceprintTemplate): Float32Array {
+/** 模板均值向量的副本（测试/日志用；同构拷贝）。
+ *  命名如实：返回的是 `t.vector`（句向量均值 + L2 归一），**不是**逐句
+ *  向量（逐句明细在 `t.vectors`）——旧名 utteranceVectorsOf 与实际返回
+ *  不符，易被误当逐句面消费。 */
+export function meanVectorOf(t: VoiceprintTemplate): Float32Array {
   return new Float32Array(t.vector);
 }
 

@@ -13,7 +13,7 @@
  * - 脚注：projectionNote 整行移除；enterHint 新文案 kbd 双键帽。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
@@ -262,7 +262,7 @@ const JPEG_BYTES = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
 /** 模拟文件选择（input.files → change）。 */
 async function pickFiles(files: File[]): Promise<void> {
   const input = document.querySelector<HTMLInputElement>("input[type=file]")!;
-  Object.defineProperty(input, "files", { value: files });
+  Object.defineProperty(input, "files", { value: files, configurable: true });
   fireEvent.change(input);
   await new Promise((r) => setTimeout(r, 10)); // FileReader 异步
 }
@@ -369,6 +369,48 @@ describe("M53 · 附件读取失败交代（Promise.all catch）", () => {
       expect(tip!.textContent).toContain("图片读取失败");
       expect(document.body.textContent).not.toContain("最多 4 张");
     } finally {
+      vi.stubGlobal("FileReader", OrigFR);
+    }
+  });
+
+  it("连续两次读取失败 → 前一 timer 被清（第二次提示满 3s 窗口，不提前消隐）", async () => {
+    stateRef.current = connectedReady();
+    const OrigFR = globalThis.FileReader;
+    class FailReader {
+      onload: (() => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      error = new Error("read fail");
+      readAsDataURL() {
+        setTimeout(() => this.onerror?.(this.error), 0);
+      }
+    }
+    vi.stubGlobal("FileReader", FailReader);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      ui();
+      await act(async () => {
+        await pickFiles([imageFile(PNG_BYTES, "image/png", "bad1.png")]);
+      });
+      expect(document.querySelector("[data-attach-error]")).not.toBeNull();
+      // 1s 后第二次失败（重新登记 3s 窗）
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      await act(async () => {
+        await pickFiles([imageFile(PNG_BYTES, "image/png", "bad2.png")]);
+      });
+      // 再过 2.5s（距第一次 3.5s、距第二次 2.5s）：提示必须仍在场
+      await act(async () => {
+        vi.advanceTimersByTime(2500);
+      });
+      expect(document.querySelector("[data-attach-error]")).not.toBeNull();
+      // 第二次满 3s 后消隐
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(document.querySelector("[data-attach-error]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
       vi.stubGlobal("FileReader", OrigFR);
     }
   });

@@ -22,8 +22,14 @@ import { cn } from "@/shared/lib/cn";
 /** 记忆通知卡文本上限（超长截「…」——用户规约：卡片内容限 100 字内）。 */
 const MEMORY_CARD_TEXT_MAX = 100;
 
+/**
+ * 按**码点**截断（旧 slice(0,100) 是 UTF-16 码元口径：代理对/扩展字形被从
+ * 中间切开 → 显示残缺字符或半个 emoji）。用 Array.from 按码点切，再拼接。
+ */
 function truncateMemoryText(text: string): string {
-  return text.length > MEMORY_CARD_TEXT_MAX ? `${text.slice(0, MEMORY_CARD_TEXT_MAX)}…` : text;
+  const codePoints = Array.from(text);
+  if (codePoints.length <= MEMORY_CARD_TEXT_MAX) return text;
+  return `${codePoints.slice(0, MEMORY_CARD_TEXT_MAX).join("")}…`;
 }
 
 const ConfirmStack = function ConfirmStack() {

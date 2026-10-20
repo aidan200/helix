@@ -92,8 +92,12 @@ export function useComposerVoice(
   const finalPendingRef = useRef(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamSenders = { sendSttStreamStart, sendSttStreamChunk, sendSttStreamFinish, sendSttStreamStop };
+  // latest-ref 四件（streamSenders/finalTimeoutMs/onTranscript/voice）统一走
+  // 「提交后 effect 同步」——渲染体不写 ref（SessionContext/WorkspaceContext
+  // 同语纪律：并发渲染废弃腿不再可能写入陈旧值）；四处读点全是事件处理器/
+  // 异步回调（帧消费、PCM 帧、deferred 收口、转写回填），均在提交后执行，
+  // 滞后一个提交可接受。同步点见文件末 latestRefs 效应。
   const streamSendersRef = useRef(streamSenders);
-  streamSendersRef.current = streamSenders;
 
   const clearFallbackTimer = useCallback(() => {
     if (fallbackTimerRef.current !== null) {
@@ -109,6 +113,8 @@ export function useComposerVoice(
     if (streamArmedRef.current && !finalPendingRef.current) {
       streamSendersRef.current.sendSttStreamStop?.();
     }
+    // 废流即收口：撤武装——否则卸载清理会把它再当「在途流」补发一次 stop
+    streamArmedRef.current = false;
   }, []);
 
   // PCM 帧 → stt.stream.chunk（仅 armed 且未死；他态零上行——money 纪律）
@@ -121,7 +127,6 @@ export function useComposerVoice(
 
   // blob 就位（deferred 态）→ 流在途？finish 等终帧 : 立即回落非流式
   const finalTimeoutMsRef = useRef(options?.streamFinalTimeoutMs ?? COMPOSER_STREAM_FINAL_TIMEOUT_MS);
-  finalTimeoutMsRef.current = options?.streamFinalTimeoutMs ?? COMPOSER_STREAM_FINAL_TIMEOUT_MS;
   const onDeferredHold = useCallback(() => {
     const senders = streamSendersRef.current;
     if (
@@ -146,7 +151,6 @@ export function useComposerVoice(
   }, [clearFallbackTimer, abandonStream]);
 
   const onTranscriptRef = useRef(onTranscript);
-  onTranscriptRef.current = onTranscript;
 
   const voice = useVoiceInput((text) => onTranscriptRef.current(text), {
     sendSttTranscribe,
@@ -158,7 +162,14 @@ export function useComposerVoice(
     ...(options?.createPump !== undefined ? { createPump: options.createPump } : {}),
   });
   const voiceRef = useRef(voice);
-  voiceRef.current = voice;
+
+  // latest-ref 同步点（每次提交后刷新；见 refs 声明处纪律注释）
+  useEffect(() => {
+    streamSendersRef.current = streamSenders;
+    finalTimeoutMsRef.current = options?.streamFinalTimeoutMs ?? COMPOSER_STREAM_FINAL_TIMEOUT_MS;
+    onTranscriptRef.current = onTranscript;
+    voiceRef.current = voice;
+  });
 
   // 流式帧消费（与 useVoiceInput 回执面双订阅扇出——LISTEN_SURFACE 官方
   // 形态；streamId 单飞门控：他流/旧流帧丢弃，非 pending 终帧丢弃）
@@ -189,9 +200,13 @@ export function useComposerVoice(
         finalPendingRef.current = false;
         streamIdRef.current = null;
         if (p.status === "ok") {
+          // 流已正常收口（终帧 ok）：撤武装——此后没有在途流，卸载清理不该
+          // 再发 stt.stream.stop（旧实现只清 finalPending/streamId，卸载时对
+          // 已正常收口的流补发 stop 噪声帧）。error 分支由 abandonStream 撤。
           const text = typeof p.text === "string" ? p.text : "";
           if (text.trim() !== "") setInterim(text); // final 替换 interim（转正前闪现）
           voiceRef.current.resolveStreaming(text);
+          streamArmedRef.current = false;
         } else {
           // 流失败 → 回落非流式（blob 整段转写，V3a 行为等价）+ 断流收口
           streamDeadRef.current = true;
@@ -206,14 +221,28 @@ export function useComposerVoice(
   const start = useCallback(async () => {
     clearFallbackTimer();
     setInterim(null);
+    // 上一轮开流回执未结算（armed 且无 streamId、未判死）= 旧轮 stt.stream.started
+    // 可能仍在途。协议无「发起世代」标识，旧轮回执与本轮回执到达时无法区分
+    //（单飞闸会认旧 streamId 为权威 id → 旧流 interim/final 入屏入草稿、本轮帧
+    // 反被丢）。处置：本轮不开流（不武装）——旧帧被 armed 闸挡下，录音照常、
+    // 停后走 blob 整段回落（本轮降级为非流式，换「不串轮」）。
+    const staleStartedInFlight =
+      streamArmedRef.current && streamIdRef.current === null && !streamDeadRef.current;
+    if (staleStartedInFlight) {
+      // 旧流可能仍在 daemon 侧活着：显式中止（money 纪律：零孤儿连接/零续计费）
+      streamSendersRef.current.sendSttStreamStop?.();
+    }
     streamIdRef.current = null;
     streamDeadRef.current = false;
     finalPendingRef.current = false;
+    streamArmedRef.current = false;
     // 开流门（money 纪律）：provider 偏好非 dashscope（无流式能力）不开流零连接
     const pref = readSttProviderPref();
     const sendStart = streamSendersRef.current.sendSttStreamStart;
-    streamArmedRef.current =
-      typeof sendStart === "function" && (pref === undefined || pref === "dashscope") && sendStart({ language: "zh" });
+    if (!staleStartedInFlight) {
+      streamArmedRef.current =
+        typeof sendStart === "function" && (pref === undefined || pref === "dashscope") && sendStart({ language: "zh" });
+    }
     await voiceRef.current.start();
   }, [clearFallbackTimer]);
 

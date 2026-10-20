@@ -90,7 +90,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useVoiceInput } from "@/shared/lib/useVoiceInput";
-import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
+import { createWorkletRmsMeter, type RmsMeter, type RmsMeterFactory } from "@/shared/lib/rms-meter";
+import type { PcmPumpFactory } from "@/shared/lib/pcm-pump";
 import { pcmFrameToBase64 } from "@/shared/lib/pcm-pump";
 import { recordSpeechDiag } from "./speech-diag";
 import { createPcmRing, type PcmRing } from "../voiceprint/model/pcm-ring";
@@ -600,10 +601,14 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         // ① 协调器同点收位（卸载不留幽灵对话位——否则通知面永久延后）
         endDialogueSpeech(SPEECH_LEASE_SPEECH_OUT);
         endDialogueSpeech(SPEECH_LEASE_LEGACY);
+        // barge-in 意图窗收口（timer + duck 三轨音量）：不 dispose 则 5s 超时
+        // timer 在卸载后照跑——onTimeout 经 settleRef 调 setState（卸载后 setState
+        // 残留形态），且 duck 音量永无恢复面（三轨停在压低音量）
+        bargeInWindow.dispose();
         stopWelcomeAudio();
       };
     },
-    [speechOut, stopWelcomeAudio],
+    [speechOut, stopWelcomeAudio, bargeInWindow],
   );
 
   // 回答终态 → 朗读闸（money 纪律：语音模式 × 偏好开；answer 判别在
@@ -851,7 +856,6 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
         const audio = new Audio(payload.audio);
         audio.volume = Math.max(0, Math.min(1, readVoiceVolumePref() / 100));
         audioRef.current = audio;
-        markLegacySpeaking(true); // ⑥ 回执发言期登记租约
         audio.onended = () => {
           audioRef.current = null;
           markLegacySpeaking(false);
@@ -1159,7 +1163,11 @@ export function useStewardVoice(options?: UseStewardVoiceOptions): UseStewardVoi
           resolve(verdict);
         };
         judgeStopWaitersRef.current.push(finish);
-        if (sendStewardJudgeStopIntent?.(text) === false) return finish("unjudged"); // 未连接/未装配（TR-168：不悬挂等待）
+        // 未装配（测试替身/旧装配面）与未连接（send=false）同归 unjudged——
+        // 旧实现只覆盖「已装配且返回 false」，sender 缺席时仍挂满 JUDGE_STOP
+        // 超时才收敛（窗内判不出就白等 2.5s）
+        if (typeof sendStewardJudgeStopIntent !== "function") return finish("unjudged");
+        if (sendStewardJudgeStopIntent(text) === false) return finish("unjudged"); // TR-84：不悬挂等待
         timer = setTimeout(() => finish("unjudged"), JUDGE_STOP_TIMEOUT_MS);
       }),
     [sendStewardJudgeStopIntent],

@@ -50,6 +50,27 @@ export function frameRms(samples: Int16Array): number {
   return Math.sqrt(sum / samples.length);
 }
 
+/** 尾段拼接（两条选取路径共用）：[clippedStart, end) 帧拼成 Int16 域
+ *  Float32Array（模型 normalize_samples=0 口径），段长上限在此统一截断
+ *  （保留最近 UTTERANCE_MAX_SECONDS）。 */
+function concatTailFrames(
+  frames: readonly PcmRingFrame[],
+  start: number,
+  end: number,
+): Float32Array {
+  const maxFrames = UTTERANCE_MAX_SECONDS * FRAMES_PER_SECOND;
+  const clippedStart = end - start > maxFrames ? end - maxFrames : start;
+  const from = frames[clippedStart]!;
+  const total = (end - clippedStart) * from.samples.length;
+  const out = new Float32Array(total);
+  let at = 0;
+  for (let i = clippedStart; i < end; i++) {
+    const s = frames[i]!.samples;
+    for (let k = 0; k < s.length; k++) out[at++] = s[k]!;
+  }
+  return out;
+}
+
 /** 尾部语音段选取（纯函数；null = 无语音可用）。 */
 export function selectUtterancePcm(frames: readonly PcmRingFrame[]): Float32Array | null {
   // 1. 从尾往头找最后一个有声帧（全部低于门限 → null）
@@ -76,22 +97,10 @@ export function selectUtterancePcm(frames: readonly PcmRingFrame[]): Float32Arra
   }
   // 3. 头端静音边距（多收 LEAD_PAD_FRAMES，截环头不越界）
   start = Math.max(0, start - LEAD_PAD_FRAMES);
-  // 4. 段长上限（保留最近 UTTERANCE_MAX_SECONDS）
-  const maxFrames = UTTERANCE_MAX_SECONDS * FRAMES_PER_SECOND;
+  // 4. 拼接 + 段长上限（保留最近 UTTERANCE_MAX_SECONDS；公共尾部拼接）
   const end = lastLoud + 1; // 不含
-  const frameCount = end - start;
-  if (frameCount <= 0) return null;
-  const clippedStart = frameCount > maxFrames ? end - maxFrames : start;
-  // 5. 拼接（Int16 域 Float32Array——模型 normalize_samples=0 口径）
-  const from = frames[clippedStart]!;
-  const total = (end - clippedStart) * from.samples.length;
-  const out = new Float32Array(total);
-  let at = 0;
-  for (let i = clippedStart; i < end; i++) {
-    const s = frames[i]!.samples;
-    for (let k = 0; k < s.length; k++) out[at++] = s[k]!;
-  }
-  return out;
+  if (end - start <= 0) return null;
+  return concatTailFrames(frames, start, end);
 }
 
 /** 授权点音频环（push 不消费；takeUtterance 可重复取）。 */
@@ -124,18 +133,7 @@ function selectMarkedPcm(frames: readonly PcmRingFrame[], markIndex: number): Fl
   }
   if (lastLoud === -1) return null; // 窗后全静音（噪音过门后没说话）
   const start = Math.max(markIndex - LEAD_PAD_FRAMES, 0); // 声学触发前的起音边距
-  const maxFrames = UTTERANCE_MAX_SECONDS * FRAMES_PER_SECOND;
-  const end = lastLoud + 1;
-  const clippedStart = end - start > maxFrames ? end - maxFrames : start;
-  const from = frames[clippedStart]!;
-  const total = (end - clippedStart) * from.samples.length;
-  const out = new Float32Array(total);
-  let at = 0;
-  for (let i = clippedStart; i < end; i++) {
-    const s = frames[i]!.samples;
-    for (let k = 0; k < s.length; k++) out[at++] = s[k]!;
-  }
-  return out;
+  return concatTailFrames(frames, start, lastLoud + 1);
 }
 
 /** 建环（容量 PCM_RING_SECONDS 秒，FIFO 淘汰最旧）。 */

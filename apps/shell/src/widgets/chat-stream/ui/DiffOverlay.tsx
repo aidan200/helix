@@ -14,7 +14,7 @@
  * 呈现：左文件列表（status 色点 data-status / 路径 / ±counts / 多 agent
  * 徽章：main 主色、SubAgent agent-<id> 短 id、external 无徽章 + note 粗估
  * 说明）+ 右 unified diff 渲染（daemon 已算好文本——前端纯着色：+行 add /
- * −行 del / @@ hunk 头）。
+ * −行 del / @@ hunk 头 / ---+++ 文件头中性色，与 daemon 统计口径同跳）。
  */
 import { useEffect, useMemo, useReducer, useRef } from "react";
 import { useSession } from "@/entities/session/SessionContext";
@@ -23,6 +23,21 @@ import type { DiffFileDto, EventEnvelope, DiffGetResultPayload } from "@helix/pr
 
 interface DiffOverlayProps {
   onClose: () => void;
+}
+
+/**
+ * unified diff 单行着色类（daemon 算文本、前端纯渲染）。
+ *
+ * 文件头 `---`/`+++` 必须先于增删前缀判定：否则每文件开头两行被误染成
+ * 删除红/新增绿。daemon 侧 statsFromPatch 显式跳过文件头（同口径），
+ * 前后端口径不一致会让用户看到 ±行数之外的多余彩色行。
+ */
+export function diffLineClass(line: string): string {
+  if (line.startsWith("+++") || line.startsWith("---")) return "dl-file"; // 文件头：中性色
+  if (line.startsWith("+")) return "dl-add";
+  if (line.startsWith("-")) return "dl-del";
+  if (line.startsWith("@@")) return "dl-hunk";
+  return "dl-ctx";
 }
 
 type ViewState =
@@ -198,9 +213,7 @@ const DiffOverlay = function DiffOverlay({ onClose }: DiffOverlayProps) {
                   ? lines.map((l, i) => (
                       <span
                         key={i}
-                        className={
-                          l.startsWith("+") ? "dl-add" : l.startsWith("-") ? "dl-del" : l.startsWith("@@") ? "dl-hunk" : "dl-ctx"
-                        }
+                        className={diffLineClass(l)}
                       >
                         {l}
                         {"\n"}

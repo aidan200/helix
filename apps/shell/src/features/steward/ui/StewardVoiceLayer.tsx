@@ -348,7 +348,8 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
       if (item.kind === "assistant") {
         if (item.text !== lastAssistantRef.current) {
           lastAssistantRef.current = item.text;
-          setLines((prev) => captionUpdateTail(prev, "steward", item.kind === "assistant" ? item.text : ""));
+          // 已在 item.kind === "assistant" 分支内：item 已收窄，直接取 text
+          setLines((prev) => captionUpdateTail(prev, "steward", item.text));
         }
         return;
       }
@@ -434,8 +435,8 @@ const StewardVoiceLayer = function StewardVoiceLayer({ wakeSignal = 0, voiceprin
   //    （askActivity null）即消失。工具态醒目面批（用户裁决：当前工具
   //    一眼可辨）——tool 相位独立分支：accent 亮色 + 工具名 mono 胶囊
   //    badge（data-tool="on" 驱动；面板仍用 activityTool 整句不变）。──
-  const streamingActive = sv.streamingText !== null && sv.streamingText !== "";
-  void streamingActive; // （分区批：流式不再影响过程行显隐——保留判定供后续发言态样式复用）
+  // （分区批：流式不再影响过程行显隐——旧 streamingActive 判定已无消费面，
+  // 死代码清除；需要发言态样式时按 streamingText 现算，不留悬挂变量）
   // ── 回合过程行（分区批，用户裁决「回合中的过程输出也要显示」）：本回合
   //    （最近 user 条目之后）tool 过程条目投影——工具行（running=醒目态 /
   //    done=弱化态）；思考只显「思考中」状态行（用户裁决：思考内容不上

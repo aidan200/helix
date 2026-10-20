@@ -26,6 +26,7 @@ import { selectActiveRunState } from "@/entities/session/model/topology";
 import { useWorkspace } from "@/entities/workspace/WorkspaceContext";
 import { cn } from "@/shared/lib/cn";
 import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
+import { MODEL_BADGE_ATTR } from "@/shared/lib/model-menu-contract";
 import { StatsBadge } from "./SessionStats";
 
 /** 连接 dot 类名（F(7).4 四态：绿常亮/黄脉冲/红脉冲/红常亮）。 */
@@ -256,7 +257,9 @@ export const TopBarActions = function TopBarActions({
         <button
           className={cn("hud-badge model-badge", modelMenuOpen && "open")}
           type="button"
-          data-model-badge
+          // 触发钮豁免契约（菜单点外关闭豁免）：属性名由 shared 单点导出，
+          // 改名只改 contract 文件、菜单侧同源跟上
+          {...{ [MODEL_BADGE_ATTR]: "" }}
           title={t("chat.topbar.modelTitle")}
           aria-label={t("chat.topbar.modelTitle")}
           aria-expanded={modelMenuOpen}

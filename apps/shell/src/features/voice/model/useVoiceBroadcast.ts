@@ -16,7 +16,7 @@
  *
  * 挂载点：App 根（全局单份——播放是连接级关注，与会话无关）。
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { readTtsVoicePref, readVoiceBroadcastPref, readVoiceVolumePref } from "@/shared/lib/voice-pref";
@@ -35,9 +35,17 @@ import type { EventEnvelope } from "@helix/protocol";
  *  回灌不再污染转写；队列排空才释放，顺序播放边界零闪断）。 */
 const SPEECH_LEASE_BROADCAST = "voice-broadcast";
 
+/** 播报面失败事件（诊断 + 交代面）：message = 人读文案，seq = 失败序号。 */
+export interface VoiceBroadcastError {
+  readonly message: string;
+  /** 单调失败序号：同文案连续失败也换对象身份（消费方 effect 依赖可再次交代）。 */
+  readonly seq: number;
+}
+
 export interface VoiceBroadcast {
-  /** 最近一次播放失败原因（诊断面；null = 无）。 */
-  readonly error: string | null;
+  /** 最近一次播报面失败（播放失败/自动播放被拒/订阅发送未发出）；null = 无。
+   *  实态（useState）——旧实现写 ref 无重渲，唯一调用方又丢弃返回值，是死面。 */
+  readonly error: VoiceBroadcastError | null;
 }
 
 interface BroadcastPayload {
@@ -53,9 +61,13 @@ export function useVoiceBroadcast(): VoiceBroadcast {
     sendVoiceUnsubscribe?: () => boolean;
     subscribeVoiceFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
-  const errorRef = useRef<string | null>(null);
-  const tRef = useRef(t);
-  tRef.current = t;
+  const [error, setError] = useState<VoiceBroadcastError | null>(null);
+  const errSeqRef = useRef(0);
+  /** 失败入账（诊断 + 交代面）：序号单调递增——同文案连发也能被消费方再次弹出。 */
+  const fail = useCallback((message: string): void => {
+    errSeqRef.current += 1;
+    setError({ message, seq: errSeqRef.current });
+  }, []);
 
   // ── 订阅闸门：连接就绪 + 偏好开 → subscribe（音色偏好随发）；偏好关 →
   //    unsubscribe（幂等；daemon 断连自动清位，重连由 conn 依赖重放）。
@@ -64,12 +76,14 @@ export function useVoiceBroadcast(): VoiceBroadcast {
   useEffect(() => {
     if (conn !== "connected") return;
     if (typeof sendVoiceSubscribe !== "function" || typeof sendVoiceUnsubscribe !== "function") return;
+    // send 返回值必消费（TR-84：=== false 严格判 = 断线窗口帧未发出）——订阅
+    // 未发出则播报面整体不生效，经 error 面交代（不再静默等到下次重连）
     if (readVoiceBroadcastPref()) {
-      sendVoiceSubscribe(readTtsVoicePref());
-    } else {
-      sendVoiceUnsubscribe();
+      if (sendVoiceSubscribe(readTtsVoicePref()) === false) fail(t("chat.modelsConfig.sendFailToast"));
+    } else if (sendVoiceUnsubscribe() === false) {
+      fail(t("chat.modelsConfig.sendFailToast"));
     }
-  }, [conn, sendVoiceSubscribe, sendVoiceUnsubscribe]);
+  }, [conn, sendVoiceSubscribe, sendVoiceUnsubscribe, fail, t]);
 
   // ── 播放面：voice.broadcast → seq 去重保序 → 顺序播放（① 对话发言期延后）──
   const lastSeqRef = useRef(0);  const pendingRef = useRef<BroadcastPayload[]>([]);
@@ -144,7 +158,7 @@ export function useVoiceBroadcast(): VoiceBroadcast {
       audio.onerror = () => {
         if (currentAudioRef.current !== audio) return;
         currentAudioRef.current = null;
-        errorRef.current = tRef.current("chat.voice.broadcast.playFail");
+        fail(t("chat.voice.broadcast.playFail"));
         playingRef.current = false;
         playNextRef.current();
       };
@@ -152,13 +166,13 @@ export function useVoiceBroadcast(): VoiceBroadcast {
         // 自动播放策略等拒绝：跳过该条（顺序保障继续）
         if (currentAudioRef.current !== audio) return;
         currentAudioRef.current = null;
-        errorRef.current = tRef.current("chat.voice.broadcast.playBlocked");
+        fail(t("chat.voice.broadcast.playBlocked"));
         playingRef.current = false;
         playNextRef.current();
       });
     } catch {
       currentAudioRef.current = null;
-      errorRef.current = tRef.current("chat.voice.broadcast.playFail");
+      fail(t("chat.voice.broadcast.playFail"));
       playingRef.current = false;
       playNextRef.current();
     }
@@ -194,5 +208,5 @@ export function useVoiceBroadcast(): VoiceBroadcast {
   // ⑥ 卸载收位：不留幽灵租约（否则后续收音永久暂停）
   useEffect(() => () => endSpeechLease(SPEECH_LEASE_BROADCAST), []);
 
-  return { error: errorRef.current };
+  return { error };
 }

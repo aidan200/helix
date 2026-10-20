@@ -257,7 +257,6 @@ export const UsagePopover = memo(function UsagePopover({
 }) {
   const { t } = useI18n();
   const { state, topology } = useSession();
-  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // 开合状态机（F3.4）：点外部（popover 与徽标之外）/ Esc 关闭（共享 hook，
   // code-review 低危组9 三处同构收拢）；popover 内部点击不关（行尾动作自带
@@ -269,7 +268,7 @@ export const UsagePopover = memo(function UsagePopover({
   const total = state.usage.total;
 
   return (
-    <div className="stats-pop open" role="dialog" aria-label={t("chat.stats.popTitle")} ref={rootRef}>
+    <div className="stats-pop open" role="dialog" aria-label={t("chat.stats.popTitle")}>
       <div className="sp-title">
         <span>{t("chat.stats.popTitle")}</span>
         <span className="total">

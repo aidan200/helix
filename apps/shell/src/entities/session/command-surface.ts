@@ -187,7 +187,8 @@ export interface CommandSurfaceDeps {
   readonly dispatch: (action: SessionAction) => void;
   /** 读当前拓扑（命令构造读点：活跃会话 id / 分页游标 / modelConfig 态）。 */
   readonly getTopology: () => TopologyState;
-  /** 读 v0.3 订阅图簿记（全图订阅生命周期唯一权威）。 */
+  /** 读 v0.3 订阅图簿记（订阅生命周期唯一权威；监控窗口模型见
+   *  model/subscription-ledger / E-192）。 */
   readonly getLedger: () => SubscriptionLedger;
   /** 读当前生成态（submit 发送语义分流：空闲 turn / 生成中 steer）。 */
   readonly isGenerating: () => boolean;
@@ -496,18 +497,22 @@ export const COMMAND_SURFACE = {
   setDraftMode: ({ dispatch }) =>
     (mode: string) => dispatch({ type: "ui/set-draft-mode", mode }),
   /** 删除会话（F(1.2).4）：发 session.delete（daemon 取消全部执行 → 删库 →
-   *  list_changed{deleted}）；删活跃会话则本地先切草稿态（视图即转空态）。
-   *  返回 send 结果（M51：调用侧 toast 结果驱动——false = 未连接发送失败） */
+   *  list_changed{deleted}）；**先 send 后改**（submit/steerInstance 同式
+   *  TR-168）——帧未发出（false）则本地零改动，调用侧 toast 结果驱动失败交代。
+   *  返回 send 结果（M51）。 */
   deleteSession: (deps) =>
     (sessionId: string): boolean => {
+      // send 先行：false = 断线窗口帧未发出——此时若已切草稿，用户看到空态而
+      // 会话并未删除、订阅簿记活跃位也已清空（视图/簿记与 daemon 现实分叉）
+      if (deps.send(sessionDeleteCommand(sessionId)) === false) return false;
       // daemon 顺序：取消全部执行 → 删库 → list_changed{deleted}（前端零权威：
-      // 卡片移除由事件驱动）；删的是活跃会话 → 本地先切草稿态（原型 F(1.2).4：
+      // 卡片移除由事件驱动）；删的是活跃会话 → 本地切草稿态（原型 F(1.2).4：
       // 视图即转空态，不等事件）
       if (deps.getTopology().active.sessionId === sessionId) {
         deps.getLedger().dropActive(); // 订阅簿记活跃位置零（退订归 deleted 帧驱动）
         deps.dispatch({ type: "session/new-draft" });
       }
-      return deps.send(sessionDeleteCommand(sessionId));
+      return true;
     },
   /** 滚动到顶加载更早历史（selectCanLoadEarlier 门控；发 session.loadHistory） */
   loadEarlierHistory: (deps) =>
@@ -1115,9 +1120,6 @@ export const LISTEN_SURFACE = {
       type === "steward.activity" ||
       type === "connection.error",
   },
-  /** 订阅 embedding 族帧（管家记忆 B2：list.result 清单回执（list/set/delete
-   *  共用）+ verify.result 连通回执（两判别，id 回携）——模型页向量 tab /
-   *  管家记忆区下拉两消费面）。 */
   /** 订阅 surface 族帧（M0 表面协议地基批）：surface.action 动作指令帧
    *  （定向到已注册表面连接——useStewardNavigate verb=navigate 消费面）+
    *  surface.registered 注册回执（useShellSurface 身份诊断面）+
@@ -1128,6 +1130,9 @@ export const LISTEN_SURFACE = {
       type === "surface.registered" ||
       type === "connection.error",
   },
+  /** 订阅 embedding 族帧（管家记忆 B2：list.result 清单回执（list/set/delete
+   *  共用）+ verify.result 连通回执（两判别，id 回携）——模型页向量 tab /
+   *  管家记忆区下拉两消费面）。 */
   subscribeEmbeddingFrames: {
     match: (type) =>
       type === "embedding.list.result" ||

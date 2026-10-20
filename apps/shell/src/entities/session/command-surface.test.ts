@@ -427,3 +427,54 @@ describe("LISTEN_SURFACE.subscribeProviderFrames（三方平台批——TR-89 �
     expect(match("auth.list.result")).toBe(false);
   });
 });
+
+// ── code-review 低危：deleteSession 先 send 后改（TR-168 定式）──
+describe("COMMAND_SURFACE.deleteSession（send 先行）", () => {
+  /** 活跃会话 + 订阅簿记探针。 */
+  function deleteDeps(sendOk: boolean) {
+    let topo: TopologyState = {
+      ...createInitialTopologyState(),
+      active: { ...createInitialTopologyState().active, sessionId: "s-active" },
+    };
+    const sent: unknown[] = [];
+    const droppedActive: string[] = [];
+    const deps: CommandSurfaceDeps = {
+      send: (cmd) => {
+        sent.push(cmd);
+        return sendOk;
+      },
+      dispatch: (a: SessionAction) => {
+        topo = topologyReducer(topo, a);
+      },
+      getTopology: () => topo,
+      getLedger: () =>
+        ({
+          dropActive: () => droppedActive.push("drop"),
+          newDraft: () => [],
+          addCreated: () => [],
+          switchTo: () => [],
+          onSnapshot: () => ({ commands: [], dispatch: false }),
+          removeDeleted: () => [],
+          evict: () => [],
+        }) as unknown as SubscriptionLedger,
+      isGenerating: () => false,
+      retryConnection: () => {},
+    };
+    return { deps, sent, topo: () => topo, droppedActive };
+  }
+
+  it("send=false（断线未发出）→ 返回 false 且本地零改动（视图与订阅簿记保持原状）", () => {
+    const { deps, topo, droppedActive } = deleteDeps(false);
+    expect(COMMAND_SURFACE.deleteSession(deps)("s-active")).toBe(false);
+    expect(topo().active.sessionId).toBe("s-active"); // 未切草稿
+    expect(droppedActive).toHaveLength(0); // 订阅活跃位未清
+  });
+
+  it("send=true → 删活跃会话本地切草稿态 + 簿记活跃位清零", () => {
+    const { deps, topo, sent, droppedActive } = deleteDeps(true);
+    expect(COMMAND_SURFACE.deleteSession(deps)("s-active")).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(topo().active.sessionId).toBeNull(); // 草稿态
+    expect(droppedActive).toHaveLength(1);
+  });
+});

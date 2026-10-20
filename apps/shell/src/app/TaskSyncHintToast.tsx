@@ -7,7 +7,8 @@
  *
  * 通配 task.subscribe 幂等：TasksPage 挂载同发，服务端连接级订阅表是
  * Set/布尔语义，重复订阅不双份投递；连接就绪门控与 TasksPage 同构
- * （重连后连接级订阅表已清，需补订）。
+ * （重连后连接级订阅表已清，需补订）——补订发送失败视为未补订，留待下次
+ * conn 迁移重试。
  */
 import { useEffect, useRef } from "react";
 import type { EventEnvelope, TaskChangedPayload } from "@helix/protocol";
@@ -25,8 +26,13 @@ export default function TaskSyncHintToast() {
   useEffect(() => {
     if (typeof sendTaskSubscribe !== "function") return;
     const prev = prevConnRef.current;
+    // TR-84/TR-168：send 返回值必消费（严格 === false）——conn 刚迁 connected
+    // 但 socket 已断的窗口里 send=false（帧丢弃），此时**不记**「已订阅态」，
+    // 让下一次 conn 迁移（重连）重走补订；否则整段 syncHint 广播不达。
+    if (conn === "connected" && prev !== "connected") {
+      if (sendTaskSubscribe() === false) return;
+    }
     prevConnRef.current = conn;
-    if (conn === "connected" && prev !== "connected") sendTaskSubscribe();
   }, [conn, sendTaskSubscribe]);
 
   // task.changed 随行 syncHint → toast（非提示帧不消费）

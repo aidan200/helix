@@ -82,6 +82,17 @@ describe("speech-diag（语音链诊断环形缓冲）", () => {
     expect(dumpSpeechDiag()).toEqual([{ t: 1, ev: "chunk.timeout", detail: "utt-3" }]);
   });
 
+  it("读盘恢复返回实际入环条数（超容量截断后 != 合法条目数）", () => {
+    storage.data.set(
+      DIAG_STORAGE_KEY,
+      JSON.stringify(
+        Array.from({ length: DIAG_RING_CAPACITY + 5 }, (_, i) => ({ t: i, ev: "chunk.timeout" })),
+      ),
+    );
+    expect(hydrateDiagFromStorage()).toBe(DIAG_RING_CAPACITY); // 环实装条数（非 +5）
+    expect(dumpSpeechDiag().length).toBe(DIAG_RING_CAPACITY);
+  });
+
   it("存储不可用/坏快照：内存态降级不丢事件不抛错", () => {
     setDiagStorage({
       getItem: () => "{not json",

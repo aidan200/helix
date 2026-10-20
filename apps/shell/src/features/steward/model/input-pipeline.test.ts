@@ -66,6 +66,17 @@ describe("input-pipeline（左侧输入流水）", () => {
     expect(rows2[0]).toMatchObject({ state: "rejected", note: { kind: "judge-reject" } });
   });
 
+  it("annotate 优先序 done > confirmed（最近 done 行先于更近的 confirmed 行）", () => {
+    let rows: readonly InputRow[] = [];
+    const first = inputConfirmWithId(rows, "刚发问", T0);
+    rows = inputResolve(first.rows, { state: "done" }, T0 + 10, first.id); // 已 done 的问句
+    rows = inputConfirm(rows, "后到的确认句", T0 + 20); // 更新但只是 confirmed
+    const annotated = inputAnnotate(rows, { kind: "judge-reject" }, T0 + 30);
+    // 旧实现（单一倒序扫）会先命中更近的 confirmed 行
+    expect(annotated.find((r) => r.text === "刚发问")).toMatchObject({ state: "rejected" });
+    expect(annotated.find((r) => r.text === "后到的确认句")).toMatchObject({ state: "confirmed" });
+  });
+
   it("annotate 无可判行补注记行（异步回执先于行到达的防御）", () => {
     const rows = inputAnnotate([], { kind: "judge-reject" }, T0);
     expect(rows.length).toBe(1);

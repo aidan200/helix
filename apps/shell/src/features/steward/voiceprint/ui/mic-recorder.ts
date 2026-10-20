@@ -13,6 +13,12 @@ import { PCM_RMS_GATE, frameRms } from "../model/pcm-ring";
 /** 录句器 port（测试注入 fake；null = 采集失败）。 */
 export interface UtteranceRecorder {
   record(minSeconds: number, maxSeconds: number): Promise<Float32Array | null>;
+  /**
+   * 中止在途录句（组件卸载/离开设置页）：立即关麦 + 收口 null。
+   * 可省（测试替身），生产实现必须提供——否则卸载后麦克风继续采集到
+   * 「未开口兜底超时」（maxSeconds+2 秒）才释放。
+   */
+  abort?(): void;
 }
 
 /** 静音自动停窗口（ms；useVoiceInput VOICE_SILENCE_STOP_MS 同值口径）。 */
@@ -20,7 +26,12 @@ const SILENCE_STOP_MS = 1_800;
 
 /** 生产录音器（每句一开一关麦克风——注册引导低频操作，不复用会话流）。 */
 export function createMicUtteranceRecorder(): UtteranceRecorder {
+  /** 在途录句的中止句柄（record 期间有效；settle 即清）。 */
+  let abortCurrent: (() => void) | null = null;
   return {
+    abort(): void {
+      abortCurrent?.();
+    },
     async record(minSeconds: number, maxSeconds: number): Promise<Float32Array | null> {
       const media = navigator.mediaDevices;
       if (typeof media?.getUserMedia !== "function") return null;
@@ -36,6 +47,17 @@ export function createMicUtteranceRecorder(): UtteranceRecorder {
           let settled = false;
           const minSamples = Math.round(minSeconds * 16_000);
           const maxSamples = Math.round(maxSeconds * 16_000);
+          /** 统一收口（正常收句/中止共用）：停帧 + 关泵 + 清中止句柄。 */
+          const settle = (value: Float32Array | null) => {
+            if (settled) return;
+            settled = true;
+            abortCurrent = null;
+            clearTimeout(timer);
+            pump.close();
+            resolve(value);
+          };
+          // 中止通路（卸载）：收口 null（调用方当作未录到——不写槽位）
+          abortCurrent = () => settle(null);
           const finish = () => {
             if (settled) return;
             settled = true;

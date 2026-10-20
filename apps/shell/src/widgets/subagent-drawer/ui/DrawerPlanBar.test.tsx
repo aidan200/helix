@@ -94,4 +94,26 @@ describe("DrawerPlanBar 三态（SubAgent 抽屉 plan 面）", () => {
     const { container } = ui("agent-3"); // 展开 agent-3，分片在 agent-9
     expect(container.querySelector("[data-dpb]")).toBeNull();
   });
+
+  it("切换实例复用同一组件实例 → 展开态不残留（open 按 instanceId 记忆）", () => {
+    stateRef.current = withPlan("agent-3", ROWS);
+    const { rerender } = ui("agent-3");
+    fireEvent.click(screen.getByTitle("展开工作台账"));
+    expect(document.querySelector("[data-dpb-items]")).not.toBeNull();
+    // 抽屉按实例复用组件实例（SubagentDrawer 不带 key）：instanceId 变即失配收起
+    stateRef.current = {
+      ...createInitialSessionState(),
+      instancePlans: {
+        "agent-3": { plan: ROWS, ledger: { total: 4, done: 1, inProgress: 1 } },
+        "agent-7": { plan: ROWS, ledger: { total: 4, done: 1, inProgress: 1 } },
+      },
+    };
+    rerender(
+      <I18nProvider>
+        <DrawerPlanBar instanceId="agent-7" />
+      </I18nProvider>,
+    );
+    expect(document.querySelector("[data-dpb-items]")).toBeNull();
+    expect(document.querySelector("[data-dpb]")!.getAttribute("data-plan-open")).toBe("off");
+  });
 });

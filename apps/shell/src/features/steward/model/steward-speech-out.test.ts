@@ -255,6 +255,26 @@ describe("StewardSpeechOut（流式朗读编排）", () => {
       expect(onLateFallback).toHaveBeenCalledTimes(1);
     });
 
+    it("sayNow 介入清闩锁：旧轮链死零出声不再回退出旧轮文本（跨轮泄漏防御）", () => {
+      const onLateFallback = vi.fn();
+      const o = new StewardSpeechOut({
+        senders,
+        createPlayer: () => player,
+        voiceProvider: () => "longanlingxi",
+        onLateFallback,
+      });
+      o.resetAnswer();
+      o.feedRawDelta("旧轮第一句。旧轮第二句。");
+      const oldIds = senders.streams.map(([id]) => id);
+      expect(o.answerResult("answer", "旧轮第一句。旧轮第二句。")).toBe("stream"); // 置自愈闩锁
+      // 主动发言介入（新 utterance）——旧轮闩锁必须一并清位
+      o.sayNow("欢迎回来。");
+      const fallbacksBefore = senders.fallbacks.length;
+      for (const id of oldIds) o.onErrorFrame(id); // 旧轮随后链死（零出声）
+      expect(senders.fallbacks.length).toBe(fallbacksBefore); // 零旧轮回退
+      expect(onLateFallback).not.toHaveBeenCalled();
+    });
+
     it("结果先行 + error 帧（零出声）→ 自愈一次性回退", () => {
       const onLateFallback = vi.fn();
       const o = new StewardSpeechOut({

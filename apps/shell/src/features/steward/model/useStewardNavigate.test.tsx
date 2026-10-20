@@ -153,6 +153,19 @@ describe("useStewardNavigate（navigate 动作语义修正：授权即执行 + �
     ]);
   });
 
+  it("载荷本体非法（payload=null/undefined）→ 零动作零回执且不抛（订阅回调不再 TypeError）", () => {
+    const onNavigate = vi.fn();
+    renderNavigate(onNavigate);
+    expect(() => {
+      act(() => {
+        emitSurface({ v: "0.14", sessionId: "__system__", channel: "surface", type: "surface.action", payload: null } as unknown as EventEnvelope);
+        emitSurface({ v: "0.14", sessionId: "__system__", channel: "surface", type: "surface.action" } as unknown as EventEnvelope);
+      });
+    }).not.toThrow();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(receipts).toEqual([]); // 无 seq 锚：零回执（与 seq 非法帧同规）
+  });
+
   it("seq 非法：导航意图仍执行（sessionId 有效即用户价值面）；零回执（D7-1 对账锚缺失）", () => {
     const onNavigate = vi.fn();
     renderNavigate(onNavigate);

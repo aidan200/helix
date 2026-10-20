@@ -181,4 +181,58 @@ describe("MessageBubble 流式气泡高度单调锁", () => {
     const bubble = container.querySelector(".bubble") as HTMLElement;
     expect(bubble.style.minHeight).toBe("");
   });
+
+  it("同实例转正（streaming true→false）→ effect 显式清锁（min-height 归空，不留尾部空白）", () => {
+    const { rerender, container } = ui(
+      <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一" />,
+    );
+    const hSpy = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(() => 140);
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一很长" />
+      </I18nProvider>,
+    );
+    const bubble = container.querySelector(".bubble") as HTMLElement;
+    expect(bubble.style.minHeight).toBe("140px");
+    // 转正：同一 bubble 实例（无卸载重建）——流中所锁高度必须显式解除
+    hSpy.mockRestore();
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming={false} />
+      </I18nProvider>,
+    );
+    expect(bubble.style.minHeight).toBe("");
+  });
+
+  it("转正后再流式（复锁）× 峰值基线复位：新轮从零起算，不继承上轮峰值", () => {
+    const { rerender, container } = ui(
+      <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="甲" />,
+    );
+    const bubble = container.querySelector(".bubble") as HTMLElement;
+    const hSpy = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(() => 200);
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="甲长" />
+      </I18nProvider>,
+    );
+    expect(bubble.style.minHeight).toBe("200px");
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming={false} />
+      </I18nProvider>,
+    );
+    // 新一轮流式：真实高度只有 90，锁基线已复位 → 锁 90（不残留 200）
+    hSpy.mockImplementation(() => 90);
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="乙" />
+      </I18nProvider>,
+    );
+    expect(bubble.style.minHeight).toBe("90px");
+    hSpy.mockRestore();
+  });
 });

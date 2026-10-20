@@ -9,7 +9,7 @@
  * - 首挂不算导航（activated 才是首报）；断连窗口零上行。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import type { EventEnvelope, SurfaceDescriptor } from "@helix/protocol";
 
 const sendSpy = vi.fn();
@@ -23,9 +23,10 @@ const subscribeSurfaceFrames = vi.fn((cb: (e: EventEnvelope) => void) => {
 });
 // 命令面引用稳定（产线 commandSurfaceRef ref 恒定——mock 对齐，否则 effect
 // deps 每渲染漂移导致 activated 重发）
+let registerOk = true;
 const sendSurfaceRegister = (d: SurfaceDescriptor): boolean => {
   sendSpy({ kind: "surface.register", descriptor: d });
-  return true;
+  return registerOk;
 };
 const sendSurfaceEvent = (payload: Record<string, unknown>): boolean => {
   sendSpy({ kind: "surface.event", payload });
@@ -61,6 +62,7 @@ describe("useShellSurface（M0：注册恒发 + 感知开关默认 off）", () =
     vi.clearAllMocks();
     localStorage.clear();
     connState = "connecting";
+    registerOk = true;
   });
 
   it("感知开关缺省 off：连接就绪只注册零事件上行", () => {
@@ -122,5 +124,37 @@ describe("useShellSurface（M0：注册恒发 + 感知开关默认 off）", () =
       kind: "surface.event",
       payload: { kind: "activated", origin: "user", page: "/trace" },
     });
+  });
+});
+
+describe("useShellSurface · 注册 send 返回值消费（code-review 低危）", () => {
+  it("注册发送失败（send=false）→ 一次退避重试；不无限重试（等下次 conn 迁移重放）", async () => {
+    vi.useFakeTimers();
+    try {
+      registerOk = false;
+      connState = "connected";
+      render(<Harness page="/" />);
+      const registerCalls = () =>
+        sendSpy.mock.calls.filter((c) => (c[0] as Record<string, unknown>).kind === "surface.register").length;
+      expect(registerCalls()).toBe(1);
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(registerCalls()).toBe(2); // 一次重试（能力缺失面不静默放弃）
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(registerCalls()).toBe(2); // 不无限重试——下次 conn 迁移重放
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("事件帧发送失败（send=false）→ 不重试、不抛（软语义丢弃可容忍）", () => {
+    setSurfaceAwareness(true);
+    connState = "connected";
+    render(<Harness page="/" />);
+    expect(events().length).toBeGreaterThan(0);
+    expect(sendSpy).toHaveBeenCalled(); // 零异常路径
   });
 });

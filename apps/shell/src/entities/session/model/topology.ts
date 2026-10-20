@@ -37,8 +37,11 @@ export type {
 } from "./state";
 
 /** 活跃会话运行态投影（侧栏活跃卡片徽标与 demoteToBackground 同源）：
- *  有非终态 SubAgent → subagent_running；agentState 流式/转向 → streaming；
- *  否则 idle。纯函数（AG-14）。 */
+ *  有非终态 SubAgent（含 parked——与 daemon `hasActiveInstances` 同序：
+ *  parked 窗口进程驻留未销毁，故仍算活跃）→ subagent_running；agentState
+ *  流式/转向 → streaming；否则 idle。纯函数（AG-14）。
+ *  TR-213 同序纪律：本函数与 daemon `SessionRegistry.runStateOf` 必须同判据
+ *  （daemon 侧已显式含 parked），改任一侧都要同步另一侧。 */
 export function selectActiveRunState(active: SessionState): BackgroundSessionState["runState"] {
   const subagentActive = active.instances.some((c) => !isTerminal(c.state));
   if (subagentActive) return "subagent_running";

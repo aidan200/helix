@@ -29,7 +29,9 @@ export const VOICEPRINT_MODEL_URL =
 /** daemon 模型路由 base（与 ws 同端口；生产唯一拉取源）。 */
 export const VOICEPRINT_MODEL_DAEMON_URL = `http://127.0.0.1:${DAEMON_PORT}${VOICEPRINT_MODEL_HTTP_PATH}`;
 
-/** 模型体积（字节；下载进度分母与完整性粗校验）。 */
+/** 模型体积（字节，构建期实测）：下载进度分母的兜底值——响应无
+ *  content-length 时 UI 用它算「x / N MB」（无线下校验语义：完整性由
+ *  ONNX 加载失败兜底，不做长度比对，避免模型版本更替误判）。 */
 export const VOICEPRINT_MODEL_BYTES = 26_530_548;
 
 /** fbank 特征维（模型输入 [B,T,80]）。 */
@@ -74,8 +76,10 @@ export interface WasmEngineLoaderOptions {
   readonly onProgress?: (received: number, total: number | null) => void;
 }
 
-/** 拉取模型字节（daemon 磁盘路由流式拉取；带进度；404 → 手动放置/导入
- *  引导的专用错误名）。 */
+/** 拉取模型字节（daemon 磁盘路由流式拉取；带进度）。
+ *  非 2xx 一律抛 `model asset missing (HTTP <code>)`——**无专用错误名**：
+ *  消费面（设置页）按「模型未就绪」统一给出下载/导入两通道引导，
+ *  不按错误名分流（此处不虚构差异化契约）。 */
 export async function loadModelBytes(options: WasmEngineLoaderOptions = {}): Promise<ArrayBuffer> {
   const cache = options.modelCache;
   const cached = cache === undefined ? undefined : await cache.get();

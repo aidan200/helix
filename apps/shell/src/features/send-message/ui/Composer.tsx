@@ -195,7 +195,13 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
         // M53：读取失败交代——临时错误提示（3s 消隐）+ 收口 limitTip（不残留）
         setLimitTip(false);
         setPickError(true);
-        pickErrTimerRef.current = window.setTimeout(() => setPickError(false), 3000);
+        // 连续失败连发：先清前一个 timer 再登记——否则前 timer 提前到点把
+        // 第二次提示消隐（3s 窗缩水），且只清末个 timer 会留裸跑 setState
+        if (pickErrTimerRef.current !== null) window.clearTimeout(pickErrTimerRef.current);
+        pickErrTimerRef.current = window.setTimeout(() => {
+          pickErrTimerRef.current = null; // 到点即注销（卸载清理不误清已失效 id）
+          setPickError(false);
+        }, 3000);
       });
   };
 

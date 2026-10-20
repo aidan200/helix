@@ -55,7 +55,11 @@ function instancesFromSnapshot(dtos: AgentInstanceDto[]): InstanceCardState[] {
     .filter((d) => d.kind === "subagent")
     .map((d) => ({
       instanceId: d.instanceId,
-      state: d.state,
+      // 卡片态词表与事件路对齐：parked（非终态挂起）在卡片面按「活着的实例」
+      // 呈现（专用挂起形态归后续波次），挂起事实落 parked 位——两路同源，
+      // 且运行态徽标/计时按 parked 位排除（挂起 ≠ 执行中）
+      state: d.state === "parked" ? "running" : d.state,
+      ...(d.state === "parked" ? { parked: true } : {}),
       task: d.task ?? "",
       profileKind: d.profileKind,
       ...(d.elapsedMs !== undefined ? { elapsedMs: d.elapsedMs } : {}),

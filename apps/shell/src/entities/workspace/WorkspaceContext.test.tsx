@@ -14,13 +14,14 @@
  * deps 注入面（AG-15 依赖倒置）：直接以 stub deps 渲染——无 useSession /
  * HelixWsClient / daemon。
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import type { EventEnvelope } from "@helix/protocol";
 import { WorkspaceProvider, useWorkspace, type WorkspaceDeps } from "./WorkspaceContext";
 import type { WorkspaceState } from "./model/workspace-store";
 
 let sentGet = 0;
+let sendGetOk = true;
 let sentOpen: string[] = [];
 let connected = false;
 let sendOpenOk = true;
@@ -31,7 +32,7 @@ function makeDeps(): WorkspaceDeps {
     connected,
     sendGet: () => {
       sentGet += 1;
-      return true;
+      return sendGetOk;
     },
     sendOpen: (root: string) => {
       sentOpen.push(root);
@@ -92,6 +93,7 @@ function feed(e: EventEnvelope) {
 
 beforeEach(() => {
   sentGet = 0;
+  sendGetOk = true;
   sentOpen = [];
   connected = false;
   sendOpenOk = true;
@@ -110,6 +112,49 @@ describe("WorkspaceProvider · 门禁读面（连接就绪 → get → 分流）
     expect(probe!.state.phase).toBe("connecting");
     setConnected(true);
     expect(sentGet).toBe(1);
+  });
+
+  it("get 发送失败（send=false）→ 一次退避重试；仍失败停在 connecting（不谎报就绪）", () => {
+    vi.useFakeTimers();
+    try {
+      sendGetOk = false;
+      connected = true;
+      mount();
+      expect(sentGet).toBe(1);
+      expect(probe!.state.phase).toBe("connecting");
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(sentGet).toBe(2); // 一次重试
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(sentGet).toBe(2); // 不无限重试（防自激）
+      expect(probe!.state.phase).toBe("connecting");
+      // 重试成功后回执照常分流（此处只钉发送次数——回执面既有用例覆盖）
+      sendGetOk = true;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("openWorkspace 返回值 undefined（mock/未接线）→ 不误判失败（=== false 严格判）", () => {
+    connected = true;
+    mount();
+    feed(frame("workspace.get.result", { current: null, recents: [] }));
+    const undefDeps = { ...makeDeps(), sendOpen: () => undefined as unknown as boolean };
+    act(() => {
+      view!.rerender(
+        <WorkspaceProvider deps={undefDeps}>
+          <Probe />
+        </WorkspaceProvider>,
+      );
+    });
+    act(() => {
+      probe!.openWorkspace("/ws/helix");
+    });
+    expect(probe!.state.opening).toBe(true); // 仍在途（未误判 send-failed）
+    expect(probe!.state.openError).toBeNull();
   });
 
   it("重连（connected → false → true）重发 get（webStatus 先例）", () => {

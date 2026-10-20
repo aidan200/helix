@@ -122,6 +122,10 @@ export interface InstanceCardState {
   terminated?: boolean;
   /** agent.stalled 最近一次 idle 毫秒（非状态迁移；仅 running 态有意义） */
   stalledMs?: number;
+  /** 挂起标记（park/resume 批）：parked 非终态（进程驻留、上下文原封、不干活）
+   *  ——事件路与快照路同源落此位；「运行态徽标/计时」以此位排除（挂起 ≠ 执行中），
+   *  专用卡片形态（挂起徽标/文案）归后续波次。 */
+  parked?: boolean;
   /** running 态 streaming 摘要尾窗（该实例 assistant delta 的尾段，滚动截断） */
   streamSummary: string;
   /**

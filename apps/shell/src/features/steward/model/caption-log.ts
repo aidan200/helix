@@ -29,19 +29,27 @@ export const CAPTION_TTL_MS = 6_000;
 /** TTL 驱逐 tick 粒度（ms；呈现层 interval——驱逐时刻误差 ≤ 一拍）。 */
 export const CAPTION_EVICT_TICK_MS = 500;
 
-let lineSeq = 0;
+/** 下一个行 id = 现有最大 id + 1（**无模块级可变计数**——本文件是纯函数面：
+ *  旧实现用模块级 lineSeq，跨调用共享状态让「同输入同输出」不成立（测试
+ *  顺序依赖），也违背文件头「纯函数可测」宣称）。 */
+function nextLineId(lines: readonly CaptionLine[]): number {
+  let max = 0;
+  for (const l of lines) if (l.id > max) max = l.id;
+  return max + 1;
+}
 
-/** 行入栈：追加保最新在下，超上限截头；at 记入栈时刻（可注入——纯函数可测）。 */
+/** 行入栈：追加保最新在下，超上限截头；at 记入栈时刻（可注入——纯函数可测）。
+ *  空文本零入栈且**返回原引用**（上层 setState 恒等短路零重渲——与 captionEvict
+ *  的原引用短路约定一致；旧实现在此处 new 一个同内容数组，白丢短路机会）。 */
 export function captionPush(
   lines: readonly CaptionLine[],
   kind: CaptionLine["kind"],
   text: string,
   max: number = CAPTION_MAX_LINES,
   at: number = Date.now(),
-): CaptionLine[] {
-  if (text === "") return [...lines];
-  lineSeq += 1;
-  const next = [...lines, { id: lineSeq, kind, text, at }];
+): readonly CaptionLine[] {
+  if (text === "") return lines;
+  const next = [...lines, { id: nextLineId(lines), kind, text, at }];
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
@@ -54,10 +62,10 @@ export function captionUpdateTail(
   text: string,
   max: number = CAPTION_MAX_LINES,
   at: number = Date.now(),
-): CaptionLine[] {
+): readonly CaptionLine[] {
   const tail = lines[lines.length - 1];
   if (tail !== undefined && tail.kind === kind) {
-    if (text === "") return [...lines];
+    if (text === "") return lines; // 空文本零更新 + 原引用短路（同 captionPush）
     return [...lines.slice(0, -1), { ...tail, text, at }];
   }
   return captionPush(lines, kind, text, max, at);
