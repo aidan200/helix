@@ -69,7 +69,9 @@ export interface NormalizedCreateError {
  * task.type_unknown 原码透传；其余 string code 透传原码；无 code → task.internal。
  */
 export function normalizeCreateTaskError(err: unknown): NormalizedCreateError {
-  const code = (err as { code?: unknown }).code;
+  // null/undefined 抛出物不得在这里二次抛（评审 low #26）：catch 内归一器再炸
+  // 会穿透 createTaskWithSlot 并跳过 finally 的槽释放。非对象一律无 code。
+  const code = typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
   const message = err instanceof Error ? err.message : String(err);
   if (code === "task.validation_failed" || code === "task.type_unknown") return { code, message };
   return { code: typeof code === "string" && code !== "" ? code : "task.internal", message };
