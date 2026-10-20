@@ -56,6 +56,19 @@ import type { JobStatus, StageStatus } from "../../../domain/task/types";
  * AG-06 白名单成员）；任务四表 DML 与全部任务域级联仍宿主本文件。
  */
 
+/** taskJobCascade 的零值计数（写失败/关闭窗路线返回值；形状与 TaskDeleteCounts 全等）。 */
+const EMPTY_TASK_DELETE_COUNTS: TaskDeleteCounts = {
+  jobs: 0,
+  stages: 0,
+  batches: 0,
+  events: 0,
+  lifecycleRows: 0,
+  closures: 0,
+  steerRows: 0,
+  toolCallRows: 0,
+  pendingSyncs: 0,
+};
+
 export class WriteQueue {
   private readonly db: Database;
   private readonly onError?: (error: unknown, job: WriteJob) => void;
@@ -448,24 +461,36 @@ export class WriteQueue {
     }
   }
 
+  /**
+   * 零值路线（关闭窗 / 单 job 写失败）的返回值：按 job 契约给**形状完整**的
+   * 零值，而不是一律 undefined——有字段返回面的调用方（taskJobCascade →
+   * TaskDeleteCounts）解构读字段必须拿得到对象。新增有返回值的 job 分支时
+   * 在此登记零值（否则该分支在失败窗仍会给出 undefined）。
+   */
+  private zeroValueOf<T>(job: WriteJob): T {
+    if (job.kind === "taskJobCascade") return EMPTY_TASK_DELETE_COUNTS as unknown as T;
+    return undefined as unknown as T;
+  }
+
   private enqueue<T = void>(job: WriteJob): Promise<T> {
     if (this.closed) {
       // 关闭后到达的 job = daemon 收尾窗口的迟到写（closure 链收尾等异步尾段），
-      // 属可预期竞态形态：onError 上报可判别事实，返回零值（undefined）不 reject
-      // ——reject 会打破两类合法消费面（await 消费面 SqliteSessionRepository.save/
+      // 属可预期竞态形态：onError 上报可判别事实，返回**零值**不 reject——reject
+      // 会打破两类合法消费面（await 消费面 SqliteSessionRepository.save/
       // ChatService.sendMessage 同步上抛；fire-and-forget 面 wireEventFanout 变
-      // unhandled rejection，closure-chain 实测回归）。消费返回字段的调用方
-      // （deleteTaskJobCascade → TaskDeleteCounts）在此窗口读字段得 TypeError，
-      // 属零值路线的已接受代价（竞态窗口根子上是进程退出，非写路径可兕底）。
+      // unhandled rejection，closure-chain 实测回归）。零值按 job 契约取（见
+      // zeroValueOf）：有字段返回面（taskJobCascade → TaskDeleteCounts）返全零
+      // 计数对象而非 undefined——旧实现只给 undefined，调用方解构读字段即
+      // TypeError（低危批：关闭窗与写失败路径同源修复）。
       this.onError?.(new Error("WriteQueue 已关闭，job 被丢弃"), job);
-      return Promise.resolve() as unknown as Promise<T>;
+      return Promise.resolve(this.zeroValueOf(job)) as unknown as Promise<T>;
     }
     const key = this.chainKeyOf(job);
     this.enqueueCount += 1;
     const prev = key === undefined ? this.globalTail : (this.sessionTails.get(key) ?? Promise.resolve());
     const done = prev.then((): T => this.apply(job) as T).catch((error: unknown): T => {
       this.onError?.(error, job); // 上报但不断链：单 job 失败不阻断后续落盘
-      return undefined as unknown as T;
+      return this.zeroValueOf(job);
     });
     if (key === undefined) this.globalTail = done;
     else this.sessionTails.set(key, done);
