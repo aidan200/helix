@@ -189,12 +189,15 @@ export function handleConfigGetSandbox(ctx: WsCommandContext): void {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（sandboxConfig）");
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  // 单次取值（低危批）：读面按调用时刻现拍，分三次 current() 在非原子读面下
+  // 三字段可能来自不同快照（回执自相矛盾）。
+  const current = ctx.sandboxConfig.current();
   const frame: ConfigGetSandboxResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
     channel: "model",
     type: "config.get_sandbox.result",
-    payload: { enabled: ctx.sandboxConfig.current().enabled, extraRoots: ctx.sandboxConfig.current().extraRoots, autoApprove: ctx.sandboxConfig.current().autoApprove },
+    payload: { enabled: current.enabled, extraRoots: current.extraRoots, autoApprove: current.autoApprove },
   };
   ctx.sendNow(sender, frame);
 }
