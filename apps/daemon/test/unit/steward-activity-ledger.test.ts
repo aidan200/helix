@@ -88,6 +88,18 @@ describe("活动账①条目化：六类 ring 条目 → {at,domain,attribution,
     const bare = ringEntryToActivity(ringEntry({ kind: "task.terminal", sessionId: "task:j", jobId: "j", text: "任务 j 终态：failed" }), notCli);
     expect(bare.text).toContain("后台任务");
     expect(bare.text).toContain("失败了");
+    // 终态判据 = status 机械字段：jobId 带 cancel 子串而终态 done 不得误译为「被停掉了」
+    const tricky = ringEntryToActivity(
+      ringEntry({ kind: "task.terminal", sessionId: "task:job-cancel-batch", jobId: "job-cancel-batch", status: "done", text: "任务 job-cancel-batch 终态：done" }),
+      notCli,
+    );
+    expect(tricky.text).toContain("完成了");
+    expect(tricky.text).not.toContain("被停掉了");
+    const cancelled = ringEntryToActivity(
+      ringEntry({ kind: "task.terminal", sessionId: "task:job-fail-fast", jobId: "job-fail-fast", status: "cancelled", text: "任务 job-fail-fast 终态：cancelled" }),
+      notCli,
+    );
+    expect(cancelled.text).toContain("被停掉了");
   });
 
   test("分诊摄入（管家自产动作）：domain=task / attribution=steward——CAND-607 selfRef 并入解决", () => {

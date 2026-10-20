@@ -65,10 +65,15 @@ function plainSentence(prefix: string, body: string | undefined, maxChars: numbe
   return plain === "" ? prefix : `${prefix}：${plain}`;
 }
 
-/** 任务终态白话尾词（status → 白话——与 onJobTerminal 机械短讯同词单源口径）。 */
-function taskTerminalVerb(statusLike: string): string {
-  if (statusLike.includes("fail")) return "失败了";
-  if (statusLike.includes("cancel")) return "被停掉了";
+/** 任务终态白话尾词（status → 白话——与 onJobTerminal 机械短讯同词单源口径）。
+ *  判据 = ring 条目 status 机械字段（生产写入点 onJobTerminal 必带）；仅当
+ *  status 缺席（旧形态条目/测试替身）才回落 text 尾词解析。禁再从整串 text
+ *  猜终态——jobId 带 fail/cancel 子串（如 job-cancel-batch）会被误译（评审
+ *  low #10）。 */
+function taskTerminalVerb(status: string | undefined, text: string): string {
+  const key = status ?? text.slice(text.lastIndexOf("：") + 1).trim();
+  if (key === "failed") return "失败了";
+  if (key === "cancelled" || key === "canceled") return "被停掉了";
   return "完成了";
 }
 
@@ -123,7 +128,7 @@ export function ringEntryToActivity(
     case "task.terminal": {
       domain = "task";
       attribution = "system";
-      const verb = taskTerminalVerb(entry.text);
+      const verb = taskTerminalVerb(entry.status, entry.text);
       const title = entry.title !== undefined && entry.title.trim() !== "" ? plainTalkOf(entry.title, 24) : "";
       text = title === "" ? `后台任务${verb}` : `「${title}」${verb}`;
       break;

@@ -138,6 +138,9 @@ export interface PerceptionRingEntry {
   /** 任务标题（任务终态机械字段——M3-d1 additive：活动账白话行文用，
    *  白话铁律禁 id 入句）。 */
   readonly title?: string;
+  /** 任务终态原词（done/failed/cancelled——additive：活动账白话尾词判据，
+   *  避免从 text 拼接串猜终态）。 */
+  readonly status?: string;
   /** 表面事件来源（E-251 三原语 origin 三值——M3-d1 additive：活动账
    *  attribution 归一用；缺席 = user（M0 shell 页面事件恒 user））。 */
   readonly origin?: "user" | "steward" | "system";
@@ -392,6 +395,8 @@ export class StewardPerceptionService {
       jobId,
       // 任务标题（M3-d1）：活动账白话行文用——白话铁律禁 jobId 入句
       ...(title !== undefined && title.trim() !== "" ? { title: title.trim().slice(0, 80) } : {}),
+      // 终态原词（活动账白话尾词判据单源——不从 text 猜）
+      status,
       text: `任务 ${jobId} 终态：${status}`,
     });
     // 机械短讯（白话硬约束）：任务状态是机械事实——零 LLM 零判官零分诊，
