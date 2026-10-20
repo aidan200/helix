@@ -20,6 +20,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
 import type { EventEnvelope } from "@helix/protocol";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 import {
   createInitialWorkspaceState,
   workspaceReducer,
@@ -114,7 +115,7 @@ export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; chi
             // 本身（或旧 daemon 无尾缀容忍）才收口 opening；opening 窗口内其它
             // 命令（含后台自动命令）的错误不误判为 open 失败
             const message = e.payload.message ?? "connection.error";
-            const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+            const cmd = commandOfConnectionError(message);
             if (stateRef.current.opening && (cmd === undefined || cmd === "workspace.open")) {
               dispatch({
                 type: "open-failed",

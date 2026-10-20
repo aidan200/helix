@@ -42,6 +42,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { useArmedConfirm } from "./settings-hooks";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 /** list.result 合并行形态（协议 McpServersListResultPayload.servers 项）。 */
 interface McpServerRow {
@@ -182,7 +183,7 @@ const McpSettingsSection = function McpSettingsSection() {
           // 按在途 kind 收口——原只清 addPending，testing 永挂/remove 静默失败
           const p = (frame as { payload?: { message?: string } }).payload;
           const message = p?.message ?? "connection.error";
-          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          const cmd = commandOfConnectionError(message);
           if (cmd !== undefined && !cmd.startsWith("mcp.servers.")) return; // 非本族不消费
           if (savePendingRef.current) {
             markSavePending(false);

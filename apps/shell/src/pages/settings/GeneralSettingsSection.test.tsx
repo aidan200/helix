@@ -895,6 +895,32 @@ describe("长期记忆组（设置页 memory.* 六键：开关 + 端点 + 判官
     expect(sendStewardSetConfig).toHaveBeenCalledWith({ memory: { judgeEndpointId: "ep-10" } });
   });
 
+  it("判官下拉现值兑底：引用态端点不在已配分类清单时仍显示真值（不静默落 placeholder）", () => {
+    const { container } = ui();
+    // 引用态指向 ep-88（他处已删/未同步），清单里只有 ep-9
+    feedStewardConfig(true, {
+      ...MEMORY_ON,
+      judgeEndpoint: { id: "ep-88", name: "已下架判官", model: "jev-old", hasApiKey: true },
+    });
+    feedEmbeddingList([{ id: "ep-9", name: "Jev", model: "jev-latest", kind: "classifier", hasApiKey: true }], "ep-9");
+    const select = container.querySelector<HTMLSelectElement>("[data-memory-judge-select]")!;
+    expect(select.value).toBe("ep-88"); // 不说谎：显示已配真值
+    expect(select.selectedOptions[0]!.textContent).toBe("已下架判官 (jev-old)");
+  });
+
+  it("清单未到前不误判「无默认端点」：开关不禁 + 无引导条；回执无默认后才置灰引引导", () => {
+    const { container } = ui();
+    feedStewardConfig(true, { ...MEMORY_ON, enabled: false, available: false });
+    // embedding.list.result 尚未到达：不能把「未拉取」当「确实无默认」
+    const on = container.querySelector<HTMLButtonElement>('[data-memory-option="on"]')!;
+    expect(on.disabled).toBe(false);
+    expect(container.querySelector("[data-memory-no-default]")).toBeNull();
+    // 回执确实无默认 → 判据成立
+    feedEmbeddingList([], null);
+    expect(container.querySelector<HTMLButtonElement>('[data-memory-option="on"]')!.disabled).toBe(true);
+    expect(container.querySelector("[data-memory-no-default]")).not.toBeNull();
+  });
+
   it("召回量现值回填：回执 recallTopK/recallPool 生效值 → 两输入框；旧 daemon 缺席（additive）→ 缺省 5/24 兑底", () => {
     const { container } = ui();
     feedStewardConfig(true, MEMORY_ON);

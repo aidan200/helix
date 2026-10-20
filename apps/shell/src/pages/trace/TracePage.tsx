@@ -47,6 +47,7 @@ import TraceSidebar from "./ui/TraceSidebar";
 import ContextCard from "./ui/P-1-context-card";
 import EventTable from "./ui/P-1-event-table";
 import { ConnOverlay, EmptyPane, ErrorPane, TableSkeleton } from "./ui/P-1-state-panes";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 const TracePage = function TracePage({ path }: { path: string }) {
   const { t } = useI18n();
@@ -120,7 +121,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
           const message = p?.message ?? "connection.error";
           // 尾缀 = fullwidth parens + 「命令」二字 + type（字面 CJK 经 unicode
           // 转义书写——AG-16 组件源码零硬编码 CJK 纪律覆盖正则字面）
-          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          const cmd = commandOfConnectionError(message);
           if (cmd !== undefined && cmd !== "trace.query") return;
           // 在途查询失败：FIFO 出队最老在途代归因（回执按请求序到达），
           // reducer 只清当前代——旧查询的错误回执不清新查询 pending 不落 error

@@ -34,6 +34,7 @@ import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useArmedConfirm } from "@/shared/lib/useArmedConfirm";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 /** kind 下拉枚举（对齐 daemon 存储面既有 kind 值）。 */
 const KIND_OPTIONS = ["fact", "preference"] as const;
@@ -174,7 +175,7 @@ const StewardMemoryPage = function StewardMemoryPage({ path }: { path: string })
           // 清向量化在途位 + 行内交代（否则该行整行占位、不可编辑删除、失败静默）
           const message =
             (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
-          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          const cmd = commandOfConnectionError(message);
           if (cmd !== undefined && !cmd.startsWith("steward.memory_")) return; // 非本族不消费
           if (cmd === "steward.memory_list") return; // 读面失败归拉取（骨架）侧
           if (cmd === undefined && vectorizingRef.current === null) return; // 无尾缀旧 daemon：有在途写才按本面收口

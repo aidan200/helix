@@ -62,6 +62,7 @@ import {
 } from "./model/agent-config-model";
 import ProfileCard, { agentTitleOf } from "./ui/ProfileCard";
 import StewardCard from "./ui/StewardCard";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 /** 写面载荷（resourceType 收窄于协议五值，页面只发这五类）。 */
 type WriteResource = AgentWriteResource;
@@ -251,7 +252,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           const w = lastWriteRef.current;
           if (w !== null) {
             const msg = (e as { payload?: { message?: string } }).payload?.message ?? "connection.error";
-            const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(msg)?.[1];
+            const cmd = commandOfConnectionError(msg);
             if (cmd !== undefined && cmd !== "agent.config.set_enabled") return; // 他命令错误帧不消费
             lastWriteRef.current = null;
             dispatch({ type: "toggle-settled", ...w });

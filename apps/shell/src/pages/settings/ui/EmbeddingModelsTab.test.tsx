@@ -155,10 +155,20 @@ describe("向量模型 tab（B2-③）", () => {
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-verify=ep-2]")!);
     act(() => feedVerify("ep-2", { state: "ok", kind: "classifier", prob: 0.87 }));
     expect(container.querySelector('[data-emb-row="ep-2"] [data-emb-conn=ok]')!.textContent).toContain("87");
-    // fail 判别：err toast 交代 + fail 徽标
+    // fail 判别：err toast 交代 + fail 徽标（文案无空尾——旧实现传 reason:"" 渲染「验证失败 · 」）
     fireEvent.click(container.querySelector<HTMLButtonElement>("[data-emb-verify=ep-2]")!);
     act(() => feedVerify("ep-2", { state: "fail", error: "端点不可达" }));
-    expect(container.querySelector("[data-emb-conn=fail]")!).not.toBeNull();
+    const failBadge = container.querySelector("[data-emb-conn=fail]")!;
+    expect(failBadge.textContent).toBe("验证失败");
+    expect(failBadge.getAttribute("title")).toBe("端点不可达"); // 原因在 title（不双重展示）
+  });
+
+  it("verifiedAt 持久态徽标：刚刚档显示「刚刚」（不复用目录刷新文案带 0 providers）", () => {
+    const { container } = ui();
+    act(() => feedList([{ ...ENDPOINTS[1]!, id: "ep-now", verifiedAt: Date.now() }] as typeof ENDPOINTS));
+    const badge = container.querySelector("[data-emb-conn=verified]")!;
+    expect(badge.textContent).toBe("刚刚");
+    expect(badge.textContent).not.toContain("providers");
   });
 
   it("收窄（分类拆 tab）：仅渲染 embedding 端点——classifier 端点（ep-3）不出现在本 tab", () => {

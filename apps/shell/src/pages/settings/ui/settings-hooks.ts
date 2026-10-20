@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventEnvelope } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 
 /** config 族输入卡控制器（输入文本组 + 保存反馈 + 在途失败交代）。 */
 export interface ConfigFieldController {
@@ -90,7 +91,7 @@ export function useConfigField<T>(
         if (!pendingRef.current) return; // 单飞门控：非本卡在途不消费
         const message =
           (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
-        const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+        const cmd = commandOfConnectionError(message);
         if (cmd !== undefined && cmd !== command) return; // 族B 尾缀归因：他命令不归本卡
         pendingRef.current = false;
         setSaved(false);
@@ -174,7 +175,7 @@ export function useDefaultEndpointSetter(): DefaultEndpointSetter {
         if (pendingRef.current === null) return; // 单飞门控：本 tab 无在途不消费
         const message =
           (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
-        const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+        const cmd = commandOfConnectionError(message);
         // 尾缀归因（族B）：他命令拒绝不归本卡；无尾缀旧 daemon 容忍也交代
         if (cmd !== undefined && cmd !== ENDPOINT_SET_DEFAULT_COMMAND) return;
         pendingRef.current = null;
