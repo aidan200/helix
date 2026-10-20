@@ -79,3 +79,55 @@ describe("H8：readStdout 行回调异常隔离", () => {
     expect(received).toEqual([text]); // 无 U+FFFD、行未被丢弃
   });
 });
+
+// ── stdin 写失败承接（低危批） ──
+
+describe("stdin 写失败承接", () => {
+  /** stdin 同步抛错的假 proc（管道已关形态）。 */
+  function procWithThrowingStdin(writes: string[]): unknown {
+    return {
+      pid: 4243,
+      exited: new Promise<number>(() => undefined),
+      stdin: {
+        write: (s: string) => {
+          writes.push(s);
+          throw new Error("EPIPE: broken pipe");
+        },
+      },
+      stdout: (async function* () {
+        /* 空流 */
+      })(),
+    };
+  }
+
+  test("stdin.write 同步抛 → 不冒泡（写面尽力语义），且坏管道不再重复试探", () => {
+    const writes: string[] = [];
+    const transport = new ChildProcessTransport(procWithThrowingStdin(writes) as never);
+    expect(() => transport.send("第一次")).not.toThrow();
+    expect(() => transport.send("第二次")).not.toThrow(); // 已置坏：短路，不再写
+    expect(writes).toEqual([expect.stringContaining("第一次")]);
+  });
+
+  test("stdin 挂 on 面 → error 事件置坏后不再写（EPIPE 异步形态）", () => {
+    const writes: string[] = [];
+    let onError: ((e: unknown) => void) | undefined;
+    const proc = {
+      pid: 4244,
+      exited: new Promise<number>(() => undefined),
+      stdin: {
+        write: (s: string) => writes.push(s),
+        on: (event: string, cb: (e: unknown) => void) => {
+          if (event === "error") onError = cb;
+        },
+      },
+      stdout: (async function* () {
+        /* 空流 */
+      })(),
+    };
+    const transport = new ChildProcessTransport(proc as never);
+    transport.send("之前");
+    onError?.(new Error("EPIPE"));
+    transport.send("之后");
+    expect(writes.length).toBe(1);
+  });
+});
