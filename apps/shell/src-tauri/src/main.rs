@@ -376,10 +376,15 @@ fn exe_parent_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
 }
 
-/// sidecar 二进制名精确判定（W3 #2.38）：裸名（dev 形态 bun 产物）或
-/// triple 后缀变体（bundle 形态，如 helix-daemon-aarch64-apple-darwin）——
-/// 排除 helix-daemon.bak / 双 triple 残留等带点后缀备份，防 read_dir 无序
-/// 首中即返选中错误二进制。
+/// sidecar 二进制名精确判定（W3 #2.38）：
+/// - **bundle 形态 = 裸名**——tauri 打包时 externalBin 去掉 target triple
+///   （实测产物 `<app>/Contents/MacOS/helix-daemon` 裸名；win 侧裸名带 `.exe`，
+///   命中 `Some(".exe")` 分支）；
+/// - **binaries/ 下的 triple 后缀**（如 `helix-daemon-aarch64-apple-darwin`）
+///   是编译产物/本地产物（externalBin 源位，不进包）；
+/// - dev 形态不走本判定（分由 `HELIX_SIDECAR_PATH` env 直指 bun 直跑入口）。
+/// 排除 `helix-daemon.bak` 等带点后缀备份，防 read_dir 无序首中即返选中错误
+/// 二进制（后缀一律不得含点）。
 fn is_sidecar_binary_name(name: &str) -> bool {
     match name.strip_prefix(SIDECAR_BIN_PREFIX) {
         Some("") | Some(".exe") => true,
@@ -520,5 +525,46 @@ mod tests {
         assert_eq!(percent_encode("a b&c"), "a%20b%26c");
         // 非 ASCII 按 UTF-8 字节逐字节编码
         assert_eq!(percent_encode("错"), "%E9%94%99");
+    }
+
+    // ── 评审 F5 #4：sidecar 名判定注释与打包现实对齐（源码定式断言）──
+    // 注释曾把 triple 后缀标为 bundle 形态、裸名标为 dev 形态；实测 tauri
+    // 打包去 triple（helix.app/Contents/MacOS/helix-daemon 裸名；win 侧裸名
+    // 带 .exe 后缀），triple 后缀只存在于 binaries/ 编译产物。
+    #[test]
+    fn sidecar_name_comment_matches_bundle_reality() {
+        let src = include_str!("main.rs");
+        assert!(
+            src.contains("bundle 形态 = 裸名"),
+            "注释须记 bundle 形态 = 裸名（tauri 打包去 triple）"
+        );
+        assert!(
+            src.contains("binaries/ 下的 triple 后缀"),
+            "注释须记 triple 后缀属 binaries/ 编译产物（不进包）"
+        );
+        // 反向口径断言：待禁字符串自身不得完整出现在源码里（注释 + 本断言），
+        // 分片拼接避免 include_str! 自指误判。
+        let stale = concat!("裸名（dev 形态", " bun 产物）");
+        assert!(
+            !src.contains(stale),
+            "不得回潮「裸名 = dev 形态」的反向口径"
+        );
+    }
+
+    // 行为面回归钉（判定逻辑本身正确，评审只指出注释失实）：
+    // 裸名 / .exe / 单 triple 后缀接受；带点后缀备份拒绝。
+    #[test]
+    fn sidecar_binary_name_matrix() {
+        assert!(is_sidecar_binary_name("helix-daemon"));
+        assert!(is_sidecar_binary_name("helix-daemon.exe"));
+        assert!(is_sidecar_binary_name("helix-daemon-aarch64-apple-darwin"));
+        assert!(is_sidecar_binary_name("helix-daemon-x86_64-pc-windows-msvc"));
+        assert!(!is_sidecar_binary_name("helix-daemon.bak"));
+        assert!(!is_sidecar_binary_name("helix-daemon-aarch64-apple-darwin.bak"));
+        assert!(!is_sidecar_binary_name("helix-shell"));
+        // 判定面是「前缀 + 连字符 + 无点后缀」：双 triple 拼接名（无点）现行
+        // 仍被接受——属 read_dir 无序首中风险的已知边界（评审 F5 #4 只裁注释，
+        // 不改判定面；若后续收紧按 dot 规则外的形状校验）
+        assert!(is_sidecar_binary_name("helix-daemon-x86_64-apple-darwin-aarch64-apple-darwin"));
     }
 }
