@@ -398,6 +398,63 @@ describe("MessageFlow 滚动语义（H-2 热修）", () => {
     // 误判前插时补偿 = 800-1000+970 = 770；正确行为 = 吸附贴底 800
     expect(flowEl().scrollTop).toBe(800);
   });
+
+  // ── 高度增长跟随（依赖面）：吸附态下「长度不变、身份变」的内容增长也必须贴底
+  //（旧依赖集只有 instances.length，态转换/用量串到账两类增长不跟随，要等下次
+  // 依赖触发才拉回——TR-194 已述残余形态）──
+  const instCard = (state: SessionState["instances"][number]["state"]): SessionState["instances"][number] => ({
+    instanceId: "a1",
+    task: "task-a1",
+    profileKind: "subagent-worker",
+    state,
+    streamSummary: "",
+    anchorEntryId: "m1",
+  });
+
+  it("SubAgent 卡片态转换（queued→running，数组长度不变）→ 吸附态贴底跟随高度", () => {
+    stateRef.current = {
+      ...stateWith("sA", ["m1"]),
+      instances: [instCard("queued")],
+    };
+    const { rerender } = renderFlow();
+    setScrollHeight(1000);
+    stateRef.current = {
+      ...stateWith("sA", ["m1"]),
+      instances: [instCard("running")],
+    };
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    // 态转换长出新行：高度 1000→1200，吸附态必须同 commit 贴底
+    setScrollHeight(1200);
+    stateRef.current = {
+      ...stateWith("sA", ["m1"]),
+      instances: [instCard("done")],
+    };
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(1200);
+  });
+
+  it("轮末用量串到账（turnUsage 身份变、entries 长度不变）→ 吸附态贴底跟随", () => {
+    const usage = {
+      input: 10,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      reasoning: 0,
+      totalTokens: 15,
+      cost: 0.001,
+    };
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    const { rerender } = renderFlow();
+    setScrollHeight(900);
+    stateRef.current = { ...stateWith("sA", ["m1", "m2"]), turnUsage: { t1: usage } };
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    // 用量串到账使 assistant meta 行多出一行高度：其余依赖（entries 长度/
+    // 流式文本）都不变，只有 turnUsage 身份变——不跟随则停在 900
+    setScrollHeight(950);
+    stateRef.current = { ...stateWith("sA", ["m1", "m2"]), turnUsage: { t1: usage } };
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(950);
+  });
 });
 
 // ── 回底驻留吸附（1s dwell）：上滚脱附 / 回底驻留视觉 / 期满吸附 / 驻留取消 ──

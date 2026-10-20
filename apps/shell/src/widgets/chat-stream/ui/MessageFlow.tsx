@@ -235,9 +235,10 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
     state.view, // H-2：快照到达（loading→ready）必入——entries 等长切换不失聪
     state.entries.length,
     state.streaming?.text,
-    state.instances.length,
+    state.instances, // 卡片高度增长（queued→running/终态换行、流式摘要）——仅 length 不能捕获态转换
     state.mainInstanceId, // T10c：主实例 id 习得（快照）变化时重采基线（thinking 槽位键随之切换）
     state.thinkingStreams[state.mainInstanceId],
+    state.turnUsage, // 轮末用量串到账使 assistant meta 行长出一行高度
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
     state.pendingAsk !== null, // permission_request 批：申请卡出入视口同样贴底
   ]);

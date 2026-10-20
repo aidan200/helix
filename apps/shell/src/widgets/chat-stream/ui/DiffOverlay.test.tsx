@@ -44,7 +44,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   };
 });
 
-import DiffOverlay from "./DiffOverlay";
+import DiffOverlay, { diffLineClass } from "./DiffOverlay";
 
 afterEach(() => {
   cleanup();
@@ -173,6 +173,19 @@ describe("DiffOverlay 文件行与 diff 渲染", () => {
     // 点击第二个文件 → 切换到 added 文件的 diff（+entire/+file）
     fireEvent.click(container.querySelectorAll(".diff-file")[1]!);
     expect(container.querySelector(".diff-view")!.textContent).toContain("entire");
+  });
+
+  it("文件头 ---/+++ 行中性着色（dl-file）：不误染增删色（与 daemon 统计口径同跳）", () => {
+    stateRef.current = createInitialSessionState();
+    const { container } = ui();
+    act(() => frameSink!(resultFrame()));
+    // 渲染层判定纯函数：文件头优先于 +/- 前缀
+    expect(diffLineClass("--- a/src/x.ts")).toBe("dl-file");
+    expect(diffLineClass("+++ b/src/x.ts")).toBe("dl-file");
+    expect(diffLineClass("+new")).toBe("dl-add");
+    expect(diffLineClass("-old")).toBe("dl-del");
+    expect(diffLineClass("@@ -1,2 +1,3 @@")).toBe("dl-hunk");
+    expect(diffLineClass(" ctx")).toBe("dl-ctx");
   });
 });
 

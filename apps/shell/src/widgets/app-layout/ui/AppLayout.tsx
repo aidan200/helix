@@ -10,8 +10,8 @@
  * absolute 定位上下文职责，供浮层挂靠）。
  *
  * 纯展示纪律（TR-AD-8）：组件只负责布局，不感知槽内容语义、不读 store。
- * chat 页用法见 pages/chat/ui/P-1-workbench；trace/settings 等页由后续
- * 任务迁入。
+ * 消费面：chat（pages/chat/ui/P-1-workbench）+ trace/settings/tasks/project/
+ * agents/steward 两页均已迁入本壳（S1–S3b 迁移批完成）。
  */
 import type { ReactNode } from "react";
 
@@ -20,7 +20,8 @@ export interface AppLayoutProps {
   headerLeft?: ReactNode;
   /** 页面动作槽（chat：StatsBadge+模型徽章+连接状态；可为空） */
   headerRight?: ReactNode;
-  /** 可选左栏槽。本次仅 chat 使用；组件侧只负责布局，不感知内容语义 */
+  /** 可选左栏槽（chat 会话栏 / settings 分区导航 / tasks 与 trace 列表等；
+   *  组件侧只负责布局，不感知内容语义） */
   sidebar?: ReactNode;
   /** 主区内容（.layout-main 是唯一滚动容器） */
   children: ReactNode;

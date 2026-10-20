@@ -12,9 +12,11 @@
  *   wl-items 浮窗同纪律），max-height 40vh 内部滚动（台账行多时不吞抽屉）；
  * - 无分片（实例未建 plan / 旧 daemon）→ 整条隐藏（不占位不虚构 0/0——
  *   「无台账如实呈现」同规）。
- * 展开态为组件本地 UI 态（帧不驱动，关抽屉/切实例回收起——WorkLedgerBar
- * 同性质）。状态点配色四态与 wl-pi 同语言（done/in_progress/pending/
- * abandoned 灰显带理由 note）。
+ * 展开态为组件本地 UI 态（帧不驱动，WorkLedgerBar 同性质），且按
+ * instanceId 记忆（state 存「展开的实例 id」而非布尔）——切实例时判定
+ * 自然失配回落到收起态，不依赖组件重挂/父级 key（抽屉按实例复用同一
+ * 组件实例）；关抽屉卸载即清。状态点配色四态与 wl-pi 同语言
+ * （done/in_progress/pending/abandoned 灰显带理由 note）。
  */
 import { useState } from "react";
 import { useI18n } from "@/shared/i18n";
@@ -29,7 +31,9 @@ interface DrawerPlanBarProps {
 const DrawerPlanBar = function DrawerPlanBar({ instanceId }: DrawerPlanBarProps) {
   const { t } = useI18n();
   const { state } = useSession();
-  const [open, setOpen] = useState(false);
+  // 展开态按实例记忆：存「展开中的实例 id」——切换实例即失配自动收起
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const open = openFor === instanceId;
   const proj = state.instancePlans[instanceId];
   // 无台账分片 → 整条隐藏（实例未建 plan / 旧 daemon 无字段）
   if (proj === undefined) return null;
@@ -41,7 +45,7 @@ const DrawerPlanBar = function DrawerPlanBar({ instanceId }: DrawerPlanBarProps)
         className="dpb-summary"
         data-dpb-toggle
         title={open ? t("chat.planbar.open") : t("chat.planbar.closed")}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpenFor(open ? null : instanceId)}
       >
         <span className="dpb-ic" aria-hidden="true">
           ▦

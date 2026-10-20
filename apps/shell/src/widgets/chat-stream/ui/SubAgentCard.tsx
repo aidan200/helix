@@ -135,8 +135,10 @@ const SubAgentCard = memo(function SubAgentCard({ card, onOpenDrawer }: SubAgent
         <span className="sa-state">{stateSlot}</span>
       </div>
       {/* 流式摘要固定槽：滑窗 120 字悬在换行临界（行数 1↔2 横跳 = 卡片高度脉动 =
-          贴底抖动源），running 态文本包 .sa-stream-text（line-clamp:2 + min-height
-          锁 2 行——高度恒定）；终态摘要为静态定稿内容，不包不钳 */}
+          贴底抖动源），running 态文本包 .sa-stream-text（app.css：height 3.2em 恒 2 行
+          + overflow:hidden 纯盒模型锁槽——高度恒定）；终态摘要为静态定稿内容，不包不钳。
+          勿改 line-clamp 钳行数：新版 Chrome 已降级 -webkit-box，clamp 容器失效钳不住
+          （TR-194 实测踩中） */}
       <div className={cn("sa-sub", isRunning && "sa-stream")}>
         {isRunning ? (
           <div className="sa-stream-text">

@@ -69,14 +69,20 @@ const MessageBubble = memo(function MessageBubble({
   // 非单调回落；贴底逻辑（MessageFlow scrollTop=scrollHeight）把收缩传导
   // 为内容下弹、下个 delta 又上移 = 流式输出上下抖动（实测 -18px V 型
   // 轨迹，与用户输入无关）。锁 = streaming 态 bubble min-height 跟踪
-  // 历史最大高度，流式中只增不减；转正（streaming=false / 组件卸载换
-  // entry 气泡实例）自然解除，按真实高度渲染。
+  // 历史最大高度，流式中只增不减；转正（streaming 由 true 转 false）由本
+  // effect 显式清锁回真实高度——同实例转正不依赖卸载换实例（换 entry 实例
+  // 重建路径本无锁）。
   const bubbleRef = useRef<HTMLDivElement>(null);
   const streamMaxHRef = useRef(0);
   useLayoutEffect(() => {
-    if (!streaming) return;
     const el = bubbleRef.current;
     if (!el) return;
+    if (!streaming) {
+      // 转正解除：清锁（min-height 归零）与峰值基线复位，按真实高度渲染
+      streamMaxHRef.current = 0;
+      el.style.minHeight = "";
+      return;
+    }
     // jsdom 无布局（offsetHeight=0）：不落锁，交还真实高度（测试需 mock）
     const h = el.offsetHeight;
     if (h > streamMaxHRef.current) {
