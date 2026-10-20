@@ -193,6 +193,14 @@ describe("auth.json 端口（AD-2，契约 C §3）", () => {
     expect(store.apiKeysSnapshot()).toEqual({ anthropic: "sk-a", openai: "sk-o", google: "g-no-key" });
     await store.deleteKey("openai");
     expect(store.apiKeyOf("openai")).toBeUndefined();
+    // 未知 provider 删除 = 静默幂等且不重写整表（评审 low #35：无变更不落盘）
+    const authFile = createPaths(home).authPath();
+    const before = readFileSync(authFile, "utf8");
+    const mtimeBefore = statSync(authFile).mtimeMs;
+    await new Promise((r) => setTimeout(r, 10));
+    await store.deleteKey("no-such-provider");
+    expect(readFileSync(authFile, "utf8")).toBe(before);
+    expect(statSync(authFile).mtimeMs).toBe(mtimeBefore);
     // OAuth 条目 apiKeyOf 不视作 key（不泄漏 access token）
     await store.modify("oauth-prov", async () => ({ type: "oauth", refresh: "r", access: "a", expires: 1 }));
     expect(store.apiKeyOf("oauth-prov")).toBeUndefined();
