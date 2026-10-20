@@ -278,47 +278,15 @@ export {
   stewardActivityListCommand,
   stewardActivityClearCommand,
 } from "./commands/steward";
+export {
+  embeddingListCommand,
+  embeddingSetCommand,
+  embeddingDeleteCommand,
+  embeddingSetDefaultCommand,
+  embeddingVerifyCommand,
+} from "./commands/embedding";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-// ── embedding 配置域（管家记忆 B2）：端点 CRUD + 连通测试（向量模型 tab）──
-// 回执 = embedding.list.result（list/set/delete 共用）/ embedding.verify.result。
-
-/** embedding.list：端点清单读面（凭据卫生视图——行含 hasApiKey/verifiedAt）。 */
-export function embeddingListCommand(): EmbeddingListCommand {
-  return { v: PROTOCOL_VERSION, type: "embedding.list", payload: {} };
-}
-
-/** embedding.set：新增（id 缺省）/更新端点（apiKey 空串 = 清除；kind
- *  可选——缺省 embedding，classifier = 分类判官端点，更新缺省不动）。 */
-export function embeddingSetCommand(payload: {
-  id?: string;
-  name: string;
-  baseUrl?: string;
-  apiKey?: string;
-  model: string;
-  kind?: "embedding" | "classifier";
-  variant?: string;
-}): EmbeddingSetCommand {
-  return { v: PROTOCOL_VERSION, type: "embedding.set", payload };
-}
-
-/** embedding.delete：删除端点（回执新清单）。 */
-export function embeddingDeleteCommand(id: string): EmbeddingDeleteCommand {
-  return { v: PROTOCOL_VERSION, type: "embedding.delete", payload: { id } };
-}
-
-/** embedding.set_default：设置全局默认端点（批1 向量默认；D1 泛化 kind 维度
- *  ——kind 缺省 = embedding，"classifier" = 默认分类端点；单选语义，
- *  校验三拒（不存在/kind 不吻合/未 verify）在 daemon，回执新清单）。 */
-export function embeddingSetDefaultCommand(id: string, kind?: "embedding" | "classifier"): EmbeddingSetDefaultCommand {
-  return { v: PROTOCOL_VERSION, type: "embedding.set_default", payload: { id, ...(kind !== undefined ? { kind } : {}) } };
-}
-
-/** embedding.verify：连通测试（回执 embedding.verify.result 两判别，id 回携）。 */
-export function embeddingVerifyCommand(id: string): EmbeddingVerifyCommand {
-  return { v: PROTOCOL_VERSION, type: "embedding.verify", payload: { id } };
-}
 
 // ── provider 族命令（三方平台批：自定义 OpenAI 兼容平台 CRUD；全局命令）
 // 回执 = provider.list.result 点对点（list/set/delete 三命令共用——写后
