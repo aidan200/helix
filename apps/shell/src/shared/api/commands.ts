@@ -214,96 +214,24 @@ export {
   modelSetThinkingDefaultCommand,
   modelSetDefaultCommand,
 } from "./commands/model";
+export {
+  configGetCompactionCommand,
+  configSetCompactionCommand,
+  configGetSchedulingCommand,
+  configSetSchedulingCommand,
+  configGetPortCommand,
+  configSetPortCommand,
+  configGetSandboxCommand,
+  configSetSandboxCommand,
+  configGetSummaryCommand,
+  configGetKgCommand,
+  configSetKgCommand,
+  configSetSummaryCommand,
+  configGetVoiceModelsCommand,
+  configSetVoiceModelsCommand,
+} from "./commands/config";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-/** config.get_compaction：压缩参数读面（全局命令）。 */
-export function configGetCompactionCommand(): ConfigGetCompactionCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_compaction", payload: {} };
-}
-
-/** config.set_compaction：压缩参数写面（全局命令；token 绝对值）。 */
-export function configSetCompactionCommand(reserveTokens: number, keepRecentTokens: number): ConfigSetCompactionCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_compaction", payload: { reserveTokens, keepRecentTokens } };
-}
-
-/** config.get_scheduling：SubAgent 调度预算读面（全局命令；config 瘦身批）。 */
-export function configGetSchedulingCommand(): ConfigGetSchedulingCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_scheduling", payload: {} };
-}
-
-/** config.set_scheduling：调度预算写面（全局命令；运行期可调）。 */
-export function configSetSchedulingCommand(maxConcurrent: number, maxQueued: number): ConfigSetSchedulingCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_scheduling", payload: { maxConcurrent, maxQueued } };
-}
-
-/** config.get_port：WS 端口读面（全局命令；含 argv 覆盖信息）。 */
-export function configGetPortCommand(): ConfigGetPortCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_port", payload: {} };
-}
-
-/** config.set_port：WS 端口写面（全局命令；下次启动生效）。 */
-export function configSetPortCommand(port: number): ConfigSetPortCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_port", payload: { port } };
-}
-
-/** config.get_sandbox：沙箱开关读面（全局命令；沙箱开关批）。 */
-export function configGetSandboxCommand(): ConfigGetSandboxCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_sandbox", payload: {} };
-}
-
-/** config.set_sandbox：沙箱配置写面（全局命令；enabled/extraRoots 新会话/新任务生效，autoApprove 立即生效）。
- * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项，未携带项保留现值。 */
-export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?: string[]; autoApprove?: boolean }): ConfigSetSandboxCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: patch };
-}
-
-/** config.get_summary：总结配置读面（全局命令；总结器独立化批①）。 */
-export function configGetSummaryCommand(): ConfigGetSummaryCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_summary", payload: {} };
-}
-
-/** config.get_kg：知识库配置读面（全局命令；批2 WP-C「知识库」配置组——查重阈值）。 */
-export function configGetKgCommand(): ConfigGetKgCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_kg", payload: {} };
-}
-
-/** config.set_kg：查重阈值写面（全局命令；运行期即热）。
- * 部分更新语义：携带项写入，未携带项保留现值；回执恒回生效值。 */
-export function configSetKgCommand(patch: {
-  similarityWarn?: number;
-  similarityDup?: number;
-}): ConfigSetKgCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_kg", payload: patch };
-}
-
-/** config.set_summary：总结配置写面（全局命令；运行期即热）。
- * 部分更新语义：携带项写入，未携带项保留现值。 */
-export function configSetSummaryCommand(patch: {
-  enabled?: boolean;
-  everyTurns?: number;
-  model?: string | null;
-  task?: { enabled?: boolean; model?: string | null };
-}): ConfigSetSummaryCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_summary", payload: patch };
-}
-
-/** config.get_voice_models：ASR/TTS 模型配置读面（全局命令；模型配置接入 P0）。 */
-export function configGetVoiceModelsCommand(): ConfigGetVoiceModelsCommand {
-  return { v: PROTOCOL_VERSION, type: "config.get_voice_models", payload: {} };
-}
-
-/** config.set_voice_models：ASR/TTS 模型配置写面（运行期即热）。
- * 部分更新语义：携带项写入，未携带项保留现值；字段空串 = 回落默认值。 */
-export function configSetVoiceModelsCommand(patch: {
-  sttModel?: string;
-  sttSiliconflowModel?: string;
-  sttRealtimeModel?: string;
-  ttsModel?: string;
-  ttsStreamModel?: string;
-}): ConfigSetVoiceModelsCommand {
-  return { v: PROTOCOL_VERSION, type: "config.set_voice_models", payload: patch };
-}
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */
 export function authListCommand(): AuthListCommand {
