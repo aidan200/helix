@@ -15,8 +15,6 @@ import type { WriteFactRegistry } from "../application/services/WriteFactRegistr
 import { ResourceService } from "../application/services/ResourceService";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
-import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
-import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import type { InstanceState } from "../domain/agent/AgentInstance";
 import type { JobStatus } from "../domain/task/types";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
@@ -38,6 +36,8 @@ import { acquireSingletonLock, installCrashLogging, type SingletonLock } from ".
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildStewardStack } from "./assembly/buildStewardStack";
 import { buildWorkspaceStack } from "./assembly/buildWorkspaceStack";
+import { wireMcpWarmup } from "./assembly/mcpWarmup";
+import { computeSpawnAnchorOf, mainInstanceIdForOf } from "./assembly/spawnAnchor";
 import { buildSummaryStack } from "./assembly/buildSummaryStack";
 import { AskService } from "../application/services/AskService";
 import type { SessionRunStateLike } from "../domain/agent/ObservabilityState";
@@ -763,40 +763,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     void webStatusPayloadOf(browserPort).then((payload) => eventStream.broadcastWebStatusChanged(payload)),
   );
 
-  // ── mcp 批：MCP 注册表单例 + 启动异步预热（到位即推，不阻塞启动）──
-  //    ① config.mcpServers → 逐 server addServer（独立 try——单 server 失败
-  //       降级 error 状态不阻塞其它）；
-  //    ② 状态订阅双消费：running/error/stopped → mcp.status.changed 全连接
-  //       广播（设置页徽标数据源）；**running 时同步刷新装配三 kind**
-  //       （main-session + subagent-worker + orchestrator）→ refreshAssembly 重算
-  //       catalog（新工具名进生效集）+ 活跃会话 appendTools + setTools 直改
-  //       （下一 turn 生效）；stopped（remove）同样刷新（工具面收缩）。
-  //       orchestrator 虽零活跃直改（会话短生命周期），快照重算让下一编排
-  //       会话拿到 MCP 工具名——F4 修复前漏接此 kind，orchestrator 的 MCP
-  //       工具经 orchestratorMcpTools 注册而快照永不到达（注册而不可达）。
-  //    预热 fire-and-forget：daemon 服务先起，MCP 工具陆续到位。──
-  let mcpShutdown: (() => void) | undefined; // shutdown 钩子（buildDrivingAdapters deps 消费）；mcpRegistry 无条件构造（上方），此块非条件形态
-  {
-    const unsubscribeMcpStatus = mcpRegistry.onStatusChange((status) => {
-      eventStream.broadcastMcpStatusChanged({ server: status });
-      if (status.state === "running" || status.state === "stopped") {
-        // catch 兑底：shutdown 窗口的迟到刷新（关库后 status 事件才回流）
-        // 静默降级——unhandled rejection 会击穿测试进程（mcp-ws ③ 实证）
-        sessionStack.refreshAssembly("main-session").catch(() => {});
-        sessionStack.refreshAssembly("subagent-worker").catch(() => {});
-        sessionStack.refreshAssembly("orchestrator").catch(() => {});
-      }
-    });
-    for (const serverConfig of persistence.mcpConfig.listConfigs()) {
-      void mcpRegistry.addServer(serverConfig).catch(() => {
-        // addServer 内部已降级（error 状态 + lastError）——此处兑底不可达路径
-      });
-    }
-    mcpShutdown = () => {
-      unsubscribeMcpStatus();
-      mcpRegistry.stopAll();
-    };
-  }
+  // ── mcp 批：MCP 启动预热 + 状态帧接线（P5 体量门拆分，迁
+  //    assembly/mcpWarmup——逐 server 预热 + running/stopped 同步刷新装配
+  //    三 kind 的语义见切片头注释；fire-and-forget 不阻塞启动）。──
+  const mcpShutdown = wireMcpWarmup({
+    mcpRegistry,
+    mcpConfig: persistence.mcpConfig,
+    eventStream,
+    refreshAssembly: (kind) => sessionStack.refreshAssembly(kind),
+  });
+
 
   // ── 旧格式迁移第二批（M5 切片迁 assembly/bootPrelude；一次性幂等，模型栈
   //    就绪后）：config.json 含 model/apiKeys → auth.json / SQLite 默认表 +
@@ -854,51 +830,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
 
   // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环
-  //    走 backfill；闭合先于 initialize，两步间无任何回调触发点） ──
-  // 契约 v0.3 §1 规则②：spawn 时刻锚计算。扫描面与快照路径同源
-  // （SnapshotMapper.toSnapshotDto merged 段同语义）：domain entries + toolCall
-  // 记录按时间升序合并后扫——tool 执行不落 domain Entry（独立 toolCalls 集合），
-  // 只扫 entries 会把锚落在 agent_spawn 工具调用之前（实时卡片位置 bug）。
-  // lastMainAnchorId 只用数组序不掺 ts 排序——合并后须先排好再扫；并列稳定
-  // （entries 组内原序在前，与快照路径 .sort 稳定语义一致）。
-  // 冷会话理论不可达——spawn 必经热会话门面，防御 null 流首。
-  backfill.computeSpawnAnchor = (sessionId: string) => {
-    const runtime = registry.peek(sessionId);
-    if (runtime === undefined) return null;
-    const mainId = runtime.chatService.sessionView.mainInstanceId;
-    // kind 判别归一（T10a）：锚扫描基元（projection 单源）的 "main 归属" 判定
-    // 按缺省=main 语义工作——主实例归属条目（会话主 id / legacy "main"）
-    // 归一为缺省后扫描，语义与快照路径（DTO 省略编码）一致
-    const anchorOf = (list: readonly AnchorScanEntry[]): string | null =>
-      lastMainAnchorId(
-        list.map((e) => ({ ...e, instanceId: isMainInstanceId(e.instanceId, mainId) ? undefined : e.instanceId })),
-      );
-    const entries = runtime.chatService.sessionView.toSnapshot().entries;
-    const toolCalls = runtime.chatService.toolCallData;
-    // 无 tool 调用记录：防御路径与旧语义一致（聚合 entries 数组序直扫）
-    if (toolCalls.length === 0) return anchorOf(entries);
-    const merged: AnchorScanEntry[] = [
-      ...entries.map((entry) => ({ key: Date.parse(entry.createdAt), entry: entry as AnchorScanEntry })),
-      ...toolCalls.map((record) => ({
-        // toolCallEntryDto 同源 ts 口径：startedAt → endedAt → 0
-        key:
-          record.startedAt !== undefined
-            ? Date.parse(record.startedAt)
-            : record.endedAt !== undefined
-              ? Date.parse(record.endedAt)
-              : 0,
-        // id = toolCallId（toolCallEntryDto 同）；instanceId 缺省 = main 天然是锚候选
-        entry: { id: record.id, instanceId: record.instanceId } satisfies AnchorScanEntry,
-      })),
-    ]
-      .sort((a, b) => a.key - b.key)
-      .map((item) => item.entry);
-    return anchorOf(merged);
-  };
-  // T10a kind 判别读面闭合：EventStream（engine.error 抑制/条目归属编码）
-  // 查会话主实例 id；冷会话理论不可达（事件只自热运行时发布）
-  backfill.mainInstanceIdFor = (sessionId: string) =>
-    registry.peek(sessionId)?.chatService.sessionView.mainInstanceId;
+  //    走 backfill；闭合先于 initialize，两步间无任何回调触发点）。两字段
+  //    装配随 P5 体量门拆分迁 assembly/spawnAnchor（spawn 锚计算 + 主实例 id
+  //    读面；扫描面/合并序语义与快照路径同源的推导见切片头注释）。──
+  backfill.computeSpawnAnchor = computeSpawnAnchorOf(registry);
+  backfill.mainInstanceIdFor = mainInstanceIdForOf(registry);
+
   // AD-3 两级链（T12）：spawn 会话快照模型源退役——SubAgent 模型只认自身
   // profile 链（resolveSubagentModelId 单点供给 spawn 透传/快照），不继承会话选择。
 
