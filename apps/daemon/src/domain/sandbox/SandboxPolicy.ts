@@ -1,3 +1,5 @@
+import { foldPathSegments } from "../path-fold";
+
 /**
  * 沙箱策略域模型（policy 类型 + writableRoots 解析 + 路径判定）。
  *
@@ -24,6 +26,10 @@ export interface SandboxPolicy {
  * 削除两处共用）。 */
 export const HAS_CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
+/** 绝对路径形态（POSIX `/`、win32 盘符 `C:\`/`C:/`、UNC `\\server`）——纯字符串
+ *  判定（domain 不 import node:path）。 */
+const IS_ABSOLUTE_PATH = /^(?:\/|[a-zA-Z]:[\\/]|\\\\)/;
+
 /** 解析沙箱开关配置载荷（KV sandbox_config 单键 JSON {enabled, extraRoots?}——
  * 沙箱开关批 2026-09-12 起开关存 db 单键；第一版 <home>/sandbox.json 文件开关已由
  * bootPrelude.migrateLegacySandboxConfig 一次性迁移退役；extraRoots = 用户配置的
@@ -37,6 +43,11 @@ export function parseSandboxConfig(raw: unknown, workspaceRoot: string, helixHom
         // 控制字符会断行/注入策略语句。合法路径不含控制字符，直接剔除且在
         // 策略面即剔除（与 profile 构建同口径：不放行 write 工具也不放行 bash）。
         (r) => !HAS_CONTROL_CHARS.test(r),
+      ).filter(
+        // 绝对路径闸（评审 low #71 / E-173）：相对 root 进 profile 后拼进
+        // subpath 段会以沙箱进程 cwd 为基准静默解析，可写面随之漂移——
+        // 非绝对一律剔除（此前只在 adapter 侧兑现）。
+        (r) => IS_ABSOLUTE_PATH.test(r),
       )
     : [];
   return {
@@ -61,23 +72,8 @@ export function normalizeRoots(roots: readonly string[]): string[] {
   return out;
 }
 
-/** 路径段折叠（纯字符串 POSIX 归一：// / ./ ../ 折叠——防未规范化路径骗过前缀判定）。 */
-export function foldPathSegments(p: string): string {
-  const abs = p.startsWith("/");
-  const out: string[] = [];
-  for (const seg of p.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
-      else if (!abs) out.push("..");
-      continue;
-    }
-    out.push(seg);
-  }
-  const joined = out.join("/");
-  if (abs) return `/${joined}`;
-  return joined === "" ? "." : joined;
-}
+/** 路径段折叠（单源：domain/path-fold.ts——防未规范化路径骗过前缀判定）。 */
+export { foldPathSegments } from "../path-fold";
 
 /** 判定绝对路径是否落在可写根内（写前 TS 判定——write/edit 工具面）。 */
 export function isPathWritable(absPath: string, policy: SandboxPolicy): boolean {

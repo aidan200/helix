@@ -20,23 +20,10 @@
  */
 
 import { planBashSegments } from "../writefact/bashExtract";
+// 路径折叠单源（评审 low #72）：原三份实现语义分叉，收口 domain/path-fold。
+import { resolveWithinPath as resolveWithin } from "../path-fold";
 import { isPathWritable, type SandboxPolicy } from "./SandboxPolicy";
 
-/** 纯字符串路径解析（base + rel 折叠——与 bashExtract.resolveWithin 同语义，domain 纪律不 import node:path）。 */
-function resolveWithin(base: string, rel: string): string {
-  const isAbs = rel.startsWith("/");
-  const parts = (isAbs ? rel : `${base}/${rel}`).split("/");
-  const out: string[] = [];
-  for (const p of parts) {
-    if (p === "" || p === ".") continue;
-    if (p === "..") {
-      if (out.length > 0) out.pop();
-      continue;
-    }
-    out.push(p);
-  }
-  return `/${out.join("/")}`;
-}
 
 /** fallback 判定结果。violations 为越界候选的绝对路径（段 cwd 解析后）。 */
 export interface FallbackVerdict {
@@ -84,7 +71,9 @@ export function fallbackDeniedMessage(violations: readonly string[]): string {
  * 其余（linux / 自检败 / helper 缺失）→ fallback。
  */
 export function resolveEnforcer(
-  platform: NodeJS.Platform,
+  // 平台名用 string（评审 low #73）：domain 层不得引用 NodeJS 命名空间类型
+  //（TR-13 framework-free；此前是类型级引用、无运行期依赖，口径仍要干净）。
+  platform: string,
   seatbeltSelfCheckOk: boolean,
   windowsHelperOk: boolean,
 ): "seatbelt" | "helper" | "fallback" {

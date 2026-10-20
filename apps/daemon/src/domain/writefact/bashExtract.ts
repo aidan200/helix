@@ -1,3 +1,5 @@
+import { resolveWithinPath as resolveWithin } from "../path-fold";
+
 /**
  * bash 命令写候选静态提取（U0b L1——纯函数，framework-free）。
  *
@@ -130,21 +132,6 @@ export interface BashSegmentPlan {
   readonly writes: readonly string[];
 }
 
-/** 纯字符串路径解析（不用 node:path——domain 纪律）：base + rel 折叠 . / ..。 */
-function resolveWithin(base: string, rel: string): string {
-  const isAbs = rel.startsWith("/");
-  const parts = (isAbs ? rel : `${base}/${rel}`).split("/");
-  const out: string[] = [];
-  for (const p of parts) {
-    if (p === "" || p === ".") continue;
-    if (p === "..") {
-      if (out.length > 0) out.pop();
-      continue;
-    }
-    out.push(p);
-  }
-  return `/${out.join("/")}`;
-}
 
 /** cd 目标可解析形态判定（变量/命令替换/~-展开/~ 裸 → 失锁；绝对/相对字面量 → 可解析）。 */
 function cdTargetOf(tokens: readonly string[]): string | null | "unknown" {
