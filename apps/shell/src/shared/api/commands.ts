@@ -230,28 +230,14 @@ export {
   configGetVoiceModelsCommand,
   configSetVoiceModelsCommand,
 } from "./commands/config";
+export {
+  authListCommand,
+  authSetKeyCommand,
+  authDeleteKeyCommand,
+  authVerifyCommand,
+} from "./commands/auth";
 
 // ── 未迁域实现（P3 分批迁移中；迁出后本段删除、改为上方导出行）──
-
-/** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */
-export function authListCommand(): AuthListCommand {
-  return { v: PROTOCOL_VERSION, type: "auth.list", payload: {} };
-}
-
-/** auth.set_key：写 ~/.helix/auth.json（全局命令；P-4 key 弹层保存）。 */
-export function authSetKeyCommand(providerId: string, apiKey: string): AuthSetKeyCommand {
-  return { v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId, apiKey } };
-}
-
-/** auth.delete_key：删 key（全局命令；P-4 两段式删除二击）。 */
-export function authDeleteKeyCommand(providerId: string): AuthDeleteKeyCommand {
-  return { v: PROTOCOL_VERSION, type: "auth.delete_key", payload: { providerId } };
-}
-
-/** auth.verify：连通验证（全局命令；P-4 测试连通）。 */
-export function authVerifyCommand(providerId: string): AuthVerifyCommand {
-  return { v: PROTOCOL_VERSION, type: "auth.verify", payload: { providerId } };
-}
 
 // ── trace 命令族（契约 v0.4 §1；T2.2 P-1 TracePage）────────
 
