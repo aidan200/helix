@@ -33,8 +33,10 @@ describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上�
 });
 
 // ── 源码定式断言（TR-285：注释口径漂移无行为面可测，用源码断言钉住）──
-describe("commands.ts 注释口径定式（TR-285）", () => {
-  const SRC = readFileSync(new URL("./commands.ts", import.meta.url), "utf8");
+// 读点 = task 域模块（体量门 P3 按命令域迁出后，task 族头注释随实现体落在
+// commands/task.ts；断言文本与语义未改）。
+describe("commands 注释口径定式（TR-285）", () => {
+  const SRC = readFileSync(new URL("./commands/task.ts", import.meta.url), "utf8");
 
   it("task 族头注释不写计数快照、如实登记 task.retry（曾写死「九命令…无 steer/重试」而 task.retryCommand 在位）", () => {
     // 计数一律引用式（TR-206）：头注释以「本族全部…清单以本文件构造器为单源」表述
