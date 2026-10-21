@@ -20,7 +20,7 @@
 import { test as base, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync, readdirSync } from "node:fs";
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -187,6 +187,12 @@ function spawnAndWait(home: string, toolCwd: string, args: string[], spawnEnv?: 
     proc.stdout!.setEncoding("utf8");
     proc.stdout!.on("data", (chunk: string) => {
       stdout += chunk;
+      // 排障基建：daemon 输出落盘（home/daemon-*.log）——fixture 内存捕获只在
+      // 启动失败时透出，任务/编排期错误靠落盘查（HELIX_E2E_KEEP_HOME=1 保留
+      // home 后复盘）
+      try {
+        appendFileSync(path.join(home, "daemon-stdout.log"), chunk, "utf8");
+      } catch {}
       const line = chunk.split("\n").find((l) => l.startsWith(READY_PREFIX));
       if (line && !settled) {
         settled = true;
@@ -202,6 +208,9 @@ function spawnAndWait(home: string, toolCwd: string, args: string[], spawnEnv?: 
     proc.stderr!.setEncoding("utf8");
     proc.stderr!.on("data", (chunk: string) => {
       stderr += chunk;
+      try {
+        appendFileSync(path.join(home, "daemon-stderr.log"), chunk, "utf8");
+      } catch {}
     });
     proc.on("exit", (code) => {
       if (settled) return;
@@ -442,6 +451,13 @@ export const test = base.extend<{ e2e: E2eContext }>({
     //    rm 竞态守护：daemon exit 事件后 SQLite WAL/shm 句柄释放有毫秒级窗口，
     //    macOS/Linux 上 rmSync 撞 EBUSY/ENOTEMPTY 会被 force:true 静默吞——
     //    退避重试三轮（50/100/200ms）兑底，仍败才入 failures。
+    //    HELIX_E2E_KEEP_HOME=1：排障形态跳过 home 清理（daemon-*.log 与 DB
+    //    留存复盘）——仅开发/排障用，CI 不设恒走全删（TR-TEST-6 残留纪律不破）。
+    if (process.env.HELIX_E2E_KEEP_HOME === "1") {
+      for (const home of [...new Set(started.map((d) => d.home))]) {
+        console.error(`[e2e] HELIX_E2E_KEEP_HOME=1 保留 home：${home}`);
+      }
+    } else {
     for (const home of [...new Set(started.map((d) => d.home))]) {
       let rmErr: unknown;
       for (let attempt = 0; attempt < 4; attempt++) {
@@ -455,6 +471,7 @@ export const test = base.extend<{ e2e: E2eContext }>({
         }
       }
       if (rmErr) failures.push(`tmp home 删除失败（重试 4 轮后） ${home}：${rmErr}`);
+    }
     }
     // ④ 端口释放验证（bind 探测成功才算释放）
     try {

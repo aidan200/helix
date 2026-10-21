@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import {
   makeBootstrapWorkspace,
+  seedDefaultEmbeddingEndpoint,
   lifecycleScript,
   slowBatchChildEngineScript,
   idleDaemonScript,
@@ -55,6 +56,7 @@ test.describe("T4.1 剧本三：bootstrap 生命周期 + 终态删除（pause/re
     });
     await e2e.openApp(page);
     await e2e.waitForConnected(page);
+    seedDefaultEmbeddingEndpoint(home); // D2 硬闸种子（批1 embedding 门禁）
     await launchBootstrapViaUi(page);
     const jobRow = await openFirstTaskDetail(page);
     await expect(jobRow).toHaveAttribute("data-task", "running", { timeout: 20_000 });

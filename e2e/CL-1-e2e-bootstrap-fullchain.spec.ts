@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import {
   makeBootstrapWorkspace,
+  seedDefaultEmbeddingEndpoint,
   happyPathOrchestratorScript,
   batchChildEngineScript,
   idleDaemonScript,
@@ -48,6 +49,8 @@ test.describe("T4.1 剧本一：bootstrap 任务全链路（发起→编排→�
     });
     await e2e.openApp(page);
     await e2e.waitForConnected(page);
+    // D2 硬闸种子（批1 embedding 门禁）：无 UI 配置流程免任务 0 秒 fail-fast
+    seedDefaultEmbeddingEndpoint(home);
 
     // ── 1. /project：absent 项目 → 构建索引（真 sync：codegraph 不可用 → degraded） ──
     await page.locator('.rail-btn[data-page="project"]').click();

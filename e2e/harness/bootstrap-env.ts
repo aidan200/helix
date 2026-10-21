@@ -25,6 +25,25 @@ export const E2E_BUN = BUN;
 /** fixture 项目名（workspace 一级目录）。 */
 export const BOOTSTRAP_PROJECT = "demo-proj";
 
+/** D2 kg-bootstrap 硬闸种子（批1 embedding 门禁，43b667e4 新增）：runtime_config
+ *  写默认 embedding 端点——E 层无 UI 配置流程（「连通验证→设为默认」），直接种
+ *  DB 免任务 0 秒 fail-fast（hasDefaultEmbeddingEndpoint = resolveDefault 非空）。
+ *  需在 daemon 启动后调用（runtime_config 表由 daemon 首启建）；种子落 DB 持久，
+ *  重启恢复剧本（剧本二）天然继承。playwright 进程是 node——SQL 经 BUN -e 执行
+ *  （与 spec 的 queryPersistence 同形态）。 */
+export function seedDefaultEmbeddingEndpoint(home: string): void {
+  const BUN = process.env.HELIX_E2E_BUN ?? "bun";
+  const script = `
+import { Database } from "bun:sqlite";
+const db = new Database(${JSON.stringify(path.join(home, "helix.db"))});
+const upsert = db.query("INSERT INTO runtime_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+upsert.run("embedding_endpoints", JSON.stringify([{ id: "ep-e2e", name: "E2E Embedding", baseUrl: "http://127.0.0.1:1", model: "test-embed", verifiedAt: Date.now() }]));
+upsert.run("embedding.defaultEndpointId", "ep-e2e");
+db.close();
+`;
+  execFileSync(BUN, ["-e", script], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+}
+
 /** 建 fixture workspace（<home>/ws/demo-proj + 若干源文件），返回 ws 根。 */
 export function makeBootstrapWorkspace(home: string): string {
   const ws = path.join(home, "ws");

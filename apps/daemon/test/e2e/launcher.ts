@@ -440,7 +440,18 @@ async function main(): Promise<void> {
     // memorySearch 槽——按 CoreToolExecutor 注释契约「profile 声明该名时
     // engineFor 同步剔除（kg/codegraph W1 模式同构）」同步剔除，否则
     // resolveNames 硬校验崩启动（run 39553178527：E 层真 daemon 提前退出）
-    t !== "memory_search";
+    t !== "memory_search" &&
+    // 任务引擎回口七工具（taskOps，T2.2）：仅编排主 agent（组合根
+    // orchestrator-runtime 工厂）注入；launcher 的 executor 不注入 taskOps 槽
+    // ——同 memory_search 契约剔除（TR-101 又一实证：bootstrap 族任务 0 秒
+    // failed，编排引擎构造期 resolveNames 硬校验崩）
+    t !== "task_insert_batch" &&
+    t !== "task_assembly_done" &&
+    t !== "task_dispatch_batch" &&
+    t !== "task_advance_stage" &&
+    t !== "task_stage_artifact" &&
+    t !== "task_complete_job" &&
+    t !== "task_fail_job";
   const engineFor = (): PiAgentEngineAdapter =>
     new PiAgentEngineAdapter({
       profile: {

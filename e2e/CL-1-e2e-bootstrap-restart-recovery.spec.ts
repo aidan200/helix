@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import {
   makeBootstrapWorkspace,
+  seedDefaultEmbeddingEndpoint,
   restartRecoveryScriptA,
   restartRecoveryScriptB,
   idleDaemonScript,
@@ -46,6 +47,7 @@ test.describe("T4.1 剧本二：bootstrap 重启恢复（SIGTERM → 扫出续�
     });
     await e2e.openApp(page);
     await e2e.waitForConnected(page);
+    seedDefaultEmbeddingEndpoint(home); // D2 硬闸种子（批1 embedding 门禁）
     await launchBootstrapViaUi(page);
 
     // P-2 观察到 running；真库等到现场就绪：stage1 done + batch2 running
