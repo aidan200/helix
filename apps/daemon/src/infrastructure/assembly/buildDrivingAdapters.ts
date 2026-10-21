@@ -13,6 +13,7 @@
  *   切片内（shutdown 序列语义逐行保留）。
  */
 
+import { spawn } from "node:child_process";
 import type { SessionChatPort, SendOutcome } from "../../application/ports/inbound/ChatPort";
 import type { SystemPort, DaemonStatus } from "../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../application/ports/inbound/AgentOrchestrationPort";
@@ -370,6 +371,16 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
   const authLogin = new AuthLoginService({
     flow: modelStack.authFlow,
     onAuthChanged: (payload) => eventStream.broadcastAuthChanged(payload),
+    // auth_url 拉起系统默认浏览器（macOS open / Linux xdg-open）；detached 静默，
+    // 失败不抛——登录卡链接展示是兑底（Tauri sidecar 有 GUI 会话上下文可拉起）
+    openUrl: (url) => {
+      const cmd = process.platform === "darwin" ? "open" : "xdg-open";
+      try {
+        spawn(cmd, [url], { detached: true, stdio: "ignore" }).unref();
+      } catch {
+        // 静默：拉起失败时 UI 链接兑底
+      }
+    },
   });
   const ws = new WsServerAdapter({
     chat: deps.chat,

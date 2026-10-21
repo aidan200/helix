@@ -77,6 +77,30 @@ describe("① AuthLoginService 状态机", () => {
     expect(changed).toEqual([{ providerId: "openai-codex", credentialType: "oauth" }]);
   });
 
+  test("auth_url 自动拉起浏览器：openUrl 收到 url 且先于帧推送；其他事件不触发", async () => {
+    const opened: string[] = [];
+    const order: string[] = [];
+    const { flow } = fakeFlow(async (interaction) => {
+      interaction.notify({ type: "progress", message: "starting" });
+      interaction.notify({ type: "auth_url", url: "https://auth.example/xyz", instructions: "A browser window should open." });
+      return { credentialType: "oauth" };
+    });
+    const service = new AuthLoginService({
+      flow,
+      openUrl: (url) => {
+        opened.push(url);
+        order.push("open");
+      },
+    });
+    await service.login("openai-codex", "oauth", {
+      prompt: () => {},
+      notify: () => order.push("notify"),
+    });
+    // 仅 auth_url 触发拉起（progress 不触发）；拉起先于帧推送（浏览器打开时 UI 同帧显示链接兑底）
+    expect(opened).toEqual(["https://auth.example/xyz"]);
+    expect(order).toEqual(["notify", "open", "notify"]);
+  });
+
   test("单飞不变式：同 provider 二个 login 拒绝；跨 provider 并发合法", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {

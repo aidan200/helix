@@ -22,6 +22,8 @@ export interface AuthLoginDeps {
   readonly flow: AuthFlowPort;
   /** auth.changed 广播出海（容器接 EventStream；channel=model，订阅无关）。 */
   readonly onAuthChanged?: (payload: { providerId: string; credentialType?: AuthCredentialType }) => void;
+  /** auth_url 自动拉起浏览器（pi-ai 只通知不开浏览器，宿主责任；缺省不开——UI 链接兜底）。 */
+  readonly openUrl?: (url: string) => void;
   /** requestId 生成（测试注入；缺省随机）。 */
   readonly newId?: () => string;
 }
@@ -68,7 +70,12 @@ export class AuthLoginService {
             emit.prompt({ requestId, prompt });
           });
         },
-        notify: (event) => emit.notify(event),
+        notify: (event) => {
+          // pi-ai 对 auth_url 只通知不开浏览器（库层留给宿主）：此处拉起系统默认
+          // 浏览器完成 PKCE 授权；失败静默——登录卡的链接展示是兜底路径。
+          if (event.type === "auth_url" && this.deps.openUrl) this.deps.openUrl(event.url);
+          emit.notify(event);
+        },
       });
       this.deps.onAuthChanged?.({ providerId, credentialType: result.credentialType });
       return result;
