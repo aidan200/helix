@@ -377,22 +377,37 @@ describe("⑤ 在途竞态修复：park 已注入未确认 → resume 取消 pen
     expect(h.runner.sent.filter((s) => s.text === PARK_INSTRUCTION_TEXT)).toHaveLength(2);
   });
 
-  test("取消后子进程仍输出 PARK 标记（极端路径）：防御性受理照旧 parked，可再 resume 不失控", async () => {
+  test("取消后子进程仍输出 PARK 标记（极端路径）：resume 意图消费 → 自动复活 running（不卡挂起）", async () => {
     const h = (current = makeHarness());
     const a1 = await spawnId(h);
     h.scheduler.park(a1);
     expect(h.scheduler.resume(a1)).toEqual({ resumed: true, queued: false });
 
     // 子进程无视 RESUME 抵消仍输出标记上行（子进程确实进入挂起等待）：
-    // 状态保真受理（reason 缺省 user）——实例真实 parked，非失控半态
+    // 丢失唤醒修复——在途 resume 意图在 parked 上行时消费，实例自动复活（旧实现
+    // 停在这里 parked，而用户侧 resume 入口已用过一次 → 批次永久卡 running）
     h.runner.reportParked(a1, { progress: "无视恢复指令", next: "仍挂起" });
-    expect(h.scheduler.instance(a1)?.state).toBe("parked");
-    expect(payloadsOf(h, "agent.parked", a1)).toHaveLength(1);
+    expect(h.scheduler.instance(a1)?.state).toBe("running");
+    expect(payloadsOf(h, "agent.parked", a1)).toHaveLength(1); // parked 台账照旧落定（原子序列）
+    expect(payloadsOf(h, "agent.resumed", a1)).toHaveLength(1); // 随即复活
+    expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: RESUME_INSTRUCTION_TEXT }); // RESUME 再发一次（上一发已随 park 轮 drain）
 
-    // 恢复入口照常可达：再 resume → running（RESUME 唤醒挂起等待）
+    // 意图已消费：再次 parked 上行（子进程自己又挂起）不再自动复活，交人工 resume
+    h.runner.reportParked(a1, { progress: "再次挂起", next: "等人工" });
+    expect(h.scheduler.instance(a1)?.state).toBe("parked");
     expect(h.scheduler.resume(a1)).toEqual({ resumed: true, queued: false });
     expect(h.scheduler.instance(a1)?.state).toBe("running");
-    expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: RESUME_INSTRUCTION_TEXT });
+  });
+
+  test("新 park 请求作废在途 resume 意图（意图只对发起它的那次 park 生效）", async () => {
+    const h = (current = makeHarness());
+    const a1 = await spawnId(h);
+    h.scheduler.park(a1);
+    expect(h.scheduler.resume(a1)).toEqual({ resumed: true, queued: false }); // 在途取消 + 记意图
+    // 取消生效（子进程继续跑，未进挂起等待）；用户随后重新 park —— 意图作废
+    expect(h.scheduler.park(a1)).toEqual({ parked: true });
+    h.runner.reportParked(a1, { progress: "新 park 正常挂起", next: "等恢复" });
+    expect(h.scheduler.instance(a1)?.state).toBe("parked"); // 不被陈旧意图误复活
   });
 
   test("无 pending 的 running 实例 resume 仍拒（回归：未挂起无需 resume）", async () => {
