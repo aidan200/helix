@@ -22,6 +22,7 @@ const verifyProvider = vi.fn(() => true);
 const setProviderKey = vi.fn(() => true);
 const deleteProviderKey = vi.fn(() => true);
 const consumeModelConfigError = vi.fn();
+const consumeLoginSuccess = vi.fn();
 // 订阅登录批：登录流/登出面板 mock
 const loginProvider = vi.fn(() => true);
 const respondLogin = vi.fn(() => true);
@@ -29,6 +30,8 @@ const cancelLogin = vi.fn(() => true);
 const logoutProvider = vi.fn(() => true);
 /** 订阅登录批：登录卡可变位（auth.prompt/notify 帧驱动形态测试）。 */
 let mockLogin: import("@/entities/session/model/state").AuthLoginFlowState | null = null;
+/** 反馈可见性批：登录成功终态可变位（login.result → toast 测试）。 */
+let mockLoginSucceeded: { providerId: string } | null = null;
 let mockLogoutInflight: string | null = null;
 /** M47：目录刷新在途可变位（结果帧驱动 toast 测试）。 */
 let mockRefreshing = false;
@@ -71,6 +74,7 @@ const mc: ModelConfigState = {
   setKeyInflight: null,
   deleteKeyInflight: null,
   login: null,
+  loginSucceeded: null,
   logoutInflight: null,
   setDefaultInflight: null,
   catalogRefreshing: false,
@@ -89,7 +93,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError, setDefaultInflight: mockDefaultInflight, login: mockLogin, logoutInflight: mockLogoutInflight } },
+      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError, setDefaultInflight: mockDefaultInflight, login: mockLogin, loginSucceeded: mockLoginSucceeded, logoutInflight: mockLogoutInflight } },
       requestModelConfig: vi.fn(),
       requestAuthList: vi.fn(),
       refreshModelCatalog,
@@ -99,6 +103,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setProviderKey,
       deleteProviderKey,
       consumeModelConfigError,
+      consumeLoginSuccess,
       loginProvider,
       respondLogin,
       cancelLogin,
@@ -120,6 +125,7 @@ afterEach(() => {
   mockWriteError = null;
   mockDefaultInflight = null;
   mockLogin = null;
+  mockLoginSucceeded = null;
   mockLogoutInflight = null;
   vi.clearAllMocks();
 });
@@ -437,5 +443,136 @@ describe("订阅登录批：oauth 凭据行与登录过程卡", () => {
     fireEvent.click(card.querySelector<HTMLButtonElement>("[data-login-cancel]")!);
     expect(cancelLogin).toHaveBeenCalledWith("openai-codex");
     void r;
+  });
+});
+
+describe("反馈可见性批：登录流弹层与行级反馈", () => {
+  it("登录流 = hud-modal 弹层（role=dialog；不再渲染在列表顶部 hud-card）", () => {
+    mockLogin = { providerId: "openai-codex", loginType: "oauth" };
+    const r = ui();
+    const dlg = document.querySelector('[data-login-flow="openai-codex"] [role="dialog"]');
+    expect(dlg).not.toBeNull();
+    // 弹层挂 backdrop（与滚动位置无关的可见性保证）
+    expect(document.querySelector('.modal-backdrop[data-login-flow="openai-codex"]')).not.toBeNull();
+    void r;
+  });
+
+  it("方式选择：选项带说明文案 + 首项主视觉；选择发 respondLogin", () => {
+    mockLogin = {
+      providerId: "openai-codex",
+      loginType: "oauth",
+      prompt: {
+        requestId: "req-sel",
+        prompt: {
+          type: "select",
+          message: "Select login method:",
+          options: [
+            { id: "browser", label: "Browser login (default)" },
+            { id: "device_code", label: "Device code login (headless)" },
+          ],
+        },
+      },
+    };
+    const r = ui();
+    const opts = document.querySelector("[data-login-select]")!;
+    // 两个选项均渲染，带说明文案（browser/device_code id 映射 i18n）
+    const btns = Array.from(opts.querySelectorAll<HTMLButtonElement>("button[data-login-option]"));
+    expect(btns.length).toBe(2);
+    expect(btns[0]?.className).toContain("hud-btn-cyan");
+    expect(opts.textContent).toContain("推荐");
+    expect(opts.textContent).toContain("无浏览器环境");
+    fireEvent.click(btns[1]!);
+    expect(respondLogin).toHaveBeenCalledWith("req-sel", "device_code");
+    void r;
+  });
+
+  it("设备码卡：验证页可点击链接 + 复制按钮写剪贴板", () => {
+    mockLogin = {
+      providerId: "openai-codex",
+      loginType: "oauth",
+      notify: { type: "device_code", userCode: "ABCD-1234", verificationUri: "https://auth.openai.com/codex/device" },
+    };
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const r = ui();
+    const link = document.querySelector<HTMLAnchorElement>("[data-login-verify]")!;
+    expect(link.getAttribute("href")).toBe("https://auth.openai.com/codex/device");
+    fireEvent.click(document.querySelector<HTMLButtonElement>("[data-login-copy]")!);
+    expect(writeText).toHaveBeenCalledWith("ABCD-1234");
+    void r;
+  });
+
+  it("Escape 关闭 = 取消（孤儿流程防护——关闭必发 cancelLogin）", () => {
+    mockLogin = { providerId: "openai-codex", loginType: "oauth" };
+    const r = ui();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(cancelLogin).toHaveBeenCalledWith("openai-codex");
+    void r;
+  });
+
+  it("登录成功终态（loginSucceeded）→ ok toast + 一次性消费", () => {
+    mockLoginSucceeded = { providerId: "openai-codex" };
+    ui();
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("已连接 openai-codex");
+    expect(consumeLoginSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("oauth 行在途文案：本 provider 登录中按钮变「登录中…」，其余行置灰不变文案", () => {
+    mc.auth["openai-codex"] = {
+      providerId: "openai-codex",
+      configured: false,
+      verifyStatus: "unverified",
+      oauth: { loginLabel: "Sign in with ChatGPT", isSubscription: true },
+    };
+    mockLogin = { providerId: "openai-codex", loginType: "oauth" };
+    try {
+      const r = ui();
+      const btn = document.querySelector<HTMLButtonElement>('[data-prov="openai-codex"] [data-prov-login]')!;
+      expect(btn.disabled).toBe(true);
+      expect(btn.textContent).toBe("登录中…");
+      void r;
+    } finally {
+      delete mc.auth["openai-codex"];
+    }
+  });
+
+  it("oauth 过期 chip：expires ≥ 1 天显示剩余天数；行头订阅 chip 后缀", () => {
+    mc.auth["openai-codex"] = {
+      providerId: "openai-codex",
+      configured: true,
+      verifyStatus: "unverified",
+      credentialType: "oauth",
+      oauth: { loginLabel: "Sign in with ChatGPT", isSubscription: true, expires: Date.now() + 5 * 86_400_000 },
+    };
+    try {
+      const r = ui();
+      const chip = document.querySelector('[data-prov="openai-codex"] [data-prov-expires]');
+      expect(chip?.textContent).toContain("天");
+      void r;
+    } finally {
+      delete mc.auth["openai-codex"];
+    }
+  });
+
+  it("订阅型 provider 层级：登录钮主视觉在前，key 录入降 ghost", () => {
+    mc.auth["openai-codex"] = {
+      providerId: "openai-codex",
+      configured: false,
+      verifyStatus: "unverified",
+      oauth: { loginLabel: "Sign in with ChatGPT", isSubscription: true },
+    };
+    try {
+      const r = ui();
+      const prov = document.querySelector('[data-prov="openai-codex"]')!;
+      const loginBtn = prov.querySelector<HTMLButtonElement>("[data-prov-login]")!;
+      const keyBtn = prov.querySelector<HTMLButtonElement>("[data-prov-addkey]")!;
+      expect(loginBtn.className).toContain("hud-btn-cyan");
+      expect(keyBtn.className).toContain("hud-btn-ghost");
+      // 登录钮在前（订阅主路径）
+      expect(loginBtn.compareDocumentPosition(keyBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      void r;
+    } finally {
+      delete mc.auth["openai-codex"];
+    }
   });
 });

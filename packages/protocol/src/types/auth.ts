@@ -31,6 +31,8 @@ export interface AuthProviderInfo {
     loginLabel: string;
     /** 订阅登录（免费/付费订阅额度型——UI 提示语分档） */
     isSubscription: boolean;
+    /** oauth 凭据过期时刻 ms epoch（登录态过期 chip；仅 oauth 登录态携带，additive） */
+    expires?: number;
   };
 }
 

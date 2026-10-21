@@ -786,6 +786,11 @@ export const COMMAND_SURFACE = {
   consumeModelConfigError: ({ dispatch }) =>
     () => dispatch({ type: "model/consume-error" }),
 
+  /** 登录成功 toast 消费（loginSucceeded → ModelsSettingsSection 成功 toast
+   *  渲染后置空；失败交代走 writeError 既有通道，无对称消费面）。 */
+  consumeLoginSuccess: ({ dispatch }) =>
+    () => dispatch({ type: "model/consume-login-success" }),
+
   // ── trace 查询面（CL-5，T2.2；连接私有读面）──
   /** 发送 trace.query（点对点回执；send 失败返回 false）。单飞纪律在页面侧。 */
   sendTraceQuery: (deps) =>

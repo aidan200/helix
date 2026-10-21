@@ -202,17 +202,26 @@ export class ModelService implements ModelPort {
     return out;
   }
 
-  /** auth.list 条目组装（订阅登录批增强：credentialType + 订阅登录可用面）。 */
+  /** auth.list 条目组装（订阅登录批增强：credentialType + 订阅登录可用面 + 过期时刻）。 */
   private authEntryOf(providerId: string): AuthProviderStatus {
     const status = this.deps.auth.statusOf(providerId);
     const credentialType = this.deps.auth.credentialTypeOf(providerId);
     const meta = this.deps.catalog.loginMetaOf(providerId);
+    const expires = this.deps.auth.oauthExpiresOf(providerId);
     return {
       providerId,
       configured: status.configured,
       ...(status.keyMasked !== undefined ? { keyMasked: status.keyMasked } : {}),
       ...(credentialType !== undefined ? { credentialType } : {}),
-      ...(meta?.oauth !== undefined ? { oauth: meta.oauth } : {}),
+      ...(meta?.oauth !== undefined
+        ? {
+            oauth: {
+              ...meta.oauth,
+              // 过期时刻随 oauth 可用面携带（登录态 chip 消费；非 oauth/缺失不携带）
+              ...(credentialType === "oauth" && expires !== undefined ? { expires } : {}),
+            },
+          }
+        : {}),
     };
   }
 

@@ -91,7 +91,30 @@ const MODAL_FOCUS_DELAY_MS = 60;
  * info）+ prompt 回填表单（text/secret/manual_code 输入 / select 选项钮）+
  * 取消钮。prompt 表单按 requestId 重挂（换 prompt 即清输入，零 effect）。
  */
-function LoginFlowCard({
+/** 登录方式选项说明（id → i18n 键；未知 id 无说明——provider 侧标签自描述） */
+const LOGIN_OPTION_HINTS: Record<string, string> = {
+  browser: "chat.modelsConfig.loginOptBrowserHint",
+  device_code: "chat.modelsConfig.loginOptDeviceHint",
+};
+
+/** oauth 过期 chip 文案（≥1 天 → 剩余天数；不足 1 天 → 到期时刻）。 */
+function fmtExpires(expires: number, t: (k: string, v: Record<string, string | number>) => string): string {
+  const days = Math.ceil((expires - Date.now()) / 86_400_000);
+  if (days >= 1) return t("chat.modelsConfig.oauthExpiresDays", { d: days });
+  const dt = new Date(expires);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return t("chat.modelsConfig.oauthExpiresAt", {
+    time: `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`,
+  });
+}
+
+/**
+ * 登录流程弹层（hud-modal；反馈可见性批）：流程反馈与触发位置无关——
+ * modal 必然可见，消除「行在列表下方看不到登录卡」盲区。关闭（backdrop/
+ * Escape/取消钮）一律走 onCancel（auth.cancel）——防孤儿流程占死单飞锁
+ * 按钮永灰（首用事故形态）；成功 login.result 收口 login → modal 自然消失。
+ */
+function LoginFlowModal({
   flow,
   onRespond,
   onCancel,
@@ -102,68 +125,132 @@ function LoginFlowCard({
 }) {
   const { t } = useI18n();
   const [value, setValue] = useState("");
+  const [copied, setCopied] = useState(false);
   const notify = flow.notify;
   const prompt = flow.prompt;
+  const closeViaCancel = () => onCancel(flow.providerId);
+  // Escape 关闭 = 取消（与 backdrop 同语义；非 key 弹层的静默关——登录流程必须收口）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeViaCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  const copyCode = (text: string) => {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clipboard === undefined) return; // 无 clipboard 静默（代码本身可见可手选）
+    clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => undefined,
+    );
+  };
   return (
-    <div className="hud-card" data-login-flow={flow.providerId}>
-      <div className="hud-label">{t("chat.modelsConfig.loginTitle", { provider: flow.providerId })}</div>
-      {notify?.type === "device_code" && (
-        <p className="ag-note" data-login-device>
-          {t("chat.modelsConfig.loginDeviceHint", { url: notify.verificationUri })}{" "}
-          <span className="hud-chip" data-login-code>{notify.userCode}</span>
-        </p>
-      )}
-      {notify?.type === "auth_url" && (
-        <p className="ag-note" data-login-url>
-          {notify.instructions ?? ""}{" "}
-          <a href={notify.url} target="_blank" rel="noreferrer">{t("chat.modelsConfig.loginOpenUrl")}</a>
-        </p>
-      )}
-      {(notify?.type === "progress" || notify?.type === "info") && (
-        <p className="ag-note" data-login-note>{notify.message}</p>
-      )}
-      {prompt !== undefined &&
-        (prompt.prompt.type === "select" ? (
-          <div className="prov-actions" key={prompt.requestId}>
-            {prompt.prompt.options.map((o) => (
-              <button
-                key={o.id}
-                className="hud-btn hud-btn-ghost sm"
-                type="button"
-                data-login-option={o.id}
-                onClick={() => onRespond(prompt.requestId, o.id)}
+    <div
+      className="modal-backdrop open"
+      role="presentation"
+      data-login-flow={flow.providerId}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) closeViaCancel();
+      }}
+    >
+      <div className="hud-modal" role="dialog" aria-modal="true" aria-label={t("chat.modelsConfig.loginTitle", { provider: flow.providerId })}>
+        <div className="modal-title">
+          <span className="mt-ic">
+            <KeyRound size={16} strokeWidth={1.75} aria-hidden="true" />
+          </span>
+          {t("chat.modelsConfig.loginTitle", { provider: flow.providerId })}
+        </div>
+        <p className="modal-sub" data-login-sub>{t("chat.modelsConfig.loginSub")}</p>
+        <div className="modal-body">
+          {notify?.type === "device_code" && (
+            <div className="login-device" data-login-device>
+              <p className="ag-note">{t("chat.modelsConfig.loginDeviceHint")}</p>
+              <div className="login-code-row">
+                <code className="login-code" data-login-code>{notify.userCode}</code>
+                <button
+                  className="hud-btn hud-btn-ghost sm"
+                  type="button"
+                  data-login-copy
+                  onClick={() => copyCode(notify.userCode)}
+                >
+                  {copied ? t("chat.modelsConfig.loginCopied") : t("chat.modelsConfig.loginCopy")}
+                </button>
+              </div>
+              <a className="ag-note login-verify-link" href={notify.verificationUri} target="_blank" rel="noreferrer" data-login-verify>
+                {notify.verificationUri}
+              </a>
+            </div>
+          )}
+          {notify?.type === "auth_url" && (
+            <div className="login-device" data-login-url>
+              <p className="ag-note">{t("chat.modelsConfig.loginBrowserNote")}</p>
+              <a className="ag-note login-verify-link" href={notify.url} target="_blank" rel="noreferrer">
+                {notify.url}
+              </a>
+            </div>
+          )}
+          {(notify?.type === "progress" || notify?.type === "info") && (
+            <p className="ag-note" data-login-note>{notify.message}</p>
+          )}
+          {prompt !== undefined &&
+            (prompt.prompt.type === "select" ? (
+              <div className="login-opts" key={prompt.requestId} data-login-select>
+                <p className="ag-note">{prompt.prompt.message}</p>
+                {prompt.prompt.options.map((o, i) => {
+                  const hintKey = LOGIN_OPTION_HINTS[o.id];
+                  return (
+                    <div className="login-opt" key={o.id}>
+                      <button
+                        className={cn("hud-btn sm", i === 0 ? "hud-btn-cyan" : "hud-btn-ghost")}
+                        type="button"
+                        data-login-option={o.id}
+                        onClick={() => onRespond(prompt.requestId, o.id)}
+                      >
+                        {o.label}
+                      </button>
+                      {hintKey !== undefined && <p className="ag-note login-opt-hint">{t(hintKey)}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <form
+                key={prompt.requestId}
+                className="login-paste"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (value === "") return;
+                  onRespond(prompt.requestId, value);
+                  setValue("");
+                }}
               >
-                {o.label}
-              </button>
+                <p className="ag-note">{prompt.prompt.message}</p>
+                <input
+                  className="hud-input"
+                  type={prompt.prompt.type === "secret" ? "password" : "text"}
+                  placeholder={prompt.prompt.placeholder ?? ""}
+                  aria-label={prompt.prompt.message}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  data-login-input
+                />
+                <button className="hud-btn hud-btn-cyan sm" type="submit" data-login-submit>
+                  {t("chat.modelsConfig.loginPromptSubmit")}
+                </button>
+              </form>
             ))}
-          </div>
-        ) : (
-          <form
-            key={prompt.requestId}
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (value === "") return;
-              onRespond(prompt.requestId, value);
-              setValue("");
-            }}
-          >
-            <input
-              className="hud-input"
-              type={prompt.prompt.type === "secret" ? "password" : "text"}
-              placeholder={prompt.prompt.placeholder ?? prompt.prompt.message}
-              aria-label={prompt.prompt.message}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              data-login-input
-            />
-            <button className="hud-btn hud-btn-cyan sm" type="submit" data-login-submit>
-              {t("chat.modelsConfig.loginPromptSubmit")}
-            </button>
-          </form>
-        ))}
-      <button className="hud-btn hud-btn-ghost sm" type="button" data-login-cancel onClick={() => onCancel(flow.providerId)}>
-        {t("chat.modelsConfig.loginCancel")}
-      </button>
+        </div>
+        <div className="modal-foot">
+          <button className="hud-btn hud-btn-ghost" type="button" data-login-cancel onClick={closeViaCancel}>
+            {t("chat.modelsConfig.loginCancel")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -219,6 +306,7 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
     setProviderKey,
     deleteProviderKey,
     consumeModelConfigError,
+    consumeLoginSuccess,
     loginProvider,
     respondLogin,
     cancelLogin,
@@ -272,6 +360,13 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
     toast.push("err", t("chat.modelsConfig.writeFailToast", { message: writeError.message }));
     consumeModelConfigError();
   }, [writeError, toast, t, consumeModelConfigError]);
+  // 登录成功终态（反馈可见性批：成功 toast 一次性消费；失败交代走 writeError 既有通道）
+  const loginSucceeded = mc.loginSucceeded;
+  useEffect(() => {
+    if (loginSucceeded == null) return;
+    toast.push("ok", t("chat.modelsConfig.loginSuccessToast", { provider: loginSucceeded.providerId }));
+    consumeLoginSuccess();
+  }, [loginSucceeded, toast, t, consumeLoginSuccess]);
   const catalogRefreshing = mc.catalogRefreshing;
   useEffect(() => {
     if (!refreshPendingRef.current || catalogRefreshing) return;
@@ -586,19 +681,6 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
 
       <h3 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h3>
 
-      {/* 订阅登录批：登录过程卡（notify 过程 + prompt 回填 + 取消；单登录卡） */}
-      {mc.login !== null && (
-        <LoginFlowCard
-          flow={mc.login}
-          onRespond={(requestId, value) => {
-            if (!respondLogin(requestId, value)) toast.push("err", t("chat.modelsConfig.sendFailToast"));
-          }}
-          onCancel={(providerId) => {
-            if (!cancelLogin(providerId)) toast.push("err", t("chat.modelsConfig.sendFailToast"));
-          }}
-        />
-      )}
-
       {/* F(3.4).1 provider 字母分组列表 */}
       {providers.map((group) => (
         <div key={group.letter}>
@@ -636,6 +718,12 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                   {row.credentialType === "oauth" ? (
                     <span className="key-chip" data-prov-oauth>
                       {t("chat.modelsConfig.oauthChip")}
+                      {row.oauth?.expires !== undefined && (
+                        <span className="k4" data-prov-expires>
+                          {" · "}
+                          {fmtExpires(row.oauth.expires, t)}
+                        </span>
+                      )}
                     </span>
                   ) : row.configured && row.keyMasked !== undefined ? (
                     <span className="key-chip">
@@ -651,6 +739,24 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                 </button>
                 <div className="prov-body">
                   <div className="prov-actions">
+                    {/* 订阅登录前置（反馈可见性批：订阅型 provider 主路径，cyan 主视觉） */}
+                    {row.oauth !== undefined && (
+                      <button
+                        className="hud-btn hud-btn-cyan sm"
+                        type="button"
+                        data-prov-login
+                        disabled={mc.login !== null}
+                        onClick={() => {
+                          if (!loginProvider(row.providerId)) {
+                            toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                          }
+                        }}
+                      >
+                        {mc.login?.providerId === row.providerId
+                          ? t("chat.modelsConfig.loginInflight")
+                          : row.oauth.loginLabel}
+                      </button>
+                    )}
                     {row.configured ? (
                       <>
                         <button
@@ -696,7 +802,8 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                       </>
                     ) : (
                       <button
-                        className="hud-btn hud-btn-cyan sm"
+                        /* 订阅型 provider 的 key 录入降次级（主路径 = 订阅登录） */
+                        className={cn("hud-btn sm", row.oauth !== undefined ? "hud-btn-ghost" : "hud-btn-cyan")}
                         type="button"
                         data-prov-addkey
                         onClick={() => {
@@ -709,22 +816,7 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                         {t("chat.modelsConfig.configureKey")}
                       </button>
                     )}
-                    {/* 订阅登录批：oauth 登录入口（loginLabel = provider 元数据）+ 登出 */}
-                    {row.oauth !== undefined && (
-                      <button
-                        className="hud-btn hud-btn-cyan sm"
-                        type="button"
-                        data-prov-login
-                        disabled={mc.login !== null}
-                        onClick={() => {
-                          if (!loginProvider(row.providerId)) {
-                            toast.push("err", t("chat.modelsConfig.sendFailToast"));
-                          }
-                        }}
-                      >
-                        {row.oauth.loginLabel}
-                      </button>
-                    )}
+                    {/* 订阅登录批：登出（oauth 登录态） */}
                     {row.credentialType === "oauth" && (
                       <button
                         className="hud-btn hud-btn-danger sm"
@@ -812,6 +904,19 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
           })}
         </div>
       ))}
+
+      {/* 登录流程弹层（反馈可见性批：hud-modal 同域同构 key 弹层；关闭即取消） */}
+      {mc.login !== null && (
+        <LoginFlowModal
+          flow={mc.login}
+          onRespond={(requestId, value) => {
+            if (!respondLogin(requestId, value)) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+          }}
+          onCancel={(providerId) => {
+            if (!cancelLogin(providerId)) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+          }}
+        />
+      )}
 
       {/* F(3.4).2 key 弹层（hud-modal：backdrop + 缩放淡入；非空校验内联；
           Escape 关闭——开态窗口级监听与 backdrop 点击同语义） */}

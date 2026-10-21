@@ -14,6 +14,8 @@ export interface AuthStorePort {
   apiKeyOf(providerId: string): string | undefined;
   /** 凭据类型（OAuth 分流判据：oauth → getApiKey 不覆盖，交 pi-ai store 解析）。 */
   credentialTypeOf(providerId: string): "api_key" | "oauth" | undefined;
+  /** oauth 凭据过期时刻 ms epoch（UI 过期 chip 数据源；非 oauth/缺失 → undefined）。 */
+  oauthExpiresOf(providerId: string): number | undefined;
   /** 全部 key 快照（SubAgent 子进程 env 注入源，显式传值）。 */
   apiKeysSnapshot(): Record<string, string>;
 }

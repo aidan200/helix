@@ -364,10 +364,26 @@ describe("订阅登录批（登录流/登出/凭据变更帧 + in-flight 串行�
     expect(stale.login).toBeNull();
   });
 
-  it("auth.login.result → 凭据行更新（credentialType）+ 登录卡收口", () => {
+  it("auth.login.result → 凭据行更新（credentialType）+ 登录卡收口 + 成功终态登记", () => {
     const done = onConfig(loginMc(), "auth.login.result", { providerId: "openai-codex", credentialType: "oauth" });
     expect(done.login).toBeNull();
     expect(done.auth["openai-codex"]).toMatchObject({ configured: true, credentialType: "oauth", verifyStatus: "unverified" });
+    expect(done.loginSucceeded).toEqual({ providerId: "openai-codex" });
+  });
+
+  it("loginSucceeded 消费（model/consume-login-success 置空）+ 新尝试清旧终态（login-started）", () => {
+    const mc: ModelConfigState = {
+      ...createInitialTopologyState().modelConfig,
+      loginSucceeded: { providerId: "openai-codex" },
+    };
+    const consumed = applyModelConfigAction(mc, { type: "model/consume-login-success" });
+    expect(consumed.loginSucceeded).toBeNull();
+    const restarted = applyModelConfigAction(
+      { ...consumed, loginSucceeded: { providerId: "openai-codex" } },
+      { type: "model/login-started", providerId: "kimi-coding", loginType: "oauth" },
+    );
+    expect(restarted.loginSucceeded).toBeNull();
+    expect(restarted.login?.providerId).toBe("kimi-coding");
   });
 
   it("auth.changed 双态：携 credentialType 更新凭据行 / 缺省归零（oauth 元数据保留供登录钮重渲染）", () => {

@@ -89,6 +89,23 @@ describe("auth.json 端口（AD-2，契约 C §3）", () => {
     expect(parsed.anthropic).toEqual({ type: "api_key", key: "sk-new" });
   });
 
+  test("oauthExpiresOf（反馈可见性批）：oauth 条目回 expires / api_key 与缺失回 undefined", async () => {
+    const home = tmpHome();
+    const file = path.join(home, "auth.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        "openai-codex": { type: "oauth", refresh: "r1", access: "a1", expires: 1790000000000, accountId: "acc" },
+        anthropic: { type: "api_key", key: "sk-ant" },
+      }),
+      { mode: 0o600 },
+    );
+    const store = new AuthStore(file);
+    expect(store.oauthExpiresOf("openai-codex")).toBe(1_790_000_000_000);
+    expect(store.oauthExpiresOf("anthropic")).toBeUndefined();
+    expect(store.oauthExpiresOf("missing-provider")).toBeUndefined();
+  });
+
   test("创建即收权（code-review M5）：最宽松 umask(0000) 下落盘仍 0600——tmp 创建即带 mode，零宽权限窗口", async () => {
     const home = tmpHome();
     const file = path.join(home, "auth.json");

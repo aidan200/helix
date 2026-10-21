@@ -67,7 +67,7 @@ function entryOf(p: {
   keyMasked?: string;
   verifyStatus?: "ok" | "fail" | "unverified";
   credentialType?: import("@helix/protocol").AuthCredentialType;
-  oauth?: { loginLabel: string; isSubscription: boolean };
+  oauth?: { loginLabel: string; isSubscription: boolean; expires?: number };
 }): import("../state").AuthProviderEntry {
   return {
     providerId: p.providerId,
@@ -222,7 +222,7 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       if (next === mc) return topo;
       break;
     case "auth.login.result": {
-      // 登录成功：凭据行更新（credentialType + configured）+ 登录卡收口
+      // 登录成功：凭据行更新（credentialType + configured）+ 登录卡收口 + 终态登记（成功 toast 消费）
       const prev = mc.auth[frame.payload.providerId];
       next = {
         ...mc,
@@ -237,6 +237,7 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
           },
         },
         login: null,
+        loginSucceeded: { providerId: frame.payload.providerId },
       };
       break;
     }
@@ -318,8 +319,11 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
       return mc.deleteKeyInflight === null ? mc : { ...mc, deleteKeyInflight: null };
     // ── 订阅登录批（§17.39）：登录流/登出 in-flight（终态由结果帧驱动）──
     case "model/login-started":
-      // 单登录卡不变式：已有登录流时忽略新 started（UI 同步禁用其余入口）
-      return mc.login === null ? { ...mc, login: { providerId: action.providerId, loginType: action.loginType } } : mc;
+      // 单登录卡不变式：已有登录流时忽略新 started（UI 同步禁用其余入口）；
+      // 新尝试同时清旧终态（防上一轮 toast 残留触发）
+      return mc.login === null
+        ? { ...mc, login: { providerId: action.providerId, loginType: action.loginType }, loginSucceeded: null }
+        : { ...mc, loginSucceeded: null };
     case "model/login-aborted":
       return mc.login === null ? mc : { ...mc, login: null };
     case "model/logout-started":
@@ -328,6 +332,8 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
       return mc.logoutInflight === null ? mc : { ...mc, logoutInflight: null };
     case "model/consume-error":
       return mc.writeError === null ? mc : { ...mc, writeError: null };
+    case "model/consume-login-success":
+      return mc.loginSucceeded === null ? mc : { ...mc, loginSucceeded: null };
     default:
       return mc;
   }

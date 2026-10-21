@@ -672,6 +672,24 @@
 .form-err.show { display: inline-flex; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+/* 登录流程弹层（反馈可见性批；复用 hud-modal 骨架，以下为内容布局） */
+.login-opts { display: flex; flex-direction: column; gap: 10px; }
+.login-opt .hud-btn { min-width: 200px; justify-content: flex-start; }
+.login-opt-hint { margin: 2px 0 0 2px; }
+.login-code-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.login-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 18px; letter-spacing: 2px; font-weight: 600;
+  padding: 6px 12px; border: 1px dashed var(--border); border-radius: 8px;
+  color: var(--text);
+}
+.login-verify-link {
+  display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; text-decoration: underline;
+}
+.login-paste { display: flex; flex-direction: column; gap: 8px; }
+.login-paste .hud-btn { align-self: flex-start; }
+
 /* ── reduced-motion（本表动效全关；其余归 app.css 全局兜底）── */
 @media (prefers-reduced-motion: reduce) {
   .ses-unread.pulse, .skel::after, .rail-marker { animation: none !important; }

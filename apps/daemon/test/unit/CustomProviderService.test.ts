@@ -46,6 +46,7 @@ function makeAuth(configuredIds: string[] = [], masked: Record<string, string> =
     deleteKey: async () => {},
     apiKeyOf: () => undefined,
     credentialTypeOf: () => undefined,
+    oauthExpiresOf: () => undefined,
     apiKeysSnapshot: () => ({}),
   };
 }

@@ -228,6 +228,12 @@ export class AuthStore implements AuthStorePort {
     return parseAuthFile(this.filePath)[providerId]?.type;
   }
 
+  /** oauth 凭据过期时刻（ms epoch；UI 过期 chip 数据源；非 oauth/缺失 → undefined）。 */
+  oauthExpiresOf(providerId: string): number | undefined {
+    const cred = this.credentialOf(providerId);
+    return cred?.type === "oauth" && typeof cred.expires === "number" ? cred.expires : undefined;
+  }
+
   /** 全表凭据类型清单（CredentialStore.list 数据源）。 */
   listCredentials(): { providerId: string; type: "api_key" | "oauth" }[] {
     return Object.entries(parseAuthFile(this.filePath)).map(([providerId, cred]) => ({

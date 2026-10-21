@@ -283,7 +283,7 @@ export interface AuthProviderEntry {
   /** 当前凭据类型（订阅登录批；缺省 = 未配置） */
   credentialType?: AuthCredentialType;
   /** OAuth 订阅登录可用面（存在 = 显示订阅登录按钮） */
-  oauth?: { loginLabel: string; isSubscription: boolean };
+  oauth?: { loginLabel: string; isSubscription: boolean; expires?: number };
 }
 
 /**
@@ -334,6 +334,8 @@ export interface ModelConfigState {
   deleteKeyInflight: string | null;
   /** 登录流程（订阅登录批；null = 无进行中——单登录卡不变式） */
   login: AuthLoginFlowState | null;
+  /** 登录成功终态（成功 toast 一次性消费；失败交代走 writeError 既有通道） */
+  loginSucceeded: { providerId: string } | null;
   /** auth.logout in-flight（结果帧收口；串行单值） */
   logoutInflight: string | null;
   /** model.set_default 乐观值回执锁定（result.previous 到达即清） */
@@ -425,6 +427,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     setKeyInflight: null,
     deleteKeyInflight: null,
     login: null,
+    loginSucceeded: null,
     logoutInflight: null,
     setDefaultInflight: null,
     catalogRefreshing: false,
@@ -734,7 +737,9 @@ export type SessionAction =
   /** logout 未发出：清 in-flight */
   | { type: "model/logout-aborted" }
   /** 写面失败 toast 消费（ModelsSettingsSection 渲染后置空 writeError） */
-  | { type: "model/consume-error" };
+  | { type: "model/consume-error" }
+  /** 登录成功终态消费（toast 弹出后清零） */
+  | { type: "model/consume-login-success" };
 
 /** 零账面（UsageDto 七字段全零）由 @helix/protocol projection 单源供出（上方
  *  re-export）；本文件不再持有平行定义。 */
