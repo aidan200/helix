@@ -91,7 +91,17 @@ test.describe("T5.5 活跃事件条 + 消息流卡片时间轴内联", () => {
     await mock.emit(agentCompleted("a1", closure("done", "测试面盘点收口")));
     await expect(cardA1).toHaveClass(/done/); // 原位转终态
     const doneBox = (await cardA1.boundingBox())!;
-    expect(Math.abs(doneBox.y - runBox.y)).toBeLessThan(2); // 原位（y 不漂移）
+    // 原位判据（TR-194 口径）：锚点仍在 m1 后、m2 前——不是「零位移」。
+    // running 态摘要恒占 2 行槽（.sa-stream-text height:3.2em，滑窗断行
+    // 抖动修复），转终态解锁为定稿自然高（1 行）→ 卡高 -1 行，贴底消息流
+    // scrollTop 随 scrollHeight 上收同等量，卡顶随之下移一行。故位移上界 =
+    // 本次自身高度收缩量（超出即非槽位解锁能解释 = 重锚位移，回归）。
+    const shrink = runBox.height - doneBox.height;
+    const drift = doneBox.y - runBox.y;
+    expect(drift).toBeLessThanOrEqual(shrink + 2);
+    expect(drift).toBeGreaterThanOrEqual(-2);
+    expect(doneBox.y).toBeGreaterThan(m1Box!.y);
+    expect(doneBox.y).toBeLessThan(m2Box!.y);
     await expect(cardA1).toContainText("测试面盘点收口");
     // 终态立即离开事件条：a1 离开后余 2 活跃
     await expect(rail).toHaveAttribute("data-rail-count", "2");
