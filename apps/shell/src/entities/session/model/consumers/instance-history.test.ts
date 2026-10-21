@@ -102,4 +102,34 @@ describe("applyInstanceHistoryEvent（session.instanceChannels.result 回填）"
     const maxSeq = Math.max(...out.instanceChannels["agent-1"]!.map((i) => i.seq));
     expect(out.nextChannelSeq).toBeGreaterThan(maxSeq);
   });
+
+  test("回放补 crashed 终态行（增量路盲区修复）：failed 卡回填后 channel 含 error 透传的 crashed 行（closure 前）", () => {
+    const s = baseState();
+    s.instances[0]!.state = "failed";
+    s.instances[0]!.error = "engine 收口失败（engine: 401: invalid x-api-key）";
+    s.instances[0]!.closure = { summary: "engine 收口失败（engine: 401: invalid x-api-key）", status: "failed" } as never;
+    const out = applyInstanceHistoryEvent(s, resultEvent({
+      messages: [{ kind: "message", id: "m-1", instanceId: "agent-1", role: "assistant", content: "hi", createdAt: new Date(1000).toISOString() }],
+    }));
+    const items = out.instanceChannels["agent-1"]!;
+    const crashed = items.find((i) => i.kind === "lifecycle" && i.lc === "crashed") as { error?: string } | undefined;
+    expect(crashed, "回放应重建 crashed 终态行（后开抽屉/重启后不丢终态交代）").toBeDefined();
+    expect(crashed!.error).toContain("invalid x-api-key");
+    // 顺序：crashed 在 closure 尾卡之前（与增量路 agent.failed 原子推送序同构）
+    const ci = items.findIndex((i) => i.kind === "lifecycle" && i.lc === "crashed");
+    const ki = items.findIndex((i) => i.kind === "closure");
+    expect(ci).toBeLessThan(ki);
+  });
+
+  test("回放补 terminated 行（killed 实例）：terminated 卡回填后 channel 含 terminated 行而非 crashed", () => {
+    const s = baseState();
+    s.instances[0]!.state = "failed";
+    s.instances[0]!.terminated = true;
+    const out = applyInstanceHistoryEvent(s, resultEvent({
+      messages: [{ kind: "message", id: "m-1", instanceId: "agent-1", role: "assistant", content: "hi", createdAt: new Date(1000).toISOString() }],
+    }));
+    const items = out.instanceChannels["agent-1"]!;
+    expect(items.find((i) => i.kind === "lifecycle" && i.lc === "terminated"), "killed 实例回放应出 terminated 交代行").toBeDefined();
+    expect(items.find((i) => i.kind === "lifecycle" && i.lc === "crashed")).toBeUndefined();
+  });
 });

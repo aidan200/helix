@@ -172,6 +172,13 @@ function channelsFromSnapshot(
         if (item) items.push(item);
       }
     }
+    if (dto.state === "failed") {
+      // 终态 lc 行重建（与 instance-history 回放路同款盲区修复——重连快照后
+      // crashed 交代不丢）。dto 无 error/terminated 字段（协议面缺口，见申报）：
+      // error 用 closure.summary 兑底（增量路 error 本就是兑底 summary，T1.2 同源）；
+      // killed/failed 暂不区分（dto.state 同为 failed）。
+      items.push(lcItem("crashed", { error: dto.closure?.summary ?? "" })(seq++));
+    }
     if (dto.closure) items.push({ kind: "closure", seq: seq++, closure: dto.closure });
     channels[dto.instanceId] = items;
   }

@@ -49,6 +49,19 @@ export function applyInstanceHistoryEvent(s: SessionState, event: EventEnvelope)
   // channel.ts「seq 单调递增（React key）」契约被破：回填后实时条目按旧计数器
   // 取到的号与回填条目重复（ChannelTimeline key={item.seq} 同列表重复 key）。
   let maxSeq = seq - 1;
+  // 终态 lc 行回放（回放路盲区修复）：增量路 agent.failed/agent.killed 原子推
+  // [crashed|terminated, closure]，回放重建只回放 entry+closure 会丢终态交代行
+  // ——后开抽屉/重启后看不到 crashed/terminated（E 层 T1.4 实证）。按卡字段重建：
+  // terminated（killed）> crashed（failed）；done 无终态 lc 行（增量路同构）。
+  if (card.terminated) {
+    items.push(lcItem("terminated")(seq));
+    maxSeq = seq;
+    seq += 1;
+  } else if (card.state === "failed") {
+    items.push(lcItem("crashed", { error: card.error ?? "" })(seq));
+    maxSeq = seq;
+    seq += 1;
+  }
   if (card.closure) {
     items.push({ kind: "closure", seq, closure: card.closure });
     maxSeq = seq;
