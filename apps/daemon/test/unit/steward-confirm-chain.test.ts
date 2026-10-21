@@ -275,7 +275,7 @@ describe("T2 终局收敛：任一卡终局 → 同 key 其余卡静默撤除（
 
     // 防御纵深测试接缝：直接向 pending 注入同 key 卡 B（登记簿正常路径已防
     // 并存；收敛机制作为纵深仍须可断言——key 相同 = action 内容相同）
-    const internal = (svc as unknown as { ledger: { pending: Map<string, { action: unknown; createdAt: number; remindedAt: number | undefined }> } }).ledger; // 批 1 接缝迁移：pending 已收编 ProposalLedger（防御纵深注入面不变）
+    const internal = (svc as unknown as { core: { ledger: { pending: Map<string, { action: unknown; createdAt: number; remindedAt: number | undefined }> } } }).core.ledger; // 批 1 接缝迁移：pending 已收编 ProposalLedger；体量门 P4：登记簿随内核迁 StewardCore（防御纵深注入面不变）
     const entryA = internal.pending.get(cardA.actionId)!;
     internal.pending.set("steward-action-901", {
       action: entryA.action,
@@ -299,7 +299,7 @@ describe("T2 终局收敛：任一卡终局 → 同 key 其余卡静默撤除（
     const llm = fakeLlm([toolCall("propose_send", { agentId: "agent-1", message: "递话：重试" })]);
     const { svc, actionCompleted } = makeService({ llm, nowRef });
     const cardA = await askForCard(svc, "递话重试");
-    const internal = (svc as unknown as { ledger: { pending: Map<string, { action: unknown; createdAt: number; remindedAt: number | undefined }> } }).ledger; // 批 1 接缝迁移：pending 已收编 ProposalLedger（防御纵深注入面不变）
+    const internal = (svc as unknown as { core: { ledger: { pending: Map<string, { action: unknown; createdAt: number; remindedAt: number | undefined }> } } }).core.ledger; // 批 1 接缝迁移：pending 已收编 ProposalLedger；体量门 P4：登记簿随内核迁 StewardCore（防御纵深注入面不变）
     const entryA = internal.pending.get(cardA.actionId)!;
     internal.pending.set("steward-action-902", { action: entryA.action, createdAt: 0, remindedAt: undefined });
 

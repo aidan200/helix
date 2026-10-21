@@ -1,6 +1,18 @@
 /**
- * StewardService —— V2.5 文本管家 application service（设计 §2 三分法 /
- * §5.2 权限分级 / §5.3 ①②层；文本形态架构验证——语音版 V3 直接套壳）。
+ * StewardService —— 管家域门面与聚合根（V2.5 文本管家 application service；
+ * 设计 §2 三分法 / §5.2 权限分级 / §5.3 ①②层；文本形态架构验证——语音版
+ * V3 直接套壳）。
+ *
+ * 体量门 P4 拆分（本文件自 2691 行拆出四块，读面/行为零变更）：
+ * - 分诊路由域 StewardRouting：ask 判定漏斗（词表 → 停止判定 → 意图泛化
+ *   → addressee 分诊）+ 确认闸门禁（放行/作废/执行/终局登记）；
+ * - 播报编排域 StewardOutlet：feed 播报直出、生命周期提醒、主动汇报、
+ *   过程流式回执；
+ * - 生命周期域 StewardLifecycle：run 执行链（装配/投影/收口）、看门狗、
+ *   确认卡 TTL 与提醒巡检、启停定时器、对话记忆读写；
+ * - 共享内核 StewardCore：依赖注入面 + 可达状态容器 + 伴随编排态。
+ * 本文件保留：聚合根装配（三域构造与绑定）、配置/档案/记忆管理读回口、
+ * 情景快照组装，以及对外公共面的一手委托。
  *
  * 三类能力（任务 brief 口径）：
  * ① 只读状态问答直达：LLM 循环（flash 级槽位独立配置）经 list_instances /
@@ -45,6 +57,63 @@ import { stewardBlocksText } from "./stewardBlocks";
 // 兼容既有引用面；行为零变更）
 export { pendingKeyOf } from "../../domain/steward/confirmation/ProposalLedger";
 export type { PendingAction, PendingEntry } from "../../domain/steward/confirmation/ProposalLedger";
+
+// ── 体量门 P4：迁出符号经门面原路径精确再导出（消费方 import 零改动）──
+export {
+  summarizeArgsLite,
+  hasExemptionAffordance,
+  formatActReceipt,
+  displayTitleOf,
+  capChars,
+  formatDeliverReceipt,
+  capToolResultText,
+  compactInstanceRows,
+  buildLlmWindow,
+  matchStewardCommandPhrase,
+} from "./stewardProjections";
+export {
+  STEWARD_MAX_TOOL_ROUNDS,
+  HISTORY_WINDOW,
+  TOOL_RESULT_MAX_CHARS,
+  TOOL_RESULT_TRUNCATION_MARK,
+  INSTANCE_TASK_MAX_CHARS,
+  INSTANCE_SUMMARY_MAX_CHARS,
+  STEWARD_MISSING_TOOL_RESULT_TEXT,
+  STEWARD_ENABLED_KEY,
+  STEWARD_MODEL_KEY,
+  STEWARD_COMPACTION_THRESHOLD_TOKENS,
+  STEWARD_COMPACTION_KEEP_RECENT,
+  STEWARD_PENDING_ASKS_MAX,
+  STEWARD_RUN_WATCHDOG_MS,
+  STEWARD_RUN_WATCHDOG_TICK_MS,
+  STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS,
+  STEWARD_MANUAL_ABORT_GRACE_MS,
+  STEWARD_CONFIRM_TTL_MS,
+  STEWARD_CONFIRM_REMIND_AFTER_MS,
+  STEWARD_CONFIRM_TIMEOUT_DETAIL,
+  CONTEXT_SNAPSHOT_MAX_CHARS,
+  SNAPSHOT_TITLE_MAX_CHARS,
+  SNAPSHOT_RECENT_SESSIONS,
+  SNAPSHOT_ACTIVITY_MAX_ENTRIES,
+  SNAPSHOT_ACTIVITY_LINE_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_DOMAIN_LABELS,
+  RECENT_WORK_LINES_MAX,
+  RECENT_WORK_TITLE_MAX_CHARS,
+  DELIVER_TITLE_MAX_CHARS,
+} from "./stewardConstants";
+export type {
+  GateToolContext,
+  GateToolOutcome,
+  StewardAskEvents,
+  StewardTasksSource,
+  StewardSessionMetaRow,
+  StewardSessionsSource,
+  StewardProjectsSource,
+  StewardKgSource,
+  StewardServiceDeps,
+  StewardEngineAssemblyOptions,
+} from "./stewardServiceTypes";
 import type {
   AgentCompletedPayload,
   AgentFailedPayload,
@@ -103,42 +172,25 @@ import {
 } from "@helix/protocol";
 import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 import { readSummaryConfig } from "../summary/summaryConfig";
-
-/** 挂闸校验上下文（中立——原 GateToolContext 的 application 形态）。 */
-export interface GateToolContext {
-  readonly runId: string;
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly args: Record<string, unknown>;
-}
-
-/** 挂闸校验结果（中立——原 {pause, outcome} 判别：result/terminate 两出口）。 */
-export type GateToolOutcome =
-  | { readonly kind: "result"; readonly text: string; readonly isError?: boolean }
-  | { readonly kind: "terminate"; readonly reason: string };
-
-/** args 摘要（feed 帧面——JSON 截断 120 字符）。 */
-export function summarizeArgsLite(args: unknown): string {
-  try {
-    const json = JSON.stringify(args) ?? "null";
-    return json.length > 120 ? `${json.slice(0, 120)}…` : json;
-  } catch {
-    return "(unserializable)";
-  }
-}
-
-/** 豁免旗标嗅探（M2 突变面）：任何「免确认」企图位——闸面整单拒绝。 */
-export function hasExemptionAffordance(args: Record<string, unknown>): boolean {
-  for (const key of ["exempt", "auto_confirm", "autoConfirm", "skip_confirmation", "skipConfirm", "confirmed"]) {
-    if (args[key] === true) return true;
-  }
-  return false;
-}
-
-/** act 回执文本（带序列号回流——D7-1）。 */
-export function formatActReceipt(result: { ok: boolean; seq: number; detail: string }): string {
-  return `动作回执（seq=${result.seq}）：${result.ok ? "成功" : "失败"}——${result.detail}`;
-}
+import { StewardCore } from "./StewardCore";
+import { StewardRouting } from "./StewardRouting";
+import { capChars, capToolResultText, displayTitleOf, summarizeArgsLite } from "./stewardProjections";
+import {
+  CONTEXT_SNAPSHOT_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_DOMAIN_LABELS,
+  SNAPSHOT_ACTIVITY_LINE_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_MAX_CHARS,
+  SNAPSHOT_ACTIVITY_MAX_ENTRIES,
+  SNAPSHOT_RECENT_SESSIONS,
+  SNAPSHOT_TITLE_MAX_CHARS,
+  STEWARD_COMPACTION_KEEP_RECENT,
+  STEWARD_COMPACTION_THRESHOLD_TOKENS,
+  STEWARD_CONFIRM_TIMEOUT_DETAIL,
+  STEWARD_ENABLED_KEY,
+  STEWARD_MODEL_KEY,
+  STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS,
+} from "./stewardConstants";
+import type { StewardAskEvents, StewardAskItem, StewardServiceDeps } from "./stewardServiceTypes";
 
 /** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
 export const STEWARD_FEED_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -150,157 +202,9 @@ export const STEWARD_FEED_EVENT_TYPES: ReadonlySet<string> = new Set([
   "agent.resumed",
 ]);
 
-/** 工具轮上限（成本护栏：连环工具调用熔断——超限 error 判别，不无限循环）。 */
-export const STEWARD_MAX_TOOL_ROUNDS = 6;
-
 /** feed 文本行摘要截断上限（~80 字符——BroadcastService 先例同构）。 */
 export const FEED_SUMMARY_MAX_CHARS = 80;
 
-/** 会话内对话滚动窗口（旧制；A1 批被工作记忆 KV token 预算闸取代——
- *  常量保留供历史注释面参照，不再参与裁剪）。 */
-export const HISTORY_WINDOW = 24;
-
-/** 工具结果送 LLM 前的体量上限（A1-hotfix；生产实证单条 list_instances
- *  toolResult 可达 537,026 字符 ≈ 27 万 token = 16k 预算的 17 倍——病理体量
- *  直达上下文会挤掉全部对话并触发裁剪而毒孤儿）。 */
-export const TOOL_RESULT_MAX_CHARS = 4000;
-
-/** 截断标记（用户可见面：完整结果体积看过程帧摘要）。 */
-export const TOOL_RESULT_TRUNCATION_MARK = "…（已截断，完整结果见过程帧）";
-
-/** list_instances 紧凑投影：active 实例 task/summary 截断上限。 */
-export const INSTANCE_TASK_MAX_CHARS = 120;
-
-/** list_instances 紧凑投影：非 active 实例 summary 截断上限。 */
-export const INSTANCE_SUMMARY_MAX_CHARS = 80;
-
-/** 合成 toolResult 文本（A1-hotfix：assistant 含 toolCall 但结果缺席——
- *  窗口裁剪切掉结果/确认闸挂起无结果，OpenAI 兼容 API 同样 400 拒）。 */
-export const STEWARD_MISSING_TOOL_RESULT_TEXT = "（工作记忆窗口裁剪致结果缺失）";
-
-/** 管家开关 KV 键（RuntimeConfigPort；"1" = 开，其余 = 关——默认关）。 */
-export const STEWARD_ENABLED_KEY = "steward.enabled";
-
-/** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认）。 */
-export const STEWARD_MODEL_KEY = "steward.model";
-
-/** 总结配置域（summary.*——三产物开关/锚点节奏/总结模型 + 任务总结两键）
- *  已收编通用域：键位/解析/迁移单源 ../summary/summaryConfig.ts（管家配置
- *  零总结项——steward.set_config 摘除 summary/sessionMemory 组，写面在
- *  config.set_summary）。 */
-
-/** L1 件一：压缩触发阈值（token 估算口径与 estimateLoopTokens 同族；
- *  任务书默认 12k——低于工作记忆 16k 预算闸，压缩先于粗裁剪接管）。 */
-export const STEWARD_COMPACTION_THRESHOLD_TOKENS = 12_288;
-
-/** L1 件一：压缩尾部滚动窗（条数——TR-47：压的是历史不是工作集）。 */
-export const STEWARD_COMPACTION_KEEP_RECENT = 6;
-
-/** L1 件二：输入缓冲 pending 队列上限（忙碌态入队不拒绝；超限提示）。
- *  批 0（DDD 重构）起：缺省单源 StewardTuning（KV steward.tuning.ask.queueMax
- *  可改）——此处 re-export 兼容既有引用，值不双写。 */
-export const STEWARD_PENDING_ASKS_MAX = STEWARD_TUNING_DEFAULTS.ask.queueMax;
-
-/** ── 管家可靠性批时间参数（批 0 起全部进 StewardTuning 配置域——KV
- *  steward.tuning.* 运行期可改、非法静默回退缺省；下列导出为缺省值 re-export
- *  （兼容既有引用，值不双写）。原「配置面不做——M4 统一做」裁决已被 DDD
- *  重构批 0 推翻（设计文档 §3.3：语音/文字双场景容忍度不同，阈值须可配）。 ──
- *  事故链：write 档挂闸无人确认 → runActive 永真 → finishRun 永不执行 →
- *  后续 ask 永远 queued → 管家对一切输入装死且零日志。三要素对三参数： */
-
-/** run 看门狗阈值：run 内无事件推进持续此时长 → abort 在途轮 + 挂起通知
- *  （缺省 180s——事故中 20 分钟装死的兑底上限；活跃 run 每事件重置计时）。 */
-export const STEWARD_RUN_WATCHDOG_MS = STEWARD_TUNING_DEFAULTS.run.watchdogMs;
-
-/** run 看门狗巡检间隔（生产 interval；测试直接调 reliabilityTick 注入时钟）。 */
-export const STEWARD_RUN_WATCHDOG_TICK_MS = STEWARD_TUNING_DEFAULTS.run.watchdogTickMs;
-
-/** 看门狗 abort 宽限窗：abort 后仍 runActive 持续此时长 → 强制收口 + 引擎
- *  重建（pi EventStream 不竞速 abort signal——挂死的 provider 流 abort 后
- *  run promise 仍永悬，必须弃引擎重建；缺省 180+15=195s < 5 分钟自愈口径）。 */
-export const STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS = STEWARD_TUNING_DEFAULTS.run.watchdogAbortGraceMs;
-
-/** 手动 abort 快进宽限（手动停止批）：abortInFlight 后此时长仍 runActive
- *  （挂死流 abort 打不醒——E-240 实测）→ 快进强制收口（弃引擎重建）。被动
- *  看门狗 195s 对语音交互太慢（2026-10-09 事故）；缺省 8s 恢复。 */
-export const STEWARD_MANUAL_ABORT_GRACE_MS = STEWARD_TUNING_DEFAULTS.run.manualAbortGraceMs;
-
-/** 确认卡 TTL：pending 挂闸无人 confirm/cancel 持续此时长 → 自动作废（复用
- *  cancel 内部语义——删除即作废；缺省 300s）。 */
-export const STEWARD_CONFIRM_TTL_MS = STEWARD_TUNING_DEFAULTS.confirm.ttlMs;
-
-/** 确认卡可达性提醒：confirm_required 发出后无人消费持续此时长 → 提醒帧
- *  （缺省 30s——事故中确认卡入口不可见，提醒是第二入口）。 */
-export const STEWARD_CONFIRM_REMIND_AFTER_MS = STEWARD_TUNING_DEFAULTS.confirm.remindAfterMs;
-
-/** 确认超时作废的 action.completed detail 文案（用户与 LLM 共同可见）。 */
-export const STEWARD_CONFIRM_TIMEOUT_DETAIL = "确认超时（超时无人确认，已自动作废——如仍需要请重新提出）";
-
-/** ── 确认链路修复批（2026-10-06 12:13-12:28 事故）：口令路由词表 + 登记簿 ──
- * 事故定性：用户每次重述 → 管家新提案 → 新卡（六卡并存）；「确认了很多遍」
- * 被当新指令又弹卡；已送达后又陆续弹失效通知。三件根治：在途提案登记簿
- * （弹卡出口唯一）、确认口令路由（词表绑定最近 pending 卡）、终局收敛
- * （同 key 其余卡静默撤除）。 */
-
-// ── 确认类/取消类口令词表已单源化至 @helix/protocol stewardPhrases（闸门
-// 对应修复批：双端词族同源——STEWARD_CONFIRM_PHRASES 8 词 / STEWARD_CANCEL_
-// PHRASES 3 词，历史文案见 git；扩改词表双端同改不再手工同步）。在途 run
-// 判官判停 → 全停（abort 当前 + 清空排队，回执携丢弃条数；停止判定单源
-// = Jev 停止意图判官——停止词表已退役）；无在途原样走 LLM（停止判定仅
-// 在场触发——TR-240 同款纪律）；与确认口令词表互斥：「取消」是卡作废口令，
-// 判官判停是 run 全停，语义分层不互吞。
-
-/** 口令判定（极轻纯函数，零 LLM；非词表全等 → undefined 原样走 LLM）。 */
-export function matchStewardCommandPhrase(text: string): "confirm" | "cancel" | undefined {
-  if (matchStewardConfirmPhrase(text)) return "confirm";
-  if (matchStewardCancelPhrase(text)) return "cancel";
-  return undefined;
-}
-
-// 登记簿 key 计算（pendingKeyOf）与终局登记簿上限（STEWARD_PROPOSAL_REGISTRY_MAX）
-// 已迁确认闸聚合域（domain/steward/confirmation/ProposalLedger.ts——批 1）。
-
-/** ── A2 批：动态情景快照段 ───────────────────────────────
- *  内容预算（字符级硬顶；中文 ~600 字符 ≈ 400-600 token，满足 brief
- *  ≤600 token 口径）：当前时间一行 + 活跃 agent/会话计数两行 + 最近
- *  1-2 个会话主题一行。 */
-export const CONTEXT_SNAPSHOT_MAX_CHARS = 600;
-
-/** 快照段内会话主题标题截断上限（标题级——不进正文）。 */
-export const SNAPSHOT_TITLE_MAX_CHARS = 16;
-
-/** 快照段「最近会话」行数上限。 */
-export const SNAPSHOT_RECENT_SESSIONS = 2;
-
-/** ── M3-d1：ask 对话投影（活动段常量）──────────────────────────
- *  ring 最近活动条目（账本白话行）→ context_snapshot 活动段；行数在
- *  brief 建议 8~12 区间取中，字符预算独立于基础段（双预算防截断互他）。 */
-
-/** 活动段条数上限（8~12 建议区间取中——感知现场够用且不挤占上下文）。 */
-export const SNAPSHOT_ACTIVITY_MAX_ENTRIES = 10;
-
-/** 活动段单行截断上限（白话句一行密度面）。 */
-export const SNAPSHOT_ACTIVITY_LINE_MAX_CHARS = 46;
-
-/** 活动段整体字符预算（防御性硬顶——与基础段 600 双预算分轨）。 */
-export const SNAPSHOT_ACTIVITY_MAX_CHARS = 480;
-
-/** 活动域标签（域枚举 → 中文短词——投影行文与时间线同源）。 */
-export const SNAPSHOT_ACTIVITY_DOMAIN_LABELS: Record<string, string> = {
-  task: "任务",
-  session: "会话",
-  agent: "帮手",
-  surface: "界面",
-  cli: "终端",
-  notify: "通知",
-};
-
-/** query_recent_work 单类行数上限（体量自律：A1-hotfix 4000 护栏之外再
- *  自律——多行时尾部「另有 N 个未列出」收口）。 */
-export const RECENT_WORK_LINES_MAX = 8;
-
-/** query_recent_work 会话主题/任务标题截断上限（每条一行紧凑口径）。 */
-export const RECENT_WORK_TITLE_MAX_CHARS = 20;
 
 /**
  * 系统提示词骨架（§2 三分法 + 拒绝清单——任务 brief 口径）。
@@ -330,11 +234,6 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 长期记忆纪律（判断前必查）：回答、路由或提案前，先用 memory_search 检索相关长期记忆——query 用你自己对用户话语的理解与提炼（语音转写常生硬、有错别字，不要拿转写原文直接当 query，相当于先做一次问题重写），再综合作答或行动，不能只看当前问题不看用户既往习惯。命中记忆与本轮指令冲突时以本轮指令为准，涉及代码/项目现实以知识图谱为准；零命中即正常作答。记忆结果中的「[进展]…（sid: xxx）」行可直接作 read_session 的 sessionId。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
 
-/** 会话显示标题单源（TR-207：title > topic > firstUserText > 兜底——
- *  快照/清单/read_session 三消费面共用，不得另写推导链）。 */
-export function displayTitleOf(r: StewardSessionMetaRow): string {
-  return r.title ?? r.topic ?? r.firstUserText ?? "（无主题）";
-}
 
 function truncateSummary(summary: string): string {
   if (summary.length <= FEED_SUMMARY_MAX_CHARS) return summary;
@@ -375,63 +274,6 @@ export function buildFeedText(event: DomainEvent): string | undefined {
     default:
       return undefined;
   }
-}
-
-/** 工作记忆记录 → LLM 消息（同源映射：记录携带 at，LLM 面不含时间戳；
- *  Phase 1 块模型：投影记录（text/thinking/toolCall 三可选）→ assistant
- *  content 块数组——翻译层单点，投影面形状稳定不随块模型变）。 */
-function recordToMessage(record: StewardHistoryRecord): StewardLlmMessage {
-  if (record.kind === "user") return { role: "user", text: record.text };
-  // 压缩摘要记录（事故热修批⑤）：LLM 窗口重建仍转换为 user 形态摘要消息注入
-  // 上下文（压缩机制语义不变——摘要是最早上下文）；仅落库形态与 UI 回放退出
-  // user 轮域。旧存量（kind=user + compaction:true）同构兼容。
-  if (record.kind === "compaction") return { role: "user", text: record.text };
-  if (record.kind === "toolResult") {
-    return { role: "toolResult", toolCallId: record.toolCallId, name: record.name, text: record.text };
-  }
-  const content: StewardLlmContentBlock[] = [];
-  if (record.thinking !== undefined && record.thinking.text !== "") {
-    content.push({
-      type: "thinking",
-      text: record.thinking.text,
-      ...(record.thinking.signature !== undefined ? { signature: record.thinking.signature } : {}),
-    });
-  }
-  if (record.text !== undefined && record.text !== "") content.push({ type: "text", text: record.text });
-  if (record.toolCall !== undefined) {
-    content.push({ type: "toolCall", id: record.toolCall.id, name: record.toolCall.name, args: record.toolCall.args });
-  }
-  return { role: "assistant", content };
-}
-
-/** 字段级截断（紧凑投影用；超限截断加省略号）。 */
-export function capChars(text: string, maxChars: number): string {
-  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}…`;
-}
-
-/** ── 管家语音交互闭环批 ④ 投递反馈简化（用户第 10 项设计决策） ─────────
- *  回执查表直拼零 LLM：投递前查目标会话短标题（title > topic > firstUserText
- *  ——displayTitleOf 同优先级），回执/确认卡/口令回执念人类可读短名，不念
- *  sessionId；标题缺失回退现文案（含 sessionId——不空指针不空串）。 */
-
-/** 投递回执短标题截断上限（码点）。 */
-export const DELIVER_TITLE_MAX_CHARS = 24;
-
-/** 投递回执组装（纯函数导出供单测+组合根消费——回执文案单源）：
- *  标题在场 → 「已投递到『<标题>』会话」（idle 新轮次）/「已加入『<标题>』
- *  执行队列」（steered 入队）；标题缺席 → 维持旧文案（含 sessionId）。 */
-export function formatDeliverReceipt(
-  title: string | undefined,
-  mode: "steered" | "new",
-  sessionId: string,
-): string {
-  if (title !== undefined && title !== "") {
-    const short = capChars(title, DELIVER_TITLE_MAX_CHARS);
-    return mode === "steered" ? `已加入「${short}」执行队列` : `已投递到「${short}」会话`;
-  }
-  return mode === "steered"
-    ? `已注入会话 ${sessionId} 的 steer 队列（turn 边界生效）`
-    : `已送达会话 ${sessionId}（空闲会话——作为新轮次开启）`;
 }
 
 /** 提案期短标题解析（sessionTitleOf 轻量单会话查询；查询失败/面缺席 →
@@ -589,311 +431,6 @@ export function buildPendingProposalsSection(
   ].join("\n");
 }
 
-/** 工具结果送 LLM 前体量护栏（A1-hotfix 纯函数，导出供单测）：超
- *  TOOL_RESULT_MAX_CHARS 截断 + 标记（防任何工具的病理体量直达上下文）。 */
-export function capToolResultText(text: string): string {
-  return text.length <= TOOL_RESULT_MAX_CHARS ? text : `${text.slice(0, TOOL_RESULT_MAX_CHARS)}${TOOL_RESULT_TRUNCATION_MARK}`;
-}
-
-/** list_instances 结果紧凑投影（A1-hotfix 纯函数，导出供单测）：根因实证
- *  orchestration.status() 全量携带完整 task brief 文本与全部历史实例。瘦身：
- *  active 保 id/state/task(≤INSTANCE_TASK_MAX_CHARS)/summary；非 active
- *  （done/failed/killed 等）仅 id/state/summary(≤INSTANCE_SUMMARY_MAX_CHARS)
- *  ——displayState 与终态实例的 task 无决策价值，弃。取舍：专用投影而非
- *  通用 JSON 字段级截断——哪些字段对管家 LLM 有用是领域知识，专用更准；
- *  任意工具的体积上限由 capToolResultText 4000 兑底。 */
-export function compactInstanceRows(
-  statuses: readonly {
-    agentId: string;
-    state: string;
-    displayState?: string;
-    task?: string | null;
-    summary?: string | null;
-  }[],
-): Record<string, string>[] {
-  return statuses.map((s) => {
-    if (s.state === "running") {
-      return {
-        agentId: s.agentId,
-        state: s.state,
-        ...(s.task ? { task: capChars(s.task, INSTANCE_TASK_MAX_CHARS) } : {}),
-        ...(s.summary ? { summary: capChars(s.summary, INSTANCE_TASK_MAX_CHARS) } : {}),
-      };
-    }
-    return {
-      agentId: s.agentId,
-      state: s.state,
-      ...(s.summary ? { summary: capChars(s.summary, INSTANCE_SUMMARY_MAX_CHARS) } : {}),
-    };
-  });
-}
-
-/** 工作记忆记录 → LLM 消息窗口（A1-hotfix 配对防御，纯函数导出供单测）：
- *  ① 孤儿 toolResult（配对 assistant toolCall 不在窗内——脏 KV/裁剪残留）
- *    丢弃；② assistant toolCall 无后续结果 → 追加合成 toolResult 占位
- *    （STEWARD_MISSING_TOOL_RESULT_TEXT）紧随其后。仅作用于送 LLM 的窗口，
- *    不改 KV 存储与 history 回放读面（UI 显示照旧）。 */
-export function buildLlmWindow(records: readonly StewardHistoryRecord[]): StewardLlmMessage[] {
-  const callIds = new Set<string>();
-  const resultIds = new Set<string>();
-  for (const r of records) {
-    if (r.kind === "assistant" && r.toolCall !== undefined) callIds.add(r.toolCall.id);
-    else if (r.kind === "toolResult") resultIds.add(r.toolCallId);
-  }
-  const messages: StewardLlmMessage[] = [];
-  for (const r of records) {
-    if (r.kind === "toolResult") {
-      if (!callIds.has(r.toolCallId)) continue; // 孤儿：丢弃（自愈脏 KV，零迁移）
-      messages.push(recordToMessage(r));
-      continue;
-    }
-    messages.push(recordToMessage(r));
-    if (r.kind === "assistant" && r.toolCall !== undefined && !resultIds.has(r.toolCall.id)) {
-      messages.push({
-        role: "toolResult",
-        toolCallId: r.toolCall.id,
-        name: r.toolCall.name,
-        text: STEWARD_MISSING_TOOL_RESULT_TEXT,
-      });
-    }
-  }
-  return messages;
-}
-
-/** ask 过程事件面（A1 批：工具/thinking 过程对屏幕通道可见；由 handler 层
- *  接帧——点对点仅发发起连接。TTS 播报链路零接入（耳朵只听 assistant 结论）。 */
-export interface StewardAskEvents {
-  /** 文本生成段增量（V2.5 体验批）。 */
-  readonly onDelta?: (chunk: string) => void;
-  /** thinking 段级（一个完成态块一帧全量文本）。 */
-  readonly onThinking?: (block: string) => void;
-  /** 工具开始（name + 参数摘要）。 */
-  readonly onToolStart?: (name: string, argsSummary: string) => void;
-  /** 工具结束（name + 结果摘要）。 */
-  readonly onToolEnd?: (name: string, resultSummary: string) => void;
-}
-
-/** 任务清单读面窄接口（TaskQueryService.listTasks 注入）。 */
-export interface StewardTasksSource {
-  listTasks(filter: { status?: string }): readonly {
-    jobId: string;
-    title: string;
-    status: string;
-    /** 任务类型（= skill 名）；缺省消费面回落 "task"（additive——旧读面/测试
-     *  替身不携带）。 */
-    type?: string;
-    /** 归属项目徽章（projects 过滤判据）；缺省 = 无归属（additive）。 */
-    projects?: readonly string[];
-    /** 创建时间（ISO；时间窗过滤判据）；缺省 = 不入窗（additive）。 */
-    createdAt?: string;
-    progress: { stageName: string | null; batchesDone: number; batchesTotal: number; percent: number } | null;
-    error: string | null;
-  }[];
-}
-
-/** A2：会话元数据行（session_state 轻量读面——SessionRepositoryPort
- *  .listSessionMetadata 同形，additive entryCount 消息量级 + title 显式标题列）。 */
-export interface StewardSessionMetaRow {
-  readonly sessionId: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  /** 首条用户消息全文（title 推导源）；无用户消息的持久化会话为 null。 */
-  readonly firstUserText: string | null;
-  /** 显式会话标题（L1 投影修复批：createTitledSession 定格；投影优先于
-   * firstUserText 推导；additive——旧数据源缺省不携带）。 */
-  readonly title?: string;
-  /** 阶段演进主题（动态主题批：轮次锚点矫正产生；displayTitle 优先级
-   * title > topic > firstUserText；additive——旧数据源缺省不携带）。 */
-  readonly topic?: string;
-  /** 消息条目量级（json_array_length(entries)；查询面不可得 = null）。 */
-  readonly entryCount: number | null;
-}
-
-/** A2：L1 感知面（情景快照 + query_recent_work 数据源；快照降级容忍缺席）。 */
-export interface StewardSessionsSource {
-  /** 会话元数据轻量读面（updated_at 倒序）。 */
-  listSessionMetadata(): Promise<readonly StewardSessionMetaRow[]>;
-  /** 会话创建（SessionDirectoryPort.startDraftSession 同款窄面——与 shell
-   *  新建会话同一条服务路径；text = 首条消息文本兼 title 推导源）。 */
-  startDraftSession(text: string, mode?: string): Promise<{ sessionId: string }>;
-  /** 显式建标题会话（修复批① 死锁链）：同轨不同入口——createFresh 同一
-   *  构造路径，但不发送任何消息不点火引擎；零条目即 INSERT 一等可见，
-   *  title 进 meta 列（首条消息派生不覆盖）。createSession 执行体改调本面
-   *  （对照事故：startDraftSession(title) 把 title 当首条用户消息发送，
-   *  触发完整幽灵 agent run）。 */
-  createTitledSession(title: string): Promise<{ sessionId: string }>;
-  /** 会话存在性（驾驶舱批：deliver_to_session 提案前引导式校验——不存在
-   *  即拒绝提案，引导 LLM 用 query_recent_work 重查）。 */
-  sessionExists(sessionId: string): Promise<boolean>;
-  /** 轻量单会话标题查询（语音闭环批 ④：投递提案/回执念短标题——title >
-   *  topic > firstUserText，缺席 = undefined 回退 sessionId；避免全量
-   *  listSessionMetadata 拉表）。 */
-  sessionTitleOf?(sessionId: string): Promise<string | undefined>;
-  /** session 级投递执行面（驾驶舱批；确认闸后调用）：把用户输入投进目标
-   *  会话——复用主会话 steer 机制（运行中 → steer 队列；空闲 → 新轮次，
-   *  与用户在该会话页直接输入同语义）。delivered=false = 拒绝（detail 含
-   *  引导）；成功后由调用方广播 steward.navigate 切页。 */
-  deliverToSession(sessionId: string, text: string): Promise<{ delivered: boolean; detail: string }>;
-  /** 尾部消息投影读面（progress 批 M3——read_session 工具数据源）：单会话
-   *  最后 N 条 {role, text}（旧→新；opts 参数化批——entryOffset 翻页 /
-   *  maxEntryChars 单条截断覆盖，缺省 repo 层截 300）；sessionId 不存在
-   *  = undefined（引导层判据）。 */
-  readSessionTail(
-    sessionId: string,
-    tailEntries: number,
-    opts?: { entryOffset?: number; maxEntryChars?: number },
-  ): Promise<readonly { role: string; text: string }[] | undefined>;
-}
-
-/** A2：kg 项目解析面（KgProjectService 同款窄接口——spawn_review_task
- *  前置校验：项目存在性 + .kg 索引判定）。 */
-export interface StewardProjectsSource {
-  /** 项目名/绝对路径 → projectRoot；不在 workspace 扫描全集 = undefined。 */
-  resolve(project: string): string | undefined;
-  /** projectRoot 有 .helix-kg/kg.db（读面绝不新建库）。 */
-  hasIndex(projectRoot: string): boolean;
-}
-
-/** 批A（管家开放 kg 只读工具）：项目知识只读检索面——实现体 = adapters/
- *  driven/tools/kg/StewardKgTool.ts createStewardKgSource（复用 createKgTool
- *  语义：search = digest+指针形态摘要行 / get = 节点全量；全链路零写——
- *  本域不提供任何 kg 写原语，写面不进管家工具面）。渲染文本直接过
- *  capToolResultText 体量护栏。 */
-export interface StewardKgSource {
-  /** 当前 kg 项目域（已建 .helix-kg 的项目根列表，workspace-scan/scanProjects
-   *  口径；空集 = absent 判定源——引导式降级，读面绝不新建库文件）。 */
-  kgProjects(): readonly string[];
-  /** 关键词检索（渲染文本）：projectRoot 缺省 = kg 项目域聚合（多项目分块
-   *  带【项目】头——调用方 resolveKgScope 已按当前项目口径先行解析，缺省
-   *  仅多项目/未绑定时到达）；指定 = 单项目范围。 */
-  search(q: string, projectRoot?: string): Promise<string>;
-  /** 节点全量读取（渲染文本）：nodeId 形态校验/查无节点在实现体抛中文引导
-   *  错，执行体兜底转文本不抛错不炸轮。 */
-  get(nodeId: string, projectRoot?: string): Promise<string>;
-}
-
-export interface StewardServiceDeps {
-  readonly llm: StewardLlmPort;
-  /** 编排面（status 只读 + send 写注入——agent_send 等价 steer 通道）。 */
-  readonly orchestration: Pick<AgentOrchestrationPort, "status" | "send">;
-  /** 任务清单只读面（TaskQueryService 注入）。 */
-  readonly tasks: StewardTasksSource;
-  /** 运行时配置 KV（开关 + 模型槽位持久化；缺省时同时充当工作记忆底座）。 */
-  readonly config: RuntimeConfigPort;
-  /** 工作记忆 KV（缺省 = StewardDialogMemory(config)——A1 批完整记录持久化）。 */
-  readonly dialog?: StewardDialogMemory;
-  /** 时钟（记录 at 时间戳；缺省 Date.now）。 */
-  readonly clock?: () => number;
-  /** 行为阈值现拍面（批 0 配置域：组合根接 resolveStewardTuning(runtimeConfig)
-   *  运行期即热；缺省 = STEWARD_TUNING_DEFAULTS 即原硬编码常量——零注入零
-   *  行为变化）。测试注入字面量免 mock 时钟跳拍。 */
-  readonly tuningOf?: () => StewardTuning;
-  /** feed 闸门读面（EventStream 连接级 steward 订阅表窄接口）。 */
-  readonly feedGate: { hasStewardSubscribers(): boolean };
-  /** feed 帧出口（组合根接 EventStream.broadcastStewardFeed）。 */
-  readonly emitFeed: (payload: StewardFeedPayload) => void;
-  /** 记忆落盘通知帧出口（memory_written 通知卡链；组合根接 EventStream
-   *  .broadcastStewardMemoryWritten——与 feed 同订阅闸；缺席 = 落盘零通知
-   *  （语义面零降级，仅通知缺席）。 */
-  readonly emitMemoryWritten?: (payload: StewardMemoryWrittenPayload) => void;
-  /** 页面导航出口（M0 表面协议地基批收编：组合根接 SurfaceRegistry
-   *  .act("navigate")——deliver_to_session 受理 / create_session 建成后
-   *  路由 surface.action {verb:"navigate"}；旧 steward.navigate 帧由 Registry
-   *  兼容镜像双发，M1 前检查点删除。域层纯 payload 端口零组帧。
-   *  缺席 = 无切页指令（语义面零降级，仅行为缺席）。 */
-  readonly emitNavigate?: (payload: StewardNavigatePayload) => void;
-  /** M2 表面消费面（四泛型工具 surface_list/snapshot/read/act 执行体——
-   *  StewardSurfacePort；act 经确认闸后走同一动作管道）。缺席 = 四工具
-   *  引导式降级（零抛错，对话主链路不受影响）。 */
-  readonly surfaces?: StewardSurfacePort;
-  /** A2：L1 感知面（快照 + query_recent_work + create_session 执行面）。
-   *  缺席 = 无快照段/query_recent_work 降级提示/create_session 引导式不可用
-   *  ——感知查询绝不能挡住对话主链路（缺席零抛错）。 */
-  readonly sessions?: StewardSessionsSource;
-  /** A2：kg 项目解析面（spawn_review_task 前置校验；缺席 = 项目校验降级
-   *  为存在性未知，直接进确认闸）。 */
-  readonly projects?: StewardProjectsSource;
-  /** 批A：kg 只读检索面（kg_search/kg_get 执行体——StewardKgSource；
-   *  缺席 = 引导式降级（零抛错），对话主链路零影响。 */
-  readonly kg?: StewardKgSource;
-  /** A2：任务创建面（task_create 同款引擎通道——paramsSchema 校验在引擎，
-   *  TaskError message 原样透传；method 语法容忍 CreateTaskInput 逆变）。 */
-  readonly taskEngine?: {
-    createTask(input: {
-      type: string;
-      projects: readonly string[];
-      params: Record<string, unknown>;
-      createdBy: "page" | "chat" | "auto";
-    }): Promise<{ jobId: string }>;
-  };
-  /** A2：code-review 前置校验——项目 git 仓存在性（组合根 fs 注入；
-   *  application 零直接 IO）。 */
-  readonly hasGitRepo?: (projectRoot: string) => boolean;
-  /** 引擎构造工厂（段B翻转：唯一配方 buildStewardEngine 的 application 面——
-   *  生产装配（组合根）与测试（剧本 streamFnOverride）共用同一 driven 配方；
-   *  首问时懒调用（dialog 回填 initialMessages 需懒加载后取）。 */
-  readonly createEngine: (opts: StewardEngineAssemblyOptions) => AgentEnginePort;
-  /** 引擎事件出口（追踪可见性——组合根接 domain_events 投影：
-   *  AgentEngineEvent → DomainEvent{instanceId:"steward"} 落库；缺席 =
-   *  零落库零广播，对话主链路零降级）。 */
-  readonly emitEngineEvent?: (event: AgentEngineEvent) => void;
-  /** 压缩参数覆盖（thresholdTokens/keepRecent 缺省回落导出常量；本体能力
-   *  = pi CompactionHook（turn 边界）经 createEngine 装配——同轨共享钩子）。 */
-  readonly compaction?: { readonly thresholdTokens?: number; readonly keepRecent?: number };
-  /** 管家记忆 B1：长期记忆编排面（召回段注入 + remember 执行体 + 配置读写）。
- *  缺席 = 记忆整体降级不可用（recall 零段/remember 引导拒/配置面
- *  available=false）——对话主链路零影响。 */
-  readonly memory?: StewardMemoryService;
-  /** 分诊判官配置与判定面（分诊判官接入批：steward.set_config {triage}
- *  组读写 + 感知服务判定依赖同源真体；缺席 = triage 组读写降级不可用
- *  + 判定面不启用——回退现行 LLM JSON 路径）。 */
-  readonly triageJudge?: TriageJudgeFace;
-  /** M3-a 意图判别判定面（判官第五消费面——词表未命中 ∧ pending 卡在场
-   *  时的泛化判定：确认/取消/修正三问 noul 分流；缺席/关闭/未配/抛错 →
-   *  回退词表后行为（原样走 LLM），零劣化。与分诊判官共享开关与端点
-   *  （组合根 makeIntentJudgeFace 单源闭包）。 */
-  readonly intentJudge?: IntentJudgeFace;
-  /** 当前项目口径解析（项目隔离批引入；kg 缺省范围批起双消费面）：返回
- *  workspace 一级项目目录名（workspace 绑定根 + 一级目录扫描的单项目口径
- *  ——记忆召回与 kg_search/kg_get 缺省范围共用同源，不另造口径判定）；多
- *  项目/未绑定/未注入 → undefined = 召回只 global / kg 缺省聚合兑底。 */
-  readonly memoryProject?: () => string | undefined;
-  /** M3-d1 感知兑现批：最近活动条目读面（活动账白话行——组合根接
-   *  StewardActivityService.recent(N)；快照活动段数据源。**静默降级**：
-   *  读面抛错/缺席 → 快照仅基础段（assembleStewardSystemPrompt 附加段
-   *  缺席 = 原样静态段语义），绝不阻塞对话主链路。） */
-  readonly recentActivity?: () => readonly { at: number; domain: string; attribution: string; text: string }[];
-  /** 管家感知批（M0.5）：用户 ask 活动信号（感知服务激活衰减窗点亮——
-   *  响应环点亮主动环，D12-⑪；组合根接 StewardPerceptionService
-   *  .noteUserActivity；缺席 = 零信号）。 */
-  readonly onUserActivity?: () => void;
-  /** 回合终态感知批：投递成功回调（感知服务投递关注注册——该会话回合
-   *  结束即命中分诊锚「那边回完了」；组合根接 noteDelivered；缺席 =
-   *  零关注注册，回合终态只入 ring 零 LLM）。 */
-  readonly onDelivered?: (sessionId: string, text?: string) => void;
-  /** 可靠性批：生命周期日志（run 开始/收口/挂闸暂停 info + 看门狗/TTL warn；
-   *  info 可选——旧装配只带 warn 时降级只出 warn）。 */
-  readonly logger?: { info?(message: string): void; warn(message: string): void };
-  /** 可靠性批：确认卡 TTL 作废的 action.completed 广播出口（组合根接
-   *  EventStream.broadcastStewardActionCompleted——与 feed 同订阅闸，多窗
-   *  卡栈同步收口；缺席 = 作废仅 daemon 侧簿记零广播）。 */
-  readonly emitActionCompleted?: (payload: StewardActionCompletedPayload) => void;
-  /** 可靠性批：用户提醒出口（挂起恢复/确认可达性/TTL 作废三提醒帧——组合根
-   *  接 EventStream.broadcastStewardNotify；缺席 = 零提醒）。 */
-  readonly emitNotify?: (payload: StewardNotifyPayload) => void;
-  /** 光球健康角标批：子系统健康上报出口（组合根接
-   *  EventStream.reportStewardHealth——同态去重在出口把门；缺席 = 零帧）。
-   *  触发面：judge（判官降级/恢复）/ llm（run 级失败/恢复）。 */
-  readonly emitHealth?: (
-    component: "judge" | "tts" | "stt" | "llm",
-    status: "degraded" | "ok",
-    reason?: string,
-  ) => void;
-  /** M3-a：对话内主动汇报实时帧出口（CAND-601 闭环——组合根接
-   *  EventStream.broadcastStewardProactive；缺席 = 零帧，工作记忆记录照写
-   *  ——语义面零降级，仅实时性缺席）。 */
-  readonly emitProactive?: (payload: StewardProactivePayload) => void;
-}
 
 /** 确认闸目标（面板两行渲染语义重载：send = 递话目标实例；createSession /
  *  spawnReview = 动作标识；deliverSession = 递话目标会话；surfaceAct = 表面
@@ -1180,247 +717,83 @@ export const GATED_TOOLS: ReadonlySet<string> = new Set([
   // 通知，不再挂确认卡；防误吞闸仍由 directRemember 内校验承担）。
 ]);
 
-/** 挂闸中待确认项（pause 态的 resume 凭据 + 提案动作——actionId 单次消费）。 */
-// PendingEntry 已迁确认闸聚合域（domain/steward/confirmation——批 1）。
-
-/** 排队 ask 项（方案甲自持队列——E-197 行为等价：上限/收口后自动下一轮/
- *  queued 双帧回执；events/deliver 是应用面载荷（pi followUp 队列不自动
- *  开 run——E-239，自持队列 + agent_end 驱动）。 */
-interface StewardAskItem {
-  readonly text: string;
-  readonly events: StewardAskEvents;
-  readonly deliver?: (payload: StewardAskResultPayload) => void;
-}
-
-/** 引擎装配上下文（createEngine 入参——application 中立形状，driven 侧
- *  buildStewardEngine 唯一配方消费）。 */
-export interface StewardEngineAssemblyOptions {
-  readonly systemPrompt: string;
-  readonly tools: readonly StewardToolSpec[];
-  readonly gatedTools: ReadonlySet<string>;
-  readonly persistentListener: AgentEngineListener;
-  readonly initialMessages: readonly StewardLlmMessage[];
-  readonly compaction?: {
-    readonly thresholdTokens: number;
-    readonly keepRecent: number;
-    readonly summarizeInstructions?: string;
-    /** 触发档位（缺省 request——管家纯问答轮也压）。 */
-    readonly trigger?: "turn" | "request";
-    /** 摘要单轮执行体（缺省 = deps.llm.complete 无工具形态）。 */
-    readonly summarize?: (systemPrompt: string, messages: readonly StewardLlmMessage[]) => Promise<string>;
-  };
-}
-
 export class StewardService implements StewardComponent {
-  private readonly deps: StewardServiceDeps;
-  /** 工作记忆 KV（完整记录持久化——thinking/工具/对话全形态；daemon 重启
-   *  后懒加载恢复，A1 批取代裸内存数组）。 */
-  private readonly dialog: StewardDialogMemory;
-  private readonly now: () => number;
-  /** 行为阈值现拍面（批 0：缺省 STEWARD_TUNING_DEFAULTS；组合根接 KV 现拍
-   *  运行期即热——每 tick 消费成本可忽略）。 */
-  private readonly tuningOf: () => StewardTuning;
-  /** 确认闸聚合（批 1：pending 卡集合 + 终局登记簿 + 卡生命周期判定——
-   *  domain/steward/confirmation/ProposalLedger 纯状态机，本服务只做编排
-   *  与出站翻译；行为零变更）。 */
-  private readonly ledger: ProposalLedger;
-  /** 工具面（批 3a 收编 tools/StewardToolKit——registerTools/挂闸/工具体）。 */
-  private readonly toolKit: StewardToolKit;
-  private feedSeq = 0;
+  /** 共享内核（依赖注入面 + 可达状态 + 伴随编排态；体量门 P4）。 */
+  private readonly core: StewardCore;
+  /** 分诊路由域（ask 判定漏斗 + 确认闸门禁）。 */
+  private readonly routing: StewardRouting;
 
-  /** 八工具中立规格（createEngine 装配面——委托 toolKit 观测面）。 */
-  private get toolSpecs(): readonly StewardToolSpec[] {
-    return this.toolKit.toolSpecs;
+  constructor(deps: StewardServiceDeps) {
+    this.core = new StewardCore(deps);
+    // 协作面（分诊路由域 → run 驱动 / 提醒播报；过渡期先指回本服务，
+    // 生命周期域/播报域迁出后改为直连对应域实例）
+    this.routing = new StewardRouting(this.core, {
+      driveAsk: (item) => this.driveAsk(item),
+      emitLifecycleNotify: (urgency, title, body) => this.emitLifecycleNotify(urgency, title, body),
+    });
+    this.core.bindDomains({ routing: this.routing });
+  }
+
+  /** 八工具中立规格（createEngine 装配面——委托内客观测面）。 */
+  private get toolSpecs() {
+    return this.core.toolSpecs;
   }
 
   /** 隐藏面板原语名（不进引擎工具面——getProfile 观测面合并显示）。 */
-  private get hiddenToolNames(): readonly string[] {
-    return this.toolKit.hiddenToolNames;
-  }
-  /** 段B翻转：pi 引擎（懒构造——首问时经 createEngine 唯一配方装配，
-   *  dialog 懒加载回填 initialMessages）。 */
-  private engine: AgentEnginePort | undefined;
-  /** 当前 run 的挂闸提案候选（confirm_required 回执映射锚——每 run 重置）。 */
-  private currentPause: { actionId: string; action: PendingAction }[] = [];
-  /** ask 自持队列（批 2 收编 AskQueue 值对象——上限 tuning.ask.queueMax 即热，
-   *  E-197 行为等价：FIFO 不丢/满拒新/收口后自动下一轮）。 */
-  private readonly askQueue: AskQueue<StewardAskItem>;
-  /** 当前 run 驱动的 ask 项（收口 deliver 回执锚）。 */
-  private pendingRunAsk: StewardAskItem | undefined;
-  /** ask promise 收口器（confirm_required 在 engine_paused 即收，其余 agent_end）。 */
-  private askSettler: ((payload: StewardAskResultPayload) => void) | undefined;
-  /** 当前 run 事件投影链（KV 写入与收口定序——事件乱序投影即数据竞争）。 */
-  private projectionChain: Promise<void> = Promise.resolve();
-  /** 当前 ask 的流式回调（事件转发面）。 */
-  private askStreamEvents: StewardAskEvents = {};
-  /** run 收口通知（driveAsk 的 abort-再驱动路径等 settle）。 */
-  private runSettled: Promise<void> = Promise.resolve();
-  /** run 收口通知标记（runSettled promise 的 resolve 句柄）。 */
-  private runSettledMark: (() => void) | undefined;
-  /** ── 批 2（DDD 重构）：run 状态容器收编原 6 散字段（runActive/
-   *  runLastProgressAt/watchdogFiredAt/manualAbortAt/pausedGateToken/
-   *  runState——注释语义与事故史随字段迁 domain/steward/run/StewardRun；
-   *  锚清理只经容器迁移方法，「三处清锚」从根上消灭）。伴随编排态
-   *  （askSettler/pendingRunAsk/askStreamEvents/projectionChain/runSettled）
-   *  与 engine 代际守卫留应用层——与 promise 编排/引擎调用深度耦合。 ── */
-  private readonly run: StewardRun<StewardAskErrorKind>;
-  /** 当前 run 供判官/看门狗持有的代际号（occupy 时递增——异步判定只作用于发问时那一代）。 */
-  private runEpoch = 0;
-  /** 可靠性提醒帧序（emitNotify 单调 seq——与感知服务同构）。 */
-  private notifySeq = 0;
-  /** 主动汇报实时帧序（emitProactive 单调 seq——M3-a，与 notify 同构口径）。 */
-  private proactiveSeq = 0;
-  /** 可靠性批巡检定时器（生产 interval 句柄——start/stopReliabilityTimers；
-   *  测试不启定时器直接调 reliabilityTick 注入时钟）。 */
-  private reliabilityTimer: ReturnType<typeof setInterval> | undefined;
-
-  constructor(deps: StewardServiceDeps) {
-    this.deps = deps;
-    this.dialog = deps.dialog ?? new StewardDialogMemory();
-    this.now = deps.clock ?? (() => Date.now());
-    this.tuningOf = deps.tuningOf ?? (() => STEWARD_TUNING_DEFAULTS);
-    this.ledger = new ProposalLedger({ now: () => this.now() });
-    this.run = new StewardRun<StewardAskErrorKind>(() => this.now());
-    this.askQueue = new AskQueue<StewardAskItem>(() => this.tuningOf().ask.queueMax); // 批 2：上限现拍（KV 即热）
-    // 批 3a：工具面收编 StewardToolKit（deps 全量透传；executePending 不注入
-    // ——挂闸工具 execute 不直行写动作，确认执行体留在本服务 confirm 域）
-    this.toolKit = new StewardToolKit(deps);
+  private get hiddenToolNames() {
+    return this.core.hiddenToolNames;
   }
 
+  // ── 分诊路由域委托（StewardRouting）────────────────────────
+
+  /** 入站 ask（判定漏斗 + 排队接管——域内实现见 StewardRouting.ask）。 */
   async ask(
     text: string,
     events: StewardAskEvents = {},
     deliver?: (payload: StewardAskResultPayload) => void,
     source: StewardAskSource = "text",
   ): Promise<StewardAskResultPayload> {
-    if (typeof text !== "string" || text.trim() === "") {
-      return { status: "error", reason: "payload.text 应为非空 string" };
-    }
-    if (!this.isEnabled()) {
-      return {
-        status: "error",
-        reason: "管家未开启：请在设置页 → 通用配置开启（开关关 = 零 LLM 调用）",
-      };
-    }
-    // 感知激活信号②：ask 即点亮衰减窗（一问即入激活——响应环点亮主动环）
-    this.deps.onUserActivity?.();
-    // 确认口令路由（确认链路修复批③，事故 12:27:45 实锤：「确认了很多遍」
-    // 被当新指令又弹卡）：pending 卡存在时纯文本口令绑定最近一张卡消费/作废
-    // ——零 LLM 零新提案；无 pending 卡时原样走 LLM。极轻判定先于队列语义
-    //（挂闸阻塞中口令确认 = 面板点卡的等价入口）。
-    const phrase = matchStewardCommandPhrase(text);
-    if (phrase !== undefined) {
-      const routed = this.routeConfirmPhrase(phrase);
-      if (routed !== undefined) return routed;
-    }
-    // 强制停止判定（Jev 单轨——停止词表退役批）：在途 run 时停止意图判官
-    // 判停 → 全停（abort 当前 + 清空排队，回执携丢弃条数）；判不出（判官
-    // 缺席/抛错/降级）照常走队列（fail-open 归漏斗面——不吞用户提问、不动
-    // 队列序不变量；shell 打断链的 fail-stop 归其消费面）；无在途原样走 LLM
-    // （停止判定仅在场触发，TR-240 同款纪律）。挂闸阻塞态判停同样全停（旧
-    // 逻辑会把停止表达当新 ask abort-再驱动——语义错位）；pending 卡不动
-    //（卡生命周期 TTL 域独立）。
-    if (this.run.active) {
-      // 判定 await 竞态守卫（评审 low #2）：判官判定是异步 LLM 调用，期间在途
-      // run 可能自然收口（判停结论悬空）或被排队接管换代（新 run 与这句停止
-      // 表达无关）。记下发问时的 run 代际号（runEpoch，occupy 递增）再判定：
-      // ——同 run 仍在途：全停（abort + 清队列）；
-      // ——run 已自然收口：停止表达不回落成新一轮 LLM 提问（清队列 + stopped
-      //   回执），而不是当新问题再交一次 LLM；
-      // ——run 已换代（后继在途）：判停结论对后继无失（后代在服队列里的旧
-      //   ask），不误杀后继（abortInFlight 会杀掉它）——交回正常漏斗排队，
-      //   与判官缺席的 fail-open 同姿态。
-      const epochAtJudge = this.runEpoch;
-      const stopVerdict = await this.judgeStopIntent(text);
-      if (stopVerdict.stop) {
-        const sameRunInFlight = this.run.active && this.runEpoch === epochAtJudge;
-        if (sameRunInFlight) {
-          const dropped = this.askQueue.clearAll();
-          this.abortInFlight("停止判定全停");
-          this.logInfo(`管家手动停止（停止判定判停）：丢弃排队 ${dropped} 条`);
-          return { status: "stopped", reason: "已停止当前处理", dropped };
-        }
-        if (!this.run.active) {
-          const dropped = this.askQueue.clearAll();
-          this.logInfo(`管家手动停止（判定期间 run 已收口）：丢弃排队 ${dropped} 条`);
-          return { status: "stopped", reason: "已停止当前处理", dropped };
-        }
-      }
-    }
-    // 判官泛化层（M3-a：三级漏斗第二级）：词表未命中 ∧ pending 卡在场 →
-    // 判官 noul 三问分流「确认/取消/修正」。确认/取消复用口令路由执行面
-    //（零 LLM 零新提案）；修正 = 撤旧卡 + 按修正后意图新开（一次 LLM 带卡
-    // 全文上下文）；三问皆低 = 无关新任务原样走 LLM。判官缺席/关闭/未配/
-    // 抛错 → 回退词表后行为零劣化（judgePendingIntent 内降级链）。挂闸
-    // 阻塞中泛化确认 = 面板点卡的等价入口（与口令路由同构）。
-    if (phrase === undefined) {
-      // 判官泛化层先判（层序修复批：卡在场是最强的「对谁说」证据）——
-      // 原序 addressee 先判，其问句不带卡上下文，确认卡在场期间主人的自然
-      // 回应（「就这么办」「对对对赶紧弄」——词表未命中短句，无称呼无指令
-      // 特征）恒判环境音 dropped，永远轮不到带卡全文的泛化判定（用户实锤）。
-      // 声纹总闸已在 shell 层拦旁人（reject 整轮终止）——本层只防「主人对
-      // 房间里其他人说话」，卡在场时让位：confirm/cancel/revise 分流在前，
-      // 三问皆低才退回 addressee 判定。
-      const generalized = await this.judgePendingIntent(text);
-      if (generalized !== undefined && generalized.intent === "revise") {
-        text = generalized.revisedText; // 修正轮输入替换（带卡全文上下文——不再 addressee）
-      } else {
-        if (generalized !== undefined) {
-          const routed = this.routeConfirmPhrase(generalized.intent);
-          if (routed !== undefined) return routed;
-          // 卡在分类与路由间消失（TTL/并发消费）：零差异回退原样走 LLM
-        }
-        // addressee 判定（声纹→Jev 链路批）：双工常开麦收音段的「对谁说」
-        // 判定——词表未命中才判（词表全等 = 机械权威零判定）；声纹闸在 shell
-        // 已拦非用户，本层只判「用户本人是不是在叫管家」。旁人高置信 →
-        // dropped 静默丢弃；判官缺席/灰区/抛错 → 偏「当聊天」继续（宁多应答不漏）。
-        if (source === "voice-duplex" && (await this.judgeAddressee(text))) {
-          return { status: "dropped", reason: "ambient" };
-        }
-      }
-    }
-    // 暂停态（挂闸阻塞中）新 ask：loop 语义 = 旧 run 已 settle 过期、新 ask
-    // 照常（E-197 迁移前等价）——pi 映射：abort 阻塞中的 run（闸内 raceAbort
-    // 唤醒、工具不执行）→ 收口后驱动新 ask（确认卡保持有效：confirm 时
-    // pauseToken 已过期自然失效）。
-    if (this.run.active) {
-      if (this.run.gateToken !== undefined && this.engine !== undefined) {
-        this.engine.abort();
-        await this.runSettled;
-        return this.driveAsk({ text, events, ...(deliver !== undefined ? { deliver } : {}) });
-      }
-      if (!this.askQueue.tryPush({ text, events, ...(deliver !== undefined ? { deliver } : {}) })) {
-        return {
-          status: "error",
-          reason: `管家正在处理中，排队已满（上限 ${this.tuningOf().ask.queueMax} 条）——请稍后再试`,
-        };
-      }
-      return { status: "queued", queued: true, position: this.askQueue.length };
-    }
-    return this.driveAsk({ text, events });
+    return this.routing.ask(text, events, deliver, source);
   }
 
-  /** 在途轮 abort（幂等——非在途态 no-op 返回 false；挂闸阻塞中同样唤醒
-   *  收口）。收口后自持队列自动接管（序不变量：队列不丢）。手动停止批：
-   *  置位 manualAbortAt 快进锚——abort 打不醒的挂死流（E-240 实测）在宽限
-   *  后由快进轨强制收口，不等被动看门狗 180s。 */
+  /** 在途轮 abort（幂等轻停——队列照常）。 */
   abortInFlight(reason: string): boolean {
-    void reason;
-    if (!this.run.active || this.engine === undefined) return false;
-    this.run.noteAbort(); // 快进锚（手动停止批）
-    this.engine.abort();
-    return true;
+    return this.routing.abortInFlight(reason);
   }
 
-  /** 全停（批 3b 两轨裁决乙：语音停止判定通道，steward.interrupt scope=all）
-   *  ——与 ask 漏斗停止判定全停同径：abort 当前 + 清空 ask 队列。与轻停
-   *  （abortInFlight，队列照常）相对；幂等（无在途时清队列照常——队列在场
-   *  即有意义）。返回丢弃条数（日志用）。 */
+  /** 全停（abort 当前 + 清空排队；语音停止判定通道）。 */
   interruptAll(reason: string): number {
-    const dropped = this.askQueue.clearAll();
-    this.abortInFlight(reason);
-    if (dropped > 0) this.logInfo(`管家手动停止（${reason}）：丢弃排队 ${dropped} 条`);
-    return dropped;
+    return this.routing.interruptAll(reason);
+  }
+
+  /** 停止意图判定（协议面 steward.judge_stop_intent 单源）。 */
+  async judgeStopIntent(
+    text: string,
+  ): Promise<{ stop: boolean; score?: number; degraded?: "off" | "unready" | "error" }> {
+    return this.routing.judgeStopIntent(text);
+  }
+
+  /** 确认闸放行（两段式：受理即回 + 异步执行回执）。 */
+  async confirm(
+    actionId: string,
+    onCompleted?: (payload: StewardActionCompletedPayload) => void,
+  ): Promise<StewardConfirmResultPayload> {
+    return this.routing.confirm(actionId, onCompleted);
+  }
+
+  /** 确认卡作废（幂等；作废即终局）。 */
+  cancel(actionId: string): void {
+    this.routing.cancel(actionId);
+  }
+
+  /** 在途确认卡快照（steward.pending.snapshot 对账/跨重启清场）。 */
+  pendingSnapshot(): readonly string[] {
+    return this.routing.pendingSnapshot();
+  }
+
+  /** 开关现态（money gate 读面）。 */
+  isEnabled(): boolean {
+    return this.core.isEnabled();
   }
 
   /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt
@@ -1434,8 +807,8 @@ export class StewardService implements StewardComponent {
    *  多一个 run 在途；E-240 队列行为断言面不变）。装配异常兑底：占位后若
    *  装配失败，释放占位并收口 error 回执（防 runActive 永真死锁队列）。 */
   private driveAsk(item: StewardAskItem): Promise<StewardAskResultPayload> {
-    this.run.occupy(); // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
-    this.runEpoch += 1; // run 代际号（评审 low #2：异步判定回来时认「是不是同一个 run」）
+    this.core.run.occupy(); // 单飞同步占位（零 await 间隙——ask 检查面立即可见）
+    this.core.runEpoch += 1; // run 代际号（评审 low #2：异步判定回来时认「是不是同一个 run」）
     const run = this.assembleAndRun(item);
     run.catch(() => undefined); // 兕底异常不经本链传播（收口在内部处理）
     return run;
@@ -1448,20 +821,20 @@ export class StewardService implements StewardComponent {
       // 装配段异常（快照/记忆召回/引擎构造失败）：占位必须释放（占位提前后
       // 的必需兑底——否则 runActive 永真死锁队列）；收口 error 回执后返。若
       // runActive 已被 finishRun/看门狗复位（收口后竞态），原样上抛。
-      if (!this.run.active) throw err;
-      this.run.assemblyFailed(); // 批 2：释放占位 + 清锚（不误伤下一 run）
-      this.runSettledMark?.();
-      this.runSettledMark = undefined;
+      if (!this.core.run.active) throw err;
+      this.core.run.assemblyFailed(); // 批 2：释放占位 + 清锚（不误伤下一 run）
+      this.core.runSettledMark?.();
+      this.core.runSettledMark = undefined;
       const payload: StewardAskResultPayload = {
         status: "error",
         reason: `引擎装配异常：${(err as Error).message}`,
         errorKind: "engine-exception",
       };
       this.settleAsk(payload);
-      this.deps.logger?.warn(
-        `管家 run 收口：error（分类：engine-exception；原因：引擎装配异常：${capChars((err as Error).message, 200)}；排队 ${this.askQueue.length} 条）`,
+      this.core.deps.logger?.warn(
+        `管家 run 收口：error（分类：engine-exception；原因：引擎装配异常：${capChars((err as Error).message, 200)}；排队 ${this.core.askQueue.length} 条）`,
       );
-      const next = this.askQueue.shift();
+      const next = this.core.askQueue.shift();
       if (next !== undefined) {
         void this.driveAsk(next).catch(() => undefined);
       }
@@ -1470,7 +843,7 @@ export class StewardService implements StewardComponent {
   }
 
   private async assembleAndRunInner(item: StewardAskItem): Promise<StewardAskResultPayload> {
-    this.dialog.ensureLoaded();
+    this.core.dialog.ensureLoaded();
     const systemPrompt = assembleStewardSystemPrompt(
       await this.buildSnapshotSafely(),
       // 记忆批（同轨换轨）：机械召回注入退役（原 recallSection(item.text)
@@ -1480,29 +853,29 @@ export class StewardService implements StewardComponent {
       // 语音闭环批 ①：在途提案段（LLM 路径上下文增强——pending 非空时引导
       // 把用户补充话语对齐确认/取消/目标修正，对齐失败才按新指令；词表快路径
       //（TR-240）在 ask 入口先行，两者叠加不冲突）
-      buildPendingProposalsSection(this.ledger.entries().map((e) => e.action)),
+      buildPendingProposalsSection(this.core.ledger.entries().map((e) => e.action)),
     );
-    if (this.engine === undefined) {
-      const keepRecent = this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT;
+    if (this.core.engine === undefined) {
+      const keepRecent = this.core.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT;
       // 代际守卫：persistentListener 捕获本引擎引用——clearHistory 弃旧引擎后
       // 其残余事件（abort 收口帧）不再进入服务面（防污染新 run 状态）
       let engineRef: AgentEnginePort;
-      engineRef = this.deps.createEngine({
+      engineRef = this.core.deps.createEngine({
         systemPrompt,
-        tools: this.toolSpecs,
+        tools: this.core.toolSpecs,
         gatedTools: GATED_TOOLS,
         persistentListener: (event) => {
-          if (this.engine === engineRef) this.onEngineEvent(event);
+          if (this.core.engine === engineRef) this.onEngineEvent(event);
         },
-        initialMessages: this.dialogSnapshotMessages(),
+        initialMessages: this.core.dialogSnapshotMessages(),
         compaction: {
-          thresholdTokens: this.deps.compaction?.thresholdTokens ?? STEWARD_COMPACTION_THRESHOLD_TOKENS,
+          thresholdTokens: this.core.deps.compaction?.thresholdTokens ?? STEWARD_COMPACTION_THRESHOLD_TOKENS,
           keepRecent,
           summarizeInstructions: STEWARD_COMPACTION_SUMMARY_PROMPT,
           summarize: async (_systemPrompt, messages) => {
             // 管家摘要身份自带（STEWARD_COMPACTION_SUMMARY_PROMPT）——pi 侧
             // systemPrompt 是英文常量（customInstructions 落 user 消息不落 sys）
-            const response = await this.deps.llm.complete({
+            const response = await this.core.deps.llm.complete({
               systemPrompt: STEWARD_COMPACTION_SUMMARY_PROMPT,
               messages,
               tools: [],
@@ -1514,27 +887,27 @@ export class StewardService implements StewardComponent {
           },
         },
       });
-      this.engine = engineRef; // 代际守卫锚（listener 闭包比对同一引用）
+      this.core.engine = engineRef; // 代际守卫锚（listener 闭包比对同一引用）
     } else {
-      this.engine.setSystemPrompt?.(systemPrompt);
+      this.core.engine.setSystemPrompt?.(systemPrompt);
     }
-    this.run.begin(); // 批 2：run 开始赋值块（幂等占位/锚定推进锚/清双锚/重置 runState/清 gate 锚）
-    this.logInfo(`管家 run 开始：${item.text.slice(0, 40)}`);
-    this.pendingRunAsk = item;
-    this.askStreamEvents = item.events;
-    this.currentPause = [];
+    this.core.run.begin(); // 批 2：run 开始赋值块（幂等占位/锚定推进锚/清双锚/重置 runState/清 gate 锚）
+    this.core.logInfo(`管家 run 开始：${item.text.slice(0, 40)}`);
+    this.core.pendingRunAsk = item;
+    this.core.askStreamEvents = item.events;
+    this.core.currentPause = [];
     const settled = new Promise<StewardAskResultPayload>((resolve) => {
-      this.askSettler = resolve;
+      this.core.askSettler = resolve;
     });
     let markSettled!: () => void;
-    this.runSettled = new Promise<void>((resolve) => {
+    this.core.runSettled = new Promise<void>((resolve) => {
       markSettled = resolve;
     });
-    this.runSettledMark = markSettled;
+    this.core.runSettledMark = markSettled;
     // run 收口由 start() promise 驱动（agent_end 事件早于 pi run promise 收口
     // ——事件面 settle 会与引擎 busy 态竞态：队列驱动 start 撞「already
     // processing」；promise 面收口 = 真 idle 保证）
-    void this.engine!
+    void this.core.engine!
       .start(item.text, () => undefined)
       .then(() => {
         this.enqueueProjection(async () => {
@@ -1551,15 +924,15 @@ export class StewardService implements StewardComponent {
 
   /** 引擎事件入口（persistentListener——trace 出口 + 流式回调转发 + 顺序化投影）。 */
   private onEngineEvent(event: AgentEngineEvent): void {
-    this.run.touch(); // 看门狗推进锚（任何引擎事件 = 活跃）
-    this.deps.emitEngineEvent?.(event);
+    this.core.run.touch(); // 看门狗推进锚（任何引擎事件 = 活跃）
+    this.core.deps.emitEngineEvent?.(event);
     this.forwardStreamCallbacks(event);
     // 轮数熔断（同步判定——async 投影链赶不上无思考工具风暴；abort 越早越省）
     if (event.type === "tool_execution_start") {
-      this.run.state.toolCalls += 1;
-      if (this.run.state.toolCalls > this.tuningOf().run.maxToolRounds && !this.run.state.roundLimit) {
-        this.run.state.roundLimit = true;
-        this.engine?.abort();
+      this.core.run.state.toolCalls += 1;
+      if (this.core.run.state.toolCalls > this.core.tuningOf().run.maxToolRounds && !this.core.run.state.roundLimit) {
+        this.core.run.state.roundLimit = true;
+        this.core.engine?.abort();
       }
     }
     this.enqueueProjection(() => this.projectEngineEvent(event));
@@ -1567,8 +940,8 @@ export class StewardService implements StewardComponent {
 
   /** 投影链追加（顺序化：KV 写入与收口/队列驱动严格定序）。 */
   private enqueueProjection(step: () => Promise<void>): void {
-    this.projectionChain = this.projectionChain.then(step).catch((err) => {
-      this.deps.logger?.warn(`管家事件投影异常：${(err as Error).message}`);
+    this.core.projectionChain = this.core.projectionChain.then(step).catch((err) => {
+      this.core.deps.logger?.warn(`管家事件投影异常：${(err as Error).message}`);
     });
   }
 
@@ -1580,7 +953,7 @@ export class StewardService implements StewardComponent {
    *  「按字一行」事故形态。改为 message_end 完成块聚合发帧（与 KV 投影
    *  thinkingBlocks 同源同文本）。 */
   private forwardStreamCallbacks(event: AgentEngineEvent): void {
-    const ev = this.askStreamEvents;
+    const ev = this.core.askStreamEvents;
     if (ev.onDelta !== undefined && event.type === "message_update") {
       ev.onDelta(event.delta);
     } else if (ev.onThinking !== undefined && event.type === "message_end" && event.role !== "user" && event.role !== "toolResult") {
@@ -1603,7 +976,7 @@ export class StewardService implements StewardComponent {
         await this.projectMessageEnd(event);
         return;
       case "engine_error":
-        if (this.run.state.softError === undefined) this.run.state.softError = event.message;
+        if (this.core.run.state.softError === undefined) this.core.run.state.softError = event.message;
         return;
       case "tool_execution_start":
         return; // 计数与熔断在 onEngineEvent 同步段（见上）
@@ -1616,9 +989,9 @@ export class StewardService implements StewardComponent {
         // 转换为摘要消息注入上下文，压缩机制语义不变，仅落库与 UI 回放退出
         // user 轮域——2026-10-07 事故「## Goal（无…）压缩器工作规则」被渲染
         // 成用户发言的污染形态根修）。
-        await this.dialog.compact(
-          { kind: "compaction", text: event.summary, at: this.now() },
-          this.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
+        await this.core.dialog.compact(
+          { kind: "compaction", text: event.summary, at: this.core.now() },
+          this.core.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT,
         );
         return;
       case "agent_end":
@@ -1635,28 +1008,28 @@ export class StewardService implements StewardComponent {
     if (event.role === "user") {
       // E-198 截断标记（AbortShaping 注入——固定常量文本非用户输入）照常
       // 入账（回放完整性）；user 形态记录统一带 at。
-      const at = this.now();
-      await this.pushRecord({ kind: "user", text: event.text, at });
+      const at = this.core.now();
+      await this.core.pushRecord({ kind: "user", text: event.text, at });
       return;
     }
     if (event.role === "toolResult") {
-      await this.pushRecord({
+      await this.core.pushRecord({
         kind: "toolResult",
         toolCallId: event.toolCallId ?? "",
         name: event.toolName ?? "",
         text: event.text,
-        at: this.now(),
+        at: this.core.now(),
       });
       return;
     }
-    if (event.stopReason === "aborted") this.run.state.sawAborted = true;
+    if (event.stopReason === "aborted") this.core.run.state.sawAborted = true;
     if (event.stopReason === "error") {
       // 回执文案前缀（与迁移前 streamFn 包装等价——provider 原文随附）；
       // 事故热修批⑦：分类锚定 model-failure（provider 流错误——与工具面
       // aborted / 闸面 terminate 分记，收口日志不再一律记成模型失败）
-      this.run.state.hardError =
-        event.text.trim() !== "" ? `模型调用失败：${event.text}` : this.run.state.hardError ?? "模型调用失败";
-      this.run.state.hardErrorKind = "model-failure";
+      this.core.run.state.hardError =
+        event.text.trim() !== "" ? `模型调用失败：${event.text}` : this.core.run.state.hardError ?? "模型调用失败";
+      this.core.run.state.hardErrorKind = "model-failure";
       return; // error 消息不入 KV（半成品）——错误经回执交代
     }
     const blocks = event.blocks ?? [];
@@ -1666,17 +1039,17 @@ export class StewardService implements StewardComponent {
     const toolCall = blocks.find((b): b is Extract<typeof b, { type: "toolCall" }> => b.type === "toolCall");
     const thinkingBlocks = blocks.filter((b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking");
     const text = toolCall !== undefined || event.text.trim() !== "" ? event.text : "（无回答）";
-    if (toolCall === undefined && event.text.trim() !== "") this.run.state.lastAnswerText = event.text;
+    if (toolCall === undefined && event.text.trim() !== "") this.core.run.state.lastAnswerText = event.text;
     const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
     const signature = thinkingBlocks.find((b) => b.signature !== undefined && b.signature !== "")?.signature;
-    await this.pushRecord({
+    await this.core.pushRecord({
       kind: "assistant",
       ...(text !== "" || toolCall !== undefined ? { text } : {}),
       ...(thinkingText !== ""
         ? { thinking: signature !== undefined ? { text: thinkingText, signature } : { text: thinkingText } }
         : {}),
       ...(toolCall !== undefined ? { toolCall: { id: toolCall.id, name: toolCall.name, args: toolCall.args } } : {}),
-      at: this.now(),
+      at: this.core.now(),
     });
   }
 
@@ -1684,7 +1057,7 @@ export class StewardService implements StewardComponent {
   private async handleEnginePaused(
     event: Extract<AgentEngineEvent, { type: "engine_paused" }>,
   ): Promise<void> {
-    const gated = await this.toolKit.gateWriteTool({
+    const gated = await this.core.toolKit.gateWriteTool({
       runId: "",
       toolCallId: event.toolCallId,
       toolName: event.toolName,
@@ -1693,19 +1066,19 @@ export class StewardService implements StewardComponent {
     if (!gated.pause) {
       // read 档直行（M2 act）：approve 放行——工具正常执行（免确认直行）
       if (gated.approve === true) {
-        await this.engine?.resume?.(event.pauseToken, { kind: "approve" });
+        await this.core.engine?.resume?.(event.pauseToken, { kind: "approve" });
         return;
       }
       // 校验未过直出（原 pause:false + outcome 路径）：guidance → reject
       // （模型知情续跑）；terminate → resolve 翻译（结果入账 + run 终结）。
       const outcome = gated.outcome;
       if (outcome !== undefined && outcome.kind === "terminate") {
-        this.run.state.hardError = outcome.reason;
-        this.run.state.hardErrorKind = "engine-error"; // 闸面终止（非模型失败——分记）
-        await this.engine?.resume?.(event.pauseToken, { kind: "resolve", text: outcome.reason });
+        this.core.run.state.hardError = outcome.reason;
+        this.core.run.state.hardErrorKind = "engine-error"; // 闸面终止（非模型失败——分记）
+        await this.core.engine?.resume?.(event.pauseToken, { kind: "resolve", text: outcome.reason });
       } else {
         const text = outcome !== undefined && outcome.kind === "result" ? outcome.text : "提案未通过校验";
-        await this.engine?.resume?.(event.pauseToken, { kind: "reject", text });
+        await this.core.engine?.resume?.(event.pauseToken, { kind: "reject", text });
       }
       return;
     }
@@ -1716,14 +1089,14 @@ export class StewardService implements StewardComponent {
       ...gated.action,
       toolCall: { id: event.toolCallId, name: event.toolName },
     };
-    const proposed = this.ledger.propose(action, { pauseToken: event.pauseToken });
+    const proposed = this.core.ledger.propose(action, { pauseToken: event.pauseToken });
     if (proposed.kind === "reused") {
       // 登记簿①：在途同 key → 复用旧卡（幂等：不新弹不新凭据；凭据换血
       // 到活 run 的 pauseToken——回灌链路续活，TTL 重置新确认窗口）
-      this.currentPause.length = 0;
-      this.currentPause.push({ actionId: proposed.actionId, action: proposed.entry.action });
-      this.run.gate(event.pauseToken);
-      this.logInfo(
+      this.core.currentPause.length = 0;
+      this.core.currentPause.push({ actionId: proposed.actionId, action: proposed.entry.action });
+      this.core.run.gate(event.pauseToken);
+      this.core.logInfo(
         `管家确认闸复用在途提案卡：${proposed.actionId}（${gated.action.kind} → ${gated.action.displayTarget}）——同 key 幂等不新弹`,
       );
       this.settleAsk({
@@ -1736,20 +1109,20 @@ export class StewardService implements StewardComponent {
     }
     if (proposed.kind === "blocked") {
       // 登记簿②：已成功终局 → 不挂闸：回灌「已做过」（带原 actionId）
-      this.logInfo(
+      this.core.logInfo(
         `管家确认闸拦截重复提案：${gated.action.kind} → ${gated.action.displayTarget}（已执行过 ${proposed.settled.actionId}）`,
       );
-      await this.engine?.resume?.(event.pauseToken, {
+      await this.core.engine?.resume?.(event.pauseToken, {
         kind: "resolve",
         text: capToolResultText(`该操作已执行过（${proposed.settled.actionId}）：${proposed.settled.detail}——无需重复确认，可向用户说明`),
       });
       return;
     }
     const actionId = proposed.actionId;
-    this.logInfo(`管家确认闸暂停：${actionId}（${gated.action.kind} → ${gated.action.displayTarget}）`);
-    this.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
-    this.currentPause.push({ actionId, action: proposed.entry.action });
-    this.run.gate(event.pauseToken);
+    this.core.logInfo(`管家确认闸暂停：${actionId}（${gated.action.kind} → ${gated.action.displayTarget}）`);
+    this.core.currentPause.length = 0; // 一次 run 至多一个未决提案（挂闸即收口）
+    this.core.currentPause.push({ actionId, action: proposed.entry.action });
+    this.core.run.gate(event.pauseToken);
     this.settleAsk({
       status: "confirm_required",
       actionId,
@@ -1765,10 +1138,10 @@ export class StewardService implements StewardComponent {
    *  自然收口双发驱动队列）；⑦：error 收口日志与回执携 errorKind 分类
    *  （aborted 与模型失败分记——act 挂闸 60s 后收口不再被误归模型失败）。 */
   private async finishRun(startError?: string): Promise<void> {
-    if (!this.run.active) return; // 幂等守卫（事故热修批④）
-    this.run.finish(); // 批 2：收口清块（runActive=false + 三锚复位）
-    this.runSettledMark?.();
-    this.runSettledMark = undefined;
+    if (!this.core.run.active) return; // 幂等守卫（事故热修批④）
+    this.core.run.finish(); // 批 2：收口清块（runActive=false + 三锚复位）
+    this.core.runSettledMark?.();
+    this.core.runSettledMark = undefined;
     const outcome: StewardAskResultPayload =
       startError !== undefined
         ? { status: "error", reason: startError, errorKind: "engine-exception" }
@@ -1777,29 +1150,29 @@ export class StewardService implements StewardComponent {
     //    时事故零日志；分类面让 aborted/模型失败/引擎异常可区分归因）
     if (outcome.status === "error") {
       const kind = outcome.errorKind ?? "-";
-      this.deps.logger?.warn(
-        `管家 run 收口：error（分类：${kind}；原因：${capChars(outcome.reason, 200)}；排队 ${this.askQueue.length} 条）`,
+      this.core.deps.logger?.warn(
+        `管家 run 收口：error（分类：${kind}；原因：${capChars(outcome.reason, 200)}；排队 ${this.core.askQueue.length} 条）`,
       );
       // 健康上报（光球角标批）：模型/引擎级失败 = llm 降级；aborted（用户
       // 手动停止）非故障不上报
-      if (kind !== "aborted") this.deps.emitHealth?.("llm", "degraded", outcome.reason);
+      if (kind !== "aborted") this.core.deps.emitHealth?.("llm", "degraded", outcome.reason);
     } else {
-      this.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.askQueue.length} 条）`);
-      this.deps.emitHealth?.("llm", "ok"); // 正常收口 = llm 恢复
+      this.core.logInfo(`管家 run 收口：${outcome.status}（排队 ${this.core.askQueue.length} 条）`);
+      this.core.deps.emitHealth?.("llm", "ok"); // 正常收口 = llm 恢复
     }
     // ④ 本 run 挂闸卡处置：deliver/send/create/spawnReview 意图不随 run 死
     //    而失效 → 凭据续活到卡终局；destructive 不可续活 → 即时撤除+明示。
     this.disposeRunPendingCards();
-    const item = this.pendingRunAsk;
-    this.pendingRunAsk = undefined;
-    this.run.ungate();
-    this.askStreamEvents = {};
+    const item = this.core.pendingRunAsk;
+    this.core.pendingRunAsk = undefined;
+    this.core.run.ungate();
+    this.core.askStreamEvents = {};
     this.settleAsk(outcome);
     item?.deliver?.(outcome);
-    const next = this.askQueue.shift();
+    const next = this.core.askQueue.shift();
     if (next !== undefined) {
       void this.driveAsk(next).catch((err) => {
-        this.deps.logger?.warn(`队列驱动异常：${(err as Error).message}`);
+        this.core.deps.logger?.warn(`队列驱动异常：${(err as Error).message}`);
       });
     }
   }
@@ -1808,15 +1181,15 @@ export class StewardService implements StewardComponent {
    *  即本 run 提案锚（一次 run 至多一个未决提案）；已终局（confirm/cancel
    *  先行）零处置；非 destructive 续活、destructive 撤除+明示（翻译面）。 */
   private disposeRunPendingCards(): void {
-    const { kept, withdrawn } = this.ledger.resolveRunCards(this.currentPause.map((p) => p.actionId));
+    const { kept, withdrawn } = this.core.ledger.resolveRunCards(this.core.currentPause.map((p) => p.actionId));
     for (const { actionId, action } of kept) {
-      this.logInfo(
+      this.core.logInfo(
         `确认卡续活（run 收口不撤）：${actionId}（${action.kind} → ${action.displayTarget}）——意图不随 run 死而失效`,
       );
     }
     for (const { actionId, action } of withdrawn) {
-      this.settleProposal(pendingKeyOf(action), "voided", actionId, "run 收口撤除（destructive 不可续活）");
-      this.deps.emitActionCompleted?.({
+      this.core.routing.settleProposal(pendingKeyOf(action), "voided", actionId, "run 收口撤除（destructive 不可续活）");
+      this.core.deps.emitActionCompleted?.({
         actionId,
         ok: false,
         detail: "该操作已撤回（原运行已结束，高风险操作不自动保留）——如仍需要请重新提出",
@@ -1828,7 +1201,7 @@ export class StewardService implements StewardComponent {
         `原运行已结束，「${action.displayTarget}」的高风险操作卡已撤除；如仍需要请重新提出`,
       );
     }
-    this.currentPause = [];
+    this.core.currentPause = [];
   }
 
   /** run 结果推导（事件态 → 回执判别——原 mapRunResult）。事故热修批⑦：各
@@ -1836,32 +1209,32 @@ export class StewardService implements StewardComponent {
   private outcomeOfRun(): StewardAskResultPayload {
     // aborted 优先于一切（半截文本不作终答回执——协议面回执恒 aborted error）；
     // 次之 answer（压缩失败 engine_error 不吞终答——fail-open）；最后 error
-    if (this.run.state.roundLimit) {
+    if (this.core.run.state.roundLimit) {
       return {
         status: "error",
-        reason: `工具循环超限（>${this.tuningOf().run.maxToolRounds} 轮熔断）——请缩小问题范围或重试`,
+        reason: `工具循环超限（>${this.core.tuningOf().run.maxToolRounds} 轮熔断）——请缩小问题范围或重试`,
         errorKind: "round-limit",
       };
     }
-    if (this.run.state.sawAborted) {
+    if (this.core.run.state.sawAborted) {
       return {
         status: "error",
         reason: "管家对话已被中止（abort——可重发；排队中的输入不受影响）",
         errorKind: "aborted",
       };
     }
-    if (this.run.state.hardError !== undefined) {
+    if (this.core.run.state.hardError !== undefined) {
       return {
         status: "error",
-        reason: this.run.state.hardError,
-        ...(this.run.state.hardErrorKind !== undefined ? { errorKind: this.run.state.hardErrorKind } : {}),
+        reason: this.core.run.state.hardError,
+        ...(this.core.run.state.hardErrorKind !== undefined ? { errorKind: this.core.run.state.hardErrorKind } : {}),
       };
     }
-    if (this.run.state.lastAnswerText.trim() !== "") {
-      return { status: "answer", text: this.run.state.lastAnswerText };
+    if (this.core.run.state.lastAnswerText.trim() !== "") {
+      return { status: "answer", text: this.core.run.state.lastAnswerText };
     }
-    if (this.run.state.softError !== undefined) {
-      return { status: "error", reason: this.run.state.softError, errorKind: "engine-error" };
+    if (this.core.run.state.softError !== undefined) {
+      return { status: "error", reason: this.core.run.state.softError, errorKind: "engine-error" };
     }
     return { status: "answer", text: "（无回答）" };
   }
@@ -1870,8 +1243,8 @@ export class StewardService implements StewardComponent {
    *  runSettled 不在此收——移 finishRun（暂停态新 ask 的 abort-再驱动需等
    *  引擎真 idle，而非 confirm_required 收口时点）。 */
   private settleAsk(payload: StewardAskResultPayload): void {
-    const settle = this.askSettler;
-    this.askSettler = undefined;
+    const settle = this.core.askSettler;
+    this.core.askSettler = undefined;
     settle?.(payload);
   }
 
@@ -1882,10 +1255,10 @@ export class StewardService implements StewardComponent {
 
   /** 启动可靠性巡检定时器（生产面；幂等——stewardMemory.startGcTimer 先例）。 */
   startReliabilityTimers(): void {
-    if (this.reliabilityTimer !== undefined) return;
-    const timer = setInterval(() => this.reliabilityTick(), this.tuningOf().run.watchdogTickMs);
+    if (this.core.reliabilityTimer !== undefined) return;
+    const timer = setInterval(() => this.reliabilityTick(), this.core.tuningOf().run.watchdogTickMs);
     timer?.unref?.(); // TR-152 落盘面定时器纪律：不阻进程退出
-    this.reliabilityTimer = timer;
+    this.core.reliabilityTimer = timer;
   }
 
   /** StewardComponent 契约（批 0 生命周期登记表）：start/stop 映射既有
@@ -1900,14 +1273,14 @@ export class StewardService implements StewardComponent {
 
   /** 停巡检定时器（shutdown 链挂点/测试清理）。 */
   stopReliabilityTimers(): void {
-    if (this.reliabilityTimer === undefined) return;
-    clearInterval(this.reliabilityTimer);
-    this.reliabilityTimer = undefined;
+    if (this.core.reliabilityTimer === undefined) return;
+    clearInterval(this.core.reliabilityTimer);
+    this.core.reliabilityTimer = undefined;
   }
 
   /** 可靠性巡检单拍（看门狗 → 可达性提醒 → 确认闸 TTL；幂等可重入）。 */
   reliabilityTick(): void {
-    const now = this.now();
+    const now = this.core.now();
     this.checkRunWatchdog(now);
     this.checkConfirmReminders(now);
     this.checkConfirmTtl(now);
@@ -1917,7 +1290,7 @@ export class StewardService implements StewardComponent {
    *  domain/steward/run/RunWatchdog；副作用翻译在本方法）。原判定序与文案
    *  逐分支等价（含 CAND-666 哨兵防御/挂闸等待零通知/手动快进优先于被动轨）。 */
   private checkRunWatchdog(now: number): void {
-    const verdict = judgeRunWatchdog(this.run.watchdogSnapshot(this.engine !== undefined), this.tuningOf(), now);
+    const verdict = judgeRunWatchdog(this.core.run.watchdogSnapshot(this.core.engine !== undefined), this.core.tuningOf(), now);
     switch (verdict.kind) {
       case "idle-reset":
         // 空闲态复位（下一 run 重计）——容器无独立复位方法：idle 即未触发
@@ -1928,14 +1301,14 @@ export class StewardService implements StewardComponent {
       case "manual-fast-forward": {
         // 手动 abort 快进轨——abort 打不醒的挂死流不等被动看门狗（180s）
         this.forceRecoverRun(
-          `手动停止快进：abort 后 ${this.tuningOf().run.manualAbortGraceMs / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
+          `手动停止快进：abort 后 ${this.core.tuningOf().run.manualAbortGraceMs / 1000}s 未收口（挂死流——abort 打不醒）——弃引擎重建并恢复队列`,
         );
         return;
       }
       case "arm": {
-        this.run.armWatchdog();
-        const gatedWait = this.ledger.size > 0; // 挂闸等待：有卡待确认（合法业务态）
-        this.deps.logger?.warn(
+        this.core.run.armWatchdog();
+        const gatedWait = this.core.ledger.size > 0; // 挂闸等待：有卡待确认（合法业务态）
+        this.core.deps.logger?.warn(
           `管家 run 看门狗触发：挂起 ${verdict.hungSeconds}s 无事件推进${gatedWait ? "（挂闸等待中——pending 有卡）" : ""}——abort 在途轮${gatedWait ? "（等待态零通知）" : "并通知"}`,
         );
         if (!gatedWait) {
@@ -1947,11 +1320,11 @@ export class StewardService implements StewardComponent {
             `管家处理挂起 ${verdict.hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
           );
         }
-        this.abortInFlight("run 看门狗：挂起超时"); // 挂闸阻塞的 run 被唤醒收口（raceAbort）
+        this.core.routing.abortInFlight("run 看门狗：挂起超时"); // 挂闸阻塞的 run 被唤醒收口（raceAbort）
         return;
       }
       case "force-recover": {
-        this.run.armWatchdog(); // 周期性兜底重置（极端场景下每宽限窗再查）
+        this.core.run.armWatchdog(); // 周期性兜底重置（极端场景下每宽限窗再查）
         this.forceRecoverRun(verdict.reason);
         return;
       }
@@ -1962,10 +1335,10 @@ export class StewardService implements StewardComponent {
    *  与手动停止快进段共用。弃引擎（代际守卫隔离旧引擎残余事件）+ 经投影链
    *  finishRun（队列驱动/deliver 回执/挂闸卡处置全走既有收口面）。 */
   private forceRecoverRun(reason: string): void {
-    this.run.forceRecoverPrepared(); // 同步清锚防重（finishRun 异步，重复 tick 不二触）
-    this.engine = undefined; // 弃引擎（下一 run 懒重建；代际守卫隔旧事件）
-    this.run.ungate();
-    this.deps.logger?.warn(`管家 run 强制收口：${reason}`);
+    this.core.run.forceRecoverPrepared(); // 同步清锚防重（finishRun 异步，重复 tick 不二触）
+    this.core.engine = undefined; // 弃引擎（下一 run 懒重建；代际守卫隔旧事件）
+    this.core.run.ungate();
+    this.core.deps.logger?.warn(`管家 run 强制收口：${reason}`);
     this.enqueueProjection(() => this.finishRun(reason));
   }
 
@@ -1975,27 +1348,27 @@ export class StewardService implements StewardComponent {
    *  「两张同模板卡各弹一条（body 仅目标不同 → 去重 key 不同全放行）」。 */
   private checkConfirmReminders(now: number): void {
     // 批 1：成熟判定/覆盖全集收编聚合；文案与帧发射留翻译面
-    const matured = this.ledger.remindDue(now, this.tuningOf().confirm.remindAfterMs);
+    const matured = this.core.ledger.remindDue(now, this.core.tuningOf().confirm.remindAfterMs);
     if (matured === undefined) return;
     const total = matured.total;
     if (total >= 2) {
-      this.logInfo(
-        `管家确认卡可达性提醒（聚合）：pending ${total} 张（首成熟 ${matured.first.actionId}——${matured.first.entry.action.displayTarget}）——${this.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
+      this.core.logInfo(
+        `管家确认卡可达性提醒（聚合）：pending ${total} 张（首成熟 ${matured.first.actionId}——${matured.first.entry.action.displayTarget}）——${this.core.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
       );
       this.emitLifecycleNotify(
         "normal",
         "待确认操作",
-        `管家有 ${total} 个操作等你确认——打开管家面板处理；${this.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
+        `管家有 ${total} 个操作等你确认——打开管家面板处理；${this.core.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
       );
       return;
     }
-    this.logInfo(
-      `管家确认卡可达性提醒：${matured.first.actionId}（${matured.first.entry.action.displayTarget}）——${this.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
+    this.core.logInfo(
+      `管家确认卡可达性提醒：${matured.first.actionId}（${matured.first.entry.action.displayTarget}）——${this.core.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
     );
     this.emitLifecycleNotify(
       "normal",
       "待确认操作",
-      `管家有一个操作等你确认（${matured.first.entry.action.displayTarget}）——打开管家面板处理；${this.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
+      `管家有一个操作等你确认（${matured.first.entry.action.displayTarget}）——打开管家面板处理；${this.core.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
     );
   }
 
@@ -2007,22 +1380,22 @@ export class StewardService implements StewardComponent {
   private checkConfirmTtl(now: number): void {
     // 批 1：到期批次作废收编聚合；回执/日志/提醒留翻译面（cancel 同款作废
     // 语义——删除即作废不清挂闸旗，挂闸 run 由看门狗/abort-再驱动收口）
-    const expired = this.ledger.expireDue(now, this.tuningOf().confirm.ttlMs);
+    const expired = this.core.ledger.expireDue(now, this.core.tuningOf().confirm.ttlMs);
     for (const { actionId, entry } of expired) {
-      this.ledger.markExpired(actionId); // 逐个删除（已被同 key 收敛先行删除 → no-op；帧照快照无条件发——原版时序）
-      this.deps.logger?.warn(
-        `管家确认卡 TTL 作废：${actionId}（${entry.action.kind} → ${entry.action.displayTarget}）——${this.tuningOf().confirm.ttlMs / 1000}s 无人确认自动作废`,
+      this.core.ledger.markExpired(actionId); // 逐个删除（已被同 key 收敛先行删除 → no-op；帧照快照无条件发——原版时序）
+      this.core.deps.logger?.warn(
+        `管家确认卡 TTL 作废：${actionId}（${entry.action.kind} → ${entry.action.displayTarget}）——${this.core.tuningOf().confirm.ttlMs / 1000}s 无人确认自动作废`,
       );
-      this.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL, outcome: "timeout" });
+      this.core.deps.emitActionCompleted?.({ actionId, ok: false, detail: STEWARD_CONFIRM_TIMEOUT_DETAIL, outcome: "timeout" });
       // 终局登记 + 同 key 收敛（确认链路修复批：作废也收敛，零后续连锁通知）
-      this.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "确认超时作废");
+      this.core.routing.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "确认超时作废");
     }
     if (expired.length === 0) return;
     if (expired.length >= 2) {
       this.emitLifecycleNotify(
         "normal",
         "确认已超时",
-        `${expired.length} 个操作超过 ${this.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+        `${expired.length} 个操作超过 ${this.core.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
       );
       return;
     }
@@ -2030,46 +1403,41 @@ export class StewardService implements StewardComponent {
     this.emitLifecycleNotify(
       "normal",
       "确认已超时",
-      `操作「${single.entry.action.displayTarget}」超过 ${this.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
+      `操作「${single.entry.action.displayTarget}」超过 ${this.core.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
     );
   }
 
   /** 可靠性提醒帧出口（seq 单调；订阅闸/限流在 EventStream 侧——缺席零提醒）。 */
   private emitLifecycleNotify(urgency: "normal" | "high", title: string, body: string): void {
-    if (this.deps.emitNotify === undefined) return;
-    this.notifySeq += 1;
-    this.deps.emitNotify({ urgency, title, body, seq: this.notifySeq });
-  }
-
-  /** 生命周期 info 日志（旧装配 logger 无 info 位时降级静默）。 */
-  private logInfo(message: string): void {
-    this.deps.logger?.info?.(message);
+    if (this.core.deps.emitNotify === undefined) return;
+    this.core.notifySeq += 1;
+    this.core.deps.emitNotify({ urgency, title, body, seq: this.core.notifySeq });
   }
 
   /** 工作记忆读面（steward.history 回放：完整记录数组——UI 渲染与 LLM 窗口
    *  同源重建；A1 批）。 */
   async getHistory(): Promise<readonly StewardHistoryRecord[]> {
-    return this.dialog.snapshot();
+    return this.core.dialog.snapshot();
   }
 
   /** 新对话闸（steward.history {clear:true}：KV + daemon LLM 窗口同清——
    *  前端显示由回执空数组同步；A1 批）。pending 确认卡随之作废（自然过期）。 */
   async clearHistory(): Promise<void> {
-    this.ledger.clear();
-    await this.dialog.clear();
+    this.core.ledger.clear();
+    await this.core.dialog.clear();
     // 段B：引擎销毁重建（下一问从空窗口——与清空后 KV 同源；dialog 已清，
     // 懒构造下一问以空 initialMessages 重建）。挂闸阻塞中的 run 先 abort 释放
     //（闸内 raceAbort 唤醒）再弃引用；runActive 复位防新 ask 误判 busy。
-    this.engine?.abort();
-    this.engine = undefined;
+    this.core.engine?.abort();
+    this.core.engine = undefined;
     // 在途/排队 ask 先收口再清状态（孤儿化修复：askSettler 只置空不 settle
     // 的话，在途 ask 的 promise 永不 resolve——handler 的 steward.ask.result
     // 帧永不回执，UI 该轮永久等待；runSettledMark 同步收口防 abort-再驱动
     // 路径的 awaiter 挂死；排队项逐个 deliver 作废回执——新对话语义下不再
     // 处理，但发起面必须拿到终帧）。clearAll 后 finishRun 幂等守卫直接回，
     // 自然收口路径不会二次 settle——此处是唯一收口点。）
-    const droppedItems = this.askQueue.drainAll();
-    if (droppedItems.length > 0) this.logInfo(`管家新对话：丢弃排队 ${droppedItems.length} 条`);
+    const droppedItems = this.core.askQueue.drainAll();
+    if (droppedItems.length > 0) this.core.logInfo(`管家新对话：丢弃排队 ${droppedItems.length} 条`);
     for (const queuedItem of droppedItems) {
       queuedItem.deliver?.({ status: "error", reason: "对话已清空（新对话）——排队输入作废", errorKind: "aborted" });
     }
@@ -2078,366 +1446,16 @@ export class StewardService implements StewardComponent {
       reason: "对话已清空（新对话）——本轮已被中止",
       errorKind: "aborted",
     };
-    const item = this.pendingRunAsk;
-    this.pendingRunAsk = undefined;
-    this.askStreamEvents = {};
+    const item = this.core.pendingRunAsk;
+    this.core.pendingRunAsk = undefined;
+    this.core.askStreamEvents = {};
     this.settleAsk(clearedPayload);
-    this.run.clearAll(); // 批 2：run 态全复位
-    this.runSettledMark?.();
-    this.runSettledMark = undefined;
+    this.core.run.clearAll(); // 批 2：run 态全复位
+    this.core.runSettledMark?.();
+    this.core.runSettledMark = undefined;
     item?.deliver?.(clearedPayload);
   }
 
-  /** 确认闸放行（steward.confirm 回执）：单次消费 + 恰一次执行——
-   *  **B1 两段式**（设计稿 §3.4）：
-   *  ①受理即回：消费 actionId 后立即返 accepted（不 await 执行体——
-   *    deliverSession 入 idle 会话的全轮 await 不再阻塞确认链，G1 主根
-   *    消除；卡片即时转 accepted 态防双击）；
-   *  ②异步执行：executePending 收口后经 onCompleted 回携
-   *    {actionId, ok, detail}（点对点 steward.action.completed 帧，成败
-   *    两路均发——错误交代面从 confirm.result 迁出）；回灌（resumeWith
-   *    resolve）与工作记忆 toolResult 入账语义照旧，仅时点移入执行体。
-   *  A2：动作分派（send / createSession / deliverSession / memorize /
-   *  spawnReview 判别联合）。helix-loop L0：回灌经 LoopEngine 暂停点
-   *  （run_resumed 事件 + appendToolResult 入账）。 */
-  async confirm(
-    actionId: string,
-    onCompleted?: (payload: StewardActionCompletedPayload) => void,
-  ): Promise<StewardConfirmResultPayload> {
-    // 批 1：单次消费收编聚合（consume = 查卡+删卡一体；执行失败也不可重放）
-    const entry = this.ledger.consume(actionId);
-    if (entry === undefined) {
-      // 确认链路修复批：用户语义文案（事故 12:17:16 点死卡只看到内部异常）
-      return {
-        status: "error",
-        reason: `该确认已失效（actionId=${actionId} 不存在或已消费——服务重启/超时作废后凭据即失效）；如仍需要请重新提出`,
-      };
-    }
-    // 暂停态旗同步清（B1 两段式窗口防误伤：执行体异步在飞时新 ask 不走
-    // abort-再驱动路径——被弃的是确认流而非挂闸 run）
-    if (this.ledger.size === 0) this.run.ungate();
-    // 受理时即广播 navigate（deliverSession——sessionId 提案已知，不再等
-    // 执行体全轮；createSession 的 navigate 仍在执行体（sessionId 执行后才
-    // 产生））。
-    if (entry.action.kind === "deliverSession") {
-      this.deps.emitNavigate?.({ sessionId: entry.action.deliverSession!.sessionId });
-    }
-    const key = entry.key ?? pendingKeyOf(entry.action);
-    // 异步执行体（受理后启动；错误经 onCompleted 交代，不浮出确认链）
-    void (async () => {
-      const outcome = await this.executePending(entry.action);
-      // 回灌经引擎暂停面（resolve 翻译：结果入账 + run 终结——block+terminate）；
-      // B4a 轮外提案无暂停点（pauseToken 缺席）——跳过回灌直接收口。
-      // 确认链路修复批：run 已收口/引擎重建后凭据过期 → 降级跳过回灌
-      //（事故实锤「审批闸未知 pauseToken」曾把已送达的执行误报为异常）。
-      if (entry.pauseToken !== undefined && this.engine !== undefined) {
-        try {
-          await this.engine.resume?.(entry.pauseToken, {
-            kind: "resolve",
-            text: capToolResultText(outcome.detail),
-            isError: !outcome.ok,
-          });
-        } catch (err) {
-          this.logInfo(`确认卡回灌降级（run 已收口，凭据过期）：${(err as Error).message.slice(0, 80)}`);
-        }
-      }
-      // 终局登记 + 同 key 收敛（succeeded 拦重复提案；失败不记=可重试）
-      if (outcome.ok) this.settleProposal(key, "succeeded", actionId, outcome.detail);
-      onCompleted?.({ actionId, ok: outcome.ok, detail: outcome.detail });
-    })().catch((err: unknown) => {
-      // 防御面：执行体异常不该静默（与 outcome.ok=false 同构交代）
-      const detail = `确认动作执行异常：${(err as Error).message}`;
-      this.deps.logger?.warn(detail);
-      onCompleted?.({ actionId, ok: false, detail });
-    });
-    return { status: "accepted", actionId };
-  }
-
-  /** 确认卡作废（B1 steward.cancel）：pending 删除即作废——幂等（不存在/
-   *  已消费静默）；作废后同 actionId 再 confirm 报「已消费」。卡片「放弃」
-   *  的 daemon 侧簿记同步（消灭孤儿 actionId），零执行零回执。
-   *  确认链路修复批：作废即终局——登记簿 voided（同 key 重提按新提案）+
-   *  superseded 帧广播（多窗卡栈同步撤卡，G8 方向）+ 同 key 其余卡收敛。 */
-  cancel(actionId: string): void {
-    const entry = this.ledger.void(actionId);
-    if (entry === undefined) return;
-    // 不因删卡清 pausedGateToken：挂闸 run 若仍挂着（用户放弃的是卡不是 run），
-    // 保留旗让下一个 ask 走 abort-再驱动唤醒收口（否则新 ask 误入队死等看门狗）
-    this.settleProposal(entry.key ?? pendingKeyOf(entry.action), "voided", actionId, "用户放弃");
-    this.deps.emitActionCompleted?.({
-      actionId,
-      ok: false,
-      detail: "该操作已放弃（作废）",
-      outcome: "superseded",
-    });
-  }
-
-  /** 在途确认卡快照（steward.pending.snapshot 帧——订阅对账/跨重启清场；
-   *  插入序；确认链路修复批，E-206 预留帧位落地）。 */
-  pendingSnapshot(): readonly string[] {
-    return this.ledger.pendingSnapshot();
-  }
-
-  /** 登记簿终局收口（批 1 起判定收编聚合——记终局 + 同 key 收敛；帧发射
-   *  留翻译面：succeeded 拦重复/voided 放行重提 + 全订阅者 superseded 帧，
-   *  零失效通知——治「已送达后又弹两条失效投递通知」）。 */
-  private settleProposal(key: string, status: "succeeded" | "voided", actionId: string, detail: string): void {
-    for (const { actionId: otherId } of this.ledger.settle(key, status, actionId, detail)) {
-      this.deps.emitActionCompleted?.({
-        actionId: otherId,
-        ok: false,
-        detail: "该操作已由其它确认收敛（同内容确认卡撤除）",
-        outcome: "superseded",
-      });
-    }
-  }
-
-  // findPendingIdByKey / latestPendingActionId 已收编 ProposalLedger 聚合
-  //（domain/steward/confirmation——批 1）。
-
-  /** 判官泛化层（M3-a）：词表未命中 ∧ pending 卡在场 → 判官三问分流。
-   *  返回 undefined = 不适用/降级（原样走 LLM）；confirm/cancel = 路由
-   *  执行面；revise = 撤旧卡 + 修正轮 LLM 输入（带卡全文上下文）。
-   *  降级链（E-250 同款）：开关关零日志 / 端点未配 WARN / 抛错 WARN 不
-   *  重试——全部回退词表后行为零劣化。无卡零判官调用（不判闲聊）。 */
-  /** addressee 判定（声纹→Jev 链路批）：双工收音段的「对谁说」判定。
-   *  返回 true = 高置信旁人话语（调用方回 dropped 静默丢弃）；判官缺席
-   *  （undefined/关/未配）/ 灰区 / 抛错一律 false = 偏「当聊天」（置信偏置
-   *  同向：宁多应答不漏应答，零配置时行为与旧版完全一致）。 */
-  private async judgeAddressee(text: string): Promise<boolean> {
-    // 批 3a：降级链收编 judgeOrFallback（文案逐字保留——onDegraded 形态）
-    const r = await judgeOrFallback({
-      judge: this.deps.intentJudge,
-      question: STEWARD_ADDRESSEE_QUESTION,
-      text,
-      interpret: isAmbientSpeech,
-      fallback: false, // 灰区/坏值/判官缺席一律偏「当聊天」（置信偏置：宁多应答不漏）
-      onDegraded: (kind, message) => {
-        if (kind === "unready") {
-          this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——addressee 判定回退当聊天（原样走 LLM）");
-        } else {
-          this.deps.logger?.warn(`addressee 判定失败，回退当聊天：${message ?? ""}`);
-        }
-        // 健康上报（光球角标批）：判官关闭非故障（ok 清角标）；端点失效/调
-        // 用失败 = judge 降级
-        if (kind === "off") this.deps.emitHealth?.("judge", "ok");
-        else this.deps.emitHealth?.("judge", "degraded", message ?? kind);
-      },
-    });
-    if (r.degraded === undefined) this.deps.emitHealth?.("judge", "ok"); // 判官正常 = 恢复
-    return r.value;
-  }
-
-  /** stop-intent 停止判定（Jev 单轨——停止词表退役批）：停止意图判官判定面
-   *  ——shell 打断链与 daemon ask 漏斗的停止判定单源（协议面
-   *  steward.judge_stop_intent）。**原始判定语义**：stop=true 才判停；判不出
-   *  （off/unready/error）一律 stop=false + degraded 标记，fail-stop 归消费面
-   *  ——shell 意图窗判不出=真停（用户裁决②：宁误停不漏停），ask 漏斗判不出
-   *  =照常走队列（不吞用户提问、不动队列序不变量）。 */
-  async judgeStopIntent(text: string): Promise<{ stop: boolean; score?: number; degraded?: "off" | "unready" | "error" }> {
-    // 批 3a：降级链收编 judgeOrFallback（文案逐字保留）；stop=true 才判停；
-    // 判不出携 degraded 标记（原始判定面——fail-stop 归消费面）。
-    const r = await judgeOrFallback<{ stop: boolean; score?: number }>({
-      judge: this.deps.intentJudge,
-      question: STEWARD_STOP_QUESTION,
-      text,
-      interpret: (score) => (isStopIntent(score) ? { stop: true as const, score } : { stop: false as const, score }),
-      fallback: { stop: false },
-      onDegraded: (kind, message) => {
-        if (kind === "unready") {
-          this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——stop-intent 判不出（fail-stop 归消费面）");
-        } else {
-          this.deps.logger?.warn(`stop-intent 判定失败（判不出）：${message ?? ""}`);
-        }
-        if (kind === "off") this.deps.emitHealth?.("judge", "ok");
-        else this.deps.emitHealth?.("judge", "degraded", message ?? kind);
-      },
-    });
-    if (r.degraded === undefined) this.deps.emitHealth?.("judge", "ok");
-    return r.degraded !== undefined ? { ...r.value, degraded: r.degraded } : r.value;
-  }
-
-  private async judgePendingIntent(
-    text: string,
-  ): Promise<
-    | { intent: "confirm" | "cancel" }
-    | { intent: "revise"; revisedText: string }
-    | undefined
-  > {
-    const judge = this.deps.intentJudge;
-    if (judge === undefined) return undefined;
-    if (!judge.enabled()) return undefined; // 开关关：默认态零日志（与分诊判官同款）
-    const latest = this.ledger.latestPendingActionId();
-    if (latest === undefined) return undefined; // 无卡零判官调用（范围钳制）
-    if (!judge.ready()) {
-      // 开关开但端点未配/已删/非 classifier——值得提醒（用户预期判官生效）
-      this.deps.logger?.warn("管家意图判官开启但端点未配或已失效——回退词表后行为（原样走 LLM）");
-      this.deps.emitHealth?.("judge", "degraded", "意图判官端点未配或已失效");
-      return undefined;
-    }
-    const entry = this.ledger.entryOf(latest)!;
-    const state = buildIntentJudgeState(entry.action.displayTarget, entry.action.message, text);
-    try {
-      const [revise, cancel, confirm] = await Promise.all([
-        judge.noul(state, STEWARD_INTENT_JUDGE_REVISE_QUESTION),
-        judge.noul(state, STEWARD_INTENT_JUDGE_CANCEL_QUESTION),
-        judge.noul(state, STEWARD_INTENT_JUDGE_CONFIRM_QUESTION),
-      ]);
-      const intent = pickIntentByScores(revise, cancel, confirm);
-      if (intent === undefined) return undefined; // 无关新任务 → 原样走 LLM
-      if (intent === "revise") {
-        // 修正：撤旧卡（终局 voided + superseded 广播——多窗卡栈同步）+
-        // 修正轮 LLM 输入带原卡全文（一次 LLM，不先撤卡再裸问）
-        this.cancel(latest);
-        return {
-          intent: "revise",
-          revisedText: buildIntentReviseAskText(entry.action.displayTarget, entry.action.message, text),
-        };
-      }
-      return { intent };
-    } catch (err) {
-      // 判官抛错即降级不重试（E-214/E-250 同款保守语义）
-      this.deps.logger?.warn(`管家意图判官判定失败，回退词表后行为：${(err as Error).message}`);
-      this.deps.emitHealth?.("judge", "degraded", (err as Error).message);
-      return undefined;
-    }
-  }
-
-  /** 口令路由（确认链路修复批③）：纯文本口令绑定最近 pending 卡消费/作废
-   *  ——零 LLM 零新提案（治「确认了很多遍」被当新指令）；无 pending 卡时
-   *  返回 undefined 原样走 LLM。确认回执经广播出口（口令来自任意连接）。 */
-  private routeConfirmPhrase(phrase: "confirm" | "cancel"): StewardAskResultPayload | undefined {
-    const latest = this.ledger.latestPendingActionId();
-    if (latest === undefined) return undefined;
-    const entry = this.ledger.entryOf(latest)!;
-    const target = entry.action.displayTarget;
-    if (phrase === "cancel") {
-      this.cancel(latest);
-      return { status: "answer", text: `已放弃该操作（${target}）——卡片已撤除` };
-    }
-    void this
-      .confirm(latest, (payload) => this.deps.emitActionCompleted?.(payload))
-      .then((accepted) => {
-        if (accepted.status !== "accepted") {
-          this.emitLifecycleNotify(
-            "normal",
-            "确认未生效",
-            `口令确认未受理（${accepted.status === "error" ? accepted.reason : "未知原因"}）——请点卡片确认或重试`,
-          );
-        }
-      })
-      .catch((err) => this.deps.logger?.warn(`口令确认异常：${(err as Error).message}`));
-    // 语音闭环批 ④：confirm 受理回执 = 纯语音一句话（零额外卡/toast）——deliver
-    // 卡口语化带短标题（displayTarget 已是短名），其余动词维持现回执形态。
-    const confirmText =
-      entry.action.kind === "deliverSession"
-        ? `已确认，马上投递到「${target}」——投递结果稍后告诉你`
-        : `已确认执行（${target}）——执行回执稍后送达`;
-    return { status: "answer", text: confirmText };
-  }
-
-  /** 确认闸执行体（单次消费后的真实写动作；detail = 用户与 LLM 共同可见的
-   *  回执文本）。B1：createSession 建成后广播 steward.navigate（sessionId
-   *  执行后才产生，仍在执行体；deliverSession 的 navigate 已提前到受理时——
-   *  设计稿 §3.4）。 */
-  private async executePending(action: PendingAction): Promise<{ ok: boolean; detail: string }> {
-    if (action.kind === "surfaceAct") {
-      // M2 表面动作：确认后走同一动作管道（Registry act 路由 + seq 回执）
-      const request = action.surfaceAct!;
-      if (this.deps.surfaces === undefined) {
-        return { ok: false, detail: "表面能力面未装配（daemon 装配缺 surfaces 源）" };
-      }
-      try {
-        const result = await this.deps.surfaces.act(request);
-        return { ok: result.ok, detail: capToolResultText(formatActReceipt(result)) };
-      } catch (err) {
-        return { ok: false, detail: `表面动作执行异常：${(err as Error).message}` };
-      }
-    }
-    if (action.kind === "send") {
-      const outcome = this.deps.orchestration.send(action.send!.agentId, action.send!.message);
-      return outcome.delivered
-        ? { ok: true, detail: outcome.detail }
-        : { ok: false, detail: `递话未投递：${outcome.detail}` };
-    }
-    if (action.kind === "createSession") {
-      if (this.deps.sessions === undefined) {
-        return { ok: false, detail: "会话创建面未装配（daemon 装配缺 sessions 源）" };
-      }
-      try {
-        // 修复批①：专用入口 createTitledSession（同轨不同入口）——title 不再
-        // 被当首条用户消息发送，零引擎调用零幽灵 run；确认闸/回灌闭环不变。
-        const created = await this.deps.sessions.createTitledSession(action.createSession!.title);
-        this.deps.emitNavigate?.({ sessionId: created.sessionId }); // 建完即切（用户语义）
-        // 带着话题开始（本次批）：建成即把 initial_message 作为首条消息投递——
-        // 复用 deliver_to_session 同一执行面（idle→新轮次 / running→steer 入队；
-        // source=steward 与手动输入可辨）。修复批①封堵的是「title 被误当消息」
-        // 的幽灵 run，不是「用户显式给的初始话题」——两者语义正交。
-        const initialMessage = action.createSession!.initialMessage;
-        if (initialMessage !== undefined) {
-          try {
-            const outcome = await this.deps.sessions.deliverToSession(created.sessionId, initialMessage);
-            if (!outcome.delivered) {
-              // 会话已建成（主成果保留，不可重放）——投递失败如实交代，LLM
-              // 回灌后可向用户说明并提议 deliver_to_session 重试。
-              return {
-                ok: false,
-                detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，但初始话题投递失败：${outcome.detail}`,
-              };
-            }
-            // 回合终态感知：初始话题投递成功 = 用户在新会话里开始了工作——同
-            // deliverSession 语义注册关注（那边回合结束命中「回完了」分诊锚）。
-            this.deps.onDelivered?.(created.sessionId, initialMessage);
-            return {
-              ok: true,
-              detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，初始话题已投递：${initialMessage}`,
-            };
-          } catch (err) {
-            return {
-              ok: false,
-              detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」，但初始话题投递异常：${(err as Error).message}`,
-            };
-          }
-        }
-        return { ok: true, detail: `会话已创建：${created.sessionId}「${action.createSession!.title}」` };
-      } catch (err) {
-        return { ok: false, detail: `会话创建失败：${(err as Error).message}` };
-      }
-    }
-    if (action.kind === "deliverSession") {
-      if (this.deps.sessions === undefined) {
-        return { ok: false, detail: "会话投递面未装配（daemon 装配缺 sessions 源）" };
-      }
-      try {
-        const outcome = await this.deps.sessions.deliverToSession(action.deliverSession!.sessionId, action.deliverSession!.text);
-        if (!outcome.delivered) {
-          return { ok: false, detail: `投递未送达：${outcome.detail}` };
-        }
-        // 回合终态感知：投递成功注册关注——该会话回合结束命中分诊锚
-        // （「那边回完了」主动通知；缺席 = 零关注纯 opt-in）。
-        this.deps.onDelivered?.(action.deliverSession!.sessionId, action.deliverSession!.text);
-        return { ok: true, detail: outcome.detail };
-      } catch (err) {
-        return { ok: false, detail: `投递执行失败：${(err as Error).message}` };
-      }
-    }
-    // spawnReview：paramsSchema 校验在引擎（TaskError message 原样透传）
-    if (this.deps.taskEngine === undefined) {
-      return { ok: false, detail: "任务创建面未装配（daemon 装配缺 taskEngine）" };
-    }
-    const review = action.spawnReview!;
-    try {
-      const created = await this.deps.taskEngine.createTask({
-        type: review.reviewType,
-        projects: [review.project],
-        params: review.params,
-        createdBy: "chat",
-      });
-      return { ok: true, detail: `任务已创建：${created.jobId}（${review.reviewType} @ ${review.project}）` };
-    } catch (err) {
-      return { ok: false, detail: `任务创建被引擎拒绝：${(err as Error).message}` };
-    }
-  }
 
   /**
    * fanout 目标入口（wireEventFanout steward-feed-bridge 装配）：①层粗筛 +
@@ -2445,23 +1463,18 @@ export class StewardService implements StewardComponent {
    */
   onDomainEvent(event: DomainEvent): void {
     if (!STEWARD_FEED_EVENT_TYPES.has(event.type)) return;
-    if (!this.deps.feedGate.hasStewardSubscribers()) return; // 零订阅零推送
+    if (!this.core.deps.feedGate.hasStewardSubscribers()) return; // 零订阅零推送
     const text = buildFeedText(event);
     if (text === undefined) return;
     const payload = event.payload as { agentId?: string };
     if (typeof payload.agentId !== "string" || payload.agentId === "") return;
-    this.feedSeq += 1;
-    this.deps.emitFeed({
+    this.core.feedSeq += 1;
+    this.core.deps.emitFeed({
       kind: event.type as StewardFeedPayload["kind"],
       agentId: payload.agentId,
       text,
-      seq: this.feedSeq,
+      seq: this.core.feedSeq,
     });
-  }
-
-  /** 开关现态（money gate 读面）。 */
-  isEnabled(): boolean {
-    return this.deps.config.get(STEWARD_ENABLED_KEY) === "1";
   }
 
   /** 设置现态（steward.get_config / set_config 共用读面）。summary 组 =
@@ -2478,12 +1491,12 @@ export class StewardService implements StewardComponent {
   } {
     return {
       enabled: this.isEnabled(),
-      model: this.deps.config.get(STEWARD_MODEL_KEY) ?? this.deps.llm.modelId,
+      model: this.core.deps.config.get(STEWARD_MODEL_KEY) ?? this.core.deps.llm.modelId,
       // 总结配置组回显（summary.* 通用域生效值——所见即所得）
-      summary: readSummaryConfig(this.deps.config),
+      summary: readSummaryConfig(this.core.deps.config),
       // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/零条目；批1：
       //  endpoint 摘除——向量端点恒为全局默认端点，回执不回 endpointId）
-      memory: this.deps.memory?.getMemoryState() ?? {
+      memory: this.core.deps.memory?.getMemoryState() ?? {
         enabled: false,
         available: false,
         judgeEndpoint: null,
@@ -2491,7 +1504,7 @@ export class StewardService implements StewardComponent {
         dim: null,
       },
       // 分诊判官配置现态（未装配 = 全降级缺省——开关关/端点未配）
-      triage: this.deps.triageJudge?.state() ?? { judgeEnabled: false, judgeEndpoint: null },
+      triage: this.core.deps.triageJudge?.state() ?? { judgeEnabled: false, judgeEndpoint: null },
     };
   }
 
@@ -2504,10 +1517,10 @@ export class StewardService implements StewardComponent {
     return {
       systemPrompt: STEWARD_SYSTEM_PROMPT,
       tools: [
-        ...this.toolSpecs.map((t) => ({ name: t.name, description: t.description })),
+        ...this.core.toolSpecs.map((t) => ({ name: t.name, description: t.description })),
         { name: "steward_confirm", description: "确认闸放行（面板确认按钮原语；非 LLM 工具）" },
       ],
-      model: this.deps.config.get(STEWARD_MODEL_KEY) ?? null,
+      model: this.core.deps.config.get(STEWARD_MODEL_KEY) ?? null,
       kindLabel: "steward",
     };
   }
@@ -2517,7 +1530,7 @@ export class StewardService implements StewardComponent {
 
   /** 条目只读清单（空数组 = 记忆面缺席/空库）。 */
   listMemoryEntries(): readonly import("../ports/outbound/StewardMemoryPort").StewardMemoryEntry[] {
-    return this.deps.memory?.listEntries() ?? [];
+    return this.core.deps.memory?.listEntries() ?? [];
   }
 
   /** 人工新增（embed 入库；缺席/失败 → error outcome）。projectScope =
@@ -2530,34 +1543,34 @@ export class StewardService implements StewardComponent {
     projectScope?: string,
     domain?: import("../ports/outbound/StewardMemoryPort").MemoryDomain,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (this.deps.memory === undefined) {
+    if (this.core.deps.memory === undefined) {
       return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
     }
-    return this.deps.memory.appendMemoryEntry(text, kind, projectScope, domain);
+    return this.core.deps.memory.appendMemoryEntry(text, kind, projectScope, domain);
   }
 
   /** 重嵌更新（缺席/失败 → error outcome）。 */
   async updateMemoryEntry(id: number, text: string): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (this.deps.memory === undefined) {
+    if (this.core.deps.memory === undefined) {
       return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
     }
-    return this.deps.memory.updateMemoryEntry(id, text);
+    return this.core.deps.memory.updateMemoryEntry(id, text);
   }
 
   /** 行级删除（缺席 → false，幂等）。 */
   forgetMemoryEntry(id: number): boolean {
-    return this.deps.memory?.forgetEntry(id) ?? false;
+    return this.core.deps.memory?.forgetEntry(id) ?? false;
   }
 
   /** 置顶切换（遗忘机制批命令回口：置顶 = 解除淡忘 + 刷 updatedAt；
    *  缺席 → false）。 */
   pinMemoryEntry(id: number, pinned: boolean): boolean {
-    return this.deps.memory?.pinMemoryEntry(id, pinned) ?? false;
+    return this.core.deps.memory?.pinMemoryEntry(id, pinned) ?? false;
   }
 
   /** 淡忘恢复（遗忘机制批命令回口：active 条目幂等 no-op；缺席 → false）。 */
   restoreMemoryEntry(id: number): boolean {
-    return this.deps.memory?.restoreMemoryEntry(id) ?? false;
+    return this.core.deps.memory?.restoreMemoryEntry(id) ?? false;
   }
 
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
@@ -2578,18 +1591,18 @@ export class StewardService implements StewardComponent {
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (patch.memory !== undefined) {
       // 管家记忆 B1：记忆配置委托记忆域服务（校验在其中——开启前端点必填）
-      if (this.deps.memory === undefined) {
+      if (this.core.deps.memory === undefined) {
         return { ok: false, error: "记忆面未装配（daemon 装配缺 memory 源）" };
       }
-      const outcome = await this.deps.memory.setMemoryConfig(patch.memory);
+      const outcome = await this.core.deps.memory.setMemoryConfig(patch.memory);
       if (!outcome.ok) return outcome;
     }
     if (patch.triage !== undefined) {
       // 分诊判官接入批：判官配置委托判定域面（空串 judgeEndpointId = 清除引用）
-      if (this.deps.triageJudge === undefined) {
+      if (this.core.deps.triageJudge === undefined) {
         return { ok: false, error: "分诊判官面未装配（daemon 装配缺 triage 源）" };
       }
-      const outcome = await this.deps.triageJudge.setConfig(patch.triage);
+      const outcome = await this.core.deps.triageJudge.setConfig(patch.triage);
       if (!outcome.ok) return outcome;
     }
     if (patch.model !== undefined) {
@@ -2597,10 +1610,10 @@ export class StewardService implements StewardComponent {
       if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
         return { ok: false, error: `模型格式非法：${model}（应为 "provider/model-id" 形态）` };
       }
-      if (model !== "") await this.deps.config.set(STEWARD_MODEL_KEY, model);
+      if (model !== "") await this.core.deps.config.set(STEWARD_MODEL_KEY, model);
     }
     if (patch.enabled !== undefined) {
-      await this.deps.config.set(STEWARD_ENABLED_KEY, patch.enabled ? "1" : "0");
+      await this.core.deps.config.set(STEWARD_ENABLED_KEY, patch.enabled ? "1" : "0");
     }
     return { ok: true };
   }
@@ -2622,29 +1635,17 @@ export class StewardService implements StewardComponent {
     for (const s of report.suggestions ?? []) {
       if (s.label.trim() !== "") lines.push(`建议：${s.label}（点按才动）`);
     }
-    await this.pushRecord({ kind: "assistant", text: lines.join("\n"), at: this.now() });
-    this.proactiveSeq += 1;
-    this.deps.emitProactive?.({
+    await this.core.pushRecord({ kind: "assistant", text: lines.join("\n"), at: this.core.now() });
+    this.core.proactiveSeq += 1;
+    this.core.deps.emitProactive?.({
       title: report.title,
       text: report.text,
       ...(report.suggestions !== undefined && report.suggestions.length > 0 ? { suggestions: report.suggestions } : {}),
-      seq: this.proactiveSeq,
+      seq: this.core.proactiveSeq,
     });
   }
 
   // ── 内部 ────────────────────────────────────────────────
-
-  /** 工作记忆镜像 → LLM 消息窗口（同源：UI 回放显示的 = LLM 记得的；
-   *  A1-hotfix：经 buildLlmWindow 配对防御——孤儿 toolResult 丢弃/缺结果
-   *  toolCall 补合成结果；KV 存储与 history 回放读面不动）。 */
-  private dialogSnapshotMessages(): StewardLlmMessage[] {
-    return buildLlmWindow(this.dialog.snapshot());
-  }
-
-  /** 完整记录追加（工作记忆 KV——预算闸在 memory 内部）。 */
-  private async pushRecord(record: StewardHistoryRecord): Promise<void> {
-    await this.dialog.append(record);
-  }
 
   // ── helix-loop L0：工具注册表装配（八工具）+ 暂停点挂钩 ──────
 
@@ -2656,22 +1657,22 @@ export class StewardService implements StewardComponent {
    *  query_recent_work 同一读面）；M3-d1 活动段 = recentActivity 读面
    *  （活动账白话行——**分段降级**：活动面抛错只缺席活动段，基础段照常）。 */
   private async buildSnapshotSafely(): Promise<string | undefined> {
-    if (this.deps.sessions === undefined) return undefined;
+    if (this.core.deps.sessions === undefined) return undefined;
     try {
-      const rows = await this.deps.sessions.listSessionMetadata();
-      const statuses = this.deps.orchestration.status();
+      const rows = await this.core.deps.sessions.listSessionMetadata();
+      const statuses = this.core.deps.orchestration.status();
       const activeAgents = statuses.filter((s) => s.state === "running").length;
       // M3-d1：活动段读面独立降级（读面抛错 → 零活动段，快照基础段照常——
       // 现 assembleStewardSystemPrompt 附加段缺席语义）
       let recentActivity: readonly { at: number; domain: string; attribution: string; text: string }[] | undefined;
       try {
-        recentActivity = this.deps.recentActivity?.();
+        recentActivity = this.core.deps.recentActivity?.();
       } catch (err) {
-        this.deps.logger?.warn(`管家快照活动段读面降级（快照仅基础段）：${(err as Error).message}`);
+        this.core.deps.logger?.warn(`管家快照活动段读面降级（快照仅基础段）：${(err as Error).message}`);
         recentActivity = undefined;
       }
       return buildContextSnapshot({
-        nowMs: this.now(),
+        nowMs: this.core.now(),
         activeAgents,
         totalAgents: statuses.length,
         sessionCount: rows.length,
@@ -2683,7 +1684,7 @@ export class StewardService implements StewardComponent {
         ...(recentActivity !== undefined && recentActivity.length > 0 ? { recentActivity } : {}),
       });
     } catch (err) {
-      this.deps.logger?.warn(`管家情景快照组装失败（降级为无快照段）：${(err as Error).message}`);
+      this.core.deps.logger?.warn(`管家情景快照组装失败（降级为无快照段）：${(err as Error).message}`);
       return undefined;
     }
   }
