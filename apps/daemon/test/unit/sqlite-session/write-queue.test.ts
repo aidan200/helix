@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,8 +17,18 @@ import { ToolCallRecord } from "../../../src/domain/tools/ToolCallRecord";
  * ③ WAL 模式（`PRAGMA journal_mode` = wal）+ db 文件在给定路径。
  * 全程 tmp 目录（不碰真实 ~/.helix）。
  */
+/** tmp 目录登记回收（TR-152）：逐测试 finally rmSync 是快速路径；
+ * 本 afterAll 是兑底——超时杀测试（promise 放弃，finally 不可达）等漏删路径
+ * 下兜住 CI TMPDIR 卫生审计（E 层 globalSetup 全前缀扫描 helix-*）。 */
+const tmpDirs: string[] = [];
+afterAll(() => {
+  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+});
+
 function tmpDbPath(): string {
-  return path.join(mkdtempSync(path.join(tmpdir(), "helix-wq-")), "helix.db");
+  const dir = mkdtempSync(path.join(tmpdir(), "helix-wq-"));
+  tmpDirs.push(dir);
+  return path.join(dir, "helix.db");
 }
 
 function ev(n: number, sessionId = "s1"): DomainEvent {
