@@ -19,10 +19,12 @@ import { test, expect } from "./harness/daemon-fixture";
 import {
   E2E_DAEMON_PORT,
   canBindPort,
+  filterResidueByGroup,
   findResidueProcesses,
   listE2eTmpResidue,
   recoverResidueProcesses,
   waitForPortFree,
+  type PsEntry,
 } from "./harness/daemon-fixture";
 import { writeEvidence } from "./harness/evidence";
 import { listHelixTmpResidue } from "./harness/tmp-hygiene";
@@ -34,6 +36,25 @@ import * as path from "node:path";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test.describe("T5.2 CL-4 teardown 零残留纪律（TR-TEST-6）", () => {
+  test("组归属豁免判据（TR-302 活跃豁免）：纯函数四场景", () => {
+    // 表：本 run（pgid=90）| 外部活组长 daemon（pid=500，pgid=500）带着 worker（pid=501，pgid=500）
+    // | detached daemon 组长（pid=600，pgid=600）| 死组遗孤 worker（pid=701，pgid=700，组长不在表）
+    const ps: PsEntry[] = [
+      { pid: 90, ppid: 1, pgid: 90, command: "playwright test" },
+      { pid: 500, ppid: 1, pgid: 500, command: "bun /repo/apps/daemon/main.ts" }, // 外部活跃 daemon（无特征）
+      { pid: 501, ppid: 500, pgid: 500, command: "bun /repo/apps/daemon/main.ts --child-main" }, // SubAgent worker（有特征）
+      { pid: 600, ppid: 1, pgid: 600, command: "bun /repo/apps/daemon/test/e2e/launcher.ts --role main" }, // 本 run detached daemon（组长+特征）
+      { pid: 601, ppid: 600, pgid: 600, command: "bun /repo/apps/daemon/main.ts --child-main" }, // 其孙 worker
+      { pid: 701, ppid: 1, pgid: 700, command: "bun /repo/apps/daemon/main.ts --child-main" }, // 死组遗孤（组长 700 已退）
+    ];
+    const hits = ps.filter((e) => /--child-main|launcher\.ts/.test(e.command));
+    const recovered = filterResidueByGroup(hits, ps, 90);
+    const recoveredPids = recovered.map((e) => e.pid).sort();
+    // 回收：本 run detached 树（600+601）与死组遗孤（701）；豁免：外部活跃 worker（501）
+    expect(recoveredPids).toEqual([600, 601, 701]);
+    expect(recoveredPids).not.toContain(501);
+  });
+
   test("SubAgent 子进程树兜底回收 + 故意残留红自证（ps/端口面）", async ({ e2e, page }) => {
     test.setTimeout(90_000);
     // 探针剧本：子进程长流式（4s/片 × 25 片 ≈ 100s 存活窗）+ ignoreAbort——

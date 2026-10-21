@@ -252,23 +252,57 @@ export interface ResidueProcess {
 
 /** ps 特征扫描：命令行含本 worktree 路径 + launcher/--child-main 特征的进程
  *  （daemon 与其派生的 SubAgent 子进程树——含孤儿化后 reparent 的成员）。 */
+export interface PsEntry {
+  pid: number;
+  ppid: number;
+  pgid: number;
+  command: string;
+}
+
+/** 残留判定的组归属过滤（TR-302 活跃豁免）：特征命中后按进程组归属二次判定——
+ *  回收：本 run 同组成员（pgid=本进程组）/ 组长（pgid=pid，detached 子树根）/
+ *       死组遗孤（组长已不在表）。
+ *  豁免：活的外部进程树成员（组长存活且非本 run）——同机活跃 SubAgent worker
+ *       跟着自身 daemon 的组，误杀即互杀（boot 期 137 实证）。
+ *  纯函数：供 findResidueProcesses 消费与 CL-4 守护单测直测。 */
+export function filterResidueByGroup(
+  hits: PsEntry[],
+  psTable: PsEntry[],
+  ownPgid: number,
+): PsEntry[] {
+  const byPid = new Map(psTable.map((e) => [e.pid, e]));
+  const ownGroupIds = new Set<number>([ownPgid]);
+  const hitPids = new Set(hits.map((h) => h.pid));
+  return hits.filter((h) => {
+    if (ownGroupIds.has(h.pgid)) return true; // 本 run 同组（spec/worker 直系）
+    if (hitPids.has(h.pgid)) return true; // 组长自身是回收对象（本 run detached 树）→ 组员跟树根回收
+    if (h.pgid === h.pid) return true; // 组长（detached 子树根）
+    return !byPid.has(h.pgid); // 死组遗孤（组长已退）回收；活的外部组长（无特征 daemon）→ 豁免
+  });
+}
+
 export function findResidueProcesses(): ResidueProcess[] {
-  const out = execSync("ps axo pid=,pgid=,command=", {
+  const out = execSync("ps axo pid=,ppid=,pgid=,command=", {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
-  const hits: ResidueProcess[] = [];
+  const entries: PsEntry[] = [];
   for (const line of out.split("\n")) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
     if (!m) continue;
-    const pid = Number(m[1]);
-    if (pid === process.pid) continue; // 自身（spec 进程命令行可能含 worktree 路径）
-    const command = m[3]!.trim();
-    if (!command.includes(WORKTREE_ROOT)) continue; // 只回收本 worktree 的
-    if (!RESIDUE_COMMAND_FEATURES.some((re) => re.test(command))) continue;
-    hits.push({ pid, pgid: Number(m[2]), command });
+    entries.push({ pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), command: m[4]!.trim() });
   }
-  return hits;
+  const featureHit = entries.filter(
+    (e) =>
+      e.pid !== process.pid && // 自身（spec 进程命令行可能含 worktree 路径）
+      e.command.includes(WORKTREE_ROOT) && // 只回收本 worktree 的
+      RESIDUE_COMMAND_FEATURES.some((re) => re.test(e.command)),
+  );
+  return filterResidueByGroup(featureHit, entries, process.getpgrp?.() ?? process.ppid).map((e) => ({
+    pid: e.pid,
+    pgid: e.pgid,
+    command: e.command,
+  }));
 }
 
 /** tmp 基目录残留清单（helix-e2e-* 前缀；空 = 三面之一干净）。 */
