@@ -249,6 +249,16 @@ async function main(): Promise<void> {
       reason:
         "组合根接线密集期：协调系列（U0a-U7：写事实/护栏/占用/注入）与沙箱系列（seatbelt/helper/fallback）六批接线集中于此；待组合根按域分组重构后撤销豁免",
     },
+    {
+      file: "apps/shell/src/shared/i18n/lang/zh-CN.ts",
+      reason:
+        "纯数据表豁免：键值词条零逻辑，行数不构成认知负担；词条随翻译覆盖自然增长（拆分只挪位置不降复杂度，且会随增长反复越线）；如改造成按域分片+加载器形态可撤销",
+    },
+    {
+      file: "apps/shell/src/shared/i18n/lang/en-US.ts",
+      reason:
+        "纯数据表豁免：与 zh-CN.ts 同源双语对（键位奇偶校验 TR-222/i18n 纪律锚此双文件）；同 zh-CN 豁免理由——拆分不降复杂度，如改造成按域分片+加载器形态可撤销",
+    },
   ];
 
   for (const { file, reason } of SIZE_EXEMPT) {
