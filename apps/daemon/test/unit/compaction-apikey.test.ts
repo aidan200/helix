@@ -169,4 +169,25 @@ describe("code-review H5：compaction 摘要调用显式 apiKey 注入", () => {
     expect(failures[0]).toContain("auth.json"); // fail-fast 文案与主链路同源
     expect(update).toBeUndefined(); // 会话无损（保持现状继续 turn）
   });
+
+  test("④ oauth 分流（订阅登录批）：getApiKey 返回 undefined → options 不带 apiKey（交 pi-ai 注入 store 解析）", async () => {
+    const { models, calls } = makeCapturingModels();
+    const outcomes: CompactionOutcome[] = [];
+    const hook = new CompactionHook({
+      settings: SETTINGS,
+      models,
+      model: fakeModel,
+      // oauth 凭据语义：双通道 hook 返回 undefined（不覆盖不抛错）
+      getApiKey: () => undefined,
+      onCompleted: (r) => outcomes.push(r),
+      onFailed: () => {},
+    });
+    hook.bind(fakeAgent());
+
+    await hook.prepareNextTurn(undefined as never, undefined);
+
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls.every((o) => o.apiKey === undefined)).toBe(true); // 不装饰（②同结果，经①代码路径）
+    expect(outcomes.length).toBe(1);
+  });
 });

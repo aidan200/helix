@@ -100,7 +100,7 @@ describe("PiAiJudgeAdapter：noul 判定（pi-ai 分类器通道）", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    expect(message).toContain("API key");
+    expect(message).toContain("凭据");
     expect(message).toContain("auth.set_key");
     expect(fm.classifyCalls).toHaveLength(0);
   });

@@ -81,6 +81,8 @@ export interface PiStewardLlmDeps {
   readonly defaultModel: string;
   /** provider key getter（组合根注入 authStore.apiKeyOf——每次调用重读）。 */
   readonly getApiKey: (provider: string) => string | undefined;
+  /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → 不覆盖 apiKey，交 pi-ai store 解析）。 */
+  readonly getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined;
 }
 
 export class PiStewardLlmAdapter implements StewardLlmPort {
@@ -110,15 +112,19 @@ export class PiStewardLlmAdapter implements StewardLlmPort {
     }
     const apiKey = this.deps.getApiKey(model.provider);
     if (apiKey === undefined || apiKey === "") {
-      throw new Error(
-        `auth.json 中没有 provider "${model.provider}" 的 API key（请经设置页 auth.set_key 录入；管家模型 = ${modelStr}）`,
-      );
+      // OAuth 分流（订阅登录批）：oauth 凭据存在 → 不覆盖 apiKey，交 pi-ai
+      // 注入 store 解析（锁内自动 refresh）；两无仍 fail-fast
+      if (this.deps.getCredentialType?.(model.provider) !== "oauth") {
+        throw new Error(
+          `auth.json 中没有 provider "${model.provider}" 的凭据（请经设置页 auth.set_key 录入 key 或订阅登录；管家模型 = ${modelStr}）`,
+        );
+      }
     }
     const context = this.toContext(request, model);
     // thinking 开启（A1 批）：reasoning 档位仅在模型声明思考能力时携带
     //（不支持思考的模型带参 = provider 拒答风险；AD-3 provider 默认纪律）
     const stream = this.deps.models.streamSimple(model, context, {
-      apiKey,
+      ...(apiKey !== undefined && apiKey !== "" ? { apiKey } : {}),
       ...(model.reasoning === true ? { reasoning: STEWARD_THINKING_LEVEL } : {}),
       ...(signal !== undefined ? { signal } : {}),
     });

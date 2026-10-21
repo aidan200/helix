@@ -122,3 +122,22 @@ describe("③ builtinModels 注入（credentials + authContext → 真解析面�
     }
   });
 });
+
+describe("④ 子进程装配（buildChildModels 注入——SubAgent 子进程 oauth 解析面）", () => {
+  test("authStore 注入后子进程本地 Models 可解析 oauth 凭据（跨进程共读同一 auth.json）", async () => {
+    const { buildChildModels } = await import("../../src/adapters/driven/subagent/child/ChildMain");
+    const store = authStoreIn();
+    await store.modify("openai-codex", async () => ({
+      type: "oauth",
+      refresh: "r-child",
+      access: "a-child-token",
+      expires: Date.now() + 3_600_000,
+      accountId: "acc-1",
+    }));
+    const models = buildChildModels({ HELIX_AUTH_PATH: "" }, store);
+    const resolved = await models.getAuth("openai-codex");
+    expect(resolved?.auth.apiKey).toBe("a-child-token");
+    // 无 authStore（旧父进程/测试形态）：不注入，行为不变（构造不炸）
+    expect(buildChildModels({})).toBeDefined();
+  });
+});

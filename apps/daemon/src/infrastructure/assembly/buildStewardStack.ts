@@ -161,6 +161,7 @@ export function buildStewardStack(deps: BuildStewardStackDeps): StewardStack {
     modelSlot: () => persistence.runtimeConfig.get(STEWARD_MODEL_KEY),
     defaultModel: STEWARD_DEFAULT_MODEL,
     getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+    getCredentialType: (provider) => modelStack.authStore.credentialTypeOf(provider),
   });
 
   // ── 管家记忆 B2：embedding 配置域服务体（端点 CRUD + verify + 解析）。
@@ -173,6 +174,8 @@ export function buildStewardStack(deps: BuildStewardStackDeps): StewardStack {
   const judgeServices = {
     getModels: () => modelStack.catalog.modelsView(),
     getApiKey: (provider: string) => modelStack.authStore.apiKeyOf(provider),
+    // OAuth 分流（订阅登录批）：oauth 凭据存在 → 判官调用不覆盖，交 store 解析
+    getCredentialType: (provider: string) => modelStack.authStore.credentialTypeOf(provider),
   };
   const embeddingConfig = new EmbeddingConfigService({
     config: persistence.runtimeConfig,

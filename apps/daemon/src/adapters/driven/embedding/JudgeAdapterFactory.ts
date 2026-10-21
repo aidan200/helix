@@ -38,6 +38,8 @@ export interface JudgeAdapterServices {
   readonly getModels: () => Models;
   /** provider key getter（authStore.apiKeyOf——每次调用重读）。 */
   readonly getApiKey: (provider: string) => string | undefined;
+  /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → 不覆盖，交 pi-ai store 解析）。 */
+  readonly getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined;
 }
 
 /** 适配器工厂形态（getConfig 惰性读面——改配置下一次调用自动跟随）。 */
@@ -47,7 +49,7 @@ export type JudgeAdapterFactory = (getConfig: () => JudgeRecord | null, services
 const JUDGE_ADAPTER_FACTORIES: Readonly<Record<string, JudgeAdapterFactory>> = {
   jev: (getConfig) => new JevJudgeAdapter({ getConfig }),
   "pi-ai": (getConfig, services) =>
-    new PiAiJudgeAdapter({ getModels: services.getModels, getConfig, getApiKey: services.getApiKey }),
+    new PiAiJudgeAdapter({ getModels: services.getModels, getConfig, getApiKey: services.getApiKey, ...(services.getCredentialType !== undefined ? { getCredentialType: services.getCredentialType } : {}) }),
 };
 
 /** 按端点记录 variant 惰性分派适配器（每次调用先 resolve；variant 缺席 =

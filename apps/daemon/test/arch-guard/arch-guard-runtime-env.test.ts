@@ -77,6 +77,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 使键集合变更可评审（扫描面含注释提及：注释与实现同键同责任）。
     const registered = [
       "HELIX_API_KEYS_JSON",
+      "HELIX_AUTH_PATH", // 订阅登录批：auth.json 路径透传（子进程共读 store——oauth 跨进程解析 + 锁内 refresh；路径 env IPC 传参 HELIX_DB_PATH 先例）
       "HELIX_CODEGRAPH_PATH", // W1-B：codegraph 二进制定格路径透传（SubagentLauncher 注入 / ChildMain 本地栈二级解析第①级消费）
       // custom provider 批：自定义 provider 定义全量透传（SubagentLauncher launch 时刻现拍 / ChildMain buildChildModels 注册进本地 pi-ai Models）
       "HELIX_CUSTOM_PROVIDERS_JSON",
