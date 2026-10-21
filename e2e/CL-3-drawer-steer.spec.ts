@@ -96,12 +96,16 @@ test.describe("T3.3 CL-3 抽屉 steer 输入栏（三态显隐 + 定向发送 + 
     await shotEvidence(page, "drawer-steer-three-states", "CL-3");
   });
 
-  test("目标绑定（R-P3-2）：chip 明示当前展开实例，无下拉选择器", async ({ mock, page }) => {
+  test("目标绑定（R-P3-2）：目标提示行不携带实例身份，无下拉选择器", async ({ mock, page }) => {
     await spawnRunning(mock, page);
     const drawer = await openDrawer(page);
 
     const composer = drawer.locator('.steer-composer[data-kind="steer-composer"]');
-    await expect(composer.locator(".sc-target .tgt")).toHaveText(`→ ${AGENT}`);
+    // 去 agentid 批：目标行 = 纯 label（chat.drawer.steerTarget）；身份 chip
+    // （.tgt）已编码移除——SteerComposer 单测钉死 `.sc-target .tgt` toBeNull
+    await expect(composer.locator(".sc-target .lab")).toHaveText("steer");
+    await expect(composer.locator(".sc-target .tgt")).toHaveCount(0);
+    expect(await composer.locator(".sc-target").textContent()).not.toContain(AGENT);
     // 无选择器 DOM（目标绑定当前展开实例，Q-3b 交互形态裁决）
     await expect(composer.locator("select")).toHaveCount(0);
     await expect(composer.locator('[role="combobox"]')).toHaveCount(0);

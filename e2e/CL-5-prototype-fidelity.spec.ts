@@ -301,11 +301,15 @@ test.describe("G11 P-3 抽屉还原清单", () => {
       },
       {
         id: "R-P3-2",
-        title: "抽屉底部输入栏：仅 running 渲染 + 目标 chip 绑定当前展开实例（无选择器）",
+        title: "抽屉底部输入栏：仅 running 渲染 + 目标提示行纯 label 不携带实例身份（无选择器）",
         run: async () => {
           const composer = drawer.locator('.steer-composer[data-kind="steer-composer"]');
           await expect(composer).toHaveCount(1);
-          await expect(composer.locator(".sc-target .tgt")).toHaveText("→ a1");
+          // 去 agentid 批：身份 chip .tgt 已编码移除（SteerComposer 单测钉
+          // toBeNull），目标行 = 纯 label
+          await expect(composer.locator(".sc-target .lab")).toHaveText("steer");
+          await expect(composer.locator(".sc-target .tgt")).toHaveCount(0);
+          expect(await composer.locator(".sc-target").textContent()).not.toContain("a1");
           await expect(composer.locator("select")).toHaveCount(0);
           await expect(composer.locator('[role="combobox"]')).toHaveCount(0);
           await expect(composer.locator(".sc-bar input")).toBeEnabled(); // 无阻塞发送态
