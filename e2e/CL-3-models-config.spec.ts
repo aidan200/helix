@@ -167,9 +167,14 @@ test.describe("T3.3 CL-3 模型与厂商配置（设置页分区）", () => {
     await anthropic.locator("[data-prov-toggle]").click();
     const del = anthropic.locator("[data-prov-delkey]");
 
-    // 首击：按钮变「确认删除？」（行内确认，不弹大层）+ armed 标记
+    // 首击：按钮变行内确认文案（不弹大层）+ armed 标记。文案双变体（i18n
+    // zh-CN chat.ts：confirmDelete / confirmDeleteWarn）——provider 为当前
+    // 全局默认模型宿主时放大后果：「默认模型将失效，确认删除？」。本 mock
+    // 的默认模型宿主 = anthropic → Warn 变体。armed 由 useArmedConfirm 2.5s
+    // 自动解除（armed↔unarmed flapping），故首击后单次即时读文本（不走长
+    // 窗口重试），避免与解除计时竞态。
     await del.click();
-    await expect(del).toHaveText("确认删除？");
+    expect((await del.textContent())!.trim()).toBe("默认模型将失效，确认删除？");
     await expect(del).toHaveAttribute("data-armed", "1");
     expect((await mock.clientFrames()).filter((f) => f.type === "auth.delete_key")).toHaveLength(0);
 
