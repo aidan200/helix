@@ -24,7 +24,8 @@ const join_ = (...parts: string[]): string => parts.join("");
 
 describe("注释口径定式断言：steward 域", () => {
   test("#1 快照标题不再另写推导链与分叉兜底文案", () => {
-    const s = src("application/steward/StewardService.ts");
+    // 体量门 P4：快照组装（buildSnapshotSafely）迁至生命周期域，断言跟随之
+    const s = src("application/steward/StewardLifecycle.ts");
     expect(s).toContain("displayTitle 单源（TR-207）：推导链只在 displayTitleOf");
     expect(s).toContain("title: displayTitleOf(r),");
     expect(s).not.toContain(join_("（无主题", "会话）"));
