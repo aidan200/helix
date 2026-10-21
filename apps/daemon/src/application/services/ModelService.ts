@@ -102,6 +102,8 @@ export interface ModelServiceDeps {
   readonly onModelChanged: (payload: { sessionId: string; model: string; previous: string; effective: "next-turn" }) => void;
   /** thinking.changed 广播出海（thinking 批①；容器接 EventStream；channel=thinking）。 */
   readonly onThinkingChanged: (payload: { sessionId: string; override: string | null; effective: string | null }) => void;
+  /** auth.changed 广播出海（订阅登录批；容器接 EventStream；channel=model，订阅无关）。 */
+  readonly onAuthChanged?: (payload: { providerId: string; credentialType?: "api_key" | "oauth" }) => void;
   /**
    * STT provider id 扩展集（语音输入批 V1）：非 LLM 目录成员但可经
    * auth.set_key 录入 key 的 provider（"dashscope" / "siliconflow"——ASR
@@ -188,26 +190,30 @@ export class ModelService implements ModelPort {
   async authList(): Promise<AuthProviderStatus[]> {
     const out: AuthProviderStatus[] = [];
     for (const providerId of this.deps.catalog.providerIds()) {
-      const status = this.deps.auth.statusOf(providerId);
-      out.push({
-        providerId,
-        configured: status.configured,
-        ...(status.keyMasked !== undefined ? { keyMasked: status.keyMasked } : {}),
-      });
+      out.push(this.authEntryOf(providerId));
     }
     // 语音输入批 V1：STT provider 并入清单（设置页语音输入区配置状态数据源；
     // 目录成员去重防御——目录未来收录 ASR provider 时不双列）
     const catalogIds = new Set(this.deps.catalog.providerIds());
     for (const providerId of this.deps.sttProviderIds ?? []) {
       if (catalogIds.has(providerId)) continue;
-      const status = this.deps.auth.statusOf(providerId);
-      out.push({
-        providerId,
-        configured: status.configured,
-        ...(status.keyMasked !== undefined ? { keyMasked: status.keyMasked } : {}),
-      });
+      out.push(this.authEntryOf(providerId));
     }
     return out;
+  }
+
+  /** auth.list 条目组装（订阅登录批增强：credentialType + 订阅登录可用面）。 */
+  private authEntryOf(providerId: string): AuthProviderStatus {
+    const status = this.deps.auth.statusOf(providerId);
+    const credentialType = this.deps.auth.credentialTypeOf(providerId);
+    const meta = this.deps.catalog.loginMetaOf(providerId);
+    return {
+      providerId,
+      configured: status.configured,
+      ...(status.keyMasked !== undefined ? { keyMasked: status.keyMasked } : {}),
+      ...(credentialType !== undefined ? { credentialType } : {}),
+      ...(meta?.oauth !== undefined ? { oauth: meta.oauth } : {}),
+    };
   }
 
   async authSetKey(providerId: string, apiKey: string): Promise<{ keyMasked: string }> {
@@ -215,12 +221,15 @@ export class ModelService implements ModelPort {
     if (typeof apiKey !== "string" || apiKey.trim() === "") {
       throw new InvalidApiKeyError(providerId, apiKey);
     }
-    return this.deps.auth.setKey(providerId, apiKey);
+    const result = await this.deps.auth.setKey(providerId, apiKey);
+    this.deps.onAuthChanged?.({ providerId, credentialType: "api_key" });
+    return result;
   }
 
   async authDeleteKey(providerId: string): Promise<void> {
     this.assertProvider(providerId);
     await this.deps.auth.deleteKey(providerId);
+    this.deps.onAuthChanged?.({ providerId });
   }
 
   async authVerify(providerId: string): Promise<AuthVerifyOutcome> {
@@ -233,7 +242,16 @@ export class ModelService implements ModelPort {
         reason: `provider "${providerId}" 为语音转写专用（无 LLM 连通验证）——录入 key 后直接试一次语音输入即可验证`,
       };
     }
-    return this.deps.catalog.verify(providerId, this.deps.auth.apiKeyOf(providerId));
+    // 凭据双态组装（pi-ai 订阅登录批）：api_key → 显式 key；oauth →
+    // 订阅登录态（验证请求不覆盖 key，交 pi-ai store 解析 + 自动 refresh）
+    const key = this.deps.auth.apiKeyOf(providerId);
+    const credential =
+      key !== undefined
+        ? ({ type: "api_key", key } as const)
+        : this.deps.auth.credentialTypeOf(providerId) === "oauth"
+          ? ({ type: "oauth" } as const)
+          : undefined;
+    return this.deps.catalog.verify(providerId, credential);
   }
 
   private assertProvider(providerId: string): void {

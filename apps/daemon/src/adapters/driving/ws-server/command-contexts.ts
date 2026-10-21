@@ -23,6 +23,7 @@ import type { SummaryConfigPort } from "../../../application/ports/outbound/Summ
 import type { KgConfigPort } from "../../../application/ports/outbound/KgConfigPort";
 import type { VoiceModelConfigPort } from "../../../application/ports/outbound/VoiceModelConfigPort";
 import type { AskService } from "../../../application/services/AskService";
+import type { AuthLoginService } from "../../../application/services/AuthLoginService";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import type {
@@ -120,6 +121,9 @@ export interface WsServerAdapterDeps {
   readonly voiceModelConfig?: VoiceModelConfigPort;
   /** 提权申请仲裁面（ask.answer 命令回口；可选——测试缺省回 unimplemented）。 */
   readonly askService?: AskService;
+  /** 登录流程编排面（auth.login/respond/cancel/logout 命令回口，订阅登录批；
+   *  未装配 → handler 回 unimplemented）。 */
+  readonly authLogin?: AuthLoginService;
   /**
    * 资源配置面（契约 v0.6）：agent.config 命令族回口（profile kind 维
    * tool/skill 启停 + model 槽位；只转发不决策，AG-12）。
@@ -389,6 +393,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       kgConfig: deps.kgConfig,
       voiceModelConfig: deps.voiceModelConfig,
       askService: deps.askService,
+      authLogin: deps.authLogin,
       system: deps.system,
       ...sharedClosures(ws, helpers),
       modelErrorCode: (err) => modelErrorCode(err),

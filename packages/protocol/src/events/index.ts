@@ -74,8 +74,13 @@ import type {
   UsageRecordedEvent,
 } from "./channels";
 import type {
+  AuthChangedEvent,
   AuthDeleteKeyResultEvent,
   AuthListResultEvent,
+  AuthLoginResultEvent,
+  AuthLogoutResultEvent,
+  AuthNotifyEvent,
+  AuthPromptEvent,
   AuthSetKeyResultEvent,
   AuthVerifyResultEvent,
   ModelCatalogRefreshResultEvent,
@@ -295,6 +300,11 @@ export type EventEnvelope =
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
   | AuthVerifyResultEvent
+  | AuthLoginResultEvent
+  | AuthLogoutResultEvent
+  | AuthPromptEvent
+  | AuthNotifyEvent
+  | AuthChangedEvent
   | TraceQueryResultEvent
   | AgentInstantiatedEvent
   | AgentModelChangedEvent
@@ -456,6 +466,11 @@ export const EVENT_TYPES = [
   "auth.set_key.result",
   "auth.delete_key.result",
   "auth.verify.result",
+  "auth.login.result",
+  "auth.logout.result",
+  "auth.prompt",
+  "auth.notify",
+  "auth.changed",
   "trace.query.result",
   "agent.instantiated",
   "agent.model.changed",
@@ -668,6 +683,11 @@ export const EVENT_CHANNELS = {
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",
   "auth.verify.result": "model",
+  "auth.login.result": "model",
+  "auth.logout.result": "model",
+  "auth.prompt": "model",
+  "auth.notify": "model",
+  "auth.changed": "model",
   "trace.query.result": "trace",
   "agent.instantiated": "agent",
   "agent.model.changed": "agent",

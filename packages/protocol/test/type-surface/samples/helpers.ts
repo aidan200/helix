@@ -407,6 +407,21 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "config.set_kg.result":
       // 知识库查重闸批（批2）：查重阈值生效对回执
       return `config-kg:${event.payload.similarityWarn}:${event.payload.similarityDup}`;
+    case "auth.login.result":
+      // 订阅登录批（§17.39）：登录成功回执（凭据类型窄化）
+      return `auth-login-result:${event.payload.providerId}:${event.payload.credentialType}`;
+    case "auth.logout.result":
+      // 订阅登录批：登出回执（无数据体）
+      return "auth-logout-result";
+    case "auth.prompt":
+      // 订阅登录批：登录交互 prompt 推送（requestId + 判别型）
+      return `auth-prompt:${event.payload.requestId}:${event.payload.prompt.type}`;
+    case "auth.notify":
+      // 订阅登录批：登录交互 notify 推送（判别型）
+      return `auth-notify:${event.payload.event.type}`;
+    case "auth.changed":
+      // 订阅登录批：凭据变更广播（缺省 = 已无凭据）
+      return `auth-changed:${event.payload.providerId}:${event.payload.credentialType ?? "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -713,6 +728,18 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "config.set_kg":
       // 知识库查重闸批（批2）：查重阈值部分更新写面
       return `config-set-kg:${cmd.payload.similarityWarn ?? "-"}:${cmd.payload.similarityDup ?? "-"}`;
+    case "auth.login":
+      // 订阅登录批（§17.39）：发起登录（type 缺省 oauth）
+      return `auth-login:${cmd.payload.providerId}:${cmd.payload.type ?? "oauth"}`;
+    case "auth.respond":
+      // 订阅登录批：登录交互 prompt 回填
+      return `auth-respond:${cmd.payload.requestId}`;
+    case "auth.cancel":
+      // 订阅登录批：中止登录（幂等）
+      return `auth-cancel:${cmd.payload.providerId}`;
+    case "auth.logout":
+      // 订阅登录批：登出（幂等）
+      return `auth-logout:${cmd.payload.providerId}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

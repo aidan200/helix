@@ -25,6 +25,8 @@ export interface HelixPaths {
   readonly modelsStorePath: () => string;
   /** dev token 固定文件：`<home>/dev-token`（WS 握手用）。 */
   readonly devTokenPath: () => string;
+  /** install 级稳定设备标识（订阅登录批：pi-ai LoginOptions.getDeviceId 数据源）。 */
+  readonly installIdPath: () => string;
   /** 运行日志目录：`<home>/logs/`。 */
   readonly logsDir: () => string;
   /** 系统 SQLite：`<home>/helix.db`（领域状态持久化，WAL）。 */
@@ -91,6 +93,7 @@ export function createPaths(explicitHome?: string): HelixPaths {
     authPath: () => path.join(home, "auth.json"),
     modelsStorePath: () => path.join(home, "models-store.json"),
     devTokenPath: () => path.join(home, "dev-token"),
+    installIdPath: () => path.join(home, "install-id"),
     logsDir: () => path.join(home, "logs"),
     dbPath: () => path.join(home, "helix.db"),
     stewardMemoryDbPath: () => path.join(home, "steward_memory.db"),

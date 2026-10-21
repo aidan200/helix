@@ -495,6 +495,9 @@ export function buildStewardStack(deps: BuildStewardStackDeps): StewardStack {
           }
           return table;
         },
+        // OAuth 分流（订阅登录批）：oauth 凭据存在 → getApiKey 不覆盖，
+        // 交 pi-ai store 解析 + 自动 refresh（与主会话同轨）
+        getCredentialType: (providerId) => modelStack.authStore.credentialTypeOf(providerId),
         models: modelStack.catalog.modelsView(),
         tools: opts.tools,
         gatedTools: opts.gatedTools,

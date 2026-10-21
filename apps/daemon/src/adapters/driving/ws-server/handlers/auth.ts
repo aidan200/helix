@@ -15,6 +15,12 @@
 import type {
   AuthDeleteKeyResultEvent,
   AuthListResultEvent,
+  AuthLoginPayload,
+  AuthLoginResultEvent,
+  AuthLogoutResultEvent,
+  AuthNotifyEvent,
+  AuthPromptEvent,
+  AuthRespondPayload,
   AuthSetKeyResultEvent,
   AuthVerifyResultEvent,
 } from "@helix/protocol";
@@ -99,6 +105,126 @@ export function handleAuthVerify(ctx: WsCommandContext): void {
         channel: "model",
         type: "auth.verify.result",
         payload: r.status === "ok" ? { status: "ok", latencyMs: r.latencyMs } : { status: "fail", reason: r.reason }, // fail 是正常结果非 error
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => ctx.commandError(ctx.type, ctx.modelErrorCode(err), (err as Error).message));
+}
+
+// ── §17.39 订阅登录族（pi-ai 订阅登录批：登录流编排回口 authLogin） ──
+
+/**
+ * auth.login（发起登录流程）：交互推送 auth.prompt/auth.notify（点对点
+ * 发起连接），成功回 auth.login.result；流程失败/中止回 commandError
+ *（modelErrorCode 映射；中止 = 用户 auth.cancel 发起，终态同此回执）。
+ */
+export function handleAuthLogin(ctx: WsCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  if (ctx.authLogin === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "登录流程未装配（authLogin）");
+  }
+  const p = ctx.payload as Partial<AuthLoginPayload>;
+  if (typeof p.providerId !== "string" || p.providerId === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.providerId 应为非空 string");
+  }
+  const providerId = p.providerId;
+  const type = p.type ?? "oauth";
+  if (type !== "api_key" && type !== "oauth") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.type 应为 \"api_key\" | \"oauth\"");
+  }
+  void ctx.authLogin
+    .login(providerId, type, {
+      prompt: (input) => {
+        const frame: AuthPromptEvent = {
+          v: PROTOCOL_VERSION,
+          sessionId: SYSTEM_SESSION_ID,
+          channel: "model",
+          type: "auth.prompt",
+          payload: { providerId, requestId: input.requestId, prompt: input.prompt },
+        };
+        ctx.sendNow(sender, frame);
+      },
+      notify: (event) => {
+        const frame: AuthNotifyEvent = {
+          v: PROTOCOL_VERSION,
+          sessionId: SYSTEM_SESSION_ID,
+          channel: "model",
+          type: "auth.notify",
+          payload: { providerId, event },
+        };
+        ctx.sendNow(sender, frame);
+      },
+    })
+    .then((r) => {
+      const frame: AuthLoginResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "auth.login.result",
+        payload: { providerId, credentialType: r.credentialType },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => ctx.commandError(ctx.type, ctx.modelErrorCode(err), (err as Error).message));
+}
+
+/**
+ * auth.respond（登录交互 prompt 回填）：requestId 取自 auth.prompt 帧
+ *（select 型回填 option id）。零回执（steward.interrupt 先例——登录继续
+ * 由后续 auth.prompt/auth.login.result 承载）；未知 requestId 回
+ * invalid_payload（竞态容忍：前端忽略即可）。
+ */
+export function handleAuthRespond(ctx: WsCommandContext): void {
+  if (ctx.authLogin === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "登录流程未装配（authLogin）");
+  }
+  const p = ctx.payload as Partial<AuthRespondPayload>;
+  if (typeof p.requestId !== "string" || p.requestId === "" || typeof p.value !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.requestId 应为非空 string、value 应为 string");
+  }
+  if (!ctx.authLogin.respond(p.requestId, p.value)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "requestId 不存在或已收口（竞态容忍：忽略即可）");
+  }
+}
+
+/**
+ * auth.cancel（中止进行中登录）：幂等（无流程静默收口）；零回执——
+ * 终态经 auth.login 命令的 commandError 回执（「登录已取消」）。
+ */
+export function handleAuthCancel(ctx: WsCommandContext): void {
+  if (ctx.authLogin === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "登录流程未装配（authLogin）");
+  }
+  const p = ctx.payload as { providerId?: unknown };
+  if (typeof p.providerId !== "string" || p.providerId === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.providerId 应为非空 string");
+  }
+  ctx.authLogin.cancel(p.providerId);
+}
+
+/**
+ * auth.logout（登出清凭据）：auth.logout.result 回执 + auth.changed 广播
+ *（服务层 onAuthChanged 出海）。幂等（无凭据也成功收口）。
+ */
+export function handleAuthLogout(ctx: WsCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  if (ctx.authLogin === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "登录流程未装配（authLogin）");
+  }
+  const p = ctx.payload as { providerId?: unknown };
+  if (typeof p.providerId !== "string" || p.providerId === "") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.providerId 应为非空 string");
+  }
+  const providerId = p.providerId;
+  void ctx.authLogin
+    .logout(providerId)
+    .then(() => {
+      const frame: AuthLogoutResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "auth.logout.result",
+        payload: {},
       };
       ctx.sendNow(sender, frame);
     })

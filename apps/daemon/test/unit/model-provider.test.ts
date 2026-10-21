@@ -69,6 +69,17 @@ describe("② 显式传参（spy 断言）", () => {
     expect(() => liveGetApiKey("openai")).toThrow(/auth\.json/);
     expect(() => getApiKey("openai")).toThrow(/auth\.json/);
   });
+
+  test("explicitGetApiKey OAuth 分流：oauth 凭据 → undefined 不覆盖（交 pi-ai store 解析）；无凭据仍 fail-fast", () => {
+    const getApiKey = explicitGetApiKey({}, (p) => (p === "openai-codex" ? "oauth" : undefined));
+    // oauth 态：返回 undefined（options.apiKey 缺席 → pi-ai getAuth 解析 + 锁内自动 refresh）
+    expect(getApiKey("openai-codex")).toBeUndefined();
+    // api_key 命中优先：显式覆盖不被 oauth 通道劫持（双通道并存）
+    const mixed = explicitGetApiKey({ "openai-codex": "sk-x" }, () => "oauth");
+    expect(mixed("openai-codex")).toBe("sk-x");
+    // 两通道皆缺：fail-fast 不变（api_key 语义回归护栏）
+    expect(() => getApiKey("anthropic")).toThrow(/auth\.json/);
+  });
 });
 
 describe("③ streamFn 工厂转交", () => {

@@ -37,6 +37,11 @@ type _ModelFamily = Expect<
     | "auth.set_key.result"
     | "auth.delete_key.result"
     | "auth.verify.result"
+    | "auth.login.result"
+    | "auth.logout.result"
+    | "auth.prompt"
+    | "auth.notify"
+    | "auth.changed"
   >
 >;
 

@@ -46,6 +46,10 @@ import type {
   AuthSetKeyCommand,
   AuthDeleteKeyCommand,
   AuthVerifyCommand,
+  AuthLoginCommand,
+  AuthRespondCommand,
+  AuthCancelCommand,
+  AuthLogoutCommand,
   ThinkingSetCommand,
 } from "./model-config";
 import type {
@@ -190,6 +194,10 @@ export type CommandEnvelope =
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
   | AuthVerifyCommand
+  | AuthLoginCommand
+  | AuthRespondCommand
+  | AuthCancelCommand
+  | AuthLogoutCommand
   | TraceQueryCommand
   | AgentConfigListCommand
   | AgentConfigSetEnabledCommand
@@ -382,6 +390,11 @@ export const COMMAND_TYPES = [
   "auth.set_key",
   "auth.delete_key",
   "auth.verify",
+  // pi-ai 订阅登录批（§17.39）：登录流程发起/交互回填/中止/登出
+  "auth.login",
+  "auth.respond",
+  "auth.cancel",
+  "auth.logout",
   "trace.query",
   "agent.config.list",
   "agent.config.set_enabled",

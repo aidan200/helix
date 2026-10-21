@@ -217,7 +217,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // 经组合根注入，ws-server 零运行时耦合）。
           const serviceTypeOnly =
             (/\/services\/(kg|workspace|task)\//.test(spec) ||
-              /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
+              /\/services\/(TurnDiffService|AskService|CustomProviderService|AuthLoginService)$/.test(spec) ||
               /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec) ||
               /\/steward\/StewardActivityService$/.test(spec) ||
               /\/surface\/SurfaceRegistry$/.test(spec)) &&
@@ -239,7 +239,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
       for (const spec of importSpecifiers(src)) {
         if (
           (/\/services\/(kg|workspace|task)\//.test(spec) ||
-            /\/services\/(TurnDiffService|AskService|CustomProviderService)$/.test(spec) ||
+            /\/services\/(TurnDiffService|AskService|CustomProviderService|AuthLoginService)$/.test(spec) ||
             /\/(stt|tts|steward|embedding)\/(SttStreamService|TtsStreamService|StewardService|EmbeddingConfigService)$/.test(spec) ||
             /\/surface\/SurfaceRegistry$/.test(spec)) &&
           typeOnly(spec, src)

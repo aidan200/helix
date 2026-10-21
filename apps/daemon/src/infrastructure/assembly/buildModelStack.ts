@@ -1,10 +1,14 @@
 import type { Logger } from "../logging";
 import type { HelixPaths } from "../paths";
 import type { RuntimeConfigPort } from "../../application/ports/outbound/RuntimeConfigPort";
+import type { AuthFlowPort } from "../../application/ports/outbound/AuthFlowPort";
 import { AuthStore } from "../auth-store";
+import { loadInstallId } from "../install-id";
 import { ModelCatalog } from "../../adapters/driven/llm";
 import {
   CustomProviderRegistry,
+  createAuthFlow,
+  createAuthInjection,
   createModelsBase,
   registerCustomProviders,
 } from "../../adapters/driven/llm";
@@ -29,6 +33,8 @@ export interface ModelStack {
   readonly catalog: ModelCatalog;
   /** 三方平台活注册表（CustomProviderService 经组合根注入消费）。 */
   readonly customProviderRegistry: CustomProviderRegistry;
+  /** 登录流出站（pi-ai Models.login/logout 防腐墙；订阅登录批）。 */
+  readonly authFlow: AuthFlowPort;
 }
 
 export function buildModelStack(deps: {
@@ -38,12 +44,22 @@ export function buildModelStack(deps: {
 }): ModelStack {
   // ── AD-2 模型模块地基：auth.json / 合并目录 ──────────
   const authStore = new AuthStore(deps.paths.authPath(), deps.logger);
-  const models = createModelsBase();
+  // pi-ai 凭据注入（订阅登录批 M1）：credentials/authContext 成对注入
+  // builtinModels——pi-ai 内建解析（getAuth/oauth 锁内自动 refresh）以
+  // auth.json 为唯一数据源；authContext 恒答无 env（AG-08 免疫，pi-auth）
+  const models = createModelsBase(createAuthInjection(authStore));
   const catalog = new ModelCatalog({ storePath: deps.paths.modelsStorePath(), models });
+  // 登录流（订阅登录批）：agentName 恒 "helix" + install 级稳定设备 id
+  //（首启生成 ~/.helix/install-id）——pi-ai LoginOptions 上报面
+  const authFlow = createAuthFlow({
+    models: catalog.modelsView(),
+    source: authStore,
+    getDeviceId: () => loadInstallId(deps.paths.installIdPath()),
+  });
   // 三方平台启动登记（catalog 构造后——刷新域快照定格 builtin；读面动态）
   const customProviderRegistry = new CustomProviderRegistry(models);
   if (deps.config !== undefined) {
     registerCustomProviders(models, parseCustomProviders(deps.config.get(CUSTOM_PROVIDERS_KEY)));
   }
-  return { authStore, catalog, customProviderRegistry };
+  return { authStore, catalog, customProviderRegistry, authFlow };
 }

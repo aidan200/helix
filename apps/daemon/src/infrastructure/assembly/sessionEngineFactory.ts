@@ -416,6 +416,9 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
         ctx.catalog.modelsView(),
       ),
       apiKeys: () => ({ ...ctx.authStore.apiKeysSnapshot(), ...(ctx.mainSessionLlmOverride?.apiKeys?.() ?? {}) }),
+      // OAuth 分流（订阅登录批）：oauth 凭据存在 → getApiKey 不覆盖，
+      // 交 pi-ai store 解析 + 自动 refresh
+      getCredentialType: (providerId) => ctx.authStore.credentialTypeOf(providerId),
       models: ctx.catalog.modelsView(),
       resolveModelById: (modelId) => resolveConfigModel(modelId, ctx.catalog.modelsView()),
       resolveThinking: (model) =>

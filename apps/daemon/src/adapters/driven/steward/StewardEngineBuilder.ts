@@ -35,6 +35,8 @@ export interface StewardEngineOptions {
   readonly model: Model<any>;
   /** provider → apiKey（静态表或 getter——每请求读现值）。 */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
+  /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → getApiKey 不覆盖，交 pi-ai store 解析）。 */
+  readonly getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined;
   /** provider 目录（压缩摘要调用与测试 fake catalog 共用面）。 */
   readonly models?: Models;
   /** 管家八工具中立规格（经 StewardToolBridge 投影进 resolveTools）。 */
@@ -69,6 +71,7 @@ export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngine
     },
     model: options.model,
     apiKeys: options.apiKeys,
+    ...(options.getCredentialType !== undefined ? { getCredentialType: options.getCredentialType } : {}),
     models: options.models,
     resolveTools: () => projectStewardTools(options.tools),
     ...(options.gatedTools.size > 0

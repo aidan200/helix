@@ -1,5 +1,10 @@
 import type { EventFrame } from "../envelope";
-import type { AuthProviderInfo } from "../types/auth";
+import type {
+  AuthCredentialType,
+  AuthNotifyPayload,
+  AuthPromptPayload,
+  AuthProviderInfo,
+} from "../types/auth";
 import type { CatalogModel } from "../types/model";
 
 // ── v0.2 新增 payload：session/model 族（契约 B §2 / 契约 C §2） ──
@@ -79,6 +84,35 @@ export type AuthVerifyResultPayload =
   | { status: "ok"; latencyMs: number }
   | { status: "fail"; reason: string };
 
+/** auth.login.result：登录成功回执（订阅登录批；凭据类型二值以 AuthCredentialType 为单源） */
+export interface AuthLoginResultPayload {
+  providerId: string;
+  credentialType: AuthCredentialType;
+}
+
+/** auth.logout.result：登出回执（无数据体） */
+export type AuthLogoutResultPayload = Record<string, never>;
+
+/** auth.prompt：登录交互 prompt 推送（requestId 关联 auth.respond 回填；select 型回填 option id） */
+export interface AuthPromptEventPayload {
+  providerId: string;
+  requestId: string;
+  prompt: AuthPromptPayload;
+}
+
+/** auth.notify：登录交互 notify 推送（auth_url/device_code/progress/info——镜像 pi-ai AuthEvent） */
+export interface AuthNotifyEventPayload {
+  providerId: string;
+  event: AuthNotifyPayload;
+}
+
+/** auth.changed：凭据变更广播（登录/登出/录入/删除后；daemon 级全局，订阅无关） */
+export interface AuthChangedPayload {
+  providerId: string;
+  /** 变更后凭据类型；缺省 = 已无凭据（登出/删除） */
+  credentialType?: AuthCredentialType;
+}
+
 // ── v0.2 新增信封（契约 B §2 / 契约 C §2） ──
 
 export interface ModelChangedEvent extends EventFrame<ModelChangedPayload> {
@@ -145,4 +179,29 @@ export interface AuthDeleteKeyResultEvent extends EventFrame<AuthDeleteKeyResult
 export interface AuthVerifyResultEvent extends EventFrame<AuthVerifyResultPayload> {
   channel?: "model";
   type: "auth.verify.result";
+}
+/** auth.login.result：登录成功回执（点对点；全局命令） */
+export interface AuthLoginResultEvent extends EventFrame<AuthLoginResultPayload> {
+  channel?: "model";
+  type: "auth.login.result";
+}
+/** auth.logout.result：登出回执（无数据体；点对点；全局命令） */
+export interface AuthLogoutResultEvent extends EventFrame<AuthLogoutResultPayload> {
+  channel?: "model";
+  type: "auth.logout.result";
+}
+/** auth.prompt：登录交互 prompt 推送（点对点发起连接；全局命令） */
+export interface AuthPromptEvent extends EventFrame<AuthPromptEventPayload> {
+  channel?: "model";
+  type: "auth.prompt";
+}
+/** auth.notify：登录交互 notify 推送（点对点发起连接；全局命令） */
+export interface AuthNotifyEvent extends EventFrame<AuthNotifyEventPayload> {
+  channel?: "model";
+  type: "auth.notify";
+}
+/** auth.changed：凭据变更广播（daemon 级全局；与 broadcastWebStatusChanged 同构，订阅无关） */
+export interface AuthChangedEvent extends EventFrame<AuthChangedPayload> {
+  channel?: "model";
+  type: "auth.changed";
 }
