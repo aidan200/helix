@@ -98,6 +98,7 @@ export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrch
       resolveModelById: (modelId) => resolveConfigModel(modelId, modelStack.catalog.modelsView()),
       thinkingChain: () => [deps.resourceService.thinkingSlot("orchestrator"), persistence.defaultThinking.stored() ?? undefined],
       apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
+      getCredentialType: (providerId) => modelStack.authStore.credentialTypeOf(providerId),
       llmOverride: deps.llmOverride,
       // 编排会话事件镜像落盘（任务域观测面）：翻译后领域事件直写
       // domain_events（kind="orchestrator"；不经 fanout 零广播副作用）——

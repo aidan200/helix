@@ -1,4 +1,5 @@
 import type { CatalogSnapshot, AuthVerifyOutcome } from "../outbound/ModelCatalogPort";
+import type { AuthCredentialType } from "@helix/protocol";
 
 /**
  * 模型与会话管理命令面（inbound，TR-AD-2：inbound = 模型与会话管理命令面；
@@ -66,4 +67,8 @@ export interface AuthProviderStatus {
   readonly providerId: string;
   readonly configured: boolean;
   readonly keyMasked?: string;
+  /** 当前凭据类型（订阅登录批；缺省 = 未配置）。 */
+  readonly credentialType?: AuthCredentialType;
+  /** OAuth 订阅登录可用面（存在 = 支持订阅登录；登录按钮/订阅徽标消费）。 */
+  readonly oauth?: { readonly loginLabel: string; readonly isSubscription: boolean };
 }

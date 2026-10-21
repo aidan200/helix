@@ -87,6 +87,13 @@ export interface SubagentLauncherDeps {
    */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /**
+   * auth.json 路径（订阅登录批）：子进程共读同一 store（HELIX_AUTH_PATH
+   * 路径 env IPC 传参，HELIX_DB_PATH/REPORT_PATH 先例）——oauth 凭据跨进程
+   * 解析 + 文件锁内自动 refresh（谁抢到锁谁刷，无 token 竞丢）。可选：
+   * 缺省不传键（旧测试形态——子进程 api_key env 快照行为不变）。
+   */
+  readonly authPath?: string;
+  /**
    * 工具沙箱 cwd（子进程 CoreToolExecutor 用）。接受 getter（spawn 时刻读
    * 现值——W1F-F2：经持有者读绑定 root，重绑后新 spawn 跟随新根；已
    * spawn 实例 env 已定格，代际生效）或静态字符串（既有测试形态）。
@@ -441,6 +448,7 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_MODEL_JSON: JSON.stringify(model), // 完整对象透传
         HELIX_THINKING_LEVEL: thinkingLevel, // thinking 定格值（字符串透传，无 registry 防重建红线）
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
+        ...(this.deps.authPath !== undefined ? { HELIX_AUTH_PATH: this.deps.authPath } : {}),
         HELIX_TOOL_CWD: toolCwd,
         // 落点规范批（2026-10-10）：子进程 TMPDIR/工具链缓存归位物料根
         // <toolCwd>/.helix/（isolated 实例 = worktree 内，随 worktree 清理）。

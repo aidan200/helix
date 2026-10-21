@@ -47,6 +47,14 @@ export type AuthVerifyOutcome =
   | { readonly status: "ok"; readonly latencyMs: number }
   | { readonly status: "fail"; readonly reason: string };
 
+/** 连通验证凭据形态（api_key 显式 key / oauth 订阅登录态——解析交 pi-ai store + 自动 refresh）。 */
+export type VerifyCredential = { type: "api_key"; key: string } | { type: "oauth" };
+
+/** provider 登录元数据（订阅登录可用面；pi-ai Provider.auth.oauth 投影——登录按钮文案与订阅徽标数据源）。 */
+export interface ProviderLoginMeta {
+  readonly oauth?: { readonly loginLabel: string; readonly isSubscription: boolean };
+}
+
 export interface ModelCatalogPort {
   /**
    * 目录读面（4h 缓存口径）：overlay 缓存过期时先对 pi.dev 做条件刷新
@@ -63,5 +71,7 @@ export interface ModelCatalogPort {
   /** 合并目录的 provider id 全集（auth.* 的 provider 校验面）。 */
   providerIds(): readonly string[];
   /** 连通验证（最小 completion 请求；实现定稿：pi-ai streamSimple maxTokens=1）。 */
-  verify(providerId: string, apiKey: string | undefined): Promise<AuthVerifyOutcome>;
+  verify(providerId: string, credential: VerifyCredential | undefined): Promise<AuthVerifyOutcome>;
+  /** provider 登录元数据（订阅登录可用面；无 oauth 登录方法 → 无 oauth 字段）。 */
+  loginMetaOf(providerId: string): ProviderLoginMeta | undefined;
 }

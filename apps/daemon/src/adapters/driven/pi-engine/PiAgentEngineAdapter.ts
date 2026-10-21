@@ -39,6 +39,8 @@ export interface PiEngineOptions {
    * ——接受静态表或 getter（getter 每请求读现值，换 key 后下一请求生效）。
    */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
+  /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → getApiKey 不覆盖，交 pi-ai store 解析 + 自动 refresh）。 */
+  readonly getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined;
   /** provider 目录（缺省 builtinModels()；测试注入 fake catalog）。 */
   readonly models?: Models;
   /**
@@ -192,7 +194,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       streamFn,
       model: resolveModelSlot(options.profile.model, options.model, models),
       models,
-      getApiKey: explicitGetApiKey(options.apiKeys),
+      getApiKey: explicitGetApiKey(options.apiKeys, options.getCredentialType),
       resolveTools: options.resolveTools,
       ...(options.extraHooks !== undefined || this.gate !== undefined
         ? { extraHooks: [...(options.extraHooks ?? []), ...(this.gate ? [this.gate] : [])] }

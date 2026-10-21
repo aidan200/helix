@@ -23,8 +23,10 @@ import type { AuthStorePort } from "../application/ports/outbound/AuthStorePort"
  *
  * 【写入语义】0600 + 原子写（tmp + rename）+ 文件锁（跨进程 pid 锁，陈锁
  * 接管——与 daemon.lock 同构，lifecycle 先例）+ daemon 单写点（进程内
- * modify 全程串行——读改写无丢失更新）。OAuth 登录流本迭代不做
- * （Credential 类型面支持 oauth tag，key 录入为主）。
+ * modify 全程串行——读改写无丢失更新）。OAuth 订阅登录（pi-ai OAuth
+ * Credential 同构存储）：解析面经 pi-auth.ts 适配器注入 pi-ai
+ * CredentialStore（锁内自动 refresh 复用 modify 语义），登录流编排在
+ * auth 族命令（AuthLoginService）。
  */
 
 /** 存储型 API key 凭据（pi-ai ApiKeyCredential 同构；env 携带 provider 级配置值）。 */
@@ -212,15 +214,39 @@ export class AuthStore implements AuthStorePort {
 
   /** 当前 provider 的 API key（engine getApiKey 数据源；OAuth/缺 key → undefined）。 */
   apiKeyOf(providerId: string): string | undefined {
-    const table = parseAuthFile(this.filePath);
-    const cred = table[providerId];
+    const cred = this.credentialOf(providerId);
     return cred?.type === "api_key" && cred.key !== undefined && cred.key !== "" ? cred.key : undefined;
   }
 
-  /** 单 provider 凭据状态（auth.list 条目数据源；OAuth 条目不视作可用 key）。 */
+  /** 单 provider 原始凭据（CredentialStore.read 数据源；缺失 undefined）。 */
+  credentialOf(providerId: string): Credential | undefined {
+    return parseAuthFile(this.filePath)[providerId];
+  }
+
+  /** 单 provider 凭据类型（OAuth 分流判据：oauth → getApiKey 不覆盖，交 pi-ai store 解析）。 */
+  credentialTypeOf(providerId: string): "api_key" | "oauth" | undefined {
+    return parseAuthFile(this.filePath)[providerId]?.type;
+  }
+
+  /** 全表凭据类型清单（CredentialStore.list 数据源）。 */
+  listCredentials(): { providerId: string; type: "api_key" | "oauth" }[] {
+    return Object.entries(parseAuthFile(this.filePath)).map(([providerId, cred]) => ({
+      providerId,
+      type: cred.type,
+    }));
+  }
+
+  /**
+   * 单 provider 凭据状态（auth.list 条目数据源）。
+   *
+   * configured = 凭据存在（api_key 或 oauth 均算——订阅登录批：oauth 登录态
+   * 即已配置；v0.2 旧语义「OAuth 条目不视作可用 key」随订阅登录批退役）；
+   * keyMasked 仅 api_key 形态携带（oauth 无 key 可掩码）。
+   */
   statusOf(providerId: string): { configured: boolean; keyMasked?: string } {
     const key = this.apiKeyOf(providerId);
-    return key === undefined ? { configured: false } : { configured: true, keyMasked: maskKey(key) };
+    if (key !== undefined) return { configured: true, keyMasked: maskKey(key) };
+    return { configured: this.credentialTypeOf(providerId) === "oauth" };
   }
 
   /** 全部 API key 快照（SubAgent 子进程 env 注入源，AD-11/13 显式传值）。 */

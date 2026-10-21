@@ -374,7 +374,7 @@ describe("auth.verify 连通最小请求（TDD 组5：stub server 真 SSE）", (
   test("成功：ok + latencyMs（stub 延迟计入）", async () => {
     const { catalog, stop } = verifyRig("ok");
     try {
-      const result = await catalog.verify("anthropic", "sk-good");
+      const result = await catalog.verify("anthropic", { type: "api_key", key: "sk-good" });
       expect(result.status).toBe("ok");
       if (result.status === "ok") expect(result.latencyMs).toBeGreaterThanOrEqual(0);
     } finally {
@@ -385,7 +385,7 @@ describe("auth.verify 连通最小请求（TDD 组5：stub server 真 SSE）", (
   test("401：fail + reason 含状态与 provider 原文", async () => {
     const { catalog, stop } = verifyRig("unauthorized");
     try {
-      const result = await catalog.verify("anthropic", "sk-bad");
+      const result = await catalog.verify("anthropic", { type: "api_key", key: "sk-bad" });
       expect(result.status).toBe("fail");
       if (result.status === "fail") {
         expect(result.reason).toMatch(/401/);
@@ -402,11 +402,35 @@ describe("auth.verify 连通最小请求（TDD 组5：stub server 真 SSE）", (
       const noKey = await catalog.verify("anthropic", undefined);
       expect(noKey.status).toBe("fail");
       if (noKey.status === "fail") expect(noKey.reason).toMatch(/未录入/);
-      const noProvider = await catalog.verify("no-such", "k");
+      const noProvider = await catalog.verify("no-such", { type: "api_key", key: "k" });
       expect(noProvider.status).toBe("fail");
     } finally {
       stop();
     }
+  });
+
+  test("oauth 态：不带 apiKey 覆盖（streamSimple options 无 apiKey 位——交 pi-ai store 解析）", async () => {
+    // 受控底座捕获 streamSimple options（不真发请求）——oauth 分流的窄断言面
+    const captured: Array<Record<string, unknown>> = [];
+    const base = fakeModels();
+    const fakeBase = {
+      ...base,
+      streamSimple: (_m: unknown, _ctx: unknown, options: Record<string, unknown>) => {
+        captured.push(options);
+        return (async function* () {
+          yield { type: "done" };
+        })();
+      },
+    } as unknown as ReturnType<typeof builtinModels>;
+    const catalog = new ModelCatalog({ models: fakeBase, providers: ["anthropic"] });
+    const result = await catalog.verify("anthropic", { type: "oauth" });
+    expect(result.status).toBe("ok");
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).not.toHaveProperty("apiKey");
+    // api_key 态对照：显式 key 覆盖仍在（双态并存，现状语义不变）
+    const result2 = await catalog.verify("anthropic", { type: "api_key", key: "sk-x" });
+    expect(result2.status).toBe("ok");
+    expect(captured[1]).toMatchObject({ apiKey: "sk-x" });
   });
 });
 

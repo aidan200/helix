@@ -12,6 +12,8 @@ export interface AuthStorePort {
   deleteKey(providerId: string): Promise<void>;
   /** 当前 key（engine getApiKey 数据源；OAuth/缺 key → undefined）。 */
   apiKeyOf(providerId: string): string | undefined;
+  /** 凭据类型（OAuth 分流判据：oauth → getApiKey 不覆盖，交 pi-ai store 解析）。 */
+  credentialTypeOf(providerId: string): "api_key" | "oauth" | undefined;
   /** 全部 key 快照（SubAgent 子进程 env 注入源，显式传值）。 */
   apiKeysSnapshot(): Record<string, string>;
 }

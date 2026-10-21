@@ -42,7 +42,7 @@ function frame(type: string, payload: unknown, sessionId: string = SYSTEM_SESSIO
 }
 
 function authListFrame(
-  providers: { providerId: string; configured: boolean; keyMasked?: string; verifyStatus?: "ok" | "fail" | "unverified" }[],
+  providers: { providerId: string; configured: boolean; keyMasked?: string; verifyStatus?: "ok" | "fail" | "unverified"; credentialType?: "api_key" | "oauth"; oauth?: { loginLabel: string; isSubscription: boolean } }[],
 ): EventEnvelope {
   return frame("auth.list.result", { providers });
 }
@@ -331,5 +331,95 @@ describe("code-review 族B：applyModelConfigConnError 尾缀归因（B5；Gener
     const topo = { ...createInitialTopologyState(), modelConfig: inflightMc() };
     const next = dispatchFrame(topo, frame("connection.error", { code: "x", message: "key 无效" }), 3);
     expect(next.modelConfig.writeError).toEqual({ message: "key 无效", ts: 3 });
+  });
+});
+
+describe("订阅登录批（登录流/登出/凭据变更帧 + in-flight 串行）", () => {
+  /** 含进行中登录流的配置面。 */
+  function loginMc(): ModelConfigState {
+    return {
+      ...createInitialTopologyState().modelConfig,
+      login: { providerId: "openai-codex", loginType: "oauth" },
+    };
+  }
+
+  it("auth.prompt/auth.notify → 登录卡过程态；无登录卡 = stale 不消费", () => {
+    const prompted = onConfig(loginMc(), "auth.prompt", {
+      providerId: "openai-codex",
+      requestId: "req-1",
+      prompt: { type: "manual_code", message: "paste" },
+    });
+    expect(prompted.login?.prompt).toEqual({ requestId: "req-1", prompt: { type: "manual_code", message: "paste" } });
+    const notified = onConfig(prompted, "auth.notify", {
+      providerId: "openai-codex",
+      event: { type: "device_code", userCode: "ABCD", verificationUri: "https://x" },
+    });
+    expect(notified.login?.notify).toEqual({ type: "device_code", userCode: "ABCD", verificationUri: "https://x" });
+    // stale：无登录卡的 prompt 帧不凭空造卡
+    const stale = onConfig(createInitialTopologyState().modelConfig, "auth.prompt", {
+      providerId: "p",
+      requestId: "r",
+      prompt: { type: "text", message: "m" },
+    });
+    expect(stale.login).toBeNull();
+  });
+
+  it("auth.login.result → 凭据行更新（credentialType）+ 登录卡收口", () => {
+    const done = onConfig(loginMc(), "auth.login.result", { providerId: "openai-codex", credentialType: "oauth" });
+    expect(done.login).toBeNull();
+    expect(done.auth["openai-codex"]).toMatchObject({ configured: true, credentialType: "oauth", verifyStatus: "unverified" });
+  });
+
+  it("auth.changed 双态：携 credentialType 更新凭据行 / 缺省归零（oauth 元数据保留供登录钮重渲染）", () => {
+    const withOauthMeta: ModelConfigState = {
+      ...createInitialTopologyState().modelConfig,
+      auth: {
+        "openai-codex": {
+          providerId: "openai-codex",
+          configured: true,
+          verifyStatus: "ok",
+          credentialType: "oauth",
+          oauth: { loginLabel: "Sign in", isSubscription: true },
+        },
+      },
+    };
+    const loggedOut = onConfig(withOauthMeta, "auth.changed", { providerId: "openai-codex" });
+    expect(loggedOut.auth["openai-codex"]).toMatchObject({ configured: false });
+    expect(loggedOut.auth["openai-codex"]?.credentialType).toBeUndefined();
+    expect(loggedOut.auth["openai-codex"]?.oauth).toEqual({ loginLabel: "Sign in", isSubscription: true });
+    const keyed = onConfig(loggedOut, "auth.changed", { providerId: "openai-codex", credentialType: "api_key" });
+    expect(keyed.auth["openai-codex"]).toMatchObject({ configured: true, credentialType: "api_key" });
+  });
+
+  it("auth.list 行携 credentialType/oauth 元数据（订阅登录钮/徽标数据源）", () => {
+    const mc = onConfig(
+      createInitialTopologyState().modelConfig,
+      "auth.list.result",
+      {
+        providers: [
+          {
+            providerId: "openai-codex",
+            configured: true,
+            credentialType: "oauth",
+            oauth: { loginLabel: "Sign in with ChatGPT", isSubscription: true },
+          },
+        ],
+      },
+    );
+    expect(mc.auth["openai-codex"]).toMatchObject({
+      credentialType: "oauth",
+      oauth: { loginLabel: "Sign in with ChatGPT", isSubscription: true },
+    });
+  });
+
+  it("in-flight 串行 + aborted 回滚 + logout.result 收口", () => {
+    expect(onConfig({ ...createInitialTopologyState().modelConfig, logoutInflight: "p" }, "auth.logout.result", {}).logoutInflight).toBeNull();
+    const started = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/login-started", providerId: "a", loginType: "oauth" });
+    const second = applyModelConfigAction(started, { type: "model/login-started", providerId: "b", loginType: "oauth" });
+    expect(second.login?.providerId).toBe("a"); // 单登录卡不变式：二个 started 不挤掉在途
+    expect(applyModelConfigAction(second, { type: "model/login-aborted" }).login).toBeNull();
+    const lo = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/logout-started", providerId: "a" });
+    expect(applyModelConfigAction(lo, { type: "model/logout-started", providerId: "b" }).logoutInflight).toBe("a");
+    expect(applyModelConfigAction(lo, { type: "model/logout-aborted" }).logoutInflight).toBeNull();
   });
 });

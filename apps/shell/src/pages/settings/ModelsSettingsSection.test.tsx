@@ -22,6 +22,14 @@ const verifyProvider = vi.fn(() => true);
 const setProviderKey = vi.fn(() => true);
 const deleteProviderKey = vi.fn(() => true);
 const consumeModelConfigError = vi.fn();
+// 订阅登录批：登录流/登出面板 mock
+const loginProvider = vi.fn(() => true);
+const respondLogin = vi.fn(() => true);
+const cancelLogin = vi.fn(() => true);
+const logoutProvider = vi.fn(() => true);
+/** 订阅登录批：登录卡可变位（auth.prompt/notify 帧驱动形态测试）。 */
+let mockLogin: import("@/entities/session/model/state").AuthLoginFlowState | null = null;
+let mockLogoutInflight: string | null = null;
 /** M47：目录刷新在途可变位（结果帧驱动 toast 测试）。 */
 let mockRefreshing = false;
 /** F5 批 #3：写面失败交代可变位（connection.error 清在途 → err toast 测试）。 */
@@ -62,6 +70,8 @@ const mc: ModelConfigState = {
   verifyInflight: null,
   setKeyInflight: null,
   deleteKeyInflight: null,
+  login: null,
+  logoutInflight: null,
   setDefaultInflight: null,
   catalogRefreshing: false,
   writeError: null,
@@ -79,7 +89,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError, setDefaultInflight: mockDefaultInflight } },
+      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError, setDefaultInflight: mockDefaultInflight, login: mockLogin, logoutInflight: mockLogoutInflight } },
       requestModelConfig: vi.fn(),
       requestAuthList: vi.fn(),
       refreshModelCatalog,
@@ -89,6 +99,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setProviderKey,
       deleteProviderKey,
       consumeModelConfigError,
+      loginProvider,
+      respondLogin,
+      cancelLogin,
+      logoutProvider,
       sendEmbeddingList: vi.fn(() => true),
       sendEmbeddingSet: vi.fn(() => true),
       sendEmbeddingDelete: vi.fn(() => true),
@@ -105,6 +119,8 @@ afterEach(() => {
   mockRefreshing = false;
   mockWriteError = null;
   mockDefaultInflight = null;
+  mockLogin = null;
+  mockLogoutInflight = null;
   vi.clearAllMocks();
 });
 
@@ -368,5 +384,58 @@ describe("模型页 tab 化（B2-③）", () => {
   it("initialTab=embedding（引导链接跳入形态）：挂载即向量 tab", () => {
     const { container } = ui("embedding");
     expect(container.querySelector("[data-embedding-tab]")!).not.toBeNull();
+  });
+});
+
+describe("订阅登录批：oauth 凭据行与登录过程卡", () => {
+  it("oauth 行：订阅徽标 + 登录按钮（点击发 loginProvider）+ 两段式登出（首击确认二击发 logoutProvider）", () => {
+    mc.auth["openai-codex"] = {
+      providerId: "openai-codex",
+      configured: true,
+      verifyStatus: "unverified",
+      credentialType: "oauth",
+      oauth: { loginLabel: "Sign in with ChatGPT", isSubscription: true },
+    };
+    try {
+      const r = ui();
+      void r;
+      const prov = document.querySelector('[data-prov="openai-codex"]');
+      expect(prov).not.toBeNull();
+      expect(prov!.querySelector("[data-prov-oauth]")?.textContent).toBe("订阅");
+      const loginBtn = prov!.querySelector<HTMLButtonElement>("[data-prov-login]")!;
+      expect(loginBtn.textContent).toBe("Sign in with ChatGPT");
+      fireEvent.click(loginBtn);
+      expect(loginProvider).toHaveBeenCalledWith("openai-codex");
+      // 两段式登出：首击仅 arm（文案换确认），二击才发命令
+      const logoutBtn = prov!.querySelector<HTMLButtonElement>("[data-prov-logout]")!;
+      fireEvent.click(logoutBtn);
+      expect(logoutProvider).not.toHaveBeenCalled();
+      expect(logoutBtn.textContent).toBe("确认登出？");
+      fireEvent.click(logoutBtn);
+      expect(logoutProvider).toHaveBeenCalledWith("openai-codex");
+    } finally {
+      delete mc.auth["openai-codex"];
+    }
+  });
+
+  it("登录卡：device_code 过程显示 + prompt 回填发 respondLogin + 取消发 cancelLogin", () => {
+    mockLogin = {
+      providerId: "openai-codex",
+      loginType: "oauth",
+      notify: { type: "device_code", userCode: "ABCD-1234", verificationUri: "https://chatgpt.com/device" },
+      prompt: { requestId: "req-9", prompt: { type: "manual_code", message: "paste the code" } },
+    };
+    const r = ui();
+    const card = document.querySelector('[data-login-flow="openai-codex"]')!;
+    expect(card).not.toBeNull();
+    expect(card.querySelector("[data-login-device]")?.textContent).toContain("chatgpt.com/device");
+    expect(card.querySelector("[data-login-code]")?.textContent).toBe("ABCD-1234");
+    const input = card.querySelector<HTMLInputElement>("[data-login-input]")!;
+    fireEvent.change(input, { target: { value: "the-code" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(respondLogin).toHaveBeenCalledWith("req-9", "the-code");
+    fireEvent.click(card.querySelector<HTMLButtonElement>("[data-login-cancel]")!);
+    expect(cancelLogin).toHaveBeenCalledWith("openai-codex");
+    void r;
   });
 });

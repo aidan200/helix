@@ -1,5 +1,6 @@
 /** 全局配置域命令族：model.* / config.* / auth.* / thinking.set（全局命令，信封 sessionId 省略）。 */
 import type { CommandFrame } from "../envelope";
+import type { AuthCredentialType } from "../types/auth";
 import type {
   AuthListResultPayload,
   AuthSetKeyResultPayload,
@@ -291,6 +292,46 @@ export interface AuthVerifyPayload {
 }
 export interface AuthVerifyCommand extends CommandFrame<AuthVerifyPayload> {
   type: "auth.verify";
+}
+
+// ── §17.39 新增：pi-ai 订阅登录族（OAuth 登录流） ──
+
+/**
+ * auth.login 载荷：发起登录流程（订阅登录批）。type 缺省 "oauth"
+ *（订阅登录主路径）；交互过程经 auth.prompt / auth.notify 推送帧回流，
+ * 回填走 auth.respond，中止走 auth.cancel。
+ */
+export interface AuthLoginPayload {
+  providerId: string;
+  type?: AuthCredentialType;
+}
+export interface AuthLoginCommand extends CommandFrame<AuthLoginPayload> {
+  type: "auth.login";
+}
+
+/** auth.respond 载荷：登录交互 prompt 回填（requestId 取自 auth.prompt 帧；select 型回填 option id） */
+export interface AuthRespondPayload {
+  requestId: string;
+  value: string;
+}
+export interface AuthRespondCommand extends CommandFrame<AuthRespondPayload> {
+  type: "auth.respond";
+}
+
+/** auth.cancel 载荷：中止进行中的登录流程（幂等：无进行中流程静默收口） */
+export interface AuthCancelPayload {
+  providerId: string;
+}
+export interface AuthCancelCommand extends CommandFrame<AuthCancelPayload> {
+  type: "auth.cancel";
+}
+
+/** auth.logout 载荷：登出（清除 auth.json 凭据行；幂等） */
+export interface AuthLogoutPayload {
+  providerId: string;
+}
+export interface AuthLogoutCommand extends CommandFrame<AuthLogoutPayload> {
+  type: "auth.logout";
 }
 
 

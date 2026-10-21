@@ -81,10 +81,11 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
 
     const mainCard = page.locator('[data-agent-card="main-session"]');
 
-    // main 26 工具 / worker 14 / 系统三块独立装配 14·14·11（工具集随 profile
+    // main 28 工具 / worker 15 / 系统三块独立装配 14·14·11（工具集随 profile
     // 发版演进，计数与声明全集同步——F4 +edit-lines、U4 +coord 三工具
-    // claim/query/release（仅 main 装配）；snippet 来自 daemon 注册表
-    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(26); // U4 +coord 三工具（claim/query/release）
+    // claim/query/release（仅 main 装配）、pi-codemode 批 +codemode（仅 main）、
+    // 批E 工具化 +memory_search（主/worker 同面）；snippet 来自 daemon 注册表
+    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(28); // 主会话 26→28（+codemode/+memory_search）
     await expect(mainCard.locator('[data-tool-row="grep"]')).toContainText("跨文件子串检索并列出匹配行"); // H11：snippet 随 rg 唯一化订正（子串语义非正则）
 
     // master-detail 系统派生组（真 daemon 独立装配，不从 worker 派生）：

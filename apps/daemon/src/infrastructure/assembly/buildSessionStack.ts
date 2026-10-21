@@ -792,6 +792,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           },
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
+          // 订阅登录批：auth.json 路径透传（子进程共读 store——oauth 跨进程
+          // 解析 + 锁内 refresh；路径 env IPC 传参 HELIX_DB_PATH 先例）
+          authPath: paths.authPath(),
           // custom provider 子进程透传批：定义读面（组合根接
           // CustomProviderService.list()）——launch 时刻现值定格经
           // HELIX_CUSTOM_PROVIDERS_JSON 透传（缺省不注入 = 不传键）

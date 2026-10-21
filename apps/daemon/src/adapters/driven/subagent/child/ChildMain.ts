@@ -24,7 +24,8 @@
  */
 import type { Model, MutableModels } from "@earendil-works/pi-ai";
 import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
-import { createModelsBase, registerCustomProviders, supportsThinkingLevel } from "../../llm";
+import { createAuthInjection, createModelsBase, registerCustomProviders, supportsThinkingLevel } from "../../llm";
+import { AuthStore } from "../../../../infrastructure/auth-store";
 import { parseCustomProviders } from "../../../../application/services/CustomProviderService";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
@@ -144,11 +145,19 @@ export function spawnOverridesFromEnv(
  * 缺口：此前子进程零 custom provider 注册，自定义 provider 模型槽位的
  * SubAgent 子进程跑不动）。
  *
+ * 订阅登录批：HELIX_AUTH_PATH 在场时建本地 AuthStore（同一 auth.json——
+ * 跨进程文件锁互斥，refresh 谁抢到锁谁刷）并经 createAuthInjection 注入
+ * （credentials + authContext env 免疫）——oauth 凭据子进程可解析；
+ * api_key 通道仍走 HELIX_API_KEYS_JSON 快照（显式传值不变）。
+ *
  * 防御解析复用 parseCustomProviders（env 空缺/坏 JSON/形态非法视同空表）
  * ——零注册不炸，与 HELIX_MCP_SERVERS_JSON 空缺零装配同语义。
  */
-export function buildChildModels(env: Record<string, string | undefined>): MutableModels {
-  const models = createModelsBase();
+export function buildChildModels(
+  env: Record<string, string | undefined>,
+  authStore?: AuthStore,
+): MutableModels {
+  const models = createModelsBase(authStore !== undefined ? createAuthInjection(authStore) : undefined);
   registerCustomProviders(models, parseCustomProviders(env["HELIX_CUSTOM_PROVIDERS_JSON"]));
   return models;
 }
@@ -758,11 +767,18 @@ async function main(): Promise<void> {
   let parkedWake: (() => void) | undefined;
   // custom provider 子进程注册：本地 Models 在引擎构造前装配并经
   // options.models 注入（时序契约见 buildChildModels）
-  const models = buildChildModels(process.env as Record<string, string | undefined>);
+  // 订阅登录批：HELIX_AUTH_PATH 在场 → 本地 AuthStore 共读同一 auth.json
+  //（oauth 凭据跨进程解析 + 文件锁内自动 refresh；api_key 通道仍走 env 快照）
+  const authPath = process.env.HELIX_AUTH_PATH;
+  const authStore = authPath !== undefined && authPath !== "" ? new AuthStore(authPath) : undefined;
+  const models = buildChildModels(process.env as Record<string, string | undefined>, authStore);
   const engine = new PiAgentEngineAdapter({
     profile,
     model, // env JSON 解析的完整对象透传（与父侧深度相等）
     apiKeys,
+    ...(authStore !== undefined
+      ? { getCredentialType: (provider: string) => authStore.credentialTypeOf(provider) }
+      : {}),
     models, // 本地 Models（含 HELIX_CUSTOM_PROVIDERS_JSON 注册的自定义 provider）
     ...(script ? { streamFnOverride: makeScriptedStreamFn(script, model) } : {}),
     // §3.5 装配点 2：定格值 + 能力过滤（§3.3 同构——定格值不被模型支持

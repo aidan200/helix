@@ -8,6 +8,8 @@ import type {
   CatalogModelView,
   CatalogSnapshot,
   ModelCatalogPort,
+  ProviderLoginMeta,
+  VerifyCredential,
 } from "../../../application/ports/outbound/ModelCatalogPort";
 
 /**
@@ -196,6 +198,17 @@ export class ModelCatalog implements ModelCatalogPort {
     return this.resolveModel(modelId) !== undefined;
   }
 
+  /**
+   * provider 登录元数据（订阅登录批）：pi-ai Provider.auth.oauth 投影
+   * （loginLabel/isSubscription——登录按钮文案与订阅徽标数据源）；无 oauth
+   * 登录方法/未知 provider → undefined（UI 不出订阅登录入口）。
+   */
+  loginMetaOf(providerId: string): ProviderLoginMeta | undefined {
+    const oauth = this.base.getProvider(providerId)?.auth?.oauth;
+    if (oauth === undefined) return undefined;
+    return { oauth: { loginLabel: oauth.loginLabel ?? "订阅登录", isSubscription: oauth.isSubscription === true } };
+  }
+
   /** 合并目录的 provider id 全集（动态面：builtin/内置快照 + 底座现册
    *（含三方平台活注册）+ 有效 overlay 键——三方平台批：运行期 provider.set/
    * delete 后目录读面即时反映，无需重启）。 */
@@ -203,21 +216,30 @@ export class ModelCatalog implements ModelCatalogPort {
     return this.dynamicProviderIds();
   }
 
-  /** 连通验证（auth.verify 最小请求：streamSimple maxTokens=1）。 */
-  async verify(providerId: string, apiKey: string | undefined): Promise<AuthVerifyOutcome> {
-    if (apiKey === undefined || apiKey === "") {
-      return { status: "fail", reason: `provider "${providerId}" 未录入 API key（先 auth.set_key）` };
+  /**
+   * 连通验证（auth.verify 最小请求：streamSimple maxTokens=1）。双态：
+   * api_key → 显式 key 覆盖（现状语义）；oauth → 不覆盖，交底座注入的
+   * CredentialStore 解析（getAuth，锁内自动 refresh）——底座须为组合根
+   * authed base（createModelsBase 注入形态），否则 oauth 态无从解析。
+   */
+  async verify(providerId: string, credential: VerifyCredential | undefined): Promise<AuthVerifyOutcome> {
+    if (credential === undefined) {
+      return { status: "fail", reason: `provider "${providerId}" 未录入凭据（先 auth.set_key 录入 key，或订阅登录）` };
     }
     const model = this.mergedModels().find((m) => m.provider === providerId);
     if (model === undefined) {
       return { status: "fail", reason: `目录中无 provider "${providerId}" 的模型` };
     }
     const target = this.verifyModelTransform?.(model) ?? model;
+    const streamOptions =
+      credential.type === "api_key"
+        ? { apiKey: credential.key, maxTokens: 1, maxRetries: 0 }
+        : { maxTokens: 1, maxRetries: 0 };
     const t0 = this.now();
     try {
       const stream = this.base.streamSimple(target, {
         messages: [{ role: "user", content: [{ type: "text", text: "ping" }], timestamp: 0 }],
-      }, { apiKey, maxTokens: 1, maxRetries: 0 });
+      }, streamOptions);
       for await (const event of stream) {
         const outcome = this.verifyEvent(event, this.now() - t0);
         if (outcome !== undefined) return outcome;

@@ -48,6 +48,11 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "auth.set_key.result",
   "auth.delete_key.result",
   "auth.verify.result",
+  "auth.login.result",
+  "auth.logout.result",
+  "auth.prompt",
+  "auth.notify",
+  "auth.changed",
 ] as const;
 
 /** 是否模型/厂商配置族事件（dispatcher 路由前置判定）。 */
@@ -61,19 +66,23 @@ function entryOf(p: {
   configured: boolean;
   keyMasked?: string;
   verifyStatus?: "ok" | "fail" | "unverified";
+  credentialType?: import("@helix/protocol").AuthCredentialType;
+  oauth?: { loginLabel: string; isSubscription: boolean };
 }): import("../state").AuthProviderEntry {
   return {
     providerId: p.providerId,
     configured: p.configured,
     ...(p.keyMasked !== undefined ? { keyMasked: p.keyMasked } : {}),
     verifyStatus: p.verifyStatus ?? "unverified",
+    ...(p.credentialType !== undefined ? { credentialType: p.credentialType } : {}),
+    ...(p.oauth !== undefined ? { oauth: p.oauth } : {}),
   };
 }
 
 /** auth.list 整体替换（保留本地 verifying in-flight 条目——帧驱动权威不覆盖在途态）。 */
 function replaceAuth(
   mc: ModelConfigState,
-  providers: { providerId: string; configured: boolean; keyMasked?: string; verifyStatus?: "ok" | "fail" | "unverified" }[],
+  providers: { providerId: string; configured: boolean; keyMasked?: string; verifyStatus?: "ok" | "fail" | "unverified"; credentialType?: import("@helix/protocol").AuthCredentialType; oauth?: { loginLabel: string; isSubscription: boolean } }[],
 ): ModelConfigState {
   const auth: Record<string, import("../state").AuthProviderEntry> = {};
   for (const p of providers) auth[p.providerId] = entryOf(p);
@@ -202,6 +211,56 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       next = applyVerifyResult(mc, frame.payload);
       if (next === mc) return topo; // stale（无在途请求）
       break;
+    case "auth.prompt":
+      // 登录交互 prompt 推送（订阅登录批）：登录卡内渲染回填表单；无登录卡 = stale
+      next = mc.login === null ? mc : { ...mc, login: { ...mc.login, prompt: { requestId: frame.payload.requestId, prompt: frame.payload.prompt } } };
+      if (next === mc) return topo;
+      break;
+    case "auth.notify":
+      // 登录交互 notify 推送（auth_url/device_code/progress/info）：登录卡过程显示
+      next = mc.login === null ? mc : { ...mc, login: { ...mc.login, notify: frame.payload.event } };
+      if (next === mc) return topo;
+      break;
+    case "auth.login.result": {
+      // 登录成功：凭据行更新（credentialType + configured）+ 登录卡收口
+      const prev = mc.auth[frame.payload.providerId];
+      next = {
+        ...mc,
+        auth: {
+          ...mc.auth,
+          [frame.payload.providerId]: {
+            providerId: frame.payload.providerId,
+            configured: true,
+            verifyStatus: "unverified",
+            credentialType: frame.payload.credentialType,
+            ...(prev?.oauth !== undefined ? { oauth: prev.oauth } : {}),
+          },
+        },
+        login: null,
+      };
+      break;
+    }
+    case "auth.logout.result":
+      // 登出回执：收口在途（凭据行归零由 auth.changed 广播承担）
+      next = { ...mc, logoutInflight: null };
+      break;
+    case "auth.changed": {
+      // 凭据变更广播（登录/登出/录入/删除——daemon 权威同步）；无凭据类型 = 已无凭据
+      const { providerId, credentialType } = frame.payload;
+      const prev = mc.auth[providerId];
+      if (credentialType === undefined) {
+        if (prev === undefined || !prev.configured) return topo;
+        next = patchAuth(mc, providerId, { configured: false, keyMasked: undefined, credentialType: undefined, verifyStatus: "unverified", latencyMs: undefined, failReason: undefined });
+      } else {
+        next = patchAuth(mc, providerId, {
+          configured: true,
+          credentialType,
+          // oauth 态无 key 掩码（keyMasked 归零）；api_key 态保留既有掩码
+          keyMasked: credentialType === "oauth" ? undefined : prev?.keyMasked,
+        });
+      }
+      break;
+    }
     default:
       return topo;
   }
@@ -257,6 +316,16 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
       return mc.setKeyInflight === null ? mc : { ...mc, setKeyInflight: null };
     case "model/delete-key-aborted":
       return mc.deleteKeyInflight === null ? mc : { ...mc, deleteKeyInflight: null };
+    // ── 订阅登录批（§17.39）：登录流/登出 in-flight（终态由结果帧驱动）──
+    case "model/login-started":
+      // 单登录卡不变式：已有登录流时忽略新 started（UI 同步禁用其余入口）
+      return mc.login === null ? { ...mc, login: { providerId: action.providerId, loginType: action.loginType } } : mc;
+    case "model/login-aborted":
+      return mc.login === null ? mc : { ...mc, login: null };
+    case "model/logout-started":
+      return mc.logoutInflight !== null ? mc : { ...mc, logoutInflight: action.providerId };
+    case "model/logout-aborted":
+      return mc.logoutInflight === null ? mc : { ...mc, logoutInflight: null };
     case "model/consume-error":
       return mc.writeError === null ? mc : { ...mc, writeError: null };
     default:
@@ -278,7 +347,9 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
     mc.verifyInflight === null &&
     mc.setKeyInflight === null &&
     mc.deleteKeyInflight === null &&
-    mc.setDefaultInflight === null
+    mc.setDefaultInflight === null &&
+    mc.login === null &&
+    mc.logoutInflight === null
   ) {
     return mc;
   }
@@ -300,6 +371,8 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
     setKeyInflight: null,
     deleteKeyInflight: null,
     setDefaultInflight: null,
+    login: null,
+    logoutInflight: null,
   };
 }
 
@@ -319,6 +392,10 @@ const MODEL_CONFIG_COMMANDS: ReadonlySet<string> = new Set([
   "auth.set_key",
   "auth.delete_key",
   "auth.verify",
+  // 订阅登录批：login/logout 失败走 connection.error（清登录卡/在途 + toast）；
+  // auth.respond/auth.cancel 故意不入表（respond 竞态错容忍静默，cancel 零回执）
+  "auth.login",
+  "auth.logout",
 ]);
 
 export function applyModelConfigConnError(

@@ -37,6 +37,8 @@ export interface PiAiJudgeAdapterDeps {
   readonly getConfig: () => JudgeRecord | null;
   /** provider key getter（组合根注入 authStore.apiKeyOf——每次调用重读）。 */
   readonly getApiKey: (provider: string) => string | undefined;
+  /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → 不覆盖，交注入 store 解析）。 */
+  readonly getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined;
 }
 
 export class PiAiJudgeAdapter implements JudgePort {
@@ -69,9 +71,10 @@ export class PiAiJudgeAdapter implements JudgePort {
     }
     const classifier = model as unknown as ClassifierModel<ClassifierApi>;
     const apiKey = cfg.apiKey !== undefined && cfg.apiKey !== "" ? cfg.apiKey : this.deps.getApiKey(classifier.provider);
-    if (apiKey === undefined || apiKey === "") {
+    if ((apiKey === undefined || apiKey === "") && this.deps.getCredentialType?.(classifier.provider) !== "oauth") {
+      // OAuth 分流（订阅登录批）：oauth 凭据存在 → 不覆盖，交注入 store 解析；两无 fail-fast
       throw new Error(
-        `没有 provider "${classifier.provider}" 的 API key（端点记录 apiKey 缺失且 auth.json 未录入——请经设置页 auth.set_key 录入，或端点记录补 apiKey）`,
+        `没有 provider "${classifier.provider}" 的凭据（端点记录 apiKey 缺失且 auth.json 未录入——请经设置页 auth.set_key 录入、订阅登录，或端点记录补 apiKey）`,
       );
     }
     const context: ClassifierContext = {
@@ -84,7 +87,9 @@ export class PiAiJudgeAdapter implements JudgePort {
         },
       },
     };
-    const result = await models.classify(classifier, context, { apiKey });
+    const result = await models.classify(classifier, context, {
+      ...(apiKey !== undefined && apiKey !== "" ? { apiKey } : {}),
+    });
     if (result.stopReason !== "stop") {
       throw new Error(`判官分类失败（${result.stopReason}）：${result.errorMessage ?? "无错误详情"}`);
     }

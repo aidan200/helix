@@ -117,18 +117,23 @@ export function wrapStreamFnThinking(
  * apiKey 字段（每请求按当前模型 provider 取 key——换 provider 后 key
  * 自动跟随）。数据源改 auth.json（AD-2）——组合根传入 getter
  * （或静态表），缺 key 即抛错（fail-fast，指明 auth.set_key 录入路径）。
+ *
+ * OAuth 分流（pi-ai 订阅登录批）：provider 存在 oauth 凭据时返回
+ * undefined（不抛不覆盖）——agent-loop 把 undefined 留给 options.apiKey
+ * 缺席语义，pi-ai 经注入 CredentialStore 走 getAuth 解析（oauth 锁内
+ * 自动 refresh）；api_key 缺失仍 fail-fast 不变。
  */
 export function explicitGetApiKey(
   getApiKeys: Record<string, string> | (() => Record<string, string>),
+  getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined,
 ): (provider: string) => string | undefined {
   return (provider: string): string | undefined => {
     const apiKeys = typeof getApiKeys === "function" ? getApiKeys() : getApiKeys;
     const key = apiKeys[provider];
-    if (!key) {
-      throw new Error(
-        `auth.json 中没有 provider "${provider}" 的 API key（请经设置页 auth.set_key 录入；显式传入，不走环境变量）`,
-      );
-    }
-    return key;
+    if (key) return key;
+    if (getCredentialType?.(provider) === "oauth") return undefined;
+    throw new Error(
+      `auth.json 中没有 provider "${provider}" 的凭据（api_key 型请经设置页 auth.set_key 录入、订阅型 provider 请订阅登录；显式传入，不走环境变量）`,
+    );
   };
 }

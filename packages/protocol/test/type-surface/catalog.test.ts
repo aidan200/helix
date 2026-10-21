@@ -161,7 +161,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 128 个 type（… + 知识库查重闸批 config.get/set_kg）", () => {
+  test("命令目录恰为 132 个 type（… + pi-ai 订阅登录批 auth.login/respond/cancel/logout）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -174,8 +174,12 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.subscribe",
         "agent.unsubscribe",
         "ask.answer",
+        "auth.cancel",
         "auth.delete_key",
         "auth.list",
+        "auth.login",
+        "auth.logout",
+        "auth.respond",
         "auth.set_key",
         "auth.verify",
         "chat.abort",
@@ -297,7 +301,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 158 个 type（… + steer 队列出账帧批 steer.discarded）", () => {
+  test("事件目录恰为 163 个 type（… + pi-ai 订阅登录批 auth 族五帧）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -321,8 +325,13 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.steward_profile.get.result",
         "ask.resolved",
         "ask.started",
+        "auth.changed",
         "auth.delete_key.result",
         "auth.list.result",
+        "auth.login.result",
+        "auth.logout.result",
+        "auth.notify",
+        "auth.prompt",
         "auth.set_key.result",
         "auth.verify.result",
         "chat.message.completed",
@@ -643,8 +652,13 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "session.snapshot",
     ]);
     expect(roster("model")).toEqual([
+      "auth.changed",
       "auth.delete_key.result",
       "auth.list.result",
+      "auth.login.result",
+      "auth.logout.result",
+      "auth.notify",
+      "auth.prompt",
       "auth.set_key.result",
       "auth.verify.result",
       "config.get_compaction.result",
@@ -708,11 +722,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（确认链路修复批后）：EVENT_TYPES 153 / EVENT_CHANNELS 153 键 / COMMAND_TYPES 125", () => {
-    expect(EVENT_TYPES.length).toBe(158); // steer 队列出账帧批 +1（steer.discarded）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg.result）后当前值；此前：光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两帧）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：确认链路修复批 +1（steward.pending.snapshot）// 管家感知批 M0.5 +1（steward.notify）// 表面协议地基批 +2（surface.action/registered）// P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）// P2 审计批 +1（kg.auto.audit.result）// B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
-    expect(new Set(EVENT_TYPES).size).toBe(158); // steer 队列出账帧批 +1（steer.discarded）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg.result）后当前值；此前：光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2 后当前值；此前：无重复 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(158); // steer 队列出账帧批 +1（steer.discarded）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg.result）后当前值；此前：光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2 后当前值；此前：登记目录恰等 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(128); // 知识库查重闸批（批2）+2（config.get/set_kg）后当前值；此前：默认 embedding 端点批（批1）+1（embedding.set_default）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两命令）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit）// 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
+  test("目录计数（确认链路修复批后）：EVENT_TYPES 163 / EVENT_CHANNELS 163 键 / COMMAND_TYPES 132", () => {
+    expect(EVENT_TYPES.length).toBe(163); // pi-ai 订阅登录批 +5（auth.login.result/logout.result/prompt/notify/changed）后当前值；此前：steer 队列出账帧批 +1（steer.discarded）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg.result）后当前值；此前：光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两帧）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：确认链路修复批 +1（steward.pending.snapshot）// 管家感知批 M0.5 +1（steward.notify）// 表面协议地基批 +2（surface.action/registered）// P5 草稿驳回批 +1（kg.node.discard.result）// kg-triage 批 +1（kg.triage.create.result）// P2 审计批 +1（kg.auto.audit.result）// B1 两段式确认批 +1（steward.action.completed）// 动态主题批 +2（config.get/set_topic.result）// 管家记忆 B5 批 +1（steward.memory_written，B4a 提案帧改名——静默化）// 管家记忆 B2 批 +3（steward.memory_list.result + embedding 两帧）// 流式 TTS 批 +3（voice.synthesize.chunk/done/error）// helix-loop L1 批 +1（loop.context.compacted）// 管家公民权批 +1（agent.steward_profile.get.result）// helix-loop L0 批 +15（loop 族）// 管家驾驶舱批 +1 // 管家工作记忆批 +3 // 流式转写批 +3 // 流式体验批 +1 // 文本管家批 +4 // 语音播报批 +2
+    expect(new Set(EVENT_TYPES).size).toBe(163); // pi-ai 订阅登录批 +5 后当前值；此前：steer 队列出账帧批 +1（steer.discarded）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg.result）后当前值；此前：光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2 后当前值；此前：无重复 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(163); // pi-ai 订阅登录批 +5 后当前值；此前：steer 队列出账帧批 +1（steer.discarded）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg.result）后当前值；此前：光球健康角标批 +1（steward.health）后当前值；此前：M3-d1 感知兑现批 +2 后当前值；此前：登记目录恰等 模型配置接入 P0 +2（config.get/set_voice_models.result）后当前值；此前：登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(132); // pi-ai 订阅登录批 +4（auth.login/respond/cancel/logout）后当前值；此前：知识库查重闸批（批2）+2（config.get/set_kg）后当前值；此前：默认 embedding 端点批（批1）+1（embedding.set_default）后当前值；此前：M3-d1 感知兑现批 +2（steward.activity 两命令）后当前值；此前：ASR/TTS 模型配置接入 P0 +2（config.get/set_voice_models）后当前值；此前：表面协议地基批 +4（surface 四命令）// P5 草稿驳回批 +1（kg.node.discard）// kg-triage 批 +1（kg.triage.create）// P2 审计批 +1（kg.auto.audit）// 遗忘机制批 +2（steward.memory_pin/restore）// B1 两段式确认批 +1（steward.cancel）// B2 barge-in 批 +1（steward.interrupt）// 动态主题批 +2（config.get/set_topic）// 管家记忆 B2 批 +8（steward.memory_* 四命令 + embedding.* 四命令）// 流式 TTS 批 +2（voice.synthesize.stream/stop）// 管家公民权批 +1（agent.steward_profile.get）// 管家工作记忆批 +1 // 流式转写批 +4 // 文本管家批 +6 // 语音播报批 +3
   });
 
 });

@@ -155,7 +155,7 @@ describe("code-review H5：compaction 摘要调用显式 apiKey 注入", () => {
       models,
       model: fakeModel,
       getApiKey: (provider) => {
-        throw new Error(`auth.json 中没有 provider "${provider}" 的 API key（请经设置页 auth.set_key 录入；显式传入，不走环境变量）`);
+        throw new Error(`auth.json 中没有 provider "${provider}" 的凭据（api_key 型请经设置页 auth.set_key 录入、订阅型 provider 请订阅登录；显式传入，不走环境变量）`);
       },
       onCompleted: () => {},
       onFailed: (message) => failures.push(message),
@@ -168,5 +168,26 @@ describe("code-review H5：compaction 摘要调用显式 apiKey 注入", () => {
     expect(failures.length).toBe(1);
     expect(failures[0]).toContain("auth.json"); // fail-fast 文案与主链路同源
     expect(update).toBeUndefined(); // 会话无损（保持现状继续 turn）
+  });
+
+  test("④ oauth 分流（订阅登录批）：getApiKey 返回 undefined → options 不带 apiKey（交 pi-ai 注入 store 解析）", async () => {
+    const { models, calls } = makeCapturingModels();
+    const outcomes: CompactionOutcome[] = [];
+    const hook = new CompactionHook({
+      settings: SETTINGS,
+      models,
+      model: fakeModel,
+      // oauth 凭据语义：双通道 hook 返回 undefined（不覆盖不抛错）
+      getApiKey: () => undefined,
+      onCompleted: (r) => outcomes.push(r),
+      onFailed: () => {},
+    });
+    hook.bind(fakeAgent());
+
+    await hook.prepareNextTurn(undefined as never, undefined);
+
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls.every((o) => o.apiKey === undefined)).toBe(true); // 不装饰（②同结果，经①代码路径）
+    expect(outcomes.length).toBe(1);
   });
 });

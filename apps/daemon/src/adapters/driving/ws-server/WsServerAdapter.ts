@@ -203,8 +203,12 @@ import {
   handleTaskUnsubscribe,
 } from "./handlers/task";
 import {
+  handleAuthCancel,
   handleAuthDeleteKey,
   handleAuthList,
+  handleAuthLogin,
+  handleAuthLogout,
+  handleAuthRespond,
   handleAuthSetKey,
   handleAuthVerify,
 } from "./handlers/auth";
@@ -1069,6 +1073,15 @@ export class WsServerAdapter {
         return handleAuthDeleteKey(this.contexts.commandContext(ws, type, payload, envelope));
       case "auth.verify":
         return handleAuthVerify(this.contexts.commandContext(ws, type, payload, envelope));
+      // ── §17.39 订阅登录族（pi-ai 订阅登录批：登录流编排回口）──
+      case "auth.login":
+        return handleAuthLogin(this.contexts.commandContext(ws, type, payload, envelope));
+      case "auth.respond":
+        return handleAuthRespond(this.contexts.commandContext(ws, type, payload, envelope));
+      case "auth.cancel":
+        return handleAuthCancel(this.contexts.commandContext(ws, type, payload, envelope));
+      case "auth.logout":
+        return handleAuthLogout(this.contexts.commandContext(ws, type, payload, envelope));
       default:
         this.commandError(ws, type, "command.unknown", `未知命令：${type}`);
     }

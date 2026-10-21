@@ -76,6 +76,7 @@ export function buildSummaryStack(deps: BuildSummaryStackDeps): SummaryStack {
         modelSlot: () => readSummaryConfig(persistence.runtimeConfig).model ?? undefined,
         defaultModel: STEWARD_DEFAULT_MODEL,
         getApiKey: (provider) => modelStack.authStore.apiKeyOf(provider),
+        getCredentialType: (provider) => modelStack.authStore.credentialTypeOf(provider),
       }),
       resolveTarget: (sessionId) => {
         const runtime = registry.peekHotRuntime(sessionId);

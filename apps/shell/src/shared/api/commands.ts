@@ -32,7 +32,8 @@ export { configGetCompactionCommand, configSetCompactionCommand,
   configSetKgCommand, configSetSummaryCommand,
   configGetVoiceModelsCommand, configSetVoiceModelsCommand } from "./commands/config";
 export { authListCommand, authSetKeyCommand, authDeleteKeyCommand,
-  authVerifyCommand } from "./commands/auth";
+  authVerifyCommand, authLoginCommand, authRespondCommand, authCancelCommand,
+  authLogoutCommand } from "./commands/auth";
 export { traceQueryCommand } from "./commands/trace";
 export { webStatusCommand, webStopCommand, webStartCommand } from "./commands/web";
 export { sttTranscribeCommand, sttStreamStartCommand,

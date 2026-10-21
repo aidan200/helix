@@ -1,5 +1,5 @@
 import { createProvider } from "@earendil-works/pi-ai";
-import type { Api, Model, MutableModels, Provider } from "@earendil-works/pi-ai";
+import type { Api, AuthContext, CredentialStore, Model, MutableModels, Provider } from "@earendil-works/pi-ai";
 // pi-ai import 纪律（AD-11）：provider **实现**（builtinModels 等）必须经
 // providers/all 子路径；本文件消费的是主入口纯工厂（createProvider）与
 // api 流实现的 lazy 包装子路径——均无副作用面，与 model-provider.ts 同域
@@ -103,9 +103,18 @@ export function buildCustomProvider(def: CustomProviderDef): Provider {
  * 目录底座构造（装配面唯一入口——AG-04：pi-ai import 不出 driven 域，
  * buildModelStack 经本函数拿底座不直接 import pi-ai）。
  * 返回 MutableModels（builtin 全量注册——自定义 provider 活注册宿主）。
+ * options：pi-auth 的凭据注入包（credentials + authContext）——携带后
+ * pi-ai 内建凭据解析以 auth.json 为唯一数据源（缺省回落 pi-ai 自有存储
+ * 与环境变量，破 AG-08）；生产装配必须携带，测试形态可省。
  */
-export function createModelsBase(): MutableModels {
-  return builtinModels();
+export function createModelsBase(options?: {
+  credentials?: CredentialStore;
+  authContext?: AuthContext;
+}): MutableModels {
+  return builtinModels({
+    ...(options?.credentials !== undefined ? { credentials: options.credentials } : {}),
+    ...(options?.authContext !== undefined ? { authContext: options.authContext } : {}),
+  });
 }
 
 /**

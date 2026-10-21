@@ -36,6 +36,7 @@ import type { SummaryConfigPort } from "../../../../application/ports/outbound/S
 import type { KgConfigPort } from "../../../../application/ports/outbound/KgConfigPort";
 import type { VoiceModelConfigPort } from "../../../../application/ports/outbound/VoiceModelConfigPort";
 import type { AskService } from "../../../../application/services/AskService";
+import type { AuthLoginService } from "../../../../application/services/AuthLoginService";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionChatPort } from "../../../../application/ports/inbound/ChatPort";
@@ -131,6 +132,9 @@ export interface WsCommandContext {
   readonly voiceModelConfig?: VoiceModelConfigPort;
   /** 提权申请仲裁面（ask.answer 命令回口；未装配 → unimplemented）。 */
   readonly askService?: AskService;
+  /** 登录流程编排面（auth.login/respond/cancel/logout 命令回口，订阅登录批；
+   *  未装配 → unimplemented）。 */
+  readonly authLogin?: AuthLoginService;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */
   readonly system: SystemPort;
   /** 命令错误回执（connection.error 帧；语义 = WsServerAdapter.commandError）。 */

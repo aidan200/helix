@@ -24,6 +24,7 @@ import type { ResourceService } from "../../application/services/ResourceService
 import type { AskService } from "../../application/services/AskService";
 import type { WorkspaceService } from "../../application/services/workspace/WorkspaceService";
 import { ModelService } from "../../application/services/ModelService";
+import { AuthLoginService } from "../../application/services/AuthLoginService";
 import { CliAdapter, StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-server/WsServerAdapter";
 import { createDaemonFreshnessProvider } from "../../adapters/driven/freshness/SourceFreshness";
@@ -355,9 +356,17 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     onModelChanged: (payload) => eventStream.broadcastModelChanged(payload),
     // thinking 批①：thinking.changed 广播出海（channel=thinking，订阅路由同 model.changed）
     onThinkingChanged: (payload) => eventStream.broadcastThinkingChanged(payload),
+    // 订阅登录批：auth.changed 广播出海（channel=model，订阅无关——凭据态全局可见）
+    onAuthChanged: (payload) => eventStream.broadcastAuthChanged(payload),
     // 语音输入批 V1：STT provider 扩展集（auth.set_key/authList 放行——非
     // LLM 目录成员；authVerify 回明确说明不走 LLM 验证）
     sttProviderIds: [DASHSCOPE_PROVIDER_ID, SILICONFLOW_PROVIDER_ID],
+  });
+  // 登录流编排（订阅登录批）：auth.login/respond/cancel/logout 回口——
+  // 单飞/prompt 注册表/中止收口在服务层，handlers 只转发（askService 先例）
+  const authLogin = new AuthLoginService({
+    flow: modelStack.authFlow,
+    onAuthChanged: (payload) => eventStream.broadcastAuthChanged(payload),
   });
   const ws = new WsServerAdapter({
     chat: deps.chat,
@@ -365,6 +374,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     system,
     orchestration: currentOrchestration, // agent.kill 命令链回调度
     model: modelService, // model.*/auth.* 命令族回口（AD-2）
+    authLogin, // auth.login/respond/cancel/logout 命令回口（订阅登录批）
     compactionConfig: persistence.compactionConfig, // config 族命令回口（压缩参数）
     schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）

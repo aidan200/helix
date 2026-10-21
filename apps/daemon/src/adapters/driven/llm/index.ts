@@ -19,3 +19,4 @@ export * from "./network-retry";
 export * from "./thinking-resolve";
 export * from "./model-catalog";
 export * from "./custom-providers";
+export * from "./pi-auth";

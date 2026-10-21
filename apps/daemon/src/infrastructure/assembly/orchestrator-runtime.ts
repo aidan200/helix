@@ -53,6 +53,8 @@ export interface OrchestratorSessionFactoryDeps {
   readonly thinkingChain?: () => readonly (string | undefined)[];
   /** provider → apiKey（auth.json 现值快照 getter）。 */
   readonly apiKeys: () => Record<string, string>;
+  /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → getApiKey 不覆盖，交 pi-ai store 解析）。组合根注入。 */
+  readonly getCredentialType?: (provider: string) => "api_key" | "oauth" | undefined;
   /** 模型目录（compaction/换模解析；可选，PiEngineOptions 同源形态）。 */
   readonly models?: PiEngineOptions["models"];
   /** 工具沙箱 cwd（会话工具求值单点现值——toolCwdNow 同源）。 */
@@ -168,6 +170,7 @@ export function createOrchestratorSessionFactory(
       // 测试接缝：llmOverride.apiKeys 浅合并覆盖生产 authStore 快照
       //（fake provider key；缺省 = 生产快照不变）
       apiKeys: () => ({ ...deps.apiKeys(), ...(deps.llmOverride?.apiKeys?.() ?? {}) }),
+      ...(deps.getCredentialType !== undefined ? { getCredentialType: deps.getCredentialType } : {}),
       ...(deps.models !== undefined ? { models: deps.models } : {}),
       ...(deps.llmOverride !== undefined ? { streamFnOverride: deps.llmOverride.streamFn } : {}),
       resolveTools: (names) => executor.resolveTools(names),

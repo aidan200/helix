@@ -25,6 +25,8 @@ import type { EventPublisherPort, StreamDelta } from "../../../application/ports
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type {
   AgentConfigChangedEvent,
+  AuthChangedEvent,
+  AuthChangedPayload,
   ChatStreamDeltaEvent,
   EventEnvelope,
   ModelChangedEvent,
@@ -393,6 +395,21 @@ export class EventStream implements EventPublisherPort {
       sessionId: SYSTEM_SESSION_ID,
       channel: "mcp",
       type: "mcp.status.changed",
+      payload,
+    };
+    this.push(frame);
+  }
+
+  /**
+   * auth.changed 广播（订阅登录批）：凭据变更通知（登录/登出/录入/删除后）
+   * ——daemon 级全局（与 broadcastMcpStatusChanged 同构，订阅无关）。
+   */
+  broadcastAuthChanged(payload: AuthChangedPayload): void {
+    const frame: AuthChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "model",
+      type: "auth.changed",
       payload,
     };
     this.push(frame);
