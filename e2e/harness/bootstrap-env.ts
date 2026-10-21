@@ -366,6 +366,22 @@ console.log(JSON.stringify({
 `) as ReturnType<typeof taskRows>;
 }
 
+/**
+ * helix.db 某实例的待办台账行（生命周期剧本的「工具轮已收口」机械判据）。
+ * 为什么不用 kg 节点数做判据：kg-update 只是工具轮第二调用，其后还有收尾
+ * todo_write（把全部条目置 done）；以 kg 节点在库为「已进慢速收口轮」的代理
+ * 会在工具轮中途抢按 pause——PARK 硬拦截会拒掉收尾 todo_write，台账留在
+ * pending → 收口被 todo 硬闸判「未全 resolve」→ 批次重派 → 编排剧本错位。
+ */
+export function workItems(home: string, instanceId: string): { seq: number; status: string }[] {
+  const db = path.join(home, "helix.db");
+  return runBun(`
+import { Database } from "bun:sqlite";
+const db = new Database(${JSON.stringify(db)}, { readonly: true });
+console.log(JSON.stringify(db.query("SELECT seq, status FROM work_item WHERE instance_id = ? ORDER BY seq").all(${JSON.stringify(instanceId)})));
+`) as { seq: number; status: string }[];
+}
+
 /** chat 会话剧本（E 层主链路 daemon 必填；bootstrap 链路无 chat turn——一条空收口兜底）。 */
 export function idleDaemonScript(): DaemonScript {
   return { entries: [{ kind: "reply", text: "（chat 无轮次——bootstrap 链路）" }] };
