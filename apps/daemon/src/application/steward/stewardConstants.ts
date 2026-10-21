@@ -154,3 +154,17 @@ export const DELIVER_TITLE_MAX_CHARS = 24;
 
 /** 在途提案段行数上限（体量自律——多卡时尾部「另有 N 个」收口）。 */
 export const PENDING_PROPOSALS_MAX_ITEMS = 4;
+
+/** 确认闸挂闸工具集（write 类——提案制：LLM 只能提案，人工确认后才执行；
+ *  act 为 risk 动态档——read 直行/write·destructive 挂闸，判定在
+ *  gateSurfaceAct）。 */
+export const GATED_TOOLS: ReadonlySet<string> = new Set([
+  "propose_send",
+  "deliver_to_session",
+  "create_session",
+  "start_session",
+  "spawn_review_task",
+  "act",
+  // remember 已摘闸（B5：记忆写入静默化——工具调用即入库 + memory_written
+  // 通知，不再挂确认卡；防误吞闸仍由 directRemember 内校验承担）。
+]);

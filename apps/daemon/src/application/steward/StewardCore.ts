@@ -31,6 +31,7 @@ import { STEWARD_ENABLED_KEY } from "./stewardConstants";
 import type { StewardAskEvents, StewardAskItem, StewardServiceDeps } from "./stewardServiceTypes";
 import type { StewardRouting } from "./StewardRouting";
 import type { StewardOutlet } from "./StewardOutlet";
+import type { StewardLifecycle } from "./StewardLifecycle";
 
 export class StewardCore {
   /** 依赖注入面（原 StewardService.deps——域类经 core.deps 消费）。 */
@@ -88,6 +89,7 @@ export class StewardCore {
   /** 三域装配位（聚合根 StewardService 构造时回填——域间协作经 core.<域>）。 */
   routing!: StewardRouting;
   outlet!: StewardOutlet;
+  lifecycle!: StewardLifecycle;
 
   constructor(deps: StewardServiceDeps) {
     this.deps = deps;
@@ -103,9 +105,10 @@ export class StewardCore {
   }
 
   /** 三域装配（门面构造序单点——域类跨域调用依赖本步已完成）。 */
-  bindDomains(domains: { routing: StewardRouting; outlet: StewardOutlet }): void {
+  bindDomains(domains: { routing: StewardRouting; outlet: StewardOutlet; lifecycle: StewardLifecycle }): void {
     this.routing = domains.routing;
     this.outlet = domains.outlet;
+    this.lifecycle = domains.lifecycle;
   }
 
   /** 八工具中立规格（createEngine 装配面——委托 toolKit 观测面）。 */
