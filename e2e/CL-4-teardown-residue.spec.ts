@@ -43,16 +43,32 @@ test.describe("T5.2 CL-4 teardown 零残留纪律（TR-TEST-6）", () => {
       { pid: 90, ppid: 1, pgid: 90, command: "playwright test" },
       { pid: 500, ppid: 1, pgid: 500, command: "bun /repo/apps/daemon/main.ts" }, // 外部活跃 daemon（无特征）
       { pid: 501, ppid: 500, pgid: 500, command: "bun /repo/apps/daemon/main.ts --child-main" }, // SubAgent worker（有特征）
-      { pid: 600, ppid: 1, pgid: 600, command: "bun /repo/apps/daemon/test/e2e/launcher.ts --role main" }, // 本 run detached daemon（组长+特征）
+      { pid: 600, ppid: 90, pgid: 600, command: "bun /repo/apps/daemon/test/e2e/launcher.ts --role main" }, // 本 run detached daemon（组长+特征，父=spec 进程）
       { pid: 601, ppid: 600, pgid: 600, command: "bun /repo/apps/daemon/main.ts --child-main" }, // 其孙 worker
       { pid: 701, ppid: 1, pgid: 700, command: "bun /repo/apps/daemon/main.ts --child-main" }, // 死组遗孤（组长 700 已退）
     ];
     const hits = ps.filter((e) => /--child-main|launcher\.ts/.test(e.command));
-    const recovered = filterResidueByGroup(hits, ps, 90);
+    const recovered = filterResidueByGroup(hits, ps, 90, 90);
     const recoveredPids = recovered.map((e) => e.pid).sort();
     // 回收：本 run detached 树（600+601）与死组遗孤（701）；豁免：外部活跃 worker（501）
     expect(recoveredPids).toEqual([600, 601, 701]);
     expect(recoveredPids).not.toContain(501);
+  });
+
+  test("组归属豁免判据：detached 组长形态盲区（SubAgent worker 自身即组长）", () => {
+    // SubAgent worker 被 SubagentLauncher detached spawn（自身即组长 pgid==pid），父 = 活跃用户 daemon
+    // —— d971303a 首版盲区：被当「本 run detached 树根」误回收（第四任 137 实证）
+    const ps: PsEntry[] = [
+      { pid: 90, ppid: 1, pgid: 90, command: "playwright test" },
+      { pid: 888, ppid: 1, pgid: 888, command: "bun /repo/apps/daemon/main.ts" }, // 用户 daemon（活，无特征）
+      { pid: 889, ppid: 888, pgid: 889, command: "bun /repo/apps/daemon/main.ts --child-main" }, // SubAgent worker（detached 组长+特征）
+      { pid: 999, ppid: 1, pgid: 999, command: "bun /repo/apps/daemon/test/e2e/launcher.ts --role main" }, // 上一 run 遗孤 daemon（组长+ppid=1）
+    ];
+    const hits = ps.filter((e) => /--child-main|launcher\.ts/.test(e.command));
+    const recoveredPids = filterResidueByGroup(hits, ps, 90, 90).map((e) => e.pid).sort();
+    // 豁免：活跃 SubAgent worker（889，父不在本 run 树）；回收：上一 run 遗孤（999，ppid=1）
+    expect(recoveredPids).toEqual([999]);
+    expect(recoveredPids).not.toContain(889);
   });
 
   test("SubAgent 子进程树兜底回收 + 故意残留红自证（ps/端口面）", async ({ e2e, page }) => {

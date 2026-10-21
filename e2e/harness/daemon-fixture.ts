@@ -259,25 +259,46 @@ export interface PsEntry {
   command: string;
 }
 
-/** 残留判定的组归属过滤（TR-302 活跃豁免）：特征命中后按进程组归属二次判定——
- *  回收：本 run 同组成员（pgid=本进程组）/ 组长（pgid=pid，detached 子树根）/
- *       死组遗孤（组长已不在表）。
- *  豁免：活的外部进程树成员（组长存活且非本 run）——同机活跃 SubAgent worker
- *       跟着自身 daemon 的组，误杀即互杀（boot 期 137 实证）。
+/** 残留判定的进程树归属过滤（TR-302 活跃豁免）：特征命中后按进程树归属二次判定——
+ *  回收：本 run 全闭包成员（ownPid 祖先链 + 其全部后代——fixture daemon 及其孙
+ *       SubAgent 都算本 run 派生）/ 遗孤（ppid=1，父已死 = 真残留）。
+ *  豁免：活的外部进程树成员（父链通向外部活进程）——同机活跃 SubAgent worker
+ *       自身即 detached 组长（SubagentLauncher:513），误杀即互杀（四任 137 实证）。
  *  纯函数：供 findResidueProcesses 消费与 CL-4 守护单测直测。 */
 export function filterResidueByGroup(
   hits: PsEntry[],
   psTable: PsEntry[],
   ownPgid: number,
+  ownPid = 0,
 ): PsEntry[] {
   const byPid = new Map(psTable.map((e) => [e.pid, e]));
+  // 本 run 闭包：ownPid 祖先链（spec/worker/runner/playwright 主进程）+
+  // 祖先链的全部后代（fixture detached daemon、其派生的 SubAgent worker…）
+  const ownClosure = new Set<number>();
+  if (ownPid > 0) {
+    let cur = ownPid;
+    for (let i = 0; i < 64 && cur > 1; i++) {
+      ownClosure.add(cur);
+      const e = byPid.get(cur);
+      if (!e) break;
+      cur = e.ppid;
+    }
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const e of psTable) {
+        if (!ownClosure.has(e.pid) && ownClosure.has(e.ppid)) {
+          ownClosure.add(e.pid);
+          grew = true;
+        }
+      }
+    }
+  }
   const ownGroupIds = new Set<number>([ownPgid]);
-  const hitPids = new Set(hits.map((h) => h.pid));
   return hits.filter((h) => {
-    if (ownGroupIds.has(h.pgid)) return true; // 本 run 同组（spec/worker 直系）
-    if (hitPids.has(h.pgid)) return true; // 组长自身是回收对象（本 run detached 树）→ 组员跟树根回收
-    if (h.pgid === h.pid) return true; // 组长（detached 子树根）
-    return !byPid.has(h.pgid); // 死组遗孤（组长已退）回收；活的外部组长（无特征 daemon）→ 豁免
+    if (ownClosure.has(h.pid) || ownGroupIds.has(h.pgid)) return true; // 本 run 派生
+    if (h.ppid === 1) return true; // 遗孤（父已死）= 真残留
+    return false; // 活的外部进程树成员 → 豁免
   });
 }
 
@@ -298,7 +319,7 @@ export function findResidueProcesses(): ResidueProcess[] {
       e.command.includes(WORKTREE_ROOT) && // 只回收本 worktree 的
       RESIDUE_COMMAND_FEATURES.some((re) => re.test(e.command)),
   );
-  return filterResidueByGroup(featureHit, entries, process.getpgrp?.() ?? process.ppid).map((e) => ({
+  return filterResidueByGroup(featureHit, entries, process.getpgrp?.() ?? process.ppid, process.pid).map((e) => ({
     pid: e.pid,
     pgid: e.pgid,
     command: e.command,
