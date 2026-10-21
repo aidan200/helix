@@ -1,0 +1,90 @@
+/** zh-CN 词条分片：agents 域（barrel 见 ../zh-CN.ts）。
+ *
+ * 业务域分片重构（体量门）：本文件是该域词条的唯一定义处，键/值/嵌套
+ * 结构与批次溯源注释自原 zh-CN.ts 原样迁移（零改写）。
+ */
+export const agents = {
+  agents: {
+    title: "智能体",
+    mainTitle: "主会话助手",
+    subTitle: "SubAgent worker",
+    // agent-roster 批：master-detail 左栏两组 + 只读系统派生形态
+    groupEditable: "可配置",
+    groupSystem: "系统派生",
+    roBadge: "只读",
+    roToolsBadge: "工具只读",
+    modelNoteSystem: "未单独配置时跟随全局默认模型（不联动 subagent-worker）",
+    orchestratorTitle: "任务编排器",
+    kgWriterTitle: "图谱产出 SubAgent",
+    reviewerTitle: "代码评审 SubAgent",
+    noSelectTitle: "从左侧选择智能体",
+    noSelectSub: "选中后这里呈现它的配置详情；系统派生形态为只读展示",
+    pinnedTag: "恒在",
+    modelLabel: "模型",
+    modelFollowMain: "跟随全局默认",
+    modelFollowSub: "跟随全局默认",
+    modelNoteMain: "出厂默认：新会话以此模型装配；已手动切换的会话不受影响",
+    modelNoteSub: "出厂默认：spawn 时刻定格，运行中实例不受影响",
+    toolsLabel: "工具",
+    mcpLabel: "MCP 服务",
+    mcpEmpty: "未接入 MCP server（在设置页添加后自动出现）",
+    mcpToolCount: "{count} 个工具",
+    mcpOffChip: "整组关闭",
+    mcpState: {
+      idle: "空闲",
+      connecting: "连接中",
+      running: "运行中",
+      error: "异常",
+      stopped: "已停止",
+    },
+    skillsLabel: "技能",
+    skillsEmpty: "暂无已安装技能（user 层 ~/.helix/skills，project 层工作区 .helix/skills）",
+    skillAudienceTask: "任务 SOP",
+    skillAudienceTaskHint: "任务类型 SOP：经任务系统 kickoff 全文注入，agent 面恒禁用（不可开启）",
+    skillSourceBuiltin: "内置",
+    diagLabel: "扫描诊断",
+    loading: "正在读取智能体配置",
+    errorTitle: "智能体配置读取失败",
+    retry: "重试",
+    skippedToast: "未生效：{reason}",
+    writeFailToast: "写入失败 · {message}",
+    notConnected: "未连接 daemon",
+    writePendingToast: "上一项保存中，请稍候再操作",
+    switchOn: "启用",
+    switchOff: "停用",
+    // base prompt 批：base 段系统提示词查看区（折叠懒查询）
+    basePromptLabel: "系统提示词 · base 段",
+    basePromptView: "查看",
+    basePromptHide: "收起",
+    basePromptLoading: "正在读取 base 段提示词",
+    basePromptNote: "静态 base 段（角色与行为引导）；工具/技能清单为运行期按启停动态拼入，生效全量提示词见 trace 快照。",
+    // skill-content 批：skill 正文（SKILL.md 全文）查看区（行内折叠懒查询）
+    skillContentView: "查看",
+    skillContentHide: "收起",
+    skillContentLoading: "正在读取 skill 正文",
+    // 管家公民权批：常驻服务分组 + 管家只读档案卡（观测透明度对齐其他 kind）
+    groupResident: "常驻服务",
+    stewardTitle: "管家",
+    stewardBadge: "常驻",
+    stewardResidency: "内嵌常驻 · WS 直通 · 不可派生",
+    stewardNote: "daemon 内嵌常驻成员（非 SubAgent profile）；提示词与工具面只读，启停在「设置 → 通用」。",
+    stewardModelUnset: "未设置（使用适配器默认模型）",
+    stewardModelNote: "管家回复与长对话压缩摘要所用模型",
+    stewardPromptLabel: "系统提示词",
+    stewardPromptView: "查看",
+    stewardPromptHide: "收起",
+    stewardLoading: "正在读取管家档案",
+    stewardErrorTitle: "管家档案读取失败",
+    // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
+    // 派生两块 = worker 生效技能集）
+    // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
+    thinking: {
+      label: "推理级别 · THINKING LEVEL",
+      sliderLabel: "推理级别档位",
+      switchLabel: "推理级别开关",
+      disabledNote: "当前模型不支持 reasoning，推理级别不可配；请求按 provider 默认行为发送。",
+      clampedHint: "{configured} → {effective}（模型能力所限；spawn 解析时按能力过滤，配置值不丢）",
+      capabilityLoading: "正在获取模型能力信息…",
+    },
+  },
+};
