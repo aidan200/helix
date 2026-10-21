@@ -13,6 +13,8 @@
  * - 脚注：projectionNote 整行移除；enterHint 新文案 kbd 双键帽。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// waitFor：CI 慢机上 FileReader 异步回调/React 状态应用可晚于固定延时（实测 10ms
+// 不够——run 39551163449 两条竞态红），条件等待替代固定等待。
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
@@ -291,7 +293,7 @@ describe("T9 · 附件钮与 chips 预览", () => {
     stateRef.current = connectedReady();
     ui();
     await pickFiles([imageFile(PNG_BYTES, "image/png", "a.png")]);
-    expect(attach).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledTimes(1));
     const arg = attach.mock.calls[0]![0] as string[];
     expect(arg[0]).toMatch(/^data:image\/png;base64,/);
   });
@@ -301,6 +303,8 @@ describe("T9 · 附件钮与 chips 预览", () => {
       { type: "ui/attach-images", images: ["data:image/png;base64,A=", "data:image/png;base64,B=", "data:image/png;base64,C=", "data:image/png;base64=D="] },
     ]);
     ui();
+    // 先等 4 张 chips 渲染完（React 状态应用竞态：慢机上 ui() 返回时组件可能仍读到空附件列表，预检随之放行）
+    await vi.waitFor(() => expect(document.querySelectorAll(".attach-chip")).toHaveLength(4));
     await pickFiles([imageFile(PNG_BYTES, "image/png", "e.png")]);
     expect(attach).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("最多 4 张");
