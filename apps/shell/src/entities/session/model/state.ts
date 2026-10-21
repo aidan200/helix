@@ -9,6 +9,9 @@
 import type {
   AgentInstanceDto,
   AgentStateDto,
+  AuthCredentialType,
+  AuthNotifyPayload,
+  AuthPromptPayload,
   CatalogModel,
   ClosureDto,
   DaemonFreshnessDto,
@@ -277,6 +280,22 @@ export interface AuthProviderEntry {
   latencyMs?: number;
   /** fail 态原因（auth.verify.result；如 `401 · key 无效`） */
   failReason?: string;
+  /** 当前凭据类型（订阅登录批；缺省 = 未配置） */
+  credentialType?: AuthCredentialType;
+  /** OAuth 订阅登录可用面（存在 = 显示订阅登录按钮） */
+  oauth?: { loginLabel: string; isSubscription: boolean };
+}
+
+/**
+ * 登录流程状态（订阅登录批）：单登录卡不变式（UI 串行——同时最多一个）。
+ * notify = 最近一次过程事件（auth_url/device_code/progress/info）；
+ * prompt = 挂起回填（submit → auth.respond；null = 无挂起）。
+ */
+export interface AuthLoginFlowState {
+  providerId: string;
+  loginType: AuthCredentialType;
+  notify?: AuthNotifyPayload;
+  prompt?: { requestId: string; prompt: AuthPromptPayload };
 }
 
 /** 目录快照（model.catalog / model.catalog_refresh 结果面）。 */
@@ -313,6 +332,10 @@ export interface ModelConfigState {
   setKeyInflight: string | null;
   /** auth.delete_key in-flight（同上） */
   deleteKeyInflight: string | null;
+  /** 登录流程（订阅登录批；null = 无进行中——单登录卡不变式） */
+  login: AuthLoginFlowState | null;
+  /** auth.logout in-flight（结果帧收口；串行单值） */
+  logoutInflight: string | null;
   /** model.set_default 乐观值回执锁定（result.previous 到达即清） */
   setDefaultInflight: string | null;
   /** 目录强制刷新 in-flight（按钮转动反馈；catalog_refresh.result 到达即清） */
@@ -401,6 +424,8 @@ export function createInitialModelConfigState(): ModelConfigState {
     verifyInflight: null,
     setKeyInflight: null,
     deleteKeyInflight: null,
+    login: null,
+    logoutInflight: null,
     setDefaultInflight: null,
     catalogRefreshing: false,
     writeError: null,
@@ -699,6 +724,15 @@ export type SessionAction =
   | { type: "model/set-key-aborted" }
   /** delete_key 未发出：清 in-flight */
   | { type: "model/delete-key-aborted" }
+  // ── 订阅登录批（§17.39）：登录流/登出 in-flight（终态由结果帧驱动）──
+  /** 订阅登录发起：登录卡展开（providerId + 登录类型；auth.prompt/notify 帧驱动过程） */
+  | { type: "model/login-started"; providerId: string; loginType: AuthCredentialType }
+  /** login 未发出：收口登录卡 */
+  | { type: "model/login-aborted" }
+  /** 登出发起：in-flight 锁定（auth.logout.result 收口） */
+  | { type: "model/logout-started"; providerId: string }
+  /** logout 未发出：清 in-flight */
+  | { type: "model/logout-aborted" }
   /** 写面失败 toast 消费（ModelsSettingsSection 渲染后置空 writeError） */
   | { type: "model/consume-error" };
 

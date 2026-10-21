@@ -38,7 +38,7 @@ import {
   KeyRound,
   RefreshCw,
 } from "lucide-react";
-import type { AuthProviderEntry, ModelConfigState } from "@/entities/session/model/state";
+import type { AuthProviderEntry, AuthLoginFlowState, ModelConfigState } from "@/entities/session/model/state";
 import type { CatalogModel } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
@@ -85,6 +85,88 @@ function refreshedLabel(refreshedAt: number, t: (k: string, v?: Record<string, s
 
 /** key 弹层打开后聚焦延迟（等 backdrop 缩放淡入首帧；两处开启点共用单一常量）。 */
 const MODAL_FOCUS_DELAY_MS = 60;
+
+/**
+ * 登录过程卡（订阅登录批）：notify 过程显示（auth_url/device_code/progress/
+ * info）+ prompt 回填表单（text/secret/manual_code 输入 / select 选项钮）+
+ * 取消钮。prompt 表单按 requestId 重挂（换 prompt 即清输入，零 effect）。
+ */
+function LoginFlowCard({
+  flow,
+  onRespond,
+  onCancel,
+}: {
+  flow: AuthLoginFlowState;
+  onRespond: (requestId: string, value: string) => void;
+  onCancel: (providerId: string) => void;
+}) {
+  const { t } = useI18n();
+  const [value, setValue] = useState("");
+  const notify = flow.notify;
+  const prompt = flow.prompt;
+  return (
+    <div className="hud-card" data-login-flow={flow.providerId}>
+      <div className="hud-label">{t("chat.modelsConfig.loginTitle", { provider: flow.providerId })}</div>
+      {notify?.type === "device_code" && (
+        <p className="ag-note" data-login-device>
+          {t("chat.modelsConfig.loginDeviceHint", { url: notify.verificationUri })}{" "}
+          <span className="hud-chip" data-login-code>{notify.userCode}</span>
+        </p>
+      )}
+      {notify?.type === "auth_url" && (
+        <p className="ag-note" data-login-url>
+          {notify.instructions ?? ""}{" "}
+          <a href={notify.url} target="_blank" rel="noreferrer">{t("chat.modelsConfig.loginOpenUrl")}</a>
+        </p>
+      )}
+      {(notify?.type === "progress" || notify?.type === "info") && (
+        <p className="ag-note" data-login-note>{notify.message}</p>
+      )}
+      {prompt !== undefined &&
+        (prompt.prompt.type === "select" ? (
+          <div className="prov-actions" key={prompt.requestId}>
+            {prompt.prompt.options.map((o) => (
+              <button
+                key={o.id}
+                className="hud-btn hud-btn-ghost sm"
+                type="button"
+                data-login-option={o.id}
+                onClick={() => onRespond(prompt.requestId, o.id)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <form
+            key={prompt.requestId}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (value === "") return;
+              onRespond(prompt.requestId, value);
+              setValue("");
+            }}
+          >
+            <input
+              className="hud-input"
+              type={prompt.prompt.type === "secret" ? "password" : "text"}
+              placeholder={prompt.prompt.placeholder ?? prompt.prompt.message}
+              aria-label={prompt.prompt.message}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              data-login-input
+            />
+            <button className="hud-btn hud-btn-cyan sm" type="submit" data-login-submit>
+              {t("chat.modelsConfig.loginPromptSubmit")}
+            </button>
+          </form>
+        ))}
+      <button className="hud-btn hud-btn-ghost sm" type="button" data-login-cancel onClick={() => onCancel(flow.providerId)}>
+        {t("chat.modelsConfig.loginCancel")}
+      </button>
+    </div>
+  );
+}
 
 /** 连通徽标四态（F(3.4).3：互斥单值；verifying 为前端 in-flight 态）。 */
 function ConnBadge({ entry }: { entry: AuthProviderEntry }) {
@@ -137,6 +219,10 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
     setProviderKey,
     deleteProviderKey,
     consumeModelConfigError,
+    loginProvider,
+    respondLogin,
+    cancelLogin,
+    logoutProvider,
   } = useSession();
   const mc: ModelConfigState = topology.modelConfig;
 
@@ -147,6 +233,8 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
   const keyInputRef = useRef<HTMLInputElement | null>(null);
   // 两段式删除 armed（providerId 单值；2.5s 超时复原）——M10 批⑤ hook 单点承载
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
+  // 两段式登出 armed（订阅登录批；confirm 同构）
+  const { armed: armedLogout, confirm: confirmLogout } = useArmedConfirm();
   // 展开的 provider（单值；null = 全收起）
   const [expanded, setExpanded] = useState<string | null>(null);
   // 默认模型更改菜单（open|closed + 搜索词；Bug 修复批：删默认 provider key
@@ -498,6 +586,19 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
 
       <h3 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h3>
 
+      {/* 订阅登录批：登录过程卡（notify 过程 + prompt 回填 + 取消；单登录卡） */}
+      {mc.login !== null && (
+        <LoginFlowCard
+          flow={mc.login}
+          onRespond={(requestId, value) => {
+            if (!respondLogin(requestId, value)) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+          }}
+          onCancel={(providerId) => {
+            if (!cancelLogin(providerId)) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+          }}
+        />
+      )}
+
       {/* F(3.4).1 provider 字母分组列表 */}
       {providers.map((group) => (
         <div key={group.letter}>
@@ -532,7 +633,11 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                       </span>
                     );
                   })()}
-                  {row.configured && row.keyMasked !== undefined ? (
+                  {row.credentialType === "oauth" ? (
+                    <span className="key-chip" data-prov-oauth>
+                      {t("chat.modelsConfig.oauthChip")}
+                    </span>
+                  ) : row.configured && row.keyMasked !== undefined ? (
                     <span className="key-chip">
                       key ····<span className="k4">{row.keyMasked.slice(-4)}</span>
                     </span>
@@ -602,6 +707,42 @@ const ModelsSettingsSection = function ModelsSettingsSection({ initialTab = "cha
                         }}
                       >
                         {t("chat.modelsConfig.configureKey")}
+                      </button>
+                    )}
+                    {/* 订阅登录批：oauth 登录入口（loginLabel = provider 元数据）+ 登出 */}
+                    {row.oauth !== undefined && (
+                      <button
+                        className="hud-btn hud-btn-cyan sm"
+                        type="button"
+                        data-prov-login
+                        disabled={mc.login !== null}
+                        onClick={() => {
+                          if (!loginProvider(row.providerId)) {
+                            toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                          }
+                        }}
+                      >
+                        {row.oauth.loginLabel}
+                      </button>
+                    )}
+                    {row.credentialType === "oauth" && (
+                      <button
+                        className="hud-btn hud-btn-danger sm"
+                        type="button"
+                        data-prov-logout
+                        data-armed={armedLogout === row.providerId ? "1" : undefined}
+                        disabled={mc.logoutInflight !== null}
+                        onClick={() =>
+                          confirmLogout(row.providerId, () => {
+                            if (!logoutProvider(row.providerId)) {
+                              toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                            }
+                          })
+                        }
+                      >
+                        {armedLogout === row.providerId
+                          ? t("chat.modelsConfig.confirmLogout")
+                          : t("chat.modelsConfig.logout")}
                       </button>
                     )}
                   </div>

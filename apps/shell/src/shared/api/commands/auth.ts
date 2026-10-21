@@ -9,8 +9,13 @@
 
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
+  AuthCancelCommand,
+  AuthCredentialType,
   AuthDeleteKeyCommand,
   AuthListCommand,
+  AuthLoginCommand,
+  AuthLogoutCommand,
+  AuthRespondCommand,
   AuthSetKeyCommand,
   AuthVerifyCommand,
 } from "@helix/protocol";
@@ -33,4 +38,28 @@ export function authDeleteKeyCommand(providerId: string): AuthDeleteKeyCommand {
 /** auth.verify：连通验证（全局命令；P-4 测试连通）。 */
 export function authVerifyCommand(providerId: string): AuthVerifyCommand {
   return { v: PROTOCOL_VERSION, type: "auth.verify", payload: { providerId } };
+}
+
+/** auth.login：发起登录流程（订阅登录批 §17.39；type 缺省 oauth = 订阅登录主路径）。 */
+export function authLoginCommand(providerId: string, type?: AuthCredentialType): AuthLoginCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "auth.login",
+    payload: type === undefined ? { providerId } : { providerId, type },
+  };
+}
+
+/** auth.respond：登录交互 prompt 回填（requestId 取自 auth.prompt 帧；select 型回填 option id）。 */
+export function authRespondCommand(requestId: string, value: string): AuthRespondCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.respond", payload: { requestId, value } };
+}
+
+/** auth.cancel：中止进行中登录（订阅登录批；幂等）。 */
+export function authCancelCommand(providerId: string): AuthCancelCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.cancel", payload: { providerId } };
+}
+
+/** auth.logout：登出清凭据（订阅登录批；幂等）。 */
+export function authLogoutCommand(providerId: string): AuthLogoutCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.logout", payload: { providerId } };
 }

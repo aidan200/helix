@@ -14,6 +14,7 @@
 import type {
   AgentBasePromptGetPayload,
   AgentSkillContentGetPayload,
+  AuthCredentialType,
   AgentSkillCreatePayload,
   AgentConfigSetEnabledPayload,
   CodeReviewCreatePayload,
@@ -97,6 +98,10 @@ import {
   authListCommand,
   authSetKeyCommand,
   authVerifyCommand,
+  authLoginCommand,
+  authRespondCommand,
+  authCancelCommand,
+  authLogoutCommand,
   askAnswerCommand,
   chatAbortCommand,
   chatSendCommand,
@@ -748,6 +753,32 @@ export const COMMAND_SURFACE = {
       deps.dispatch({ type: "model/delete-key-started", providerId });
       const ok = deps.send(authDeleteKeyCommand(providerId));
       if (!ok) deps.dispatch({ type: "model/delete-key-aborted" });
+      return ok;
+    },
+  /** 订阅登录发起（P-4 订阅登录按钮；auth.login）。单登录卡不变式：已有流时拒绝。
+   *  send 失败收口登录卡 + 返回 false。 */
+  loginProvider: (deps) =>
+    (providerId: string, loginType: AuthCredentialType = "oauth"): boolean => {
+      if (deps.getTopology().modelConfig.login !== null) return false;
+      deps.dispatch({ type: "model/login-started", providerId, loginType });
+      const ok = deps.send(authLoginCommand(providerId, loginType));
+      if (!ok) deps.dispatch({ type: "model/login-aborted" });
+      return ok;
+    },
+  /** 登录交互 prompt 回填（auth.respond；零回执——后续 auth.prompt/login.result 驱动）。 */
+  respondLogin: (deps) =>
+    (requestId: string, value: string): boolean => deps.send(authRespondCommand(requestId, value)),
+  /** 登录中止（auth.cancel；零回执——终态经 auth.login 的 connection.error 收口）。 */
+  cancelLogin: (deps) =>
+    (providerId: string): boolean => deps.send(authCancelCommand(providerId)),
+  /** 登出发起（auth.logout；auth.logout.result 收口 + auth.changed 同步凭据行）。
+   *  send 失败清 in-flight + 返回 false。 */
+  logoutProvider: (deps) =>
+    (providerId: string): boolean => {
+      if (deps.getTopology().modelConfig.logoutInflight !== null) return false;
+      deps.dispatch({ type: "model/logout-started", providerId });
+      const ok = deps.send(authLogoutCommand(providerId));
+      if (!ok) deps.dispatch({ type: "model/logout-aborted" });
       return ok;
     },
   /** 写面失败 toast 消费（F5 批：connection.error 清在途 → writeError →
