@@ -71,7 +71,12 @@ test.describe("T3.3 CL-3 E 层闭环：抽屉 steer 定向注入（发送 → �
     await expect(drawer).toBeVisible();
     const composer = drawer.locator('.steer-composer[data-kind="steer-composer"]');
     await expect(composer).toHaveCount(1);
-    await expect(composer.locator(".sc-target .tgt")).toHaveText(`→ ${instanceId}`);
+    // 去 agentid 批（c5971e84 同一改动面）：目标行 = 纯 label
+    // （chat.drawer.steerTarget），身份 chip .tgt 已编码移除——F 层两条断言
+    // 已跟随，E 层本条漏跟（SteerComposer 单测钉 .sc-target .tgt toBeNull）
+    await expect(composer.locator(".sc-target .lab")).toHaveText("steer");
+    await expect(composer.locator(".sc-target .tgt")).toHaveCount(0);
+    expect(await composer.locator(".sc-target").textContent()).not.toContain(instanceId);
     // 子进程真流式在场（live 气泡 = 实例 running 的机械判据）
     await expect(drawer.locator('.ch-msg[data-streaming="1"]')).toBeVisible({ timeout: 20_000 });
 
