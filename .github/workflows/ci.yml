@@ -94,7 +94,9 @@ jobs:
 
       # F 层（mock mode，71 + CL-1/2/3 新剧本；vite 5199）
       - name: E2E F 层 (playwright, mock mode)
-        run: bunx playwright test -c playwright.config.ts
+        # --workers=2：CI 单机 4-worker CPU 争抢下，长尾 spec 冷启动可超 awaitReady 窗口
+        # （run 39543675296 末段两条超时）；降并发换稳定，时长 5.4m→约 8m 在 45min 限内
+        run: bunx playwright test -c playwright.config.ts --workers=2
 
       # E 层 ×2（真 daemon + FakeLLM，串行 workers=1；第二轮 CL-4-teardown-residue
       # 断言第一轮全量残留——TR-TEST-6 连跑零残留守护）

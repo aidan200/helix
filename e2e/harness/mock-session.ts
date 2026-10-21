@@ -33,10 +33,13 @@ export class MockController {
 
   // ── 控制面就绪（T4.4：应用侧注册，非 addInitScript 前置）──
 
-  /** 等待应用侧 fake 模块挂载（window.__helixMock 就绪；app 启动竞态兼容）。 */
+  /** 等待应用侧 fake 模块挂载（window.__helixMock 就绪；app 启动竞态兼容）。
+   * 20s：CI 慢机冷启动（token fetch→动态 import→transport 创建链）在 4-worker
+   * CPU 争抢下实测可超 10s（run 39543675296 两条 awaitReady 超时）；本地快机
+   * 正常 <2s，真装配故障仍会在有界窗口暴露。 */
   async awaitReady(): Promise<void> {
     await expect
-      .poll(() => this.page.evaluate(() => Boolean(window.__helixMock)), { timeout: 10_000 })
+      .poll(() => this.page.evaluate(() => Boolean(window.__helixMock)), { timeout: 20_000 })
       .toBe(true);
   }
 
