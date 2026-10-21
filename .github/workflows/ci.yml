@@ -80,13 +80,15 @@ jobs:
 
       # ---- 三运行器单测 ----
       - name: Unit tests daemon (bun test)
-        run: bun test apps/daemon
+        # --timeout=20s：CI runner 偶发停顿撞默认 5s 限时（run 39547435318：mock 用例 5000.13ms 瞬时超时 + 同文件连带污染，本地同树 20 连跑全绿）；真断言失败不受影响，挂起仍 20s 有界暴露
+        run: bun test apps/daemon --timeout=20000
 
       - name: Unit tests protocol (bun test, cwd 子目录)
         run: cd packages/protocol && bun test
 
       - name: Unit tests shell (vitest)
-        run: npx vitest run apps/shell
+        # --test-timeout=20s：同 daemon 步骤——CI 停顿端象下 vitest 默认 5s 同样过紧（run 39546392414 unit shell 随机红）
+        run: npx vitest run apps/shell --test-timeout=20000
 
       # ---- playwright：浏览器安装 + F 层 + E 层 ×2 ----
       - name: Install Playwright browsers (chromium)
