@@ -34,6 +34,7 @@ import { acquireSingletonLock, installCrashLogging, type SingletonLock } from ".
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildStewardStack } from "./assembly/buildStewardStack";
 import { buildWorkspaceStack } from "./assembly/buildWorkspaceStack";
+import { startWorkspaceTmpSweeper } from "./workspaceTmpSweeper";
 import { wireMcpWarmup } from "./assembly/mcpWarmup";
 import { computeSpawnAnchorOf, mainInstanceIdForOf } from "./assembly/spawnAnchor";
 import { wireSessionStack } from "./assembly/wireSessionStack";
@@ -394,6 +395,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     initialRoot: deps.kgWorkspaceRoot,
   });
   const workspace = workspaceAssembly.workspace;
+
+  // 清理纪律批机械面（TR-301）：绑定 workspace 的 .helix/tmp 定时清仓——
+  //  60s 首轮 / 24h 节奏 / 7d 过龄，未绑定空转（unbound 零扫描）；rebind 经
+  //  boundRoot 现值天然跟随。shutdown 停面经 buildWsDriving deps
+  // （stopStewardComponents 同模式，可选字段）。
+  const tmpSweeper = startWorkspaceTmpSweeper({
+    currentRoot: () => workspace.boundRoot(),
+    logger,
+  });
 
   // 三方平台批：config 注入（KV custom_providers 启动回读——自定义 provider
   //   登记进目录底座；persistence 在装配序上先于本步，依赖已就绪）
@@ -869,6 +879,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     stopStewardComponents: () => {
       for (const component of stewardComponents) component.stop();
     },
+    stopTmpSweeper: tmpSweeper.stop,
     port: resolvedPort, // 完整解析链（argv > KV > 7333）已定格
     // stale-indicator 批：welcome daemonFreshness 比对基准（进程启动时刻单源）
     daemonStartedAtMs: bootedAtMs,

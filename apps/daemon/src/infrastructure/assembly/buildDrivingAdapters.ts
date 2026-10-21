@@ -207,6 +207,8 @@ export interface WsDrivingDeps {
   /** 管家域服务统一停面（批 0 生命周期登记表：原 stopStewardMemoryGc +
    *  stopStewardReliabilityTimers 两挂点收编——StewardComponent 契约）。 */
   readonly stopStewardComponents?: () => void;
+  /** tmp 清仓定时器停面（清理纪律批机械面，TR-301：workspaceTmpSweeper）。 */
+  readonly stopTmpSweeper?: () => void;
   readonly eventStream: EventStream;
   readonly browserPort: BrowserPort;
   /**
@@ -324,6 +326,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
         deps.unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
         deps.stopMcp?.(); // mcp 批：MCP 状态广播退订 + 全部 server 子进程收尾
         deps.stopStewardComponents?.(); // 批 0：管家域服务统一 stop（登记表）
+        deps.stopTmpSweeper?.(); // 清理纪律批：tmp 清仓定时器停（幂等）
         await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
         await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
         workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）
