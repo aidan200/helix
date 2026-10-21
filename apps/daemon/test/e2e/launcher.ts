@@ -435,7 +435,12 @@ async function main(): Promise<void> {
     t !== "todo_read" &&
     t !== "coord_claim" &&
     t !== "coord_release" &&
-    t !== "coord_query";
+    t !== "coord_query" &&
+    // 批E memory_search（提供则注册门控）：launcher 的 executor 不注入
+    // memorySearch 槽——按 CoreToolExecutor 注释契约「profile 声明该名时
+    // engineFor 同步剔除（kg/codegraph W1 模式同构）」同步剔除，否则
+    // resolveNames 硬校验崩启动（run 39553178527：E 层真 daemon 提前退出）
+    t !== "memory_search";
   const engineFor = (): PiAgentEngineAdapter =>
     new PiAgentEngineAdapter({
       profile: {
