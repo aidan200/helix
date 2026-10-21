@@ -23,10 +23,12 @@ test.describe("CL-7 smoke（mock mode on）", () => {
     await expect(page.locator(".composer-wrap")).toBeVisible();
     await expect(page.locator("#msg-input")).toBeVisible();
 
-    // hello 首帧契约（握手）：token + protocolVersion（v0.13 bump 机械跟随——steward 批
-    // v0.13 版本位（steward 批）；契约 = PROTOCOL.md §2）
+    // hello 首帧契约（握手）：token + protocolVersion。版本位钉字面量（不从
+    // PROTOCOL_VERSION 导入——导入即让本断言恒真、失去「版本 bump 未跟随」
+    // 检出能力），bump 时测试侧机械跟随（单源 = packages/protocol/src/
+    // envelope.ts PROTOCOL_VERSION；契约 = PROTOCOL.md §2）。当前 0.14。
     const hello = await mock.waitForCommand("hello");
-    expect(hello.payload).toEqual({ token: "e2e-dev-token", protocolVersion: "0.13" });
+    expect(hello.payload).toEqual({ token: "e2e-dev-token", protocolVersion: "0.14" });
 
     // 状态条 label = 已连接（zh-CN 默认包）
     await expect(page.locator(".conn-status")).toContainText("已连接");
