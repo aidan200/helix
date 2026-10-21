@@ -59,6 +59,7 @@ export { pendingKeyOf } from "../../domain/steward/confirmation/ProposalLedger";
 export type { PendingAction, PendingEntry } from "../../domain/steward/confirmation/ProposalLedger";
 
 // ── 体量门 P4：迁出符号经门面原路径精确再导出（消费方 import 零改动）──
+export { STEWARD_FEED_EVENT_TYPES, FEED_SUMMARY_MAX_CHARS, buildFeedText } from "./stewardFeed";
 export {
   summarizeArgsLite,
   hasExemptionAffordance,
@@ -174,6 +175,7 @@ import { STEWARD_COMPACTION_SUMMARY_PROMPT } from "./stewardPrompts";
 import { readSummaryConfig } from "../summary/summaryConfig";
 import { StewardCore } from "./StewardCore";
 import { StewardRouting } from "./StewardRouting";
+import { StewardOutlet } from "./StewardOutlet";
 import { capChars, capToolResultText, displayTitleOf, summarizeArgsLite } from "./stewardProjections";
 import {
   CONTEXT_SNAPSHOT_MAX_CHARS,
@@ -191,20 +193,6 @@ import {
   STEWARD_RUN_WATCHDOG_ABORT_GRACE_MS,
 } from "./stewardConstants";
 import type { StewardAskEvents, StewardAskItem, StewardServiceDeps } from "./stewardServiceTypes";
-
-/** feed ①层粗筛集合单源（agent 生命周期事件流子集；扩集合改此处 + 测试同步）。 */
-export const STEWARD_FEED_EVENT_TYPES: ReadonlySet<string> = new Set([
-  "agent.spawned",
-  "agent.completed",
-  "agent.failed",
-  "agent.killed",
-  "agent.parked",
-  "agent.resumed",
-]);
-
-/** feed 文本行摘要截断上限（~80 字符——BroadcastService 先例同构）。 */
-export const FEED_SUMMARY_MAX_CHARS = 80;
-
 
 /**
  * 系统提示词骨架（§2 三分法 + 拒绝清单——任务 brief 口径）。
@@ -233,48 +221,6 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。
 
 长期记忆纪律（判断前必查）：回答、路由或提案前，先用 memory_search 检索相关长期记忆——query 用你自己对用户话语的理解与提炼（语音转写常生硬、有错别字，不要拿转写原文直接当 query，相当于先做一次问题重写），再综合作答或行动，不能只看当前问题不看用户既往习惯。命中记忆与本轮指令冲突时以本轮指令为准，涉及代码/项目现实以知识图谱为准；零命中即正常作答。记忆结果中的「[进展]…（sid: xxx）」行可直接作 read_session 的 sessionId。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
-
-
-function truncateSummary(summary: string): string {
-  if (summary.length <= FEED_SUMMARY_MAX_CHARS) return summary;
-  return `${summary.slice(0, FEED_SUMMARY_MAX_CHARS)}…`;
-}
-
-/**
- * feed ②层模板直出（纯函数，测试单点）：生命周期六事件 → 中文文本行。
- * 非粗筛集合事件返回 undefined。
- */
-export function buildFeedText(event: DomainEvent): string | undefined {
-  switch (event.type) {
-    case "agent.spawned": {
-      const p = event.payload as AgentSpawnedPayload;
-      return `${p.agentId} 已启动：${truncateSummary(p.task)}`;
-    }
-    case "agent.completed": {
-      const p = event.payload as AgentCompletedPayload;
-      return `${p.agentId} 已完成：${truncateSummary(p.closure.summary ?? "")}`;
-    }
-    case "agent.failed": {
-      const p = event.payload as AgentFailedPayload;
-      const reason = p.error !== undefined && p.error !== "" ? p.error : (p.closure.summary ?? "");
-      return `${p.agentId} 失败：${truncateSummary(reason)}`;
-    }
-    case "agent.killed": {
-      const p = event.payload as AgentKilledPayload;
-      return `${p.agentId} 已终止：${truncateSummary(p.closure.summary ?? "")}`;
-    }
-    case "agent.parked": {
-      const p = event.payload as AgentParkedPayload;
-      return `${p.agentId} 已挂起（${p.reason === "user" ? "用户" : "任务暂停"}）`;
-    }
-    case "agent.resumed": {
-      const p = event.payload as AgentResumedPayload;
-      return `${p.agentId} 已恢复执行`;
-    }
-    default:
-      return undefined;
-  }
-}
 
 /** 提案期短标题解析（sessionTitleOf 轻量单会话查询；查询失败/面缺席 →
  *  undefined 回退 sessionId——标题是增强面，绝不阻断提案链；截断在消费点）。 */
@@ -722,16 +668,19 @@ export class StewardService implements StewardComponent {
   private readonly core: StewardCore;
   /** 分诊路由域（ask 判定漏斗 + 确认闸门禁）。 */
   private readonly routing: StewardRouting;
+  /** 播报编排域（feed 播报 / 提醒帧 / 主动汇报 / 过程回执）。 */
+  private readonly outlet: StewardOutlet;
 
   constructor(deps: StewardServiceDeps) {
     this.core = new StewardCore(deps);
     // 协作面（分诊路由域 → run 驱动 / 提醒播报；过渡期先指回本服务，
     // 生命周期域/播报域迁出后改为直连对应域实例）
+    this.outlet = new StewardOutlet(this.core);
     this.routing = new StewardRouting(this.core, {
       driveAsk: (item) => this.driveAsk(item),
-      emitLifecycleNotify: (urgency, title, body) => this.emitLifecycleNotify(urgency, title, body),
+      emitLifecycleNotify: (urgency, title, body) => this.outlet.emitLifecycleNotify(urgency, title, body),
     });
-    this.core.bindDomains({ routing: this.routing });
+    this.core.bindDomains({ routing: this.routing, outlet: this.outlet });
   }
 
   /** 八工具中立规格（createEngine 装配面——委托内客观测面）。 */
@@ -794,6 +743,22 @@ export class StewardService implements StewardComponent {
   /** 开关现态（money gate 读面）。 */
   isEnabled(): boolean {
     return this.core.isEnabled();
+  }
+
+  // ── 播报编排域委托（StewardOutlet）──────────────────────────
+
+  /** 事件 feed 播报入口（①层粗筛 + 订阅闸 + ②层模板直出 + feed 帧）。 */
+  onDomainEvent(event: DomainEvent): void {
+    this.outlet.onDomainEvent(event);
+  }
+
+  /** 对话内主动汇报（记录入工作记忆 + steward.proactive 实时帧）。 */
+  async reportProactive(report: {
+    title: string;
+    text: string;
+    suggestions?: readonly { label: string; verb?: string; sessionId?: string }[];
+  }): Promise<void> {
+    return this.outlet.reportProactive(report);
   }
 
   /** run 驱动（原 prepareAskRun + agent.start 合体）：每 run 动态 systemPrompt
@@ -926,7 +891,7 @@ export class StewardService implements StewardComponent {
   private onEngineEvent(event: AgentEngineEvent): void {
     this.core.run.touch(); // 看门狗推进锚（任何引擎事件 = 活跃）
     this.core.deps.emitEngineEvent?.(event);
-    this.forwardStreamCallbacks(event);
+    this.core.outlet.forwardStreamCallbacks(event);
     // 轮数熔断（同步判定——async 投影链赶不上无思考工具风暴；abort 越早越省）
     if (event.type === "tool_execution_start") {
       this.core.run.state.toolCalls += 1;
@@ -943,30 +908,6 @@ export class StewardService implements StewardComponent {
     this.core.projectionChain = this.core.projectionChain.then(step).catch((err) => {
       this.core.deps.logger?.warn(`管家事件投影异常：${(err as Error).message}`);
     });
-  }
-
-  /** ask 流式回调转发（message_update/thinking/tool_execution → events 面
-   *  ——签名对齐 StewardAskEvents：argsSummary/resultSummary 以事件面可得字段派生）。
-   *  事故热修批⑥：thinking 帧不再由 thinking_delta 直通——pi 的 thinking_delta
-   *  是 token 级增量事件，而 onThinking 契约是段级（一个完成态块一帧全量，
-   *  StewardLlmPort 头注释同源）；直通 = 每 delta 一帧 → shell 每帧一条目 =
-   *  「按字一行」事故形态。改为 message_end 完成块聚合发帧（与 KV 投影
-   *  thinkingBlocks 同源同文本）。 */
-  private forwardStreamCallbacks(event: AgentEngineEvent): void {
-    const ev = this.core.askStreamEvents;
-    if (ev.onDelta !== undefined && event.type === "message_update") {
-      ev.onDelta(event.delta);
-    } else if (ev.onThinking !== undefined && event.type === "message_end" && event.role !== "user" && event.role !== "toolResult") {
-      const thinkingBlocks = (event.blocks ?? []).filter(
-        (b): b is Extract<typeof b, { type: "thinking" }> => b.type === "thinking",
-      );
-      const thinkingText = thinkingBlocks.map((b) => b.text).join("\n");
-      if (thinkingText !== "") ev.onThinking(thinkingText);
-    } else if (ev.onToolStart !== undefined && event.type === "tool_execution_start") {
-      ev.onToolStart(event.toolName, summarizeArgsLite(event.args));
-    } else if (ev.onToolEnd !== undefined && event.type === "tool_execution_end") {
-      ev.onToolEnd(event.toolName, event.isError === true ? "（执行失败）" : event.result.slice(0, 120));
-    }
   }
 
   /** 引擎事件投影（顺序化执行：KV 入账 / 暂停处理 / 压缩 / run 收口）。 */
@@ -1195,7 +1136,7 @@ export class StewardService implements StewardComponent {
         detail: "该操作已撤回（原运行已结束，高风险操作不自动保留）——如仍需要请重新提出",
         outcome: "superseded",
       });
-      this.emitLifecycleNotify(
+      this.core.outlet.emitLifecycleNotify(
         "normal",
         "高风险操作已撤回",
         `原运行已结束，「${action.displayTarget}」的高风险操作卡已撤除；如仍需要请重新提出`,
@@ -1314,7 +1255,7 @@ export class StewardService implements StewardComponent {
         if (!gatedWait) {
           // 恢复通知只留给「用户在等答案却被挂死」场景；挂闸等待用户知情
           // （有卡挂着），「已自动恢复」是惊扰噪音（2026-10-07 事故修订 CAND-666）
-          this.emitLifecycleNotify(
+          this.core.outlet.emitLifecycleNotify(
             "high",
             "管家已自动恢复",
             `管家处理挂起 ${verdict.hungSeconds}s 无响应，已自动中止恢复；排队中的输入将继续处理`,
@@ -1355,7 +1296,7 @@ export class StewardService implements StewardComponent {
       this.core.logInfo(
         `管家确认卡可达性提醒（聚合）：pending ${total} 张（首成熟 ${matured.first.actionId}——${matured.first.entry.action.displayTarget}）——${this.core.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
       );
-      this.emitLifecycleNotify(
+      this.core.outlet.emitLifecycleNotify(
         "normal",
         "待确认操作",
         `管家有 ${total} 个操作等你确认——打开管家面板处理；${this.core.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
@@ -1365,7 +1306,7 @@ export class StewardService implements StewardComponent {
     this.core.logInfo(
       `管家确认卡可达性提醒：${matured.first.actionId}（${matured.first.entry.action.displayTarget}）——${this.core.tuningOf().confirm.remindAfterMs / 1000}s 无人消费`,
     );
-    this.emitLifecycleNotify(
+    this.core.outlet.emitLifecycleNotify(
       "normal",
       "待确认操作",
       `管家有一个操作等你确认（${matured.first.entry.action.displayTarget}）——打开管家面板处理；${this.core.tuningOf().confirm.ttlMs / 1000}s 内未确认将自动作废`,
@@ -1392,7 +1333,7 @@ export class StewardService implements StewardComponent {
     }
     if (expired.length === 0) return;
     if (expired.length >= 2) {
-      this.emitLifecycleNotify(
+      this.core.outlet.emitLifecycleNotify(
         "normal",
         "确认已超时",
         `${expired.length} 个操作超过 ${this.core.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
@@ -1400,18 +1341,11 @@ export class StewardService implements StewardComponent {
       return;
     }
     const single = expired[0]!;
-    this.emitLifecycleNotify(
+    this.core.outlet.emitLifecycleNotify(
       "normal",
       "确认已超时",
       `操作「${single.entry.action.displayTarget}」超过 ${this.core.tuningOf().confirm.ttlMs / 1000}s 未确认，已自动作废；如仍需要请重新向管家提出`,
     );
-  }
-
-  /** 可靠性提醒帧出口（seq 单调；订阅闸/限流在 EventStream 侧——缺席零提醒）。 */
-  private emitLifecycleNotify(urgency: "normal" | "high", title: string, body: string): void {
-    if (this.core.deps.emitNotify === undefined) return;
-    this.core.notifySeq += 1;
-    this.core.deps.emitNotify({ urgency, title, body, seq: this.core.notifySeq });
   }
 
   /** 工作记忆读面（steward.history 回放：完整记录数组——UI 渲染与 LLM 窗口
@@ -1456,26 +1390,6 @@ export class StewardService implements StewardComponent {
     item?.deliver?.(clearedPayload);
   }
 
-
-  /**
-   * fanout 目标入口（wireEventFanout steward-feed-bridge 装配）：①层粗筛 +
-   * 闸门 + ②层模板直出 + feed 帧。只产出协议帧，零领域事件发布（防自激）。
-   */
-  onDomainEvent(event: DomainEvent): void {
-    if (!STEWARD_FEED_EVENT_TYPES.has(event.type)) return;
-    if (!this.core.deps.feedGate.hasStewardSubscribers()) return; // 零订阅零推送
-    const text = buildFeedText(event);
-    if (text === undefined) return;
-    const payload = event.payload as { agentId?: string };
-    if (typeof payload.agentId !== "string" || payload.agentId === "") return;
-    this.core.feedSeq += 1;
-    this.core.deps.emitFeed({
-      kind: event.type as StewardFeedPayload["kind"],
-      agentId: payload.agentId,
-      text,
-      seq: this.core.feedSeq,
-    });
-  }
 
   /** 设置现态（steward.get_config / set_config 共用读面）。summary 组 =
    *  总结配置域只读回显（config.result 回显 summary 组——写面在
@@ -1616,33 +1530,6 @@ export class StewardService implements StewardComponent {
       await this.core.deps.config.set(STEWARD_ENABLED_KEY, patch.enabled ? "1" : "0");
     }
     return { ok: true };
-  }
-
-  /**
-   * 对话内主动汇报（M0.5-R：激活态主动环投递面，D12-⑫「激活=对话内主动
-   * 汇报+接续提案」）：分诊呈现轨 + 接续提案以 assistant 记录入工作记忆
-   * ——同源链路保持（UI 对话回放显示的 = LLM 记得的，后续 ask 自带已汇报
-   * 现场）；只是记录追加，零引擎驱动零响应环改动；接续提案为文本建议行，
-   * 点按才动/写类动作仍过确认闸（D12-⑤ 不变）。组合根接
-   * StewardPerceptionService.reportDialog 窄接口。
-   *
-   * M3-a（CAND-601 闭环）：记录追加的同时广播 steward.proactive 实时帧
-   * ——开着的面板实时冒出汇报条目（不重开面板）；重开面板由 history 回放
-   * 同源再现。emitProactive 缺席 = 零帧，记录照写（语义面零降级）。
-   */
-  async reportProactive(report: { title: string; text: string; suggestions?: readonly { label: string; verb?: string; sessionId?: string }[] }): Promise<void> {
-    const lines = [`【主动汇报】${report.title}`, report.text];
-    for (const s of report.suggestions ?? []) {
-      if (s.label.trim() !== "") lines.push(`建议：${s.label}（点按才动）`);
-    }
-    await this.core.pushRecord({ kind: "assistant", text: lines.join("\n"), at: this.core.now() });
-    this.core.proactiveSeq += 1;
-    this.core.deps.emitProactive?.({
-      title: report.title,
-      text: report.text,
-      ...(report.suggestions !== undefined && report.suggestions.length > 0 ? { suggestions: report.suggestions } : {}),
-      seq: this.core.proactiveSeq,
-    });
   }
 
   // ── 内部 ────────────────────────────────────────────────
