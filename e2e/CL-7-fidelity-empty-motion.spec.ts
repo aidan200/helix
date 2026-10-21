@@ -114,7 +114,7 @@ test.describe("TC2.6 R-17 动效（reduced-motion / log-rise / 属性白名单�
     expect(await computed(page, ".session-active .msg", "animation-duration")).toBe("0.24s");
   });
 
-  test("R-17 动画属性白名单：app.css 全部 @keyframes 仅动 transform/opacity", async () => {
+  test("R-17 动画属性白名单：app.css 全部 @keyframes 仅动 transform/opacity（stv-* 雪碧图 scoped 例外）", async () => {
     const cssPath = path.resolve(
       __dirname,
       "../apps/shell/src/shared/ui/styles/app.css",
@@ -123,19 +123,34 @@ test.describe("TC2.6 R-17 动效（reduced-motion / log-rise / 属性白名单�
     const blocks = [...css.matchAll(/@keyframes\s+([\w-]+)\s*\{([\s\S]*?)\n\}/g)];
     expect(blocks.length).toBeGreaterThan(0);
 
+    // scoped 例外（唯一放行面）：管家光球九序列手绘帧动画（b092c6c6 有意特性）
+    // 走雪碧图逐帧步进——只能动 background-position，且仅限 @keyframes stv-*
+    // 前缀。白名单本身不放宽：其它任何动画仍只许 transform/opacity。
+    // 设计债（性能）：background-position 步进逐帧触发 paint，劣于 transform
+    // 位移技术；后续若把光球转成雪碧图转位移（transform）方案，删除本例外。
+    const SPRITE_PREFIX = /^stv-/;
+    const SPRITE_PROPS: ReadonlySet<string> = new Set(["background-position"]);
+
     const offenders: string[] = [];
+    const scopedExceptions: string[] = [];
     for (const [, name, body] of blocks) {
       const props = [...body.matchAll(/^\s*(?:[\d.]+%,\s*)*[\d.%,\s]*\{\s*([^}]+)\}/gm)]
         .flatMap((m) => [...m[1].matchAll(/([a-zA-Z-]+)\s*:/g)].map((p) => p[1]))
         .filter((p) => p !== "transform" && p !== "opacity");
-      if (props.length > 0) offenders.push(`@keyframes ${name}: ${props.join(", ")}`);
+      const isSprite = SPRITE_PREFIX.test(name!);
+      const rest = props.filter((p) => !(isSprite && SPRITE_PROPS.has(p)));
+      if (props.length > rest.length) scopedExceptions.push(`@keyframes ${name}`);
+      if (rest.length > 0) offenders.push(`@keyframes ${name}: ${rest.join(", ")}`);
     }
     writeEvidence(
       "fidelity-motion-whitelist",
       "txt",
       [
         `keyframes scanned: ${blocks.map((b) => b[1]).join(", ")}`,
-        offenders.length === 0 ? "all animations only transform/opacity ✓" : `offenders:\n${offenders.join("\n")}`,
+        scopedExceptions.length === 0
+          ? "scoped exceptions: (none)"
+          : `scoped exceptions (stv-* sprite, background-position): ${scopedExceptions.join(", ")}`,
+        offenders.length === 0 ? "all animations only transform/opacity (+ scoped stv-* sprite) ✓" : `offenders:\n${offenders.join("\n")}`,
       ].join("\n"),
     );
     expect(offenders, `非 transform/opacity 动画属性：${offenders.join("; ")}`).toEqual([]);
