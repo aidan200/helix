@@ -249,6 +249,11 @@ async function main(): Promise<void> {
       reason:
         "组合根接线密集期：协调系列（U0a-U7：写事实/护栏/占用/注入）与沙箱系列（seatbelt/helper/fallback）六批接线集中于此；待组合根按域分组重构后撤销豁免",
     },
+    {
+      file: "apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts",
+      reason:
+        "拆分在制（frame-sender/http-surface 提取半成品因 RawCommandFrame 类型断裂搁浅）：过桥豁免保 CI 绿；拆分落地回 ≤1000 行后本登记自动核销红提醒撤销",
+    },
   ];
 
   for (const { file, reason } of SIZE_EXEMPT) {
