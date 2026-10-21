@@ -133,7 +133,7 @@ export function explicitGetApiKey(
     if (key) return key;
     if (getCredentialType?.(provider) === "oauth") return undefined;
     throw new Error(
-      `auth.json 中没有 provider "${provider}" 的 API key（请经设置页 auth.set_key 录入；显式传入，不走环境变量）`,
+      `auth.json 中没有 provider "${provider}" 的凭据（api_key 型请经设置页 auth.set_key 录入、订阅型 provider 请订阅登录；显式传入，不走环境变量）`,
     );
   };
 }

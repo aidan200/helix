@@ -155,7 +155,7 @@ describe("code-review H5：compaction 摘要调用显式 apiKey 注入", () => {
       models,
       model: fakeModel,
       getApiKey: (provider) => {
-        throw new Error(`auth.json 中没有 provider "${provider}" 的 API key（请经设置页 auth.set_key 录入；显式传入，不走环境变量）`);
+        throw new Error(`auth.json 中没有 provider "${provider}" 的凭据（api_key 型请经设置页 auth.set_key 录入、订阅型 provider 请订阅登录；显式传入，不走环境变量）`);
       },
       onCompleted: () => {},
       onFailed: (message) => failures.push(message),
