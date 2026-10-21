@@ -148,14 +148,16 @@ async function openAgents(mock: import("./harness/mock-session").MockController,
   ]));
   await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
-  // master-detail：左栏五条目在场（可配置 2 + 系统派生 3——D5 reviewer 入列）
-  await expect(page.locator("[data-agent-row]")).toHaveCount(5);
+  // master-detail：左栏六条目在场（可配置 2 + 系统派生 3 + 常驻服务 1）
+  // ——系统派生 3 = D5 reviewer 入列；常驻服务 1 = steward（管家公民权批
+  //   第三分组，非 SubAgent profile 的 daemon 内嵌常驻成员）
+  await expect(page.locator("[data-agent-row]")).toHaveCount(6);
   await page.locator('[data-agent-row="main-session"]').click();
   await expect(page.locator('[data-agent-card="main-session"] [data-tool-row="bash"]')).toBeVisible();
 }
 
 test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
-  test("① 渲染：master-detail 左栏两组 + 详情卡（工具组 snippet / 技能组来源分组+诊断 / 模型下拉缺省项）", async ({ mock, page }) => {
+  test("① 渲染：master-detail 左栏三组 + 详情卡（工具组 snippet / 技能组来源分组+诊断 / 模型下拉缺省项）", async ({ mock, page }) => {
     await openAgents(mock, page);
 
     const mainCard = page.locator('[data-agent-card="main-session"]');
@@ -206,17 +208,22 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await expect(mainCard.locator('[data-switch="bash"]')).toHaveAttribute("aria-checked", "true");
   });
 
-  test("①b master-detail 系统派生组：两组分组标题 + 只读徽标 + 只读详情纯展示 + 选中切换回可编辑", async ({ mock, page }) => {
+  test("①b master-detail 三组：分组标题 + 只读/常驻徽标 + 只读详情纯展示 + 选中切换回可编辑", async ({ mock, page }) => {
     await openAgents(mock, page);
 
-    // 两组分组标题 + 条目序（可配置 2 + 系统派生 3——D5 reviewer 入列）
+    // 三组分组标题 + 条目序（可配置 2 + 系统派生 3 + 常驻服务 1）
     await expect(page.locator('[data-agent-group="editable"]')).toHaveText("可配置");
     await expect(page.locator('[data-agent-group="system"]')).toHaveText("系统派生");
-    await expect(page.locator("[data-agent-row]")).toHaveCount(5);
-    // 只读组三行带只读徽标（可配置组无）
+    await expect(page.locator('[data-agent-group="resident"]')).toHaveText("常驻服务");
+    await expect(page.locator("[data-agent-row]")).toHaveCount(6);
+    // 只读组四行带徽标（系统派生 3 = 「只读」；常驻服务 1 = 「常驻」——同源
+    // 语义 = 写面恒无，文案经 badgeLabel 覆写）
     const roBadges = page.locator('[data-ro="true"] [data-ro-badge]');
-    await expect(roBadges).toHaveCount(3);
+    await expect(roBadges).toHaveCount(4);
     await expect(roBadges.first()).toHaveText("只读");
+    const stewardRow = page.locator('[data-agent-row="steward"]');
+    await expect(stewardRow.locator("[data-ro-badge]")).toHaveText("常驻");
+    await expect(stewardRow.locator(".ag-entry-kind")).toHaveText("steward");
 
     // orchestrator 只读详情（TR-125 显示同构终态：ProfileCard readOnly 位——
     // 开关全渲染置灰（写面只读），模型/推理槽位仍可配）

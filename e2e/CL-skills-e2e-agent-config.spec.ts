@@ -61,11 +61,11 @@ function prepHome(): string {
 /** 空剧本（本 spec 无 LLM 交互面；daemon 命令族全走 driving 层）。 */
 const SCRIPT: DaemonScript = { entries: [] };
 
-/** 进智能体页并等首帧 list 收口（左栏五条目——可配置 2 + 系统派生 3（D5 reviewer 入列）+ 默认选中 main 后 bash 工具行在场）。 */
+/** 进智能体页并等首帧 list 收口（左栏六条目——可配置 2 + 系统派生 3（D5 reviewer 入列）+ 常驻服务 1（steward）；默认选中 main 后 bash 工具行在场）。 */
 async function openAgents(page: import("@playwright/test").Page): Promise<void> {
   await page.locator('.rail-btn[data-page="skills"]').click();
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
-  await expect(page.locator("[data-agent-row]")).toHaveCount(5, { timeout: 15_000 });
+  await expect(page.locator("[data-agent-row]")).toHaveCount(6, { timeout: 15_000 });
   await page.locator('[data-agent-row="main-session"]').click();
   const mainCard = page.locator('[data-agent-card="main-session"]');
   await expect(mainCard.locator('[data-tool-row="bash"]')).toBeVisible({ timeout: 15_000 });
