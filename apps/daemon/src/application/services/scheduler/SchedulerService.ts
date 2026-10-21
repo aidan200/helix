@@ -143,6 +143,15 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private readonly parkedInfos = new Map<string, { reason: ParkReason; parkedAt: string }>();
   /** 队列内待恢复实例（resume 预算满入队；出队时 RESUME 恢复而非 launch——执行载体还活着）。 */
   private readonly resumePending = new Set<string>();
+  /**
+   * 实例 → 「在途取消的 resume 意图」（丢失唤醒修复）：resume 落在 park 已注入未确认
+   * 窗口时，除了当场 RESUME 抵消（常规路径：子进程不再进挂起等待），还留一条意图；
+   * 极端路径（子进程仍输出 PARK 标记并真进入挂起等待）由 onInstanceParked 消费
+   * ——立即复活，否则该实例停在 parked 无人再唤醒（CL-3 bootstrap 生命周期
+   * 剧本三 pause→秒级 resume 即死在这里：批次行卡 running、后续批次不派）。
+   * 生命周期：park() 新请求时作废（意图只对「发起它的那次 park」有效）、终态清理。
+   */
+  private readonly resumeOnPark = new Set<string>();
 
   constructor(private readonly deps: SchedulerServiceDeps) {
     this.translator = new SubagentEventTranslator({ events: deps.events, clock: deps.clock });
@@ -555,6 +564,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     }
     if (!this.pendingParks.has(agentId)) {
       this.pendingParks.set(agentId, reason);
+      this.resumeOnPark.delete(agentId); // 新 park 请求作废上一轮的在途 resume 意图
       this.deps.runner.send(agentId, PARK_INSTRUCTION_TEXT);
     }
     return { parked: true };
@@ -579,9 +589,12 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     if (instance.isTerminal) {
       return { resumed: false, error: `实例 ${agentId} 已终态（${instance.current}），终态不可复活（重派 = 新实例）` };
     }
-    // 在途 pending park：取消等待 + RESUME 抵消（状态不迁移，继续 running）
+    // 在途 pending park：取消等待 + RESUME 抵消（状态不迁移，继续 running）；
+    // 同时记留恢复意图——极端路径子进程仍进挂起等待时，parked 上行即自动复活
+    // （否则实例停在 parked，无第二次 resume 入口 = 挂死）
     if (instance.current === "running" && this.pendingParks.has(agentId)) {
       this.pendingParks.delete(agentId);
+      this.resumeOnPark.add(agentId);
       if (this.deps.runner.send !== undefined) this.deps.runner.send(agentId, RESUME_INSTRUCTION_TEXT);
       return { resumed: true, queued: false };
     }
@@ -633,6 +646,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     this.pendingParks.delete(instanceId);
     this.parkedInfos.delete(instanceId);
     this.resumePending.delete(instanceId);
+    this.resumeOnPark.delete(instanceId);
 
     // 流式/落树事件生产状态清理（终态后迟到引擎事件不再产条目事件）——
     // 四 delete 原序单点在 translator（streamEntryIds → entrySeqs →
@@ -740,6 +754,9 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       summary,
     } satisfies AgentParkedPayload);
     this.maybeDequeue(); // 预算释放 → 队首出队
+    // 在途 resume 意图（见 resumeOnPark 注释）：子进程确实进了挂起等待——台账已
+    // 原子落定 parked，立即复活（RESUME 再发一次：上一发已随 park 轮 drain 消费）
+    if (this.resumeOnPark.delete(instanceId) && !instance.isTerminal) this.resumeInstance(instance);
   }
 
   /** 恢复实例（预算内直恢复 / 出队恢复同路径）：RESUME 注入 + parked→running + agent.resumed。 */

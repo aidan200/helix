@@ -164,12 +164,50 @@ export class DaemonProcess {
   }
 }
 
+/**
+ * e2e 会话 env 隔离（TR-186 e2e 形态，2026-10-21）：本套件常在 agent 会话
+ * 内跑（SubAgent worker / MainAgent 的 bash 面），这类会话自带一整套 HELIX_*
+ * env——`{...process.env}` 原样继承后，daemon 与它 spawn 的 SubAgent 子进程把
+ * 这些「外部会话的项目/工具上下文」当成自身指令消费：
+ * - HELIX_MCP_SERVERS_JSON → ChildMain 逐 server `await` 预热（npx/uvx 冷启动、
+ *   网络超时可达数十秒至分钟）后才跑首 turn，SubAgent 迟迟不收口
+ *   （CL-5 trace / CL-1 重启恢复 / CL-3 抽屉 steer 的 `.sa-card.done` 全空）；
+ * - HELIX_TOOLS_JSON / HELIX_SYSTEM_PROMPT → 覆盖剧本钉死的 spawn 快照；
+ * - HELIX_SANDBOX / HELIX_DB_PATH / HELIX_REPORT_PATH → 越权改子进程落盘面。
+ * 症状随外部会话 MCP 集冷热与网络抖动而变（同一提交有时全绿有时红），故在
+ * spawn 单一收口点按白名单剔除：只留本套件自身控制键与工具二进制定位键，
+ * 其余 HELIX_* 一律不进 daemon 进程树。
+ */
+const E2E_ENV_ALLOWLIST: ReadonlySet<string> = new Set([
+  // 本套件控制键（fixture/globalSetup/evidence 自用）
+  "HELIX_E2E_BUN",
+  "HELIX_E2E_KEEP_HOME",
+  "HELIX_E2E_SKIP_BUILD",
+  "HELIX_EVIDENCE_ITER",
+  // 工具二进制定位键（launcher 取 rg/codegraph 路径；不含 agent 指令语义）
+  "HELIX_RG_PATH",
+  "HELIX_CODEGRAPH_PATH",
+]);
+
+/**
+ * 构造 daemon 子进程 env：剔除外部会话注入的 HELIX_* 指令面，保留宿主基础
+ * env（PATH/HOME/TMPDIR 等）与白名单键，最后叠加 spec 显式注入的 env。
+ */
+export function e2eDaemonEnv(spawnEnv?: Record<string, string>): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("HELIX_") && !E2E_ENV_ALLOWLIST.has(key)) continue;
+    env[key] = value;
+  }
+  return { ...env, ...spawnEnv };
+}
+
 function spawnAndWait(home: string, toolCwd: string, args: string[], spawnEnv?: Record<string, string>): Promise<DaemonProcess> {
   return new Promise((resolve, reject) => {
     const proc = spawn(BUN, args, {
       cwd: WORKTREE_ROOT,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...spawnEnv },
+      env: e2eDaemonEnv(spawnEnv),
     });
     let stdout = "";
     let stderr = "";

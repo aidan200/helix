@@ -36,6 +36,7 @@ import {
   kgChangeLog,
   taskRows,
   taskTableCounts,
+  workItems,
 } from "./harness/bootstrap-env";
 
 /** 等 N ms（挂起持守观察窗）。 */
@@ -69,11 +70,24 @@ test.describe("T4.1 剧本三：bootstrap 生命周期 + 终态删除（pause/re
         intervals: [100, 200, 500],
       })
       .toBe("running");
-    // kg-update 是工具轮第 4 调用（plan 三调用在其前）——节点在库 ⇒ 子进程
-    // 已进入慢速收口首演轮（~19s 窗口），PARK 指令必在 turn 边界 drain
+    // kg-update 只是工具轮第二调用，其后还有收尾 todo_write（把全部条目置 done）——
+    // 以 kg 节点在库作「已进慢速收口轮」的代理会在工具轮中途抢按 pause：PARK 硬拦截
+    // 拒掉收尾 todo_write → 台账留 pending → 收口被 todo 硬闸判「未全 resolve」→
+    // 批次重派 → 编排剧本错位（stage1 永不 done）。改以台账全 done 为机械判据：
+    // 此刻子进程已进慢速收口首演轮（~19s 窗口），PARK 指令必在 turn 边界 drain。
     await expect
-      .poll(() => kgNodes(ws).length, { timeout: 60_000, intervals: [200, 500] })
-      .toBe(2);
+      .poll(
+        () => {
+          const inst = taskRows(home).batches.find((b) => b.stage_seq === 1)?.instance_id;
+          if (!inst) return "no-instance";
+          const rows = workItems(home, inst);
+          if (rows.length === 0) return "no-ledger";
+          return rows.every((r) => r.status === "done") ? "done" : rows.map((r) => r.status).join(",");
+        },
+        { timeout: 60_000, intervals: [200, 500] },
+      )
+      .toBe("done");
+    expect(kgNodes(ws).length).toBe(2); // 落账已真实发生（kg 节点在库，非空转）
     await page.locator('[data-tk-actions] [data-act="pause"]').click();
     // 页面状态联动：列表行 + 详情徽标 → paused
     await expect(jobRow).toHaveAttribute("data-task", "paused", { timeout: 15_000 });
