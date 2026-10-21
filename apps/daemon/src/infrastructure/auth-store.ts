@@ -236,10 +236,17 @@ export class AuthStore implements AuthStorePort {
     }));
   }
 
-  /** 单 provider 凭据状态（auth.list 条目数据源；OAuth 条目不视作可用 key）。 */
+  /**
+   * 单 provider 凭据状态（auth.list 条目数据源）。
+   *
+   * configured = 凭据存在（api_key 或 oauth 均算——订阅登录批：oauth 登录态
+   * 即已配置；v0.2 旧语义「OAuth 条目不视作可用 key」随订阅登录批退役）；
+   * keyMasked 仅 api_key 形态携带（oauth 无 key 可掩码）。
+   */
   statusOf(providerId: string): { configured: boolean; keyMasked?: string } {
     const key = this.apiKeyOf(providerId);
-    return key === undefined ? { configured: false } : { configured: true, keyMasked: maskKey(key) };
+    if (key !== undefined) return { configured: true, keyMasked: maskKey(key) };
+    return { configured: this.credentialTypeOf(providerId) === "oauth" };
   }
 
   /** 全部 API key 快照（SubAgent 子进程 env 注入源，AD-11/13 显式传值）。 */
