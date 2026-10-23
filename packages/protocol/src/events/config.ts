@@ -99,6 +99,28 @@ export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandbox
   type: "config.set_sandbox.result";
 }
 
+// ── config.proxy 族（网络代理批：进程级出站 HTTP 代理，运行期即热）──
+
+/**
+ * config.get_proxy / config.set_proxy 回执同形载荷（get = 现态读面；
+ * set = 校验通过写入后的全量现值）。loopback 目标与未启用态不经代理
+ * （失败安全=直连）；生效时机 = 下一次出站请求（即热，无需重启）。
+ */
+export interface ProxyConfigStatePayload {
+  /** 代理开关（缺省 false = 直连）。 */
+  enabled: boolean;
+  /** 代理地址（HTTP/HTTPS，可内嵌认证；未启用时可能为空串占位）。 */
+  url: string;
+}
+export interface ConfigGetProxyResultEvent extends EventFrame<ProxyConfigStatePayload> {
+  channel?: "model";
+  type: "config.get_proxy.result";
+}
+export interface ConfigSetProxyResultEvent extends EventFrame<ProxyConfigStatePayload> {
+  channel?: "model";
+  type: "config.set_proxy.result";
+}
+
 // ── config.kg 族（批2 WP-C「知识库」配置组——查重阈值） ──
 
 /**

@@ -36,6 +36,8 @@ import type {
   ConfigGetPortCommand,
   ConfigSetSandboxCommand,
   ConfigGetSandboxCommand,
+  ConfigGetProxyCommand,
+  ConfigSetProxyCommand,
   ConfigSetKgCommand,
   ConfigGetKgCommand,
   ConfigSetSummaryCommand,
@@ -184,6 +186,8 @@ export type CommandEnvelope =
   | ConfigGetPortCommand
   | ConfigSetSandboxCommand
   | ConfigGetSandboxCommand
+  | ConfigGetProxyCommand
+  | ConfigSetProxyCommand
   | ConfigSetKgCommand
   | ConfigGetKgCommand
   | ConfigSetSummaryCommand
@@ -380,6 +384,8 @@ export const COMMAND_TYPES = [
   "config.get_port",
   "config.set_sandbox",
   "config.get_sandbox",
+  "config.set_proxy",
+  "config.get_proxy",
   "config.set_kg",
   "config.get_kg",
   "config.set_summary",

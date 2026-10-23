@@ -25,6 +25,8 @@ type _ModelFamily = Expect<
     | "config.set_scheduling.result"
     | "config.get_port.result"
     | "config.set_port.result"
+    | "config.get_proxy.result"
+    | "config.set_proxy.result"
     | "config.get_sandbox.result"
     | "config.set_sandbox.result"
     | "config.get_kg.result"

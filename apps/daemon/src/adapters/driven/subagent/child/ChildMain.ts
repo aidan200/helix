@@ -67,6 +67,7 @@ import { WorkLedgerService } from "../../../../application/services/task/WorkLed
 import type { TodoToolDeps } from "../../tools/todo/TodoTools";
 import type { WorkItemData } from "../../../../application/ports/outbound/WorkLedgerPort";
 import { openTaskLedgerDatabase } from "../../sqlite-session/WriteQueue";
+import { installChildProxyFetch } from "./proxy-config";
 import { readTaskContextByInstance } from "../../sqlite-session/TaskStore";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -572,6 +573,9 @@ async function main(): Promise<void> {
   const model = JSON.parse(modelJson) as Model<any>;
   const apiKeys = JSON.parse(process.env.HELIX_API_KEYS_JSON ?? "{}") as Record<string, string>;
   const toolCwd = process.env.HELIX_TOOL_CWD ?? process.cwd();
+  // 子进程有独立 globalThis，必须先于模型/向量/工具构造安装同源代理。
+  // 逐请求短连接读父库 KV；进程退出自然释放包装，无常驻数据库连接。
+  installChildProxyFetch(process.env.HELIX_DB_PATH);
   // thinking 定格值（AD-1 落点二：父进程 launch 段 resolveThinkingFor 解析
   // 快照，子进程全生命周期只消费定格值——无解析链，与 HELIX_MODEL_JSON
   // 同哲学）；缺席（既有测试形态/旧父进程）→ 不装注入器，行为不变

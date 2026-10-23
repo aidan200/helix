@@ -19,6 +19,7 @@ import type { CompactionConfigPort } from "../../../application/ports/outbound/C
 import type { SchedulingConfigPort } from "../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../application/ports/outbound/PortConfigPort";
 import type { SandboxConfigPort } from "../../../application/ports/outbound/SandboxConfigPort";
+import type { ProxyConfigPort } from "../../../application/ports/outbound/ProxyConfigPort";
 import type { SummaryConfigPort } from "../../../application/ports/outbound/SummaryConfigPort";
 import type { KgConfigPort } from "../../../application/ports/outbound/KgConfigPort";
 import type { VoiceModelConfigPort } from "../../../application/ports/outbound/VoiceModelConfigPort";
@@ -111,6 +112,8 @@ export interface WsServerAdapterDeps {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
+  /** 网络代理（config.get/set_proxy 命令族；网络代理批——运行期即热）。 */
+  readonly proxyConfig?: ProxyConfigPort;
   /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域；
    * 未装配 → undefined，handler 回 unimplemented）。 */
   readonly summaryConfig?: SummaryConfigPort;
@@ -389,6 +392,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       schedulingConfig: deps.schedulingConfig,
       portConfig: deps.portConfig,
       sandboxConfig: deps.sandboxConfig,
+      proxyConfig: deps.proxyConfig,
       summaryConfig: deps.summaryConfig,
       kgConfig: deps.kgConfig,
       voiceModelConfig: deps.voiceModelConfig,

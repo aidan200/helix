@@ -20,6 +20,7 @@ describe("createDaemon 组合根装配", () => {
   test("sendMessage 全链贯通 + 订阅者经 fan-out 收到事件 + 快照可取", async () => {
     const home = tmpHome();
     try {
+      const originalFetch = globalThis.fetch;
       const engine = new FakeAgentEngine({ replies: [{ text: "组合根装配下的回复。" }] });
       const daemon = await createTestDaemon({
         home,
@@ -60,6 +61,7 @@ describe("createDaemon 组合根装配", () => {
       expect(names).toContain("helix.db");
 
       await daemon.shutdown();
+      expect(globalThis.fetch).toBe(originalFetch); // 进程级代理不能残留已关库的配置 getter。
       expect(readdirSync(home)).not.toContain("daemon.lock"); // 锁已释放
       expect(daemon.system.getStatus().running).toBe(false);
     } finally {

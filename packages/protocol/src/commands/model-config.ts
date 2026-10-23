@@ -151,6 +151,30 @@ export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_sandbox";
 }
 
+// ── config.proxy 族（网络代理批——进程级出站 HTTP 代理，运行期即热）──
+
+/**
+ * config.set_proxy 载荷：网络代理（部分更新语义：enabled/url 任选至少
+ * 一项，未携带项保留现值；**空载荷裁决**——两项全缺省 → daemon 以
+ * command.invalid_payload 拒绝，错误码单源 = daemon handlers/config.ts
+ * 的 set_proxy 前置校验）。非空 url 必须是合法 HTTP(S) 端点
+ * （校验单源 isValidProxyUrl，可内嵌认证，禁止路径/查询/片段）；启用时 url
+ * 必填。当前不支持 SOCKS5。生效时机：写后即热（下一次出站请求）。
+ */
+export interface ConfigSetProxyPayload {
+  enabled?: boolean;
+  /** 代理地址（HTTP/HTTPS；enabled=false 时允许空串占位）。 */
+  url?: string;
+}
+export interface ConfigSetProxyCommand extends CommandFrame<ConfigSetProxyPayload> {
+  type: "config.set_proxy";
+}
+
+/** config.get_proxy 载荷：全局命令。 */
+export interface ConfigGetProxyCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_proxy";
+}
+
 // ── config.kg 族（批2 WP-C「知识库」配置组——查重阈值；全局命令） ──
 
 /**

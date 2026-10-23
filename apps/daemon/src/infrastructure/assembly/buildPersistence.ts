@@ -10,6 +10,7 @@ import { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/Defau
 import { CompactionConfigStore } from "../../adapters/driven/sqlite-session/CompactionConfigStore";
 import { SchedulingConfigStore } from "../../adapters/driven/sqlite-session/SchedulingConfigStore";
 import { SandboxConfigStore } from "../../adapters/driven/sqlite-session/SandboxConfigStore";
+import { ProxyConfigStore } from "../../adapters/driven/sqlite-session/ProxyConfigStore";
 import { VoiceModelConfigStore } from "../../adapters/driven/sqlite-session/VoiceModelConfigStore";
 import { McpConfigStore } from "../../adapters/driven/sqlite-session/McpConfigStore";
 import { RuntimeConfigStore } from "../../adapters/driven/sqlite-session/RuntimeConfigStore";
@@ -35,6 +36,7 @@ export interface PersistenceStack {
   readonly compactionConfig: CompactionConfigStore;
   readonly schedulingConfig: SchedulingConfigStore;
   readonly sandboxConfig: SandboxConfigStore;
+  readonly proxyConfig: ProxyConfigStore;
   readonly voiceModelConfig: VoiceModelConfigStore;
   readonly mcpConfig: McpConfigStore;
   readonly resourceState: ResourceStateStore;
@@ -68,11 +70,14 @@ export function buildPersistence(deps: {
   const schedulingConfig = new SchedulingConfigStore(runtimeConfig, DEFAULT_SCHEDULING);
   // 沙箱开关（KV 第五键；沙箱开关批——装配期定格读取，缺省回落关）
   const sandboxConfig = new SandboxConfigStore(runtimeConfig);
+  // 网络代理（KV 单键 JSON proxy_config；网络代理批——进程级 proxyFetch wrapper
+  // 每次请求读现值，运行期即热，缺省回落关=直连）
+  const proxyConfig = new ProxyConfigStore(runtimeConfig);
   // ASR/TTS 模型配置（KV 单键 JSON voice_model_config；模型配置接入 P0——
   // 缺省回落 DEFAULT_VOICE_MODEL_CONFIG（= 原硬编码常量），运行期即热）
   const voiceModelConfig = new VoiceModelConfigStore(runtimeConfig);
   // MCP server 声明面（config 瘦身批：mcp_server 表——config.json 段退役）
   const mcpConfig = new McpConfigStore(writeQueue);
   const resourceState = new ResourceStateStore(writeQueue);
-  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, schedulingConfig, sandboxConfig, voiceModelConfig, mcpConfig, resourceState };
+  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, schedulingConfig, sandboxConfig, proxyConfig, voiceModelConfig, mcpConfig, resourceState };
 }

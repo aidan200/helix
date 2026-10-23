@@ -103,6 +103,8 @@ import type {
   ConfigGetSummaryResultEvent,
   ConfigGetVoiceModelsResultEvent,
   ConfigSetSandboxResultEvent,
+  ConfigGetProxyResultEvent,
+  ConfigSetProxyResultEvent,
   ConfigSetKgResultEvent,
   ConfigSetSummaryResultEvent,
   ConfigSetVoiceModelsResultEvent,
@@ -292,6 +294,8 @@ export type EventEnvelope =
   | ConfigGetKgResultEvent
   | ConfigGetSummaryResultEvent
   | ConfigSetSandboxResultEvent
+  | ConfigGetProxyResultEvent
+  | ConfigSetProxyResultEvent
   | ConfigSetKgResultEvent
   | ConfigSetSummaryResultEvent
   | ConfigGetVoiceModelsResultEvent
@@ -456,6 +460,8 @@ export const EVENT_TYPES = [
   "config.set_port.result",
   "config.get_sandbox.result",
   "config.set_sandbox.result",
+  "config.get_proxy.result",
+  "config.set_proxy.result",
   "config.get_kg.result",
   "config.set_kg.result",
   "config.get_summary.result",
@@ -673,6 +679,8 @@ export const EVENT_CHANNELS = {
   "config.set_port.result": "model",
   "config.get_sandbox.result": "model",
   "config.set_sandbox.result": "model",
+  "config.get_proxy.result": "model",
+  "config.set_proxy.result": "model",
   "config.get_kg.result": "model",
   "config.set_kg.result": "model",
   "config.get_summary.result": "model",

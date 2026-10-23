@@ -10,6 +10,7 @@ export * from "./handshake";
 export * from "./commands";
 export * from "./modes";
 export * from "./models";
+export * from "./network-proxy";
 export * from "./events/index";
 export * from "./types/agent";
 export * from "./types/chat";

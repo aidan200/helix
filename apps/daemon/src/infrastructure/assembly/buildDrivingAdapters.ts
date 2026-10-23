@@ -56,6 +56,7 @@ import { DEFAULT_PORT } from "../config";
 import type { Logger } from "../logging";
 import type { PersistenceStack } from "./buildPersistence";
 import type { SandboxConfigPort } from "../../application/ports/outbound/SandboxConfigPort";
+import type { ProxyConfigPort } from "../../application/ports/outbound/ProxyConfigPort";
 import type { SummaryConfigPort } from "../../application/ports/outbound/SummaryConfigPort";
 import type { KgConfigPort } from "../../application/ports/outbound/KgConfigPort";
 import type { PortConfigPort } from "../../application/ports/outbound/PortConfigPort";
@@ -175,6 +176,11 @@ export interface WsDrivingDeps {
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 回口；沙箱开关批）。 */
   readonly sandboxConfig?: SandboxConfigPort;
+  /** 网络代理（config.get/set_proxy 命令族；网络代理批——组合根注入，
+   * 与进程级 proxyFetch wrapper 同一 store 实例）。 */
+  readonly proxyConfig?: ProxyConfigPort;
+  /** shutdown（含失败路径）卸载进程级 fetch 包装。 */
+  readonly stopProxyFetch?: () => void;
   /** 总结配置读写面（config.get/set_summary 命令族——summary.* 通用域）。 */
   readonly summaryConfig?: SummaryConfigPort;
   /** 知识库配置读写面（config.get/set_kg 命令族——查重阈值，批2 WP-C
@@ -333,7 +339,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
         workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）
         lock?.release();
         logger.info("daemon 已关闭");
-      })();
+      })().finally(() => deps.stopProxyFetch?.());
       return shutdownPromise;
     },
   };
@@ -393,6 +399,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
     ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}), // config 族命令回口（沙箱开关；沙箱开关批）
+    ...(deps.proxyConfig !== undefined ? { proxyConfig: deps.proxyConfig } : {}), // config 族命令回口（网络代理；网络代理批）
     ...(deps.summaryConfig !== undefined ? { summaryConfig: deps.summaryConfig } : {}), // config 族命令回口（总结配置组；总结器独立化批①）
     ...(deps.kgConfig !== undefined ? { kgConfig: deps.kgConfig } : {}), // config 族命令回口（知识库配置组；批2 查重闸）
     ...(deps.askService !== undefined ? { askService: deps.askService } : {}), // ask.answer 命令回口（提权申请批）

@@ -32,6 +32,7 @@ import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, installCrashLogging, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
+import { installProxyFetch } from "../adapters/driven/network/proxy-fetch";
 import { buildStewardStack } from "./assembly/buildStewardStack";
 import { buildWorkspaceStack } from "./assembly/buildWorkspaceStack";
 import { startWorkspaceTmpSweeper } from "./workspaceTmpSweeper";
@@ -307,6 +308,19 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
  * 本函数只做装配不做形态决断（async：重启恢复需读盘）。
  */
 export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> {
+  let restoreProxyFetch = () => {};
+  try {
+    return await assembleDaemonCore(deps, (restore) => { restoreProxyFetch = restore; });
+  } catch (error) {
+    restoreProxyFetch(); // 启动中途失败也释放进程级包装，不保留已关库的 getter。
+    throw error;
+  }
+}
+
+async function assembleDaemonCore(
+  deps: AssembleDaemonDeps,
+  onProxyInstalled: (restore: () => void) => void,
+): Promise<Daemon> {
   /** 本代 daemon 启动时刻（恢复链幽灵实例判据：agent_lifecycle 行 updated_at
    * 早于此 = 上代遗留——task-efd68911 事故：非优雅退出后非终态投影行无人收口）。 */
   const bootedAtMs = Date.now();
@@ -349,6 +363,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //（registry 在 buildSessionStack 后才存在——与 wsServer 同款回填模式）
   const traceSessionRunOf: { of?: (sessionId: string) => SessionRunStateLike } = {};
   const persistence = buildPersistence({ paths, logger, traceSessionRunOf });
+
+  // ── 网络代理批（进程级 globalThis.fetch 单点代理包装）：必须紧跟
+  //    buildPersistence（ProxyConfigStore 就绪）且先于任何 adapter 构造
+  //    （STT/TTS/embedding/model-catalog 构造期捕获 globalThis.fetch 值
+  //    ——晚于此处安装则拿到未包装引用）。运行期即热：每次请求读
+  //    store 现值；loopback/非法配置直连。生命周期结束必须卸载。──
+  const stopProxyFetch = installProxyFetch(() => persistence.proxyConfig.current());
+  onProxyInstalled(stopProxyFetch);
 
   // ── config 瘦身批迁移第一批（M5 切片迁 assembly/bootPrelude；一次性幂等，
   //    先于端口解析与 MCP 预热——port/调度预算/mcpServers → 新位 + config.json
@@ -776,6 +798,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
+    proxyConfig: persistence.proxyConfig, // 与 fetch 包装共用配置单源
+    stopProxyFetch,
     summaryConfig, // config.get/set_summary 回口（总结配置组；同容器单例，与 SessionSummaryService 同源）
     kgConfig, // config.get/set_kg 回口（知识库配置组；批2 查重闸——同容器单例）
     askService, // ask.answer 命令回口（提权申请批；同容器单例，与工具装配同源）

@@ -109,6 +109,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `config-get-port-result:${event.payload.effectivePort}:${event.payload.storedPort}:${event.payload.overriddenByArgv}`;
     case "config.set_port.result":
       return `config-set-port-result:${event.payload.port}`;
+    case "config.get_proxy.result":
+    case "config.set_proxy.result":
+      return `config-proxy:${event.payload.enabled}:${event.payload.url}`;
     case "config.get_sandbox.result":
       return `config-get-sandbox-result:${event.payload.enabled}`;
     case "config.set_sandbox.result":
@@ -486,6 +489,10 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `config-set-port:${cmd.payload.port}`;
     case "config.get_port":
       return "config-get-port";
+    case "config.get_proxy":
+      return "config-get-proxy";
+    case "config.set_proxy":
+      return `config-set-proxy:${cmd.payload.enabled}:${cmd.payload.url}`;
     case "config.set_sandbox":
       return `config-set-sandbox:${cmd.payload.enabled}`;
     case "config.get_sandbox":

@@ -7,6 +7,8 @@ import type {
   ConfigSetPortResultEvent,
   ConfigGetSandboxResultEvent,
   ConfigSetSandboxResultEvent,
+  ConfigGetProxyResultEvent,
+  ConfigSetProxyResultEvent,
   ConfigGetKgResultEvent,
   ConfigSetKgResultEvent,
   ConfigGetSummaryResultEvent,
@@ -18,6 +20,7 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID, VOICE_MODEL_FIELDS } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
 import { reportInternalFailure } from "./payload-guards";
+import { isValidProxyUrl } from "@helix/protocol";
 
 /**
  * config 族命令处理（压缩参数/调度预算/WS 端口配置；全局命令，无会话
@@ -239,6 +242,73 @@ export function handleConfigSetSandbox(ctx: WsCommandContext): void {
         sessionId: SYSTEM_SESSION_ID,
         channel: "model",
         type: "config.set_sandbox.result",
+        payload: next,
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => reportInternalFailure(ctx, err));
+}
+
+// ── config.proxy 族（网络代理批：进程级出站 HTTP 代理——运行期即热，
+//    set 完成后下一次出站请求生效）────────────────────────────
+
+/** config.get_proxy：网络代理读面（点对点回执）。 */
+export function handleConfigGetProxy(ctx: WsCommandContext): void {
+  if (ctx.proxyConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（proxyConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const current = ctx.proxyConfig.current();
+  const frame: ConfigGetProxyResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "config.get_proxy.result",
+    payload: { enabled: current.enabled, url: current.url },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** config.set_proxy：网络代理写面（点对点回执；运行期即热——下一次出站
+ * 请求生效）。部分更新语义：enabled/url 任选至少一项，未携带项保留现值。
+ * 非空地址必须满足 HTTP(S) 代理端点契约；启用时地址必填。 */
+export function handleConfigSetProxy(ctx: WsCommandContext): void {
+  if (ctx.proxyConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（proxyConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const enabled = ctx.payload.enabled;
+  const url = ctx.payload.url;
+  if (enabled === undefined && url === undefined) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled / payload.url 至少携带一项");
+  }
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
+  }
+  if (url !== undefined && typeof url !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.url 应为 string");
+  }
+  const cur = ctx.proxyConfig.current();
+  const next = {
+    enabled: enabled ?? cur.enabled,
+    url: url ?? cur.url,
+  };
+  // 合并后终态校验（非单字段校验：enabled=true + 旧存量非法 url 的合并写也拦）
+  if ((next.url !== "" && !isValidProxyUrl(next.url)) || (next.enabled && next.url === "")) {
+    return ctx.commandError(
+      ctx.type,
+      "command.invalid_payload",
+      "代理地址须为有效 HTTP/HTTPS 端点，启用时必填；当前不支持 SOCKS5",
+    );
+  }
+  void ctx.proxyConfig
+    .set(next)
+    .then(() => {
+      const frame: ConfigSetProxyResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "config.set_proxy.result",
         payload: next,
       };
       ctx.sendNow(sender, frame);
