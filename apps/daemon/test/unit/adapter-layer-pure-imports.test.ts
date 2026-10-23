@@ -5,15 +5,15 @@ import { join } from "node:path";
 /**
  * 驱动适配器 → application 的 import 边界（低危批备案，TR-13 张力面机械守护）。
  *
- * 口径（三个 KV store 头注同文）：驱动适配器可以 import application 的**纯常量/
+ * 口径（配置 KV store 头注同文）：驱动适配器可以 import application 的**纯常量/
  * 纯函数**单元（键位与解析语义单源，各处分写即双源），但不得 import 带依赖
  * 构造的服务类。守护面收窄到配置 store 族所在目录（sqlite-session/）——该目录
  * 之外 driven 适配器另行装配 application service（工具/编排接线面，属既有
  * 装配职责，不在本判据内）。机械判据：
- * ① sqlite-session/ 内 application import 面恰为三个配置单源（清单即白名单，
+ * ① sqlite-session/ 内 application import 面恰为登记的配置单源（清单即白名单，
  *   新增需显式在此登记并说明纯度）；
  * ② 白名单模块自身不出现 service 类构造（`new XxxService(`）——纯单元判据；
- * ③ 三个 store 头注携带分层口径段（口径成文，改动前必读）。
+ * ③ store 头注携带分层口径段（口径成文，改动前必读）。
  */
 
 const DAEMON_SRC = join(import.meta.dir, "..", "..", "src");
@@ -22,6 +22,8 @@ const SQLITE_SESSION = join(DRIVEN, "sqlite-session");
 
 /** 允许的 import 目标（纯函数 + 键常量单源）。 */
 const ALLOWED = [
+  // 网络代理：仅键常量/缺省值/纯 JSON 解析（零 IO、零服务类），父/子进程同源。
+  "application/network/proxy-config",
   "application/services/kg/kgConfig",
   "application/summary/summaryConfig",
   "application/voice/voiceModelConfig",
@@ -38,7 +40,7 @@ function walk(dir: string): string[] {
 }
 
 describe("驱动适配器 → application 纯单元 import 边界", () => {
-  test("① sqlite-session/ 内 application import 面恰为三个配置单源", () => {
+  test("① sqlite-session/ 内 application import 面恰为登记的配置单源", () => {
     const hits = new Set<string>();
     for (const file of walk(SQLITE_SESSION)) {
       const src = readFileSync(file, "utf8");
@@ -58,8 +60,8 @@ describe("驱动适配器 → application 纯单元 import 边界", () => {
     }
   });
 
-  test("③ 三个配置 store 头注携带分层口径段（TR-13 张力面的成文裁决）", () => {
-    for (const name of ["KgConfigStore.ts", "SummaryConfigStore.ts", "VoiceModelConfigStore.ts"]) {
+  test("③ 配置 store 头注携带分层口径段（TR-13 张力面的成文裁决）", () => {
+    for (const name of ["KgConfigStore.ts", "SummaryConfigStore.ts", "VoiceModelConfigStore.ts", "ProxyConfigStore.ts"]) {
       const src = readFileSync(join(SQLITE_SESSION, name), "utf8");
       expect(src).toContain("分层口径（低危批备案，TR-13 张力面）");
       expect(src).toContain("禁 import 带依赖构造的服务类");
