@@ -25,12 +25,14 @@ let proxyListeners: ((e: EventEnvelope) => void)[] = [];
 let mockProxy: { enabled: boolean; url: string } | null = null;
 let mockInflight = false;
 let mockSaved = false;
+let mockConn = "connected";
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
   return {
     ...orig,
     useSession: () => ({
+      state: { conn: mockConn },
       topology: {
         modelConfig: { proxy: mockProxy, proxyInflight: mockInflight, proxySaved: mockSaved },
       },
@@ -57,6 +59,7 @@ afterEach(() => {
   mockProxy = null;
   mockInflight = false;
   mockSaved = false;
+  mockConn = "connected";
   proxyListeners = [];
   vi.clearAllMocks();
   localStorage.removeItem("helix-lang");
@@ -294,5 +297,62 @@ describe("网络代理：说明与凭据显隐", () => {
     const plain = renderGroup();
     expect(plain.container.querySelector<HTMLInputElement>("[data-proxy-url]")!.type).toBe("text");
     expect(plain.container.querySelector("[data-proxy-reveal]")).toBeNull();
+  });
+});
+
+describe("网络代理：真实焦点顺序与连接恢复", () => {
+  it("地址编辑后点启用：blur 不抢先发送，click 原子发送一次", () => {
+    mockProxy = { enabled: false, url: OPTION_URL };
+    const r = renderGroup();
+    const input = r.container.querySelector<HTMLInputElement>("[data-proxy-url]")!;
+    const on = r.container.querySelector<HTMLButtonElement>('[data-proxy-option="on"]')!;
+    fireEvent.change(input, { target: { value: "http://10.0.0.9:8080" } });
+    fireEvent.blur(input, { relatedTarget: on });
+    fireEvent.click(on);
+    expect(setProxyConfig).toHaveBeenCalledTimes(1);
+    expect(setProxyConfig).toHaveBeenCalledWith({ enabled: true, url: "http://10.0.0.9:8080" });
+  });
+  it("启用态清空地址先本地拒绝，不发空地址请求", () => {
+    mockProxy = { enabled: true, url: OPTION_URL };
+    const r = renderGroup();
+    const input = r.container.querySelector<HTMLInputElement>("[data-proxy-url]")!;
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(setProxyConfig).not.toHaveBeenCalled();
+    expect(r.container.querySelector("[data-proxy-error]")).not.toBeNull();
+  });
+  it("断连后重连强制重拉现值；未保存草稿仍可重试同值", () => {
+    mockProxy = { enabled: false, url: OPTION_URL };
+    const r = renderGroup();
+    const input = r.container.querySelector<HTMLInputElement>("[data-proxy-url]")!;
+    fireEvent.change(input, { target: { value: "http://10.0.0.9:8080" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    mockConn = "disconnected";
+    r.rerender(<I18nProvider><NetworkProxySettingsGroup /></I18nProvider>);
+    expect(r.container.querySelector<HTMLButtonElement>('[data-proxy-option="on"]')!.disabled).toBe(true);
+    mockConn = "connected";
+    r.rerender(<I18nProvider><NetworkProxySettingsGroup /></I18nProvider>);
+    expect(requestProxyConfig).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(setProxyConfig).toHaveBeenCalledTimes(2);
+  });
+  it("校验错误与已保存反馈互斥", () => {
+    mockProxy = { enabled: false, url: "" }; mockSaved = true;
+    const r = renderGroup();
+    fireEvent.click(r.container.querySelector<HTMLButtonElement>('[data-proxy-option="on"]')!);
+    expect(r.container.querySelector("[data-proxy-error]")).not.toBeNull();
+    expect(r.container.querySelector("[data-proxy-saved]")).toBeNull();
+  });
+  it("拉取未发出时每连接世代只退避重试一次", async () => {
+    vi.useFakeTimers();
+    requestProxyConfig.mockReturnValue(false);
+    try {
+      renderGroup();
+      expect(requestProxyConfig).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(requestProxyConfig).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(requestProxyConfig).toHaveBeenCalledTimes(2);
+    } finally { requestProxyConfig.mockReset(); vi.useRealTimers(); }
   });
 });

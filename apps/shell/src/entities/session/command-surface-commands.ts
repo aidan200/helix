@@ -689,10 +689,11 @@ export const COMMAND_SURFACE = {
     (patch: { enabled?: boolean; extraRoots?: string[]; autoApprove?: boolean }): boolean => deps.send(configSetSandboxCommand(patch)),
   /** 网络代理拉取（通用配置分区进入；未请求态才发；网络代理批）。 */
   requestProxyConfig: (deps) =>
-    () => {
-      if (deps.getTopology().modelConfig.proxy === null) {
-        deps.send(configGetProxyCommand());
+    (force = false): boolean => {
+      if (force || deps.getTopology().modelConfig.proxy === null) {
+        return deps.send(configGetProxyCommand());
       }
+      return true;
     },
   /** 网络代理写入（保存后下一次出站请求生效，无需重启）。
    *  部分更新语义：enabled/url 任选至少一项，未携带项保留现值——启用时由调用侧
@@ -701,7 +702,7 @@ export const COMMAND_SURFACE = {
     (patch: { enabled?: boolean; url?: string }): boolean => {
       deps.dispatch({ type: "model/proxy-save-started" });
       const ok = deps.send(configSetProxyCommand(patch));
-      if (!ok) deps.dispatch({ type: "model/proxy-save-aborted" });
+      if (ok === false) deps.dispatch({ type: "model/proxy-save-aborted" });
       return ok;
     },
   /** 总结配置拉取（通用配置分区进入；未请求态才发；总结器独立化批①）。 */

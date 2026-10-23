@@ -368,7 +368,7 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
  * 卡死）；set_default 乐观值不回滚（旧值状态面无留存，重连后 get_default
  * 重拉权威化）。无 in-flight 时保持原引用（浅比较友好）。
  */
-export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState {
+export function clearModelConfigInflight(mc: ModelConfigState, clearProxy = true): ModelConfigState {
   if (
     !mc.catalogRefreshing &&
     mc.verifyInflight === null &&
@@ -377,7 +377,7 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
     mc.setDefaultInflight === null &&
     mc.login === null &&
     mc.logoutInflight === null &&
-    !mc.proxyInflight
+    (!clearProxy || (!mc.proxyInflight && !mc.proxySaved))
   ) {
     return mc;
   }
@@ -402,8 +402,7 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
     login: null,
     logoutInflight: null,
     // 网络代理：断连夭折在途（结果帧永不到达）；「已保存」不残留假反馈
-    proxyInflight: false,
-    proxySaved: false,
+    ...(clearProxy ? { proxyInflight: false, proxySaved: false } : {}),
   };
 }
 
@@ -445,7 +444,12 @@ export function applyModelConfigConnError(
   // 不误弹 writeError toast；无尾缀旧 daemon 容忍也交代（宁误交代不静默）。
   const cmd = commandOfConnectionError(message);
   if (cmd !== undefined && !MODEL_CONFIG_COMMANDS.has(cmd)) return topo;
-  const cleared = clearModelConfigInflight(mc);
+  // 代理与 auth/model 可以并发；带尾缀的拒绝只收自己的 flight，禁止互相摘位。
+  if (cmd === "config.set_proxy") {
+    if (!mc.proxyInflight) return topo;
+    return { ...topo, modelConfig: { ...mc, proxyInflight: false, proxySaved: false } };
+  }
+  const cleared = clearModelConfigInflight(mc, cmd === undefined);
   if (cleared === mc) return topo; // 无在途——不消费（单飞门控）
   return {
     ...topo,

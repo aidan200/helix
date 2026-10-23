@@ -510,6 +510,10 @@ describe("COMMAND_SURFACE 网络代理面（config.proxy 族）", () => {
     };
     COMMAND_SURFACE.requestProxyConfig(loadedDeps)();
     expect(sent2).toEqual([]);
+    expect(COMMAND_SURFACE.requestProxyConfig(loadedDeps)(true)).toBe(true);
+    expect(sent2).toEqual(["config.get_proxy"]); // 重连可强制重拉已缓存现值。
+    const { deps: disconnected } = fakeDeps(false);
+    expect(COMMAND_SURFACE.requestProxyConfig(disconnected)(true)).toBe(false);
   });
 
   it("setProxyConfig：帧形状 = 构造器（部分更新只带携带项）；send false 透传", () => {

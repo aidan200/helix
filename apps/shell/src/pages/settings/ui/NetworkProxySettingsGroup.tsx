@@ -50,7 +50,8 @@ function invalidKindOf(raw: string): InvalidKind | null {
 
 const NetworkProxySettingsGroup = function NetworkProxySettingsGroup() {
   const { t } = useI18n();
-  const { topology, requestProxyConfig, setProxyConfig, subscribeConfigFrames } = useSession();
+  const { state, topology, requestProxyConfig, setProxyConfig, subscribeConfigFrames } = useSession();
+  const connected = state.conn === "connected";
   const cfg = topology.modelConfig.proxy;
   const inflight = topology.modelConfig.proxyInflight;
   const saved = topology.modelConfig.proxySaved;
@@ -66,13 +67,30 @@ const NetworkProxySettingsGroup = function NetworkProxySettingsGroup() {
   /** 在途位镜像（订阅 listener 单挂一次，读最新在途态——effect 同步，非渲染体写）。 */
   const inflightRef = useRef(false);
   useEffect(() => {
+    if (inflightRef.current && !inflight && !connected) {
+      setError(t("chat.settings.general.sendFail"));
+    }
     inflightRef.current = inflight;
-  }, [inflight]);
+  }, [inflight, connected, t]);
 
-  // 进入分区拉现值（未请求态才发；命令面自带未请求守卫）
+  // 每次连接恢复都重拉权威值；未发出时只退避重试一次，不以 setState 自激。
   useEffect(() => {
-    requestProxyConfig();
-  }, [requestProxyConfig]);
+    lastSubmitted.current = null;
+    if (!connected) {
+      if (inflightRef.current) setError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setError(null);
+    if (requestProxyConfig(true) !== false) return;
+    setError(t("chat.settings.general.sendFail"));
+    const retry = setTimeout(() => {
+      if (requestProxyConfig(true) === false) setError(t("chat.settings.general.sendFail"));
+      else setError(null);
+    }, 200);
+    return () => clearTimeout(retry);
+    // 连接变迁是世代边界；i18n 变化不应重启拉取/重试。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, requestProxyConfig]);
 
   // 草稿收敛：权威值等于草稿才清编辑态——读帧与其他字段回执不覆盖未保存草稿
   useEffect(() => {
@@ -99,9 +117,9 @@ const NetworkProxySettingsGroup = function NetworkProxySettingsGroup() {
 
   const value = draft ?? cfg?.url ?? "";
   const credentialMasked = CREDENTIAL_RE.test(value.trim());
-  const showSaved = saved && draft === null;
+  const showSaved = saved && draft === null && error === null && connected && !inflight;
   const notReady = cfg === null;
-  const busy = notReady || inflight;
+  const busy = notReady || inflight || !connected;
 
   /** send 包装：false = 未发出（断连），行内交代且不置任何成功态。 */
   const send = (patch: { enabled?: boolean; url?: string }): boolean => {
@@ -138,8 +156,12 @@ const NetworkProxySettingsGroup = function NetworkProxySettingsGroup() {
 
   /** 地址提交（回车/失焦）：未变收敛零命令；非法行内拒绝；同值去重。 */
   const commit = (): void => {
-    if (cfg === null) return;
+    if (cfg === null || !connected || inflight) return;
     const next = (draft ?? cfg.url).trim();
+    if (cfg.enabled && next === "") {
+      setError(t("chat.settings.general.proxyNeedUrl"));
+      return;
+    }
     if (next === cfg.url) {
       setDraft(null);
       setError(null);
@@ -200,7 +222,7 @@ const NetworkProxySettingsGroup = function NetworkProxySettingsGroup() {
             value={value}
             placeholder={t("chat.settings.general.proxyUrlPlaceholder")}
             data-proxy-url
-            disabled={inflight}
+            disabled={inflight || !connected}
             onChange={(e) => {
               lastSubmitted.current = null;
               setError(null);
@@ -209,7 +231,13 @@ const NetworkProxySettingsGroup = function NetworkProxySettingsGroup() {
             onKeyDown={(e) => {
               if (e.key === "Enter") commit();
             }}
-            onBlur={commit}
+            onBlur={(e) => {
+              // 鼠标/键盘转到本组按钮时，由按钮原子提交；不能让 blur 先保存
+              // 地址并锁住即将点击的启用按钮。显隐按钮也不应触发保存。
+              if (e.relatedTarget instanceof HTMLElement &&
+                e.relatedTarget.closest("[data-proxy-option], [data-proxy-reveal]")) return;
+              commit();
+            }}
           />
           {credentialMasked && (
             <button

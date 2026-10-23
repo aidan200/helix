@@ -477,7 +477,7 @@ describe("model-config 网络代理面（config.proxy 族）", () => {
     expect(topo.modelConfig.proxySaved).toBe(false);
   });
 
-  it("connection.error（尾缀 config.set_proxy）→ 清在途 + writeError（daemon 拒绝交代）", () => {
+  it("connection.error（尾缀 config.set_proxy）→ 只清代理在途，交代由本组订阅承接", () => {
     const mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/proxy-save-started" });
     const topo = { ...createInitialTopologyState(), modelConfig: mc };
     const next = dispatchFrame(
@@ -486,6 +486,6 @@ describe("model-config 网络代理面（config.proxy 族）", () => {
       9,
     );
     expect(next.modelConfig.proxyInflight).toBe(false);
-    expect(next.modelConfig.writeError?.message).toContain("代理地址须为有效");
+    expect(next.modelConfig.writeError).toBeNull();
   });
 });
