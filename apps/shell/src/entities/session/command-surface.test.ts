@@ -478,3 +478,66 @@ describe("COMMAND_SURFACE.deleteSession（send 先行）", () => {
     expect(droppedActive).toHaveLength(1);
   });
 });
+
+// ── 网络代理批：config.get/set_proxy 命令面（全局命令；部分更新语义）──
+describe("COMMAND_SURFACE 网络代理面（config.proxy 族）", () => {
+  it("requestProxyConfig：未请求态（proxy=null）才发 get_proxy；已请求零重发", () => {
+    const { deps, topo } = fakeDeps(true);
+    const sent: string[] = [];
+    const baseSend = deps.send;
+    const spyDeps = {
+      ...deps,
+      send: (cmd: Parameters<typeof baseSend>[0]) => {
+        sent.push(cmd.type);
+        return baseSend(cmd);
+      },
+    };
+    COMMAND_SURFACE.requestProxyConfig(spyDeps)();
+    expect(sent).toEqual(["config.get_proxy"]);
+    // 已有回执（proxy 非 null）→ 重进零重发
+    const loaded = {
+      ...topo(),
+      modelConfig: { ...topo().modelConfig, proxy: { enabled: false, url: "" } },
+    };
+    const sent2: string[] = [];
+    const loadedDeps = {
+      ...deps,
+      getTopology: () => loaded,
+      send: (cmd: Parameters<typeof baseSend>[0]) => {
+        sent2.push(cmd.type);
+        return baseSend(cmd);
+      },
+    };
+    COMMAND_SURFACE.requestProxyConfig(loadedDeps)();
+    expect(sent2).toEqual([]);
+  });
+
+  it("setProxyConfig：帧形状 = 构造器（部分更新只带携带项）；send false 透传", () => {
+    const frames: { type: string; payload: unknown }[] = [];
+    const { deps } = fakeDeps(true);
+    const spyDeps = {
+      ...deps,
+      send: (cmd: Parameters<typeof deps.send>[0]) => {
+        frames.push({ type: cmd.type, payload: cmd.payload });
+        return deps.send(cmd);
+      },
+    };
+    expect(COMMAND_SURFACE.setProxyConfig(spyDeps)({ enabled: true, url: "http://127.0.0.1:7890" })).toBe(true);
+    expect(COMMAND_SURFACE.setProxyConfig(spyDeps)({ enabled: false })).toBe(true);
+    expect(frames).toEqual([
+      { type: "config.set_proxy", payload: { enabled: true, url: "http://127.0.0.1:7890" } },
+      { type: "config.set_proxy", payload: { enabled: false } },
+    ]);
+    const { deps: bad } = fakeDeps(false);
+    expect(COMMAND_SURFACE.setProxyConfig(bad)({ enabled: true })).toBe(false);
+  });
+
+  it("setProxyConfig send false → 不留在途（aborted 回滚）", () => {
+    const { deps, topo } = fakeDeps(false);
+    COMMAND_SURFACE.setProxyConfig(deps)({ enabled: true, url: "http://127.0.0.1:7890" });
+    expect(topo().modelConfig.proxyInflight).toBe(false);
+    const { deps: good, topo: topoGood } = fakeDeps(true);
+    COMMAND_SURFACE.setProxyConfig(good)({ enabled: true, url: "http://127.0.0.1:7890" });
+    expect(topoGood().modelConfig.proxyInflight).toBe(true);
+  });
+});

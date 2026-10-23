@@ -116,6 +116,8 @@ import {
   configGetPortCommand,
   configGetSandboxCommand,
   configSetSandboxCommand,
+  configGetProxyCommand,
+  configSetProxyCommand,
   configGetSummaryCommand,
   configSetSummaryCommand,
   configGetKgCommand,
@@ -685,6 +687,23 @@ export const COMMAND_SURFACE = {
    * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项。send 返回值透传（code-review H8）。 */
   setSandboxConfig: (deps) =>
     (patch: { enabled?: boolean; extraRoots?: string[]; autoApprove?: boolean }): boolean => deps.send(configSetSandboxCommand(patch)),
+  /** 网络代理拉取（通用配置分区进入；未请求态才发；网络代理批）。 */
+  requestProxyConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.proxy === null) {
+        deps.send(configGetProxyCommand());
+      }
+    },
+  /** 网络代理写入（保存后下一次出站请求生效，无需重启）。
+   *  部分更新语义：enabled/url 任选至少一项，未携带项保留现值——启用时由调用侧
+   *  原子带上当前地址（{enabled:true,url}）。send 返回值透传（TR-84：不吞）。 */
+  setProxyConfig: (deps) =>
+    (patch: { enabled?: boolean; url?: string }): boolean => {
+      deps.dispatch({ type: "model/proxy-save-started" });
+      const ok = deps.send(configSetProxyCommand(patch));
+      if (!ok) deps.dispatch({ type: "model/proxy-save-aborted" });
+      return ok;
+    },
   /** 总结配置拉取（通用配置分区进入；未请求态才发；总结器独立化批①）。 */
   requestSummaryConfig: (deps) =>
     () => {

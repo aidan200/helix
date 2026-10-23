@@ -41,6 +41,10 @@ let mockCatalog: { models: { id: string; providerId: string }[] } | null = null;
 let mockAuth: Record<string, { configured: boolean }> = {};
 /** 沙箱开关状态（结果帧驱动回填用可变位）。 */
 let mockSandbox: { enabled: boolean; extraRoots: string[]; autoApprove: boolean } | null = null;
+/** 网络代理批：config.proxy 族命令面 mock（结果帧驱动，与沙箱同构）。 */
+const requestProxyConfig = vi.fn();
+const setProxyConfig = vi.fn(() => true);
+let mockProxy: { enabled: boolean; url: string } | null = null;
 /** stale-indicator 批：daemonFreshness 可变位（welcome 承接面——设置页人话时间数据源）。 */
 let mockDaemonFreshness: { startedAt: number; stale: boolean } | null = null;
 const setPortConfig = vi.fn();
@@ -75,7 +79,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [], daemonFreshness: mockDaemonFreshness },
-      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, summary: mockSummary, kg: mockKg, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
+      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, summary: mockSummary, kg: mockKg, proxy: mockProxy, proxyInflight: false, proxySaved: false, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
       requestSchedulingConfig,
@@ -83,6 +87,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       requestPortConfig,
       requestSandboxConfig,
       setSandboxConfig,
+      requestProxyConfig,
+      setProxyConfig,
       requestSummaryConfig,
       setSummaryConfig,
       requestKgConfig,
@@ -140,6 +146,7 @@ afterEach(() => {
   cleanup();
   mockCompaction = null;
   mockSandbox = null;
+  mockProxy = null;
   mockKg = null;
   mockDaemonFreshness = null;
   configListeners = [];
@@ -1286,6 +1293,22 @@ describe("知识库组（批2 WP-C：查重阈值两输入——config.get/set_k
       expect(container.querySelector("[data-kg-saved]")).toBeNull();
     } finally {
       mockKg = null;
+    }
+  });
+});
+
+// ── 网络代理批：通用分区原位挂载网络代理组（独立组件一行插入）──
+describe("通用分区「网络代理」组（网络代理批）", () => {
+  it("组在场（标题 + 开关 + 地址输入），且进入分区拉取现值", () => {
+    mockProxy = { enabled: false, url: "http://127.0.0.1:7890" };
+    try {
+      const { container } = ui();
+      expect(container.querySelector("[data-network-proxy]")).not.toBeNull();
+      expect(container.querySelector('[data-proxy-option="on"]')).not.toBeNull();
+      expect(container.querySelector("[data-proxy-url]")).not.toBeNull();
+      expect(requestProxyConfig).toHaveBeenCalled();
+    } finally {
+      mockProxy = null;
     }
   });
 });

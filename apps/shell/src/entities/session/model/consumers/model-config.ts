@@ -38,6 +38,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "config.set_port.result",
   "config.get_sandbox.result",
   "config.set_sandbox.result",
+  "config.get_proxy.result",
+  "config.set_proxy.result",
   "config.get_summary.result",
   "config.set_summary.result",
   "config.get_kg.result",
@@ -169,6 +171,19 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）；
       // autoApprove 兑底 false（旧 daemon 回执缺键——自动通过必须显式开启）
       next = { ...mc, sandbox: { enabled: frame.payload.enabled, extraRoots: frame.payload.extraRoots ?? [], autoApprove: frame.payload.autoApprove === true } };
+      break;
+    case "config.get_proxy.result":
+      // 网络代理读回执（网络代理批）：现态回显——读帧不置「已保存」
+      next = { ...mc, proxy: { enabled: frame.payload.enabled, url: frame.payload.url } };
+      break;
+    case "config.set_proxy.result":
+      // 网络代理写回执（部分更新语义回全量现值）：回填 + 收口在途 + 置「已保存」
+      next = {
+        ...mc,
+        proxy: { enabled: frame.payload.enabled, url: frame.payload.url },
+        proxyInflight: false,
+        proxySaved: true,
+      };
       break;
     case "config.get_kg.result":
     case "config.set_kg.result":
@@ -330,6 +345,12 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
       return mc.logoutInflight !== null ? mc : { ...mc, logoutInflight: action.providerId };
     case "model/logout-aborted":
       return mc.logoutInflight === null ? mc : { ...mc, logoutInflight: null };
+    case "model/proxy-save-started":
+      // 网络代理保存发起：在途置位 + 清上一轮「已保存」（回执驱动翻转，无乐观态）
+      return { ...mc, proxyInflight: true, proxySaved: false };
+    case "model/proxy-save-aborted":
+      // 未发出（send false）：不留在途、不假「已保存」（TR-84）
+      return mc.proxyInflight ? { ...mc, proxyInflight: false, proxySaved: false } : mc;
     case "model/consume-error":
       return mc.writeError === null ? mc : { ...mc, writeError: null };
     case "model/consume-login-success":
@@ -355,7 +376,8 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
     mc.deleteKeyInflight === null &&
     mc.setDefaultInflight === null &&
     mc.login === null &&
-    mc.logoutInflight === null
+    mc.logoutInflight === null &&
+    !mc.proxyInflight
   ) {
     return mc;
   }
@@ -379,6 +401,9 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
     setDefaultInflight: null,
     login: null,
     logoutInflight: null,
+    // 网络代理：断连夭折在途（结果帧永不到达）；「已保存」不残留假反馈
+    proxyInflight: false,
+    proxySaved: false,
   };
 }
 
@@ -402,6 +427,9 @@ const MODEL_CONFIG_COMMANDS: ReadonlySet<string> = new Set([
   // auth.respond/auth.cancel 故意不入表（respond 竞态错容忍静默，cancel 零回执）
   "auth.login",
   "auth.logout",
+  // 网络代理批：config.set_proxy 拒绝走 connection.error（无结果帧）——清在途
+  // + writeError 交代；config.get_proxy 零失败面入表会误清他命令在途，故不入
+  "config.set_proxy",
 ]);
 
 export function applyModelConfigConnError(

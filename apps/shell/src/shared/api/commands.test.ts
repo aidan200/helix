@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand, voiceSynthesizeStreamCommand, voiceSynthesizeStopCommand, stewardCancelCommand, stewardSetConfigCommand,
-  configSetSummaryCommand, configGetVoiceModelsCommand, configSetVoiceModelsCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
+  configSetSummaryCommand, configGetVoiceModelsCommand, configSetVoiceModelsCommand, configGetProxyCommand, configSetProxyCommand, stewardMemoryListCommand, stewardMemoryAppendCommand, stewardMemoryUpdateCommand, stewardMemoryDeleteCommand, embeddingListCommand, embeddingSetCommand, embeddingDeleteCommand, embeddingVerifyCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -326,5 +326,25 @@ describe("steward memory_* / embedding.* 构造器（管家记忆 B2）", () => 
     expect(embeddingListCommand()).toEqual({ v: PROTOCOL_VERSION, type: "embedding.list", payload: {} });
     expect(embeddingDeleteCommand("ep-1").payload).toEqual({ id: "ep-1" });
     expect(embeddingVerifyCommand("ep-1").payload).toEqual({ id: "ep-1" });
+  });
+});
+
+// ── 网络代理批：config.get/set_proxy 构造器（全局命令，省略 sessionId）──
+describe("config.proxy 族构造器（网络代理批）", () => {
+  it("configGetProxyCommand：全局命令（无 sessionId）+ 空载荷", () => {
+    const cmd = configGetProxyCommand();
+    expect(cmd.type).toBe("config.get_proxy");
+    expect(cmd.v).toBe(PROTOCOL_VERSION);
+    expect(cmd.sessionId).toBeUndefined();
+    expect(cmd.payload).toEqual({});
+  });
+
+  it("configSetProxyCommand：部分更新载荷原样透传（只带携带项）", () => {
+    expect(configSetProxyCommand({ enabled: true }).payload).toEqual({ enabled: true });
+    expect(configSetProxyCommand({ url: "http://127.0.0.1:7890" }).payload).toEqual({ url: "http://127.0.0.1:7890" });
+    const both = configSetProxyCommand({ enabled: false, url: "" });
+    expect(both.type).toBe("config.set_proxy");
+    expect(both.payload).toEqual({ enabled: false, url: "" });
+    expect(both.sessionId).toBeUndefined();
   });
 });

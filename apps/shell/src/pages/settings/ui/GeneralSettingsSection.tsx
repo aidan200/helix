@@ -1,5 +1,5 @@
 /**
- * 设置页「通用」分区（语言切换 + 管家开关 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关 + 长期记忆 + 总结）。
+ * 设置页「通用」分区（语言切换 + 管家开关 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关 + 网络代理 + 长期记忆 + 总结）。
  *
  * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
  * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
@@ -35,6 +35,9 @@
  * 沙箱开关（沙箱开关批）：modelConfig.sandbox 帧驱动同模式；布尔双按钮组
  * （lang-switch 同构）点击即发 set、回执驱动回填（无乐观更新）；生效时机 =
  * 新会话/新任务（装配期定格）——UI note 标注。
+ * 网络代理（网络代理批）：独立组件 NetworkProxySettingsGroup 原位一行挂载
+ * （不把这块状态机塞进本文件）；数据面 = modelConfig.proxy（config.get/set_proxy
+ * 帧驱动），校验/草稿/显隐/失败交代全在该组件内自持。
  *
  * 三卡状态机单点（M10 批⑤）：dirty/pending/saved 三件套 + 结果帧对账 +
  * 在途失败收口归 useConfigField（settings-hooks.ts）——config.set_* daemon
@@ -50,6 +53,7 @@ import { cn } from "@/shared/lib/cn";
 import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
 import HotkeyRecorder from "./HotkeyRecorder";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
+import NetworkProxySettingsGroup from "./NetworkProxySettingsGroup";
 import { useConfigField } from "./settings-hooks";
 import { filterAvailableModels, type AvailabilityFilterInput } from "@/features/model-switch/model/available-models";
 import type { CatalogModel, EmbeddingEndpointView } from "@helix/protocol";
@@ -910,6 +914,9 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         <span className="ag-note">{t("chat.settings.general.sandboxExtraRootsNote")}</span>
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
       </div>
+
+      {/* 网络代理（网络代理批）：独立组件原位挂载——HTTP/HTTPS 出站代理即热 */}
+      <NetworkProxySettingsGroup />
 
       {/* 总结（会话总结器独立化批①）：三产物开关 + 轮次输入 + 总结模型
           （显式配才产进展+记忆点）+ 任务总结子功能两项；写面 config.set_summary

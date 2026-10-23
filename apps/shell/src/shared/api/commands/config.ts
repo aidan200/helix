@@ -23,6 +23,9 @@ import type {
   ConfigGetVoiceModelsCommand,
   ConfigSetVoiceModelsCommand,
   ConfigSetSandboxCommand,
+  ConfigGetProxyCommand,
+  ConfigSetProxyCommand,
+  ConfigSetProxyPayload,
 } from "@helix/protocol";
 
 /** config.get_compaction：压缩参数读面（全局命令）。 */
@@ -64,6 +67,18 @@ export function configGetSandboxCommand(): ConfigGetSandboxCommand {
  * 部分更新语义：enabled/extraRoots/autoApprove 任选至少一项，未携带项保留现值。 */
 export function configSetSandboxCommand(patch: { enabled?: boolean; extraRoots?: string[]; autoApprove?: boolean }): ConfigSetSandboxCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: patch };
+}
+
+/** config.get_proxy / config.set_proxy：网络代理读写面（全局命令；网络代理批）。
+ * get = 现态读面；set 部分更新（enabled/url 任选至少一项，未携带项保留现值），
+ * 启用时 url 必填、非空地址须满足协议单源 isValidProxyUrl（HTTP/HTTPS，可内嵌
+ * 认证；不支持 SOCKS5）。写后即热：下一次出站请求生效。 */
+export function configGetProxyCommand(): ConfigGetProxyCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_proxy", payload: {} };
+}
+
+export function configSetProxyCommand(patch: ConfigSetProxyPayload): ConfigSetProxyCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_proxy", payload: patch };
 }
 
 /** config.get_summary：总结配置读面（全局命令；总结器独立化批①）。 */

@@ -30,6 +30,7 @@ export { configGetCompactionCommand, configSetCompactionCommand,
   configGetPortCommand, configSetPortCommand, configGetSandboxCommand,
   configSetSandboxCommand, configGetSummaryCommand, configGetKgCommand,
   configSetKgCommand, configSetSummaryCommand,
+  configGetProxyCommand, configSetProxyCommand,
   configGetVoiceModelsCommand, configSetVoiceModelsCommand } from "./commands/config";
 export { authListCommand, authSetKeyCommand, authDeleteKeyCommand,
   authVerifyCommand, authLoginCommand, authRespondCommand, authCancelCommand,

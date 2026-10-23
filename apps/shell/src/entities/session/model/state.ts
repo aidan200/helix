@@ -29,6 +29,7 @@ import type {
   WebStatusPayload,
   WorkItemDto,
   PendingAskDto,
+  ProxyConfigStatePayload,
 } from "@helix/protocol";
 import { DEFAULT_MODE_ID, ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
 
@@ -359,6 +360,12 @@ export interface ModelConfigState {
   kg: KgConfigState | null;
   /** ASR/TTS 模型配置（null = 未请求；config.get/set_voice_models 帧驱动，模型配置接入 P0） */
   voiceModels: VoiceModelConfigState | null;
+  /** 网络代理现态（null = 未请求；config.get/set_proxy 帧驱动，网络代理批） */
+  proxy: ProxyConfigState | null;
+  /** config.set_proxy 在途（结果帧/错误/断连三面清位；不开乐观态——回执驱动） */
+  proxyInflight: boolean;
+  /** 「已保存」反馈位（仅 config.set_proxy.result 置位；读回执与断连不置） */
+  proxySaved: boolean;
 }
 
 /** 压缩参数配置（token 绝对值；与协议 config.*.result payload 同构）。 */
@@ -405,6 +412,10 @@ export interface KgConfigState {
   similarityDup: number;
 }
 
+/** 网络代理现态（直接复用协议 ProxyConfigStatePayload——禁平行协议定义；
+ *  get/set 回执同形：enabled + url，loopback 目标与未启用态不经代理）。 */
+export type ProxyConfigState = ProxyConfigStatePayload;
+
 /** ASR/TTS 模型配置（与协议 VoiceModelConfigStatePayload 同构；5 槽位全量
  *  生效态含默认值填充；模型配置接入 P0）。 */
 export interface VoiceModelConfigState {
@@ -439,6 +450,9 @@ export function createInitialModelConfigState(): ModelConfigState {
     summary: null,
     kg: null,
     voiceModels: null,
+    proxy: null,
+    proxyInflight: false,
+    proxySaved: false,
   };
 }
 
@@ -736,6 +750,11 @@ export type SessionAction =
   | { type: "model/logout-started"; providerId: string }
   /** logout 未发出：清 in-flight */
   | { type: "model/logout-aborted" }
+  // ── 网络代理批：config.set_proxy 在途/失败收口（结果帧驱动，无乐观态）──
+  /** 代理保存发起（在途置位 + 清「已保存」；结果帧/错误/断连收口） */
+  | { type: "model/proxy-save-started" }
+  /** 代理保存未发出（send false）：清在途，不假「已保存」 */
+  | { type: "model/proxy-save-aborted" }
   /** 写面失败 toast 消费（ModelsSettingsSection 渲染后置空 writeError） */
   | { type: "model/consume-error" }
   /** 登录成功终态消费（toast 弹出后清零） */

@@ -439,3 +439,53 @@ describe("订阅登录批（登录流/登出/凭据变更帧 + in-flight 串行�
     expect(applyModelConfigAction(lo, { type: "model/logout-aborted" }).logoutInflight).toBeNull();
   });
 });
+
+// ── 网络代理批（config.get/set_proxy 帧驱动；部分更新语义 + 即热）──────
+describe("model-config 网络代理面（config.proxy 族）", () => {
+  it("get_proxy.result → proxy 回显；不置「已保存」（读回执不冒充保存成功）", () => {
+    const mc = onConfig(createInitialTopologyState().modelConfig, "config.get_proxy.result", {
+      enabled: false,
+      url: "http://127.0.0.1:7890",
+    });
+    expect(mc.proxy).toEqual({ enabled: false, url: "http://127.0.0.1:7890" });
+    expect(mc.proxyInflight).toBe(false);
+    expect(mc.proxySaved).toBe(false);
+  });
+
+  it("set_proxy.result → 回执全量覆盖 + 清在途 + 置「已保存」", () => {
+    let mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/proxy-save-started" });
+    expect(mc.proxyInflight).toBe(true);
+    expect(mc.proxySaved).toBe(false);
+    mc = onConfig(mc, "config.set_proxy.result", { enabled: true, url: "http://10.0.0.2:3128" });
+    expect(mc.proxy).toEqual({ enabled: true, url: "http://10.0.0.2:3128" });
+    expect(mc.proxyInflight).toBe(false);
+    expect(mc.proxySaved).toBe(true);
+  });
+
+  it("proxy-save-aborted（send false 未发出）→ 清在途，不假已保存", () => {
+    let mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/proxy-save-started" });
+    mc = applyModelConfigAction(mc, { type: "model/proxy-save-aborted" });
+    expect(mc.proxyInflight).toBe(false);
+    expect(mc.proxySaved).toBe(false);
+  });
+
+  it("conn/disconnected → proxyInflight 清位（不永锁），已保存态不残留", () => {
+    let mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/proxy-save-started" });
+    expect(mc.proxyInflight).toBe(true);
+    const topo = topologyReducer({ ...createInitialTopologyState(), modelConfig: mc }, { type: "conn/disconnected" });
+    expect(topo.modelConfig.proxyInflight).toBe(false);
+    expect(topo.modelConfig.proxySaved).toBe(false);
+  });
+
+  it("connection.error（尾缀 config.set_proxy）→ 清在途 + writeError（daemon 拒绝交代）", () => {
+    const mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/proxy-save-started" });
+    const topo = { ...createInitialTopologyState(), modelConfig: mc };
+    const next = dispatchFrame(
+      topo,
+      frame("connection.error", { code: "invalid_payload", message: "代理地址须为有效 HTTP/HTTPS 端点（命令 config.set_proxy）" }),
+      9,
+    );
+    expect(next.modelConfig.proxyInflight).toBe(false);
+    expect(next.modelConfig.writeError?.message).toContain("代理地址须为有效");
+  });
+});
