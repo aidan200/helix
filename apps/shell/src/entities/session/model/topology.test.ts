@@ -334,3 +334,76 @@ describe("topologyReducer 组合面", () => {
     expect(disconnected.active.view).toBe("loading");
   });
 });
+
+// ── per-session 草稿保留（方案 B：内存 map，切换保留/刷新重启即失）──
+
+describe("per-session 草稿保留（sessionDrafts map）", () => {
+  it("切走时暂存非空草稿；切回时回填且条目取出即删（map 恒只含后台会话）", () => {
+    let topo = base();
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "A 会话草稿" });
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
+    // 切走：草稿入 map，活跃输入面归零（B 全新 loading store）
+    expect(topo.sessionDrafts.get(A)).toBe("A 会话草稿");
+    expect(topo.active.draft).toBe("");
+    // 切回：回填 + 取出即删（在场会话单一数据源在活跃 store）
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: A });
+    expect(topo.active.draft).toBe("A 会话草稿");
+    expect(topo.sessionDrafts.has(A)).toBe(false);
+  });
+
+  it("清空后切走不复活：空草稿切走即清条目，切回为空", () => {
+    let topo = base();
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "将被清空" });
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: A });
+    expect(topo.active.draft).toBe("将被清空");
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "" }); // 用户明确清空
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
+    expect(topo.sessionDrafts.has(A)).toBe(false);
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: A });
+    expect(topo.active.draft).toBe(""); // 不复活
+  });
+
+  it("从未输入过的会话切过去缺省空草稿", () => {
+    const topo = topologyReducer(base(), { type: "session/switch-started", sessionId: B });
+    expect(topo.active.draft).toBe("");
+    expect(topo.sessionDrafts.size).toBe(0);
+  });
+
+  it("发送清空后切走：暂存空串、切回不回填残留", () => {
+    let topo = base();
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "准备发送" });
+    // ui/send 需要 canSend（ready + connected）；base 已 ready
+    const sent = topologyReducer(topo, { type: "ui/send", text: "准备发送", mode: "turn", ts: 5 });
+    expect(sent.active.draft).toBe(""); // 发送即清（SM 规则 6 现状）
+    const switched = topologyReducer(sent, { type: "session/switch-started", sessionId: B });
+    expect(switched.sessionDrafts.has(A)).toBe(false);
+  });
+
+  it("新建草稿（new-draft）：旧会话草稿照常暂存，切回可恢复；草稿态自身输入不暂存", () => {
+    let topo = base();
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "A 的草稿" });
+    topo = topologyReducer(topo, { type: "session/new-draft" });
+    expect(topo.active.sessionId).toBe(null);
+    expect(topo.sessionDrafts.get(A)).toBe("A 的草稿"); // 旧会话照常暂存
+    // 草稿态（sessionId=null）的输入无处回填：不入 map，切走即弃
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "草稿态临时输入" });
+    const out = topologyReducer(topo, { type: "session/switch-started", sessionId: A });
+    expect(out.active.draft).toBe("A 的草稿"); // 回填的是 A 的暂存
+    expect(topo.sessionDrafts.has("null")).toBe(false);
+  });
+
+  it("快照到达不冲回填草稿（loading→ready 后输入框内容仍在）", () => {
+    let topo = base(); // 活跃 A
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "B 的历史草稿" }); // 活跃 B 输入
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: A }); // 切走：入 map
+    expect(topo.sessionDrafts.get(B)).toBe("B 的历史草稿");
+    topo = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
+    expect(topo.active.draft).toBe("B 的历史草稿");
+    // 切换两阶段：快照到达转 ready——spread 保留 draft，回填值不丢
+    const ready = topologyReducer(topo, ev(snapshotFrame(B, [msg("b1", "user", "B", 1)])));
+    expect(ready.active.view).toBe("ready");
+    expect(ready.active.draft).toBe("B 的历史草稿");
+  });
+});

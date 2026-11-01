@@ -112,6 +112,7 @@ describe("P-2 会话侧栏", () => {
       list: LIST,
       modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null },
       webStatus: null,
+      sessionDrafts: new Map<string, string>(), // per-session 草稿 map（输入框保留批）
     };
     ui();
     expect(screen.queryByTestId("draft")).toBeNull();
@@ -126,7 +127,7 @@ describe("P-2 会话侧栏", () => {
 
   it("草稿态（sessionId=null + connected）：草稿卡在顶 + 新建按钮走 newDraft", () => {
     stateRef.current = makeState(null);
-    topologyRef.current = { active: stateRef.current, background: {}, list: [], modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: [], modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
     ui();
     const draft = document.querySelector('[data-session-card="draft"]');
     expect(draft).not.toBeNull();
@@ -138,7 +139,7 @@ describe("P-2 会话侧栏", () => {
 
   it("删除二次确认：trash 进入 confirming（单值互斥——另一卡进入时前卡退出）；取消复原", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
     ui();
     const cards = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
     const card2 = screen.getAllByText("重构事件分发架构")[0]!.closest("[data-session-card]")!;
@@ -157,7 +158,7 @@ describe("P-2 会话侧栏", () => {
 
   it("内嵌按钮键盘事件不冒泡触发卡片切换（Enter/Space 在删除钮上不误切会话——中危 F3a）", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
     ui();
     const card = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
     const card2 = screen.getAllByText("重构事件分发架构")[0]!.closest("[data-session-card]")!;
@@ -181,7 +182,7 @@ describe("P-2 会话侧栏", () => {
 
   it("确认删除：发 deleteSession（活跃会话同链——切草稿归 provider 面）；折叠记忆写入 localStorage", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
     ui();
     const card = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
     fireEvent.click(card.querySelector(".ses-del")!);
@@ -202,7 +203,7 @@ describe("P-2 会话侧栏", () => {
 describe("W4 workspace_changed 刷新链", () => {
   it("changed 广播 → 清单重拉（换绑后 daemon 已卸载会话，统计按权威对齐）", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
     ui();
     expect(requestSessionList).toHaveBeenCalledTimes(1); // connected 首拉（既有链）
     act(() => {
@@ -214,7 +215,7 @@ describe("W4 workspace_changed 刷新链", () => {
 
   it("非 changed 帧 → 不重拉（订阅面单一职责）", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
     ui();
     act(() => {
       for (const l of [...wsListeners])
@@ -227,7 +228,7 @@ describe("W4 workspace_changed 刷新链", () => {
 describe("M51 删除 toast 结果驱动（deleteSession 结果 + daemon 确认）", () => {
   function setupList() {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null, sessionDrafts: new Map() };
   }
   function confirmDelete() {
     const card = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
@@ -285,7 +286,7 @@ describe("F5 批 #6：timeLabel 非挂载定格", () => {
         list: [{ sessionId: "s1", title: "计时卡", lastActivityAt: t0 - 10_000, runState: "idle", loaded: true }],
         modelConfig: createInitialModelConfigState(),
         agentConfig: { revision: 0, slots: null },
-        webStatus: null,
+        webStatus: null, sessionDrafts: new Map(),
       };
       const element = () => (
         <ThemeProvider>
@@ -325,7 +326,7 @@ describe("P-2 会话列表分页（慢客户端积压修复批）", () => {
       list: bigList,
       modelConfig: createInitialModelConfigState(),
       agentConfig: { revision: 0, slots: null },
-      webStatus: null,
+      webStatus: null, sessionDrafts: new Map(),
     };
     const { container } = ui();
     // 首页 10 张（含活跃 p0）+ 加载更多按钮
@@ -350,7 +351,7 @@ describe("P-2 会话列表分页（慢客户端积压修复批）", () => {
       list: LIST,
       modelConfig: createInitialModelConfigState(),
       agentConfig: { revision: 0, slots: null },
-      webStatus: null,
+      webStatus: null, sessionDrafts: new Map(),
     };
     const { container } = ui();
     expect(container.querySelectorAll("[data-session-card]").length).toBe(2);

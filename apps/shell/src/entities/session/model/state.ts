@@ -260,6 +260,10 @@ export interface TopologyState {
    *  web.status.result 启动查询回执 + web.status.changed 四时机广播写入；
    *  null = 未收到任何状态帧（首连前，图标灰态）） */
   webStatus: WebStatusPayload | null;
+  /** 会话切走时刻的输入草稿暂存（per-session 输入框保留批：内存态——刷新/
+   *  重启即失不落盘；demote 时写入/空串清条目，切换回填时取出即删——map
+   *  恒只含后台会话的最后草稿快照，在场会话单一数据源在活跃 store.draft） */
+  sessionDrafts: Map<string, string>;
 }
 
 /**
@@ -817,5 +821,6 @@ export function createInitialTopologyState(): TopologyState {
     modelConfig: createInitialModelConfigState(),
     agentConfig: { revision: 0, slots: null },
     webStatus: null,
+    sessionDrafts: new Map(),
   };
 }

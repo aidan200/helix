@@ -76,10 +76,15 @@ function demoteToBackground(active: SessionState, list: SessionMeta[]): Backgrou
   };
 }
 
-/** 目标会话全新 loading store（P-1s 骨架态）：投影全清零，连接态字段保留。 */
-function freshLoadingActive(prev: SessionState, target: string): SessionState {
+/** 目标会话全新 loading store（P-1s 骨架态）：投影全清零，连接态字段保留。
+ *  per-session 草稿回填（输入框保留批）：暂存条目取出即删——在场会话单一
+ *  数据源在活跃 store.draft，回填后活跃期增删与 map 无关（切走时重写）。 */
+function freshLoadingActive(prev: SessionState, target: string, drafts: Map<string, string>): SessionState {
+  const draft = drafts.get(target);
+  if (draft !== undefined) drafts.delete(target);
   return {
     ...createInitialSessionState(),
+    ...(draft !== undefined && draft !== "" ? { draft } : {}),
     conn: prev.conn,
     connAttempts: prev.connAttempts,
     connError: prev.connError,
@@ -103,6 +108,18 @@ function freshDraftActive(prev: SessionState): SessionState {
   };
 }
 
+/** 切走时把活跃草稿落入 per-session 暂存（不可变更新：无变化原引用）：
+ *  非空 → 写入（切回回填）；空串 → 清条目（用户已明确清空，不复活）；
+ *  草稿态（sessionId=null）无处回填不入 map。 */
+function stashActiveDraft(drafts: Map<string, string>, active: SessionState): Map<string, string> {
+  if (active.sessionId === null) return drafts;
+  if (active.draft === "" && !drafts.has(active.sessionId)) return drafts;
+  const next = new Map(drafts);
+  if (active.draft === "") next.delete(active.sessionId);
+  else next.set(active.sessionId, active.draft);
+  return next;
+}
+
 /** 切换会话（provider 已发 unsubscribe 旧 + subscribe 新后 dispatch）。 */
 function switchActiveSession(topo: TopologyState, target: string): TopologyState {
   if (topo.active.sessionId === target) return topo; // 同会话重复切换：原样
@@ -110,7 +127,8 @@ function switchActiveSession(topo: TopologyState, target: string): TopologyState
   const demoted = demoteToBackground(topo.active, topo.list);
   if (demoted !== null) background[demoted.sessionId] = demoted;
   delete background[target]; // 目标会话轻量态移除（转活跃；未读随之消解）
-  return { ...topo, background, active: freshLoadingActive(topo.active, target) };
+  const sessionDrafts = stashActiveDraft(topo.sessionDrafts, topo.active);
+  return { ...topo, background, sessionDrafts, active: freshLoadingActive(topo.active, target, sessionDrafts) };
 }
 
 /** 新建草稿（provider 已发 unsubscribe 旧会话后 dispatch）：活跃转轻量照常
@@ -120,7 +138,7 @@ function startNewDraft(topo: TopologyState): TopologyState {
   const background = { ...topo.background };
   const demoted = demoteToBackground(topo.active, topo.list);
   if (demoted !== null) background[demoted.sessionId] = demoted;
-  return { ...topo, background, active: freshDraftActive(topo.active) };
+  return { ...topo, background, sessionDrafts: stashActiveDraft(topo.sessionDrafts, topo.active), active: freshDraftActive(topo.active) };
 }
 
 /** 加载更早（H-2：胶囊点击触发；门控：hasMore && !loading；命令发送判据归 provider）。 */
