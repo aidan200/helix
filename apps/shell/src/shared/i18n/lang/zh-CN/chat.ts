@@ -146,6 +146,9 @@ export const chat = {
     msg: {
       you: "用户",
       agent: "主会话",
+      copyTurn: "复制本回合回复",
+      copied: "已复制",
+      copyFailed: "复制失败",
     },
     tool: {
       running: "执行中",

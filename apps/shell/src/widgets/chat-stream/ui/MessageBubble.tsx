@@ -8,9 +8,11 @@
  * （MessageFlow EntryView 分发为 SystemInjectBar 细条），气泡徽标只剩
  * 用户 steer 两态。
  */
-import { memo, useLayoutEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import type { MessageEntryDto, UsageDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
+import { useToast } from "@/shared/ui/Toast";
 import { formatTs, fmtTokens } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
@@ -35,6 +37,41 @@ function SteerBadge({ state }: { state: "queued" | "drained" }) {
 function StewardSourceBadge() {
   const { t } = useI18n();
   return <span className="steer-badge steward-src">{t("chat.steer.stewardBadge")}</span>;
+}
+
+/** 轮末复制按钮（turn-usage 后 meta 行内）：复制本回合最终回复原文
+ *  （entry.content markdown 原文）；图标就地切 ✓ 1.5s 复位（与登录代码
+ *  复制同反馈模式）；失败 toast err 不静默（trace 复制降级同口径）。 */
+function TurnCopyButton({ content }: { content: string }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [copied, setCopied] = useState(false);
+  const onCopy = () => {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clipboard === undefined) {
+      toast.push("err", t("chat.msg.copyFailed"));
+      return;
+    }
+    clipboard.writeText(content).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => toast.push("err", t("chat.msg.copyFailed")),
+    );
+  };
+  const label = copied ? t("chat.msg.copied") : t("chat.msg.copyTurn");
+  return (
+    <button
+      type="button"
+      className={copied ? "turn-copy copied" : "turn-copy"}
+      title={label}
+      aria-label={label}
+      onClick={onCopy}
+    >
+      {copied ? <Check size={12} strokeWidth={1.75} aria-hidden="true" /> : <Copy size={12} strokeWidth={1.75} aria-hidden="true" />}
+    </button>
+  );
 }
 
 interface MessageBubbleProps {
@@ -97,11 +134,14 @@ const MessageBubble = memo(function MessageBubble({
         <div className="meta">
           <span className="who">{isUser ? t("chat.msg.you") : t("chat.msg.agent")}</span>
           <span className="ts">{formatTs(entry.ts, t("chat.tsFormat"))}</span>
-          {/* 轮末 token 用量（assistant 专用；未到账/无 turnId/无账目不显示） */}
+          {/* 轮末 token 用量（assistant 专用；未到账/无 turnId/无账目不显示）+ 复制按钮 */}
           {!isUser && turnUsage !== undefined && (
-            <span className="turn-usage">
-              ↑ {fmtTokens(turnUsage.input)} ↓ {fmtTokens(turnUsage.output)} · ${fmtTurnCost(turnUsage.cost)}
-            </span>
+            <>
+              <span className="turn-usage">
+                ↑ {fmtTokens(turnUsage.input)} ↓ {fmtTokens(turnUsage.output)} · ${fmtTurnCost(turnUsage.cost)}
+              </span>
+              <TurnCopyButton content={entry.content} />
+            </>
           )}
         </div>
         {(entry.steerState || entry.source === "steward") && (

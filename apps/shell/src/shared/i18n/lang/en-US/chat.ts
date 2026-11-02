@@ -143,6 +143,9 @@ export const chat = {
     msg: {
       you: "You",
       agent: "Main session",
+      copyTurn: "Copy this reply",
+      copied: "Copied",
+      copyFailed: "Copy failed",
     },
     tool: {
       running: "Running",

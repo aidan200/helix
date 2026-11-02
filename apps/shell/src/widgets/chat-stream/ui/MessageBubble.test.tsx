@@ -8,8 +8,9 @@
  * 「无 steerState 无徽标」边界。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { MessageEntryDto } from "@helix/protocol";
 import MessageBubble from "./MessageBubble";
 
@@ -30,7 +31,7 @@ function entry(over: Partial<MessageEntryDto> = {}): MessageEntryDto {
 }
 
 function ui(node: React.ReactElement) {
-  return render(<I18nProvider>{node}</I18nProvider>);
+  return render(<ToastProvider><I18nProvider>{node}</I18nProvider></ToastProvider>);
 }
 
 describe("MessageBubble 用户 steer 徽标（两态）", () => {
@@ -130,6 +131,92 @@ describe("MessageBubble 轮末 token 用量（assistant meta 行 · who·ts 同�
   });
 });
 
+// ═══ 轮末复制按钮（turn-usage 后 meta 行内）：复制本回合最终回复原文 ═══
+// 场景：带费用统计（turnUsage 到账）的 assistant 气泡 = 回合最终回复卡片——
+// meta 行 who·ts·usage 后跟 Copy 图标按钮（双方框叠加，lucide 1.75 stroke 族），
+// 点击写 entry.content（markdown 原文）入剪贴板，图标就地切 ✓ 1.5s 复位。
+describe("MessageBubble 轮末复制按钮（费用统计后）", () => {
+  const turnUsage = {
+    input: 1234,
+    output: 340,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    totalTokens: 1574,
+    cost: 0.0042,
+  };
+
+  function stubClipboard(writeText: (t: string) => Promise<void>) {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  }
+
+  it("assistant + turnUsage → turn-usage 后渲染复制按钮（title=复制本回合回复）；无 turnUsage/user 气泡零渲染", () => {
+    stubClipboard(() => Promise.resolve());
+    const { container } = ui(
+      <MessageBubble
+        entry={entry({ role: "assistant", turnId: "t1", content: "最终回复" })}
+        turnUsage={turnUsage}
+      />,
+    );
+    const btn = container.querySelector<HTMLButtonElement>(".meta .turn-copy");
+    expect(btn).not.toBeNull();
+    expect(btn!.getAttribute("title")).toContain("复制");
+    // 位置钉：复制按钮紧跟 turn-usage 之后（meta 行内最后一个节点）
+    const meta = container.querySelector(".meta")!;
+    const last = meta.lastElementChild!;
+    expect(last.className).toContain("turn-copy");
+    cleanup();
+    const noUsage = ui(<MessageBubble entry={entry({ role: "assistant", turnId: "t1" })} />);
+    expect(noUsage.container.querySelector(".turn-copy")).toBeNull();
+    cleanup();
+    const userBubble = ui(
+      <MessageBubble entry={entry({ role: "user" })} turnUsage={turnUsage} />,
+    );
+    expect(userBubble.container.querySelector(".turn-copy")).toBeNull();
+  });
+
+  it("点击 → clipboard 收到 entry.content 原文；图标切已复制态 1.5s 复位", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn(() => Promise.resolve());
+    stubClipboard(writeText);
+    try {
+      const { container } = ui(
+        <MessageBubble
+          entry={entry({ role: "assistant", turnId: "t1", content: "## 结\n\n- 完成" })}
+          turnUsage={turnUsage}
+        />,
+      );
+      const btn = container.querySelector<HTMLButtonElement>(".meta .turn-copy")!;
+      btn.click();
+      await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("## 结\n\n- 完成"));
+      await vi.waitFor(() =>
+        expect(btn.getAttribute("title")).toContain("已复制"),
+      );
+      expect(btn.className).toContain("copied");
+      act(() => {
+        vi.advanceTimersByTime(1600);
+      });
+      expect(btn.getAttribute("title")).toContain("复制");
+      expect(btn.className).not.toContain("copied");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("写入失败 → 不切已复制态（不抛错，降级路径交 toast）", async () => {
+    stubClipboard(() => Promise.reject(new Error("denied")));
+    const { container } = ui(
+      <MessageBubble
+        entry={entry({ role: "assistant", turnId: "t1", content: "x" })}
+        turnUsage={turnUsage}
+      />,
+    );
+    const btn = container.querySelector<HTMLButtonElement>(".meta .turn-copy")!;
+    btn.click();
+    await vi.waitFor(() => expect(btn.className).not.toContain("copied"));
+  });
+});
+
 // ═══ 流式气泡高度单调锁（F-jitter：流式 markdown 语法闭合抖动修复）═══
 // 场景：流式 markdown 逐 token 流入，语法结构切换（**粗体**/`code`/围栏
 // 闭合瞬间字符宽度消失→折行减少）导致渲染高度非单调回落；贴底逻辑把
@@ -147,30 +234,30 @@ describe("MessageBubble 流式气泡高度单调锁", () => {
       .spyOn(HTMLElement.prototype, "offsetHeight", "get")
       .mockImplementation(() => mockH);
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一**加粗" />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     const bubble = container.querySelector(".bubble") as HTMLElement;
     expect(bubble.style.minHeight).toBe("100px");
     // 阶段②：语法闭合 → 折行减少 → 高度回落 80：锁不回退
     mockH = 80;
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一**加粗**" />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     expect(bubble.style.minHeight).toBe("100px");
     // 阶段③：内容继续增长 120：锁跟随增长
     mockH = 120;
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble
           entry={entry({ role: "assistant" })}
           streaming
           streamingText="行一**加粗**更多内容继续流入"
         />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     expect(bubble.style.minHeight).toBe("120px");
     hSpy.mockRestore();
@@ -190,18 +277,18 @@ describe("MessageBubble 流式气泡高度单调锁", () => {
       .spyOn(HTMLElement.prototype, "offsetHeight", "get")
       .mockImplementation(() => 140);
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一很长" />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     const bubble = container.querySelector(".bubble") as HTMLElement;
     expect(bubble.style.minHeight).toBe("140px");
     // 转正：同一 bubble 实例（无卸载重建）——流中所锁高度必须显式解除
     hSpy.mockRestore();
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming={false} />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     expect(bubble.style.minHeight).toBe("");
   });
@@ -215,22 +302,22 @@ describe("MessageBubble 流式气泡高度单调锁", () => {
       .spyOn(HTMLElement.prototype, "offsetHeight", "get")
       .mockImplementation(() => 200);
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="甲长" />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     expect(bubble.style.minHeight).toBe("200px");
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming={false} />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     // 新一轮流式：真实高度只有 90，锁基线已复位 → 锁 90（不残留 200）
     hSpy.mockImplementation(() => 90);
     rerender(
-      <I18nProvider>
+      <ToastProvider><I18nProvider>
         <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="乙" />
-      </I18nProvider>,
+      </I18nProvider></ToastProvider>,
     );
     expect(bubble.style.minHeight).toBe("90px");
     hSpy.mockRestore();
