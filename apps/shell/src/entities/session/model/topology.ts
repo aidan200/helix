@@ -77,11 +77,10 @@ function demoteToBackground(active: SessionState, list: SessionMeta[]): Backgrou
 }
 
 /** 目标会话全新 loading store（P-1s 骨架态）：投影全清零，连接态字段保留。
- *  per-session 草稿回填（输入框保留批）：暂存条目取出即删——在场会话单一
- *  数据源在活跃 store.draft，回填后活跃期增删与 map 无关（切走时重写）。 */
-function freshLoadingActive(prev: SessionState, target: string, drafts: Map<string, string>): SessionState {
-  const draft = drafts.get(target);
-  if (draft !== undefined) drafts.delete(target);
+ *  per-session 草稿回填（输入框保留批）：回填值由调用方取出后传入（取出即删
+ *  的 map 更新归 switchActiveSession）——本函数不触碰 map，保持纯函数（AG-14）；
+ *  在场会话单一数据源在活跃 store.draft，回填后活跃期增删与 map 无关（切走时重写）。 */
+function freshLoadingActive(prev: SessionState, target: string, draft: string | undefined): SessionState {
   return {
     ...createInitialSessionState(),
     ...(draft !== undefined && draft !== "" ? { draft } : {}),
@@ -120,15 +119,21 @@ function stashActiveDraft(drafts: Map<string, string>, active: SessionState): Ma
   return next;
 }
 
-/** 切换会话（provider 已发 unsubscribe 旧 + subscribe 新后 dispatch）。 */
+/** 切换会话（provider 已发 unsubscribe 旧 + subscribe 新后 dispatch）。
+ *  纯度（AG-14 + StrictMode 双调用安全）：回填条目的取出即删在**新 map 副本**
+ *  上执行——禁原地 delete 输入状态的 map（dev StrictMode 双调用同一输入时，
+ *  第一次调用的变异会让第二次读到空 map，回填丢草稿）。 */
 function switchActiveSession(topo: TopologyState, target: string): TopologyState {
   if (topo.active.sessionId === target) return topo; // 同会话重复切换：原样
   const background = { ...topo.background };
   const demoted = demoteToBackground(topo.active, topo.list);
   if (demoted !== null) background[demoted.sessionId] = demoted;
   delete background[target]; // 目标会话轻量态移除（转活跃；未读随之消解）
-  const sessionDrafts = stashActiveDraft(topo.sessionDrafts, topo.active);
-  return { ...topo, background, sessionDrafts, active: freshLoadingActive(topo.active, target, sessionDrafts) };
+  const stashed = stashActiveDraft(topo.sessionDrafts, topo.active);
+  // 回填取出即删：新副本上执行（stashed === topo.sessionDrafts 时更不可原地动）
+  const draft = stashed.get(target);
+  const sessionDrafts = draft !== undefined ? new Map([...stashed].filter(([k]) => k !== target)) : stashed;
+  return { ...topo, background, sessionDrafts, active: freshLoadingActive(topo.active, target, draft) };
 }
 
 /** 新建草稿（provider 已发 unsubscribe 旧会话后 dispatch）：活跃转轻量照常

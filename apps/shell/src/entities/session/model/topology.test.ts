@@ -406,4 +406,26 @@ describe("per-session 草稿保留（sessionDrafts map）", () => {
     expect(ready.active.view).toBe("ready");
     expect(ready.active.draft).toBe("B 的历史草稿");
   });
+
+  it("StrictMode 双调用纯度（回归：回填不得变异输入 map）——同输入两次归约均回填、输入状态完好", () => {
+    // 背景：freshLoadingActive 原地 delete 输入 map 的条目（AG-14 违例），dev
+    // StrictMode 对同一 dispatch 双调用 reducer 时，第二次读到被第一次变异过的
+    // 空 map → 回填 undefined → 切回会话草稿丢失（tauri dev 必现，单测直调不复现）。
+    let topo = base(); // 活跃 A
+    topo = topologyReducer(topo, { type: "ui/set-draft", text: "A 草稿" });
+    const onB = topologyReducer(topo, { type: "session/switch-started", sessionId: B }); // A 草稿入 map
+    expect(onB.sessionDrafts.get(A)).toBe("A 草稿");
+    // 同一输入状态两次归约（StrictMode 双调用形态）
+    const r1 = topologyReducer(onB, { type: "session/switch-started", sessionId: A });
+    const r2 = topologyReducer(onB, { type: "session/switch-started", sessionId: A });
+    expect(r1.active.draft).toBe("A 草稿"); // 第一次：回填成功
+    expect(r2.active.draft).toBe("A 草稿"); // 第二次：输入未被变异 → 同样回填（bug 形态下这里是 ""）
+    expect(r1).toEqual(r2); // 纯函数：同输入同输出
+    // 输入状态不被变异（时间旅行安全）
+    expect(onB.sessionDrafts.get(A)).toBe("A 草稿");
+    expect(onB.sessionDrafts.size).toBe(1);
+    // 回填后 map 条目取出即删（两次结果一致：均不含 A）
+    expect(r1.sessionDrafts.has(A)).toBe(false);
+    expect(r2.sessionDrafts.has(A)).toBe(false);
+  });
 });
