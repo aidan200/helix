@@ -10,10 +10,13 @@ import {
   decideSystemNotify,
   isWindowForeground,
   readSystemNotifyPref,
+  readSystemNotifySoundPref,
   SystemNotifyDedup,
   SYSTEM_NOTIFY_DEDUP_WINDOW_MS,
   SYSTEM_NOTIFY_PREF_KEY,
+  SYSTEM_NOTIFY_SOUND_PREF_KEY,
   writeSystemNotifyPref,
+  writeSystemNotifySoundPref,
 } from "@/shared/lib/system-notify";
 
 const base = { title: "任务完成", body: "整理完了", urgency: "normal" as const };
@@ -97,6 +100,15 @@ describe("系统通知偏好（本地开关，默认开）", () => {
     expect(readSystemNotifyPref()).toBe(false);
     writeSystemNotifyPref(true);
     expect(readSystemNotifyPref()).toBe(true);
+  });
+
+  it("声音子开关：缺键 → 默认开；roundtrip 同总闸", () => {
+    expect(readSystemNotifySoundPref()).toBe(true);
+    writeSystemNotifySoundPref(false);
+    expect(localStorage.getItem(SYSTEM_NOTIFY_SOUND_PREF_KEY)).toBe("0");
+    expect(readSystemNotifySoundPref()).toBe(false);
+    writeSystemNotifySoundPref(true);
+    expect(readSystemNotifySoundPref()).toBe(true);
   });
 });
 

@@ -21,6 +21,10 @@ import { readPersistedFlag, writePersistedFlag } from "./persisted-flag";
 /** 系统通知开关存储键（"1"=开 / "0"=关；缺键 = 开）。 */
 export const SYSTEM_NOTIFY_PREF_KEY = "helix.notify.system";
 
+/** 通知声音开关存储键（独立于总闸：总闸关 = 整体短路；此键只控横幅带不带
+ *  系统提示音，"1"=带 / "0"=静音；缺键 = 开）。 */
+export const SYSTEM_NOTIFY_SOUND_PREF_KEY = "helix.notify.system.sound";
+
 /** 同内容去重短窗（毫秒）——与 StewardNotifyToast NOTIFY_DEDUP_WINDOW_MS
  *  同值同义（同内容两条到达只投递一条；normal 档生效）。 */
 export const SYSTEM_NOTIFY_DEDUP_WINDOW_MS = 60_000;
@@ -36,6 +40,16 @@ export function readSystemNotifyPref(): boolean {
 /** 写系统通知开关（存储不可用时静默——不阻断交互）。 */
 export function writeSystemNotifyPref(on: boolean): void {
   writePersistedFlag(SYSTEM_NOTIFY_PREF_KEY, on);
+}
+
+/** 读通知声音开关（缺键/脏值 → 开：与总闸同缺省向）。 */
+export function readSystemNotifySoundPref(): boolean {
+  return readPersistedFlag(SYSTEM_NOTIFY_SOUND_PREF_KEY, true);
+}
+
+/** 写通知声音开关。 */
+export function writeSystemNotifySoundPref(on: boolean): void {
+  writePersistedFlag(SYSTEM_NOTIFY_SOUND_PREF_KEY, on);
 }
 
 /** 事件维护的聚焦态——WKWebView 的 document.hasFocus() 有 app 失焦仍返回

@@ -472,6 +472,8 @@ export const chat = {
         groupNotify: "Notifications",
         systemNotify: "System notifications",
         systemNotifyNote: "Show a system notification when a task finishes or a reply lands while the window is in the background (foreground keeps in-app toasts).",
+        systemNotifySound: "Notification sound",
+        systemNotifySoundNote: "Play the system alert sound with each banner (can still be muted per-app in System Settings; both must be on).",
         groupSteward: "Steward",
         stewardEnable: "Enable steward",
         stewardSpeak: "Voice replies",

@@ -16,12 +16,12 @@ import { act, cleanup, render } from "@testing-library/react";
 import type { EventEnvelope } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 
-const nativeSystemNotify = vi.fn(async (_title: string, _body: string) => {});
+const nativeSystemNotify = vi.fn(async (_title: string, _body: string, _sound?: string) => {});
 let nativeCapable = true;
 
 vi.mock("@/shared/api/native-capability", () => ({
   hasSystemNotify: () => nativeCapable,
-  nativeSystemNotify: (title: string, body: string) => nativeSystemNotify(title, body),
+  nativeSystemNotify: (title: string, body: string, sound?: string) => nativeSystemNotify(title, body, sound),
 }));
 
 type Listener = (e: EventEnvelope) => void;
@@ -99,7 +99,17 @@ describe("SystemNotifyBridge：steward.notify 面", () => {
     ui();
     emitSteward({ urgency: "normal", title: "任务完成", body: "整理完了", seq: 1 });
     expect(nativeSystemNotify).toHaveBeenCalledTimes(1);
-    expect(nativeSystemNotify).toHaveBeenCalledWith("任务完成", "整理完了");
+    expect(nativeSystemNotify).toHaveBeenCalledWith("任务完成", "整理完了", "default");
+  });
+
+  it("声音子开关：关 → 静音横幅（sound=undefined）；缺省开 → default", () => {
+    localStorage.setItem("helix.notify.system.sound", "0");
+    ui();
+    emitSteward({ urgency: "normal", title: "任务完成", body: "整理完了", seq: 1 });
+    expect(nativeSystemNotify).toHaveBeenCalledWith("任务完成", "整理完了", undefined);
+    localStorage.setItem("helix.notify.system.sound", "1");
+    emitSteward({ urgency: "normal", title: "任务失败", body: "没跑成", seq: 2 });
+    expect(nativeSystemNotify).toHaveBeenCalledWith("任务失败", "没跑成", "default");
   });
 
   it("窗口前台 → 不发（前台 toast 路径维持现状）", () => {
@@ -171,14 +181,14 @@ describe("SystemNotifyBridge：chat.turn.completed 面", () => {
     ui();
     emitTurn("s-bg");
     expect(nativeSystemNotify).toHaveBeenCalledTimes(1);
-    expect(nativeSystemNotify).toHaveBeenCalledWith("重构登录", "回完了");
+    expect(nativeSystemNotify).toHaveBeenCalledWith("重构登录", "回完了", "default");
   });
 
   it("活跃会话轮次结束 ∧ 窗口后台 → 照发（P0 首验缺口：发完消息切走窗口；标题回退目录名单）", () => {
     ui();
     emitTurn("s-active");
     expect(nativeSystemNotify).toHaveBeenCalledTimes(1);
-    expect(nativeSystemNotify).toHaveBeenCalledWith("活跃会话", "回完了");
+    expect(nativeSystemNotify).toHaveBeenCalledWith("活跃会话", "回完了", "default");
   });
 
   it("帧带 lastReplyExcerpt → 正文=摘要（daemon 单源投影；不截断不拼接零变换）", () => {
@@ -187,13 +197,14 @@ describe("SystemNotifyBridge：chat.turn.completed 面", () => {
     expect(nativeSystemNotify).toHaveBeenCalledWith(
       "重构登录",
       "修复已提交：WKWebView 怪癖改事件维护态",
+      "default",
     );
   });
 
   it("摘录为空串/非 string → 回退固定白话标签（旧 daemon / 空 turn 安全垫）", () => {
     ui();
     emitTurn("s-bg", { lastReplyExcerpt: "" });
-    expect(nativeSystemNotify).toHaveBeenCalledWith("重构登录", "回完了");
+    expect(nativeSystemNotify).toHaveBeenCalledWith("重构登录", "回完了", "default");
   });
 
   it("窗口前台 → 活跃会话也不发（前台流式回复可见，零打扰）", () => {

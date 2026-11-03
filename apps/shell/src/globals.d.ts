@@ -52,4 +52,6 @@ declare var helixHotkeyUnregister: ((accel: string) => Promise<void>) | undefine
  * undefined，消费面经 shared/api/native-capability.ts seam 受控访问（探测 +
  * 调用，前端零 Tauri 内部形态词；同上 AG-17/TR-AD-12 词面守护）。
  */
-declare var helixNotify: ((title: string, body: string) => Promise<void>) | undefined;
+declare var helixNotify:
+  | ((title: string, body: string, sound?: string) => Promise<void>)
+  | undefined;

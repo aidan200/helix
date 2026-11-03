@@ -475,6 +475,8 @@ export const chat = {
         groupNotify: "通知",
         systemNotify: "系统通知",
         systemNotifyNote: "窗口在后台时，任务完成与对话回复弹系统通知（前台仍是应用内提示）",
+        systemNotifySound: "通知声音",
+        systemNotifySoundNote: "横幅弹出时播放系统提示音（系统设置仍可按应用静音，两处串联生效）",
         groupSteward: "管家",
         stewardEnable: "启用管家",
         stewardSpeak: "语音播报",

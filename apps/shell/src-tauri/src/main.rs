@@ -98,14 +98,19 @@ window.helixHotkeyUnregister = (accel) =>
 // ——title/body 文本进、OS 通知出，不触 daemon、不读 ~/.helix/ 任何文件。
 // 调 tauri-plugin-notification 自带命令面（plugin:notification|notify，参数必须
 // 包在 options 键内——同 W6a dialog 的 options 包层实证）。
+// sound 可选第三参（"default"=系统默认提示音，缺席则静音投递）——声音批
+// 扩入；携带与否由前端「通知声音」设置项决定，壳不掺业务判断。
 //
-// 授权面不在注入范围（spike 实证）：桌面面插件的 permission_state /
-// request_permission 是恒 Granted 的常量 stub，授权框由首次投递时系统自行
-// 拉起（macOS 为通知中心 alert）——前端不做授权门控，故不暴露查询面。
+// 授权面不在注入范围（spike + P0 联测实证）：桌面面插件的 permission_state /
+// request_permission 是恒 Granted 的常量 stub（capabilities 另授 allow-is-
+// permission-granted 仅为插件自带 init 探测面，避免未捕获拒绝噪音）；macOS
+// 对未授权身份的投递是静默丢弃（不自动弹授权框，P0 联测实证）——dev 裸
+// binary 借启动父进程身份，需父 app 在系统设置里允许通知；产线 bundle
+// 形态首次投递拉起授权框。前端不做授权门控，故不暴露查询面。
 const NOTIFY_INIT_SCRIPT: &str = r#"
-window.helixNotify = (title, body) =>
+window.helixNotify = (title, body, sound) =>
   window.__TAURI_INTERNALS__.invoke('plugin:notification|notify', {
-    options: { title, body },
+    options: sound ? { title, body, sound } : { title, body },
   });
 
 "#;

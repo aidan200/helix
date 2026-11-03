@@ -51,7 +51,12 @@ import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
 import { readStewardSpeakReplyPref, writeStewardSpeakReplyPref } from "@/shared/lib/voice-pref";
-import { readSystemNotifyPref, writeSystemNotifyPref } from "@/shared/lib/system-notify";
+import {
+  readSystemNotifyPref,
+  readSystemNotifySoundPref,
+  writeSystemNotifyPref,
+  writeSystemNotifySoundPref,
+} from "@/shared/lib/system-notify";
 import HotkeyRecorder from "./HotkeyRecorder";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 import NetworkProxySettingsGroup from "./NetworkProxySettingsGroup";
@@ -161,6 +166,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   /** 系统通知开关（系统通知 P0）：本地偏好（helix.notify.system，缺省开）——
    *  分流桥逐帧读现态，本开关关闭 = 整体短路（前台 toast 路径零受影响）。 */
   const [systemNotify, setSystemNotify] = useState<boolean>(() => readSystemNotifyPref());
+  const [systemNotifySound, setSystemNotifySound] = useState<boolean>(() => readSystemNotifySoundPref());
   // 总结组（总结器独立化批①）：daemon 权威现态——modelConfig.summary
   // （config.get/set_summary.result 帧驱动，回填不乐观）；everyTurns 草稿
   // 本地态，失焦/回车提交（回执前不乐观），非法值回落最近已提交值零命令
@@ -581,6 +587,24 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             {t("chat.settings.general.switchOn")}
           </label>
           <span className="ag-note">{t("chat.settings.general.systemNotifyNote")}</span>
+        </div>
+        {/* 声音子开关（独立键 helix.notify.system.sound，缺省开）：只控横幅带不带
+            系统提示音；与总闸串联语义——总闸关 = 整体短路，此开关无独立效力。 */}
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.systemNotifySound")}</span>
+          <label className="set-check" data-system-notify-sound>
+            <input
+              type="checkbox"
+              data-system-notify-sound-toggle
+              checked={systemNotifySound}
+              onChange={(e) => {
+                setSystemNotifySound(e.target.checked);
+                writeSystemNotifySoundPref(e.target.checked);
+              }}
+            />
+            {t("chat.settings.general.switchOn")}
+          </label>
+          <span className="ag-note">{t("chat.settings.general.systemNotifySoundNote")}</span>
         </div>
       </div>
 

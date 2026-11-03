@@ -25,6 +25,7 @@ import {
   decideSystemNotify,
   isWindowForeground,
   readSystemNotifyPref,
+  readSystemNotifySoundPref,
   SystemNotifyDedup,
 } from "@/shared/lib/system-notify";
 
@@ -77,7 +78,10 @@ export default function SystemNotifyBridge() {
         return;
       }
       if (urgency === "high") dedup.mark(key, now); // 直发也记账：随后的同内容 normal 不再补发
-      void nativeSystemNotify(title, body)
+      // 声音旁路（不进 decide 闸——闸语义只管发不发）：pref 开 = 带系统默认
+      // 提示音，关 = 静音横幅；发送时读现态（改设置即时生效，无需重挂载）
+      const sound = readSystemNotifySoundPref() ? "default" : undefined;
+      void nativeSystemNotify(title, body, sound)
         .then(() => {
           // 诊断日志（DEV 门控）：发送成功可见——「发了但 OS 丢弃」与「根本没发」
           // 在前端面不可分，成功日志是两者判据的分界线（P0 联测教训）

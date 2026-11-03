@@ -105,8 +105,9 @@ export async function nativeHotkeyUnregister(accel: string): Promise<void> {
 // 恒 Granted 的 stub——授权框由首次投递时 macOS 自行拉起，故本 seam 不提供
 // 授权查询面（前端不做授权门控）。
 
-/** 壳注入的系统通知函数形态（挂载点声明见 globals.d.ts）。 */
-type NativeNotify = (title: string, body: string) => Promise<void>;
+/** 壳注入的系统通知函数形态（挂载点声明见 globals.d.ts；sound = 音效名，
+ *  "default" = 系统默认提示音——插件 options.sound 透传面）。 */
+type NativeNotify = (title: string, body: string, sound?: string) => Promise<void>;
 
 function notifyFn(): NativeNotify | undefined {
   const fn = globalThis.helixNotify;
@@ -119,12 +120,18 @@ export function hasSystemNotify(): boolean {
 }
 
 /**
- * 发系统通知：title/body 零变换透传（文案单源在 daemon，壳/前端不生成）。
+ * 发系统通知：title/body 零变换透传（文案单源在 daemon，壳/前端不生成）；
+ * sound 可选透传（"default" = 系统默认提示音；undefined = 静音横幅——
+ * 与 P0 无声行为一致，声音开关由消费面按偏好决定）。
  * 无能力 → 静默 no-op（纯浏览器 dev）；底层异常（插件故障等）**上抛**供
  * 消费面处置（W6j 同规：不吞错伪装成已通知）。
  */
-export async function nativeSystemNotify(title: string, body: string): Promise<void> {
+export async function nativeSystemNotify(
+  title: string,
+  body: string,
+  sound?: string,
+): Promise<void> {
   const notify = notifyFn();
   if (notify === undefined) return;
-  await notify(title, body);
+  await notify(title, body, sound);
 }
