@@ -91,6 +91,25 @@ window.helixHotkeyUnregister = (accel) =>
 
 "#;
 
+// ── 系统通知投递注入脚本（W6a/B4 同形态：挂 `window.helixNotify`）──
+//
+// 扩面论证（F3「壳原生 UX 能力族」第三次套用，与 dialog/global-shortcut 同类
+// 边界）：OS 系统通知只能由壳侧发（webview 无通知中心 API），投递面零业务数据
+// ——title/body 文本进、OS 通知出，不触 daemon、不读 ~/.helix/ 任何文件。
+// 调 tauri-plugin-notification 自带命令面（plugin:notification|notify，参数必须
+// 包在 options 键内——同 W6a dialog 的 options 包层实证）。
+//
+// 授权面不在注入范围（spike 实证）：桌面面插件的 permission_state /
+// request_permission 是恒 Granted 的常量 stub，授权框由首次投递时系统自行
+// 拉起（macOS 为通知中心 alert）——前端不做授权门控，故不暴露查询面。
+const NOTIFY_INIT_SCRIPT: &str = r#"
+window.helixNotify = (title, body) =>
+  window.__TAURI_INTERNALS__.invoke('plugin:notification|notify', {
+    options: { title, body },
+  });
+
+"#;
+
 // ── 窗口底色主题感知（W6e：先导页方案退役后的简化方案）──────────
 // webview 冷启动首帧前只能显示背景色（WebKit 无 pre-document 内容面）；
 // 先导页时间窗口过短不可靠（用户实证），改为让底色与当前主题一致。
@@ -235,6 +254,8 @@ fn build_main_window(app: &AppHandle) {
         .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
         // B4：追加全局组合键挂载点（纯浏览器 dev 无挂载点 → 注册面休眠）
         .initialization_script(HOTKEY_INIT_SCRIPT)
+        // 系统通知 P0：追加通知投递挂载点（纯浏览器 dev 无挂载点 → 分流桥休眠）
+        .initialization_script(NOTIFY_INIT_SCRIPT)
         .build();
     set_native_window_background(app, "main", bg);
     set_native_window_appearance(app, "main", is_dark_background(bg));
@@ -253,6 +274,10 @@ fn main() {
         // 注释；能力面 = capabilities/default.json 的 register/unregister 两条；
         // 插件无 init() 快捷面——Builder 形态，触发回调逐注册走命令面 Channel）
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // 系统通知 P0：官方 notification 插件（扩面论证见 NOTIFY_INIT_SCRIPT
+        // 注释；能力面 = capabilities/default.json 的 notification:allow-notify
+        // 一条——投递面零业务数据，授权面不授予（桌面 permission 面是 stub））
+        .plugin(tauri_plugin_notification::init())
         // W6e：主题提示回写命令（前端挂载时+主题变更时调用；缓存下次启动的窗口底色）
         .invoke_handler(tauri::generate_handler![theme_hint])
         .setup({

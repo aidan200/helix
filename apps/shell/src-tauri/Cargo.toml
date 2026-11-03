@@ -29,6 +29,13 @@ tauri-plugin-dialog = "2"
 # UX 能力族：OS 级热键监听只能由壳侧持有（webview 无全局键盘钩子），注册面
 # 零业务数据（accel 进、触发事件出，不触 daemon、不读 ~/.helix/）。
 tauri-plugin-global-shortcut = "2"
+# 系统通知（P0 三事件口分流桥；F3 壳原生 UX 能力族第三次套用，W6a/B4
+# 同族扩面）：官方 notification 插件自带三平台通知面（macOS
+# UNUserNotificationCenter / Windows WinRT toast / Linux notify-rust+D-Bus），
+# 平台差异全由插件消化——OS 系统通知只能由壳侧发（webview 无通知中心 API），
+# 且投递面零业务数据（title/body 文本进、OS 通知出，不触 daemon、不读
+# ~/.helix/）。口径实证见 spike 报告（.app bundle 形态真实投递，docs/temp）。
+tauri-plugin-notification = "2"
 serde_json = "1"
 
 # Unix 进程看护原语（SIGTERM/SIGKILL/setpgid 进程组）；Windows 关停分支走
