@@ -14,8 +14,10 @@ function ev(type: DomainEvent["type"], payload: unknown, at: number): DomainEven
   return { type, sessionId: "s1", instanceId: undefined, payload, occurredAt: T(at) };
 }
 
+// 载荷形态 = MessageCompletedPayload 扁平形态（主线 ChatService 与 SubAgent
+// 转译器同构发布；复盘批：初版误用投影层 EntryDto 嵌套形态致真机永不命中）
 function msgEntry(role: "assistant" | "user", content: string) {
-  return { entry: { kind: "message", id: `m-${role}`, role, content, ts: 1 } };
+  return { entryId: `m-${role}`, role, text: content, isSteer: false };
 }
 
 function run(...events: DomainEvent[]): { type: string; payload: Record<string, unknown> }[] {

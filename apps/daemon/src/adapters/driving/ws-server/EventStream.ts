@@ -841,11 +841,12 @@ export class EventStream implements EventPublisherPort {
         break;
       case "message.completed": {
         // assistant 摘录覆写（流上最后一次胜出 = 最终回复文本；user 条目
-        // 不入——摘要面只关心模型产出）
-        const entry = (event.payload as { entry?: { kind?: string; role?: string; content?: string } })
-          .entry;
-        if (entry?.kind === "message" && entry.role === "assistant" && typeof entry.content === "string") {
-          this.lastReplyExcerpts.set(event.sessionId, EventStream.excerptOf(entry.content));
+        // 不入——摘要面只关心模型产出）。载荷形态 = MessageCompletedPayload
+        // 扁平形态 { role, text }（主线 ChatService 与 SubAgent 转译器同构，
+        // 复盘批：初版误读投影层 EntryDto 嵌套形态致真机主会话永不命中）
+        const payload = event.payload as { role?: string; text?: string };
+        if (payload?.role === "assistant" && typeof payload.text === "string" && payload.text !== "") {
+          this.lastReplyExcerpts.set(event.sessionId, EventStream.excerptOf(payload.text));
         }
         break;
       }
