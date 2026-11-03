@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "spike 能力面：core 默认 + 通知插件默认权限",
+  "windows": ["main"],
+  "permissions": ["core:default", "notification:default"]
+}

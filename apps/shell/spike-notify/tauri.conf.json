@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "spike-notify",
+  "version": "0.0.0",
+  "identifier": "dev.helix.spike",
+  "build": {
+    "frontendDist": "dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "spike-notify",
+        "width": 420,
+        "height": 240
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.icns"]
+  }
+}
