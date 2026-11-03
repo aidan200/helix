@@ -2,8 +2,9 @@
 /**
  * 系统通知分流桥（SystemNotifyBridge）接线测试（P0）：
  * - steward.notify：窗口后台 → 系统通知；窗口前台 → 不发（toast 路径不变）；
- * - chat.turn.completed：仅「会话在后台 ∧ 窗口不在前台」发（标题=会话名，
- *   正文=固定白话标签，不杜撰帧内内容）；
+ * - chat.turn.completed：窗口不在前台即发（monitor 档/活跃会话均覆盖——
+ *   P0 首验缺口：发完消息切走窗口，回完了没人知道；标题=会话名，正文=
+ *   固定白话标签，不杜撰帧内内容）；
  * - 设置关 → 整体短路；60s 同内容去重窗；urgency=high 直发；
  * - 无原生能力挂载点（纯浏览器 dev）→ 静默不调用（零形态分支）。
  *
@@ -28,7 +29,10 @@ const stewardListeners = new Set<Listener>();
 const turnListeners = new Set<Listener>();
 
 /** 拓扑替身：引用稳定 + 内部 map 原地变更（组件在事件时点按引用读）。 */
-const topology: { background: Record<string, { title: string }> } = { background: {} };
+const topology: {
+  background: Record<string, { title: string }>;
+  list: { sessionId: string; title: string }[];
+} = { background: {}, list: [] };
 
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
@@ -150,6 +154,10 @@ describe("SystemNotifyBridge：chat.turn.completed 面", () => {
     nativeSystemNotify.mockClear();
     nativeCapable = true;
     topology.background = { "s-bg": { title: "重构登录" } };
+    topology.list = [
+      { sessionId: "s-active", title: "活跃会话" },
+      { sessionId: "s-bg", title: "重构登录" },
+    ];
     setBackground(true);
   });
   afterEach(() => {
@@ -166,7 +174,15 @@ describe("SystemNotifyBridge：chat.turn.completed 面", () => {
     expect(nativeSystemNotify).toHaveBeenCalledWith("重构登录", "回完了");
   });
 
-  it("活跃（前台）会话轮次结束 → 不发（用户正看着这条会话）", () => {
+  it("活跃会话轮次结束 ∧ 窗口后台 → 照发（P0 首验缺口：发完消息切走窗口；标题回退目录名单）", () => {
+    ui();
+    emitTurn("s-active");
+    expect(nativeSystemNotify).toHaveBeenCalledTimes(1);
+    expect(nativeSystemNotify).toHaveBeenCalledWith("活跃会话", "回完了");
+  });
+
+  it("窗口前台 → 活跃会话也不发（前台流式回复可见，零打扰）", () => {
+    setBackground(false);
     ui();
     emitTurn("s-active");
     expect(nativeSystemNotify).not.toHaveBeenCalled();

@@ -40,13 +40,6 @@ describe("系统通知判定（decideSystemNotify）", () => {
     ).toEqual({ send: false, reason: "disabled" });
   });
 
-  it("会话仍在前台被观察 → 不发（chat.turn.completed 面：用户正看着）", () => {
-    expect(decideSystemNotify({ ...base, sessionForeground: true }, ctx)).toEqual({
-      send: false,
-      reason: "session-active",
-    });
-  });
-
   it("normal 档 60s 同内容去重窗内重复 → 丢弃；窗外 → 发", () => {
     const seen = ctx.now - 10_000;
     expect(decideSystemNotify(base, { ...ctx, seenAt: seen })).toEqual({

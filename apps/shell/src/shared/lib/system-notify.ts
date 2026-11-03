@@ -2,12 +2,12 @@
  * 系统通知分流桥决策面（系统通知 P0）——「窗口前台 toast / 窗口后台系统通知」
  * 的分流判据单点（纯函数 + 本地偏好；零 IO、零 React，AG-14）。
  *
- * 三闸序（短路即止，序即优先级）：
+ * 闸序（短路即止，序即优先级）：
  *   1. 空守卫（title/body 空 → 不发，避免空气泡）；
  *   2. 设置开关（关 = 整体短路，含 high 档）；
- *   3. 窗口前台（前台已有 Toast/StewardNotifyToast 呈现，零二次打扰）；
- *   4. 会话前台观察（chat.turn.completed 面：用户正看着这条会话，角标已计）；
- *   5. 60s 同内容去重窗（normal 档；与 StewardNotifyToast 的
+ *   3. 窗口前台（前台已有 Toast/流式回复呈现，零二次打扰——窗口失焦时
+ *      看哪条会话都看不见，前台与否是唯一可见性判据）；
+ *   4. 60s 同内容去重窗（normal 档；与 StewardNotifyToast 的
  *      NOTIFY_DEDUP_WINDOW_MS 同值同义——服务端出口去重的前端兜底）。
  *
  * urgency 分流：high（warn 档，任务失败等）**直发**——不参与去重窗，同文案
@@ -53,8 +53,6 @@ export interface SystemNotifyRequest {
   readonly body: string;
   /** high = 门控高危（直发，不参与去重窗）；normal = 常规。 */
   readonly urgency: "high" | "normal";
-  /** 会话是否在前台被观察（仅 chat.turn.completed 面传入；缺省 = 不参与判定）。 */
-  readonly sessionForeground?: boolean;
   /** 语音覆盖位（仅 steward.notify 面传入；daemon 单源判定，§17.41）：
    *  true = 管家语音播报轨会响，听觉已触达——系统通知不再重复打扰。 */
   readonly voiceCovered?: boolean;
@@ -66,7 +64,6 @@ export type SystemNotifySkipReason =
   | "disabled"
   | "foreground"
   | "voice-covered"
-  | "session-active"
   | "duplicate";
 
 export type SystemNotifyDecision =
@@ -95,7 +92,6 @@ export function decideSystemNotify(
   // 语音覆盖闸（steward.notify 面；daemon 判定语音会响）——听觉已触达，
   // 视觉弹窗不再重复（用户裁决：管家语音会播时弹窗冗余）
   if (req.voiceCovered === true) return { send: false, reason: "voice-covered" };
-  if (req.sessionForeground === true) return { send: false, reason: "session-active" };
   if (
     req.urgency === "normal" &&
     ctx.seenAt !== undefined &&

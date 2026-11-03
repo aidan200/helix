@@ -6,9 +6,11 @@
  * - `steward.notify`（任务终态 + 管家感知同帧）：title/body 原样透传（文案单源
  *   在 daemon，kg TR-249 白话铁律；前端零二次生成）；与 StewardNotifyToast
  *   同构订阅点但**不改其现有逻辑**（toast 路径前台行为零变化）；
- * - `chat.turn.completed`（主会话回合完成）：仅「会话在后台（monitor 档
- *   topology.background 有该会话）∧ 窗口不在前台」时发——标题 = 会话名，
- *   正文 = 固定白话标签（不读 turnId/reason 拼文案：UUID 不上通知、不杜撰）。
+ * - `chat.turn.completed`（主会话回合完成）：窗口不在前台时发（会话在不在
+ *   monitor 后台档都发——窗口失焦时活跃会话的回合完成同样是「人不在看」，
+ *   P0 首验缺口即此：发完消息切走窗口，回完了没人知道）——标题 = 会话名
+ *   （monitor 档优先，缺席回退会话目录 topo.list），正文 = 固定白话标签
+ *   （不读 turnId/reason 拼文案：UUID 不上通知、不杜撰）。
  *
  * 判据单点在 shared/lib/system-notify（纯函数），本组件只做：订阅 → 读现态
  * （偏好/前台/去重窗）→ 调 shared/api/native-capability 的 seam。原生能力
@@ -35,7 +37,10 @@ export default function SystemNotifyBridge() {
   const session = useSession() as {
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
     subscribeChatTurnFrames?: (listener: (e: EventEnvelope) => void) => () => void;
-    topology?: { background: Record<string, { title: string }> };
+    topology?: {
+      background: Record<string, { title: string }>;
+      list?: { sessionId: string; title: string }[];
+    };
   };
   const { subscribeStewardFrames, subscribeChatTurnFrames, topology } = session;
   const { t } = useI18n();
@@ -90,13 +95,20 @@ export default function SystemNotifyBridge() {
       if (event.type !== "chat.turn.completed") return;
       const sid = event.sessionId;
       if (typeof sid !== "string" || sid === "") return;
-      const bg = topologyRef.current?.background?.[sid];
-      // 后台会话判据（复用 monitor 档后台 store）：查不到 = 用户正看着这条
-      // 会话（活跃 store）→ 角标已计，系统通知不打扰
-      if (bg === undefined) return;
-      const title = bg.title !== "" ? bg.title : t("chat.notify.system.untitledSession");
+      const topo = topologyRef.current;
+      // 标题源：monitor 档后台态优先，缺席（= 会话正活跃）回退会话目录——
+      // 可见性不再按会话分档裁决：窗口失焦时看哪条会话都看不见，统一归
+      // decide 的窗口前台闸（前台流式回复本来可见，零二次打扰）
+      const title =
+        topo?.background?.[sid]?.title ??
+        topo?.list?.find((m) => m.sessionId === sid)?.title ??
+        "";
       // 正文固定白话标签：帧内只有 turnId(UUID)/reason，均不上通知（TR-249）
-      deliver(title, t("chat.notify.system.turnDoneBody"), "normal");
+      deliver(
+        title !== "" ? title : t("chat.notify.system.untitledSession"),
+        t("chat.notify.system.turnDoneBody"),
+        "normal",
+      );
     });
     return () => {
       offSteward();
