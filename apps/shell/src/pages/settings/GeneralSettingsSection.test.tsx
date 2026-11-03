@@ -1312,3 +1312,31 @@ describe("通用分区「网络代理」组（网络代理批）", () => {
     }
   });
 });
+
+// ── 系统通知 P0：通用分区「系统通知」开关（本地偏好，默认开）──
+describe("通用分区「系统通知」开关（系统通知 P0）", () => {
+  it("开关在场且默认开（缺省偏好 = 开）", () => {
+    const { container } = ui();
+    const toggle = container.querySelector<HTMLInputElement>("[data-system-notify-toggle]");
+    expect(toggle).not.toBeNull();
+    expect(toggle!.checked).toBe(true);
+  });
+
+  it("取消勾选 → localStorage 持久化关闭（分流桥整体短路）", () => {
+    const { container } = ui();
+    const toggle = container.querySelector<HTMLInputElement>("[data-system-notify-toggle]")!;
+    fireEvent.click(toggle);
+    expect(localStorage.getItem("helix.notify.system")).toBe("0");
+    expect(toggle.checked).toBe(false);
+  });
+
+  it("文案双语在场（zh 标题 / en 标题各一次，键位与 chat.settings.general 同族）", () => {
+    const { container, unmount } = ui();
+    expect(container.textContent).toContain("系统通知");
+    unmount();
+    localStorage.setItem("helix-lang", "en-US");
+    const { container: en } = ui();
+    expect(en.textContent).toContain("System notifications");
+    localStorage.removeItem("helix-lang");
+  });
+});
