@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "helix 壳默认能力面（W6a + B4 + 系统通知 P0）：core 默认集 + dialog open（原生目录选择）+ global-shortcut register/unregister（全局组合键）+ notification notify（系统通知投递）——F3 裁定的壳原生 UX 能力族（窗口按标签授予 main/error）；授权查询面不授予（桌面插件 permission 面是恒 Granted 的 stub，前端不做授权门控）",
+  "description": "helix 壳默认能力面（W6a + B4 + 系统通知 P0）：core 默认集 + dialog open（原生目录选择）+ global-shortcut register/unregister（全局组合键）+ notification notify（系统通知投递）——F3 裁定的壳原生 UX 能力族（窗口按标签授予 main/error）；授权查询面授予（仅 allow-is-permission-granted：插件 init-iife 启动即调它写 Notification.permission，不授予则未捕获拒绝噪音；桌面实现为恒 Granted 常量 stub，无 OS 交互——request/批量面仍不授予）",
   "windows": ["main", "error"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
-    "notification:allow-notify"
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted"
   ]
 }

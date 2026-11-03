@@ -77,10 +77,16 @@ export default function SystemNotifyBridge() {
         return;
       }
       if (urgency === "high") dedup.mark(key, now); // 直发也记账：随后的同内容 normal 不再补发
-      void nativeSystemNotify(title, body).catch((err: unknown) => {
-        // 诊断日志（DEV 门控）：不吞错也不打扰用户——通知失败不影响会话主链
-        if (import.meta.env.DEV) console.warn(`[system-notify] native notify failed: ${String(err)}`);
-      });
+      void nativeSystemNotify(title, body)
+        .then(() => {
+          // 诊断日志（DEV 门控）：发送成功可见——「发了但 OS 丢弃」与「根本没发」
+          // 在前端面不可分，成功日志是两者判据的分界线（P0 联测教训）
+          if (import.meta.env.DEV) console.info(`[system-notify] sent: ${title}`);
+        })
+        .catch((err: unknown) => {
+          // 诊断日志（DEV 门控）：不吞错也不打扰用户——通知失败不影响会话主链
+          if (import.meta.env.DEV) console.warn(`[system-notify] native notify failed: ${String(err)}`);
+        });
     };
 
     const offSteward = subscribeStewardFrames((event: EventEnvelope) => {
