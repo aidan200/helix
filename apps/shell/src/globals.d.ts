@@ -44,3 +44,12 @@ declare var helixHotkeyRegister:
   | ((accel: string, onFire: () => void) => Promise<void>)
   | undefined;
 declare var helixHotkeyUnregister: ((accel: string) => Promise<void>) | undefined;
+
+/**
+ * 系统通知 P0：壳注入的系统通知挂载点（W6a/B4 同构形态）：src-tauri
+ * initialization_script 在页面脚本前挂 `window.helixNotify`（tauri-plugin-
+ * notification 命令面，平台差异由插件消化）。纯浏览器 dev 无挂载点 →
+ * undefined，消费面经 shared/api/native-capability.ts seam 受控访问（探测 +
+ * 调用，前端零 Tauri 内部形态词；同上 AG-17/TR-AD-12 词面守护）。
+ */
+declare var helixNotify: ((title: string, body: string) => Promise<void>) | undefined;

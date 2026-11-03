@@ -225,6 +225,12 @@ export const LISTEN_SURFACE = {
       type === "provider.list.result" ||
       type === "connection.error",
   },
+  /** 订阅 chat 轮终态帧（系统通知 P0 分流桥）：chat.turn.completed 旁路转发
+   *  （会话 store 照常由 dispatcher 消费，本域只供「后台会话轮次结束 → OS 通知」
+   *  承接面读取；monitor 档白名单含此类型，后台会话必达）。 */
+  subscribeChatTurnFrames: {
+    match: (type) => type === "chat.turn.completed",
+  },
 } satisfies Record<string, ListenDomainSpec>;
 
 /** 订阅面域键。 */

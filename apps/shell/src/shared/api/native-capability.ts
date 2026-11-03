@@ -92,3 +92,39 @@ export async function nativeHotkeyUnregister(accel: string): Promise<void> {
   if (unreg === undefined) return;
   await unreg(accel);
 }
+
+// ── 系统通知（W6a/B4 同构 seam：壳注入挂载点受控访问）────────────
+//
+// 壳（src-tauri）经 initialization_script 挂 `window.helixNotify`（内部走
+// tauri-plugin-notification 自带命令面，平台差异由插件消化：macOS
+// UNUserNotificationCenter / Windows WinRT toast / Linux D-Bus）。F3 裁定的
+// 壳原生 UX 能力族第三次套用：OS 通知只能由壳侧发，且注册面零业务数据
+// （title/body 文本进、OS 通知出，不触 daemon、不读 ~/.helix/）。
+//
+// 注意（spike 实证）：桌面面插件的 permission_state/request_permission 是
+// 恒 Granted 的 stub——授权框由首次投递时 macOS 自行拉起，故本 seam 不提供
+// 授权查询面（前端不做授权门控）。
+
+/** 壳注入的系统通知函数形态（挂载点声明见 globals.d.ts）。 */
+type NativeNotify = (title: string, body: string) => Promise<void>;
+
+function notifyFn(): NativeNotify | undefined {
+  const fn = globalThis.helixNotify;
+  return typeof fn === "function" ? fn : undefined;
+}
+
+/** 系统通知能力探测（纯浏览器 dev 无挂载点 → false，分流桥自然休眠）。 */
+export function hasSystemNotify(): boolean {
+  return notifyFn() !== undefined;
+}
+
+/**
+ * 发系统通知：title/body 零变换透传（文案单源在 daemon，壳/前端不生成）。
+ * 无能力 → 静默 no-op（纯浏览器 dev）；底层异常（插件故障等）**上抛**供
+ * 消费面处置（W6j 同规：不吞错伪装成已通知）。
+ */
+export async function nativeSystemNotify(title: string, body: string): Promise<void> {
+  const notify = notifyFn();
+  if (notify === undefined) return;
+  await notify(title, body);
+}

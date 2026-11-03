@@ -5,6 +5,14 @@
  */
 export const chat = {
   chat: {
+    // 系统通知 P0：OS 通知文案（壳侧分流桥透传面——这里的固定标签只用于
+    // 无 daemon 文案的 chat.turn.completed 面；daemon 单源文案不经本组）
+    notify: {
+      system: {
+        turnDoneBody: "回完了",
+        untitledSession: "一个对话",
+      },
+    },
     header: {
       // P1 T4：session 静态 chip 退役（模式显示名迁 chat.mode.*；选择器
       // title/aria 用 modeTitle）

@@ -7,6 +7,12 @@ import type { Translations } from "../zh-CN";
 
 export const chat = {
   chat: {
+    notify: {
+      system: {
+        turnDoneBody: "Reply ready",
+        untitledSession: "A conversation",
+      },
+    },
     header: {
       modeTitle: "Session mode (switchable only in draft)",
       home: "~/.helix",

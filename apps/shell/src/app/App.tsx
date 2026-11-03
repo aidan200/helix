@@ -54,6 +54,7 @@ import { useAppRoute } from "./useAppRoute";
 import TaskSyncHintToast from "./TaskSyncHintToast";
 import CoordNoticeToast from "./CoordNoticeToast";
 import StewardNotifyToast from "./StewardNotifyToast";
+import SystemNotifyBridge from "./SystemNotifyBridge";
 import { useVoiceBroadcast } from "@/features/voice/model/useVoiceBroadcast";
 import StewardDock from "@/features/steward/ui/StewardDock";
 import ConfirmStack from "@/features/steward/ui/ConfirmStack";
@@ -242,6 +243,9 @@ export function AppRoutes() {
       <CoordNoticeToast />
       {/* 管家感知批 M0.5 主动通知（steward.notify 分诊呈现轨；接续提案点按才动） */}
       <StewardNotifyToast onOpenTasks={goTasks} />
+      {/* 系统通知 P0 分流桥（零 UI）：窗口后台时 steward.notify + chat.turn.completed
+          走 OS 系统通知；前台维持应用内 toast（本桥不改 toast 路径） */}
+      <SystemNotifyBridge />
     </>
   );
 }
