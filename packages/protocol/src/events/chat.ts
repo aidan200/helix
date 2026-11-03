@@ -19,6 +19,13 @@ export interface ChatTurnStartedPayload {
 export interface ChatTurnCompletedPayload {
   turnId: string;
   reason: TurnCompletionReason;
+  /**
+   * 本轮最后一条 assistant 回复的单行化摘录（additive，可选；daemon 流上
+   * 投影：EventStream 从最近 message.completed 提取，空白折叠单行、80 码点
+   * 截断——不落 domain_events，无第二事实源）。缺席 = 旧 daemon / 本轮无
+   * assistant 文本——消费面（系统通知正文）回退固定标签。
+   */
+  lastReplyExcerpt?: string;
 }
 
 /** 引擎/模型调用失败（终验热修：provider 错误透传——stopReason=error 的模型调用失败经此帧下发，不崩会话）。 */

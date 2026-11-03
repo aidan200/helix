@@ -72,8 +72,16 @@ import {
 
 /** 事件映射所需的投影上下文（由 EventStream 维护，见 EventStream.ts）。 */
 export interface EventMapContext {
-  /** 领域 turn.completed 事件不带 turnId（发布时聚合轮次已收口）→ 以最近轮次补齐。 */
+  /**
+   * 领域 turn.completed 事件不带 turnId（发布时聚合轮次已收口）→ 以最近轮次补齐。
+   */
   readonly fallbackTurnId?: string;
+  /**
+   * 本轮最后一条 assistant 回复的单行化摘录（同 fallbackTurnId 流上投影模式：
+   * EventStream 从最近 message.completed 提取维护，注入 turn.completed 帧；
+   * 不落 domain_events——派生值无第二事实源）。缺席 = 本轮无 assistant 文本。
+   */
+  readonly lastReplyExcerpt?: string;
   /** tool.call.result 的耗时（协议要求；由 start/result 两次 occurredAt 差值算出）。 */
   readonly durationMs?: number;
   /**
@@ -135,6 +143,9 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
           turnId: event.turnId ?? ctx?.fallbackTurnId ?? "",
           // 领域 done/steerDrained → 协议 completed（steerDrained 是正常收口）
           reason: p.reason === "aborted" ? "aborted" : "completed",
+          // assistant 摘录透传（缺席 = 本轮无 assistant 文本——additive 字段
+          // 不携带键，旧消费面安全）
+          ...(ctx?.lastReplyExcerpt !== undefined ? { lastReplyExcerpt: ctx.lastReplyExcerpt } : {}),
         },
       };
       return frame;

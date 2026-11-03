@@ -147,6 +147,12 @@ export class EventStream implements EventPublisherPort {
   private readonly connections = new Map<FrameSender, ConnProjection>();
   /** 多会话：轮次上下文按会话分仓（turn id 序号各会话独立递增）。 */
   private readonly lastTurnIds = new Map<string, string>();
+  /**
+   * 本轮最后一条 assistant 回复的单行化摘录（sessionId 键）——turn.completed
+   * 帧注入用（流上投影：message.completed 流过时覆写，turn 收口即删；
+   * 不落 domain_events，无第二事实源）。系统通知正文/后台预览等消费面用。
+   */
+  private readonly lastReplyExcerpts = new Map<string, string>();
   /** steward.notify 60s 短窗去重窗（key=title\u0000body → 上次发出时刻；
    *  确认链路修复批⑥——叠加在感知服务限流之上，不替代）。 */
   private readonly notifyDedupRecent = new Map<string, number>();
@@ -750,6 +756,9 @@ export class EventStream implements EventPublisherPort {
 
   publish(event: DomainEvent): void {
     const duration = this.takeDuration(event); // 先取差值（内部一并清理起点记录）
+    // 摘录快照必须先于 trackProjectionContext 读（turn 收口在 track 内删条目，
+    // 后读必空）——turn.completed 帧的本轮摘录经此注入
+    const lastReplyExcerpt = this.lastReplyExcerpts.get(event.sessionId);
     this.trackProjectionContext(event);
     // 契约 v0.3 §1：agent.spawned 帧锚点 enrichment——spawn 时值查调度器
     // 内存携带面（领域事件载荷不携带，不落 domain_events；E-AgentInstance 禁忌）
@@ -759,6 +768,7 @@ export class EventStream implements EventPublisherPort {
         : undefined;
     const envelope = domainEventToEnvelope(event, {
       fallbackTurnId: this.lastTurnIds.get(event.sessionId) ?? "",
+      ...(lastReplyExcerpt !== undefined ? { lastReplyExcerpt } : {}),
       ...duration,
       ...(spawnAnchor !== undefined ? { spawnAnchor } : {}),
       // T10a kind 判别基准（装配缺省/未热会话 → undefined = legacy 判别）
@@ -829,6 +839,16 @@ export class EventStream implements EventPublisherPort {
       case "turn.started":
         this.lastTurnIds.set(event.sessionId, (event.payload as { turnId: string }).turnId);
         break;
+      case "message.completed": {
+        // assistant 摘录覆写（流上最后一次胜出 = 最终回复文本；user 条目
+        // 不入——摘要面只关心模型产出）
+        const entry = (event.payload as { entry?: { kind?: string; role?: string; content?: string } })
+          .entry;
+        if (entry?.kind === "message" && entry.role === "assistant" && typeof entry.content === "string") {
+          this.lastReplyExcerpts.set(event.sessionId, EventStream.excerptOf(entry.content));
+        }
+        break;
+      }
       case "tool.call.started":
         this.toolStartedAt.set(this.toolKeyOf(event), Date.parse(event.occurredAt));
         break;
@@ -843,6 +863,9 @@ export class EventStream implements EventPublisherPort {
         for (const key of [...this.toolStartedAt.keys()]) {
           if (key.startsWith(`${event.sessionId}:${event.instanceId ?? "main"}:`)) this.toolStartedAt.delete(key);
         }
+        // 摘录同批清理（摘要属于该 turn，收口后失效；映射面已在 publish
+        // 快照先读——不丢值）
+        this.lastReplyExcerpts.delete(event.sessionId);
         break;
       default:
         break;
@@ -854,6 +877,15 @@ export class EventStream implements EventPublisherPort {
   private toolKeyOf(event: DomainEvent): string {
     const id = (event.payload as { toolCallId: string }).toolCallId;
     return `${event.sessionId}:${event.instanceId ?? "main"}:${id}`;
+  }
+
+  /** 摘录单行化：空白折叠为单空格 + 80 码点截断（超长补省略号；按码点切
+   *  防 emoji 代理对截半——通知正文/预览单行语义，daemon 单源）。 */
+  private static excerptOf(content: string): string {
+    const flat = content.replace(/\s+/g, " ").trim();
+    if (flat === "") return "";
+    const cps = Array.from(flat);
+    return cps.length > 80 ? `${cps.slice(0, 80).join("")}…` : flat;
   }
 
   /** 取出 tool.call.result 的 durationMs（读后即删，防泄漏；非 result 事件无值。

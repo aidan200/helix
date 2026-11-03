@@ -181,6 +181,21 @@ describe("SystemNotifyBridge：chat.turn.completed 面", () => {
     expect(nativeSystemNotify).toHaveBeenCalledWith("活跃会话", "回完了");
   });
 
+  it("帧带 lastReplyExcerpt → 正文=摘要（daemon 单源投影；不截断不拼接零变换）", () => {
+    ui();
+    emitTurn("s-bg", { lastReplyExcerpt: "修复已提交：WKWebView 怪癖改事件维护态" });
+    expect(nativeSystemNotify).toHaveBeenCalledWith(
+      "重构登录",
+      "修复已提交：WKWebView 怪癖改事件维护态",
+    );
+  });
+
+  it("摘录为空串/非 string → 回退固定白话标签（旧 daemon / 空 turn 安全垫）", () => {
+    ui();
+    emitTurn("s-bg", { lastReplyExcerpt: "" });
+    expect(nativeSystemNotify).toHaveBeenCalledWith("重构登录", "回完了");
+  });
+
   it("窗口前台 → 活跃会话也不发（前台流式回复可见，零打扰）", () => {
     setBackground(false);
     ui();

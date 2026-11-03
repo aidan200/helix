@@ -107,10 +107,16 @@ export default function SystemNotifyBridge() {
         topo?.background?.[sid]?.title ??
         topo?.list?.find((m) => m.sessionId === sid)?.title ??
         "";
-      // 正文固定白话标签：帧内只有 turnId(UUID)/reason，均不上通知（TR-249）
+      // 正文：assistant 摘录优先（daemon 单源投影，80 码点单行）；缺席
+      // （旧 daemon / 本轮无 assistant 文本 / 空 turn）回退固定白话标签
+      const rawExcerpt = (event.payload as { lastReplyExcerpt?: unknown }).lastReplyExcerpt;
+      const body =
+        typeof rawExcerpt === "string" && rawExcerpt !== ""
+          ? rawExcerpt
+          : t("chat.notify.system.turnDoneBody");
       deliver(
         title !== "" ? title : t("chat.notify.system.untitledSession"),
-        t("chat.notify.system.turnDoneBody"),
+        body,
         "normal",
       );
     });
