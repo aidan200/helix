@@ -38,12 +38,30 @@ export function writeSystemNotifyPref(on: boolean): void {
   writePersistedFlag(SYSTEM_NOTIFY_PREF_KEY, on);
 }
 
+/** 事件维护的聚焦态——WKWebView 的 document.hasFocus() 有 app 失焦仍返回
+ *  true 的怪癖（P0 首验实证：切走窗口后判定恒前台，通知被静默 skip 且零
+ *  日志痕迹）；window blur/focus 事件在 WKWebView 上可靠跟随 app 激活态，
+ *  以事件维护值短路查询值。初始 true（乐观：真前台绝不误判后台误弹）。 */
+let focusedByEvent = true;
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("blur", () => {
+    focusedByEvent = false;
+  });
+  window.addEventListener("focus", () => {
+    focusedByEvent = true;
+  });
+}
+
 /** 窗口是否在前台（可见 ∧ 聚焦）——失焦/最小化/被遮挡一律按后台处理，
- *  系统通知只在后台发（前台已有 toast 面）。 */
+ *  系统通知只在后台发（前台已有 toast 面）。聚焦判定 = 事件维护态 ∧
+ *  hasFocus 查询（任一为 false 即后台——宁可多弹不可漏弹）。 */
 export function isWindowForeground(): boolean {
   if (typeof document === "undefined") return true;
   const visible = document.visibilityState === "visible";
-  const focused = typeof document.hasFocus === "function" ? document.hasFocus() : true;
+  const focused =
+    focusedByEvent &&
+    (typeof document.hasFocus === "function" ? document.hasFocus() : true);
   return visible && focused;
 }
 

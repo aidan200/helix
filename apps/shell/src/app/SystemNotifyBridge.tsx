@@ -71,7 +71,11 @@ export default function SystemNotifyBridge() {
         { title, body, urgency, ...(opts?.sessionForeground !== undefined ? { sessionForeground: opts.sessionForeground } : {}), ...(opts?.voiceCovered !== undefined ? { voiceCovered: opts.voiceCovered } : {}) },
         { enabled: readSystemNotifyPref(), foreground: isWindowForeground(), seenAt, now },
       );
-      if (!decision.send) return;
+      if (!decision.send) {
+        // 诊断日志（DEV 门控）：skip 原因可见——断链排查不再零痕迹（P0 首验教训）
+        if (import.meta.env.DEV) console.info(`[system-notify] skip: ${decision.reason}`);
+        return;
+      }
       if (urgency === "high") dedup.mark(key, now); // 直发也记账：随后的同内容 normal 不再补发
       void nativeSystemNotify(title, body).catch((err: unknown) => {
         // 诊断日志（DEV 门控）：不吞错也不打扰用户——通知失败不影响会话主链

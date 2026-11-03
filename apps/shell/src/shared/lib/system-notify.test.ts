@@ -5,9 +5,10 @@
  *
  * 纯函数面：不触原生、不触 React——判定逻辑单点在此，组件层只做接线。
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideSystemNotify,
+  isWindowForeground,
   readSystemNotifyPref,
   SystemNotifyDedup,
   SYSTEM_NOTIFY_DEDUP_WINDOW_MS,
@@ -140,5 +141,16 @@ describe("语音覆盖闸（voiceCovered——steward.notify 面，§17.41：管
         { enabled: true, foreground: true, seenAt: undefined, now: 1000 },
       ),
     ).toEqual({ send: false, reason: "foreground" });
+  });
+});
+
+describe("isWindowForeground：WKWebView hasFocus 怪癖护栏（首验缺口回归锚）", () => {
+  it("hasFocus 恒 true 时，window blur 事件仍把窗口判为后台（事件态短路查询态）", () => {
+    const hasFocusSpy = vi.spyOn(document, "hasFocus").mockReturnValue(true); // 模拟怪癖：app 失焦仍 true
+    window.dispatchEvent(new Event("blur"));
+    expect(isWindowForeground()).toBe(false);
+    window.dispatchEvent(new Event("focus"));
+    expect(isWindowForeground()).toBe(true);
+    hasFocusSpy.mockRestore();
   });
 });
