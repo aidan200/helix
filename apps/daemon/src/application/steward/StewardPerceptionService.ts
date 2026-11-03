@@ -406,8 +406,10 @@ export class StewardPerceptionService {
     const body = status === "failed" ? "任务失败了" : status === "cancelled" ? "任务被停掉了" : "任务完成了";
     const urgency = status === "failed" ? "high" : "normal";
     // 语音（播报队列独立限流——上限 5 溢出合并，不受通知预算约束）：
-    // failed 恒播（真出事破沉默）；done/cancelled 仅激活态（说面与 TR-250 同源）
-    if (status === "failed" || this.isActive()) {
+    // failed 恒播（真出事破沉默）；done/cancelled 仅激活态（说面与 TR-250 同源）。
+    // voiceCovered 与语音入队条件同源机械对齐（§17.41）：消费端见 true 跳过系统通知
+    const voiceCovered = status === "failed" || this.isActive();
+    if (voiceCovered) {
       this.deps.voice?.enqueueDiagnosed({ kind: "task.done", agentId: sessionId, text: body });
     }
     if (urgency !== "high") {
@@ -420,6 +422,7 @@ export class StewardPerceptionService {
       title: taskTitle,
       body,
       suggestions: status === "done" ? [{ label: "看看报告", verb: "open_tasks" }] : [],
+      voiceCovered,
       seq: this.notifySeq,
     });
   }
@@ -622,8 +625,10 @@ export class StewardPerceptionService {
         voiceText = input.fallbackText ?? "那个对话回你了";
         notifyBody = voiceText;
       }
-      // 语音激活绑定（C 裁决）：详报只在光球在场时上嘴；不在场 = notify 机械短讯静默告知
-      if (this.isActive()) {
+      // 语音激活绑定（C 裁决）：详报只在光球在场时上嘴；不在场 = notify 机械短讯静默告知。
+      // voiceCovered 与语音入队条件同源机械对齐（§17.41）：消费端见 true 跳过系统通知
+      const voiceCovered = this.isActive();
+      if (voiceCovered) {
         this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text: voiceText });
       }
       // notify 机械短讯（白话——通知生命周期短，写多也看不完）
@@ -634,6 +639,7 @@ export class StewardPerceptionService {
         urgency: "normal",
         title,
         body: notifyBody,
+        voiceCovered,
         seq: this.notifySeq,
       });
       if (this.isActive()) {
@@ -729,7 +735,9 @@ export class StewardPerceptionService {
   private emitFallbackDelivery(input: DiagnosisInput): void {
     const text = input.fallbackText ?? "那个对话回你了";
     if (!this.tryTakeNormalNotifyBudget(`管家保底通知预算超限，丢弃：${text.slice(0, 40)}`)) return;
-    if (this.isActive()) {
+    // voiceCovered 与语音入队条件同源机械对齐（§17.41）
+    const voiceCovered = this.isActive();
+    if (voiceCovered) {
       this.deps.voice?.enqueueDiagnosed({ kind: input.voiceKind, agentId: input.voiceAgentId, text });
     }
     const title = input.taskTitle ?? "对话回复了";
@@ -738,6 +746,7 @@ export class StewardPerceptionService {
       urgency: "normal",
       title,
       body: text,
+      voiceCovered,
       seq: this.notifySeq,
     });
     if (this.isActive()) {

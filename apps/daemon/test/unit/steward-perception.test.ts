@@ -401,3 +401,29 @@ describe("通知预算：normal ≤4 条/小时，high 豁免（机械通知同�
     expect(notifies.every((n) => n.body === "任务失败了")).toBe(true); // 白话机械短讯
   });
 });
+
+describe("voiceCovered 语音覆盖位（§17.41：与同点语音入队条件同源机械对齐——消费端见 true 跳过系统通知）", () => {
+  test("未激活 job done → voiceCovered=false（语音不响，系统通知是唯一触达）", async () => {
+    const { perception, notifies, tts } = makeStack({ stewardSubscribed: false, subscribers: 1 });
+    perception.onJobTerminal("job-vc-1", "done", "语音覆盖测试");
+    await broadcast_drain(perception);
+    expect(notifies[0]!.voiceCovered).toBe(false);
+    expect(tts.calls.length).toBe(0); // 未激活 normal 零语音（C 裁决）
+  });
+
+  test("激活 job done → voiceCovered=true（语音同句会播）", async () => {
+    const { perception, notifies, tts } = makeStack({ stewardSubscribed: true, recentAsk: true, subscribers: 1 });
+    perception.onJobTerminal("job-vc-2", "done", "语音覆盖测试");
+    await broadcast_drain(perception);
+    expect(notifies[0]!.voiceCovered).toBe(true);
+    expect(tts.calls.length).toBe(1); // 激活 = 语音同句直供
+  });
+
+  test("未激活 job failed → voiceCovered=true（failed 破沉默恒播——弹窗冗余）", async () => {
+    const { perception, notifies, tts } = makeStack({ stewardSubscribed: false, subscribers: 1 });
+    perception.onJobTerminal("job-vc-3", "failed", "语音覆盖测试");
+    await broadcast_drain(perception);
+    expect(notifies[0]!.voiceCovered).toBe(true);
+    expect(tts.calls.length).toBe(1); // failed 恒播
+  });
+});

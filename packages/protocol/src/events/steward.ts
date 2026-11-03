@@ -486,6 +486,11 @@ export interface StewardNotifyPayload {
   body: string;
   /** 接续提案（可选；点按才动）。 */
   suggestions?: readonly StewardNotifySuggestion[];
+  /** 语音覆盖位（additive，可选）：true = daemon 侧语音播报轨会响（语音会播
+   *  判据与同点 enqueueDiagnosed 入队条件同源机械对齐——onJobTerminal 为
+   *  failed||激活，其余为激活态）。消费端见 true 可跳过系统通知（听觉已触达，
+   *  视觉弹窗冗余）；缺省/undefined = 旧 daemon 不携带，按不覆盖处理。 */
+  voiceCovered?: boolean;
   /** 连接内单调顺序号（1 起；shell 侧顺序保障/丢帧检测面）。 */
   seq: number;
 }

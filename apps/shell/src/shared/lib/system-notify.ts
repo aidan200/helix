@@ -55,6 +55,9 @@ export interface SystemNotifyRequest {
   readonly urgency: "high" | "normal";
   /** 会话是否在前台被观察（仅 chat.turn.completed 面传入；缺省 = 不参与判定）。 */
   readonly sessionForeground?: boolean;
+  /** 语音覆盖位（仅 steward.notify 面传入；daemon 单源判定，§17.41）：
+   *  true = 管家语音播报轨会响，听觉已触达——系统通知不再重复打扰。 */
+  readonly voiceCovered?: boolean;
 }
 
 /** 不发原因（诊断/测试面；不进用户可见文案）。 */
@@ -62,6 +65,7 @@ export type SystemNotifySkipReason =
   | "empty"
   | "disabled"
   | "foreground"
+  | "voice-covered"
   | "session-active"
   | "duplicate";
 
@@ -88,6 +92,9 @@ export function decideSystemNotify(
   if (req.title.trim() === "" || req.body.trim() === "") return { send: false, reason: "empty" };
   if (!ctx.enabled) return { send: false, reason: "disabled" };
   if (ctx.foreground) return { send: false, reason: "foreground" };
+  // 语音覆盖闸（steward.notify 面；daemon 判定语音会响）——听觉已触达，
+  // 视觉弹窗不再重复（用户裁决：管家语音会播时弹窗冗余）
+  if (req.voiceCovered === true) return { send: false, reason: "voice-covered" };
   if (req.sessionForeground === true) return { send: false, reason: "session-active" };
   if (
     req.urgency === "normal" &&

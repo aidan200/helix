@@ -186,3 +186,38 @@ describe("SystemNotifyBridge：chat.turn.completed 面", () => {
     expect(nativeSystemNotify).not.toHaveBeenCalled();
   });
 });
+
+describe("SystemNotifyBridge：voiceCovered 语音覆盖（§17.41——管家语音会播时跳过系统通知）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("helix-lang", "zh-CN");
+    nativeSystemNotify.mockClear();
+    nativeCapable = true;
+    topology.background = {};
+    setBackground(true);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    stewardListeners.clear();
+    turnListeners.clear();
+  });
+
+  it("steward.notify voiceCovered=true → 后台也不发系统通知（语音已触达）", () => {
+    ui();
+    emitSteward({ urgency: "normal", title: "任务完成", body: "整理完了", voiceCovered: true, seq: 1 });
+    expect(nativeSystemNotify).not.toHaveBeenCalled();
+  });
+
+  it("voiceCovered=false → 照发（语音不会响，通知是唯一触达）", () => {
+    ui();
+    emitSteward({ urgency: "normal", title: "任务完成", body: "整理完了", voiceCovered: false, seq: 2 });
+    expect(nativeSystemNotify).toHaveBeenCalledTimes(1);
+  });
+
+  it("旧 daemon 缺省字段 → 照发（additive 零破坏）", () => {
+    ui();
+    emitSteward({ urgency: "normal", title: "任务完成", body: "整理完了", seq: 3 });
+    expect(nativeSystemNotify).toHaveBeenCalledTimes(1);
+  });
+});

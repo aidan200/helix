@@ -52,13 +52,18 @@ export default function SystemNotifyBridge() {
 
     /** 统一投递面：判定 → 记账 → 原生发（异常上抛但在此收口为静默诊断，
      *  绝不因通知失败影响会话主链）。 */
-    const deliver = (title: string, body: string, urgency: "high" | "normal", sessionForeground?: boolean) => {
+    const deliver = (
+      title: string,
+      body: string,
+      urgency: "high" | "normal",
+      opts?: { sessionForeground?: boolean; voiceCovered?: boolean },
+    ) => {
       const now = Date.now();
       const key = stewardKey(title, body);
       // 去重窗记账先于判定（口径同 StewardNotifyToast：先记账再短路）
       const seenAt = urgency === "normal" ? dedup.seenAt(key, now) : undefined;
       const decision = decideSystemNotify(
-        { title, body, urgency, ...(sessionForeground !== undefined ? { sessionForeground } : {}) },
+        { title, body, urgency, ...(opts?.sessionForeground !== undefined ? { sessionForeground: opts.sessionForeground } : {}), ...(opts?.voiceCovered !== undefined ? { voiceCovered: opts.voiceCovered } : {}) },
         { enabled: readSystemNotifyPref(), foreground: isWindowForeground(), seenAt, now },
       );
       if (!decision.send) return;
@@ -75,7 +80,10 @@ export default function SystemNotifyBridge() {
       // text/sub 守卫（CoordNoticeToast/StewardNotifyToast 同规）
       if (typeof p.title !== "string" || p.title === "") return;
       if (typeof p.body !== "string" || p.body === "") return;
-      deliver(p.title, p.body, p.urgency === "high" ? "high" : "normal");
+      // voiceCovered 透传（daemon 判定语音会响 → 分流桥跳过系统通知，§17.41）
+      deliver(p.title, p.body, p.urgency === "high" ? "high" : "normal", {
+        ...(typeof p.voiceCovered === "boolean" ? { voiceCovered: p.voiceCovered } : {}),
+      });
     });
 
     const offTurn = subscribeChatTurnFrames((event: EventEnvelope) => {

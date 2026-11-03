@@ -105,3 +105,47 @@ describe("系统通知偏好（本地开关，默认开）", () => {
     expect(readSystemNotifyPref()).toBe(true);
   });
 });
+
+describe("语音覆盖闸（voiceCovered——steward.notify 面，§17.41：管家语音会播时弹窗冗余）", () => {
+  it("voiceCovered=true → 不发（reason=voice-covered；听觉已触达）", () => {
+    expect(
+      decideSystemNotify(
+        { title: "任务完成", body: "任务完成了", urgency: "normal", voiceCovered: true },
+        { enabled: true, foreground: false, seenAt: undefined, now: 1000 },
+      ),
+    ).toEqual({ send: false, reason: "voice-covered" });
+  });
+
+  it("voiceCovered=true 且 high → 同样不发（failed 恒有语音，弹窗冗余）", () => {
+    expect(
+      decideSystemNotify(
+        { title: "任务失败", body: "任务失败了", urgency: "high", voiceCovered: true },
+        { enabled: true, foreground: false, seenAt: undefined, now: 1000 },
+      ),
+    ).toEqual({ send: false, reason: "voice-covered" });
+  });
+
+  it("voiceCovered=false / 缺省 → 不影响判定（旧 daemon 不携带字段按不覆盖处理）", () => {
+    expect(
+      decideSystemNotify(
+        { title: "任务完成", body: "任务完成了", urgency: "normal", voiceCovered: false },
+        { enabled: true, foreground: false, seenAt: undefined, now: 1000 },
+      ),
+    ).toEqual({ send: true });
+    expect(
+      decideSystemNotify(
+        { title: "任务完成", body: "任务完成了", urgency: "normal" },
+        { enabled: true, foreground: false, seenAt: undefined, now: 1000 },
+      ),
+    ).toEqual({ send: true });
+  });
+
+  it("前台闸优先于语音覆盖闸（前台本就不发，reason=foreground）", () => {
+    expect(
+      decideSystemNotify(
+        { title: "任务完成", body: "任务完成了", urgency: "normal", voiceCovered: true },
+        { enabled: true, foreground: true, seenAt: undefined, now: 1000 },
+      ),
+    ).toEqual({ send: false, reason: "foreground" });
+  });
+});
