@@ -105,6 +105,11 @@ export function bindToolContext<T extends ExecutionToolContext>(
   } as AgentTool<any>;
 }
 
+/** 裸跑面超时（秒，P0 裸跑超时批）：permission_request 批准后裸执行的上限——
+ * 防无限挂（2026-11-03 事故：autoApprove 短路后裸跑 cargo 冷编译挂 20 分钟
+ * 且 abort 无感）；编译类长命令合法，600s 平衡。 */
+export const UNSANDBOXED_EXEC_TIMEOUT_SECONDS = 600; // 600s：覆盖 cargo 冷编译实测 ~440s 类合法长任务，仍根治无限挂
+
 /** AbortSignal → chord Context（无信号 = BACKGROUND_CONTEXT）。 */
 function contextOfSignal(signal: AbortSignal | undefined): Context {
   return signal === undefined ? BACKGROUND_CONTEXT : withAbortSignal(signal, BACKGROUND_CONTEXT);
@@ -328,14 +333,19 @@ export class CoreToolExecutor implements ToolExecutorPort {
     // 同 cwd/shellEnv）。pi 0.85 exec 结果只携 exitCode+元数据，输出经
     // onUpdate 投递——本面挂一级折叠 tap 收全文（SandboxEnvWrap.tapOutput
     // 同手法）。
+    // P0 裸跑超时批（2026-11-03 事故）：裸跑面必带 timeout（600s）——此前无
+    // 限挂（实证：autoApprove 短路后裸跑 cargo 全量冷编译挂 20 分钟，abort
+    // 无感永挂）。超时 exec 面自动 killProcessTree 并返 timeout 错误。编译
+    // 类长命令合法（spike 冷编译 10 分钟+），600s 平衡。
     this.unsandboxedExec = async (command: string) => {
       let text = "";
       const res = await baseEnv.exec(
         command,
         {
-          onUpdate: (update) => {
-            if (update.kind === "append") text += update.text;
-            else if (update.kind === "replace") text = update.output.text;
+          timeout: UNSANDBOXED_EXEC_TIMEOUT_SECONDS,
+          onUpdate: (update: { kind: string; text?: string; output?: { text: string } }) => {
+            if (update.kind === "append") text += update.text ?? "";
+            else if (update.kind === "replace") text = update.output?.text ?? "";
           },
         },
         BACKGROUND_CONTEXT,

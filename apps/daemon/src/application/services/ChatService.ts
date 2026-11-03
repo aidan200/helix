@@ -55,6 +55,8 @@ interface ChatServiceDepsBase {
   readonly session?: Session;
   /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续）。 */
   readonly restoredToolCalls?: readonly ToolCallRecordData[];
+  /** abort 宽限期 ms（P0 abort 收口批）：缺省 30s；测试注入小值免真等。 */
+  readonly abortGraceMs?: number;
   /**
    * 提权审批仲裁面（审批闸接线批）：engine_paused 挂闸时走 ask.request
    * 发卡片（ask.started UI 双帧/60s 超时/answer 收口全复用）；裁决映射
@@ -89,6 +91,13 @@ interface ChatServiceDepsBase {
 }
 
 /** 完整形态（生产装配面，架构 §4.2.6）：四钩子必填——组合根装配缺钩子 = 编译红，消灭「未装配静默降级」。 */
+/** abort 宽限期（P0 abort 收口批，2026-11-03 事故）：abort 发出但引擎不回
+ * agent_end（实证：执行中工具无 abort 感知——裸跑 cargo 挂 20 分钟，aborting
+ * 永挂 UI「正在中断」只能重启）——宽限到点机械 settleRunEnd 回 idle。停止
+ * 按钮必须永远有效；引擎侧后台自然收尾，late agent_end 由 settleRunEnd 幂等面
+ * （openTurn 短路 + canTransition 守卫）无害吞。 */
+const ABORT_GRACE_MS = 30_000; // 宽限取 30s：覆盖正常 agent_end 秒级回程，30s 未到即判收尾链死亡
+
 export interface ChatServiceDeps extends ChatServiceDepsBase {
   /** 定向 steer 转投面（契约 v0.3 §3.2）：组合根接 SchedulerService.send；delivered=false 时本服务抛 SteerTargetNotRunningError（不落 Entry 不入队）。 */
   readonly sendToInstance: AgentOrchestrationPort["send"];
@@ -136,6 +145,8 @@ export class ChatService implements ChatPort {
   private activeRun: Promise<void> | null = null;
   /** closure 暂存缓冲（T2 送达补齐）：aborting 窗口 FIFO 暂存，abort 收尾回 idle 后逐条 flush（fire-and-forget sendMessage，失败 engine.error 可观测不崩链）。aborting 是瞬时窗口，内存缓冲即可（不做持久化）。 */
   private readonly closureBuffer: { text: string; source: "closure" | "progress" | "coord" }[] = [];
+  /** abort 宽限定时器（P0 abort 收口批）：在飞时非 null；settleRunEnd/stop 清。 */
+  private abortGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
     this.session = deps.session ?? Session.create();
@@ -388,11 +399,37 @@ export class ChatService implements ChatPort {
     return { entryId: entry.id };
   }
 
-  /** 中断当前生成：running/steering→aborting + 引擎 abort()；空闲/已中断幂等忽略。 */
+  /** 中断当前生成：running/steering→aborting + 引擎 abort()；空闲/已中断幂等忽略。
+   * P0 abort 收口批：abort 后挂宽限定时器——引擎在宽限内回 agent_end 则
+   * settleRunEnd 清表；到点仍 aborting（工具执行中无 abort 感知类挂起）机械
+   * 收口回 idle + engine.error 可观测。 */
   abort(): void {
     if (this.lifecycle.current === "running" || this.lifecycle.current === "steering") {
       this.setLifecycle("aborting");
       this.deps.engine.abort();
+      this.armAbortGraceTimer();
+    }
+  }
+
+  /** abort 宽限定时器挂载（P0 abort 收口批）：旧表先清（重复点停止重挂）。 */
+  private armAbortGraceTimer(): void {
+    this.clearAbortGraceTimer();
+    const graceMs = this.deps.abortGraceMs ?? ABORT_GRACE_MS;
+    this.abortGraceTimer = setTimeout(() => {
+      this.abortGraceTimer = null;
+      if (this.lifecycle.current !== "aborting") return; // 已收口（agent_end 先到）
+      this.publish("engine.error", {
+        message: `中断宽限期（${Math.round(graceMs / 1000)}s）已到，引擎未收口（可能有执行中的工具不响应中断），已强制恢复会话可用——后台引擎调用会自行收尾，若新消息立即报错请稍候重试`,
+      });
+      this.settleRunEnd("aborted");
+    }, graceMs);
+  }
+
+  /** abort 宽限定时器清理（settleRunEnd/stop 收口面）。 */
+  private clearAbortGraceTimer(): void {
+    if (this.abortGraceTimer !== null) {
+      clearTimeout(this.abortGraceTimer);
+      this.abortGraceTimer = null;
     }
   }
 
@@ -455,6 +492,7 @@ export class ChatService implements ChatPort {
 
   /** 系统停止（SystemPort.shutdown 经组合根调用）：终态，拒绝后续输入。stop 时 closureBuffer 残留（aborting 暂存窗未 flush）逐条补发可观测丢弃 engine.error（与 injectClosure stopped 分支同族文案；closure_records 已落盘，只补可观测性），随后清空（终态无可投递对象，防残留滞留）。 */
   stop(): void {
+    this.clearAbortGraceTimer(); // P0 abort 收口批：终态停机撤宽限（定时器触发已无意义）
     if (this.lifecycle.current !== "stopped") {
       this.lifecycle.transition("stopped");
       this.publish<AgentStateChangedPayload>("agent.state.changed", { state: "stopped" });
@@ -682,6 +720,7 @@ export class ChatService implements ChatPort {
 
   /** run 结束统一收口：Turn 终态 + 生命周期 idle。 */
   private settleRunEnd(reason: TurnCompletedPayload["reason"]): void {
+    this.clearAbortGraceTimer(); // P0 abort 收口批：收口即撤宽限（正常 agent_end 先到）
     if (this.session.openTurn) {
       // 直接语句调用不接返回值（与 finishOpenTurn 同构；Turn 返回面归口在 publish 落盘链，此处丢弃即原 void t 语义）
       const diffTurnId = this.session.openTurn.id; // T2 turn diff：收口前取轮 id（收口后 openTurn=null）
