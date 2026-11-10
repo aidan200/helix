@@ -348,7 +348,7 @@ describe("文本管家批（V2.5）：steward 族 additive", () => {
     expect(dispatchCommand(subscribeCommand)).toBe("steward-subscribe");
     expect(dispatchCommand(unsubscribeCommand)).toBe("steward-unsubscribe");
     expect(dispatchCommand(getConfigCommand)).toBe("steward-get_config");
-    expect(dispatchCommand(setConfigCommand)).toBe("steward-set_config:true:deepseek/deepseek-v4-flash");
+    expect(dispatchCommand(setConfigCommand)).toBe("steward-set_config:true:deepseek/deepseek-v4-flash:-");
   });
 
   test("ask.result 三判别窄化：answer/confirm_required/error 独有字段可达", () => {
@@ -500,7 +500,7 @@ const memoryListResult: StewardMemoryListResultEvent = {
 
 describe("管家记忆配置组（批1：endpointId 退役——恒用全局默认 embedding 端点）", () => {
   test("set_config.memory 槽位可选（enabled——向量端点选择收编 embedding.set_default）", () => {
-    expect(dispatchCommand(memorySetCommand)).toBe("steward-set_config:undefined:-");
+    expect(dispatchCommand(memorySetCommand)).toBe("steward-set_config:undefined:-:-");
     expect(memorySetCommand.payload.memory?.enabled).toBe(true);
   });
 
@@ -519,7 +519,7 @@ describe("memory.recallMinScore additive（召回资格闸阈值进配置域）"
       type: "steward.set_config",
       payload: { memory: { recallTopK: 8, recallPool: 32, recallMinScore: 0.5 } },
     };
-    expect(dispatchCommand(cmd)).toBe("steward-set_config:undefined:-");
+    expect(dispatchCommand(cmd)).toBe("steward-set_config:undefined:-:-");
     expect(cmd.payload.memory?.recallMinScore).toBe(0.5);
   });
 
