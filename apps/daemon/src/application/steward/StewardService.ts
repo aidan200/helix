@@ -550,6 +550,7 @@ export class StewardService implements StewardComponent {
     thinking: string;
     currentModel: string;
     currentThinking: string | null;
+    engineLive: boolean;
     summary: import("../summary/summaryConfig").SummaryConfigState;
     memory: import("./StewardMemoryService").StewardMemoryState;
     triage: TriageJudgeState;
@@ -595,6 +596,7 @@ export class StewardService implements StewardComponent {
     thinking: string | null;
     currentModel: string | null;
     currentThinking: string | null;
+    engineLive: boolean;
     kindLabel: "steward";
   } {
     const model = this.core.deps.config.get(STEWARD_MODEL_KEY) ?? null;
