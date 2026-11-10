@@ -72,6 +72,7 @@ import {
   stewardActivityClearCommand,
   stewardMemoryUpdateCommand,
   stewardSetConfigCommand,
+  stewardSetModelCommand,
   stewardSubscribeCommand,
   stewardUnsubscribeCommand,
   embeddingDeleteCommand,
@@ -315,6 +316,12 @@ export const COMMAND_SURFACE = {
    *   = 协议 SoT 载荷（TR-159 白名单坑型治本——不再本地重写一份漂移）。 */
   sendStewardSetConfig: (deps) =>
     (patch: StewardSetConfigPayload): boolean => deps.send(stewardSetConfigCommand(patch)),
+  /** 管家临时换模（运行期化批；回执 steward.config.result 新态双位；
+   *  引擎内存直改不落 KV——对话周期内有效，引擎重建回落默认层；返回
+   *  false = 未连接）。 */
+  sendStewardSetModel: (deps) =>
+    (payload: import("@helix/protocol").StewardSetModelPayload): boolean =>
+      deps.send(stewardSetModelCommand(payload)),
   /** 工作记忆读/清（A1 批：回执 steward.history.result 回放同源；clear=true
    *  新对话三处同清）。 */
   sendStewardHistory: (deps) =>

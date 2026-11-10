@@ -400,6 +400,17 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     [sendStewardSetConfig, toast, t],
   );
 
+  /** 管家思考档默认层写面（运行期化批）：换值 → steward.set_config {thinking}
+   *  （空串 = 清除回模型默认）；新态等回执重拉同上。 */
+  const onStewardThinkingChange = useCallback(
+    (level: string) => {
+      if (sendStewardSetConfig({ thinking: level }) === false) {
+        toast.push("err", t("agents.notConnected"));
+      }
+    },
+    [sendStewardSetConfig, toast, t],
+  );
+
   /** 管家档案拉取失败重试（send false 收口后的重发入口）。 */
   const onStewardRetry = useCallback(() => {
     if (stateRef.current.stewardProfilePending) return;
@@ -581,6 +592,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   auth={auth}
                   authLoaded={authLoaded}
                   onModelChange={onStewardModelChange}
+                  onThinkingChange={onStewardThinkingChange}
                 />
               </div>
             </div>

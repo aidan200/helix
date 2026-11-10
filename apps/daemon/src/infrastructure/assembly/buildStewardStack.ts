@@ -21,6 +21,7 @@ import {
   StewardService,
   STEWARD_ENABLED_KEY,
   STEWARD_MODEL_KEY,
+  STEWARD_THINKING_KEY,
   formatDeliverReceipt,
   SNAPSHOT_ACTIVITY_MAX_ENTRIES,
 } from "../../application/steward/StewardService";
@@ -490,6 +491,9 @@ export function buildStewardStack(deps: BuildStewardStackDeps): StewardStack {
       buildStewardEngine({
         systemPrompt: opts.systemPrompt,
         model: resolveStewardEngineModel(),
+        // 运行期化批：思考档默认层读面（KV 现值 getter——每次 turn 现拍；
+        // 生效链在 builder 内：[临时 override, 本读面]）
+        thinkingSlot: () => persistence.runtimeConfig.get(STEWARD_THINKING_KEY) ?? undefined,
         apiKeys: () => {
           const table: Record<string, string> = {};
           for (const m of modelStack.catalog.modelsView().getModels()) {

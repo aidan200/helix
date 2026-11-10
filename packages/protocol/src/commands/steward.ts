@@ -86,8 +86,13 @@ export interface StewardUnsubscribeCommand extends CommandFrame<EmptyPayload> {
 export interface StewardSetConfigPayload {
   /** 管家开关（默认关；true = 开）。 */
   enabled?: boolean;
-  /** 模型槽位（"provider/model-id" 形态，flash 级建议；格式非法回执 error 判别）。 */
+  /** 模型槽位（"provider/model-id" 形态，flash 级建议；格式非法回执 error 判别）。
+   *  写 KV 后引擎同步 setModel——下一问生效（运行期化批）。 */
   model?: string;
+  /** 思考档默认层（运行期化批，additive；"minimal"|"low"|"medium"|"high"|"max"|"off"
+   *  透传——daemon 不校验枚举，能力适配归引擎 clampThinkingLevel；空串 = 清除
+   *  回默认）。写 KV 后引擎同步 setThinking。 */
+  thinking?: string;
   /** 长期记忆组（管家记忆 B2 瘦身形态；全部位可选。批B 起整体转发通用
    *  记忆配置域 memory.* KV——配置不挂管家名下，本组是写面路由）。 */
   memory?: {
@@ -126,6 +131,24 @@ export interface StewardSetConfigCommand extends CommandFrame<StewardSetConfigPa
 /** steward.get_config：读管家设置（点对点回执 steward.config.result）。 */
 export interface StewardGetConfigCommand extends CommandFrame<EmptyPayload> {
   type: "steward.get_config";
+}
+
+/** steward.set_model 载荷（运行期化批临时层，additive）：临时换模/换档——
+ *  直改引擎内存（AgentState.model/thinking 覆盖位），**不落 KV**：管家对话
+ *  周期内有效，引擎重建（clearHistory / daemon 重启）自动回落默认层（KV）。
+ *  与主会话 model.set（会话作用域临时换模）同构语义。 */
+export interface StewardSetModelPayload {
+  /** 临时模型（"provider/model-id"；格式/目录校验归 daemon setModel 解析）。 */
+  model: string;
+  /** 临时思考档（可选，additive；空串 = 清除临时档回落默认层；缺省 = 不动）。 */
+  thinking?: string;
+}
+
+/** steward.set_model：管家临时换模（点对点回执 steward.config.result 新态——
+ *  currentModel/currentThinking 位反映引擎现值；引擎未装配（尚无对话）→
+ *  error 判别拒答）。 */
+export interface StewardSetModelCommand extends CommandFrame<StewardSetModelPayload> {
+  type: "steward.set_model";
 }
 
 /** steward.history 载荷（A1 工作记忆批，additive）。 */

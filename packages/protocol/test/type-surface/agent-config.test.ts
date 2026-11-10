@@ -278,6 +278,9 @@ const stewardProfileResult: AgentStewardProfileGetResultEvent = {
       { name: "steward_confirm", description: "确认闸放行（面板确认按钮原语——非 LLM 工具）。" },
     ],
     model: "deepseek/deepseek-v4-flash",
+    thinking: null,
+    currentModel: "deepseek/deepseek-v4-flash",
+    currentThinking: null,
     kindLabel: "steward",
   },
 };

@@ -16,6 +16,7 @@ import { ChevronDown } from "lucide-react";
 import type { AgentStewardProfileGetResultPayload, CatalogModel } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
+import { resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
 import type { AuthProviderEntry } from "@/entities/session/model/state";
 
 /** 管家档案卡（数据 = agent.steward_profile.get.result 载荷；模型写面回调注入）。 */
@@ -25,6 +26,7 @@ export default function StewardCard({
   auth,
   authLoaded,
   onModelChange,
+  onThinkingChange,
 }: {
   profile: AgentStewardProfileGetResultPayload | null;
   /** 模型目录（null = 未加载——选择器禁用）。 */
@@ -33,6 +35,9 @@ export default function StewardCard({
   authLoaded: boolean;
   /** 模型槽位写面（steward.set_config {model}；新态经 config.result → 档案重拉回填）。 */
   onModelChange: (model: string) => void;
+  /** 思考档默认层写面（运行期化批：steward.set_config {thinking}；空串 = 清除
+   *  回模型默认）。 */
+  onThinkingChange: (level: string) => void;
 }) {
   const { t } = useI18n();
   const [promptOpen, setPromptOpen] = useState(false);
@@ -67,6 +72,14 @@ export default function StewardCard({
     }
     return map;
   }, [catalog, auth, authLoaded, profile?.model]);
+
+  // 思考档能力位（运行期化批）：当前默认层模型的 thinkingLevels（目录能力
+  // 驱动——UI 不自判能力；空 = 模型不支持推理 → 下拉禁用）
+  const thinkingLevels = useMemo(() => {
+    const model = profile?.model ?? null;
+    if (model === null) return [];
+    return resolveThinkingCapability(model, catalog ?? undefined)?.thinkingLevels ?? [];
+  }, [profile?.model, catalog]);
 
   return (
     <section className="hud-card ag-card" data-agent-card="steward">
@@ -123,6 +136,37 @@ export default function StewardCard({
         </div>
         <span className="ag-note" data-steward-model-note>
           {t("agents.stewardModelNote")}
+        </span>
+      </div>
+
+      {/* 思考档默认层（运行期化批）：可编辑选择器（与模型槽位同卡同形态；
+          写面 steward.set_config {thinking}——空串 = 清除回模型默认） */}
+      <div className="ag-model" data-steward-thinking>
+        <label className="hud-label" htmlFor="sel-thinking-steward">
+          {t("agents.thinkingLabel")}
+        </label>
+        <div className="sel-wrap">
+          <select
+            id="sel-thinking-steward"
+            className="hud-input"
+            data-steward-thinking-select
+            value={profile?.thinking ?? ""}
+            disabled={profile === null || thinkingLevels.length === 0}
+            onChange={(e) => onThinkingChange(e.target.value)}
+          >
+            <option value="">{t("agents.thinkingDefault")}</option>
+            {thinkingLevels.map((level) => (
+              <option value={level} key={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+          <span className="sel-chev">
+            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+          </span>
+        </div>
+        <span className="ag-note" data-steward-thinking-note>
+          {thinkingLevels.length === 0 ? t("agents.stewardThinkingUnsupported") : t("agents.stewardThinkingNote")}
         </span>
       </div>
 

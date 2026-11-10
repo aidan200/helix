@@ -242,7 +242,7 @@ export function handleStewardGetConfig(ctx: StewardCommandContext): void {
  *  写面迁 config.set_summary；协议版本严格握手下无版本偏斜窗口，拒答即明示）。 */
 export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const { enabled, model, summary, memory, sessionMemory, triage } = ctx.payload;
+  const { enabled, model, thinking, summary, memory, sessionMemory, triage } = ctx.payload;
   if (summary !== undefined) {
     return ctx.commandError(
       ctx.type,
@@ -262,6 +262,10 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
   }
   if (model !== undefined && typeof model !== "string") {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为 string");
+  }
+  // 运行期化批：thinking 默认层校验（透传不校验枚举——能力适配归引擎链）
+  if (thinking !== undefined && typeof thinking !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.thinking 应为 string（档位串或空串 = 清除）");
   }
   // 管家记忆 B2：memory 组瘦身校验（{enabled?}——透传前最后一道
   // TR-159 逐字段透传纪律）；批B +召回量 {recallTopK?,recallPool?} + B4a
@@ -318,6 +322,7 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
     .setConfig({
       ...(enabled !== undefined ? { enabled } : {}),
       ...(model !== undefined ? { model } : {}),
+      ...(thinking !== undefined ? { thinking } : {}),
       ...(mem !== undefined
         ? {
             // 逐字段显式透传（TR-159）：endpointId 退役字段不进转发面（静默忽略）
@@ -348,6 +353,41 @@ export function handleStewardSetConfig(ctx: StewardCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err) => reportInternalFailure(ctx, err, "steward.set_config 执行失败"));
+}
+
+/** steward.set_model（全局命令，运行期化批临时层）：临时换模/换档——
+ *  引擎内存直改不落 KV，对话周期内有效（引擎重建回落默认层）；与主会话
+ *  model.set（会话作用域临时换模）同构。成功回 steward.config.result 新态
+ *  （双位观测），引擎未装配/解析失败 → invalid_payload error 判别拒答。 */
+export function handleStewardSetModel(ctx: StewardCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const { model, thinking } = ctx.payload;
+  if (typeof model !== "string" || model.trim() === "" || model.indexOf("/") <= 0) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.model 应为非空 \"provider/model-id\" 形态 string");
+  }
+  if (thinking !== undefined && typeof thinking !== "string") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.thinking 应为 string（档位串或空串 = 清除临时档）");
+  }
+  try {
+    const outcome = ctx.steward.service.setModel({
+      model,
+      ...(thinking !== undefined ? { thinking } : {}),
+    });
+    if (!outcome.ok) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", outcome.error);
+    }
+  } catch (err) {
+    // 模型串目录解析失败（resolveById fail-fast）→ 拒答附原因
+    return ctx.commandError(ctx.type, "command.invalid_payload", `临时换模失败：${(err as Error).message}`);
+  }
+  const frame: StewardConfigResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "steward",
+    type: "steward.config.result",
+    payload: ctx.steward.service.getConfig(),
+  };
+  ctx.sendNow(sender, frame);
 }
 
 /**

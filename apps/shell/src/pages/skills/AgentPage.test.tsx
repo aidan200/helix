@@ -167,7 +167,7 @@ const mock = {
   sentSkillContentGet: [] as string[],
   sentStewardProfileGet: 0,
   stewardSendOk: true,
-  sentStewardSetConfig: [] as { enabled?: boolean; model?: string }[],
+  sentStewardSetConfig: [] as { enabled?: boolean; model?: string; thinking?: string }[],
   stewardSetConfigOk: true,
   listeners: [] as ((e: EventEnvelope) => void)[],
   mcpListeners: [] as ((e: EventEnvelope) => void)[],
@@ -1269,6 +1269,9 @@ const STEWARD_PROFILE_PAYLOAD = {
     { name: "steward_confirm", description: "确认闸放行（面板确认按钮原语——非 LLM 工具）。" },
   ],
   model: "deepseek/deepseek-v4-flash",
+  thinking: null,
+  currentModel: "deepseek/deepseek-v4-flash",
+  currentThinking: null,
   kindLabel: "steward",
 } as const;
 
@@ -1370,6 +1373,35 @@ describe("管家公民权批 + 管家配置并轨批：常驻服务分组 + 管�
     expect(mock.sentStewardProfileGet).toBe(2);
     act(() => feedStewardProfile({ model: "openai/gpt-5.2" }));
     expect((document.querySelector("[data-steward-model-select]") as HTMLSelectElement).value).toBe("openai/gpt-5.2");
+  });
+
+  it("②c 思考档默认层（运行期化批）：档位下拉在场（目录能力位驱动）+ 换值 → sendStewardSetConfig({thinking})；不支持模型 → 禁用", () => {
+    mock.catalog = CATALOG;
+    ui();
+    act(() => feedList());
+    act(() => selectAgent("steward"));
+    // 当前模型 deepseek-v4-flash 不在 CATALOG（无能力位）→ 下拉禁用
+    act(() => feedStewardProfile());
+    let sel = document.querySelector("[data-steward-thinking-select]") as HTMLSelectElement;
+    expect(sel).not.toBeNull();
+    expect(sel.disabled).toBe(true);
+    // 切到目录内 reasoning 模型（有 thinkingLevels）→ 下拉启用 + 档位项来自能力位
+    act(() => feedStewardProfile({ model: "anthropic/claude-sonnet-4-5", thinking: "high" }));
+    sel = document.querySelector("[data-steward-thinking-select]") as HTMLSelectElement;
+    expect(sel.disabled).toBe(false);
+    expect(sel.value).toBe("high");
+    const options = [...sel.querySelectorAll("option")].map((o) => o.value);
+    expect(options).toEqual(["", "low", "medium", "high"]); // 首项 = 默认（清除）
+    // 换值 → 写面单发（不乐观；等回执链重拉）
+    act(() => {
+      fireEvent.change(sel, { target: { value: "low" } });
+    });
+    expect(mock.sentStewardSetConfig).toEqual([{ thinking: "low" }]);
+    // 清除回默认 = 空串写面
+    act(() => {
+      fireEvent.change(sel, { target: { value: "" } });
+    });
+    expect(mock.sentStewardSetConfig).toEqual([{ thinking: "low" }, { thinking: "" }]);
   });
 
   it("③ prompt 折叠面板：默认收起显示首行摘要；展开全文；再点收起（零新命令）", () => {

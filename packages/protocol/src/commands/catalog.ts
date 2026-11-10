@@ -126,6 +126,7 @@ import type {
   StewardUnsubscribeCommand,
   StewardGetConfigCommand,
   StewardSetConfigCommand,
+  StewardSetModelCommand,
   StewardHistoryCommand,
   StewardInterruptCommand,
   StewardJudgeStopIntentCommand,
@@ -268,6 +269,7 @@ export type CommandEnvelope =
   | StewardUnsubscribeCommand
   | StewardGetConfigCommand
   | StewardSetConfigCommand
+  | StewardSetModelCommand
   | StewardHistoryCommand
   | StewardInterruptCommand
   | StewardJudgeStopIntentCommand
@@ -322,6 +324,8 @@ export const COMMAND_TYPES = [
   "steward.unsubscribe",
   "steward.get_config",
   "steward.set_config",
+  // 管家临时换模（运行期化批：引擎内存直改不落 KV，引擎重建回落默认层）
+  "steward.set_model",
   "steward.history",
   // B2 barge-in 批：在途轮打断（V3b-3 全双工触发面；无回执——事件面已够）
   "steward.interrupt",

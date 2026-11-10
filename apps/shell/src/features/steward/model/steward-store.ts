@@ -72,6 +72,12 @@ export interface FeedLine {
 export interface StewardConfig {
   readonly enabled: boolean;
   readonly model: string;
+  /** 思考档默认层 KV 原值（空串 = 未设；运行期化批）。 */
+  readonly thinking: string;
+  /** 引擎模型现值（临时层观测——临时换模后 ≠ model）。 */
+  readonly currentModel: string;
+  /** 引擎思考覆盖现值（null = 无临时覆盖）。 */
+  readonly currentThinking: string | null;
 }
 
 export interface StewardStoreState {
@@ -105,6 +111,9 @@ export interface StewardSenders {
   sendStewardUnsubscribe?: () => boolean;
   sendStewardGetConfig?: () => boolean;
   sendStewardHistory?: (clear?: boolean) => boolean;
+  /** 管家临时换模（运行期化批：引擎内存直改不落 KV；回执 config.result
+   *  刷新 config 双位）。 */
+  sendStewardSetModel?: (payload: { model: string; thinking?: string }) => boolean;
   subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
 }
 
@@ -275,6 +284,14 @@ class StewardStore {
     if (this.historySentFor === this.connEpoch) return;
     this.historySentFor = this.connEpoch;
     this.senders.sendStewardHistory?.();
+  }
+
+  /** 临时换模（运行期化批：引擎内存直改不落 KV；回执 config.result 刷新
+   *  config 双位——临时态入面板徽标）。 */
+  setModel(payload: { model: string; thinking?: string }): boolean {
+    const send = this.senders.sendStewardSetModel;
+    if (typeof send !== "function") return false;
+    return send(payload);
   }
 
   /** 订阅闸门（B1：connected + enabled → subscribe；开关关零订阅零推送）。 */
@@ -451,7 +468,18 @@ class StewardStore {
     }
     if (event.type === "steward.config.result") {
       const payload = event.payload as StewardConfig;
-      this.setState({ config: { enabled: payload.enabled === true, model: String(payload.model ?? "") } });
+      this.setState({
+        config: {
+          enabled: payload.enabled === true,
+          model: String(payload.model ?? ""),
+          thinking: String(payload.thinking ?? ""),
+          currentModel: String(payload.currentModel ?? payload.model ?? ""),
+          currentThinking:
+            payload.currentThinking === undefined || payload.currentThinking === null || payload.currentThinking === ""
+              ? null
+              : String(payload.currentThinking),
+        },
+      });
       return;
     }
     if (event.type === "steward.feed") {

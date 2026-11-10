@@ -38,6 +38,10 @@ export const STEWARD_ENABLED_KEY = "steward.enabled";
 /** 管家模型槽位 KV 键（"provider/model-id"；未设置 = adapter 默认）。 */
 export const STEWARD_MODEL_KEY = "steward.model";
 
+/** 管家思考档默认层 KV 键（运行期化批："minimal"|"low"|"medium"|"high"|"max"|"off"
+ *  或空/未设 = 走模型默认；临时层在引擎内存覆盖位，不落本键）。 */
+export const STEWARD_THINKING_KEY = "steward.thinking";
+
 /** 总结配置域（summary.*——三产物开关/锚点节奏/总结模型 + 任务总结两键）
  *  已收编通用域：键位/解析/迁移单源 ../summary/summaryConfig.ts（管家配置
  *  零总结项——steward.set_config 摘除 summary/sessionMemory 组，写面在

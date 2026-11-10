@@ -26,6 +26,7 @@ import type { CompactionSettings } from "../pi-engine/runtime/AgentProfile";
 import { StewardProfile } from "../pi-engine/runtime/profiles/StewardProfile";
 import { projectStewardTools } from "./StewardToolBridge";
 import { piMessagesToSteward, stewardMessagesToPi } from "./StewardLlmMessages";
+import { resolveEffectiveThinking } from "../llm";
 import { ZERO_USAGE } from "../pi-engine/mappers/SessionMapper";
 
 export interface StewardEngineOptions {
@@ -33,6 +34,10 @@ export interface StewardEngineOptions {
   readonly systemPrompt?: string;
   /** 已解析模型对象（resolveModel 单点产物——与主会话同轨）。 */
   readonly model: Model<any>;
+  /** 思考档解析链尾读面（运行期化批：默认层 KV 现值 getter——生效链
+   *  [引擎临时 override, 本读面] 逐值能力适配取首个生效；缺省不装 =
+   *  无思考参数注入（provider 默认）。与主会话 resolveThinking 同构。） */
+  readonly thinkingSlot?: () => string | undefined;
   /** provider → apiKey（静态表或 getter——每请求读现值）。 */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /** 凭据类型读面（OAuth 分流：oauth 凭据存在 → getApiKey 不覆盖，交 pi-ai store 解析）。 */
@@ -62,7 +67,10 @@ export interface StewardEngineOptions {
 
 /** 管家引擎构造（唯一配方——生产与测试共用）。 */
 export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngineAdapter {
-  return new PiAgentEngineAdapter({
+  // 自引用闭包（主会话 sessionEngineFactory 先例：resolveThinking 仅在
+  // turn 开始/观测时触发——构造完成后闭包内 adapter 已赋值）
+  let adapter!: PiAgentEngineAdapter;
+  adapter = new PiAgentEngineAdapter({
     profile: {
       ...StewardProfile,
       ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
@@ -70,6 +78,15 @@ export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngine
       ...(options.compaction !== undefined ? { compaction: options.compaction } : {}),
     },
     model: options.model,
+    // 运行期化批：思考档生效链 [临时 override（setThinking/set_model 直改）,
+    // 默认层 KV]——resolveEffectiveThinking 能力适配（clampThinkingLevel +
+    // off 短路），与主会话链同构（链尾无全局兑底：管家默认层即末级）
+    ...(options.thinkingSlot !== undefined
+      ? {
+          resolveThinking: (model: Model<any>) =>
+            resolveEffectiveThinking([adapter?.thinkingOverride(), options.thinkingSlot!()], model),
+        }
+      : {}),
     apiKeys: options.apiKeys,
     ...(options.getCredentialType !== undefined ? { getCredentialType: options.getCredentialType } : {}),
     models: options.models,
@@ -116,4 +133,5 @@ export function buildStewardEngine(options: StewardEngineOptions): PiAgentEngine
         }
       : {}),
   });
+  return adapter;
 }

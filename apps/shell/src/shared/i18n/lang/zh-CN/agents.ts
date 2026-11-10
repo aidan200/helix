@@ -70,6 +70,11 @@ export const agents = {
     stewardNote: "daemon 内嵌常驻成员（非 SubAgent profile）；提示词与工具面只读，启停在「设置 → 通用」。",
     stewardModelUnset: "未设置（使用适配器默认模型）",
     stewardModelNote: "管家回复与长对话压缩摘要所用模型",
+    // 运行期化批：管家卡思考档默认层（目录能力位驱动；空 = 跟随模型默认）
+    thinkingLabel: "思考强度",
+    thinkingDefault: "默认（跟随模型）",
+    stewardThinkingNote: "管家回复所用推理档位；临时切换在管家面板头部",
+    stewardThinkingUnsupported: "当前模型不支持思考强度",
     stewardPromptLabel: "系统提示词",
     stewardPromptView: "查看",
     stewardPromptHide: "收起",

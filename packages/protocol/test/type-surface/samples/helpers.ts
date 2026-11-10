@@ -649,7 +649,10 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "steward.get_config":
       return "steward-get_config";
     case "steward.set_config":
-      return `steward-set_config:${String(cmd.payload.enabled)}:${cmd.payload.model ?? "-"}`;
+      return `steward-set_config:${String(cmd.payload.enabled)}:${cmd.payload.model ?? "-"}:${cmd.payload.thinking ?? "-"}`;
+    case "steward.set_model":
+      // 运行期化批：管家临时换模（引擎内存直改不落 KV）
+      return `steward-set_model:${cmd.payload.model}:${cmd.payload.thinking ?? "-"}`;
     case "steward.history":
       // 管家工作记忆批（A1）：读/清同命令（clear 缺省 = 回放）
       return `steward-history:${String(cmd.payload.clear ?? false)}`;

@@ -24,6 +24,12 @@ const sendStewardSubscribe = vi.fn(() => true);
 const sendStewardUnsubscribe = vi.fn(() => true);
 const sendStewardGetConfig = vi.fn(() => true);
 const sendStewardHistory = vi.fn(() => true);
+const sendStewardSetModel = vi.fn(() => true);
+// 运行期化批：临时切换条数据源（catalog 双 provider + auth configured 过滤）
+const CATALOG_MODELS = [
+  { id: "deepseek/deepseek-flash", providerId: "deepseek", contextWindow: 128_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, source: "builtin" as const, reasoning: true, thinkingLevels: ["low", "high"] },
+  { id: "anthropic/claude-sonnet-4-5", providerId: "anthropic", contextWindow: 200_000, cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, source: "builtin" as const, reasoning: true, thinkingLevels: ["low", "medium", "high"] },
+];
 // 多听众扇出（V3a：面板内 useSteward 与朗读闸两订阅者——真实 LISTEN_SURFACE
 // 形态；单 ref 只存末位订阅者会吞帧）
 const stewardListeners = new Set<(e: EventEnvelope) => void>();
@@ -39,7 +45,14 @@ function emitSteward(e: EventEnvelope): void {
 
 vi.mock("@/entities/session/SessionContext", () => ({
   useSession: () => ({
-    topology: { active: { conn: "connected" } },
+    topology: {
+      active: { conn: "connected" },
+      modelConfig: {
+        catalog: { models: CATALOG_MODELS },
+        auth: { deepseek: { configured: true }, anthropic: { configured: true } },
+        authLoaded: true,
+      },
+    },
     sendStewardAsk,
     sendStewardInterrupt,
     sendStewardConfirm,
@@ -47,6 +60,7 @@ vi.mock("@/entities/session/SessionContext", () => ({
     sendStewardUnsubscribe,
     sendStewardGetConfig,
     sendStewardHistory,
+    sendStewardSetModel,
     subscribeStewardFrames,
   }),
 }));
@@ -547,5 +561,51 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
     });
     await waitFor(() => expect(screen.getByTestId("steward-tool-item").textContent).toContain("list_tasks"));
     expect(screen.queryByTestId("steward-tool-elapsed")).toBeNull();
+  });
+
+  it("运行期化批：临时切换条——currentModel≠model 显「临时」chip；模型换值 → sendStewardSetModel({model})", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", {
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "",
+        currentModel: "anthropic/claude-sonnet-4-5", currentThinking: null,
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-transient")).toBeTruthy();
+    });
+    // 临时态 chip（current ≠ default）
+    expect(screen.getByTestId("steward-transient-chip")).toBeTruthy();
+    const sel = screen.getByTestId("steward-transient-model") as HTMLSelectElement;
+    expect(sel.value).toBe("anthropic/claude-sonnet-4-5");
+    // 换模型 → 临时层命令（不落 KV）
+    act(() => {
+      fireEvent.change(sel, { target: { value: "deepseek/deepseek-flash" } });
+    });
+    expect(sendStewardSetModel).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
+    // 档位下拉：当前模型能力位（low/medium/high）+ 换档携当前模型
+    const tsel = screen.getByTestId("steward-transient-thinking") as HTMLSelectElement;
+    expect([...tsel.querySelectorAll("option")].map((o) => o.value)).toEqual(["", "low", "medium", "high"]);
+    act(() => {
+      fireEvent.change(tsel, { target: { value: "high" } });
+    });
+    expect(sendStewardSetModel).toHaveBeenLastCalledWith({ model: "anthropic/claude-sonnet-4-5", thinking: "high" });
+  });
+
+  it("运行期化批：未临时换模（current = default）→ 无「临时」chip；目录未到达 → 模型下拉禁用", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", {
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "",
+        currentModel: "deepseek/deepseek-flash", currentThinking: null,
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-transient")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("steward-transient-chip")).toBeNull();
+    // currentModel 在目录 → 下拉可用；无引擎（currentThinking null）档位缺省项
+    const sel = screen.getByTestId("steward-transient-model") as HTMLSelectElement;
+    expect(sel.disabled).toBe(false);
   });
 });

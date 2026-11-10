@@ -54,7 +54,7 @@ import { StewardRouting } from "./StewardRouting";
 import { StewardOutlet } from "./StewardOutlet";
 import { StewardLifecycle } from "./StewardLifecycle";
 import { STEWARD_SYSTEM_PROMPT } from "./stewardPrompts";
-import { STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY } from "./stewardConstants";
+import { STEWARD_ENABLED_KEY, STEWARD_MODEL_KEY, STEWARD_THINKING_KEY } from "./stewardConstants";
 import type { StewardAskEvents, StewardServiceDeps } from "./stewardServiceTypes";
 
 // 确认闸聚合域 re-export（批 1：定义已迁 domain/steward/confirmation——
@@ -87,6 +87,7 @@ export {
   STEWARD_MISSING_TOOL_RESULT_TEXT,
   STEWARD_ENABLED_KEY,
   STEWARD_MODEL_KEY,
+  STEWARD_THINKING_KEY,
   STEWARD_COMPACTION_THRESHOLD_TOKENS,
   STEWARD_COMPACTION_KEEP_RECENT,
   STEWARD_PENDING_ASKS_MAX,
@@ -546,13 +547,23 @@ export class StewardService implements StewardComponent {
   getConfig(): {
     enabled: boolean;
     model: string;
+    thinking: string;
+    currentModel: string;
+    currentThinking: string | null;
     summary: import("../summary/summaryConfig").SummaryConfigState;
     memory: import("./StewardMemoryService").StewardMemoryState;
     triage: TriageJudgeState;
   } {
+    const defaultModel = this.core.deps.config.get(STEWARD_MODEL_KEY) ?? this.core.deps.llm.modelId;
     return {
       enabled: this.isEnabled(),
-      model: this.core.deps.config.get(STEWARD_MODEL_KEY) ?? this.core.deps.llm.modelId,
+      model: defaultModel,
+      // 运行期化批：思考档双位——默认层 KV 原值（空串 = 未设走模型默认）+
+      // 引擎覆盖现值（null = 无临时覆盖）
+      thinking: this.core.deps.config.get(STEWARD_THINKING_KEY) ?? "",
+      // 引擎现值（临时层观测：临时换模后 ≠ model；无引擎/未临时 = 同默认层）
+      currentModel: this.core.engine?.currentModel?.() ?? defaultModel,
+      currentThinking: this.core.engine?.currentThinking?.()?.override || null,
       // 总结配置组回显（summary.* 通用域生效值——所见即所得）
       summary: readSummaryConfig(this.core.deps.config),
       // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/零条目；批1：
@@ -574,14 +585,27 @@ export class StewardService implements StewardComponent {
    *  段运行期拼入不在本面）；②注册面八工具清单（ToolRegistry.manifest 含
    *  hidden 面板原语——观测透明度 = 真实工具面）；③模型槽位 KV 现值
    *  （未设 = null——修改走智能体页管家卡模型槽位）。回执不含任何凭据类字段。 */
-  getProfile(): { systemPrompt: string; tools: readonly { name: string; description: string }[]; model: string | null; kindLabel: "steward" } {
+  getProfile(): {
+    systemPrompt: string;
+    tools: readonly { name: string; description: string }[];
+    model: string | null;
+    thinking: string | null;
+    currentModel: string | null;
+    currentThinking: string | null;
+    kindLabel: "steward";
+  } {
+    const model = this.core.deps.config.get(STEWARD_MODEL_KEY) ?? null;
     return {
       systemPrompt: STEWARD_SYSTEM_PROMPT,
       tools: [
         ...this.core.toolSpecs.map((t) => ({ name: t.name, description: t.description })),
         { name: "steward_confirm", description: "确认闸放行（面板确认按钮原语；非 LLM 工具）" },
       ],
-      model: this.core.deps.config.get(STEWARD_MODEL_KEY) ?? null,
+      model,
+      // 运行期化批：思考档双位（默认层 KV 原值 + 引擎覆盖现值；空串归一 null）
+      thinking: this.core.deps.config.get(STEWARD_THINKING_KEY) || null,
+      currentModel: this.core.engine?.currentModel?.() ?? model,
+      currentThinking: this.core.engine?.currentThinking?.()?.override || null,
       kindLabel: "steward",
     };
   }
@@ -634,6 +658,29 @@ export class StewardService implements StewardComponent {
     return this.core.deps.memory?.restoreMemoryEntry(id) ?? false;
   }
 
+  /** 临时换模（运行期化批，steward.set_model）：引擎内存直改不落 KV——
+   *  对话周期内有效，引擎重建（clearHistory/看门狗/重启）自动回落默认层。
+   *  与主会话 model.set（会话作用域临时换模）同构语义。引擎未装配（尚无
+   *  对话）→ 拒答（临时层无载体；默认层走 set_config）。thinking 可选：
+   *  空串 = 清临时档回落默认层，缺省 = 不动。 */
+  setModel(patch: { model: string; thinking?: string }): { ok: true } | { ok: false; error: string } {
+    const engine = this.core.engine;
+    if (engine === undefined) {
+      return { ok: false, error: "管家尚未开始对话（无引擎可临时换模）——请改默认配置（steward.set_config）或先与管家对话" };
+    }
+    if (engine.setModel === undefined) {
+      return { ok: false, error: "引擎未实现运行期换模接口（AgentEnginePort.setModel）" };
+    }
+    engine.setModel(patch.model); // 解析失败抛错（resolveById fail-fast 含 id）
+    if (patch.thinking !== undefined) {
+      if (engine.setThinking === undefined) {
+        return { ok: false, error: "引擎未实现运行期思考档接口（AgentEnginePort.setThinking）" };
+      }
+      engine.setThinking(patch.thinking);
+    }
+    return { ok: true };
+  }
+
   /** 设置写面（槽位可选更新；model 格式校验 "provider/model-id"；
    *  memory 组 {enabled?,judgeEndpointId?} + 批B 召回量
    *  {recallTopK?,recallPool?} + 阈值 {recallMinScore?}——组内字段整体转发
@@ -647,6 +694,7 @@ export class StewardService implements StewardComponent {
   async setConfig(patch: {
     enabled?: boolean;
     model?: string;
+    thinking?: string;
     memory?: { enabled?: boolean; judgeEndpointId?: string; recallTopK?: number; recallPool?: number; recallMinScore?: number };
     triage?: { judgeEnabled?: boolean; judgeEndpointId?: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -671,7 +719,22 @@ export class StewardService implements StewardComponent {
       if (model !== "" && !/^[^/\s]+\/[^/\s]+$/.test(model)) {
         return { ok: false, error: `模型格式非法：${model}（应为 "provider/model-id" 形态）` };
       }
-      if (model !== "") await this.core.deps.config.set(STEWARD_MODEL_KEY, model);
+      if (model !== "") {
+        await this.core.deps.config.set(STEWARD_MODEL_KEY, model);
+        // 运行期化批：默认层落库后同步引擎（单轨 setModel 直改——下一问
+        // 生效；引擎未装配 = 无需同步，下一问装配自然读新 KV）
+        this.core.engine?.setModel?.(model);
+      }
+    }
+    // 运行期化批：思考档默认层（透传不校验枚举——能力适配归引擎链
+    // clampThinkingLevel；空串 = 清除回模型默认）
+    if (patch.thinking !== undefined) {
+      const level = patch.thinking.trim();
+      await this.core.deps.config.set(STEWARD_THINKING_KEY, level);
+      // 默认层变更 → 清引擎临时 override（空串 = 链缺位）：生效档回落新 KV
+      // 值（不清则旧临时档遮蔽新默认，重演「改了不生效」）；观测面 override
+      // 归 null——临时态标识不被配置动作污染
+      this.core.engine?.setThinking?.("");
     }
     if (patch.enabled !== undefined) {
       await this.core.deps.config.set(STEWARD_ENABLED_KEY, patch.enabled ? "1" : "0");

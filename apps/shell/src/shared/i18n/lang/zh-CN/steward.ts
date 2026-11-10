@@ -21,6 +21,10 @@ export const steward = {
     // ── A1 工作记忆批：过程可见面（thinking 折叠 / 工具行 / 新对话）──
     thinkingLabel: "思考过程",
     newChat: "新对话",
+    // 运行期化批：面板临时切换条（steward.set_model 引擎内存直改不落 KV）
+    transientModelLabel: "临时模型",
+    transientThinkingDefault: "默认档",
+    transientChip: "临时",
     newChatTitle: "清空当前对话（管家记忆与显示同步清空）",
     activity: {
       openTitle: "查看活动时间线",

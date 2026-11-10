@@ -444,6 +444,13 @@ export interface AgentStewardProfileGetResultPayload {
   tools: ReadonlyArray<AgentStewardProfileToolRow>;
   /** 模型槽位现值（KV steward.model；未设 = null——适配器默认，修改走设置页语音管家段）。 */
   model: string | null;
+  /** 思考档默认层现值（运行期化批，additive：KV steward.thinking；null = 未设
+   *  ——走模型默认；修改走 set_config {thinking}）。 */
+  thinking: string | null;
+  /** 引擎模型现值（运行期化批，additive：临时层观测——临时换模后 ≠ model）。 */
+  currentModel: string | null;
+  /** 引擎思考覆盖现值（运行期化批，additive：null = 无临时覆盖）。 */
+  currentThinking: string | null;
   /** 档案 kind 标识（恒 "steward"——内嵌常驻服务，非 SubAgent profile kind）。 */
   kindLabel: "steward";
 }

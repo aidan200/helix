@@ -43,7 +43,10 @@ import type {
 
 /** 管家默认模型槽位（建议最强模型——A1 批定位改写；deepseek 键位目录内
  *  常驻模型；用户可经 steward.set_config 换任意目录内模型）。 */
-export const STEWARD_DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+/** 管家对话 LLM 缺省模型（运行期化批修正：deepseek-v4-flash 不在 pi-ai
+ *  目录——目录内 flash 位是 deepseek-flash（V4.1 Flash）；未设 KV 时的兑底
+ *  需在目录内，否则引擎装配直接 fail-fast）。 */
+export const STEWARD_DEFAULT_MODEL = "deepseek/deepseek-flash";
 
 /** 管家 thinking 档位（A1 批：默认开启不暴露开关——管家定位最强模型配
  *  强推理；能力判据不过（model.reasoning ≠ true）时不带参走 provider 默认）。 */

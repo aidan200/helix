@@ -31,6 +31,7 @@ import {
   STEWARD_THINKING_LINE_WINDOW,
   recordsToItems,
   type StewardAskActivity,
+  type StewardConfig,
   type StewardPanelItem,
 } from "./steward-store";
 
@@ -53,8 +54,9 @@ export interface UseSteward {
   readonly askInFlight: boolean;
   /** ask 进行中态投影（null = 非在途——状态区收起）。 */
   readonly askActivity: StewardAskActivity | null;
-  /** 设置现态（null = 未收到 config.result）。 */
-  readonly config: { readonly enabled: boolean; readonly model: string } | null;
+  /** 设置现态（null = 未收到 config.result；双位——model/thinking 默认层 +
+   *  currentModel/currentThinking 引擎现值）。 */
+  readonly config: StewardConfig | null;
   /** dropped 通知序号（addressee 判「非对管家说」静默丢弃时递增——光球
    *  输入流水淡行消费：「没识别到/声纹不匹配/被判旁人」三种静默可辨）。 */
   readonly dropNoticeSeq: number;
@@ -64,6 +66,9 @@ export interface UseSteward {
   stopInFlight(): boolean;
   /** 新对话（三处同步清——本地条目 + daemon KV + LLM 窗口）。 */
   newDialog(): boolean;
+  /** 临时换模（运行期化批：引擎内存直改不落 KV，对话周期内有效；未连接
+   *  返回 false）。 */
+  setModel(payload: { model: string; thinking?: string }): boolean;
 }
 
 export function useSteward(): UseSteward {
@@ -75,6 +80,7 @@ export function useSteward(): UseSteward {
     sendStewardUnsubscribe,
     sendStewardGetConfig,
     sendStewardHistory,
+    sendStewardSetModel,
     subscribeStewardFrames,
   } = useSession() as {
     topology?: { active?: { conn?: string } };
@@ -84,6 +90,7 @@ export function useSteward(): UseSteward {
     sendStewardUnsubscribe?: () => boolean;
     sendStewardGetConfig?: () => boolean;
     sendStewardHistory?: (clear?: boolean) => boolean;
+    sendStewardSetModel?: (payload: { model: string; thinking?: string }) => boolean;
     subscribeStewardFrames?: (listener: (e: EventEnvelope) => void) => () => void;
   };
   const { t } = useI18n();
@@ -101,6 +108,7 @@ export function useSteward(): UseSteward {
         sendStewardUnsubscribe,
         sendStewardGetConfig,
         sendStewardHistory,
+        sendStewardSetModel,
         subscribeStewardFrames,
       },
       t,
@@ -118,12 +126,13 @@ export function useSteward(): UseSteward {
         sendStewardUnsubscribe,
         sendStewardGetConfig,
         sendStewardHistory,
+        sendStewardSetModel,
         subscribeStewardFrames,
       },
       t,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, sendStewardAsk, sendStewardInterrupt, sendStewardSubscribe, sendStewardUnsubscribe, sendStewardGetConfig, sendStewardHistory]);
+  }, [t, sendStewardAsk, sendStewardInterrupt, sendStewardSubscribe, sendStewardUnsubscribe, sendStewardGetConfig, sendStewardHistory, sendStewardSetModel]);
 
   // ── 断连即弃流式缓冲（V2.5 体验批）──
   useEffect(() => {
@@ -157,6 +166,10 @@ export function useSteward(): UseSteward {
   const ask = useCallback((text: string, source?: StewardAskSource): boolean => stewardStore.ask(text, source), []);
   const stopInFlight = useCallback((): boolean => stewardStore.stopInFlight(), []);
   const newDialog = useCallback((): boolean => stewardStore.newDialog(), []);
+  const setModelAction = useCallback(
+    (payload: { model: string; thinking?: string }): boolean => stewardStore.setModel(payload),
+    [],
+  );
 
   return {
     items: state.items,
@@ -169,5 +182,6 @@ export function useSteward(): UseSteward {
     ask,
     stopInFlight,
     newDialog,
+    setModel: setModelAction,
   };
 }

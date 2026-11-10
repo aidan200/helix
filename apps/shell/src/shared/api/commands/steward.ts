@@ -26,6 +26,8 @@ import type {
   StewardMemoryUpdateCommand,
   StewardSetConfigCommand,
   StewardSetConfigPayload,
+  StewardSetModelCommand,
+  StewardSetModelPayload,
   StewardSubscribeCommand,
   StewardUnsubscribeCommand,
   StewardActivityListCommand,
@@ -91,6 +93,20 @@ export function stewardSetConfigCommand(patch: StewardSetConfigPayload): Steward
     v: PROTOCOL_VERSION,
     type: "steward.set_config",
     payload: stripUndefinedSlots(patch),
+  };
+}
+
+/** steward.set_model：管家临时换模（运行期化批；全局命令；回执
+ *  steward.config.result 新态双位——引擎内存直改不落 KV，对话周期内有效，
+ *  引擎重建回落默认层；与主会话 model.set 同构语义）。 */
+export function stewardSetModelCommand(payload: StewardSetModelPayload): StewardSetModelCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "steward.set_model",
+    payload: {
+      model: payload.model,
+      ...(payload.thinking !== undefined ? { thinking: payload.thinking } : {}),
+    },
   };
 }
 

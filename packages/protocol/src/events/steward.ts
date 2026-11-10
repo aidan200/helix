@@ -220,6 +220,15 @@ export interface StewardConfigResultPayload {
   enabled: boolean;
   /** 模型槽位现值（"provider/model-id"；未设置 = daemon 默认 flash 级模型）。 */
   model: string;
+  /** 思考档默认层现值（运行期化批，additive：KV steward.thinking；空串 = 未设
+   *  （走模型默认）——能力适配归引擎链，回执为 KV 原值非生效档）。 */
+  thinking?: string;
+  /** 引擎模型现值（运行期化批，additive：临时层观测位——临时换模后 ≠ model；
+   *  无引擎/未临时换模 = 同 model 位。UI 据此标「临时」态）。 */
+  currentModel?: string;
+  /** 引擎思考覆盖现值（运行期化批，additive：临时层观测位——null = 无临时
+   *  覆盖（生效档 = 默认层链）；非空 = 临时 override 原值）。 */
+  currentThinking?: string | null;
   /** 总结配置组回显（会话总结器独立化批①：summary.* 通用域只读观测面——
    *  写面在 config.set_summary，管家配置零总结项；形状与
    *  SummaryConfigStatePayload 同源）。 */

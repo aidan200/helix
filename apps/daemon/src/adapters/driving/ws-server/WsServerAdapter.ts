@@ -147,6 +147,7 @@ import {
   handleStewardMemoryRestore,
   handleStewardMemoryUpdate,
   handleStewardSetConfig,
+  handleStewardSetModel,
   handleStewardSubscribe,
   handleStewardUnsubscribe,
 } from "./handlers/steward";
@@ -879,6 +880,11 @@ export class WsServerAdapter {
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleStewardSetConfig(this.contexts.stewardContext(ws, type, payload));
+      // 运行期化批临时层：临时换模（引擎内存直改不落 KV，引擎重建回落默认层）
+      case "steward.set_model":
+        return this.deps.steward === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleStewardSetModel(this.contexts.stewardContext(ws, type, payload));
       case "steward.history":
         return this.deps.steward === undefined
           ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)

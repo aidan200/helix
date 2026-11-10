@@ -23,6 +23,10 @@ export const steward = {
     // ── A1 work-memory batch: process visibility (thinking fold / tool rows / new chat) ──
     thinkingLabel: "Reasoning",
     newChat: "New chat",
+    // Runtime-config batch: transient switch bar (steward.set_model, in-memory, not persisted)
+    transientModelLabel: "Transient",
+    transientThinkingDefault: "Default",
+    transientChip: "transient",
     newChatTitle: "Clear the current conversation (steward memory and display reset together)",
     activity: {
       openTitle: "View activity timeline",

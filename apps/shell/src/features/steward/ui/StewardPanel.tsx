@@ -34,6 +34,11 @@ import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
 import { formatDuration } from "@/shared/lib/format";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
 import { useI18n } from "@/shared/i18n";
+import { useSession } from "@/entities/session/SessionContext";
+import { filterAvailableModels } from "@/shared/lib/model-availability";
+import { resolveThinkingCapability } from "@/shared/lib/thinking-capability";
+import type { CatalogModel } from "@helix/protocol";
+import type { AuthProviderEntry } from "@/entities/session/model/state";
 
 interface StewardPanelProps {
   onClose: () => void;
@@ -137,6 +142,11 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
   const { t } = useI18n();
   const sv = useSteward();
   const [draft, setDraft] = useState("");
+  const { topology } = useSession();
+  const mc = topology?.modelConfig;
+  const transientCatalog = mc?.catalog?.models ?? null;
+  const transientAuth: Record<string, AuthProviderEntry> = mc?.auth ?? {};
+  const transientAuthLoaded = mc?.authLoaded === true;
 
   // 历史锚底（驾驶舱批①：chat 页 MessageFlow 滚动语义同构）：吸附态新内容
   // 贴底；上滚脱附不拽回；回底 1s 驻留恢复吸附；打开面板强制贴底。
@@ -239,6 +249,73 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
         </div>
       ) : (
         <>
+          {/* 临时切换条（运行期化批）：模型/思考档临时换（steward.set_model
+              引擎内存直改不落 KV）；临时态 chip 提示（current ≠ default）。 */}
+          {(() => {
+            const cfg = sv.config;
+            const currentModel = cfg?.currentModel ?? "";
+            const isTransient = cfg !== null && currentModel !== "" && currentModel !== cfg.model;
+            const visible = filterAvailableModels({
+              models: transientCatalog ?? [],
+              auth: transientAuth,
+              authLoaded: transientAuthLoaded,
+              currentModel: currentModel || undefined,
+              query: "",
+            });
+            const withCurrent =
+              currentModel !== "" && !visible.some((m) => m.id === currentModel)
+                ? ([{ id: currentModel, providerId: currentModel.split("/", 1)[0] ?? currentModel } as CatalogModel, ...visible])
+                : visible;
+            const levels =
+              currentModel !== "" ? (resolveThinkingCapability(currentModel, transientCatalog ?? undefined)?.thinkingLevels ?? []) : [];
+            const currentThinking = cfg?.currentThinking ?? null;
+            return (
+              <div className="stp-transient" data-testid="steward-transient">
+                <label className="stp-transient-label" htmlFor="stp-transient-model">
+                  {t("steward.transientModelLabel")}
+                </label>
+                <div className="stp-transient-select">
+                  <select
+                    id="stp-transient-model"
+                    data-testid="steward-transient-model"
+                    value={currentModel}
+                    disabled={transientCatalog === null || currentModel === ""}
+                    onChange={(e) => sv.setModel({ model: e.target.value })}
+                  >
+                    {withCurrent.map((m) => (
+                      <option value={m.id} key={m.id}>
+                        {m.id}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} strokeWidth={1.75} aria-hidden="true" />
+                </div>
+                {levels.length > 0 ? (
+                  <div className="stp-transient-select">
+                    <select
+                      data-testid="steward-transient-thinking"
+                      value={currentThinking ?? ""}
+                      disabled={currentModel === ""}
+                      onChange={(e) => sv.setModel({ model: currentModel, thinking: e.target.value })}
+                    >
+                      <option value="">{t("steward.transientThinkingDefault")}</option>
+                      {levels.map((level) => (
+                        <option value={level} key={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={12} strokeWidth={1.75} aria-hidden="true" />
+                  </div>
+                ) : null}
+                {isTransient ? (
+                  <span className="stp-transient-chip" data-testid="steward-transient-chip">
+                    {t("steward.transientChip")}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })()}
           <div className="stp-feed" data-testid="steward-feed">
             <span className="stp-feed-label">{t("steward.feedTitle")}</span>
             {sv.feed.length === 0 ? (

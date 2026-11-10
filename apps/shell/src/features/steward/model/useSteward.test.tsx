@@ -66,14 +66,28 @@ describe("useSteward（V2.5 文本管家）", () => {
   });
   afterEach(() => cleanup());
 
-  it("mount → sendStewardGetConfig；config.result 更新 config 态", async () => {
+  it("mount → sendStewardGetConfig；config.result 更新 config 态（运行期化批：双位四字段）", async () => {
     const { result } = renderSteward();
     expect(sendStewardGetConfig).toHaveBeenCalled();
     act(() => {
-      frameListener?.(frame("steward.config.result", { enabled: true, model: "deepseek/deepseek-v4-flash" }));
+      frameListener?.(
+        frame("steward.config.result", {
+          enabled: true,
+          model: "deepseek/deepseek-v4-flash",
+          thinking: "",
+          currentModel: "deepseek/deepseek-v4-flash",
+          currentThinking: null,
+        }),
+      );
     });
     await waitFor(() => {
-      expect(result.current.config).toEqual({ enabled: true, model: "deepseek/deepseek-v4-flash" });
+      expect(result.current.config).toEqual({
+        enabled: true,
+        model: "deepseek/deepseek-v4-flash",
+        thinking: "",
+        currentModel: "deepseek/deepseek-v4-flash",
+        currentThinking: null,
+      });
     });
   });
 
