@@ -66,7 +66,7 @@ describe("useSteward（V2.5 文本管家）", () => {
   });
   afterEach(() => cleanup());
 
-  it("mount → sendStewardGetConfig；config.result 更新 config 态（运行期化批：双位四字段）", async () => {
+  it("mount → sendStewardGetConfig；config.result 更新 config 态（运行期化批：双位四字段 + engineLive 防呆位）", async () => {
     const { result } = renderSteward();
     expect(sendStewardGetConfig).toHaveBeenCalled();
     act(() => {
@@ -77,6 +77,7 @@ describe("useSteward（V2.5 文本管家）", () => {
           thinking: "",
           currentModel: "deepseek/deepseek-v4-flash",
           currentThinking: null,
+          engineLive: true,
         }),
       );
     });
@@ -87,6 +88,7 @@ describe("useSteward（V2.5 文本管家）", () => {
         thinking: "",
         currentModel: "deepseek/deepseek-v4-flash",
         currentThinking: null,
+        engineLive: true,
       });
     });
   });

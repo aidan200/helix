@@ -1378,6 +1378,11 @@ html.light .stp-dock {
   position: absolute; width: min(340px, calc(100vw - 32px));
   max-height: min(360px, calc(100dvh - 200px));
 }
+/* 引擎未装配防呆行（UI 防呆批）：mm 菜单顶部/滑块位同款 tp-disabled-note
+   密度，菜单内自适应 padding */
+.stp-menu .stp-engine-note {
+  padding: 10px 14px 8px; border-bottom: 1px solid rgb(var(--edge-rgb) / 0.08);
+}
 .stp-chip-wrap .tp-popover.stp-menu {
   bottom: auto; right: auto;
   width: min(308px, calc(100vw - 32px));

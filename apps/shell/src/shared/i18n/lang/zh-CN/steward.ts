@@ -37,6 +37,7 @@ export const steward = {
       thinkingUnsupported: "当前模型不支持思考强度",
       thinkingSlider: "推理强度档位",
       thinkingGhost: "无临时覆盖：当前按默认层 {level} 档运行",
+      engineNotLive: "先与管家对话一次后才能临时切换（当前无对话引擎）",
     },
     newChatTitle: "清空当前对话（管家记忆与显示同步清空）",
     activity: {

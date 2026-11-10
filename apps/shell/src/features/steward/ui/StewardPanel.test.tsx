@@ -570,7 +570,7 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
     renderPanel();
     act(() => {
       emitSteward(frame("steward.config.result", {
-        enabled: true, model: "deepseek/deepseek-flash", thinking: "",
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "", engineLive: true,
         currentModel: "anthropic/claude-sonnet-4-5", currentThinking: null,
       }));
     });
@@ -604,7 +604,7 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
     renderPanel();
     act(() => {
       emitSteward(frame("steward.config.result", {
-        enabled: true, model: "deepseek/deepseek-flash", thinking: "",
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "", engineLive: true,
         currentModel: "anthropic/claude-sonnet-4-5", currentThinking: null,
       }));
     });
@@ -637,7 +637,7 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
     renderPanel();
     act(() => {
       emitSteward(frame("steward.config.result", {
-        enabled: true, model: "deepseek/deepseek-flash", thinking: "",
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "", engineLive: true,
         currentModel: "deepseek/deepseek-flash", currentThinking: null,
       }));
     });
@@ -655,5 +655,98 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
       expect(screen.getByTestId("steward-model-menu")).toBeTruthy();
     });
     expect(screen.queryByTestId("steward-model-menu")!.querySelector("[data-steward-model-reset]")).toBeNull();
+  });
+
+  it("UI 防呆批：引擎未装配（engineLive=false）→ 菜单/滑块前置禁用 + 引导文案 + 点刻度零发令", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", {
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "", engineLive: false,
+        currentModel: "deepseek/deepseek-flash", currentThinking: null,
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-transient")).toBeTruthy();
+    });
+    // 模型菜单：防呆行在场 + 菜单项 disabled + 点击零发令
+    act(() => {
+      fireEvent.click(screen.getByTestId("steward-transient-model"));
+    });
+    const menu = screen.getByTestId("steward-model-menu");
+    expect(menu.querySelector('[data-testid="steward-engine-note"]')).toBeTruthy();
+    const item = menu.querySelector('[data-model-item="deepseek/deepseek-flash"]') as HTMLButtonElement;
+    expect(item.disabled).toBe(true);
+    act(() => {
+      fireEvent.click(item);
+    });
+    expect(sendStewardSetModel).not.toHaveBeenCalled();
+    // 思考 popover：防呆行取代滑块
+    act(() => {
+      fireEvent.click(screen.getByTestId("steward-transient-thinking"));
+    });
+    const pop = screen.getByTestId("steward-thinking-popover");
+    expect(pop.querySelector('[data-testid="steward-engine-note"]')).toBeTruthy();
+    expect(pop.querySelector(".tl-track")).toBeNull();
+  });
+
+  it("UI 防呆批：popover 点外关闭 + 两 chip 互斥（豁免唯一化——点另一 chip 收旧开新）", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", {
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "", engineLive: true,
+        currentModel: "deepseek/deepseek-flash", currentThinking: null,
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-transient")).toBeTruthy();
+    });
+    // 开思考 popover → 点面板外区域（body）→ 收起
+    act(() => {
+      fireEvent.click(screen.getByTestId("steward-transient-thinking"));
+    });
+    expect(screen.getByTestId("steward-thinking-popover")).toBeTruthy();
+    act(() => {
+      fireEvent.pointerDown(document.body);
+    });
+    expect(screen.queryByTestId("steward-thinking-popover")).toBeNull();
+    // 互斥：开模型菜单 → 点思考 chip（另一 chip，不再豁免）→ 模型菜单收起
+    act(() => {
+      fireEvent.click(screen.getByTestId("steward-transient-model"));
+    });
+    expect(screen.getByTestId("steward-model-menu")).toBeTruthy();
+    act(() => {
+      fireEvent.pointerDown(screen.getByTestId("steward-transient-thinking"));
+      fireEvent.click(screen.getByTestId("steward-transient-thinking"));
+    });
+    expect(screen.queryByTestId("steward-model-menu")).toBeNull();
+    expect(screen.getByTestId("steward-thinking-popover")).toBeTruthy();
+  });
+
+  it("UI 防呆批：set_model 拒答 → connection.error 尾缀归因 toast（其余命令族不归因）", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", {
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "", engineLive: true,
+        currentModel: "deepseek/deepseek-flash", currentThinking: null,
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-transient")).toBeTruthy();
+    });
+    // 非本族命令 error → 零 toast
+    act(() => {
+      emitSteward(frame("connection.error", {
+        code: "command.invalid_payload", message: "某错误（命令 steward.set_config）",
+      }));
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+    // set_model 拒答 → toast 交代 daemon 拒因
+    act(() => {
+      emitSteward(frame("connection.error", {
+        code: "command.invalid_payload",
+        message: "管家尚未开始对话（无引擎可临时换模）——请改默认配置或先与管家对话（命令 steward.set_model）",
+      }));
+    });
+    expect(document.querySelector(".toast-zone")?.textContent).toContain("管家尚未开始对话");
   });
 });

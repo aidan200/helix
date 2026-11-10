@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardGetConfig = vi.fn(() => true);
@@ -40,9 +41,11 @@ import StewardDock from "./StewardDock";
 
 function ui(open: boolean, onClose = vi.fn()) {
   render(
-    <I18nProvider>
-      <StewardDock open={open} onClose={onClose} onOpenMemory={vi.fn()} />
-    </I18nProvider>,
+    <ToastProvider>
+      <I18nProvider>
+        <StewardDock open={open} onClose={onClose} onOpenMemory={vi.fn()} />
+      </I18nProvider>
+    </ToastProvider>,
   );
   return onClose;
 }
@@ -54,9 +57,11 @@ function renderStewardDock(open: boolean) {
 }
 function stewardDockElement(open: boolean) {
   return (
-    <I18nProvider>
-      <StewardDock open={open} onClose={vi.fn()} onOpenMemory={vi.fn()} />
-    </I18nProvider>
+    <ToastProvider>
+      <I18nProvider>
+        <StewardDock open={open} onClose={vi.fn()} onOpenMemory={vi.fn()} />
+      </I18nProvider>
+    </ToastProvider>
   );
 }
 

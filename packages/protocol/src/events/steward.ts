@@ -229,6 +229,10 @@ export interface StewardConfigResultPayload {
   /** 引擎思考覆盖现值（运行期化批，additive：临时层观测位——null = 无临时
    *  覆盖（生效档 = 默认层链）；非空 = 临时 override 原值）。 */
   currentThinking?: string | null;
+  /** 引擎在场位（UI 防呆批，additive：true = 管家引擎已装配（有过对话），
+   *  临时层 set_model 可用；false = 未装配，UI 前置禁用临时切换入口并引导
+   *  先对话——拒答前置化，消除「点滑块无反馈」静默失败面）。 */
+  engineLive?: boolean;
   /** 总结配置组回显（会话总结器独立化批①：summary.* 通用域只读观测面——
    *  写面在 config.set_summary，管家配置零总结项；形状与
    *  SummaryConfigStatePayload 同源）。 */

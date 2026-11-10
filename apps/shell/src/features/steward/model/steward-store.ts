@@ -78,6 +78,10 @@ export interface StewardConfig {
   readonly currentModel: string;
   /** 引擎思考覆盖现值（null = 无临时覆盖）。 */
   readonly currentThinking: string | null;
+  /** 引擎在场位（UI 防呆批：false = 尚无对话无引擎，临时层 set_model 会被拒
+   *  ——UI 前置禁用临时切换入口引导先对话；旧 daemon 无此位缺省 false——
+   *  与 currentModel 兑底同向保守）。 */
+  readonly engineLive: boolean;
 }
 
 export interface StewardStoreState {
@@ -478,6 +482,7 @@ class StewardStore {
             payload.currentThinking === undefined || payload.currentThinking === null || payload.currentThinking === ""
               ? null
               : String(payload.currentThinking),
+          engineLive: (payload as { engineLive?: unknown }).engineLive === true,
         },
       });
       return;

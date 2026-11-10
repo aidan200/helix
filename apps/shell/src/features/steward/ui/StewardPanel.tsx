@@ -33,6 +33,7 @@ import type { StewardPanelItem } from "../model/useSteward";
 import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
 import { formatDuration } from "@/shared/lib/format";
 import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
+import { commandOfConnectionError } from "@/shared/lib/command-error";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
 import ThinkingLevelSlider from "@/shared/ui/ThinkingLevelSlider";
 import { useToast } from "@/shared/ui/Toast";
@@ -157,6 +158,9 @@ interface StewardChipBase {
   readonly catalog: CatalogModel[] | null;
   readonly auth: Record<string, AuthProviderEntry>;
   readonly authLoaded: boolean;
+  /** 引擎在场位（UI 防呆批）：false = 尚无对话无引擎，set_model 会被拒——
+  *  菜单项/滑块前置禁用 + 引导文案（拒答前置化，消除静默失败）。 */
+  readonly engineLive: boolean;
 }
 
 /**
@@ -173,12 +177,15 @@ function StewardModelChip({
   catalog,
   auth,
   authLoaded,
+  engineLive,
   onPick,
 }: StewardChipBase & { onPick: (model: string) => boolean }) {
   const { t } = useI18n();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  useDismissOnOutside(open, ".stp-chip-wrap", () => setOpen(false), { event: "pointerdown" });
+  // 豁免选择器唯一化（UI 防呆批）：按 data-chip 精确豁免本 chip 包装——两 chip
+  // 共用 .stp-chip-wrap 时点另一 chip 会误豁免本 popover 的点外关闭（叠加不收）
+  useDismissOnOutside(open, '.stp-chip-wrap[data-chip="model"]', () => setOpen(false), { event: "pointerdown" });
 
   // 可见集（P-3 同口径）：可用性过滤 + 现值兑底（provider 未 configured /
   // 不在目录仍保留——菜单不说谎）
@@ -203,6 +210,7 @@ function StewardModelChip({
   const showReset = currentModel !== "" && defaultModel !== "" && isTransient;
 
   const pick = (model: string) => {
+    if (!engineLive) return; // 未装配前置禁用（set_model 会被拒——防呆位）
     if (onPick(model) === false) {
       toast.push("err", t("steward.transient.sendFail"));
       return; // 未连接：不关菜单不产假反馈
@@ -212,7 +220,7 @@ function StewardModelChip({
 
   if (currentModel === "") return null; // 无引擎现值（尚无对话）→ chip 不渲染
   return (
-    <span className="stp-chip-wrap">
+    <span className="stp-chip-wrap" data-chip="model">
       <button
         type="button"
         className={cn("hud-badge model-badge", open && "open", isTransient && "transient")}
@@ -235,6 +243,11 @@ function StewardModelChip({
       )}
       {open && (
         <div className="model-menu open stp-menu" role="menu" aria-label={t("steward.transient.modelTitle")} data-testid="steward-model-menu">
+          {!engineLive && (
+            <div className="tp-disabled-note stp-engine-note" data-testid="steward-engine-note">
+              {t("steward.transient.engineNotLive")}
+            </div>
+          )}
           <div className="mm-list" data-mm-list>
             {[...byProvider.entries()].map(([providerId, models]) => (
               <div className="mm-group" data-group={providerId} key={providerId}>
@@ -247,6 +260,7 @@ function StewardModelChip({
                     aria-checked={m.id === currentModel}
                     data-model-item={m.id}
                     key={m.id}
+                    disabled={!engineLive}
                     onClick={() => pick(m.id)}
                   >
                     <span className="mm-name">{m.id}</span>
@@ -295,6 +309,7 @@ function StewardThinkingChip({
   currentThinking,
   defaultThinking,
   catalog,
+  engineLive,
   onPick,
 }: {
   readonly currentModel: string;
@@ -303,12 +318,14 @@ function StewardThinkingChip({
   /** 默认层 KV 档位（空 = 未配置默认关）。 */
   readonly defaultThinking: string;
   readonly catalog: CatalogModel[] | null;
+  readonly engineLive: boolean;
   onPick: (thinking: string) => boolean;
 }) {
   const { t } = useI18n();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  useDismissOnOutside(open, ".stp-chip-wrap", () => setOpen(false), { event: "pointerdown" });
+  // 豁免选择器唯一化（UI 防呆批）：同 ModelChip——data-chip 精确豁免防叠加不收
+  useDismissOnOutside(open, '.stp-chip-wrap[data-chip="thinking"]', () => setOpen(false), { event: "pointerdown" });
 
   const capability = currentModel === "" ? undefined : resolveThinkingCapability(currentModel, catalog ?? undefined);
   const capabilityKnown = capability !== undefined;
@@ -322,6 +339,7 @@ function StewardThinkingChip({
   const displayLevel = reasoningOff ? t("steward.transient.thinkingOff") : (override ?? ghost).toUpperCase();
 
   const pick = (level: string) => {
+    if (!engineLive) return; // 未装配前置禁用（set_model 会被拒——防呆位）
     const next = level === "off" ? "" : level; // off 刻度 = 清覆盖回默认层
     if (onPick(next) === false) {
       toast.push("err", t("steward.transient.sendFail"));
@@ -330,7 +348,7 @@ function StewardThinkingChip({
 
   if (currentModel === "") return null;
   return (
-    <span className="stp-chip-wrap">
+    <span className="stp-chip-wrap" data-chip="thinking">
       <button
         type="button"
         className={cn("tp-trigger", open && "open", isTransient && "transient", reasoningOff && "disabled")}
@@ -359,6 +377,10 @@ function StewardThinkingChip({
           </div>
           {reasoningOff ? (
             <div className="tp-disabled-note">{t("steward.transient.thinkingUnsupported")}</div>
+          ) : !engineLive ? (
+            <div className="tp-disabled-note" data-testid="steward-engine-note">
+              {t("steward.transient.engineNotLive")}
+            </div>
           ) : (
             <ThinkingLevelSlider
               levels={levels}
@@ -381,9 +403,12 @@ function StewardThinkingChip({
 
 const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory, onOpenActivity }: StewardPanelProps) {
   const { t } = useI18n();
+  const toast = useToast();
   const sv = useSteward();
   const [draft, setDraft] = useState("");
-  const { topology } = useSession();
+  const { topology, subscribeStewardFrames } = useSession() as ReturnType<typeof useSession> & {
+    subscribeStewardFrames?: (listener: (e: { type: string; payload?: unknown }) => void) => () => void;
+  };
   const mc = topology?.modelConfig;
   const transientCatalog = mc?.catalog?.models ?? null;
   const transientAuth: Record<string, AuthProviderEntry> = mc?.auth ?? {};
@@ -411,6 +436,20 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
   }, [active]);
 
   const enabled = sv.config?.enabled === true;
+
+  // set_model 拒答收口（TR-272 connection.error 尾缀归因先例）：daemon
+  // commandError 走 connection.error 无结果帧——尾缀归因只消费 steward.set_model
+  // （引擎未装配主场景已被 engineLive 前置防呆拦下，这里兜底其余拒答路径：
+  // 模型串解析失败等），toast 交代不静默；其他命令族不归因本面
+  useEffect(() => {
+    if (!subscribeStewardFrames) return;
+    return subscribeStewardFrames((e) => {
+      if (e.type !== "connection.error") return;
+      const message = (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
+      if (commandOfConnectionError(message) !== "steward.set_model") return;
+      toast.push("err", message);
+    });
+  }, [subscribeStewardFrames, toast]);
 
   // 输入框自动长高（UI 显示优化批：底部一行显示不全修复——rows=2 钉死高度
   // 时多行末行被裁进滚动区；主聊天 Composer 先例同构：height:auto 先重置再取
@@ -500,6 +539,7 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
               catalog={transientCatalog}
               auth={transientAuth}
               authLoaded={transientAuthLoaded}
+              engineLive={sv.config?.engineLive === true}
               onPick={(model) => sv.setModel({ model })}
             />
             <StewardThinkingChip
@@ -507,6 +547,7 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
               currentThinking={sv.config?.currentThinking ?? null}
               defaultThinking={sv.config?.thinking ?? ""}
               catalog={transientCatalog}
+              engineLive={sv.config?.engineLive === true}
               onPick={(thinking) => sv.setModel({ model: sv.config?.currentModel ?? "", thinking })}
             />
           </div>

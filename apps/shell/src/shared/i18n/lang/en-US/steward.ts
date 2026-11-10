@@ -39,6 +39,7 @@ export const steward = {
       thinkingUnsupported: "Current model does not support thinking levels",
       thinkingSlider: "Reasoning effort level",
       thinkingGhost: "No transient override: running at default level {level}",
+      engineNotLive: "Talk to the steward once before transient switching (no dialog engine yet)",
     },
     newChatTitle: "Clear the current conversation (steward memory and display reset together)",
     activity: {

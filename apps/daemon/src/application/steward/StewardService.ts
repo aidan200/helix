@@ -564,6 +564,9 @@ export class StewardService implements StewardComponent {
       // 引擎现值（临时层观测：临时换模后 ≠ model；无引擎/未临时 = 同默认层）
       currentModel: this.core.engine?.currentModel?.() ?? defaultModel,
       currentThinking: this.core.engine?.currentThinking?.()?.override || null,
+      // UI 防呆批（additive）：引擎在场位——false = 尚无对话无引擎，临时层
+      // set_model 会拒答，UI 前置禁用临时切换入口引导先对话
+      engineLive: this.core.engine !== undefined,
       // 总结配置组回显（summary.* 通用域生效值——所见即所得）
       summary: readSummaryConfig(this.core.deps.config),
       // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/零条目；批1：
@@ -606,6 +609,7 @@ export class StewardService implements StewardComponent {
       thinking: this.core.deps.config.get(STEWARD_THINKING_KEY) || null,
       currentModel: this.core.engine?.currentModel?.() ?? model,
       currentThinking: this.core.engine?.currentThinking?.()?.override || null,
+      engineLive: this.core.engine !== undefined,
       kindLabel: "steward",
     };
   }

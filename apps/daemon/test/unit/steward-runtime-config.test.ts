@@ -152,20 +152,23 @@ describe("默认层：setConfig {thinking}", () => {
 });
 
 describe("临时层：setModel（引擎内存直改，不落 KV）", () => {
-  test("引擎未装配 → 拒答（临时层无载体）", () => {
+  test("引擎未装配 → 拒答（临时层无载体）+ engineLive=false（UI 前置防呆位）", () => {
     const cfg = fakeConfig({ "steward.enabled": "1" });
     const svc = makeService(cfg);
     const outcome = svc.setModel({ model: "fake/model" });
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.error).toContain("尚未开始对话");
-    // KV 不受影响
+    // KV 不受影响 + 防呆位：未装配回 false
     expect(cfg.kv.get("steward.model")).toBeUndefined();
+    expect(svc.getConfig().engineLive).toBe(false);
+    expect(svc.getProfile().engineLive).toBe(false);
   });
 
-  test("引擎在场：currentModel 直改 + KV 不落（默认层不动）", async () => {
+  test("引擎在场：currentModel 直改 + KV 不落（默认层不动）+ engineLive=true", async () => {
     const cfg = fakeConfig({ "steward.enabled": "1" });
     const svc = makeServiceWithExactCatalog(cfg);
     await svc.ask("你好");
+    expect(svc.getConfig().engineLive).toBe(true); // ask 装配引擎 → 在场位翻转
     const outcome = svc.setModel({ model: "fake/other", thinking: "high" });
     expect(outcome.ok).toBe(true);
     // 临时态观测：current ≠ default
