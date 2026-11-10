@@ -21,10 +21,23 @@ export const steward = {
     // ── A1 工作记忆批：过程可见面（thinking 折叠 / 工具行 / 新对话）──
     thinkingLabel: "思考过程",
     newChat: "新对话",
-    // 运行期化批：面板临时切换条（steward.set_model 引擎内存直改不落 KV）
-    transientModelLabel: "临时模型",
-    transientThinkingDefault: "默认档",
-    transientChip: "临时",
+    // UI 对齐批：面板临时切换条（主 agent 同款 chip + popover；steward.set_model
+    // 引擎内存直改不落 KV；清对话/重启回落默认层）
+    transient: {
+      chip: "临时",
+      modelTitle: "管家模型（临时切换，下一问生效；改默认去智能体页）",
+      defaultBadge: "默认",
+      resetToDefault: "回默认",
+      effectiveHint: "下一问生效",
+      sendFail: "未连接，切换未发出，请稍后重试",
+      thinkingLabel: "THINKING",
+      thinkingTitle: "管家推理强度（临时）",
+      thinkingHead: "Reasoning Effort",
+      thinkingOff: "OFF",
+      thinkingUnsupported: "当前模型不支持思考强度",
+      thinkingSlider: "推理强度档位",
+      thinkingGhost: "无临时覆盖：当前按默认层 {level} 档运行",
+    },
     newChatTitle: "清空当前对话（管家记忆与显示同步清空）",
     activity: {
       openTitle: "查看活动时间线",

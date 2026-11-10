@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, act, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
@@ -60,9 +61,11 @@ const setTaScrollHeight = (h: number) =>
 
 async function openPanel() {
   render(
-    <I18nProvider>
-      <StewardPanel onClose={() => undefined} active={true} />
-    </I18nProvider>,
+    <ToastProvider>
+      <I18nProvider>
+        <StewardPanel onClose={() => undefined} active={true} />
+      </I18nProvider>
+    </ToastProvider>,
   );
   act(() => {
     emitSteward(frame("steward.config.result", { enabled: true, model: "x/y" }));

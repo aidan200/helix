@@ -72,11 +72,6 @@ export const agents = {
     stewardNote: "An embedded resident member of the daemon (not a SubAgent profile); prompt and tools are read-only, on/off lives in Settings → General.",
     stewardModelUnset: "Not set (adapter default model)",
     stewardModelNote: "Model for steward replies and compaction summaries",
-    // Runtime-config batch: steward card thinking level (catalog capability driven; empty = model default)
-    thinkingLabel: "Thinking",
-    thinkingDefault: "Default (model)",
-    stewardThinkingNote: "Reasoning level for steward replies; transient switch lives in the steward panel header",
-    stewardThinkingUnsupported: "Current model does not support thinking levels",
     stewardPromptLabel: "System prompt",
     stewardPromptView: "View",
     stewardPromptHide: "Collapse",

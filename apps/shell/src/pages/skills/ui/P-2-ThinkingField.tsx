@@ -49,7 +49,7 @@ import { resolveEffectiveLevel } from "@/features/thinking-level/model/thinking-
 import type { AgentKind, SystemAgentKind } from "../model/agent-config-model";
 
 export interface P2ThinkingFieldProps {
-  kind: AgentKind | SystemAgentKind; // R7：system 卡槽位同构复用
+  kind: AgentKind | SystemAgentKind | "steward"; // R7：system 卡槽位同构复用；steward = 管家卡（运行期化批，默认层 KV 槽位同语义）
   /** AgentProfile 配置资源 thinking 槽位现值（null = 未配置 = 开关 off）。 */
   thinkingLevel: string | null;
   /** 槽位模型能力位（undefined = 目录未到达或模型不在目录）。 */

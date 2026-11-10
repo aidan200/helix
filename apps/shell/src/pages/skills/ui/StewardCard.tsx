@@ -7,7 +7,8 @@
  * - 无「启用/禁用」开关（启停在设置页通用配置；工具/提示词面无写面）；
  * - 无 spawn 入口（不可派生）。
  *
- * 内容三块：模型槽位选择器 / system prompt 折叠面板（默认收起显示首行任务
+ * 内容四块：模型槽位选择器 / 推理级别字段（P-2 同款开关 + 滑块——与其他
+ * agent kind 卡同原子同风格，UI 对齐批）/ system prompt 折叠面板（默认收起显示首行任务
  * 描述摘要，展开全文——数据随档案一次拉全，开/关纯本地态）/ 工具清单（注册
  * 面八工具：名称 + 一句话描述）。
  */
@@ -17,6 +18,7 @@ import type { AgentStewardProfileGetResultPayload, CatalogModel } from "@helix/p
 import { useI18n } from "@/shared/i18n";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
 import { resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
+import P2ThinkingField from "./P-2-ThinkingField";
 import type { AuthProviderEntry } from "@/entities/session/model/state";
 
 /** 管家档案卡（数据 = agent.steward_profile.get.result 载荷；模型写面回调注入）。 */
@@ -36,7 +38,7 @@ export default function StewardCard({
   /** 模型槽位写面（steward.set_config {model}；新态经 config.result → 档案重拉回填）。 */
   onModelChange: (model: string) => void;
   /** 思考档默认层写面（运行期化批：steward.set_config {thinking}；空串 = 清除
-   *  回模型默认）。 */
+   *  回模型默认——P-2 开关 off 通道）。 */
   onThinkingChange: (level: string) => void;
 }) {
   const { t } = useI18n();
@@ -73,13 +75,12 @@ export default function StewardCard({
     return map;
   }, [catalog, auth, authLoaded, profile?.model]);
 
-  // 思考档能力位（运行期化批）：当前默认层模型的 thinkingLevels（目录能力
-  // 驱动——UI 不自判能力；空 = 模型不支持推理 → 下拉禁用）
-  const thinkingLevels = useMemo(() => {
-    const model = profile?.model ?? null;
-    if (model === null) return [];
-    return resolveThinkingCapability(model, catalog ?? undefined)?.thinkingLevels ?? [];
-  }, [profile?.model, catalog]);
+  // 思考档能力位（运行期化批）：当前默认层模型的 CatalogModel（P-2 同款——
+  // 开关/滑块/边界态全由 P-2 承担，本卡只供数；undefined = 目录未到达/模型不在目录）
+  const thinkingCapability = useMemo(
+    () => (profile?.model == null ? undefined : resolveThinkingCapability(profile.model, catalog ?? undefined)),
+    [profile?.model, catalog],
+  );
 
   return (
     <section className="hud-card ag-card" data-agent-card="steward">
@@ -139,36 +140,17 @@ export default function StewardCard({
         </span>
       </div>
 
-      {/* 思考档默认层（运行期化批）：可编辑选择器（与模型槽位同卡同形态；
-          写面 steward.set_config {thinking}——空串 = 清除回模型默认） */}
-      <div className="ag-model" data-steward-thinking>
-        <label className="hud-label" htmlFor="sel-thinking-steward">
-          {t("agents.thinkingLabel")}
-        </label>
-        <div className="sel-wrap">
-          <select
-            id="sel-thinking-steward"
-            className="hud-input"
-            data-steward-thinking-select
-            value={profile?.thinking ?? ""}
-            disabled={profile === null || thinkingLevels.length === 0}
-            onChange={(e) => onThinkingChange(e.target.value)}
-          >
-            <option value="">{t("agents.thinkingDefault")}</option>
-            {thinkingLevels.map((level) => (
-              <option value={level} key={level}>
-                {level}
-              </option>
-            ))}
-          </select>
-          <span className="sel-chev">
-            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-          </span>
-        </div>
-        <span className="ag-note" data-steward-thinking-note>
-          {thinkingLevels.length === 0 ? t("agents.stewardThinkingUnsupported") : t("agents.stewardThinkingNote")}
-        </span>
-      </div>
+      {/* 推理级别字段（UI 对齐批）：P-2 同款开关 + 滑块——与其他 agent kind 卡
+          同原子同风格；on/off = 默认层 KV 槽位（null = 未配置），换模型后残留
+          档位的 clamped/peak 修饰与边界态全由 P-2 既有语义承担 */}
+      <P2ThinkingField
+        kind="steward"
+        thinkingLevel={profile?.thinking ?? null}
+        capability={thinkingCapability}
+        disabled={profile === null}
+        onSelect={onThinkingChange}
+        onClear={() => onThinkingChange("")}
+      />
 
       {/* system prompt 折叠面板：默认收起显示首行任务描述；展开全文（数据随档案
           一次拉全——开/关纯本地态零新命令） */}

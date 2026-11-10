@@ -1341,8 +1341,10 @@ describe("管家公民权批 + 管家配置并轨批：常驻服务分组 + 管�
     const rows = [...card.querySelectorAll("[data-steward-tool-row]")];
     expect(rows.map((r) => r.getAttribute("data-steward-tool-row"))).toEqual(STEWARD_PROFILE_PAYLOAD.tools.map((t) => t.name));
     expect(card.querySelector('[data-steward-tool-row="steward_confirm"]')!.textContent).toContain("面板确认按钮原语");
-    // 无启停开关（常驻定位——全卡零 switch；启停在设置页通用配置）
-    expect(card.querySelectorAll('[role="switch"]').length).toBe(0);
+    // 无启停开关（常驻定位——启停在设置页通用配置）；卡内唯一 switch =
+    // 推理级别开关（UI 对齐批：P-2 同款字段与其他 kind 卡同构）
+    expect(card.querySelectorAll('[role="switch"]').length).toBe(1);
+    expect(card.querySelector('[data-switch="thinking"]')).toBeTruthy();
   });
 
   it("②b 模型选择：换值 → sendStewardSetConfig({model})（不乐观）；config.result 回执 → 档案重拉 → 新值回填", () => {
@@ -1375,31 +1377,30 @@ describe("管家公民权批 + 管家配置并轨批：常驻服务分组 + 管�
     expect((document.querySelector("[data-steward-model-select]") as HTMLSelectElement).value).toBe("openai/gpt-5.2");
   });
 
-  it("②c 思考档默认层（运行期化批）：档位下拉在场（目录能力位驱动）+ 换值 → sendStewardSetConfig({thinking})；不支持模型 → 禁用", () => {
+  it("②c 推理级别字段（UI 对齐批）：P-2 同款开关 + 滑块——与其他 kind 卡同原子；换值/清除 → sendStewardSetConfig({thinking})", () => {
     mock.catalog = CATALOG;
     ui();
     act(() => feedList());
     act(() => selectAgent("steward"));
-    // 当前模型 deepseek-v4-flash 不在 CATALOG（无能力位）→ 下拉禁用
+    // 当前模型 deepseek-v4-flash 不在 CATALOG（无能力位）→ 开关 disabled（P-2 既有语义）
     act(() => feedStewardProfile());
-    let sel = document.querySelector("[data-steward-thinking-select]") as HTMLSelectElement;
-    expect(sel).not.toBeNull();
-    expect(sel.disabled).toBe(true);
-    // 切到目录内 reasoning 模型（有 thinkingLevels）→ 下拉启用 + 档位项来自能力位
+    const field = () => document.querySelector('[data-thinking-field="steward"]')!;
+    const sw = () => field().querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(field()).not.toBeNull();
+    expect(sw().disabled).toBe(true);
+    // 切到目录内 reasoning 模型 + 已配 high → 开关 on + 滑块在场（刻度 = 能力位，无 off 刻度）
     act(() => feedStewardProfile({ model: "anthropic/claude-sonnet-4-5", thinking: "high" }));
-    sel = document.querySelector("[data-steward-thinking-select]") as HTMLSelectElement;
-    expect(sel.disabled).toBe(false);
-    expect(sel.value).toBe("high");
-    const options = [...sel.querySelectorAll("option")].map((o) => o.value);
-    expect(options).toEqual(["", "low", "medium", "high"]); // 首项 = 默认（清除）
-    // 换值 → 写面单发（不乐观；等回执链重拉）
+    expect(sw().getAttribute("aria-checked")).toBe("true");
+    const ticks = [...field().querySelectorAll(".tl-tick")].map((b) => b.getAttribute("data-level"));
+    expect(ticks).toEqual(["low", "medium", "high"]);
+    // 点刻度 low → 写面单发（不乐观；等回执链重拉）
     act(() => {
-      fireEvent.change(sel, { target: { value: "low" } });
+      fireEvent.click(field().querySelector('[data-level="low"]')!);
     });
     expect(mock.sentStewardSetConfig).toEqual([{ thinking: "low" }]);
-    // 清除回默认 = 空串写面
+    // 开关 off → 清除回模型默认 = 空串写面（P-2 onClear 通道）
     act(() => {
-      fireEvent.change(sel, { target: { value: "" } });
+      fireEvent.click(sw());
     });
     expect(mock.sentStewardSetConfig).toEqual([{ thinking: "low" }, { thinking: "" }]);
   });

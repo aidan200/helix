@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
@@ -74,7 +75,9 @@ function frame(type: string, payload: unknown): EventEnvelope {
 function renderPanel(onOpenMemory?: () => void) {
   return render(
     <I18nProvider>
-      <StewardPanel onClose={() => undefined} {...(onOpenMemory !== undefined ? { onOpenMemory } : {})} />
+      <ToastProvider>
+        <StewardPanel onClose={() => undefined} {...(onOpenMemory !== undefined ? { onOpenMemory } : {})} />
+      </ToastProvider>
     </I18nProvider>,
   );
 }
@@ -563,7 +566,7 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
     expect(screen.queryByTestId("steward-tool-elapsed")).toBeNull();
   });
 
-  it("运行期化批：临时切换条——currentModel≠model 显「临时」chip；模型换值 → sendStewardSetModel({model})", async () => {
+  it("UI 对齐批：模型 chip 主 agent 同构——临时态徽标 + mm 菜单（分组/选中态/默认徽标/回默认）→ sendStewardSetModel({model})", async () => {
     renderPanel();
     act(() => {
       emitSteward(frame("steward.config.result", {
@@ -574,25 +577,63 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
     await waitFor(() => {
       expect(screen.getByTestId("steward-transient")).toBeTruthy();
     });
-    // 临时态 chip（current ≠ default）
+    // chip = 徽标形态（TopBar model-badge 同款）：现值文本 + 「临时」徽标（current ≠ default）
+    const chip = screen.getByTestId("steward-transient-model");
+    expect(chip.textContent).toContain("anthropic/claude-sonnet-4-5");
     expect(screen.getByTestId("steward-transient-chip")).toBeTruthy();
-    const sel = screen.getByTestId("steward-transient-model") as HTMLSelectElement;
-    expect(sel.value).toBe("anthropic/claude-sonnet-4-5");
-    // 换模型 → 临时层命令（不落 KV）
+    // 点 chip 开菜单：provider 分组 + 选中态 + 默认徽标（mm 同构）
     act(() => {
-      fireEvent.change(sel, { target: { value: "deepseek/deepseek-flash" } });
+      fireEvent.click(chip);
+    });
+    const menu = screen.getByTestId("steward-model-menu");
+    expect(menu.querySelector('[data-model-item="deepseek/deepseek-flash"]')).toBeTruthy();
+    expect(menu.querySelector('.mm-item.sel[data-model-item="anthropic/claude-sonnet-4-5"]')).toBeTruthy();
+    // 临时态 → 重置回默认入口在场
+    expect(menu.querySelector("[data-steward-model-reset]")).toBeTruthy();
+    // 选中即切即关（mm 先例）：换回默认模型 → 临时层命令（不落 KV）
+    act(() => {
+      fireEvent.click(menu.querySelector('[data-model-item="deepseek/deepseek-flash"]')!);
     });
     expect(sendStewardSetModel).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
-    // 档位下拉：当前模型能力位（low/medium/high）+ 换档携当前模型
-    const tsel = screen.getByTestId("steward-transient-thinking") as HTMLSelectElement;
-    expect([...tsel.querySelectorAll("option")].map((o) => o.value)).toEqual(["", "low", "medium", "high"]);
-    act(() => {
-      fireEvent.change(tsel, { target: { value: "high" } });
+    await waitFor(() => {
+      expect(screen.queryByTestId("steward-model-menu")).toBeNull();
     });
-    expect(sendStewardSetModel).toHaveBeenLastCalledWith({ model: "anthropic/claude-sonnet-4-5", thinking: "high" });
   });
 
-  it("运行期化批：未临时换模（current = default）→ 无「临时」chip；目录未到达 → 模型下拉禁用", async () => {
+  it("UI 对齐批：思考档 chip 主 agent 同构——popover 滑块（P-1 同构 off 刻度 = 清覆盖）→ sendStewardSetModel({model, thinking})", async () => {
+    renderPanel();
+    act(() => {
+      emitSteward(frame("steward.config.result", {
+        enabled: true, model: "deepseek/deepseek-flash", thinking: "",
+        currentModel: "anthropic/claude-sonnet-4-5", currentThinking: null,
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-transient-thinking")).toBeTruthy();
+    });
+    // 无覆盖 + 默认层未配 → chip 示 OFF（ghost 预览位 = off）
+    const chip = screen.getByTestId("steward-transient-thinking");
+    expect(chip.textContent).toContain("OFF");
+    // 点 chip 开 popover：刻度 = [off, low, medium, high]（能力位 + UI 合成 off）
+    act(() => {
+      fireEvent.click(chip);
+    });
+    const pop = screen.getByTestId("steward-thinking-popover");
+    const ticks = [...pop.querySelectorAll(".tl-tick")].map((b) => b.getAttribute("data-level"));
+    expect(ticks).toEqual(["off", "low", "medium", "high"]);
+    // 点 high 刻度 → 换档携当前模型
+    act(() => {
+      fireEvent.click(pop.querySelector('[data-level="high"]')!);
+    });
+    expect(sendStewardSetModel).toHaveBeenLastCalledWith({ model: "anthropic/claude-sonnet-4-5", thinking: "high" });
+    // off 刻度 = 清临时覆盖（空串——回默认层）
+    act(() => {
+      fireEvent.click(pop.querySelector('[data-level="off"]')!);
+    });
+    expect(sendStewardSetModel).toHaveBeenLastCalledWith({ model: "anthropic/claude-sonnet-4-5", thinking: "" });
+  });
+
+  it("UI 对齐批：未临时换模（current = default）→ 无「临时」徽标；无临时态无重置入口", async () => {
     renderPanel();
     act(() => {
       emitSteward(frame("steward.config.result", {
@@ -604,8 +645,15 @@ describe("StewardPanel（过程反馈——状态区与工具计时）", () => {
       expect(screen.getByTestId("steward-transient")).toBeTruthy();
     });
     expect(screen.queryByTestId("steward-transient-chip")).toBeNull();
-    // currentModel 在目录 → 下拉可用；无引擎（currentThinking null）档位缺省项
-    const sel = screen.getByTestId("steward-transient-model") as HTMLSelectElement;
-    expect(sel.disabled).toBe(false);
+    const chip = screen.getByTestId("steward-transient-model") as HTMLButtonElement;
+    expect(chip.disabled).toBe(false); // currentModel 在目录 → chip 可用
+    // 无临时态 → 菜单内无重置入口
+    act(() => {
+      fireEvent.click(chip);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("steward-model-menu")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("steward-model-menu")!.querySelector("[data-steward-model-reset]")).toBeNull();
   });
 });

@@ -23,10 +23,23 @@ export const steward = {
     // ── A1 work-memory batch: process visibility (thinking fold / tool rows / new chat) ──
     thinkingLabel: "Reasoning",
     newChat: "New chat",
-    // Runtime-config batch: transient switch bar (steward.set_model, in-memory, not persisted)
-    transientModelLabel: "Transient",
-    transientThinkingDefault: "Default",
-    transientChip: "transient",
+    // UI-alignment batch: transient switch bar (main-agent chip + popover style;
+    // steward.set_model is in-memory only; clear-history/restart falls back to defaults)
+    transient: {
+      chip: "transient",
+      modelTitle: "Steward model (transient, next reply; change defaults on the Agents page)",
+      defaultBadge: "default",
+      resetToDefault: "Back to default",
+      effectiveHint: "Effective next reply",
+      sendFail: "Not connected, switch not sent; retry shortly",
+      thinkingLabel: "THINKING",
+      thinkingTitle: "Steward reasoning effort (transient)",
+      thinkingHead: "Reasoning Effort",
+      thinkingOff: "OFF",
+      thinkingUnsupported: "Current model does not support thinking levels",
+      thinkingSlider: "Reasoning effort level",
+      thinkingGhost: "No transient override: running at default level {level}",
+    },
     newChatTitle: "Clear the current conversation (steward memory and display reset together)",
     activity: {
       openTitle: "View activity timeline",

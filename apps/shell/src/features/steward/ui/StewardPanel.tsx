@@ -26,17 +26,21 @@
  * （A1：隐藏不卸载但全局监听归活跃态）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Activity, Brain, ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { Activity, Brain, Check, ChevronDown, ChevronRight, RotateCcw, Wrench } from "lucide-react";
 import { useSteward } from "../model/useSteward";
 import { useStickyBottom } from "../model/useStickyBottom";
 import type { StewardPanelItem } from "../model/useSteward";
 import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
 import { formatDuration } from "@/shared/lib/format";
+import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
 import MarkdownMessage from "@/shared/ui/MarkdownMessage";
+import ThinkingLevelSlider from "@/shared/ui/ThinkingLevelSlider";
+import { useToast } from "@/shared/ui/Toast";
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { filterAvailableModels } from "@/shared/lib/model-availability";
 import { resolveThinkingCapability } from "@/shared/lib/thinking-capability";
+import { cn } from "@/shared/lib/cn";
 import type { CatalogModel } from "@helix/protocol";
 import type { AuthProviderEntry } from "@/entities/session/model/state";
 
@@ -137,6 +141,243 @@ function PanelItemRow({ item }: { readonly item: StewardPanelItem }) {
 
 /** 输入框自动长高上限（px）——主聊天 Composer 同值（超限内滚）。 */
 const TA_MAX_HEIGHT = 160;
+
+/** ctx chip 档位（200k / 400k / 1M…；P-3 ModelSwitchMenu 同式，面板内菜单同构消费）。 */
+function fmtContext(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
+  return `${Math.round(tokens / 1_000)}k`;
+}
+
+interface StewardChipBase {
+  /** 临时层现值（引擎内存；steward.set_model 直改不落 KV）。 */
+  readonly currentModel: string;
+  /** 默认层 KV 现值（智能体页管家卡配置位；重置回默认 = pick 此值）。 */
+  readonly defaultModel: string;
+  /** 模型目录（null = 未到达——chip 禁用）。 */
+  readonly catalog: CatalogModel[] | null;
+  readonly auth: Record<string, AuthProviderEntry>;
+  readonly authLoaded: boolean;
+}
+
+/**
+ * 模型 chip + 菜单（UI 对齐批）：主 agent 同款形态——TopBar model-badge
+ * 徽标（mb-dot + 模型名 + chevron）开 ModelSwitchMenu 同构菜单（mm-list
+ * provider 分组 + 选中态 + 默认徽标 + ctx chip + 重置回默认 + in-flight
+ * 提示；搜索裁除——面板窄空间，可用性过滤后条目有限）。临时态（current ≠
+ * default）chip 挂「临时」徽标；选中即切即关（mm 先例）；send false（未
+ * 连接）err toast 交代不关菜单（TR-168/TR-169）。
+ */
+function StewardModelChip({
+  currentModel,
+  defaultModel,
+  catalog,
+  auth,
+  authLoaded,
+  onPick,
+}: StewardChipBase & { onPick: (model: string) => boolean }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  useDismissOnOutside(open, ".stp-chip-wrap", () => setOpen(false), { event: "pointerdown" });
+
+  // 可见集（P-3 同口径）：可用性过滤 + 现值兑底（provider 未 configured /
+  // 不在目录仍保留——菜单不说谎）
+  const visible = filterAvailableModels({
+    models: catalog ?? [],
+    auth,
+    authLoaded,
+    currentModel: currentModel || undefined,
+    query: "",
+  });
+  const withCurrent =
+    currentModel !== "" && !visible.some((m) => m.id === currentModel)
+      ? ([{ id: currentModel, providerId: currentModel.split("/", 1)[0] ?? currentModel, contextWindow: 0 } as CatalogModel, ...visible])
+      : visible;
+  const byProvider = new Map<string, CatalogModel[]>();
+  for (const m of withCurrent) {
+    const list = byProvider.get(m.providerId);
+    if (list) list.push(m);
+    else byProvider.set(m.providerId, [m]);
+  }
+  const isTransient = currentModel !== "" && currentModel !== defaultModel;
+  const showReset = currentModel !== "" && defaultModel !== "" && isTransient;
+
+  const pick = (model: string) => {
+    if (onPick(model) === false) {
+      toast.push("err", t("steward.transient.sendFail"));
+      return; // 未连接：不关菜单不产假反馈
+    }
+    setOpen(false); // 选中即关（mm 先例）
+  };
+
+  if (currentModel === "") return null; // 无引擎现值（尚无对话）→ chip 不渲染
+  return (
+    <span className="stp-chip-wrap">
+      <button
+        type="button"
+        className={cn("hud-badge model-badge", open && "open", isTransient && "transient")}
+        data-testid="steward-transient-model"
+        title={t("steward.transient.modelTitle")}
+        aria-label={t("steward.transient.modelTitle")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={catalog === null}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="mb-dot" aria-hidden="true" />
+        {currentModel}
+        <ChevronDown className="mb-chev" size={14} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+      {isTransient && (
+        <span className="stp-tr-chip" data-testid="steward-transient-chip">
+          {t("steward.transient.chip")}
+        </span>
+      )}
+      {open && (
+        <div className="model-menu open stp-menu" role="menu" aria-label={t("steward.transient.modelTitle")} data-testid="steward-model-menu">
+          <div className="mm-list" data-mm-list>
+            {[...byProvider.entries()].map(([providerId, models]) => (
+              <div className="mm-group" data-group={providerId} key={providerId}>
+                <div className="mm-glabel">{providerId}</div>
+                {models.map((m) => (
+                  <button
+                    className={cn("mm-item", m.id === currentModel && "sel")}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={m.id === currentModel}
+                    data-model-item={m.id}
+                    key={m.id}
+                    onClick={() => pick(m.id)}
+                  >
+                    <span className="mm-name">{m.id}</span>
+                    {m.id === defaultModel && (
+                      <span className="hud-badge mm-def">{t("steward.transient.defaultBadge")}</span>
+                    )}
+                    {m.contextWindow > 0 && <span className="hud-chip">{fmtContext(m.contextWindow)}</span>}
+                    <span className="mm-check">
+                      <Check size={14} strokeWidth={1.75} aria-hidden="true" />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="mm-foot">
+            {showReset && (
+              <button
+                className="hud-btn hud-btn-ghost sm"
+                type="button"
+                data-steward-model-reset
+                onClick={() => pick(defaultModel)}
+              >
+                <RotateCcw size={14} strokeWidth={1.75} aria-hidden="true" />
+                {t("steward.transient.resetToDefault")}
+              </button>
+            )}
+            <span className="mm-hint">{t("steward.transient.effectiveHint")}</span>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+/**
+ * 思考档 chip + popover（UI 对齐批）：主 agent 同款形态——Composer
+ * tp-trigger chip（beam + THINKING + 生效档大写 + ▴）开 ThinkingLevelSlider
+ * popover。刻度 = ["off", ...能力档]（P-1 同构：off = 清临时覆盖回默认层，
+ * 非显式关）；无覆盖（currentThinking 空）ghost 空心 thumb 停默认层档位
+ * 仅预览（P-1 草稿位同语义——管家版「槽位」= 默认层 KV）。临时态（覆盖 ≠
+ * 默认层）trigger 挂 .transient 变体（accent 边框）。
+ */
+function StewardThinkingChip({
+  currentModel,
+  currentThinking,
+  defaultThinking,
+  catalog,
+  onPick,
+}: {
+  readonly currentModel: string;
+  /** 临时覆盖现值（空串 = 无覆盖；null = 引擎未装配）。 */
+  readonly currentThinking: string | null;
+  /** 默认层 KV 档位（空 = 未配置默认关）。 */
+  readonly defaultThinking: string;
+  readonly catalog: CatalogModel[] | null;
+  onPick: (thinking: string) => boolean;
+}) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  useDismissOnOutside(open, ".stp-chip-wrap", () => setOpen(false), { event: "pointerdown" });
+
+  const capability = currentModel === "" ? undefined : resolveThinkingCapability(currentModel, catalog ?? undefined);
+  const capabilityKnown = capability !== undefined;
+  const reasoningOff = capabilityKnown && !capability.reasoning;
+  const capabilityLevels = capability?.thinkingLevels ?? [];
+  // P-1 同构：UI 合成 OFF 为第 0 刻度——选 off = 清覆盖（set_model thinking ""）
+  const levels = ["off", ...capabilityLevels];
+  const override = currentThinking === "" || currentThinking === null ? null : currentThinking;
+  const ghost = defaultThinking !== "" ? defaultThinking : "off"; // 无覆盖预览位 = 默认层档
+  const isTransient = override !== null && override !== defaultThinking;
+  const displayLevel = reasoningOff ? t("steward.transient.thinkingOff") : (override ?? ghost).toUpperCase();
+
+  const pick = (level: string) => {
+    const next = level === "off" ? "" : level; // off 刻度 = 清覆盖回默认层
+    if (onPick(next) === false) {
+      toast.push("err", t("steward.transient.sendFail"));
+    }
+  };
+
+  if (currentModel === "") return null;
+  return (
+    <span className="stp-chip-wrap">
+      <button
+        type="button"
+        className={cn("tp-trigger", open && "open", isTransient && "transient", reasoningOff && "disabled")}
+        data-testid="steward-transient-thinking"
+        title={t("steward.transient.thinkingTitle")}
+        aria-label={t("steward.transient.thinkingTitle")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-disabled={reasoningOff}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="beam" aria-hidden="true">
+          <i />
+        </span>
+        <span className="tp-label">{t("steward.transient.thinkingLabel")}</span>
+        <span className="tp-level">{displayLevel}</span>
+        <span className="tp-chev">▴</span>
+      </button>
+      {open && (
+        <div className="tp-popover stp-menu" role="dialog" aria-label={t("steward.transient.thinkingTitle")} data-testid="steward-thinking-popover">
+          <span className="beam" aria-hidden="true">
+            <i />
+          </span>
+          <div className="tp-head">
+            <span className="tp-title">{t("steward.transient.thinkingHead")}</span>
+          </div>
+          {reasoningOff ? (
+            <div className="tp-disabled-note">{t("steward.transient.thinkingUnsupported")}</div>
+          ) : (
+            <ThinkingLevelSlider
+              levels={levels}
+              value={override}
+              ghostValue={ghost}
+              onSelect={pick}
+              ariaLabel={t("steward.transient.thinkingSlider")}
+            />
+          )}
+          {override === null && defaultThinking !== "" && (
+            <div className="stp-ghost-hint">
+              {t("steward.transient.thinkingGhost", { level: defaultThinking })}
+            </div>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
 
 const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemory, onOpenActivity }: StewardPanelProps) {
   const { t } = useI18n();
@@ -249,73 +490,26 @@ const StewardPanel = function StewardPanel({ onClose, active = true, onOpenMemor
         </div>
       ) : (
         <>
-          {/* 临时切换条（运行期化批）：模型/思考档临时换（steward.set_model
-              引擎内存直改不落 KV）；临时态 chip 提示（current ≠ default）。 */}
-          {(() => {
-            const cfg = sv.config;
-            const currentModel = cfg?.currentModel ?? "";
-            const isTransient = cfg !== null && currentModel !== "" && currentModel !== cfg.model;
-            const visible = filterAvailableModels({
-              models: transientCatalog ?? [],
-              auth: transientAuth,
-              authLoaded: transientAuthLoaded,
-              currentModel: currentModel || undefined,
-              query: "",
-            });
-            const withCurrent =
-              currentModel !== "" && !visible.some((m) => m.id === currentModel)
-                ? ([{ id: currentModel, providerId: currentModel.split("/", 1)[0] ?? currentModel } as CatalogModel, ...visible])
-                : visible;
-            const levels =
-              currentModel !== "" ? (resolveThinkingCapability(currentModel, transientCatalog ?? undefined)?.thinkingLevels ?? []) : [];
-            const currentThinking = cfg?.currentThinking ?? null;
-            return (
-              <div className="stp-transient" data-testid="steward-transient">
-                <label className="stp-transient-label" htmlFor="stp-transient-model">
-                  {t("steward.transientModelLabel")}
-                </label>
-                <div className="stp-transient-select">
-                  <select
-                    id="stp-transient-model"
-                    data-testid="steward-transient-model"
-                    value={currentModel}
-                    disabled={transientCatalog === null || currentModel === ""}
-                    onChange={(e) => sv.setModel({ model: e.target.value })}
-                  >
-                    {withCurrent.map((m) => (
-                      <option value={m.id} key={m.id}>
-                        {m.id}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={12} strokeWidth={1.75} aria-hidden="true" />
-                </div>
-                {levels.length > 0 ? (
-                  <div className="stp-transient-select">
-                    <select
-                      data-testid="steward-transient-thinking"
-                      value={currentThinking ?? ""}
-                      disabled={currentModel === ""}
-                      onChange={(e) => sv.setModel({ model: currentModel, thinking: e.target.value })}
-                    >
-                      <option value="">{t("steward.transientThinkingDefault")}</option>
-                      {levels.map((level) => (
-                        <option value={level} key={level}>
-                          {level}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={12} strokeWidth={1.75} aria-hidden="true" />
-                  </div>
-                ) : null}
-                {isTransient ? (
-                  <span className="stp-transient-chip" data-testid="steward-transient-chip">
-                    {t("steward.transientChip")}
-                  </span>
-                ) : null}
-              </div>
-            );
-          })()}
+          {/* 临时切换条（UI 对齐批）：主 agent 同款 chip + popover——模型徽标开
+              mm 菜单 / 思考档 chip 开滑块 popover（steward.set_model 引擎内存
+              直改不落 KV；临时态徽标/变体标示）。 */}
+          <div className="stp-transient" data-testid="steward-transient">
+            <StewardModelChip
+              currentModel={sv.config?.currentModel ?? ""}
+              defaultModel={sv.config?.model ?? ""}
+              catalog={transientCatalog}
+              auth={transientAuth}
+              authLoaded={transientAuthLoaded}
+              onPick={(model) => sv.setModel({ model })}
+            />
+            <StewardThinkingChip
+              currentModel={sv.config?.currentModel ?? ""}
+              currentThinking={sv.config?.currentThinking ?? null}
+              defaultThinking={sv.config?.thinking ?? ""}
+              catalog={transientCatalog}
+              onPick={(thinking) => sv.setModel({ model: sv.config?.currentModel ?? "", thinking })}
+            />
+          </div>
           <div className="stp-feed" data-testid="steward-feed">
             <span className="stp-feed-label">{t("steward.feedTitle")}</span>
             {sv.feed.length === 0 ? (

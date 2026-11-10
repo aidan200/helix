@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
@@ -49,9 +50,11 @@ localStorage.setItem("helix-lang", "zh-CN");
 
 function renderPanel(opts?: { readonly onClose?: () => void; readonly active?: boolean }) {
   return render(
-    <I18nProvider>
-      <StewardPanel onClose={opts?.onClose ?? (() => undefined)} active={opts?.active} />
-    </I18nProvider>,
+    <ToastProvider>
+      <I18nProvider>
+        <StewardPanel onClose={opts?.onClose ?? (() => undefined)} active={opts?.active} />
+      </I18nProvider>
+    </ToastProvider>,
   );
 }
 

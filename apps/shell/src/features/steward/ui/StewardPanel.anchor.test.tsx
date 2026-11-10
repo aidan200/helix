@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, act, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 
 const sendStewardAsk = vi.fn(() => true);
@@ -56,9 +57,11 @@ const setScrollHeight = (h: number) =>
 
 function renderPanel(active = true) {
   return render(
-    <I18nProvider>
-      <StewardPanel onClose={() => undefined} active={active} />
-    </I18nProvider>,
+    <ToastProvider>
+      <I18nProvider>
+        <StewardPanel onClose={() => undefined} active={active} />
+      </I18nProvider>
+    </ToastProvider>,
   );
 }
 
@@ -169,9 +172,13 @@ describe("StewardPanel 历史锚底（驾驶舱批①）", () => {
     cleanup();
     vi.clearAllMocks();
     const { rerender } = render(
-      <I18nProvider>
+      <ToastProvider>
+
+        <I18nProvider>
         <StewardPanel onClose={() => undefined} active={false} />
-      </I18nProvider>,
+        </I18nProvider>
+
+      </ToastProvider>,
     );
     act(() => {
       emitSteward(frame("steward.config.result", { enabled: true, model: "x/y" }));
@@ -180,9 +187,13 @@ describe("StewardPanel 历史锚底（驾驶舱批①）", () => {
     setScrollHeight(800);
     msgsEl().scrollTop = 100;
     rerender(
-      <I18nProvider>
+      <ToastProvider>
+
+        <I18nProvider>
         <StewardPanel onClose={() => undefined} active={true} />
-      </I18nProvider>,
+        </I18nProvider>
+
+      </ToastProvider>,
     );
     expect(msgsEl().scrollTop).toBe(800);
   });

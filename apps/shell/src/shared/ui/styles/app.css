@@ -1352,31 +1352,39 @@ html.light .stp-dock {
 }
 .stp-disabled-title { font-size: var(--text-main); color: var(--text-dim); }
 /* 临时切换条（运行期化批）：模型/思考档临时换 + 临时态 chip */
+/* 临时切换条（UI 对齐批）：主 agent 同款 chip + popover——模型徽标（TopBar
+   model-badge 族）开 mm 菜单 / 思考档 chip（tp-trigger 族）开滑块 popover。 */
 .stp-transient {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 6px 14px; border-bottom: 1px solid rgb(var(--accent-rgb) / 0.08);
 }
-.stp-transient-label { font-size: var(--text-side); color: var(--text-dim); white-space: nowrap; }
-.stp-transient-select {
-  position: relative; display: inline-flex; align-items: center;
-  min-width: 0;
-}
-.stp-transient-select select {
-  appearance: none; border: 1px solid rgb(var(--edge-rgb) / 0.2); border-radius: 6px;
-  background: transparent; color: var(--text); font-size: var(--text-side);
-  padding: 1px 20px 1px 8px; max-width: 220px;
-  text-overflow: ellipsis;
-}
-.stp-transient-select select:disabled { opacity: 0.45; }
-.stp-transient-select .lucide {
-  position: absolute; right: 5px; pointer-events: none; color: var(--text-dim);
-}
-.stp-transient-chip {
+/* chip 包装 = popover 锚（两 chip 各自锚定，互不干扰） */
+.stp-chip-wrap { position: relative; display: inline-flex; align-items: center; gap: 5px; }
+/* 临时态标示：模型徽标挂「临时」小徽章；chip 本体 accent 边框变体 */
+.stp-tr-chip {
   display: inline-flex; align-items: center;
   padding: 0 6px; border-radius: 999px; font-size: var(--text-side);
   color: var(--warning); border: 1px solid rgb(var(--warning-rgb) / 0.3);
   background: rgb(var(--warning-rgb) / 0.07);
   white-space: nowrap;
+}
+.model-badge.transient { border-color: rgb(var(--warning-rgb) / 0.45); }
+.tp-trigger.transient { border-color: rgb(var(--warning-rgb) / 0.45); }
+.tp-trigger.transient .tp-level { color: var(--warning); }
+/* 面板内 popover 定位：面板顶部场景向下展开（主 agent 两 popover 均向上/
+   由装配层平级渲染；面板内锚定改向下 + 面板宽度内收敛） */
+.stp-chip-wrap .stp-menu { top: calc(100% + 6px); left: 0; z-index: 40; }
+.stp-chip-wrap .model-menu.stp-menu {
+  position: absolute; width: min(340px, calc(100vw - 32px));
+  max-height: min(360px, calc(100dvh - 200px));
+}
+.stp-chip-wrap .tp-popover.stp-menu {
+  bottom: auto; right: auto;
+  width: min(308px, calc(100vw - 32px));
+}
+/* 思考档无覆盖预览提示（默认层档位交代；tp-hint 同密度） */
+.stp-ghost-hint {
+  margin-top: 10px; font-size: var(--text-side); color: var(--text-dim);
 }
 .stp-disabled-hint { font-size: var(--text-cap); color: var(--text-faint); max-width: 240px; line-height: 1.6; }
 .stp-feed {
