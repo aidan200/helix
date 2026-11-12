@@ -482,6 +482,9 @@ export interface SessionRuntimeFactoryCtx {
   readonly taskReport?: TaskReportToolDeps;
   readonly taskInjector?: (sessionId: string, task: string, audience?: "main" | "worker") => string | Promise<string>;
   readonly mainSessionLlmOverride?: MainSessionLlmOverride;
+  /** 截断风暴熔断回调（P0 熔断闸）：ChatService 熔断时携 sessionId 触发——
+   * 组合根接 SessionRegistry.unloadForReset（软重置卸载，再进懒加载正文种子）。 */
+  readonly onCircuitBreak?: (sessionId: string) => void;
   /** 提权申请批：instantiatedSnapshot 的 permissionRequest 旗标源（与 engineFor 同源）。 */
   readonly askService?: Pick<import("../../application/services/AskService").AskService, "request">;
   readonly sandboxOf?: () => import("../../adapters/driven/tools/SandboxEnvWrap").SandboxRuntime | undefined;
@@ -538,6 +541,10 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       ...(ctx.askService !== undefined ? { ask: ctx.askService } : {}),
       session: material.session,
       restoredToolCalls: material.toolCalls,
+      // P0 熔断闸：截断风暴 → 卸载软重置（registry 晚绑闭包，promoteDraft 同款）
+      ...(ctx.onCircuitBreak !== undefined
+        ? { onCircuitBreak: () => ctx.onCircuitBreak!(material.session.id) }
+        : {}),
       // 定向 steer 转投面——AgentOrchestrationPort.send（契约 v0.3 §3.2）
       // 同链路（目标状态前置判定归调度侧既有 send 链，编排泄零入 driving）
       sendToInstance: (agentId, message) => ctx.scheduler.send(agentId, message),

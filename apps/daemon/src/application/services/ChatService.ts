@@ -58,6 +58,14 @@ interface ChatServiceDepsBase {
   /** abort 宽限期 ms（P0 abort 收口批）：缺省 30s；测试注入小值免真等。 */
   readonly abortGraceMs?: number;
   /**
+   * 截断风暴熔断回调（P0 熔断闸，2026-11-11 087cc66e 事故）：轮内连续
+   * TRUNCATION_STORM_THRESHOLD 条「输出撞 token 上限截断失败」→ 告警 +
+   * abort 本轮 + 本回调恰一次。组合根接 SessionRegistry.unload（软重置 =
+   * 冷恢复同款 seedMessagesOf 正文种子——工具中间态/截图清除）。未注入
+   *（测试形态）时仅 abort + 告警，不崩会话。
+   */
+  readonly onCircuitBreak?: () => void;
+  /**
    * 提权审批仲裁面（审批闸接线批）：engine_paused 挂闸时走 ask.request
    * 发卡片（ask.started UI 双帧/60s 超时/answer 收口全复用）；裁决映射
    * resume 四态。未注入（测试形态）时挂闸防御性 resume(reject)——
@@ -97,6 +105,11 @@ interface ChatServiceDepsBase {
  * 按钮必须永远有效；引擎侧后台自然收尾，late agent_end 由 settleRunEnd 幂等面
  * （openTurn 短路 + canTransition 守卫）无害吞。 */
 const ABORT_GRACE_MS = 30_000; // 宽限取 30s：覆盖正常 agent_end 秒级回程，30s 未到即判收尾链死亡
+
+/** 截断风暴熔断阈值（P0 熔断闸）：轮内连续截断失败达到即熔断。20 取向：
+ * 正常重试（模型重发完整参数的 1-3 次）远低于此；病态风暴（087cc66e
+ * 实证 3513 条/4 分钟）远高于此——两分布间取宽松信噪分界，宁可迟一步不误伤。 */
+const TRUNCATION_STORM_THRESHOLD = 20;
 
 export interface ChatServiceDeps extends ChatServiceDepsBase {
   /** 定向 steer 转投面（契约 v0.3 §3.2）：组合根接 SchedulerService.send；delivered=false 时本服务抛 SteerTargetNotRunningError（不落 Entry 不入队）。 */
@@ -147,6 +160,8 @@ export class ChatService implements ChatPort {
   private readonly closureBuffer: { text: string; source: "closure" | "progress" | "coord" }[] = [];
   /** abort 宽限定时器（P0 abort 收口批）：在飞时非 null；settleRunEnd/stop 清。 */
   private abortGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 截断连击计数（P0 熔断闸）：本轮连续「输出撞限截断失败」tool 结果数；成功/其他错误归零，轮收口清。 */
+  private truncationStreak = 0;
 
   constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
     this.session = deps.session ?? Session.create();
@@ -721,6 +736,7 @@ export class ChatService implements ChatPort {
   /** run 结束统一收口：Turn 终态 + 生命周期 idle。 */
   private settleRunEnd(reason: TurnCompletedPayload["reason"]): void {
     this.clearAbortGraceTimer(); // P0 abort 收口批：收口即撤宽限（正常 agent_end 先到）
+    this.truncationStreak = 0; // P0 熔断闸：轮收口清零（连击不跨轮）
     if (this.session.openTurn) {
       // 直接语句调用不接返回值（与 finishOpenTurn 同构；Turn 返回面归口在 publish 落盘链，此处丢弃即原 void t 语义）
       const diffTurnId = this.session.openTurn.id; // T2 turn diff：收口前取轮 id（收口后 openTurn=null）
@@ -898,6 +914,40 @@ export class ChatService implements ChatPort {
       toolCallId: e.toolCallId, toolName: e.toolName, args: record?.args, isError: e.isError, result: e.result,
       ...(e.images !== undefined && e.images.length > 0 ? { images: [...e.images] } : {}),
     });
+    this.noteTruncationResult(e);
+  }
+
+  // ── 截断风暴熔断（P0 熔断闸，2026-11-11 087cc66e 事故） ─────────────
+
+  /**
+   * 截断失败甄别：pi failToolCallsFromTruncatedMessage 的固定文案子串
+   *（agent-loop.js 1.3.0：「was not executed … the response hit the output
+   * token limit」）。双子串匹配防文案微调脆断；非该文案的工具错误（正常
+   * 失败）不计入——甄别错会误伤正常调试工作流。
+   */
+  private isTruncationFailure(result: string): boolean {
+    return result.includes("was not executed") && result.includes("output token limit");
+  }
+
+  /** 截断连击计数：成功/其他错误归零；连击达阈值熔断（恰一次——触发即置零）。 */
+  private noteTruncationResult(e: EngineEventOf<"tool_execution_end">): void {
+    if (!this.isTruncationFailure(e.result)) {
+      this.truncationStreak = 0;
+      return;
+    }
+    this.truncationStreak++;
+    if (this.truncationStreak < TRUNCATION_STORM_THRESHOLD) return;
+    this.truncationStreak = 0; // 防重复触发（abort 后残余事件无害）
+    this.circuitBreak();
+  }
+
+  /** 熔断动作：用户可见告警 + unload 回调（软重置）+ abort 本轮（复用宽限收口链）。 */
+  private circuitBreak(): void {
+    this.recordEngineError(
+      `检测到模型输出失控（连续 ${TRUNCATION_STORM_THRESHOLD} 次工具调用因输出长度截断失败），已熔断本轮并重置上下文——工具中间结果与截图已清除，如需此前查看的截图请重新读取。可直接发消息继续。`,
+    );
+    this.deps.onCircuitBreak?.();
+    this.abort();
   }
 
   // ── usage 族（AD-4 事件即账：账本投影归组合根 fan-out 末端） ──

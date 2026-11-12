@@ -755,6 +755,22 @@ export class SessionRegistry implements SessionDirectoryPort {
     await this.load(rows[0]!.sessionId);
   }
 
+  /**
+   * 熔断软重置卸载（P0 熔断闸，2026-11-11 087cc66e 事故）：单会话强制移出
+   * 注册表——不检查空闲/执行态（熔断场景必然刚活动且 lifecycle 处 aborting）。
+   * 销毁前 chatService.stop() 清 abort 宽限定时器；悬挂轮由懒加载 collapsedTurn
+   * 收口 interrupted 兔底；快照已含熔断告警（write-through 先于本调用）。
+   * 再进懒加载 = seedMessagesOf 对话正文种子（工具中间态/截图清除）。幂等。
+   */
+  unloadForReset(sessionId: string): void {
+    const record = this.sessions.get(sessionId);
+    if (record === undefined || record.deleting) return; // 不存在/删除中：幂等跳过
+    record.runtime?.chatService.stop(); // 清 abort 宽限定时器 + 终态停机
+    this.sessions.delete(sessionId);
+    this.deps.onSessionUnload?.(sessionId);
+    this.deps.logger?.info(`会话 ${sessionId} 熔断软重置卸载（再进按对话正文种子重建）`);
+  }
+
   /** 空闲卸载（G-5）：无活动且不在执行的热会话移出注册表（快照已落盘）。 */
   private unloadIdle(): void {
     const now = this.deps.clock.nowMs();

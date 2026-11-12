@@ -1127,6 +1127,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       compactionSettings,
       hasMainPlan: mainPlanStack !== undefined,
       promoteDraft: (sessionId) => registry.promoteDraft(sessionId),
+      // P0 熔断闸：截断风暴 → 软重置卸载（registry 晚绑闭包——promoteDraft 同款；
+      // 再进懒加载 = seedMessagesOf 对话正文种子，悬挂轮 collapsedTurn 收口）
+      onCircuitBreak: (sessionId) => registry.unloadForReset(sessionId),
       ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
       ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),
       ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
