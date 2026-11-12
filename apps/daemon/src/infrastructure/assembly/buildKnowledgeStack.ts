@@ -203,6 +203,7 @@ export function buildKnowledgeStack(deps: {
     graph,
     ...engineDep,
     onSynced: (root) => fsWatchRef?.watchProject(root),
+    onIoError: (root) => database.evict(root), // kg 韧性批：IOERR 驱逐坏连接，退避/探测重试自动懒开重建
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}), // failCount 超限停排重试 warn 留痕
   });
   const fsWatch = new KgFsWatchService({
@@ -218,6 +219,8 @@ export function buildKnowledgeStack(deps: {
     // kg.db（kgReadProjects 归一；主仓无库空集，读面绝不新建库文件）。
     projects: () => kgReadProjects(deps.workspaceRoot),
     attachment: attachmentService,
+    onIoError: (root) => database.evict(root), // kg 韧性批：单库 IOERR 驱逐重试自愈
+    ...(deps.logger !== undefined ? { logger: deps.logger } : {}), // 单库降级跳过 warn 留痕
     // 检索语义化批：向量轨（缺席 = 纯关键词轨，行为零变化）
     ...(semantic !== undefined ? { semantic: (text: string, projects: readonly string[]) => semantic.recall(text, projects) } : {}),
   });

@@ -40,6 +40,28 @@ export class KgDatabase {
     return this.connectionOf(this.syncChannels, projectRoot);
   }
 
+  /**
+   * 单项目连接驱逐（kg 韧性批：坏连接自愈通道）：close 该项目双通道连接
+   * 并出缓存——下次 knowledgeConnection/syncConnection 懒开自动重建（建库
+   * 与 schema 演进均幂等，重建安全）。与 closeAll 的差异：closeAll 是退出
+   * 路径（失败收集 AggregateError 保留现场）；evict 是自愈路径——close 抛错
+   * 吞声即可（连接已出缓存，坏句柄留待 GC，现场由查询层 WARN 日志承载）。
+   * 幂等：无连接 no-op。消费面 = KgQueryService/KgSyncService 的 IOERR
+   * 处理（组合根接线，application 不 import adapters）。
+   */
+  evict(projectRoot: string): void {
+    for (const channels of [this.knowledgeChannels, this.syncChannels]) {
+      const db = channels.get(projectRoot);
+      if (db === undefined) continue;
+      channels.delete(projectRoot);
+      try {
+        db.close();
+      } catch {
+        // 坏连接 close 常抛（这正是要驱逐它的原因）——已出缓存即达目的
+      }
+    }
+  }
+
   /** 关闭全部通道连接（测试清理/daemon 退出；库文件保留）。任一连接关闭
    * 异常不阻断其余连接关闭（逐项收集）；两 Map 无条件 clear——不留半关
    * 状态；有关闭失败统一抛 AggregateError（不吞次因——只抛首个会让并发

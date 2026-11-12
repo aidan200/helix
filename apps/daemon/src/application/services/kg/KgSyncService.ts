@@ -28,6 +28,7 @@
 
 import type { CodegraphEnginePort } from "../../ports/outbound/CodegraphEnginePort";
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
+import { isIoError } from "../../../domain/kg/io-error";
 import type { KnowledgeStorePort } from "../../ports/outbound/KnowledgeStorePort";
 import { anchorKey, materializeAnchors } from "../../../domain/kg/anchor-materialize";
 import {
@@ -55,6 +56,9 @@ export const DEBOUNCE_MS = 3000;
 /** 连续失败自动重试上限（F-21 结构参数：MAX_SYNC_FAILURE_RETRIES）。 */
 export const MAX_SYNC_FAILURE_RETRIES = 5;
 
+/** 停排后低频探测间隔（kg 韧性批：停排不再永久——探测活着，恢复即回正常排程）。 */
+export const SYNC_PROBE_AFTER_STOP_MS = 30 * 60_000;
+
 /** 退避上限（F-21 结构参数：30s；锁竞争由 KgDatabase busy_timeout 吸收，残余进本通道）。 */
 export const RETRY_BACKOFF_MAX_MS = 30000;
 
@@ -66,6 +70,14 @@ export interface KgSyncServiceDeps {
   readonly debounceMs?: number;
   /** 失败退避基数 ms（指数退避，缺省 1000，上限 RETRY_BACKOFF_MAX_MS）。 */
   readonly retryBackoffMs?: number;
+  /** 停排后探测间隔 ms（kg 韧性批，缺省 SYNC_PROBE_AFTER_STOP_MS；测试注入小值）。 */
+  readonly probeAfterStopMs?: number;
+  /**
+   * IOERR 连接驱逐回调（可选，kg 韧性批）：sync 失败为 SQLITE_IOERR 类时
+   * 调用（组合根接 KgDatabase.evict）——退避/探测的下次重试自动懒开新
+   * 连接，连接坏态自愈闭环；缺席 = 无自愈（仅既有退避/停排）。
+   */
+  readonly onIoError?: (projectRoot: string) => void;
   /**
    * sync 成功钩子（B3 fs-watch 挂接缝：索引建成 absent→building→synced 后
    * 组合根接到 KgFsWatchService.watchProject 启动 per-project watcher；
@@ -113,6 +125,8 @@ interface ProjectRunState {
   readonly deleted: Set<string>; // relPath（remove 事件）
   debounceTimer: ReturnType<typeof setTimeout> | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
+  /** 停排后低频探测 timer（kg 韧性批：超限停排不再永久停摆）。 */
+  probeTimer: ReturnType<typeof setTimeout> | null;
   running: boolean;
   pendingRerun: boolean;
   failCount: number;
@@ -135,12 +149,14 @@ export class KgSyncService {
   private readonly deps: KgSyncServiceDeps;
   private readonly debounceMs: number;
   private readonly retryBackoffMs: number;
+  private readonly probeAfterStopMs: number;
   private readonly states = new Map<string, ProjectRunState>();
 
   constructor(deps: KgSyncServiceDeps) {
     this.deps = deps;
     this.debounceMs = deps.debounceMs ?? DEBOUNCE_MS;
     this.retryBackoffMs = deps.retryBackoffMs ?? 1000;
+    this.probeAfterStopMs = deps.probeAfterStopMs ?? SYNC_PROBE_AFTER_STOP_MS;
   }
 
   // ── 触发面 ────────────────────────────────────────────────
@@ -287,6 +303,11 @@ export class KgSyncService {
       return result;
     } catch (error) {
       state.failCount += 1;
+      if (isIoError(error)) {
+        // kg 韧性批：连接坏态驱逐——退避/探测的下次重试自动懒开新连接
+        // （page cache 失同步类坏态重建即恢复，自愈闭环）。
+        this.deps.onIoError?.(projectRoot);
+      }
       if (this.isLive(projectRoot, state)) {
         if (state.failCount <= MAX_SYNC_FAILURE_RETRIES) {
           const backoff = Math.min(this.retryBackoffMs * 2 ** (state.failCount - 1), RETRY_BACKOFF_MAX_MS);
@@ -295,11 +316,19 @@ export class KgSyncService {
             this.scheduleRun(projectRoot, state);
           }, backoff);
         } else {
-          // 超限留痕（code-review L：不再自动重试——静默放弃不可见；后续
-          // 任意触发（手动/事件）重新起算 failCount 成功路径清零）
+          // 超限留痕（code-review L：不再自动重试——静默放弃不可见；外部触发
+          // 重新起算 failCount 成功路径清零）+ kg 韧性批：排低频探测——停排
+          // 不再永久停摆（连接坏态 evict 后探测一次重试即自愈恢复；探测在
+          // 途不重排，触发失败后下一次 catch 重排，周期固定不叠加）。
           this.deps.logger?.warn(
             `sync 连续失败 ${state.failCount} 次超过上限 ${MAX_SYNC_FAILURE_RETRIES}，停排自动重试（${projectRoot}）：${String(error)}`,
           );
+          if (state.probeTimer === null) {
+            state.probeTimer = setTimeout(() => {
+              state.probeTimer = null;
+              this.scheduleRun(projectRoot, state);
+            }, this.probeAfterStopMs);
+          }
         }
       }
       throw error;
@@ -521,6 +550,7 @@ export class KgSyncService {
       deleted: new Set(),
       debounceTimer: null,
       retryTimer: null,
+      probeTimer: null,
       running: false,
       pendingRerun: false,
       failCount: 0,
@@ -542,6 +572,11 @@ export class KgSyncService {
     if (state.retryTimer !== null) {
       clearTimeout(state.retryTimer);
       state.retryTimer = null;
+    }
+    if (state.probeTimer !== null) {
+      // kg 韧性批：探测 timer 同面清理（dispose/triggerManual 吸收——不残留迟触发）
+      clearTimeout(state.probeTimer);
+      state.probeTimer = null;
     }
   }
 }

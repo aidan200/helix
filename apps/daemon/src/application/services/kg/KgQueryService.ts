@@ -33,6 +33,7 @@ import {
 import { renderResidentRules, type ResidentRuleRow } from "../../../domain/kg/attachment/resident-rules";
 import type { SemanticHit } from "../../../domain/kg/semantic-recall";
 import { resolveMainRepoPath } from "../../../domain/kg/project-discovery";
+import { isIoError } from "../../../domain/kg/io-error";
 
 /** 足迹/项目根归一（形态差异消除：尾斜杠剥离 + worktree 归主仓——比对两侧同形）。 */
 const normalizeRoot = (input: string): string | null => {
@@ -63,6 +64,15 @@ export interface KgQueryServiceDeps {
   readonly projects: () => readonly string[];
   /** 会话去重注册表（可选——子进程本地栈无注册表，注入不去重）。 */
   readonly attachment?: SessionSeenRegistry;
+  /**
+   * IOERR 连接驱逐回调（可选，kg 韧性批）：单库读遇 SQLITE_IOERR 类错误时
+   * 调用（组合根接 KgDatabase.evict）——驱逐后同调用内重试一次（新连接
+   * 懒开重建）；缺席 = 无自愈，仅降级跳过。application 不 import adapters
+   * （TR-AD-1），驱逐能力经依赖注入。
+   */
+  readonly onIoError?: (projectRoot: string) => void;
+  /** 单库读失败降级告警（可选；缺席静默跳过）。 */
+  readonly logger?: { warn(message: string): void };
   /**
    * 语义召回轨（可选件，检索语义化批）：query 文本 → 向量轨命中行
    * （score 降序）；缺席/失败/超时 → 纯关键词轨（行为与历史逐字节一致）。
@@ -107,11 +117,13 @@ export class KgQueryService {
     this.deps = deps;
   }
 
-  /** 跨项目 search 聚合（项目序 + 项目内 id 序，确定性；关键词轨）。 */
+  /** 跨项目 search 聚合（项目序 + 项目内 id 序，确定性；关键词轨；单库失败降级跳过）。 */
   search(q: string): readonly KgHit[] {
     const out: KgHit[] = [];
     for (const project of this.deps.projects()) {
-      for (const row of this.deps.graph.search(project, q)) {
+      const rows = this.perProject(project, () => this.deps.graph.search(project, q));
+      if (rows === undefined) continue;
+      for (const row of rows) {
         out.push({ project, row });
       }
     }
@@ -155,7 +167,9 @@ export class KgQueryService {
   affected(target: string): readonly KgAffectedHit[] {
     const out: KgAffectedHit[] = [];
     for (const project of this.deps.projects()) {
-      for (const hit of this.deps.graph.reverseAnchorLookup(project, target)) {
+      const hits = this.perProject(project, () => this.deps.graph.reverseAnchorLookup(project, target));
+      if (hits === undefined) continue;
+      for (const hit of hits) {
         out.push({ project, ...hit });
       }
     }
@@ -170,19 +184,31 @@ export class KgQueryService {
   listCandidates(query: CandidateListQuery): readonly KgCandidateHit[] {
     const out: KgCandidateHit[] = [];
     for (const project of this.deps.projects()) {
-      for (const row of this.deps.graph.listCandidates(project, query)) {
+      const rows = this.perProject(project, () => this.deps.graph.listCandidates(project, query));
+      if (rows === undefined) continue;
+      for (const row of rows) {
         out.push({ project, row });
       }
     }
     return out;
   }
 
-  /** 跨项目全命中（kg-update supersede 目标定位——多命中由调用方裁决）。 */
-  locate(nodeId: string): readonly KgNodeHit[] {
+  /**
+   * 跨项目全命中（kg-update supersede 目标定位——多命中由调用方裁决；
+   * 单库失败降级跳过）。onlyProject（kg 韧性批定位短路）：指定项目根时
+   * 只查该库（写面定位事故路径——传 project 仍全扫会被任一坏库拖垮）；
+   * 缺席全项目扫（id 无命名空间，撞号检测语义保留）。
+   */
+  locate(nodeId: string, onlyProject?: string): readonly KgNodeHit[] {
     const out: KgNodeHit[] = [];
+    if (onlyProject !== undefined) {
+      const detail = this.perProject(onlyProject, () => this.deps.graph.getNode(onlyProject, nodeId));
+      if (detail !== undefined && detail !== null) out.push({ project: onlyProject, detail });
+      return out;
+    }
     for (const project of this.deps.projects()) {
-      const detail = this.deps.graph.getNode(project, nodeId);
-      if (detail !== null) out.push({ project, detail });
+      const detail = this.perProject(project, () => this.deps.graph.getNode(project, nodeId));
+      if (detail !== undefined && detail !== null) out.push({ project, detail });
     }
     return out;
   }
@@ -297,6 +323,29 @@ export class KgQueryService {
       return await this.deps.semantic(queryText, projects);
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * 单库读容错（kg 韧性批）：IOERR 先 onIoError（驱逐坏连接）后同调用内
+   * 重试一次（新连接懒开重建，自愈透明）；重试仍失败或非 IOERR 错误 →
+   * WARN 告警 + 返回 undefined（该库缺席降级，不拖垮跨项目聚合）。事故
+   * 背景：单项目连接坏态曾拖垮全部项目读面（2026-11-12 ex-sad）。
+   */
+  private perProject<T>(project: string, fn: () => T): T | undefined {
+    try {
+      return fn();
+    } catch (error) {
+      if (isIoError(error)) {
+        this.deps.onIoError?.(project);
+        try {
+          return fn(); // 驱逐后重试：新连接下多数坏态（page cache 失同步）即恢复
+        } catch (retryError) {
+          error = retryError;
+        }
+      }
+      this.deps.logger?.warn(`kg 单库读失败已跳过（${project}）：${String(error)}`);
+      return undefined;
     }
   }
 }

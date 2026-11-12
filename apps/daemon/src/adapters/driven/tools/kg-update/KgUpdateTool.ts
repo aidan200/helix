@@ -495,22 +495,29 @@ function execAddEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): str
  * 命中按该项目过滤后唯一性校验（过滤后零命中 = 节点不在指定项目，结构化报错
  * 含实际命中项目清单）；缺省不过滤，行为与历史逐字节一致（不猜语义不变）。 */
 function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string, onlyProject?: string): string {
-  const all = deps.query.locate(nodeId);
+  // kg 韧性批定位短路：onlyProject 直透 locate（指定库只查该库——旧形态先
+  // 全扫 19 库再过滤，任一坏库拖垮定位）。零命中时回退容错全扫补「实际
+  // 命中项目」全貌（错误路径低频，付一次全扫换回报错文案契约，TR-255）。
+  let all = deps.query.locate(nodeId, onlyProject);
   if (all.length === 0) {
-    throw new Error(`${label} ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
-  }
-  const hits = onlyProject !== undefined ? all.filter((h) => h.project === onlyProject) : all;
-  if (onlyProject !== undefined && hits.length === 0) {
+    if (onlyProject !== undefined) {
+      const reachable = deps.query.locate(nodeId); // 回退全扫：指定库零命中时补全貌
+      if (reachable.length > 0) {
+        throw new Error(
+          `${label} ${nodeId} 在指定项目 ${projectName(onlyProject)} 不存在（实际命中项目：${reachable.map((h) => projectName(h.project)).join("、")}）`,
+        );
+      }
+    }
     throw new Error(
-      `${label} ${nodeId} 在指定项目 ${projectName(onlyProject)} 不存在（实际命中项目：${all.map((h) => projectName(h.project)).join("、")}）`,
+      `${label} ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针${onlyProject !== undefined ? "；或所在库暂不可达（daemon 日志有降级告警）" : ""}）`,
     );
   }
-  if (hits.length > 1) {
+  if (all.length > 1) {
     throw new Error(
-      `${label} ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，可显式传 project 参数消歧（项目目录名）`,
+      `${label} ${nodeId} 在多个项目命中（${all.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，可显式传 project 参数消歧（项目目录名）`,
     );
   }
-  return hits[0]!.project;
+  return all[0]!.project;
 }
 
 /**

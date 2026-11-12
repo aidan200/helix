@@ -185,7 +185,11 @@ function buildLocalKgStack(
   const graph = new SqliteKnowledgeGraph({ database });
   // W-R3 读穿透（D8）：toolCwd 在 .worktrees 下 → 读面只读直读主仓 kg.db
   //（kgReadProjects 归一）；写面 scanProjects 仍原口径（kg-update 行为本任务不改）。
-  const query = new KgQueryService({ graph, projects: () => kgReadProjects(workspaceRoot) });
+  const query = new KgQueryService({
+    graph,
+    projects: () => kgReadProjects(workspaceRoot),
+    onIoError: (root) => database.evict(root), // kg 韧性批：单库 IOERR 驱逐重试自愈
+  });
   const store = new SqliteKnowledgeStore({ database });
   // 批1 WP-B：写入口向量联动挂钩（子进程同款——SubAgent 建点/改点同样
   //  增量重嵌；默认端点缺失 = 向量面降级 warn 不阻塞写，父进程回填可修复）
