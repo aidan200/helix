@@ -76,6 +76,10 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
         toolCalls: [ok.toData(), bad.toData()],
       };
       await repo.save(state);
+      // P1 增量化：工具行真相源 = 事件载荷增量直落（state job 不再重插 tool_calls），
+      // 镜像生产链路（投影层 recordToolCall）补落两行后读面等价不变
+      await repo.recordToolCall("s-cl8-1", ok.toData() as never);
+      await repo.recordToolCall("s-cl8-1", bad.toData() as never);
 
       const restored = await repo.restore("s-cl8-1");
       expect(restored).toBeDefined();

@@ -2,7 +2,7 @@ import type { SessionRepositoryPort, PersistedDomainState } from "../ports/outbo
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { Session } from "../../domain/session/Session";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
-import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
+import { ToolCallRecord, deriveToolCallKind, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { isMainInstanceId } from "../../domain/agent/AgentInstance";
 // 投影收敛：账目纯语义（applyUsage 族）单源 @helix/protocol
 // projection（AG-02② application 白名单内）。
@@ -101,10 +101,79 @@ export class SessionProjection implements EventPublisherPort {
     // agent.thinking.changed（thinking 批①③）同构：只落盘不回投影不触发状态写。
     if (event.type === "agent.instantiated" || event.type === "agent.model.changed" || event.type === "agent.thinking.changed") return;
     this.project(event);
+    // P1 写放大增量化（2026-11-11 087cc66e 事故）：高频事件不再触发全量
+    // 状态重写（session_state 行 + steer 清空重插 + tool_calls 清空重插——
+    // 风暴 4 分钟 7026 事件 × 全量 = 数百 GB 写放大，disk I/O error 直接
+    // 推手），改走单行增量通道；持久化真相分派：工具行 = 事件载荷直落
+    // tool_calls 表，账本 = 事件行重放（restoreUsageLedger），lifecycle =
+    // 单行 upsert。未知事件类型保守回退全量（新增类型不误跳过）。
+    if (this.writeIncremental(event)) return;
     // write-through（AD-3 §3.2②）：每个里程碑领域事件后落领域状态整体
     //（事件行经持久化目标先入同一 FIFO，先事件后状态，全局保序）。
     // 单次落盘失败不阻断（WriteQueue onError 上报）。
     void this.deps.repository.save(this.persistedState());
+  }
+
+  /**
+   * 增量落盘分派（P1 写放大增量化）：返回 true = 已走增量通道（或无需
+   * 落盘），跳过全量 saveState；false = 回退保守全量。四类高频事件的持久
+   * 化真相均已单独闭合（同 FIFO 保序，崩溃一致性不降级）：
+   * - tool.call.started/result：事件载荷直落 tool_calls 单行（恢复读面
+   *   rowsToPersistedState 读表不变）；SubAgent 内存记录（subToolCalls）
+   *   仍由 project() 维护作快照观测面；
+   * - usage.recorded：账本内存入账（project()），持久化 = domain_events
+   *   事件行（恢复链 restoreUsageLedger 重放——原本就不依赖 state 行）；
+   * - agent.state.changed：agent_lifecycle 单行 upsert（恢复读 lifecycle
+   *   行，不依赖 state 行）。turn.toolRunning 中间态变更（markTurnToolRunning）
+   *   至下次全量事件捎带落盘——崩溃窗口丢失可接受（悬挂轮恢复收口兜底）。
+   */
+  private writeIncremental(event: DomainEvent): boolean {
+    const sessionId = this.deps.getSession().id;
+    switch (event.type) {
+      case "tool.call.started": {
+        const p = event.payload as ToolCallPayload;
+        void this.deps.repository.recordToolCall(sessionId, {
+          id: p.toolCallId,
+          instanceId: event.instanceId ?? this.deps.getSession().mainInstanceId,
+          kind: deriveToolCallKind(event.instanceId, this.deps.getSession().mainInstanceId),
+          toolName: p.toolName,
+          args: p.args,
+          status: "running",
+          startedAt: event.occurredAt,
+        });
+        return true;
+      }
+      case "tool.call.result": {
+        const p = event.payload as ToolResultPayload;
+        void this.deps.repository.recordToolCall(sessionId, {
+          id: p.toolCallId,
+          instanceId: event.instanceId ?? this.deps.getSession().mainInstanceId,
+          kind: deriveToolCallKind(event.instanceId, this.deps.getSession().mainInstanceId),
+          toolName: p.toolName,
+          args: p.args,
+          status: p.isError ? "failed" : "completed",
+          result: p.isError ? undefined : p.result,
+          error: p.isError ? p.result : undefined,
+          ...(p.images !== undefined && p.images.length > 0 ? { images: [...p.images] } : {}),
+          startedAt: event.occurredAt,
+          endedAt: event.occurredAt,
+        });
+        return true;
+      }
+      case "usage.recorded":
+        return true; // 账本入账在 project()；持久化真相 = 事件行（恢复重放）
+      case "agent.state.changed": {
+        const p = event.payload as { state: string };
+        void this.deps.repository.saveAgentLifecycle(
+          sessionId,
+          event.instanceId ?? this.deps.getSession().mainInstanceId,
+          p.state as never, // 词表混存现状：main 行存 AgentLifecycleState（state job 同款直写无校验）
+        );
+        return true;
+      }
+      default:
+        return false; // 保守默认：未知/其余类型回退全量
+    }
   }
 
   /** 流式中间态不是领域事件、不落盘、不改聚合（AD-16 §5.3）。 */

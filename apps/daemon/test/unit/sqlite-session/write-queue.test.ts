@@ -297,25 +297,28 @@ describe("TP-CL8-2：WAL 模式与 db 路径", () => {
 });
 
 describe("M2：多语句写 job 事务包裹（崩溃窗口不留部分投影）", () => {
-  test("state job 中途故障（insertToolCall 注入抛错）→ 全回滚：既有 tool_calls 行不被清掉、session 投影不留半态", async () => {
+  test("state job 中途故障（insertSteer 注入抛错）→ 全回滚：既有 tool_calls 行不被清掉、session 投影不留半态", async () => {
     const dbPath = tmpDbPath();
     try {
       const errors: string[] = [];
       const queue = new WriteQueue(dbPath, { onError: (err) => errors.push((err as Error).message) });
-      // 先落一份完整投影（含 1 条 tool_call 行）
+      // 先落一份完整投影；工具行经增量通道（P1：state job 不再重插 tool_calls）
       const session = Session.create("s-tx", "2024-01-01T00:00:00.000Z");
       session.appendUserEntry("问", "2024-01-01T00:00:01.000Z");
+      session.beginTurn("e1", "2024-01-01T00:00:01.200Z");
+      session.applySteer("补一句", "2024-01-01T00:00:01.500Z", "closure"); // 队列非空：insertSteer 注入点可触达
       const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID, "main");
       tool.markRunning("2024-01-01T00:00:02.000Z");
       tool.complete("hi", "2024-01-01T00:00:03.000Z");
       await queue.saveState({ session: session.toSnapshot(), agentState: "running", toolCalls: [tool.toData()] });
+      await queue.upsertToolCall("s-tx", tool.toData() as never);
 
-      // 注入 fault：第二个 state job 的 insertToolCall 抛错（在 clearToolCalls
-      // 之后）——无事务时清行已 auto-commit，留「tool_calls 清空」半投影
-      const internals = queue as unknown as { insertToolCall: { run: (...args: unknown[]) => unknown } };
-      internals.insertToolCall = {
+      // 注入 fault：第二个 state job 的 insertSteer 抛错（session_state/lifecycle
+      // 已写之后）——无事务时前段写已 auto-commit，留半投影
+      const internals = queue as unknown as { insertSteer: { run: (...args: unknown[]) => unknown } };
+      internals.insertSteer = {
         run: () => {
-          throw new Error("注入故障：tool_calls 写入失败");
+          throw new Error("注入故障：steer 写入失败");
         },
       };
       await queue.saveState({ session: session.toSnapshot(), agentState: "running", toolCalls: [tool.toData()] });
@@ -327,7 +330,8 @@ describe("M2：多语句写 job 事务包裹（崩溃窗口不留部分投影）
       const toolCount = (db.prepare("SELECT COUNT(*) AS c FROM tool_calls WHERE session_id = 's-tx'").get() as { c: number }).c;
       const sessionRow = db.prepare("SELECT session_id FROM session_state WHERE session_id = 's-tx'").get();
       db.close();
-      // 事务回滚：清行随事务撤销——既有 tool_call 行原样保留，不落半投影
+      // 事务回滚：state job 前段写随事务撤销；既有 tool_call 行原样保留（增量化
+      // 后 state job 根本不碰 tool_calls——更强保证），不留半投影
       expect(toolCount).toBe(1);
       expect(sessionRow).not.toBeNull();
       await queue.close();
@@ -347,7 +351,9 @@ describe("WriteQueue 状态保存（saveState 投影行）", () => {
       const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID, "main");
       tool.markRunning("2024-01-01T00:00:02.000Z");
       tool.complete("hi", "2024-01-01T00:00:03.000Z");
-      await queue.saveState({ session: session.toSnapshot(), agentState: "steering", toolCalls: [tool.toData()] });
+      await queue.saveState({ session: session.toSnapshot(), agentState: "steering", toolCalls: [] });
+      // P1 增量化：工具行经增量通道（镜像生产链路投影层 recordToolCall）
+      await queue.upsertToolCall("s-proj", tool.toData() as never);
       await queue.flush();
 
       const db = new Database(dbPath, { readonly: true });

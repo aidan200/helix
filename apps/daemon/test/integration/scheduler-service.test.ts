@@ -348,7 +348,9 @@ describe("W2-D 闭环 pending_sync 记录点（R13/R22：tool_calls 机械判定
       else record.fail("boom", FIXED_NOW);
       return record.toData();
     });
-    await repo.save({ session: session.toSnapshot(), agentState: "idle", toolCalls });
+    await repo.save({ session: session.toSnapshot(), agentState: "idle", toolCalls: [] });
+    // P1 增量化：工具行经增量通道（state job 不再重插 tool_calls）
+    for (const t of toolCalls) await repo.recordToolCall(sessionId, t as never);
   }
 
   test("有 write 类成功调用 → 三终态收口均 upsert 台账（chat 会话 jobId=null）", async () => {

@@ -43,7 +43,10 @@ async function saveWithTools(
   toolCalls: PersistedDomainState["toolCalls"],
 ): Promise<void> {
   const session = Session.create(sessionId, "2024-01-01T00:00:00.000Z");
-  await repo.save({ session: session.toSnapshot(), agentState: "idle", toolCalls });
+  // P1 增量化：state job 不再落 tool_calls——工具行经增量通道（镜像生产链
+  // 路投影层 recordToolCall）；save 只落其余三类。
+  await repo.save({ session: session.toSnapshot(), agentState: "idle", toolCalls: [] });
+  for (const t of toolCalls) await repo.recordToolCall(sessionId, t as never);
 }
 
 describe("W2-D pending_sync 持久化", () => {

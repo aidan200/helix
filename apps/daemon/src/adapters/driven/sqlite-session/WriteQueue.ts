@@ -171,7 +171,9 @@ export class WriteQueue {
     this.upsertToolCallRow = this.db.prepare(
       "INSERT INTO tool_calls (id, session_id, instance_id, kind, tool_name, args, status, result, error, images, started_at, ended_at) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-        "ON CONFLICT(id) DO UPDATE SET status = excluded.status, result = excluded.result, error = excluded.error, ended_at = excluded.ended_at",
+        // P1 增量化：images 补入冲突更新集——工具成功结果携图（read 截图/MCP）随行落盘；
+        // 起始行无图 NULL 不覆盖收口行（收口时无图写 NULL 是语义：结果无图）
+        "ON CONFLICT(id) DO UPDATE SET status = excluded.status, result = excluded.result, error = excluded.error, images = excluded.images, ended_at = excluded.ended_at",
     );
     this.insertClosureRecord = this.db.prepare(
       "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, findings_file, task_id, created_at) " +
@@ -763,26 +765,14 @@ export class WriteQueue {
         rows.lifecycle.state,
         rows.lifecycle.updated_at,
       );
-      // 队列/记录行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
+      // 队列行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
       this.clearSteer.run(sessionId);
       for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text, s.source);
-      this.clearToolCalls.run(sessionId);
-      for (const t of rows.toolCalls) {
-        this.insertToolCall.run(
-          t.id,
-          t.session_id,
-          t.instance_id,
-          t.kind,
-          t.tool_name,
-          t.args,
-          t.status,
-          t.result,
-          t.error,
-          t.images,
-          t.started_at,
-          t.ended_at,
-        );
-      }
+      // P1 写放大增量化（2026-11-11 087cc66e 事故）：tool_calls 不再随 state
+      // job 清空重插（旧行为每事件全量重写全部行含 images——风暴 4 分钟
+      // 数百 GB 写放大，disk I/O error 直接推手）。工具行改由投影层经
+      // toolCallUpsert 增量直落（同仓 FIFO 保序，事件载荷即真相）；state
+      // 载荷 toolCalls 字段保留为恢复读面契约，写侧不消费是预期行为。
     })();
   }
 }
