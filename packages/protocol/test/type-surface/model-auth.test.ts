@@ -21,6 +21,8 @@ type _ModelFamily = Expect<
     | "model.get_default.result"
     | "config.get_compaction.result"
     | "config.set_compaction.result"
+    | "config.get_image.result"
+    | "config.set_image.result"
     | "config.get_scheduling.result"
     | "config.set_scheduling.result"
     | "config.get_port.result"

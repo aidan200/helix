@@ -680,6 +680,10 @@ export const chat = {
         portNote: "修改后下次启动生效；本次运行端口不变",
         portArgvOverride: "本次运行由 --port 参数覆盖为 {port}，修改存储值不影响本次",
         groupSandbox: "命令沙箱",
+        groupImage: "图片压缩",
+        imageDownscale: "对话图片压缩",
+        imageOn: "开启",
+        imageOff: "关闭",
         // stale-indicator 批（§17.15）：关于 daemon（连接信息区）
         groupAbout: "关于 daemon",
         daemonStartedAt: "daemon 启动时间",

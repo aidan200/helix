@@ -186,7 +186,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
-import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetProxy, handleConfigSetProxy, handleConfigGetKg, handleConfigSetKg, handleConfigGetSummary, handleConfigSetSummary, handleConfigGetVoiceModels, handleConfigSetVoiceModels } from "./handlers/config";
+import { handleConfigGetImage, handleConfigSetImage, handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox, handleConfigGetProxy, handleConfigSetProxy, handleConfigGetKg, handleConfigSetKg, handleConfigGetSummary, handleConfigSetSummary, handleConfigGetVoiceModels, handleConfigSetVoiceModels } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleAskAnswer } from "./handlers/ask";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
@@ -1032,6 +1032,10 @@ export class WsServerAdapter {
       case "model.get_default":
         return handleModelGetDefault(this.contexts.commandContext(ws, type, payload, envelope));
       // ── config 族（压缩参数/调度预算/WS 端口配置；全局命令）──
+      case "config.get_image":
+        return handleConfigGetImage(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.set_image":
+        return handleConfigSetImage(this.contexts.commandContext(ws, type, payload, envelope));
       case "config.get_compaction":
         return handleConfigGetCompaction(this.contexts.commandContext(ws, type, payload, envelope));
       case "config.set_compaction":

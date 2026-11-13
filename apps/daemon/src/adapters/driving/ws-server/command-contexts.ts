@@ -15,6 +15,7 @@ import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
+import type { ImageConfigPort } from "../../../application/ports/outbound/ImageConfigPort";
 import type { CompactionConfigPort } from "../../../application/ports/outbound/CompactionConfigPort";
 import type { SchedulingConfigPort } from "../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../application/ports/outbound/PortConfigPort";
@@ -108,6 +109,8 @@ export interface WsServerAdapterDeps {
   readonly model: ModelPort;
   /** 压缩参数配置读写面（config 族命令回口；可选——测试缺省回 unimplemented）。 */
   readonly compactionConfig?: CompactionConfigPort;
+  /** 图片压缩配置（config.get/set_image；图片治理批）。 */
+  readonly imageConfig?: ImageConfigPort;
   readonly schedulingConfig?: SchedulingConfigPort;
   readonly portConfig?: PortConfigPort;
   /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
@@ -389,6 +392,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       envelope,
       model: deps.model,
       compactionConfig: deps.compactionConfig,
+      imageConfig: deps.imageConfig,
       schedulingConfig: deps.schedulingConfig,
       portConfig: deps.portConfig,
       sandboxConfig: deps.sandboxConfig,

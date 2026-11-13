@@ -358,6 +358,8 @@ export interface ModelConfigState {
   port: PortConfigState | null;
   /** 沙箱开关（null = 未请求；config.get/set_sandbox 帧驱动，沙箱开关批） */
   sandbox: SandboxConfigState | null;
+  /** 图片压缩开关（null = 未请求；config.get/set_image 帧驱动，图片治理批） */
+  image: { downscaleEnabled: boolean } | null;
   /** 总结配置（null = 未请求；config.get/set_summary 帧驱动，总结器独立化批①） */
   summary: SummaryConfigState | null;
   /** 知识库配置（null = 未请求；config.get/set_kg 帧驱动，批2 WP-C「知识库」配置组） */
@@ -451,6 +453,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     scheduling: null,
     port: null,
     sandbox: null,
+  image: null,
     summary: null,
     kg: null,
     voiceModels: null,

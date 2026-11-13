@@ -1,5 +1,7 @@
 import type {
   ConfigGetCompactionResultEvent,
+  ConfigGetImageResultEvent,
+  ConfigSetImageResultEvent,
   ConfigSetCompactionResultEvent,
   ConfigGetSchedulingResultEvent,
   ConfigSetSchedulingResultEvent,
@@ -103,6 +105,47 @@ export function handleConfigSetCompaction(ctx: WsCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err) => reportInternalFailure(ctx, err));
+}
+
+/** config.get_image：图片压缩配置读面（点对点回执；平铺生效态）。 */
+export function handleConfigGetImage(ctx: WsCommandContext): void {
+  if (ctx.imageConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（imageConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: ConfigGetImageResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "config.get_image.result",
+    payload: { downscaleEnabled: ctx.imageConfig.current().downscaleEnabled },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** config.set_image：图片压缩配置写面（点对点回执；布尔校验，平铺生效态）。 */
+export function handleConfigSetImage(ctx: WsCommandContext): void {
+  if (ctx.imageConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（imageConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const downscaleEnabled = ctx.payload.downscaleEnabled;
+  if (typeof downscaleEnabled !== "boolean") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.downscaleEnabled 应为布尔值");
+  }
+  void ctx.imageConfig
+    .set({ downscaleEnabled })
+    .then(() => {
+      const frame: ConfigSetImageResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "config.set_image.result",
+        payload: { downscaleEnabled },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => reportInternalFailure(ctx, err));
 }
 
 /** config.get_scheduling：SubAgent 调度预算读面（点对点回执）。 */

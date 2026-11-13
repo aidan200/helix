@@ -30,6 +30,8 @@ import type {
   ModelGetDefaultCommand,
   ConfigSetCompactionCommand,
   ConfigGetCompactionCommand,
+  ConfigGetImageCommand,
+  ConfigSetImageCommand,
   ConfigSetSchedulingCommand,
   ConfigGetSchedulingCommand,
   ConfigSetPortCommand,
@@ -181,6 +183,8 @@ export type CommandEnvelope =
   | ModelGetDefaultCommand
   | ConfigSetCompactionCommand
   | ConfigGetCompactionCommand
+  | ConfigGetImageCommand
+  | ConfigSetImageCommand
   | ConfigSetSchedulingCommand
   | ConfigGetSchedulingCommand
   | ConfigSetPortCommand
@@ -386,6 +390,8 @@ export const COMMAND_TYPES = [
   "config.get_scheduling",
   "config.set_port",
   "config.get_port",
+  "config.set_image",
+  "config.get_image",
   "config.set_sandbox",
   "config.get_sandbox",
   "config.set_proxy",

@@ -677,6 +677,10 @@ export const chat = {
         portNote: "Applies on next start; current run port unchanged",
         portArgvOverride: "Current run overridden by --port to {port}; stored value does not affect this run",
         groupSandbox: "Command sandbox",
+        groupImage: "Image compression",
+        imageDownscale: "Compress images in chat",
+        imageOn: "On",
+        imageOff: "Off",
         // stale-indicator 批（§17.15）：关于 daemon（连接信息区）
         groupAbout: "About daemon",
         daemonStartedAt: "Daemon started at",

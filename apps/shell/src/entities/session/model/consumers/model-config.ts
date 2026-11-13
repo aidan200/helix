@@ -32,6 +32,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "model.set_thinking_default.result",
   "config.get_compaction.result",
   "config.set_compaction.result",
+  "config.get_image.result",
+  "config.set_image.result",
   "config.get_scheduling.result",
   "config.set_scheduling.result",
   "config.get_port.result",
@@ -153,6 +155,11 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
     case "config.set_compaction.result":
       // 压缩参数读/写回执：整体覆盖（无乐观更新——写面靠 result 帧驱动）
       next = { ...mc, compaction: { reserveTokens: frame.payload.reserveTokens, keepRecentTokens: frame.payload.keepRecentTokens } };
+      break;
+    case "config.get_image.result":
+    case "config.set_image.result":
+      // 图片压缩开关读/写回执（图片治理批；result 帧驱动同构）
+      next = { ...mc, image: { downscaleEnabled: frame.payload.downscaleEnabled === true } };
       break;
     case "config.get_scheduling.result":
     case "config.set_scheduling.result":

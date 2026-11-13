@@ -396,6 +396,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     model: modelService, // model.*/auth.* 命令族回口（AD-2）
     authLogin, // auth.login/respond/cancel/logout 命令回口（订阅登录批）
     compactionConfig: persistence.compactionConfig, // config 族命令回口（压缩参数）
+    imageConfig: persistence.imageConfig, // 图片压缩配置（config.get/set_image；图片治理批）
     schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
     ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}), // config 族命令回口（沙箱开关；沙箱开关批）

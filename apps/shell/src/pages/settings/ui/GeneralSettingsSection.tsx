@@ -116,11 +116,12 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   onOpenModelsEmbeddingTab: () => void;
 }) {
   const { t, lang, setLang } = useI18n();
-  const { state, topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestSummaryConfig, setSummaryConfig, requestKgConfig, setKgConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
+  const { state, topology, requestImageConfig, setImageConfig, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, requestSummaryConfig, setSummaryConfig, requestKgConfig, setKgConfig, requestModelConfig, requestAuthList, subscribeConfigFrames, sendStewardGetConfig, sendStewardSetConfig, subscribeStewardFrames, sendEmbeddingList, subscribeEmbeddingFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
   const sandboxCfg = topology.modelConfig.sandbox;
+  const imageCfg = topology.modelConfig.image;
 
   // 三卡同构状态机（M10 批⑤：useConfigField 单点承载——脏态门控 M46 /
   // 在途对账 M44 / connection.error 在途失败收口 M10-②）
@@ -156,6 +157,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const kgDupDraft = kgField.inputs[1] ?? "";
   /** 沙箱开关 send 失败交代（code-review H8：断线窗口不静默——结果帧驱动的开关无在途态，行内错误即全部反馈面）。 */
   const [sandboxError, setSandboxError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   // ── 管家（管家配置并轨批：自退役的管家独立分区并入，两开关零描述文案）──
   // 启用 = daemon 权威（get_config 进入拉 + config.result 回执回填，不乐观）；
@@ -385,6 +387,15 @@ const GeneralSettingsSection = function GeneralSettingsSection({
     }
   };
 
+  // 图片压缩开关（图片治理批；result 帧驱动回填，无乐观更新；运行期即热）
+  const toggleImageDownscale = (enabled: boolean): void => {
+    if (setImageConfig(enabled) === false) {
+      setImageError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setImageError(null);
+  };
+
   const toggleSandbox = (enabled: boolean): void => {
     if (setSandboxConfig({ enabled }) === false) {
       setSandboxError(t("chat.settings.general.sendFail"));
@@ -469,6 +480,10 @@ const GeneralSettingsSection = function GeneralSettingsSection({
           setMemoryError(message);
           return;
         }
+        if (cmd === "config.set_image") {
+          setImageError(message);
+          return;
+        }
         if (cmd !== "config.set_sandbox") return;
         setSandboxError(message);
       }),
@@ -479,6 +494,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   // 可用性过滤数据源，管家模型选择同款）
   useEffect(() => {
     requestCompactionConfig();
+    requestImageConfig();
     requestSchedulingConfig();
     requestPortConfig();
     requestSandboxConfig();
@@ -873,6 +889,40 @@ const GeneralSettingsSection = function GeneralSettingsSection({
             {t("chat.settings.general.portArgvOverride", { port: portCfg.effectivePort })}
           </span>
         )}
+      </div>
+
+      {/* 图片压缩开关（图片治理批：read 读图/browser 截图进对话前降采样；
+          运行期即热；lang-switch 双按钮同沙箱同构） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupImage")}</h3>
+      <div className="hud-card">
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.imageDownscale")}</span>
+          <div className="lang-switch" data-image-switch role="group" aria-label={t("chat.settings.general.imageDownscale")}>
+            <button
+              type="button"
+              className={cn("hud-btn sm", imageCfg?.downscaleEnabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-image-option="on"
+              aria-pressed={imageCfg?.downscaleEnabled === true}
+              onClick={() => toggleImageDownscale(true)}
+            >
+              {t("chat.settings.general.imageOn")}
+            </button>
+            <button
+              type="button"
+              className={cn("hud-btn sm", imageCfg?.downscaleEnabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-image-option="off"
+              aria-pressed={imageCfg?.downscaleEnabled === false}
+              onClick={() => toggleImageDownscale(false)}
+            >
+              {t("chat.settings.general.imageOff")}
+            </button>
+          </div>
+          {imageError !== null && (
+            <span className="mcp-err" data-image-save-error role="alert">
+              {imageError}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 沙箱开关（沙箱开关批：新会话/新任务生效；lang-switch 双按钮同构） */}

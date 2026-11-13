@@ -101,6 +101,10 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `config-get-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}:${event.payload.economicCeilingTokens}`;
     case "config.set_compaction.result":
       return `config-set-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}:${event.payload.economicCeilingTokens}`;
+    case "config.get_image.result":
+      return `config-get-image-result:${event.payload.downscaleEnabled}`;
+    case "config.set_image.result":
+      return `config-set-image-result:${event.payload.downscaleEnabled}`;
     case "config.get_scheduling.result":
       return `config-get-scheduling-result:${event.payload.maxConcurrent}:${event.payload.maxQueued}`;
     case "config.set_scheduling.result":
@@ -481,6 +485,10 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `config-set-compaction:${cmd.payload.reserveTokens}:${cmd.payload.keepRecentTokens}`;
     case "config.get_compaction":
       return "config-get-compaction";
+    case "config.set_image":
+      return `config-set-image:${cmd.payload.downscaleEnabled}`;
+    case "config.get_image":
+      return "config-get-image";
     case "config.set_scheduling":
       return `config-set-scheduling:${cmd.payload.maxConcurrent}:${cmd.payload.maxQueued}`;
     case "config.get_scheduling":

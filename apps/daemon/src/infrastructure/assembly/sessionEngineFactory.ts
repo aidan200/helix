@@ -154,6 +154,8 @@ export interface MainEngineFactoryCtx {
    */
   readonly memorySearchFor?: (sessionId: string) => MemorySearchToolDeps | undefined;
   readonly compactionSettings: () => CompactionSettings;
+  /** 图片压缩总闸（图片治理批；缺省 = 启用）。 */
+  readonly imageDownscaleEnabled?: () => boolean;
   readonly globalThinking: () => string | undefined;
   readonly toolCwdOf: () => string;
   /** 沙箱运行时现值读面（可选槽——装配层注入则包装 bash/写面；缺省不注入）。 */
@@ -255,6 +257,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     const memorySearch = ctx.memorySearchFor?.(sessionId);
     const toolExecutor = new CoreToolExecutor({
       cwd: ctx.toolCwdOf(),
+      imageDownscaleEnabled: ctx.imageDownscaleEnabled,
       // U1 护栏：bash 子进程携带会话标识 + manifest 根（pre-commit hook
       // 读写集合判定的定位输入；manifest 放 ~/.helix 单点）+ 落点规范批
       // （2026-10-10）：TMPDIR/工具链缓存注入 <workspace>/.helix/ ——全时
@@ -468,6 +471,8 @@ export interface SessionRuntimeFactoryCtx {
   readonly residentRulesFor?: (sessionId: string) => string | null;
   /** 批E memory_search 旗标源（instantiatedSnapshot 声明面=注册面铁律：记忆未装配时快照不广告该名）。 */
   readonly memorySearchFor?: (sessionId: string) => MemorySearchToolDeps | undefined;
+  /** 图片压缩总闸（图片治理批；缺省 = 启用）。 */
+  readonly imageDownscaleEnabled?: () => boolean;
   /** U4 占用协调服务（instantiatedSnapshot 声明面=注册面铁律的 coord 旗标源；缺省 = false 剔除）。 */
   readonly coordination?: CoordinationService;
   readonly compactionSettings: () => CompactionSettings;

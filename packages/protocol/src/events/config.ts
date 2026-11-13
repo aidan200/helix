@@ -34,6 +34,25 @@ export interface ConfigSetCompactionResultEvent extends EventFrame<ConfigSetComp
   type: "config.set_compaction.result";
 }
 
+/** config.get_image.result：图片压缩配置读面回执（点对点；全局命令）。
+ * downscaleEnabled = 工具下行图片压缩总闸（read 读图 / browser 截图管线）。 */
+export interface ConfigGetImageResultPayload {
+  downscaleEnabled: boolean;
+}
+export interface ConfigGetImageResultEvent extends EventFrame<ConfigGetImageResultPayload> {
+  channel?: "model";
+  type: "config.get_image.result";
+}
+
+/** config.set_image.result：图片压缩配置写回执（点对点；平铺生效态先例） */
+export interface ConfigSetImageResultPayload {
+  downscaleEnabled: boolean;
+}
+export interface ConfigSetImageResultEvent extends EventFrame<ConfigSetImageResultPayload> {
+  channel?: "model";
+  type: "config.set_image.result";
+}
+
 /** config.get_scheduling.result：SubAgent 调度预算读面回执（点对点；全局命令） */
 export interface ConfigGetSchedulingResultPayload {
   maxConcurrent: number;

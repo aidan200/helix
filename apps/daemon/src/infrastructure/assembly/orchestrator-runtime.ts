@@ -59,6 +59,8 @@ export interface OrchestratorSessionFactoryDeps {
   readonly models?: PiEngineOptions["models"];
   /** 工具沙箱 cwd（会话工具求值单点现值——toolCwdNow 同源）。 */
   readonly toolCwd: () => string;
+  /** 图片压缩总闸（图片治理批；缺省 = 启用）。 */
+  readonly imageDownscaleEnabled?: () => boolean;
   /** kg 只读面（W1：workspace 持有者读现值；未绑定 → undefined 剔除 kg 工具）。 */
   readonly kgRead?: () => Pick<KgToolOptions, "query" | "workspaceRoot" | "scanProjects"> | undefined;
   /** grep 后端定格产物（AF-1：组合根启动定格透传）。 */
@@ -118,6 +120,7 @@ export function createOrchestratorSessionFactory(
     const mcpToolsNow = deps.mcpTools?.();
     const executor = new CoreToolExecutor({
       cwd: deps.toolCwd(),
+      imageDownscaleEnabled: deps.imageDownscaleEnabled,
       orchestration,
       ...(kgNow !== undefined ? { kg: { ...kgNow } } : {}), // write 不注入：只读形态（kg-update 不注册，AD-10）
       ...(deps.grep !== undefined ? { grep: deps.grep } : {}),

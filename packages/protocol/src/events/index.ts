@@ -94,6 +94,8 @@ import type {
 import type {
   ConfigGetCompactionResultEvent,
   ConfigSetCompactionResultEvent,
+  ConfigGetImageResultEvent,
+  ConfigSetImageResultEvent,
   ConfigGetSchedulingResultEvent,
   ConfigSetSchedulingResultEvent,
   ConfigGetPortResultEvent,
@@ -286,6 +288,8 @@ export type EventEnvelope =
   | ModelGetDefaultResultEvent
   | ConfigGetCompactionResultEvent
   | ConfigSetCompactionResultEvent
+  | ConfigGetImageResultEvent
+  | ConfigSetImageResultEvent
   | ConfigGetSchedulingResultEvent
   | ConfigSetSchedulingResultEvent
   | ConfigGetPortResultEvent
@@ -453,6 +457,8 @@ export const EVENT_TYPES = [
   "model.set_thinking_default.result",
   "model.get_default.result",
   "config.get_compaction.result",
+  "config.get_image.result",
+  "config.set_image.result",
   "config.set_compaction.result",
   "config.get_scheduling.result",
   "config.set_scheduling.result",
@@ -672,6 +678,8 @@ export const EVENT_CHANNELS = {
   "model.set_thinking_default.result": "model",
   "model.get_default.result": "model",
   "config.get_compaction.result": "model",
+  "config.get_image.result": "model",
+  "config.set_image.result": "model",
   "config.set_compaction.result": "model",
   "config.get_scheduling.result": "model",
   "config.set_scheduling.result": "model",

@@ -221,7 +221,7 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
     expect(src.includes('from "./edit-lines/EditLinesTool"'), "edit-lines 接线缺失").toBe(true);
     // 覆盖次序：自写注册必须在 pi 基线之后（registry.set 后注册者胜）
     expect(src.indexOf("createEditTool(options.edit)")).toBeGreaterThan(src.indexOf("createPiEditTool()"));
-    expect(src.indexOf("createReadTool()")).toBeGreaterThan(src.indexOf("createPiReadTool()"));
+    expect(src.indexOf("createReadTool({")).toBeGreaterThan(src.indexOf("createPiReadTool()")); // 图片治理批：注入 imageDownscaleEnabled（调用形态带参）
     // write/bash 保留 pi（AD-12：不自写同名覆盖）
     expect(src.includes("createWriteTool()")).toBe(true);
     expect(src.includes("createBashTool()")).toBe(true);
@@ -302,6 +302,7 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
       "diff",
       "ignore",
       "quickjs-wasi",
+      "sharp",
       "sqlite-vec",
       "typebox",
       "yaml",

@@ -89,6 +89,7 @@ export async function wireSessionStack(deps: WireSessionStackDeps): Promise<Awai
     defaultModel: persistence.defaultModel,
     defaultThinking: persistence.defaultThinking, // R7 全局兜底批
     compactionConfig: persistence.compactionConfig, // 压缩参数可配置
+    imageConfig: persistence.imageConfig, // 图片压缩总闸（图片治理批）
     schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
     sandboxConfig: persistence.sandboxConfig, // 沙箱开关（装配期定格读取，沙箱开关批）
     askService, // 提权申请批：permission_request 工具仲裁（沙箱 on 时注册）

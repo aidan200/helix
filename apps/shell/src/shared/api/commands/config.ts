@@ -11,6 +11,8 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
   ConfigGetCompactionCommand,
   ConfigSetCompactionCommand,
+  ConfigGetImageCommand,
+  ConfigSetImageCommand,
   ConfigGetSchedulingCommand,
   ConfigSetSchedulingCommand,
   ConfigGetPortCommand,
@@ -36,6 +38,16 @@ export function configGetCompactionCommand(): ConfigGetCompactionCommand {
 /** config.set_compaction：压缩参数写面（全局命令；token 绝对值）。 */
 export function configSetCompactionCommand(reserveTokens: number, keepRecentTokens: number): ConfigSetCompactionCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_compaction", payload: { reserveTokens, keepRecentTokens } };
+}
+
+/** config.get_image：图片压缩配置读面（全局命令；图片治理批）。 */
+export function configGetImageCommand(): ConfigGetImageCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_image", payload: {} };
+}
+
+/** config.set_image：图片压缩配置写面（全局命令；运行期即热）。 */
+export function configSetImageCommand(downscaleEnabled: boolean): ConfigSetImageCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_image", payload: { downscaleEnabled } };
 }
 
 /** config.get_scheduling：SubAgent 调度预算读面（全局命令；config 瘦身批）。 */

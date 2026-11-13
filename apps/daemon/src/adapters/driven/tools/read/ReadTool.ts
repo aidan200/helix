@@ -4,6 +4,7 @@ import type {
   ExecutionToolContext,
 } from "../../../../adapters/driven/tools/vendor/pi-harness";
 import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
+import { downscaleForContext } from "../../../../application/services/imageDownscale";
 
 /**
  * ReadTool —— 自写 read（AD-12，同名覆盖 pi 内置）。
@@ -33,7 +34,14 @@ const readParameters = {
 } as const;
 
 /** 自写 read 工具：行号输出（%6d\t%s）。 */
-export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, any> {
+export interface ReadToolImageDeps {
+  /** 图片压缩总闸（image_config.downscaleEnabled，运行期即热）；缺省 = 启用。 */
+  readonly isDownscaleEnabled?: () => boolean;
+}
+
+export function createReadTool(
+  imageDeps?: ReadToolImageDeps,
+): AgentHarnessTool<ExecutionToolContext, any, any> {
   return {
     name: "read",
     label: "read",
@@ -55,16 +63,31 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
       const bytes = bytesResult.value;
       const mimeType = detectImageMimeType(bytes);
       if (mimeType !== undefined) {
+        // 图片治理管线（图片治理批）：长边 >1536 / 带 alpha 大图 → 降采样转码
+        //（JPEG/WebP q85，17× 压缩；GIF/小图/失败 → null 原图直通）。
+        // 守卫顺序：先降采样再判 MAX_IMAGE_BYTES——极端大图缩后归限内不再拒
+        //（降采样失败仍超限才走 oversize 拒绝路径，与原语义兼容）。
+        let outBytes = bytes;
+        let outMime = mimeType;
+        let downscaleNote = "";
+        if (imageDeps?.isDownscaleEnabled?.() ?? true) {
+          const outcome = await downscaleForContext(bytes, mimeType);
+          if (outcome !== null) {
+            outBytes = outcome.bytes;
+            outMime = outcome.mimeType;
+            downscaleNote = `（${outcome.note}）`;
+          }
+        }
         // 大小上限（与 BrowserTools.readShot oversize 守卫同源）：超限回纯文本
         // 提示而非 image 块——大图片 base64 全量进工具结果会一次性注入数十 MB。
-        if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        if (outBytes.byteLength > MAX_IMAGE_BYTES) {
           const mb = (MAX_IMAGE_BYTES / 1024 / 1024).toFixed(0);
           return {
             content: [
               {
                 type: "text",
                 text:
-                  `Read image file [${mimeType}] — 图片超过 ${mb}MB 上限（实际 ${bytes.byteLength} 字节），` +
+                  `Read image file [${outMime}] — 图片超过 ${mb}MB 上限（实际 ${outBytes.byteLength} 字节），` +
                   "未作为附件发送。请压缩/裁剪到限内后重读，或用 bash 调图像工具查看。",
               },
             ],
@@ -73,8 +96,8 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
         }
         return {
           content: [
-            { type: "text", text: `Read image file [${mimeType}]` },
-            { type: "image", data: Buffer.from(bytes).toString("base64"), mimeType },
+            { type: "text", text: `Read image file [${outMime}]${downscaleNote}` },
+            { type: "image", data: Buffer.from(outBytes).toString("base64"), mimeType: outMime },
           ],
           details: undefined,
         };

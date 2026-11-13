@@ -69,6 +69,7 @@ import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import type { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
+import type { ImageConfigPort } from "../../application/ports/outbound/ImageConfigPort";
 import type { CompactionConfigPort } from "../../application/ports/outbound/CompactionConfigPort";
 import type { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
 import { builtinSkillsDir } from "../paths";
@@ -156,6 +157,8 @@ export interface BuildSessionStackDeps {
   readonly defaultThinking?: DefaultThinkingStore;
   /** 压缩参数配置（可选——测试缺省回落 DEFAULT_COMPACTION）。 */
   readonly compactionConfig?: CompactionConfigPort;
+  /** 图片压缩配置（可选——缺省 = 管线启用默认开；图片治理批）。 */
+  readonly imageConfig?: ImageConfigPort;
   /** SubAgent 调度预算（可选——测试缺省回落 DEFAULT_SCHEDULING；生产恒注入，运行期可调）。 */
   readonly schedulingConfig?: SchedulingConfigPort;
   /** 沙箱开关（可选——缺省关；会话创建时读 KV，新会话生效）。 */
@@ -1064,6 +1067,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 批E 委派（memory_search 工具会话级装配面）
     memorySearchFor,
     compactionSettings,
+    imageDownscaleEnabled: () => deps.imageConfig?.current().downscaleEnabled ?? true,
     globalThinking,
     toolCwdOf,
     turnDiff,

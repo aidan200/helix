@@ -59,6 +59,8 @@ export interface BuildTaskOrchestratorDeps {
   readonly paths: HelixPaths;
   /** 会话工具沙箱 cwd 求值单点现值读面（W1F-F1）。 */
   readonly toolCwdNow: () => string;
+  /** 图片压缩总闸（图片治理批；缺省 = 启用）。 */
+  readonly imageDownscaleEnabled?: () => boolean;
   /** 事件流（task.changed 广播 + syncHint 随行通路）。 */
   readonly eventStream: EventStream;
   /** 管家感知批（M0.5）：任务级完成锚——job 终态回调的第二个消费者
@@ -115,6 +117,7 @@ export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrch
       },
       models: modelStack.catalog.modelsView(),
       toolCwd: deps.toolCwdNow,
+      imageDownscaleEnabled: deps.imageDownscaleEnabled,
       // kg 只读面（W1：经 workspace 持有者读现值；未绑定 → 剔除 kg 工具）
       kgRead: () => {
         const stack = workspace.stack();

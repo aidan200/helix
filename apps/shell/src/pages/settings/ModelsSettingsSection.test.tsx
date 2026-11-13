@@ -80,6 +80,7 @@ const mc: ModelConfigState = {
   catalogRefreshing: false,
   writeError: null,
   compaction: null,
+          image: null,
     scheduling: null,
     port: null,
     sandbox: null,

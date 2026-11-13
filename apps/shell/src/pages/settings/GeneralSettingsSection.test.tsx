@@ -17,6 +17,8 @@ import type { EventEnvelope } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 
 const requestCompactionConfig = vi.fn();
+const requestImageConfig = vi.fn();
+const setImageConfig = vi.fn(() => true);
 const setCompactionConfig = vi.fn();
 const requestSchedulingConfig = vi.fn();
 const setSchedulingConfig = vi.fn();
@@ -81,6 +83,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       state: { conn: "connected", agentState: "idle", instances: [], daemonFreshness: mockDaemonFreshness },
       topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox, summary: mockSummary, kg: mockKg, proxy: mockProxy, proxyInflight: false, proxySaved: false, catalog: mockCatalog, auth: mockAuth, authLoaded: true }, list: [] },
       requestCompactionConfig,
+      requestImageConfig,
+      setImageConfig,
       setCompactionConfig,
       requestSchedulingConfig,
       setSchedulingConfig,

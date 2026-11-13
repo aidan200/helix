@@ -102,6 +102,19 @@ export interface ConfigGetCompactionCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_compaction";
 }
 
+/** config.set_image 载荷：图片压缩开关（运行期即热——下一次工具图片下行生效）。 */
+export interface ConfigSetImagePayload {
+  downscaleEnabled: boolean;
+}
+export interface ConfigSetImageCommand extends CommandFrame<ConfigSetImagePayload> {
+  type: "config.set_image";
+}
+
+/** config.get_image：图片压缩配置读面（全局命令；图片治理批）。 */
+export interface ConfigGetImageCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_image";
+}
+
 /** config.set_scheduling 载荷：SubAgent 调度预算（运行期可调——下一次预算判定生效）。 */
 export interface ConfigSetSchedulingPayload {
   maxConcurrent: number;

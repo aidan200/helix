@@ -111,6 +111,8 @@ import {
   codeReviewCreateCommand,
   agentStewardProfileGetCommand,
   configGetCompactionCommand,
+  configGetImageCommand,
+  configSetImageCommand,
   configSetCompactionCommand,
   configGetSchedulingCommand,
   configSetSchedulingCommand,
@@ -658,6 +660,16 @@ export const COMMAND_SURFACE = {
         deps.send(configGetCompactionCommand());
       }
     },
+  /** 图片压缩配置拉取（通用配置分区进入；未请求态才发；图片治理批）。 */
+  requestImageConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.image === null) {
+        deps.send(configGetImageCommand());
+      }
+    },
+  /** 图片压缩开关写入（通用配置分区；result 帧驱动更新，无乐观更新；运行期即热）。 */
+  setImageConfig: (deps) =>
+    (downscaleEnabled: boolean): boolean => deps.send(configSetImageCommand(downscaleEnabled)),
   /** 压缩参数写入（通用配置分区；result 帧驱动更新，无乐观更新）。send 返回值透传（code-review H8：false = 未发出，submit 面消费不置在途）。 */
   setCompactionConfig: (deps) =>
     (reserveTokens: number, keepRecentTokens: number): boolean =>

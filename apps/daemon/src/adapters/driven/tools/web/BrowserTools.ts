@@ -6,6 +6,7 @@ import type {
 import { readFile } from "node:fs/promises";
 import type { BrowserPort, ScrollDirection } from "../../../../application/ports/outbound/BrowserPort";
 import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
+import { downscaleForContext } from "../../../../application/services/imageDownscale";
 
 /**
  * 动态族浏览器工具（web-access 返工）：**单 browser 工具 + action 参数**
@@ -135,19 +136,50 @@ async function readShot(file: string, mimeType: string): Promise<ShotRead> {
 /**
  * 图片下行：screenshot 落盘后读文件 → image 内容块（模型可直接看图 +
  * 聊天窗工具卡缩略图数据源）。首读超 2MB → jpeg format 重截降质（同路径
-  * 覆写）；重截仍超限或读失败 → undefined（images 缺省只有文本，不炸）。
+ * 覆写）；重截仍超限或读失败 → undefined（images 缺省只有文本，不炸）。
+ * 图片治理批：读回/重截后过 downscaleForContext 管线（1536 长边 +
+ * JPEG/WebP q85；关闭/失败 → 原图直通），note 随块返回供 text 注入。
  */
+interface ScreenshotImageBlock {
+  readonly type: "image";
+  readonly data: string;
+  readonly mimeType: string;
+  readonly note?: string;
+}
+
 async function screenshotImageBlock(
   browser: BrowserPort,
   tabId: string,
   file: string,
-): Promise<{ type: "image"; data: string; mimeType: string } | undefined> {
+  isDownscaleEnabled: boolean,
+): Promise<ScreenshotImageBlock | undefined> {
   const first = await readShot(file, "image/png");
-  if (first.status === "ok") return { type: "image", data: first.data, mimeType: first.mimeType };
-  if (first.status === "missing") return undefined;
-  const { saved: retryPath } = await browser.screenshotTab(tabId, file, "jpeg");
-  const second = await readShot(retryPath, "image/jpeg");
-  return second.status === "ok" ? { type: "image", data: second.data, mimeType: second.mimeType } : undefined;
+  let bytes: Uint8Array | undefined;
+  let mimeType: string | undefined;
+  if (first.status === "ok") {
+    bytes = new Uint8Array(Buffer.from(first.data, "base64"));
+    mimeType = first.mimeType;
+  } else if (first.status === "oversize") {
+    const { saved: retryPath } = await browser.screenshotTab(tabId, file, "jpeg");
+    const second = await readShot(retryPath, "image/jpeg");
+    if (second.status === "ok") {
+      bytes = new Uint8Array(Buffer.from(second.data, "base64"));
+      mimeType = second.mimeType;
+    }
+  }
+  if (bytes === undefined || mimeType === undefined) return undefined;
+  if (isDownscaleEnabled) {
+    const outcome = await downscaleForContext(bytes, mimeType);
+    if (outcome !== null) {
+      return {
+        type: "image",
+        data: Buffer.from(outcome.bytes).toString("base64"),
+        mimeType: outcome.mimeType,
+        note: outcome.note,
+      };
+    }
+  }
+  return { type: "image", data: Buffer.from(bytes).toString("base64"), mimeType };
 }
 
 interface BrowserParams {
@@ -178,9 +210,15 @@ function requireParam<K extends keyof BrowserParams>(params: BrowserParams, key:
  * 注册本工具单名 "browser"）。ownerId 为 open 的 tab 归属（回收/观测维度，
  * 缺省 "main"——组合根按调用侧注入）。
  */
+/** 图片治理注入面（图片治理批）：缺省 = 管线启用（image_config 默认开）。 */
+export interface BrowserToolImageDeps {
+  readonly isDownscaleEnabled?: () => boolean;
+}
+
 export function createBrowserTool(
   browser: BrowserPort,
   ownerId = "main",
+  imageDeps?: BrowserToolImageDeps,
 ): AgentHarnessTool<ExecutionToolContext, any, undefined> {
   return {
     name: "browser",
@@ -225,9 +263,9 @@ export function createBrowserTool(
           const file = requireParam(params, "file");
           const { saved } = await browser.screenshotTab(tabId, file);
           // 图片下行：落盘后读文件回填 image 内容块（超限 jpeg 重截；失败缺省不炸）
-          const image = await screenshotImageBlock(browser, tabId, file);
-          const text = JSON.stringify({ saved });
-          if (image === undefined) return textResult(text);
+          const image = await screenshotImageBlock(browser, tabId, file, imageDeps?.isDownscaleEnabled?.() ?? true);
+          const text = JSON.stringify({ saved }) + (image?.note === undefined ? "" : `（${image.note}）`);
+          if (image === undefined) return textResult(JSON.stringify({ saved }));
           return {
             content: [{ type: "text", text }, image],
             details: undefined,

@@ -28,6 +28,7 @@ import type {
   SessionSnapshotEvent,
 } from "@helix/protocol";
 import type { ModelPort } from "../../../../application/ports/inbound/ModelPort";
+import type { ImageConfigPort } from "../../../../application/ports/outbound/ImageConfigPort";
 import type { CompactionConfigPort } from "../../../../application/ports/outbound/CompactionConfigPort";
 import type { SchedulingConfigPort } from "../../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../../application/ports/outbound/PortConfigPort";
@@ -116,6 +117,8 @@ export interface WsCommandContext {
   readonly model: ModelPort;
   /** 压缩参数配置读写面（config 族命令回口；未装配 → undefined，handler 回 unimplemented）。 */
   readonly compactionConfig?: CompactionConfigPort;
+  /** 图片压缩配置（config.get/set_image；图片治理批）。 */
+  readonly imageConfig?: ImageConfigPort;
   /** SubAgent 调度预算读写面（config 族命令回口；未装配 → undefined）。 */
   readonly schedulingConfig?: SchedulingConfigPort;
   /** WS 端口配置读写面（config 族命令回口；未装配 → undefined）。 */

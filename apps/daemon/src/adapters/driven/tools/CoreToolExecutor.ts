@@ -156,6 +156,8 @@ export interface KgToolOptions {
 export interface CoreToolExecutorOptions {
   /** 工具沙箱 cwd（相对路径的解析根；daemon 侧为进程工作区，测试指向 tmp）。 */
   readonly cwd: string;
+  /** 图片压缩总闸注入（图片治理批）：read/browser 工具构造共享；缺省 = 启用。 */
+  readonly imageDownscaleEnabled?: () => boolean;
   /** shell 覆盖（透传 NodeExecutionEnv；测试/特殊环境用）。 */
   readonly shellPath?: string;
   readonly shellEnv?: Record<string, string>;
@@ -361,7 +363,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
       createPiEditTool(),
       // 自写三件（AD-12）：同名覆盖 pi 内置 edit/read（后注册者胜）+
       // 新增 edit-lines 行锚编辑；write/bash 保留 pi 注册
-      createReadTool(),
+      createReadTool({ isDownscaleEnabled: options.imageDownscaleEnabled }),
       createEditTool(options.edit),
       createEditLinesTool(options.edit),
       createGrepTool(options.grep),
@@ -387,7 +389,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
       );
     }
     if (options.browser !== undefined) {
-      tools.push(createBrowserTool(options.browser, options.ownerId ?? "main"));
+      tools.push(
+        createBrowserTool(options.browser, options.ownerId ?? "main", {
+          isDownscaleEnabled: options.imageDownscaleEnabled,
+        }),
+      );
     }
     if (options.kg !== undefined) {
       // kg 双工具（T3.3）：kg 只读面恒注册；kg-update 即时落账面仅在 write

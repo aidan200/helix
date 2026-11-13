@@ -31,7 +31,8 @@ export { configGetCompactionCommand, configSetCompactionCommand,
   configSetSandboxCommand, configGetSummaryCommand, configGetKgCommand,
   configSetKgCommand, configSetSummaryCommand,
   configGetProxyCommand, configSetProxyCommand,
-  configGetVoiceModelsCommand, configSetVoiceModelsCommand } from "./commands/config";
+  configGetVoiceModelsCommand, configSetVoiceModelsCommand,
+  configGetImageCommand, configSetImageCommand } from "./commands/config";
 export { authListCommand, authSetKeyCommand, authDeleteKeyCommand,
   authVerifyCommand, authLoginCommand, authRespondCommand, authCancelCommand,
   authLogoutCommand } from "./commands/auth";

@@ -25,6 +25,8 @@ const ALLOWED = [
   // 网络代理：仅键常量/缺省值/纯 JSON 解析（零 IO、零服务类），父/子进程同源。
   "application/network/proxy-config",
   "application/services/kg/kgConfig",
+  // 图片治理批：ImageConfigStore 的键常量/默认值/解析纯函数单源。
+  "application/services/imageConfig",
   "application/summary/summaryConfig",
   "application/voice/voiceModelConfig",
 ];
@@ -61,7 +63,7 @@ describe("驱动适配器 → application 纯单元 import 边界", () => {
   });
 
   test("③ 配置 store 头注携带分层口径段（TR-13 张力面的成文裁决）", () => {
-    for (const name of ["KgConfigStore.ts", "SummaryConfigStore.ts", "VoiceModelConfigStore.ts", "ProxyConfigStore.ts"]) {
+    for (const name of ["KgConfigStore.ts", "SummaryConfigStore.ts", "VoiceModelConfigStore.ts", "ProxyConfigStore.ts", "ImageConfigStore.ts"]) {
       const src = readFileSync(join(SQLITE_SESSION, name), "utf8");
       expect(src).toContain("分层口径（低危批备案，TR-13 张力面）");
       expect(src).toContain("禁 import 带依赖构造的服务类");

@@ -8,6 +8,7 @@ import { SqliteTraceQueryAdapter } from "../../adapters/driven/sqlite-session/Sq
 import { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
 import { CompactionConfigStore } from "../../adapters/driven/sqlite-session/CompactionConfigStore";
+import { ImageConfigStore } from "../../adapters/driven/sqlite-session/ImageConfigStore";
 import { SchedulingConfigStore } from "../../adapters/driven/sqlite-session/SchedulingConfigStore";
 import { SandboxConfigStore } from "../../adapters/driven/sqlite-session/SandboxConfigStore";
 import { ProxyConfigStore } from "../../adapters/driven/sqlite-session/ProxyConfigStore";
@@ -34,6 +35,7 @@ export interface PersistenceStack {
   readonly defaultModel: DefaultModelStore;
   readonly defaultThinking: DefaultThinkingStore;
   readonly compactionConfig: CompactionConfigStore;
+  readonly imageConfig: ImageConfigStore;
   readonly schedulingConfig: SchedulingConfigStore;
   readonly sandboxConfig: SandboxConfigStore;
   readonly proxyConfig: ProxyConfigStore;
@@ -65,6 +67,7 @@ export function buildPersistence(deps: {
   const defaultThinking = new DefaultThinkingStore(runtimeConfig);
   // 压缩参数配置（KV 第三键；JSON 序列化；缺省回落 DEFAULT_COMPACTION）
   const compactionConfig = new CompactionConfigStore(runtimeConfig, DEFAULT_COMPACTION);
+  const imageConfig = new ImageConfigStore(runtimeConfig);
   // SubAgent 调度预算（KV 第四键；config.json 瘦身迁入——运行期可调，
   // 缺省回落 domain DEFAULT_SCHEDULING）
   const schedulingConfig = new SchedulingConfigStore(runtimeConfig, DEFAULT_SCHEDULING);
@@ -79,5 +82,5 @@ export function buildPersistence(deps: {
   // MCP server 声明面（config 瘦身批：mcp_server 表——config.json 段退役）
   const mcpConfig = new McpConfigStore(writeQueue);
   const resourceState = new ResourceStateStore(writeQueue);
-  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, schedulingConfig, sandboxConfig, proxyConfig, voiceModelConfig, mcpConfig, resourceState };
+  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, imageConfig, schedulingConfig, sandboxConfig, proxyConfig, voiceModelConfig, mcpConfig, resourceState };
 }
