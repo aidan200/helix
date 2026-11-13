@@ -391,10 +391,17 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const defaultThinking = deps.defaultThinking; // R7 全局兜底（可选注入——测试缺省无兜底）
   /** R7 全局兜底读面：未注入/未配置 → undefined（链尾自然短路）。 */
   const globalThinking = (): string | undefined => defaultThinking?.stored() ?? undefined;
-  /** 压缩参数读面：未注入/未配置 → DEFAULT_COMPACTION（内置默认阈值）。 */
+  /** 压缩参数读面：未注入/未配置 → DEFAULT_COMPACTION（内置默认阈值）。
+   *  economicCeilingTokens 透传（undefined = tiers 自动推导，0 = 显式关闭）。 */
   const compactionSettings = (): CompactionSettings => {
     const c = deps.compactionConfig?.current();
-    return c === undefined ? DEFAULT_COMPACTION : { enabled: true, reserveTokens: c.reserveTokens, keepRecentTokens: c.keepRecentTokens };
+    if (c === undefined) return DEFAULT_COMPACTION;
+    return {
+      enabled: true,
+      reserveTokens: c.reserveTokens,
+      keepRecentTokens: c.keepRecentTokens,
+      ...(c.economicCeilingTokens !== undefined ? { economicCeilingTokens: c.economicCeilingTokens } : {}),
+    };
   };
   const { engineMode } = deps;
 

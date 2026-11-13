@@ -86,10 +86,12 @@ export interface ModelGetDefaultCommand extends CommandFrame<EmptyPayload> {
 
 // ── config 族（压缩参数配置；全局命令，无信封 sessionId；runtime_config 单键 JSON） ──
 
-/** config.set_compaction 载荷：压缩参数（token 绝对值）。 */
+/** config.set_compaction 载荷：压缩参数（token 绝对值；economicCeilingTokens 可选——
+ * undefined = tiers 自动推导，0 = 显式关闭经济线）。 */
 export interface ConfigSetCompactionPayload {
   reserveTokens: number;
   keepRecentTokens: number;
+  economicCeilingTokens?: number;
 }
 export interface ConfigSetCompactionCommand extends CommandFrame<ConfigSetCompactionPayload> {
   type: "config.set_compaction";

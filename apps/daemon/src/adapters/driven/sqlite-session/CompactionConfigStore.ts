@@ -49,7 +49,11 @@ function parseCompactionConfig(raw: string | undefined): CompactionConfig | unde
     if (typeof reserveTokens !== "number" || typeof keepRecentTokens !== "number") return undefined;
     if (!Number.isInteger(reserveTokens) || !Number.isInteger(keepRecentTokens)) return undefined;
     if (reserveTokens < 0 || keepRecentTokens < 0) return undefined;
-    return { reserveTokens, keepRecentTokens };
+    // economicCeilingTokens 可选：undefined = tiers 自动推导；0 = 显式关闭经济线；负数/非整数 = 整条拒绝（与主字段同语义）。
+    const economicCeilingTokens = parsed["economicCeilingTokens"];
+    if (economicCeilingTokens === undefined) return { reserveTokens, keepRecentTokens };
+    if (typeof economicCeilingTokens !== "number" || !Number.isInteger(economicCeilingTokens) || economicCeilingTokens < 0) return undefined;
+    return { reserveTokens, keepRecentTokens, economicCeilingTokens };
   } catch {
     return undefined;
   }

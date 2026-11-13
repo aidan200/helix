@@ -243,10 +243,22 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 	};
 }
 
-/** Return whether context usage exceeds the configured compaction threshold. */
-export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
+/**
+ * Return whether context usage exceeds the configured compaction threshold.
+ * 经济水位（helix 扩展）：economicCeiling 传入时触发线取
+ * min(防溢出线, 经济线)——分层计价模型（cost.tiers）的账单失血点前置；
+ * undefined = 纯防溢出线（pi 原生语义不变）。0 由调用方过滤（显式关闭）。
+ */
+export function shouldCompact(
+	contextTokens: number,
+	contextWindow: number,
+	settings: CompactionSettings,
+	economicCeiling?: number,
+): boolean {
 	if (!settings.enabled) return false;
-	return contextTokens > contextWindow - settings.reserveTokens;
+	const overflowLine = contextWindow - settings.reserveTokens;
+	const line = economicCeiling !== undefined && economicCeiling > 0 ? Math.min(overflowLine, economicCeiling) : overflowLine;
+	return contextTokens > line;
 }
 
 const ESTIMATED_IMAGE_CHARS = 4800;

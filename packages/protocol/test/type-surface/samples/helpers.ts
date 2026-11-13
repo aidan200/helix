@@ -98,9 +98,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "model.get_default.result":
       return `model-get-default-result:${event.payload.model}`;
     case "config.get_compaction.result":
-      return `config-get-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}`;
+      return `config-get-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}:${event.payload.economicCeilingTokens}`;
     case "config.set_compaction.result":
-      return `config-set-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}`;
+      return `config-set-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}:${event.payload.economicCeilingTokens}`;
     case "config.get_scheduling.result":
       return `config-get-scheduling-result:${event.payload.maxConcurrent}:${event.payload.maxQueued}`;
     case "config.set_scheduling.result":

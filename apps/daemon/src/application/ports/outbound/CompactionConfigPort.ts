@@ -11,6 +11,13 @@ export interface CompactionConfig {
   readonly reserveTokens: number;
   /** 压缩后保留的最近 token 数（尾部保留窗）。 */
   readonly keepRecentTokens: number;
+  /**
+   * 经济水位（token 绝对值，可选）：上下文超过此值即提前触发压缩（与防溢出线取 min）。
+   * undefined = 未配置 → tiers 自动推导（model.cost.tiers 最低 inputTokensAbove；
+   * 无 tiers 模型回落纯防溢出线）；0 = 显式关闭经济线（回落纯防溢出线）。
+   * 分层计价模型（如 gpt-6.1-sol >27.2万 input $2/M→$4/M）的账单失血点前置。
+   */
+  readonly economicCeilingTokens?: number;
 }
 
 export interface CompactionConfigPort {

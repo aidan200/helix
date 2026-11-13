@@ -156,9 +156,13 @@ export class CompactionHook implements HookSet {
     // 装配期固化的 deps.model 不随 setModel 演进，换到更小窗口模型时压缩
     // 可能永不触发（上下文溢出）且摘要调用走旧 provider。
     const model = (agent.state.model ?? this.deps.model) as Model<any>;
+    // 经济水位：显式覆盖位优先，否则 tiers 自动推导（model.cost.tiers 最低
+    // inputTokensAbove——pi-ai Model 对象运行时可读，catalog 随升级自动演进）；
+    // 无 tiers / 0（显式关闭）→ undefined 回落纯防溢出线。
+    const economicCeiling = economicCeilingOf(this.deps.settings, model);
     // vendored estimateContextTokens 签名吃可变数组（只读消费）——浅拷贝适配
     const est = estimateContextTokens([...messages]);
-    if (!shouldCompact(est.tokens, model.contextWindow, settings)) return undefined;
+    if (!shouldCompact(est.tokens, model.contextWindow, settings, economicCeiling)) return undefined;
     // 事故热修批⑤：空输入守卫——待压缩对话无实质内容（仅 system prompt）
     // 时跳过压缩（零 LLM 零写入），不再让摘要模型对着空对话产出格式化
     // 「（无…）」垃圾摘要。
@@ -224,6 +228,26 @@ export class CompactionHook implements HookSet {
       return undefined;
     }
   }
+}
+
+/**
+ * 经济水位推导（CompactionHook 内部）：
+ * - settings.economicCeilingTokens 显式覆盖位优先（>0 生效，0 = 显式关闭）；
+ * - 未配置 → tiers 自动推导：model.cost.tiers 各档 inputTokensAbove 取最低
+ *   （最保守最早触发——分层计价的第一个失血点）；
+ * - 无 tiers / tiers 空 → undefined（回落纯防溢出线，现状行为）。
+ */
+function economicCeilingOf(settings: CompactionSettings, model: Model<any>): number | undefined {
+  const override = settings.economicCeilingTokens;
+  if (override !== undefined) return override > 0 ? override : undefined;
+  const tiers = (model as { cost?: { tiers?: Array<{ inputTokensAbove?: number }> } }).cost?.tiers;
+  if (tiers === undefined || tiers.length === 0) return undefined;
+  let lowest: number | undefined;
+  for (const tier of tiers) {
+    const threshold = tier.inputTokensAbove;
+    if (typeof threshold === "number" && threshold > 0 && (lowest === undefined || threshold < lowest)) lowest = threshold;
+  }
+  return lowest;
 }
 
 /** transcript → message Entry 链（id/seq 按位次合成；timestamp 取消息自带；只读消费——两档消息源均只读）。 */

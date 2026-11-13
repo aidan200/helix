@@ -29,7 +29,8 @@ import { isValidProxyUrl } from "@helix/protocol";
  * （model 族同构）。
  */
 
-/** config.get_compaction：压缩参数读面（点对点回执）。 */
+/** config.get_compaction：压缩参数读面（点对点回执；economicCeilingTokens
+ *  回显生效值——null = tiers 自动推导）。 */
 export function handleConfigGetCompaction(ctx: WsCommandContext): void {
   if (ctx.compactionConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（compactionConfig）");
@@ -41,12 +42,18 @@ export function handleConfigGetCompaction(ctx: WsCommandContext): void {
     sessionId: SYSTEM_SESSION_ID,
     channel: "model",
     type: "config.get_compaction.result",
-    payload: { reserveTokens: c.reserveTokens, keepRecentTokens: c.keepRecentTokens },
+    payload: {
+      reserveTokens: c.reserveTokens,
+      keepRecentTokens: c.keepRecentTokens,
+      economicCeilingTokens: c.economicCeilingTokens ?? null,
+    },
   };
   ctx.sendNow(sender, frame);
 }
 
-/** config.set_compaction：压缩参数写面（点对点回执；非负整数校验）。 */
+/** config.set_compaction：压缩参数写面（点对点回执；非负整数校验；
+ *  economicCeilingTokens 可选——缺席 = 清除覆盖位回 tiers 自动推导，
+ *  0 = 显式关闭经济线；非负整数校验同主字段）。 */
 export function handleConfigSetCompaction(ctx: WsCommandContext): void {
   if (ctx.compactionConfig === undefined) {
     return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（compactionConfig）");
@@ -54,6 +61,7 @@ export function handleConfigSetCompaction(ctx: WsCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const reserveTokens = ctx.payload.reserveTokens;
   const keepRecentTokens = ctx.payload.keepRecentTokens;
+  const economicCeilingTokens = ctx.payload.economicCeilingTokens;
   if (
     typeof reserveTokens !== "number" ||
     typeof keepRecentTokens !== "number" ||
@@ -68,15 +76,29 @@ export function handleConfigSetCompaction(ctx: WsCommandContext): void {
       "payload.reserveTokens/keepRecentTokens 应为非负整数",
     );
   }
+  if (
+    economicCeilingTokens !== undefined &&
+    (typeof economicCeilingTokens !== "number" || !Number.isInteger(economicCeilingTokens) || economicCeilingTokens < 0)
+  ) {
+    return ctx.commandError(
+      ctx.type,
+      "command.invalid_payload",
+      "payload.economicCeilingTokens 应为非负整数（可选；0 = 关闭经济线）",
+    );
+  }
   void ctx.compactionConfig
-    .set({ reserveTokens, keepRecentTokens })
+    .set({ reserveTokens, keepRecentTokens, ...(economicCeilingTokens !== undefined ? { economicCeilingTokens } : {}) })
     .then(() => {
       const frame: ConfigSetCompactionResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
         channel: "model",
         type: "config.set_compaction.result",
-        payload: { reserveTokens, keepRecentTokens },
+        payload: {
+          reserveTokens,
+          keepRecentTokens,
+          economicCeilingTokens: economicCeilingTokens ?? null,
+        },
       };
       ctx.sendNow(sender, frame);
     })

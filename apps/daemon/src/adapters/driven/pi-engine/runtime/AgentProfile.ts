@@ -18,6 +18,13 @@ export interface CompactionSettings {
   readonly enabled: boolean;
   readonly reserveTokens: number;
   readonly keepRecentTokens: number;
+  /**
+   * 经济水位（可选）：显式覆盖位——优先于 tiers 自动推导。
+   * undefined = 未配置 → tiers 自动推导（model.cost.tiers 最低 inputTokensAbove；
+   * 无 tiers 模型回落纯防溢出线）；0 = 显式关闭经济线。触发线 =
+   * min(防溢出线 contextWindow - reserveTokens, 经济线)。
+   */
+  readonly economicCeilingTokens?: number;
 }
 
 export const DEFAULT_COMPACTION: CompactionSettings = {
