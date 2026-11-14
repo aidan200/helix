@@ -396,7 +396,10 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
         instances?: { instanceId: string; channels?: { messages?: unknown[] } }[];
       };
       expect(snapshot2.entries.some((e) => e.instanceId === agent2Id)).toBe(false);
-      expect(snapshot2.instances?.find((i) => i.instanceId === agent2Id)?.channels?.messages?.length).toBeGreaterThan(0);
+      // per-instance channel 投影存在性先断言（win 磁盘时序下 undefined.length 会
+      // 以类型错误呈现而非断言差异——拆链让失败面可读；语义不变）
+      const agent2Channels = snapshot2.instances?.find((i) => i.instanceId === agent2Id)?.channels;
+      expect(agent2Channels?.messages?.length).toBeGreaterThan(0);
     } finally {
       await client.close();
     }

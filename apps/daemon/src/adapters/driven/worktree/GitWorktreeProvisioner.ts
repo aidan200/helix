@@ -213,6 +213,19 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
       });
       return true;
     } catch {
+      // win 重试窗（TR-95）：句柄释放异步——刚 provision/探测过的树首个 remove
+      // 可能因文件占用失败（runner CI 实证）。线性退避 3 次后仍败才 false。
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await new Promise((r) => setTimeout(r, attempt * 200));
+        try {
+          await execFileAsync("git", ["worktree", "remove", "--force", path], {
+            timeout: GIT_TIMEOUT_MS,
+          });
+          return true;
+        } catch {
+          // 续退避
+        }
+      }
       return false;
     }
   }
