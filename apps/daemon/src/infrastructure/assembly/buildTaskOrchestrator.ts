@@ -1,3 +1,4 @@
+import { reportDirNameOf } from "../report-dir-name";
 /**
  * 装配函数：任务编排服务真体（T2.2 晚绑闭合切片，组合根豁免面
  * AG-02④——M29 自 container.ts 切出）。
@@ -139,7 +140,7 @@ export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrch
     ...(deps.hasDefaultEmbeddingEndpoint !== undefined ? { hasDefaultEmbeddingEndpoint: deps.hasDefaultEmbeddingEndpoint } : {}),
     // D6：任务报告目录（kickoff 起跑信息携带——与 SubagentLauncher reportDirFor /
     // ClosureRecorder reportsDirFor 同源同式 <home>/reports/<sessionId>）
-    reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+    reportsDirFor: (sessionId) => path.join(paths.home, "reports", reportDirNameOf(sessionId)),
     // W2-D R13 job 完成提示点（编排层，不进引擎守 AD-10）：job 终态 reap 时
     // 扫描该 job 相关 session 的 pending_sync（notified=0）→ 置已提示 + 经
     // 既有 task.changed 广播通路随行 syncHint（机器只记录只提醒，sync 人确认）

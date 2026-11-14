@@ -1,3 +1,4 @@
+import { reportDirNameOf } from "../report-dir-name";
 import path from "node:path";
 import type { BrowserPort } from "../../application/ports/outbound/BrowserPort";
 import type { ClockPort } from "../../application/ports/outbound/ClockPort";
@@ -197,7 +198,7 @@ export async function wireSessionStack(deps: WireSessionStackDeps): Promise<Awai
     taskReport: {
       query: taskStack.query,
       closureRecords: (sessionId) => persistence.repository.queryClosureRecords(sessionId),
-      reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+      reportDirFor: (sessionId) => path.join(paths.home, "reports", reportDirNameOf(sessionId)),
     },
     // 主会话 todo 双工具装配面（plan 三工具改名批）：instanceId = sessionId
     // 作用域；写面 = 父进程 LazyWorkLedger 直连 helix.db（同库 WAL 跨进程

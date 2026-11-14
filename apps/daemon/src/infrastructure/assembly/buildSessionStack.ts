@@ -1,3 +1,4 @@
+import { reportDirNameOf } from "../report-dir-name";
 import type { SessionRepositoryPort } from "../../application/ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../../application/ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../../application/ports/outbound/ClockPort";
@@ -837,7 +838,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           memoryProjectFor: (sessionId) => singleProjectDirOf(writeFacts.projectFootprint(sessionId)),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
-          reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+          reportDirFor: (sessionId) => path.join(paths.home, "reports", reportDirNameOf(sessionId)),
           // H-3：tool-req 转发目标 = 全局唯一 CDP 单例（ScopedBrowserProxy
           // 归属校验：ownerId 强制 = 通道 instanceId）
           browser: browserPort,

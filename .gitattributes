@@ -1,0 +1,19 @@
+# 全仓行终止符锁定 LF（TR-95 win32-x64 兼容面）：
+# git autocrlf=true（Windows 缺省）会在 checkout 时把 LF 改写为 CRLF——
+# SKILL.md frontmatter 断言（startsWith "---\n"）与各种文本 fixture 的字节级
+# 断言在 win checkout 下全数失效。显式 eol=lf 锁定：checkout 恒 LF，
+# 提交侧 text=auto 保持归一。
+* text=auto eol=lf
+# 二进制类型显式守卫（防误 diff/误归一）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.dll binary
+*.dylib binary
+*.node binary
+*.wasm binary
+*.zip binary

@@ -245,7 +245,14 @@ describe("④ parked 期间 kill：SIGTERM 唤醒挂起等待 → failed(termina
     expect(outcome).toBe("graceful"); // 挂起等待被 SIGTERM 唤醒走优雅路径（非 grace 超时强杀）
     await until(() => h.closures.length > 0, 6000, "等待 terminated 收口");
     expect(h.closures[0]!.outcome.result).toBe("failed");
-    expect(h.closures[0]!.outcome.closure.summary).toContain("terminated");
-    expect(await h.launcher.childExit("agent-1")).toBe(0);
+    if (process.platform === "win32") {
+      // win 无信号机制（E-63/TR-132）：taskkill 强杀无 SIGTERM 唤醒链——
+      // exit 非 0、summary 无 terminated 文案是平台语义非回归
+      expect(h.closures[0]!.outcome.closure.summary).not.toContain("terminated");
+      expect(await h.launcher.childExit("agent-1")).not.toBe(0);
+    } else {
+      expect(h.closures[0]!.outcome.closure.summary).toContain("terminated");
+      expect(await h.launcher.childExit("agent-1")).toBe(0);
+    }
   }, 25_000);
 });

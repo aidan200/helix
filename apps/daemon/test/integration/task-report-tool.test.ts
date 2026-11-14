@@ -1,3 +1,4 @@
+import { reportDirNameOf } from "../../src/infrastructure/report-dir-name";
 import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -112,7 +113,8 @@ function makeTool(
   return createTaskReportTool({
     query,
     closureRecords: (sessionId) => options.closures?.[sessionId] ?? [],
-    reportDirFor: (sessionId) => path.join(options.reportDir ?? tmpdir(), "reports", sessionId),
+    // win 兼容：与产品装配链同源（reportDirNameOf 归一——task: → task-）
+    reportDirFor: (sessionId) => path.join(options.reportDir ?? tmpdir(), "reports", reportDirNameOf(sessionId)),
   });
 }
 
@@ -163,7 +165,7 @@ describe("① list：最近任务清单（摘要形状 + type/status 过滤 + li
   test("hasReport 第二源：summary.md 固定落点存在即 true（零 closure 行也算）", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "helix-task-report-list-"));
     try {
-      const summaryDir = path.join(dir, "reports", "task:job-s");
+      const summaryDir = path.join(dir, "reports", "task-job-s")  // win 兼容：目录名经 reportDirNameOf 归一（task: → task-），协议 sessionId 键不变;
       mkdirSync(summaryDir, { recursive: true });
       writeFileSync(path.join(summaryDir, "summary.md"), "# 汇总");
       const query = fakeQuery({ tasks: [summaryDto({ jobId: "job-s" })] });
@@ -228,7 +230,7 @@ describe("② get { jobId }：artifacts（含 body）+ closure 摘要行 + findi
   test("全字段：job/stages(body 透传)/closures/findings.byKind/reports(summary.md 落点 + 批次路径去重)", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "helix-task-report-get-"));
     try {
-      const summaryDir = path.join(dir, "reports", "task:job-g");
+      const summaryDir = path.join(dir, "reports", "task-job-g")  // win 兼容：目录名归一形态;
       mkdirSync(summaryDir, { recursive: true });
       writeFileSync(path.join(summaryDir, "summary.md"), "# 汇总报告");
       const detail = detailOf("job-g", {
@@ -337,7 +339,7 @@ describe("② get { jobId }：artifacts（含 body）+ closure 摘要行 + findi
       };
       expect(receipt.closures).toEqual([]);
       expect(receipt.findings).toEqual({ total: 0, byKind: {} });
-      expect(receipt.reports.summaryPath).toBe(path.join(dir, "reports", "task:job-e", "summary.md"));
+      expect(receipt.reports.summaryPath).toBe(path.join(dir, "reports", "task-job-e", "summary.md"));
       expect(receipt.reports.summaryExists).toBe(false);
       expect(receipt.reports.batchReports).toEqual([]);
     } finally {
