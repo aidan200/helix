@@ -105,16 +105,8 @@ export function runAuditAttempt(
 
 /** 已评估放行的漏洞登记（检出的 GHSA 全部命中且无过期登记才绿）。 */
 const AUDIT_EXEMPT: ReadonlyArray<{ ghsa: string; reason: string }> = [
-  {
-    ghsa: "GHSA-vfj7-8cjw-p6xm",
-    reason:
-      "braces ≤3.0.3 栈耗尽 DoS——dev 链（tailwind→micromatch），上游无修复版（3.x 最新即 3.0.3）；上游发版后本登记自动过期（核销红）",
-  },
-  {
-    ghsa: "GHSA-rj75-hqrm-r3gf",
-    reason:
-      "postcss-selector-parser 6.1.4 选择器解析 CPU 耗尽——dev 链（tailwind→postcss-nested）；修复版仅 7.1.6（跨 major，tailwind 内部消费 6.x，override 有构建破坏风险）；tailwind 链升级至 7.x 后本登记自动过期",
-  },
+  // GHSA-vfj7-8cjw-p6xm（braces 栈耗尽）已随 2026-11 依赖更新修复撤销——对账语义自动强制核销。
+  // GHSA-rj75-hqrm-r3gf（postcss-selector-parser 6.1.4）修复版 6.1.5 落在同 major 内，已直接升级撤销。
 ];
 
 /** 豁免对账结果（全部为 GHSA id 集合）。 */
@@ -253,6 +245,16 @@ async function main(): Promise<void> {
       file: "apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts",
       reason:
         "拆分在制（frame-sender/http-surface 提取半成品因 RawCommandFrame 类型断裂搁浅）：过桥豁免保 CI 绿；拆分落地回 ≤1000 行后本登记自动核销红提醒撤销",
+    },
+    {
+      file: "apps/daemon/src/application/services/ChatService.ts",
+      reason:
+        "abort/截断风暴/coord 续送链三批防御逻辑叠加增长至 1022 行：过桥豁免保 CI 绿；abort 收敛后按 run 生命周期/settle 链拆分",
+    },
+    {
+      file: "apps/shell/src/entities/session/command-surface-commands.ts",
+      reason:
+        "surface 协议命令注册表追加增长至 1018 行：注册表型文件（行数随命令面单调涨），拆分按命令族分模块；过桥豁免保 CI 绿",
     },
   ];
 
