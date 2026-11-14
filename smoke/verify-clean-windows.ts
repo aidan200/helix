@@ -266,6 +266,13 @@ class WsProbe {
   close(): void {
     this.ws?.close();
   }
+
+  /** 诊断面：已收帧类型计数（未消费缓冲）。 */
+  frameTypesSummary(): string {
+    const counts = new Map<string, number>();
+    for (const f of this.frames) counts.set(f.type, (counts.get(f.type) ?? 0) + 1);
+    return [...counts.entries()].map(([t, n]) => `${t}×${n}`).join(", ") || "(无缓冲帧)";
+  }
 }
 
 
@@ -493,6 +500,7 @@ async function runSmoke(): Promise<void> {
       const logTail = await readDaemonLogTail(home, 900);
       throw new Error(
         `grep tool.call.result 未到：${(e as Error).message}\n` +
+          `  已收缓冲帧：${ws.frameTypesSummary()}\n` +
           `  stderr 尾：${stderrTail.slice(-300)}\n  daemon 日志尾：${logTail}`,
       );
     }
