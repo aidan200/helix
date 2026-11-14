@@ -23,7 +23,8 @@ describe("startParentWatchdog（H-4 父死看门狗）", () => {
   test("ppid 恒 >1（父存活）→ onOrphan 不触发", async () => {
     const src = ppidSource(1234);
     let fired = 0;
-    const stop = startParentWatchdog({ ppidOf: src.get, intervalMs: 5, onOrphan: () => fired++ });
+    // aliveOf 显式恒活：隔离真 pid 探测（win 缺省探测对 fixture pid 1234 必 ESRCH）
+    const stop = startParentWatchdog({ ppidOf: src.get, aliveOf: () => true, intervalMs: 5, onOrphan: () => fired++ });
     await Bun.sleep(30); // 约 6 个 tick
     expect(fired).toBe(0);
     stop();
@@ -32,7 +33,7 @@ describe("startParentWatchdog（H-4 父死看门狗）", () => {
   test("ppid 变为 1（父死 reparent）→ onOrphan 触发且仅一次（触发后自停）", async () => {
     const src = ppidSource(1234);
     let fired = 0;
-    startParentWatchdog({ ppidOf: src.get, intervalMs: 5, onOrphan: () => fired++ });
+    startParentWatchdog({ ppidOf: src.get, aliveOf: () => true, intervalMs: 5, onOrphan: () => fired++ });
     await Bun.sleep(12); // 父存活期若干 tick
     expect(fired).toBe(0);
     src.set(1); // 壳死亡，reparent 到 launchd

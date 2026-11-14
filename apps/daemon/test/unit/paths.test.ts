@@ -20,19 +20,22 @@ describe("paths（TP-CL1-3，AD-14）", () => {
     expect(createPaths().home).toBe(expectedHome);
   });
 
-  test("② --home /tmp/x 覆盖后全部派生路径指向 tmp", () => {
+  test("② --home /tmp/x 覆盖后全部派生路径指向该根（win 盘符形态兼容）", () => {
+    // win 宿主 path.resolve("/tmp/x") → D:\tmp\x（posix 绝对形态解析为
+    // 当前盘根相对）——期望值经 resolveHome 同源推导，不硬编码字面量
+    const home = resolveHome("/tmp/x");
     const p = createPaths("/tmp/x");
-    expect(p.home).toBe("/tmp/x");
-    expect(p.configPath()).toBe(path.join("/tmp/x", "config.json"));
-    expect(p.devTokenPath()).toBe(path.join("/tmp/x", "dev-token"));
-    expect(p.logsDir()).toBe(path.join("/tmp/x", "logs"));
-    expect(p.dbPath()).toBe(path.join("/tmp/x", "helix.db"));
-    expect(p.skillsHome()).toBe(path.join("/tmp/x", "skills"));
+    expect(p.home).toBe(home);
+    expect(p.configPath()).toBe(path.join(home, "config.json"));
+    expect(p.devTokenPath()).toBe(path.join(home, "dev-token"));
+    expect(p.logsDir()).toBe(path.join(home, "logs"));
+    expect(p.dbPath()).toBe(path.join(home, "helix.db"));
+    expect(p.skillsHome()).toBe(path.join(home, "skills"));
   });
 
   test("③ 派生路径为 path.join 产物（分隔符合法、绝对路径）", () => {
-    const home = "/tmp/x";
-    const p = createPaths(home);
+    const home = createPaths("/tmp/x").home; // 解析后形态（win 盘符兼容）
+    const p = createPaths("/tmp/x");
     const derived = [
       p.configPath(),
       p.devTokenPath(),

@@ -34,13 +34,17 @@ export interface ParentWatchdogDeps {
   readonly warn?: (message: string) => void;
 }
 
-/** 缺省父存活探测：信号 0 只探测不发送；ESRCH=不存在，EPERM=存在但无权（存活）。 */
+/** 缺省父存活探测：信号 0 只探测不发送；ESRCH=不存在，EPERM=存在但无权（存活）。
+ * 未知错误码保守判【存活】（TR-95 win 兼容面）：win 上 process.kill(pid, 0)
+ * 可能抛非 ESRCH/EPERM 形态（权限/平台差异）——误判死父会触发 onOrphan
+ * 误杀 daemon，误判存活只是多等一个 tick（真死父下个 tick 重探）——
+ * 失败安全方向恒「存活」。仅 ESRCH（明确的进程不存在）判死。 */
 function defaultAliveOf(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
+    return (e as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 
