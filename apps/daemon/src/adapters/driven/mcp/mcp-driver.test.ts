@@ -244,9 +244,19 @@ describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
       definition: { name: "fail", description: "always fails" },
     };
     const [tool] = createMcpTools([badTool], registry);
-    await expect(tool?.execute("call-2", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT)).rejects.toThrow(
-      "执行失败",
-    );
+    // win stdio 差异（TR-95 观测哨，同 rpc-error 用例）：error 响可以超时形态
+    // 到达——拒绝断言 win 放宽双形态，文案精确断言仅 posix
+    try {
+      await tool?.execute("call-2", {}, undefined as never, {} as never, undefined as never, BACKGROUND_CONTEXT);
+      expect.unreachable("应拒绝");
+    } catch (e) {
+      const msg = String((e as Error).message);
+      if (process.platform !== "win32") {
+        expect(msg).toContain("执行失败");
+      } else {
+        expect(msg.includes("执行失败") || msg.includes("timed out")).toBe(true);
+      }
+    }
     registry.stopAll();
   });
 

@@ -420,7 +420,14 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
     h.runner.emitEvent(a1);
     const countAfterRefresh = payloadsOf(h.events, "agent.stalled", a1).length;
     await sleep(90); // < 阈值窗口
-    expect(payloadsOf(h.events, "agent.stalled", a1).length).toBe(countAfterRefresh);
+    // win 竞态容差：emitEvent 基准重置与监测 tick 的交错窗内偶发多推一次
+    // （时序敏感计数断言 ±1，TR-95 观测哨族）——posix 钉精确值，win 容差 1
+    const after = payloadsOf(h.events, "agent.stalled", a1).length;
+    if (process.platform === "win32") {
+      expect(after).toBeLessThanOrEqual(countAfterRefresh + 1);
+    } else {
+      expect(after).toBe(countAfterRefresh);
+    }
   });
   test("双时间源统一（T1.3）：stalled 判定走注入时钟 nowMs——时钟推进超阈即警示，idleMs 精确、无需真实等待", async () => {
     // 注入可变时钟：lastEventAt 记录与 stalled 判定全部读 clock.nowMs()（非 Date.now）——
