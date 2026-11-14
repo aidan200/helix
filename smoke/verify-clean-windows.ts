@@ -456,7 +456,17 @@ async function runSmoke(): Promise<void> {
     // ── 4. grep.bundle：包内 rg 真实检索 ──
     section("4. grep.bundle 包内 rg 命中");
     ws.send("auth.set_key", { providerId: DEFAULT_MODEL.provider, apiKey: "smoke-fake-key" });
-    await ws.waitFor((f) => f.type === "auth.set_key.result" || f.type === "connection.error", 10_000);
+    try {
+      await ws.waitFor((f) => f.type === "auth.set_key.result" || f.type === "connection.error", 15_000);
+    } catch (e) {
+      let logTail = "";
+      try {
+        logTail = (await Bun.file(join(home, "logs", "daemon.log")).text()).slice(-800);
+      } catch {
+        logTail = "(无 daemon.log)";
+      }
+      throw new Error(`auth.set_key 无回执：${(e as Error).message}\n  daemon 日志尾：${logTail}`);
+    }
     ws.send("chat.send", { text: "请用 grep 工具检索指定内容", draft: true });
     const resultFrame = await ws.waitFor(
       (f) => f.type === "tool.call.result" && (f.payload as { entry?: { name?: string } }).entry?.name === "grep",
