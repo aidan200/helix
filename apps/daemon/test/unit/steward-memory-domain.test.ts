@@ -1,3 +1,5 @@
+import path from "node:path";
+import os from "node:os";
 /**
  * 长期记忆 domain 维度批单测（kind × domain 正交：habit/general/project）。
  *
@@ -88,7 +90,7 @@ function fakeEmbedding(): EmbeddingPort {
 
 describe("domain 维度·schema 迁移（幂等 + 存量打标缺省）", () => {
   test("① 旧库补列：progress→project、其余→habit；重复构造幂等不改值", () => {
-    const dbPath = `/tmp/helix-memory-domain-migrate-${process.pid}.db`;
+    const dbPath = path.join(os.tmpdir(), `helix-memory-domain-migrate-${process.pid}.db`)  // 跨平台 tmp（win 无 /tmp——TR-95）;
     for (const suffix of ["", "-wal", "-shm"]) {
       require("node:fs").rmSync(`${dbPath}${suffix}`, { force: true });
     }

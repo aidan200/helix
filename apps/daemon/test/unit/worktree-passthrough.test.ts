@@ -108,8 +108,9 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
       mkdirSync(path.join(root, "helix", ".helix-kg"), { recursive: true });
       writeFileSync(path.join(root, "helix", ".helix-kg", "kg.db"), "stub");
       mkdirSync(path.join(root, "helix", ".worktrees", "agent-d8-x"), { recursive: true });
+      // kgReadProjects 输出走 resolveMainRepoPath posix 归一语义（win 反斜杠 → posix，TR-95）
       expect(kgReadProjects(path.join(root, "helix", ".worktrees", "agent-d8-x"))).toEqual([
-        path.join(root, "helix"),
+        [root, "helix"].join("/").split("\\").join("/"),
       ]);
     } finally {
       rmSyncWindowsSafe(root);

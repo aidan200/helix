@@ -1,3 +1,5 @@
+import path from "node:path";
+import os from "node:os";
 /**
  * 长期记忆项目作用域批单测（跨项目隔离：projectScope 字段 + 召回过滤 +
  * 四写入面 scope 赋值 + 存量迁移 + 管理命令展示）。
@@ -115,7 +117,7 @@ describe("项目作用域·resolveMemoryWriteAttrs 纯函数（scope 面——do
 
 describe("项目作用域·store（SqliteVecMemoryStore 真库）", () => {
   test("④ 存量迁移：旧 schema 库 → 补列 + 旧行 global（零行为变化起步）+ 幂等重跑", () => {
-    const dbPath = `/tmp/helix-memory-scope-migrate-${process.pid}.db`;
+    const dbPath = path.join(os.tmpdir(), `helix-memory-scope-migrate-${process.pid}.db`)  // 跨平台 tmp（win 无 /tmp——TR-95）;
     require("node:fs").rmSync(dbPath, { force: true });
     for (const suffix of ["", "-wal", "-shm"]) {
       require("node:fs").rmSync(`${dbPath}${suffix}`, { force: true });

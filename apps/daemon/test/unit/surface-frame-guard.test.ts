@@ -44,7 +44,8 @@ function scan(pattern: RegExp): SourceFile[] {
     const raw = readFileSync(abs, "utf8");
     // 语义扫描：剥注释后匹配（文档性提及不算组帧/调用——守护的是代码位）
     const text = stripComments(raw);
-    if (pattern.test(text)) hits.push({ rel: abs.slice(SRC_ROOT.length + 1), text });
+    // rel 归一 posix（win 下 abs 反斜杠——断言面统一 posix 形态，TR-95）
+    if (pattern.test(text)) hits.push({ rel: abs.slice(SRC_ROOT.length + 1).split("\\").join("/"), text });
   }
   return hits;
 }

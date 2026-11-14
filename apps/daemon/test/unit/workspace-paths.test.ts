@@ -40,9 +40,13 @@ describe("workspacePaths（workspace 运行物料根单点）", () => {
       expect(env.TMPDIR).toBe(path.join(root, ".helix", "tmp"));
       expect(existsSync(env.TMPDIR!)).toBe(true);
       expect(ensureWorkspaceTmp(root)).toBe(env.TMPDIR!); // 幂等（已存在不抛）
-      // 不可建根（/static 前缀不可创建）：TMPDIR 回落继承，缓存键照注
+      // 不可建根（/static 前缀不可创建）：TMPDIR 回落继承，缓存键照注。
+      // win 守卫：posix /static 需要权限拒创建；win 上 posix 路径解析为
+      // <盘>\static 且管理员权限创建成功——降级路径不可达，跳过该断言
       const degraded = workspaceChildEnv("/static/definitely-not-exist-helix-test/cwd");
-      expect("TMPDIR" in degraded).toBe(false);
+      if (process.platform !== "win32") {
+        expect("TMPDIR" in degraded).toBe(false);
+      }
       expect(degraded.UV_CACHE_DIR).toBe(
         path.join("/static/definitely-not-exist-helix-test/cwd", ".helix", "tool-cache", "uv"),
       );
