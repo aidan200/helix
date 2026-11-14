@@ -35,7 +35,7 @@
  *   bun smoke/verify-clean-windows.ts   # 产物缺位 → 先跑 compile + fetch 三件
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { platformSpec } from "../scripts/desktop-platform";
@@ -268,6 +268,21 @@ class WsProbe {
   }
 }
 
+
+/** daemon 日志读取（日文件形态：logs/daemon-<YYYY-MM-DD>.log 全量拼接尾）。 */
+async function readDaemonLogTail(home: string, tailChars: number): Promise<string> {
+  const dir = join(home, "logs");
+  try {
+    const files = readdirSync(dir).filter((n) => n.startsWith("daemon-") && n.endsWith(".log"));
+    if (files.length === 0) return "(logs 目录无 daemon-*.log)";
+    let all = "";
+    for (const n of files) all += await Bun.file(join(dir, n)).text();
+    return all.slice(-tailChars);
+  } catch {
+    return "(无 logs 目录)";
+  }
+}
+
 // ── 1. layout ────────────────────────────────────────────────────
 
 function assertLayout(): boolean {
@@ -475,12 +490,7 @@ async function runSmoke(): Promise<void> {
         PROBE_TIMEOUT_MS,
       );
     } catch (e) {
-      let logTail = "";
-      try {
-        logTail = (await Bun.file(join(home, "logs", "daemon.log")).text()).slice(-800);
-      } catch {
-        logTail = "(无 daemon.log)";
-      }
+      const logTail = await readDaemonLogTail(home, 900);
       throw new Error(
         `grep tool.call.result 未到：${(e as Error).message}\n` +
           `  stderr 尾：${stderrTail.slice(-300)}\n  daemon 日志尾：${logTail}`,
@@ -496,12 +506,7 @@ async function runSmoke(): Promise<void> {
 
     // ── 5. memory.vec0：管家记忆存储就绪（win 专项）──
     section("5. memory.vec0 管家记忆存储就绪");
-    let logText = "";
-    try {
-      logText = await Bun.file(join(home, "logs", "daemon.log")).text();
-    } catch {
-      logText = "";
-    }
+    const logText = await readDaemonLogTail(home, 20_000);
     const readyLine = logText.split("\n").find((l) => l.includes("管家记忆存储就绪"));
     if (readyLine !== undefined) {
       ok("memory.vec0", `better-sqlite3（NAPI）+ vec0.dll 加载全通：${readyLine.trim().slice(0, 120)}`);
