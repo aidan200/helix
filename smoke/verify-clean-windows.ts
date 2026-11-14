@@ -240,7 +240,6 @@ async function runSmoke(): Promise<void> {
   const home = join(tmp, "home", ".helix");
   mkdirSync(join(home, "logs"), { recursive: true });
   mkdirSync(join(tmp, "tmp"), { recursive: true }); // TMP/TEMP 注入目标（净化 env 下 SQLite/log 写面依赖）
-  writeFileSync(join(searchDir, "notes.txt"), `${SEARCH_TOKEN} 第一行命中\n第二行噪音\n`);
 
 
   let daemon: ReturnType<typeof Bun.spawn> | undefined;
