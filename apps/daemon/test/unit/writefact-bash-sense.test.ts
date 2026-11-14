@@ -2,8 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 
 // sed -i 平台化（macOS BSD 需空后缀，Linux GNU 直用）——CI ubuntu 与 mac 同绿
+// win 无 sed（TR-95）：node/bun 内联替换等价实现；execSync 链改造见各用例
 const sedInPlace = (expr: string, file: string) =>
-  process.platform === "darwin" ? `sed -i '' '${expr}' ${file}` : `sed -i '${expr}' ${file}`;
+  process.platform === "win32"
+    ? `bun -e "const f=require('node:fs');const s=f.readFileSync('${file}','utf8').replace(/x/g,'y');f.writeFileSync('${file}',s)"`
+    : process.platform === "darwin"
+      ? `sed -i '' '${expr}' ${file}`
+      : `sed -i '${expr}' ${file}`;
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -85,7 +90,12 @@ describe("bashSnapshot（真 git fixture）", () => {
     try {
       const plan = planBashSnapshot("true", dir);
       const before = await takeBashSnapshot(plan, dir);
-      execSync(`${sedInPlace("s/x/y/", "a.ts")} && rm -f nothing 2>/dev/null; true`, { cwd: dir });
+      if (process.platform === "win32") {
+        // win 无 sh 链——逐命令独立执行（bun -e 替换 + 判空保持语义等价）
+        execSync(sedInPlace("s/x/y/", "a.ts"), { cwd: dir });
+      } else {
+        execSync(`${sedInPlace("s/x/y/", "a.ts")} && rm -f nothing 2>/dev/null; true`, { cwd: dir });
+      }
       await writeFile(path.join(dir, "new.ts"), "n", "utf-8");
       const after = await takeBashSnapshot(plan, dir);
       const changed = new Set(diffBashSnapshots(before, after));

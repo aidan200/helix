@@ -22,6 +22,11 @@ set -uo pipefail
 # ---- 护栏主体（独立于上方 typecheck 闸——两段互不阻断对方语义，
 # ---- 但本段判拒时整钩子必须 exit 1）----
 
+# python3 解释器探测（TR-95 win 兼容面：mac 恒 /usr/bin/python3；win runner
+# 只有 PATH 里的 python/python3——写账读取依赖它，缺解释器时 wrote 为空会
+# 误拦全部暂存）
+PY3="$(command -v python3 || command -v python || echo /usr/bin/python3)"
+
 guard_write_facts() {
   local sid="${HELIX_SESSION_ID:-}"
   if [[ -z "$sid" ]]; then
@@ -52,7 +57,7 @@ guard_write_facts() {
   # 并集空/解析失败回落本会话 manifest（失败安全方向=失败不放宽）。
   local wrote=""
   if [[ "${HELIX_WRITE_FACTS_INHERIT:-}" == "1" ]]; then
-    wrote="$(/usr/bin/python3 -c '
+    wrote="$($PY3 -c '
 import json, glob, os, sys
 paths = set()
 for mf in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
@@ -71,7 +76,7 @@ for p in sorted(paths):
   fi
   if [[ -z "$wrote" ]]; then
     # 本会话写过的路径（manifest JSON 的 paths 数组 → 每行一条）
-    wrote="$(/usr/bin/python3 -c '
+    wrote="$($PY3 -c '
 import json, sys
 with open(sys.argv[1], "r") as f:
     data = json.load(f)
@@ -86,7 +91,10 @@ for p in data.get("paths", []):
   # 仓相对路径 → 绝对路径前缀匹配（manifest 存绝对路径）。
   # 符号链接归一：macOS tmpdir（/var/folders ↔ /private/var/folders）与
   # git toplevel（realpath 形态）可能不一致——比对两侧都剥 private 前缀差。
-  norm() { printf '%s' "$1" | sed 's|^/private/var/|/var/|'; }
+  # 归一：剥 macOS private 前缀差 + 反斜杠→正斜杠（TR-95：win 侧 git toplevel
+  # 反斜杠 vs 相对路径 posix 的混合 abs，与 manifest 的 node path.join 反斜杠
+  # 绝对路径——统一 posix 后两侧可比）
+  norm() { printf '%s' "$1" | sed 's|^/private/var/|/var/|' | tr '\\' '/'; }
   local toplevel
   toplevel="$(norm "$(git rev-parse --show-toplevel 2>/dev/null)")"
   local violations=()

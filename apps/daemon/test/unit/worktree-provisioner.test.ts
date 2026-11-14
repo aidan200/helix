@@ -103,7 +103,17 @@ describe("GitWorktreeProvisioner", () => {
       const r = await p.provision("agent-rm", repo);
       if ("error" in r) throw new Error(r.error);
       expect(await p.remove(r.path)).toBe(true);
-      expect(await Bun.file(join(r.path, "a.ts")).exists()).toBe(false);
+      // win：git worktree remove 句柄释放异步（文件短暂残留）——轮询收敛断言
+      if (process.platform === "win32") {
+        let gone = false;
+        for (let i = 0; i < 20 && !gone; i++) {
+          gone = !(await Bun.file(join(r.path, "a.ts")).exists());
+          if (!gone) await Bun.sleep(100);
+        }
+        expect(gone).toBe(true);
+      } else {
+        expect(await Bun.file(join(r.path, "a.ts")).exists()).toBe(false);
+      }
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
