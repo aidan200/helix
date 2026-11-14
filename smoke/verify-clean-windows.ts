@@ -468,10 +468,24 @@ async function runSmoke(): Promise<void> {
       throw new Error(`auth.set_key 无回执：${(e as Error).message}\n  daemon 日志尾：${logTail}`);
     }
     ws.send("chat.send", { text: "请用 grep 工具检索指定内容", draft: true });
-    const resultFrame = await ws.waitFor(
-      (f) => f.type === "tool.call.result" && (f.payload as { entry?: { name?: string } }).entry?.name === "grep",
-      PROBE_TIMEOUT_MS,
-    );
+    let resultFrame: Frame;
+    try {
+      resultFrame = await ws.waitFor(
+        (f) => f.type === "tool.call.result" && (f.payload as { entry?: { name?: string } }).entry?.name === "grep",
+        PROBE_TIMEOUT_MS,
+      );
+    } catch (e) {
+      let logTail = "";
+      try {
+        logTail = (await Bun.file(join(home, "logs", "daemon.log")).text()).slice(-800);
+      } catch {
+        logTail = "(无 daemon.log)";
+      }
+      throw new Error(
+        `grep tool.call.result 未到：${(e as Error).message}\n` +
+          `  stderr 尾：${stderrTail.slice(-300)}\n  daemon 日志尾：${logTail}`,
+      );
+    }
     const entry = (resultFrame.payload as { entry?: { state?: string; result?: string } }).entry;
     const grepResult = entry?.result ?? "";
     if (entry?.state === "done" && grepResult.includes(SEARCH_TOKEN)) {
