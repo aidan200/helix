@@ -133,6 +133,49 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # ---- Windows daemon 单测（TR-95 win32-x64 兼容面：主 job 只在 ubuntu，
+  # daemon 大量 win32 分支代码（CDP win32 路径/kill 序列/helper 自检/
+  # pi-harness env 探测/openUrl win32 分支）从未在真 Windows 执行过。
+  # win-sandbox-helper job 同款先例：CI 驱动验证路线——mac 开发 +
+  # windows runner 行为验证，红→绿迭代即兼容性收口过程）。
+  # e2e/protocol 不搬：harness ps axo 是 Unix-only（留 ubuntu），protocol
+  # 纯逻辑零平台面。----
+  daemon-windows:
+    name: daemon unit tests (windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup bun (版本锁定，同 ci 主 job)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Cache bun dependencies (bun.lock)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # grep 工具 rg 单后端的环境前置（同主 job：真 rg 契约/集成测试须真
+      # rg 在 PATH；windows runner 自带 choco）
+      - name: Install ripgrep (grep 工具测试前置)
+        shell: bash
+        run: choco install ripgrep -y --no-progress
+
+      # git 已预装（runner 镜像自带）——writefact/lifecycle 等测试依赖
+      - name: Unit tests daemon (bun test)
+        # 同主 job --timeout 放宽：Windows runner 冷启/IO 停顿更明显，20s
+        # 同上限基础上再留余量
+        shell: bash
+        run: bun test apps/daemon --timeout=20000
+
   # ---- Windows 沙箱 helper（U0c 二期②：mac 开发 + CI 行为验证——无本地 Windows 环境的
   # CI 驱动路线）。独立 job 与主 job 零耦合（bun 那套端口串行设计不涉及 Rust）；
   # 行为矩阵：writableRoots 内写/外拒/子目录继承/退出码与 stdio 透传（tests/behavior.rs）。
