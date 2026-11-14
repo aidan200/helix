@@ -20,9 +20,10 @@ describe("relPathOf：事件路径归一单点", () => {
     expect(relPathOf("/w/helix", "/w/helix")).toBe("/w/helix");
   });
 
-  test("win32 盘符路径按 win32 语义相对化（E-12 归一口径——不再原样透传）", () => {
-    expect(relPathOf("C:\\proj", "C:\\proj\\src\\a.ts")).toBe("src\\a.ts");
-    expect(relPathOf("C:\\proj", "C:\\proj")).toBe("C:\\proj"); // 根自身回退原路径
+  test("win32 盘符路径按 win32 语义相对化（E-12 归一口径）+ 输出 posix 归一（TR-95）", () => {
+    // 输出恒 posix（win 宿主 relative 产生反斜杠 → 引擎/锚表 posix 键同源单口径）
+    expect(relPathOf("C:\\proj", "C:\\proj\\src\\a.ts")).toBe("src/a.ts");
+    expect(relPathOf("C:\\proj", "C:\\proj")).toBe("C:/proj"); // 根自身回退原路径（归一形态）
   });
 
   test("isOutsideRootRel：.. 前缀三形态根外；..foo 同前缀合法不误杀", () => {

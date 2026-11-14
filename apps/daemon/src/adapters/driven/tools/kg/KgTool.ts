@@ -5,6 +5,7 @@ import type {
 } from "../../../../adapters/driven/tools/vendor/pi-harness";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import { isValidNodeRef } from "../../../../domain/kg/node-id";
+import { projectNameOf } from "../../../../domain/kg/project-name";
 
 /**
  * kg 工具（T3.3，CL-4 F4.1，AD-16）——单工具四操作只读薄壳：
@@ -118,15 +119,15 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
           throw new Error(`节点 ${nodeId} 不存在（id 必须取自 kg search 返回行——先 search 再 get）`);
         }
         const wanted = typeof project === "string" && project !== "" ? project : undefined;
-        const hits = wanted !== undefined ? all.filter((h) => projectName(h.project) === wanted) : all;
+        const hits = wanted !== undefined ? all.filter((h) => projectNameOf(h.project) === wanted) : all;
         if (hits.length === 0) {
           throw new Error(
-            `节点 ${nodeId} 在指定项目 ${wanted} 不存在（实际命中项目：${all.map((h) => projectName(h.project)).join("、")}）`,
+            `节点 ${nodeId} 在指定项目 ${wanted} 不存在（实际命中项目：${all.map((h) => projectNameOf(h.project)).join("、")}）`,
           );
         }
         if (hits.length > 1) {
           throw new Error(
-            `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——可传 project 参数消歧（项目目录名）`,
+            `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectNameOf(h.project)).join("、")}）——可传 project 参数消歧（项目目录名）`,
           );
         }
         return text(renderDetail(hits[0]!.detail, hits[0]!.project));
@@ -191,7 +192,7 @@ function renderAffected(target: string, hits: readonly AffectedRow[]): string {
     if (hit.scene !== "") lines.push(`  适用：${hit.scene}`);
     const anchor = hit.anchorSymbol !== null ? `${hit.anchorPath}#${hit.anchorSymbol}` : hit.anchorPath;
     const via = hit.viaDecl ? "（声明反查——锚未物化/索引未建）" : "";
-    lines.push(`  锚：${hit.anchorKind} ${anchor}${via}（project: ${projectName(hit.project)}）`);
+    lines.push(`  锚：${hit.anchorKind} ${anchor}${via}（project: ${projectNameOf(hit.project)}）`);
     lines.push(`  ↳ kg get ${hit.nodeId}`);
   }
   return lines.join("\n");
@@ -208,7 +209,7 @@ function renderCandidates(status: string | undefined, hits: readonly { project: 
     const defer = row.status === "deferred" ? `（defer_age=${row.deferAge}）` : "";
     const target = row.targetNode !== null ? ` → 目标 ${row.targetNode}` : "";
     lines.push(`- ${row.id} [${row.kind}] ${row.status}${defer}：${row.title}${target}`);
-    lines.push(`  提出于 ${row.createdAt}（project: ${projectName(project)}）`);
+    lines.push(`  提出于 ${row.createdAt}（project: ${projectNameOf(project)}）`);
     if (row.body !== "") lines.push(`  body: ${row.body}`);
   }
   lines.push("（台账只读——裁决归 kg-review 人审 / decideCandidate 写面，本 op 不做裁决）");
@@ -245,7 +246,7 @@ function renderDetail(detail: DetailShape, project: string): string {
   const meta = [
     n.domain != null ? `domain=${n.domain}` : null,
     n.layer != null ? `layer=${n.layer}` : null,
-    `project=${projectName(project)}`,
+    `project=${projectNameOf(project)}`,
   ].filter((v): v is string => v !== null);
   lines.push(meta.join(" "));
   lines.push("锚声明:");
@@ -285,10 +286,6 @@ function renderDetail(detail: DetailShape, project: string): string {
 
 // projectName/text 与 KgUpdateTool.ts 尾部同款帮手逐字重复——有意容忍不
 // 下沉（8 行帮手新建共享模块的文件面成本高于重复成本，两文件同族独立装配）。
-function projectName(projectRoot: string): string {
-  const parts = projectRoot.split("/");
-  return parts[parts.length - 1] || projectRoot;
-}
 
 function text(body: string): AgentToolResult<undefined> {
   return { content: [{ type: "text", text: body }], details: undefined };

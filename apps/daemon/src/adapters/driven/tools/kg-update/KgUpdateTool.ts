@@ -1,3 +1,4 @@
+import { projectNameOf } from "../../../../domain/kg/project-name";
 import type {
   AgentHarnessTool,
   AgentToolResult,
@@ -360,7 +361,7 @@ async function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unkno
   const project = resolveTargetProject(deps, args);
   const iterationId = resolveIterationId(deps, args, project);
   const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "createNode", iterationId, draft }));
-  let summary = `已建节点 ${result.nodeId}（project: ${projectName(project)}，自动发号）`;
+  let summary = `已建节点 ${result.nodeId}（project: ${projectNameOf(project)}，自动发号）`;
   if (anchors !== null) {
     // 锚声明组合落账（第二笔 op）：失败不回滚建点——结构化报错携带已建 id（可重声明）。
     // A4：组合 op 同走 createOp 注入面——批次上下文内 declareAnchors 的
@@ -456,7 +457,7 @@ function execPrune(deps: KgUpdateToolDeps, args: Record<string, unknown>): strin
     const path = writeResult.error.path !== undefined ? `（${writeResult.error.path}）` : "";
     throw new Error(`${writeResult.error.code}：${writeResult.error.message}${path}`);
   }
-  const scope = nodeId !== undefined ? `节点 ${nodeId}` : `项目 ${projectName(project)}`;
+  const scope = nodeId !== undefined ? `节点 ${nodeId}` : `项目 ${projectNameOf(project)}`;
   return `已清理 ${scope} 的腐烂物化锚 ${writeResult.prunedCount ?? 0} 行（orphan=1 tombstone 物理删除，change_log 审计同行；零删除 = 本就干净）`;
 }
 
@@ -479,14 +480,14 @@ function execAddEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): str
   const dstProject = locateUnique(deps, dstId, "边终点", disambig);
   if (srcProject !== dstProject) {
     throw new Error(
-      `边起点 ${srcId}（${projectName(srcProject)}）与边终点 ${dstId}（${projectName(dstProject)}）不在同一项目——` +
+      `边起点 ${srcId}（${projectNameOf(srcProject)}）与边终点 ${dstId}（${projectNameOf(dstProject)}）不在同一项目——` +
         "edges 是 per-project 库内行，不支持跨项目建边",
     );
   }
   const project = srcProject;
   const iterationId = resolveIterationId(deps, args, project);
   writeOrThrow(deps, project, createOp(deps, args, { kind: "addEdge", iterationId, srcId, verb, dstId }));
-  return `已建边 ${srcId} —${verb}→ ${dstId}（project: ${projectName(project)}，幂等去重；审计行已入 change_log）`;
+  return `已建边 ${srcId} —${verb}→ ${dstId}（project: ${projectNameOf(project)}，幂等去重；审计行已入 change_log）`;
 }
 
 /** 目标定位唯一化（原 addEdge 端点定位，令全 op 共用）：locate 全命中唯一项目
@@ -504,7 +505,7 @@ function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string, onl
       const reachable = deps.query.locate(nodeId); // 回退全扫：指定库零命中时补全貌
       if (reachable.length > 0) {
         throw new Error(
-          `${label} ${nodeId} 在指定项目 ${projectName(onlyProject)} 不存在（实际命中项目：${reachable.map((h) => projectName(h.project)).join("、")}）`,
+          `${label} ${nodeId} 在指定项目 ${projectNameOf(onlyProject)} 不存在（实际命中项目：${reachable.map((h) => projectNameOf(h.project)).join("、")}）`,
         );
       }
     }
@@ -514,7 +515,7 @@ function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string, onl
   }
   if (all.length > 1) {
     throw new Error(
-      `${label} ${nodeId} 在多个项目命中（${all.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，可显式传 project 参数消歧（项目目录名）`,
+      `${label} ${nodeId} 在多个项目命中（${all.map((h) => projectNameOf(h.project)).join("、")}）——不支持跨项目猜测，可显式传 project 参数消歧（项目目录名）`,
     );
   }
   return all[0]!.project;
@@ -536,14 +537,14 @@ function execRemoveEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
   const dstProject = locateUnique(deps, dstId, "边终点", disambig);
   if (srcProject !== dstProject) {
     throw new Error(
-      `边起点 ${srcId}（${projectName(srcProject)}）与边终点 ${dstId}（${projectName(dstProject)}）不在同一项目——` +
+      `边起点 ${srcId}（${projectNameOf(srcProject)}）与边终点 ${dstId}（${projectNameOf(dstProject)}）不在同一项目——` +
         "edges 是 per-project 库内行，不存在跨项目的边可删",
     );
   }
   const project = srcProject;
   const iterationId = resolveIterationId(deps, args, project);
   writeOrThrow(deps, project, createOp(deps, args, { kind: "removeEdge", iterationId, srcId, verb, dstId }));
-  return `已删边 ${srcId} —${verb}→ ${dstId}（project: ${projectName(project)}；审计行已入 change_log；误删可 addEdge 重建）`;
+  return `已删边 ${srcId} —${verb}→ ${dstId}（project: ${projectNameOf(project)}；审计行已入 change_log；误删可 addEdge 重建）`;
 }
 
 /**
@@ -581,7 +582,7 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
       ...(iterationId !== null ? { sourceIterationId: iterationId } : {}),
     }),
   );
-  return `已提候选 ${result.nodeId}（project: ${projectName(project)}，status=pending——终验人审裁决${anchors !== null ? `；建议锚 ${anchors.length} 枚随行（applied 时空节点初始声明）` : ""}）`;
+  return `已提候选 ${result.nodeId}（project: ${projectNameOf(project)}，status=pending——终验人审裁决${anchors !== null ? `；建议锚 ${anchors.length} 枚随行（applied 时空节点初始声明）` : ""}）`;
 }
 
 /**
@@ -662,7 +663,7 @@ async function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string,
   const iterationId = resolveIterationId(deps, args, project);
   const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "batchCreateNodes", iterationId, nodes }));
   const anchorNote = anchorTotal > 0 ? `；锚声明 ${anchorTotal} 条` : "";
-  const summary = `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}${anchorNote}）`;
+  const summary = `已批量建节点 ${nodes.length} 个（project: ${projectNameOf(project)}，自动发号；末节点 ${result.nodeId}${anchorNote}）`;
   // 查重闸（批2 WP-C）：逐条查重但警告合并回工具结果（每对恰一行，不逐条刷屏）
   const ids = result.nodeIds ?? [result.nodeId];
   return summary + (await runDedupCheck(deps, project, ids, iterationId, args));
@@ -746,10 +747,10 @@ function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unkno
   const scanned = deps.scanProjects();
   const given = optionalString(args, "project");
   if (given !== undefined) {
-    const hit = scanned.find((p) => projectName(p) === given);
+    const hit = scanned.find((p) => projectNameOf(p) === given);
     if (hit === undefined) {
       throw new Error(
-        `项目 "${given}" 不在 workspace（可用：${scanned.map(projectName).join("、") || "（无）"}）`,
+        `项目 "${given}" 不在 workspace（可用：${scanned.map(projectNameOf).join("、") || "（无）"}）`,
       );
     }
     return hit;
@@ -757,7 +758,7 @@ function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unkno
   if (scanned.length === 1) return scanned[0]!;
   throw new Error(
     `workspace 有 ${scanned.length} 个项目，本 op 需 project 参数指明目标项目` +
-      `（可用：${scanned.map(projectName).join("、") || "（无）"}）`,
+      `（可用：${scanned.map(projectNameOf).join("、") || "（无）"}）`,
   );
 }
 
@@ -768,10 +769,10 @@ function optionalDisambiguationRoot(deps: KgUpdateToolDeps, args: Record<string,
   const given = optionalString(args, "project");
   if (given === undefined) return undefined;
   const scanned = deps.scanProjects();
-  const hit = scanned.find((p) => projectName(p) === given);
+  const hit = scanned.find((p) => projectNameOf(p) === given);
   if (hit === undefined) {
     throw new Error(
-      `project "${given}" 不在 workspace（可用：${scanned.map(projectName).join("、") || "（无）"}）`,
+      `project "${given}" 不在 workspace（可用：${scanned.map(projectNameOf).join("、") || "（无）"}）`,
     );
   }
   return hit;
@@ -846,10 +847,6 @@ function anchorsOf(value: unknown, label = "anchors"): AnchorDeclaration[] | nul
 }
 
 // projectName/text 与 KgTool.ts 尾部同款帮手逐字重复——有意容忍不下沉（理由互指）。
-function projectName(projectRoot: string): string {
-  const parts = projectRoot.split("/");
-  return parts[parts.length - 1] || projectRoot;
-}
 
 function text(body: string): AgentToolResult<undefined> {
   return { content: [{ type: "text", text: body }], details: undefined };

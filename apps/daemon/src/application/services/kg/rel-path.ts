@@ -23,9 +23,16 @@ const WIN_DRIVE_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
  * 形态时按 win32 relative 归一（跨宿主兼容）。
  */
 export function relPathOf(projectRoot: string, path: string): string {
-  if (isAbsolute(path)) return relative(projectRoot, path) || path;
-  if (WIN_DRIVE_ABSOLUTE.test(path)) return relativeWin32(projectRoot, path) || path;
-  return path;
+  if (isAbsolute(path)) return toPosixSep(relative(projectRoot, path)) || toPosixSep(path);
+  if (WIN_DRIVE_ABSOLUTE.test(path)) return toPosixSep(relativeWin32(projectRoot, path)) || toPosixSep(path);
+  return toPosixSep(path);
+}
+
+/** 输出分隔符 posix 归一（TR-95 win 兼容面）：win 宿主 relative 产生反斜杠
+ * 形态，而引擎面/锚表/符号表相对键恒 posix（同源单口径）；相对输入同归一
+ * （win 侧调用方传反斜杠相对路径时与 posix 键匹配）。 */
+function toPosixSep(p: string): string {
+  return p.replaceAll("\\", "/");
 }
 
 /**
