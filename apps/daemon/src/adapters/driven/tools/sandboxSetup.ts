@@ -1,6 +1,16 @@
 /**
  * 沙箱装配面：开关（布尔）+ 自检降级 → SandboxRuntime | undefined。
  *
+ * 首发策略（TR-95 Windows 档，2026-11 定档）：**helper 不进包**——打包态
+ * 不声明 HELIX_SANDBOX_HELPER，不接 tauri 资源。Windows 首发沙箱 =
+ * fallback 执行器（规则级判定）。原因（E-162 实证）：受限 token ×
+ * Git Bash（MSYS）从未被支持——bash 必死（DLL 初始化失败，共享段 DACL
+ * 不匹配，四轮 CI 矩阵排除假说链见 E-162），而 pi 引擎 win32 的 shell
+ * 恰是 Git Bash——helper 接进包 = 开沙箱后所有 bash 命令全挂。fallback
+ * 是当前可工作的最大防护（写候选静态判定 + 工具写判定 + 感知对账）。
+ * 解锁条件：E-162 修复专项（BaseNamedObjects 定位 msys 共享段 + DACL
+ * 宽化）落地后再评估 helper 进包。
+ *
  * 配置落点（沙箱开关批，2026-09-12）：KV `sandbox_config` 单键（SandboxConfigStore；
  * 设置页通用分区 config.get/set_sandbox 命令族）——本函数只吃布尔开关，
  * 读取时机在调用方：main 会话创建时（sessionEngineFactory）与 SubAgent
@@ -61,7 +71,10 @@ function selfCheck(profileText: string, cacheKey: string): boolean {
   return ok;
 }
 
-/** Windows helper 探测：env 显式覆盖 > 仓库内开发态产物。打包态资源路径由打包批接入。 */
+/** Windows helper 探测：env 显式覆盖 > 仓库内开发态产物。打包态不注入
+ * HELIX_SANDBOX_HELPER（首发策略，见文件头注：helper 不进包，Windows 首发沙箱
+ * = fallback；解锁条件 E-162 修复专项）。dev 位仅开发态（mac 交叉产物）可达，
+ * 生产 win32 下恒 undefined → helperOk=false → fallback。 */
 function locateWindowsHelper(): string | undefined {
   const fromEnv = process.env.HELIX_SANDBOX_HELPER;
   if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
