@@ -53,6 +53,11 @@ const realFs: FreshnessFs = {
   },
 };
 
+/** 路径 posix 化（win 盘符保留，分隔符统一 /；posix 宿主恒等变换）。 */
+function toPosix(p: string): string {
+  return p.split("\\").join("/");
+}
+
 export interface ComputeFreshnessDeps {
   /** daemon 进程启动时刻（epoch ms；组合根 bootedAtMs 单源）。 */
   readonly startedAt: number;
@@ -72,13 +77,17 @@ export function computeDaemonFreshness(deps: ComputeFreshnessDeps): DaemonFreshn
   let anyRootPresent = false;
   let stale = false;
   for (const root of FRESHNESS_SCAN_ROOTS) {
-    const absRoot = path.join(deps.repoRoot, root);
+    // posix 化统一键形态（TR-95 win 兼容面）：注入面（fake 文件树键）与真实
+    // fs 面的契约统一 posix 分隔符；win 下 path.join 产生 \ 会与键不匹配
+    const absRoot = toPosix(path.join(deps.repoRoot, root));
     const entries = fs.listDir(absRoot);
     if (entries === undefined) continue; // 该根缺席（打包态/裁剪形态）
     anyRootPresent = true;
     for (const rel of entries) {
       if (!rel.endsWith(".ts")) continue; // 只扫 .ts（规格：**/*.ts）
-      const mtime = fs.mtimeOf(path.join(absRoot, rel));
+      // 相对路径归一 posix 分隔符再拼接（win 下 readdirSync recursive 返 \ 形态）
+      const posixRel = rel.split("\\").join("/");
+      const mtime = fs.mtimeOf(path.posix.join(absRoot, posixRel));
       if (mtime !== undefined && mtime > deps.startedAt) {
         stale = true;
         break; // 命中即定论（无更早返回路径——全量遍历只为缺省态）

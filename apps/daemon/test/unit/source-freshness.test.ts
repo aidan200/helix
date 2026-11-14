@@ -16,7 +16,9 @@ import {
  * - 扫描根全部不存在（打包态：源码目录缺失）→ undefined（welcome 可缺省字段）。
  */
 
-/** 假文件树：dir → 后代相对路径集合；file → mtime ms。 */
+/** 假文件树：dir → 后代相对路径集合；file → mtime ms。键统一 posix 分隔
+ * 符（与 SourceFreshness 的 FreshnessFs 注入面契约一致——实现侧 path.join
+ * 换 path.posix 化比较，见 FreshnessFs 接口注释）。 */
 function fakeFs(tree: Record<string, string[]>, mtimes: Record<string, number>): FreshnessFs {
   return {
     listDir: (dir) => tree[dir],

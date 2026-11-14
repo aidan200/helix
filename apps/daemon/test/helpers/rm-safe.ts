@@ -7,19 +7,42 @@
  * 立即 rmSync 常撞 EBUSY/EPERM（句柄尚未全关），CI windows runner 实证
  * （agent-config-ws.test.ts 全文件挂）。mac 上无此语义（句柄释放同步）。
  *
- * 形态：node rmSync 原生 maxRetries + retryDelay（node 20.12+/bun 支持，
- * Windows EBUSY/EPERM 官方解）——posix 上零行为差异（首轮即成功，重试
- * 面不触发）。集中本模块单点，测试清理面逐步迁入。
+ * 形态变更（第一版教训）：第一版用 node rmSync 原生 maxRetries/retryDelay
+ * ——bun 1.4.2 实测不生效（oven-sh/bun#39003：fs.rmSync 解析但从不重试，
+ * Windows EBUSY 立即抛；修复 PR 停滞被关）。故本模块 JS 层自实现线性退避
+ * 重试循环，不依赖运行时该参数。bun 修复 maxRetries 后可回归原生形态。
+ *
+ * 重试错误集对齐 node 语义（rimraf retryErrorCodes）：EBUSY/EMFILE/
+ * ENFILE/ENOTEMPTY/EPERM。ENOENT 在重试路径视为成功（并发清理竞态）。
  */
 
 import { rmSync } from "node:fs";
 
+/** 可重试错误码（node rimraf retryErrorCodes 同集）。 */
+const RETRYABLE = new Set(["EBUSY", "EMFILE", "ENFILE", "ENOTEMPTY", "EPERM"]);
+
+/** 同步忙等（测试 teardown 面——事件循环无依赖，Atomics.wait 是最轻同步睡眠）。 */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
  * 递归删除（Windows EBUSY/EPERM 重试兜底）。
  * 语义对齐 rmSync(path, { recursive: true, force: true })——不存在静默成功
- * （force），仅追加 maxRetries/retryDelay 两参（Windows 句柄释放竞态的
- * 官方重试通道；posix 零行为差异）。
+ * （force），追加线性退避重试（maxRetries 次，第 n 次等 n×retryDelay ms——
+ * 与 node 官方重试时序一致；posix 上首轮即成功，重试面不触发零差异）。
  */
 export function rmSyncWindowsSafe(p: string): void {
-  rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  const maxRetries = 10;
+  const retryDelay = 100;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      rmSync(p, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException)?.code ?? "";
+      if (attempt >= maxRetries || !RETRYABLE.has(code)) throw e;
+      sleepSync((attempt + 1) * retryDelay);
+    }
+  }
 }
