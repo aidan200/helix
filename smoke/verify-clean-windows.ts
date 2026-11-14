@@ -350,7 +350,7 @@ async function runSmoke(): Promise<void> {
     // ── 3. 遮蔽启动（净化 env + 三资源键注入——模拟壳 resolve_sidecar_spec）──
     section("3. launch.handshake 遮蔽启动");
     daemon = Bun.spawn({
-      cmd: [COMPILED, "--home", home, "--port", String(SMOKE_PORT)],
+      cmd: [COMPILED, "--sidecar", "--home", home, "--port", String(SMOKE_PORT)],
       env: {
         PATH: SANITIZED_PATH,
         SYSTEMROOT: "C:\\Windows",
@@ -383,19 +383,44 @@ async function runSmoke(): Promise<void> {
         /* 进程已退出 */
       }
     })();
-    // 启动即退检测：exe 秒退（env 剥夺崩溃/单例锁拒绝）时端口探活会空转——
-    // 等待窗口内轮询退出码，退出即抛携 stderr 尾
-    {
-      const exitedEarly = await Promise.race([
-        daemon.exited.then(() => true),
-        new Promise<boolean>((r) => setTimeout(() => r(false), 3000)),
-      ]);
-      if (exitedEarly) {
-        throw new Error(`daemon 启动即退（exit ${daemon.exitCode}）stderr 尾：${stderrTail.slice(-600)}`);
-      }
+    // sidecar ready 行读取（TR-284：端口/token 从进程 stdout 发现，非预设）：
+    // {"type":"ready","port":N,"token":"..."}——兼作启动即退检测
+    // （sidecar 常驻：ready 行未到而进程先退 = 启动失败，携 stderr 尾抛）
+    const ready = await Promise.race([
+      (async () => {
+        const reader = (daemon!.stdout as ReadableStream<Uint8Array>).getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value);
+          const nl = buf.indexOf("\n");
+          if (nl >= 0) {
+            const line = buf.slice(0, nl).trim();
+            return JSON.parse(line) as { type: string; port: number; token: string };
+          }
+        }
+        throw new Error(`stdout 关闭而无 ready 行；stderr 尾：${stderrTail.slice(-500)}`);
+      })(),
+      daemon.exited.then(
+        (code) =>
+          new Promise<never>((_, reject) =>
+            reject(new Error(`daemon 启动即退（exit ${code}）stderr 尾：${stderrTail.slice(-500)}`)),
+          ),
+      ),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`ready 行等待超时（90s）stderr 尾：${stderrTail.slice(-500)}`)),
+          90_000,
+        ),
+      ),
+    ]);
+    if (ready.type !== "ready" || typeof ready.port !== "number") {
+      throw new Error(`ready 行非预期形态：${JSON.stringify(ready).slice(0, 200)}`);
     }
 
-    const token = await fetchText(`http://127.0.0.1:${SMOKE_PORT}/helix-dev-token`, 90_000).catch((e) => {
+    const token = await fetchText(`http://127.0.0.1:${ready.port}/helix-dev-token`, 30_000).catch((e) => {
       throw new Error(`dev-token 端点超时：${(e as Error).message}\nstderr 尾：${stderrTail.slice(-500)}`);
     });
     if (token.trim().length === 0) {
@@ -403,13 +428,13 @@ async function runSmoke(): Promise<void> {
       return;
     }
     const ws = new WsProbe();
-    const welcome = await ws.connect(`ws://127.0.0.1:${SMOKE_PORT}`, token.trim(), PROBE_TIMEOUT_MS);
+    const welcome = await ws.connect(`ws://127.0.0.1:${ready.port}`, token.trim(), PROBE_TIMEOUT_MS);
     if (welcome.type !== "connection.welcome") {
       fail("launch.handshake", `welcome 非预期：${welcome.type}`);
       ws.close();
       return;
     }
-    ok("launch.handshake", `端口 ${SMOKE_PORT} 监听 + dev-token 端点 + WS hello→welcome`);
+    ok("launch.handshake", `端口 ${ready.port} 监听 + dev-token 端点 + WS hello→welcome`);
 
     // ── 4. grep.bundle：包内 rg 真实检索 ──
     section("4. grep.bundle 包内 rg 命中");
@@ -454,7 +479,7 @@ async function runSmoke(): Promise<void> {
     let portFree = false;
     for (let i = 0; i < 20; i++) {
       try {
-        await fetch(`http://127.0.0.1:${SMOKE_PORT}/helix-dev-token`, { signal: AbortSignal.timeout(500) });
+        await fetch(`http://127.0.0.1:${ready.port}/helix-dev-token`, { signal: AbortSignal.timeout(500) });
         await new Promise((r) => setTimeout(r, 250));
       } catch {
         portFree = true;
@@ -462,9 +487,9 @@ async function runSmoke(): Promise<void> {
       }
     }
     if (portFree) {
-      ok("residue.port", `端口 ${SMOKE_PORT} 已释放`);
+      ok("residue.port", `端口 ${ready.port} 已释放`);
     } else {
-      fail("residue.port", `端口 ${SMOKE_PORT} 仍被占用`);
+      fail("residue.port", `端口 ${ready.port} 仍被占用`);
     }
   } finally {
     fake.stop();
