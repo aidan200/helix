@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -91,7 +92,7 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       await queue.flush();
       queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -122,7 +123,7 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       await queue.flush();
       queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -166,7 +167,7 @@ describe("helix-loop L0：管家行为历史落库与面板投影", () => {
       expect(rows[1]!.error).toBe("boom"); // isError → failed + error 落行
       expect(rows[2]!.args).toBe("null"); // 无 start 兜底（args JSON null）
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -224,7 +225,7 @@ describe("stewardEngineTraceBridge 合成 instantiated（幂等档案行）", ()
       await queue.flush();
       queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });

@@ -336,7 +336,14 @@ describe("④ O-6 优雅 kill（SIGTERM → failed closure → 进程组回收�
     await until(() => h.closures.length > 0, 5000, "等待终止 closure 上报");
     expect(h.closures[0]!.outcome.result).toBe("failed");
     expect(h.closures[0]!.outcome.closure.status).toBe("failed");
-    expect(await h.launcher.childExit("agent-1")).toBe(0);
+    // 退出码断言仅 posix：win 无信号机制——kill(SIGTERM) 是 TerminateProcess
+    // 强杀（TR-132 双平台回收裁决），退出码恒非 0 是平台语义非回归
+    const exitCode = await h.launcher.childExit("agent-1");
+    if (process.platform === "win32") {
+      expect(exitCode).not.toBe(0);
+    } else {
+      expect(exitCode).toBe(0);
+    }
 
     // 进程组回收 + ps 零残留
     await sleep(150);

@@ -117,7 +117,13 @@ describe("daemon --sidecar 信号面（sidecar-lifecycle 契约）", () => {
       // SIGTERM 优雅退出（与 CLI 形态同一路径）
       proc.kill("SIGTERM");
       const exitCode = await proc.exited;
-      expect(exitCode).toBe(0);
+      // win 无信号机制：SIGTERM 名义投递实为强杀（TR-132）——退出码恒非 0
+      // 是平台语义非回归；优雅退出链断言仅 posix（daemon gracefulExit exit 0）
+      if (process.platform === "win32") {
+        expect(exitCode).not.toBe(0);
+      } else {
+        expect(exitCode).toBe(0);
+      }
     } finally {
       if (proc.exitCode === null) proc.kill("SIGKILL");
     }

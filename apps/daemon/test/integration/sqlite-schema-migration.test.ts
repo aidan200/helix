@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -171,7 +172,7 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
       after.close();
       expect(rows.map((r) => r.agent_instance_id)).toEqual(["main", "agent-1"]); // 旧行 main + 新行 agent-1
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -205,7 +206,7 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
         { id: "tc-done", kind: "subagent" }, // 已有 kind 原样（WHERE kind IS NULL）
       ]);
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -233,7 +234,7 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
       expect(count).toBe(3); // 旧 2 + 新 1，无重复迁移副作用
       expect(legacy).toBe(1); // main 行未翻倍
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -257,7 +258,7 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
       ).toBe("main");
       db.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -310,7 +311,7 @@ describe("F1.7 验收②：agent_lifecycle 复合 PK (session_id, instance_id) �
       expect(a1.state).toBe("done");
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -368,7 +369,7 @@ CREATE TABLE steer_queue (
       probe.close();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,7 +49,7 @@ describe("④ readSessionTitle（单会话短标题点读）", () => {
       expect(await repo.readSessionTitle("s-nope")).toBeUndefined();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });

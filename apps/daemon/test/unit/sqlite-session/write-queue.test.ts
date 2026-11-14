@@ -69,7 +69,7 @@ describe("M15：deleteSession 落定后 sessionTails 仓位条目清理（杜绝
       expect(rows.length).toBe(1); // 仅删除后写入的 ev(2)
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -86,7 +86,7 @@ describe("M15：deleteSession 落定后 sessionTails 仓位条目清理（杜绝
       expect(tails.has("s-race")).toBe(true);
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -121,7 +121,7 @@ describe("F2 #13：pending_sync 提示位置位与复位写同链保序", () => 
       ]);
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -144,7 +144,7 @@ describe("F2 #13：pending_sync 提示位置位与复位写同链保序", () => 
       db.close();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -174,7 +174,7 @@ describe("M2：drainAll 稳定判据——drain 期间新入队 job 一并等待
       expect(count).toBe(3); // ev(1)/ev(2)/ev(3) 全部落盘
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -202,7 +202,7 @@ describe("TP-CL8-2：WriteQueue FIFO 保序 + drain", () => {
       expect(rows.length).toBe(N);
       expect(rows.map((r) => JSON.parse(r.payload!).n)).toEqual(Array.from({ length: N }, (_, i) => i));
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -217,7 +217,7 @@ describe("TP-CL8-2：WriteQueue FIFO 保序 + drain", () => {
       expect(count).toBe(1);
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -232,7 +232,7 @@ describe("TP-CL8-2：WriteQueue FIFO 保序 + drain", () => {
       db.close();
       expect(count).toBe(20);
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -254,7 +254,7 @@ describe("TP-CL8-2：WriteQueue FIFO 保序 + drain", () => {
       db.close();
       expect(count).toBe(1); // 关闭前的那条已落盘，关闭后两条被丢弃
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -274,7 +274,7 @@ describe("TP-CL8-2：WAL 模式与 db 路径", () => {
       expect(mode.journal_mode).toBe("wal");
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -292,7 +292,7 @@ describe("TP-CL8-2：WAL 模式与 db 路径", () => {
       db.close();
       expect(count).toBe(2);
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -337,7 +337,7 @@ describe("M2：多语句写 job 事务包裹（崩溃窗口不留部分投影）
       expect(sessionRow).not.toBeNull();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -367,7 +367,7 @@ describe("WriteQueue 状态保存（saveState 投影行）", () => {
       expect(toolCount).toBe(1);
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -396,7 +396,7 @@ describe("T10a：session_state.main_instance_id 列（方案 A 主实例 id 持�
       await reopened.close();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -422,7 +422,7 @@ describe("T10a：session_state.main_instance_id 列（方案 A 主实例 id 持�
       expect(row.main_instance_id).toBeNull(); // 存量行 NULL（读取侧兜底 legacy "main"）
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -456,7 +456,7 @@ describe("P1 T3：session_state.mode 列（建会话定格 mode 随状态行落�
       expect(rowNoMode.mode).toBeNull(); // 不携带 → NULL（读取侧 default 兑底）
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -482,7 +482,7 @@ describe("P1 T3：session_state.mode 列（建会话定格 mode 随状态行落�
       expect(row.mode).toBeNull(); // 存量行 NULL（恢复链 RestoreService 归一 default）
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -525,7 +525,7 @@ describe("updated_at 语义修复回填（历史脏行 → 真实活动时间）
       await reopened.close();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -589,7 +589,7 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
       expect(rows[1]).toMatchObject({ agent_id: "agent-4", result: "killed", status: "failed", report_path: null, findings: null, findings_file: null, task_id: null });
       expect(rows[2]).toMatchObject({ agent_id: "agent-5", findings: null, findings_file: "/tmp/reports/s-1/agent-5.findings.json" });
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -611,7 +611,7 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
       expect(content).toContain("done");
       expect(existsSync(reportPath + ".tmp")).toBe(false); // 临时文件不残留
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -667,7 +667,7 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
       await again.close();
       expect(cols2.filter((c) => c.name === "findings_file")).toHaveLength(1);
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -716,7 +716,7 @@ describe("T2.2 分仓（AD-4）：每会话独立仓位按 session_id 路由 + �
       db2.close();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
@@ -747,7 +747,7 @@ describe("修复批①：session_state.title 列", () => {
       expect(a.title).toBeNull();
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 
@@ -787,7 +787,7 @@ describe("修复批①：session_state.title 列", () => {
       expect(newRow.title).toBe("新列写入");
       await queue.close();
     } finally {
-      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+      rmSyncWindowsSafe(path.dirname(dbPath));
     }
   });
 });
