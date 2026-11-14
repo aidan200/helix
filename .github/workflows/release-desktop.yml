@@ -146,6 +146,15 @@ jobs:
         if: ${{ matrix.platform == 'windows-x64' }}
         run: bun smoke/verify-compiled-daemon.ts --platform windows-x64
 
+      # Windows 档零依赖冒烟（TR-95 win32-x64 兼容面）：直起编译产物 exe +
+      # 包内资源注入链（模拟壳 env 形态）——六断言：layout/env 净化/握手/
+      # 包内 rg/管家记忆存储就绪（better-sqlite3 NAPI + vec0.dll 双件——
+      # bun --compile exe 形态的加载链验证，win 专项）/零残留。
+      # NSIS 安装动作与 tauri 壳不在面（F2.2 已覆盖壳链）。
+      - name: Windows 零依赖冒烟（verify-clean-windows）
+        if: ${{ matrix.platform == 'windows-x64' }}
+        run: bun smoke/verify-clean-windows.ts
+
       - name: Upload macOS artifact (.dmg)
         if: ${{ matrix.platform == 'darwin-arm64' }}
         uses: actions/upload-artifact@v4
