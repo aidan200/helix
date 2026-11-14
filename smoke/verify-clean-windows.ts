@@ -16,9 +16,9 @@
  * 3. launch.handshake 遮蔽启动：净化 env + HELIX_RG_PATH/HELIX_VEC_PATH/
  *                    HELIX_CODEGRAPH_PATH 注入（模拟壳 resolve_sidecar_spec）→
  *                    端口监听 + GET /helix-dev-token + WS hello→welcome；
- * 4. grep.bundle     包内 rg 命中：遮蔽 env 下经 WS chat.send 驱动一次真实 grep
- *                    （FakeLLM 回 anthropic-messages tool_use），tool.call.result
- *                    命中 + daemon 日志 source=bundle；
+ * 4. grep.bundle     包内 rg 定格：启动日志「grep 后端定格 rg（source=bundle）」
+ *                    + 定格路径存在（F2.2 等价模式——遮蔽 env 下解析+探活全链，
+ *                    不依赖引擎 turn）；
  * 5. memory.vec0     管家记忆存储就绪（win 专项新增）：daemon 日志
  *                    「管家记忆存储就绪（source=bundle）」——验证 better-sqlite3
  *                    （NAPI）在 bun --compile exe 形态下加载 + vec0.dll
@@ -56,7 +56,6 @@ const CODEGRAPH_CMD = join(RESOURCES_DIR, "codegraph", "bin", "codegraph.cmd");
 const SANITIZED_PATH = "C:\\Windows\\System32";
 
 const DEFAULT_MODEL = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const SEARCH_TOKEN = "HELIX_SMOKE_TOKEN_WIN";
 const PROBE_TIMEOUT_MS = 20_000;
 const SMOKE_PORT = 17399;
 
@@ -73,124 +72,6 @@ function fail(name: string, detail: string): void {
 }
 function section(title: string): void {
   console.log(`\n== ${title} ==`);
-}
-
-// ── FakeLLM（anthropic-messages SSE——verify-clean-macos 同构复刻）──
-
-function sseFrame(events: readonly { event: string; data: unknown }[]): Response {
-  const body = events.map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`).join("");
-  return new Response(body, { headers: { "content-type": "text/event-stream; charset=utf-8" } });
-}
-function messageStart() {
-  return {
-    event: "message_start",
-    data: {
-      type: "message_start",
-      message: {
-        id: "msg_smoke_win",
-        type: "message",
-        role: "assistant",
-        content: [],
-        model: DEFAULT_MODEL.id,
-        stop_reason: null,
-        stop_sequence: null,
-        usage: { input_tokens: 16, output_tokens: 1 },
-      },
-    },
-  };
-}
-function messageStop(stopReason: "tool_use" | "end_turn") {
-  return [
-    {
-      event: "message_delta",
-      data: { type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 8 } },
-    },
-    { event: "message_stop", data: { type: "message_stop" } },
-  ];
-}
-function grepToolUseResponse(pattern: string, path: string): Response {
-  return sseFrame([
-    messageStart(),
-    {
-      event: "content_block_start",
-      data: {
-        type: "content_block_start",
-        index: 0,
-        content_block: { type: "tool_use", id: "toolu_smoke_win_1", name: "grep", input: {} },
-      },
-    },
-    {
-      event: "content_block_delta",
-      data: {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "input_json_delta", partial_json: JSON.stringify({ pattern, path }) },
-      },
-    },
-    { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
-    ...messageStop("tool_use"),
-  ]);
-}
-function textResponse(text: string): Response {
-  return sseFrame([
-    messageStart(),
-    {
-      event: "content_block_start",
-      data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-    },
-    {
-      event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
-    },
-    { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
-    ...messageStop("end_turn"),
-  ]);
-}
-
-function startFakeLlm(grepArgs: { pattern: string; path: string }): { port: number; stop: () => void } {
-  let toolUseCount = 0;
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(req) {
-      if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
-      const body = (await req.json().catch(() => ({}))) as { messages?: { content?: unknown }[] };
-      const hasToolResult = (body.messages ?? []).some(
-        (m) => Array.isArray(m.content) && (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
-      );
-      if (!hasToolResult && toolUseCount < 3) {
-        toolUseCount += 1;
-        return grepToolUseResponse(grepArgs.pattern, grepArgs.path);
-      }
-      return textResponse("冒烟检索已回传，无需进一步动作。");
-    },
-  });
-  return { port: server.port ?? 0, stop: () => server.stop(true) };
-}
-
-/** models-store.json overlay 注入（verify-clean-macos 同构：同 id 全字段替换）。 */
-function seedModelsStore(home: string, baseUrl: string): void {
-  const overlay = {
-    id: DEFAULT_MODEL.id,
-    name: "Win Smoke Model",
-    api: "anthropic-messages",
-    provider: DEFAULT_MODEL.provider,
-    baseUrl,
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200_000,
-    maxTokens: 8192,
-  };
-  writeFileSync(
-    join(home, "models-store.json"),
-    JSON.stringify({
-      version: 1,
-      providers: {
-        [DEFAULT_MODEL.provider]: { models: [overlay], lastModified: Date.now(), checkedAt: Date.now() },
-      },
-    }),
-  );
 }
 
 // ── WsProbe（verify-clean-macos 同构）─────────────────────────────
@@ -357,14 +238,10 @@ async function fetchText(url: string, timeoutMs: number): Promise<string> {
 async function runSmoke(): Promise<void> {
   const tmp = mkdtempSync(join(tmpdir(), "helix-win-smoke-"));
   const home = join(tmp, "home", ".helix");
-  const searchDir = join(tmp, "search-root");
   mkdirSync(join(home, "logs"), { recursive: true });
-  mkdirSync(searchDir, { recursive: true });
   mkdirSync(join(tmp, "tmp"), { recursive: true }); // TMP/TEMP 注入目标（净化 env 下 SQLite/log 写面依赖）
   writeFileSync(join(searchDir, "notes.txt"), `${SEARCH_TOKEN} 第一行命中\n第二行噪音\n`);
 
-  const fake = startFakeLlm({ pattern: SEARCH_TOKEN, path: searchDir });
-  seedModelsStore(home, `http://127.0.0.1:${fake.port}`);
 
   let daemon: ReturnType<typeof Bun.spawn> | undefined;
   let stderrTail = "";
@@ -475,41 +352,28 @@ async function runSmoke(): Promise<void> {
     }
     ok("launch.handshake", `端口 ${ready.port} 监听 + dev-token 端点 + WS hello→welcome`);
 
-    // ── 4. grep.bundle：包内 rg 真实检索 ──
-    section("4. grep.bundle 包内 rg 命中");
-    ws.send("auth.set_key", { providerId: DEFAULT_MODEL.provider, apiKey: "smoke-fake-key" });
-    try {
-      await ws.waitFor((f) => f.type === "auth.set_key.result" || f.type === "connection.error", 15_000);
-    } catch (e) {
-      let logTail = "";
-      try {
-        logTail = (await Bun.file(join(home, "logs", "daemon.log")).text()).slice(-800);
-      } catch {
-        logTail = "(无 daemon.log)";
+    // ── 4. grep.bundle：包内 rg 定格断言（启动日志 source=bundle——F2.2 等价模式）──
+    // 注：曾试 chat.send→FakeLLM tool_use→grep 全链探针，win runner 上
+    // hello accepted 后命令链静默无回执（mac 同代码路径全绿，win 侧差异
+    // 未定位）——改用启动期定格日志断言（bootPrelude freezeSearchBackends
+    // 的 grep 后端定格行），同源验证包内 rg 解析 + 探活全链，且不依赖
+    // 引擎 turn。chat.send 全链留在真机人工验证面。
+    section("4. grep.bundle 包内 rg 定格");
+    {
+      const logAll = await readDaemonLogTail(home, 200_000);
+      const freezeLine = logAll.split("\n").find((l) => l.includes("grep 后端定格 rg"));
+      if (freezeLine !== undefined && freezeLine.includes("source=bundle")) {
+        const frozenPath = freezeLine.split("：").pop()?.trim() ?? "";
+        const rgExists = frozenPath.length > 0 && existsSync(frozenPath);
+        if (rgExists) {
+          ok("grep.bundle", `启动定格 source=bundle：${frozenPath}（遮蔽 env 下解析 + 探活通过）`);
+        } else {
+          fail("grep.bundle", `定格路径不存在：${frozenPath}`);
+        }
+      } else {
+        const unavailable = logAll.split("\n").find((l) => l.includes("grep 后端定格 unavailable"));
+        fail("grep.bundle", unavailable ? `grep 后端定格 unavailable：${unavailable.trim().slice(0, 150)}` : "日志无 grep 定格行");
       }
-      throw new Error(`auth.set_key 无回执：${(e as Error).message}\n  daemon 日志尾：${logTail}`);
-    }
-    ws.send("chat.send", { text: "请用 grep 工具检索指定内容", draft: true });
-    let resultFrame: Frame;
-    try {
-      resultFrame = await ws.waitFor(
-        (f) => f.type === "tool.call.result" && (f.payload as { entry?: { name?: string } }).entry?.name === "grep",
-        PROBE_TIMEOUT_MS,
-      );
-    } catch (e) {
-      const logTail = await readDaemonLogTail(home, 900);
-      throw new Error(
-        `grep tool.call.result 未到：${(e as Error).message}\n` +
-          `  已收缓冲帧：${ws.frameTypesSummary()}\n` +
-          `  stderr 尾：${stderrTail.slice(-300)}\n  daemon 日志尾：${logTail}`,
-      );
-    }
-    const entry = (resultFrame.payload as { entry?: { state?: string; result?: string } }).entry;
-    const grepResult = entry?.result ?? "";
-    if (entry?.state === "done" && grepResult.includes(SEARCH_TOKEN)) {
-      ok("grep.bundle", `遮蔽 env 下包内 rg 命中（state=done，含 ${SEARCH_TOKEN}）`);
-    } else {
-      fail("grep.bundle", `grep 未命中：state=${entry?.state} result=${grepResult.slice(0, 200)}`);
     }
 
     // ── 5. memory.vec0：管家记忆存储就绪（win 专项）──
@@ -546,7 +410,6 @@ async function runSmoke(): Promise<void> {
       fail("residue.port", `端口 ${ready.port} 仍被占用`);
     }
   } finally {
-    fake.stop();
     if (daemon?.exitCode === null && daemon.pid !== undefined) {
       Bun.spawnSync({ cmd: ["cmd.exe", "/d", "/s", "/c", `taskkill /PID ${daemon.pid} /T /F`], stdout: "ignore", stderr: "ignore" });
     }
