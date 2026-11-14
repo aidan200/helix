@@ -11,13 +11,13 @@
  * - v1 用 node rmSync 原生 maxRetries/retryDelay——bun 1.4.2 实测不生效
  *   （oven-sh/bun#39003：fs.rmSync 解析但从不重试，Windows EBUSY 立即抛；
  *   修复 PR 停滞已关）。故 JS 层自实现重试循环。
- * - v2 线性退避 10×100ms（5.5s）仍打不穿 agent-config-it 族（CI run 43567953548
- *   实证：重试穷尽后 throw）——部分场景句柄释放窗 >5.5s。v3 双管：
- *   ① 重试窗加长（指数退避 2^n×100ms，16 次 ≈ 51s 总窗——远超句柄释放
- *   最坏窗；posix 首轮成功零差异不受影响）；
- *   ② 穷尽后**软失败**：CI 上 tmp 目录由 runner 管理生命周期（job 结束整
- *   worker 销毁），残留无害；测试 teardown 清理失败不值得红——warn 留痕
- *   即可。这是 vitest/jest Windows 生态的通行处理。
+ * - v2 线性退避 10×100ms（5.5s）重试穷尽后 throw 仍红（部分场景句柄释放窗
+ *   >5.5s）；v3 曾试 16 次指数退避 ~11s 窗——把 windows job 拖过 30min timeout
+ *   被杀（CI run 43573114560 实证）。v4 终形态：**短窗重试 + 穷尽软失败**——
+ *   v2 同款线性 10×100ms 窗，穷尽后 warn 不抛：
+ *   CI tmp 目录由 runner 管理生命周期（job 结束 worker 销毁），残留无害；
+ *   测试 teardown 清理失败不值得红也不值得拖——vitest/jest Windows 生态的
+ *   通行处理。
  *
  * 重试错误集对齐 node 语义（rimraf retryErrorCodes）：EBUSY/EMFILE/
  * ENFILE/ENOTEMPTY/EPERM。ENOENT 在重试路径视为成功（并发清理竞态）。
@@ -33,8 +33,10 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** 指数退避次数（100×min(2^n,8) ms/次，16 次总窗 ≈ 11s）。 */
-const MAX_ATTEMPTS = 16;
+/** 重试参数（线性 10 次×100ms = 总窗 ~5.5s；退避过长会拖爆 CI job timeout——
+ * 第三轮实证：16 次指数退避把 windows job 拖过 30min timeout 被杀）。 */
+const MAX_ATTEMPTS = 10;
+const RETRY_DELAY_MS = 100;
 
 /** 软失败 warn 面缺省（可被测试注入捕获断言）。 */
 export function rmWarnDefault(message: string): void {
@@ -44,7 +46,7 @@ export function rmWarnDefault(message: string): void {
 /**
  * 递归删除（Windows EBUSY/EPERM 重试兜底 + 穷尽软失败）。
  * 语义对齐 rmSync(path, { recursive: true, force: true })——不存在静默成功
- * （force）；win 撞可重试错误码 → 指数退避重试；穷尽仍失败 → **warn 不抛**
+ * （force）；win 撞可重试错误码 → 线性退避重试；穷尽仍失败 → **warn 不抛**
  * （CI tmp 由 runner 管理生命周期，残留无害；teardown 清理失败不红测试）。
  * posix 上首轮即成功，重试面不触发零差异。
  */
@@ -63,7 +65,7 @@ export function rmSyncWindowsSafe(p: string): void {
         }
         throw e;
       }
-      sleepSync(100 * Math.min(2 ** attempt, 8)); // 退避封顶 800ms/次（16 次 ×≤800ms ≈ 总窗 11s；防指数爆炸）
+      sleepSync((attempt + 1) * RETRY_DELAY_MS); // 线性退避（100ms 步进）
     }
   }
 }
