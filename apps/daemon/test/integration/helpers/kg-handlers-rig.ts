@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../../helpers/rm-safe";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -281,7 +282,7 @@ function makeRig(): Rig {
     sync.dispose();
     database.closeAll();
     adapter.stop();
-    rmSync(workspace, { recursive: true, force: true });
+    rmSyncWindowsSafe(workspace);
   };
   return { workspace, alpha, beta, gamma, delta, database, write, store, sync, adapter, client, engine, dispose };
 }

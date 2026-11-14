@@ -89,7 +89,7 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
     expect(run.isError).toBe(false);
     expect(run.text).toBe(
       [
-        `${path.join(".hidden", "s.txt")}:1: 隐藏 HELIX`,
+        ".hidden/s.txt:1: 隐藏 HELIX", // win 真输出反斜杠→产品归一 posix，期望恒 posix 形态
         "docs/b.md:1: # HELIX 手册",
         "ignored.txt:1: gitignore HELIX",
         "src/a.ts:1: const marker = 'HELIX';",

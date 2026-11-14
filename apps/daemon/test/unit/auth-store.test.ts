@@ -65,8 +65,11 @@ describe("auth.json 端口（AD-2，契约 C §3）", () => {
     const store = new AuthStore(createPaths(home).authPath());
     await store.setKey("anthropic", "sk-ant-abcd7f3a");
     const file = path.join(home, "auth.json");
-    expect(statSync(file).mode & 0o777).toBe(AUTH_FILE_MODE);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // 0600 收权断言仅 posix（win NTFS 无权限位，stat mode 恒 0o666）
+    if (process.platform !== "win32") {
+      expect(statSync(file).mode & 0o777).toBe(AUTH_FILE_MODE);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    }
     const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, Credential>;
     expect(parsed.anthropic).toEqual({ type: "api_key", key: "sk-ant-abcd7f3a" } satisfies ApiKeyCredential);
     // 原子写：tmp 文件不残留
@@ -83,7 +86,7 @@ describe("auth.json 端口（AD-2，契约 C §3）", () => {
     );
     const store = new AuthStore(file);
     await store.setKey("anthropic", "sk-new");
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+        if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600); // 0600 仅 posix（win NTFS 无权限位）;
     const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, Credential>;
     // 既有 OAuth 条目保留（只动目标 provider 位）
     expect(parsed.google?.type).toBe("oauth");
@@ -119,7 +122,7 @@ describe("auth.json 端口（AD-2，契约 C §3）", () => {
     } finally {
       process.umask(previousUmask);
     }
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+        if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600); // 0600 仅 posix（win NTFS 无权限位）;
   });
 
   test("创建即收权源码契约：persist 的 tmp 写携带 mode: AUTH_FILE_MODE（非先写后 chmod 两句形态）", () => {

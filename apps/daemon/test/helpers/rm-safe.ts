@@ -51,7 +51,7 @@ export function rmWarnDefault(message: string): void {
 
 /**
  * 递归删除（Windows EBUSY/EPERM 重试兜底 + 穷尽软失败）。
- * 语义对齐 rmSync(path, { recursive: true, force: true })——不存在静默成功
+ * 语义对齐 rmSync(p, { recursive: true, force: true })——不存在静默成功
  * （force）；win 撞可重试错误码 → 线性退避重试；穷尽仍失败 → **warn 不抛**
  * （CI tmp 由 runner 管理生命周期，残留无害；teardown 清理失败不红测试）。
  * posix 上首轮即成功，重试面不触发零差异。

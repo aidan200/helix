@@ -25,7 +25,7 @@ describe("TP-CL6-4：dev-token 文件生成", () => {
       const written = readFileSync(file, "utf8");
       expect(written.length).toBeGreaterThan(0);
       expect(written).toBe(token);
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+            if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600); // 0600 仅 posix（win NTFS 无权限位）;
     } finally {
       rmSyncWindowsSafe(home);
     }

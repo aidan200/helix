@@ -61,7 +61,7 @@ describe("rg 后端 integration（真 rg + tmp fixture）", () => {
     const rg = createRgBackend(hostRgPath(), env, ".", { timeoutMs: RG_TIMEOUT_MS });
     expect(rg.name).toBe("rg");
     expect(await rg.search({ pattern: "HELIX" })).toEqual([
-      { path: path.join(".hidden", "secret.txt"), lineNumber: 1, line: "隐藏 HELIX 也命中" },
+      { path: ".hidden/secret.txt", lineNumber: 1, line: "隐藏 HELIX 也命中" }, // win 真输出反斜杠→产品归一 posix（rg-backend parseRgJson），期望值恒 posix 形态
       { path: "docs/note.md", lineNumber: 1, line: "# HELIX 手册" },
       { path: "ignored.txt", lineNumber: 1, line: "被 gitignore 的 HELIX" },
       { path: "src/alpha.ts", lineNumber: 1, line: "const marker = 'HELIX';" },

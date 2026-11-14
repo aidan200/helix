@@ -23,7 +23,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       const file = path.join(dir, "config.json");
       const first = ensureConfigTemplate(file);
       expect(first.created).toBe(true);
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+            if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600); // 0600 仅 posix（win NTFS 无权限位）;
       // 模板瘦身形态：空对象（运行参数全部迁 KV/表）
       const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
       expect(parsed).toEqual({});
@@ -44,7 +44,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       const file = path.join(dir, "config.json");
       writeFileSync(file, '{"staticDir":"/tmp/old"}', { mode: 0o644 });
       writeConfig(file, { staticDir: "/tmp/shell-dist", rgPath: "/opt/bin/rg" });
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+            if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600); // 0600 仅 posix（win NTFS 无权限位）;
       const round = loadConfig(file);
       expect(round.config).toEqual({ staticDir: "/tmp/shell-dist", rgPath: "/opt/bin/rg" });
       expect(round.legacy).toEqual({});

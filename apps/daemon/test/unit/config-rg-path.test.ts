@@ -50,7 +50,7 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
         staticDir: "/tmp/shell-dist",
         rgPath: "/opt/tools/rg",
       });
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+            if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600); // 0600 仅 posix（win NTFS 无权限位）;
       expect(loadConfig(file).config).toEqual({
         staticDir: "/tmp/shell-dist",
         rgPath: "/opt/tools/rg",

@@ -55,7 +55,10 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
       // ① apiKeys → auth.json（Credential 联合 + 0600）
       const authFile = path.join(home, "auth.json");
       expect(existsSync(authFile)).toBe(true);
-      expect(statSync(authFile).mode & 0o777).toBe(0o600);
+      // 0600 收权断言仅 posix（win NTFS 无 POSIX 权限位——stat mode 恒 0o666）
+      if (process.platform !== "win32") {
+        expect(statSync(authFile).mode & 0o777).toBe(0o600);
+      }
       const auth = JSON.parse(readFileSync(authFile, "utf8")) as Record<string, Credential>;
       expect(auth.anthropic).toEqual({ type: "api_key", key: "sk-mig-1234" });
       expect(auth.openai).toEqual({ type: "api_key", key: "sk-mig-5678" });
