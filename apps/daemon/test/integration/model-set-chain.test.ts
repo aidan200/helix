@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +30,7 @@ function tmpHome(): string {
 }
 
 afterAll(() => {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots) rmSyncWindowsSafe(d);
 });
 
 /** 剧本化 StreamFn：记录每次请求的 model id（机械判据断言源）+ 延迟流式收尾。 */

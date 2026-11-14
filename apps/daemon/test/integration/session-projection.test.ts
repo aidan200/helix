@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -100,7 +101,7 @@ async function makeRig(): Promise<Rig> {
     daemon,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
   current = rig;
@@ -224,7 +225,7 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
       expect(snapshot.usage?.total.input ?? 0).toBeGreaterThanOrEqual(100);
     } finally {
       await d2.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 90000);
 

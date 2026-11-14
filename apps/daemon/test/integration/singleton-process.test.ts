@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,7 +33,7 @@ describe("daemon 进程级二启拒绝（AG-17）", () => {
       expect(stdout + stderr).toContain("已在运行");
       lock.release();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });

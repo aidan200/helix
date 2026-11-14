@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -136,7 +137,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
       expect(repo.queryEvents({ sessionId, agentKind: "main", type: "engine.error" })).toHaveLength(0);
       await readQueue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 
@@ -166,7 +167,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
       expect(repo.queryEvents({ sessionId, type: "engine.error" })).toHaveLength(0);
       await readQueue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 });

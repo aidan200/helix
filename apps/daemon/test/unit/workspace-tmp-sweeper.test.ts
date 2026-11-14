@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +15,7 @@ import { ensureWorkspaceTmp } from "../../src/infrastructure/workspacePaths";
 /** TR-152：mkdtemp 登记回收（afterAll force 幂等）。 */
 const registered: string[] = [];
 afterAll(() => {
-  for (const dir of registered) rmSync(dir, { recursive: true, force: true });
+  for (const dir of registered) rmSyncWindowsSafe(dir);
 });
 function newWorkspaceRoot(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "helix-tmp-sweeper-"));
@@ -82,7 +83,7 @@ describe("sweepWorkspaceTmp（纯扫描面）", () => {
     const result = sweepWorkspaceTmp(root, NOW, {
       rm: (p) => {
         if (p.endsWith("busy.log")) throw new Error("EBUSY");
-        rmSync(p, { recursive: true, force: true });
+        rmSyncWindowsSafe(p);
         seen.push(path.basename(p));
       },
       onRemoveError: (name, reason) => errors.push(`${name}:${(reason as Error).message}`),

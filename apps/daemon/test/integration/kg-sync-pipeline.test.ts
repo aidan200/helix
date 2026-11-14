@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,7 +65,7 @@ function makeStack(engineOpts: { unavailable?: boolean; delayMs?: number } = {})
     dispose: () => {
       service.dispose();
       database.closeAll();
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     },
   };
 }

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +23,7 @@ import {
 describe("rg 后端 integration（真 rg + tmp fixture）", () => {
   let dir: string | undefined;
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) rmSyncWindowsSafe(dir);
     dir = undefined;
   });
 

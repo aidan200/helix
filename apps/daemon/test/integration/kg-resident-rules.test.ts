@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,7 +44,7 @@ const fixtures: Fixture[] = [];
 afterAll(() => {
   for (const f of fixtures) {
     f.database.closeAll();
-    rmSync(f.root, { recursive: true, force: true });
+    rmSyncWindowsSafe(f.root);
   }
   fixtures.length = 0;
 });
@@ -241,7 +242,7 @@ async function snapshotSystemPrompt(home: string, sessionId: string, agentId: st
 describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
   afterEach(async () => {
     if (e2eHome !== undefined) {
-      rmSync(e2eHome, { recursive: true, force: true });
+      rmSyncWindowsSafe(e2eHome);
       e2eHome = undefined;
     }
   });

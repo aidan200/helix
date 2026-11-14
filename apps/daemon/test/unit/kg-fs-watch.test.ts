@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
 import type { FSWatcher } from "node:fs";
@@ -205,7 +206,7 @@ afterEach(() => {
   activeWatches.length = 0;
   for (const s of activeSyncs) s.dispose();
   activeSyncs.length = 0;
-  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpDirs) rmSyncWindowsSafe(d);
   tmpDirs.length = 0;
 });
 
@@ -236,7 +237,7 @@ async function probeRealFsEvents(): Promise<boolean> {
         writeFileSync(path.join(dir, "probe.txt"), "x");
       });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   } catch {
     return false;

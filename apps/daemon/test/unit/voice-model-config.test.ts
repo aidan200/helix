@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * VoiceModelConfigStore + voiceModelConfig 纯函数单测（ASR/TTS 模型配置接入 P0）。
  *
@@ -40,7 +41,7 @@ async function withTmpDir(fn: (dir: string) => Promise<void> | void): Promise<vo
   try {
     await fn(dir);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSyncWindowsSafe(dir);
   }
 }
 

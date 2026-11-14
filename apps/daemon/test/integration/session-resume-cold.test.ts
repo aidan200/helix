@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -151,7 +152,7 @@ describe("TP-SR-a/b：daemon 重启后会话复水（welcome 语义 + 冷 diff.g
         await rig2.dispose();
       }
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 });

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +40,7 @@ describe("TP-1.3a #5 AuthStore.enqueue 链尾失败 → logger.warn", () => {
       const table = await store.readAll();
       expect(table).toEqual({});
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

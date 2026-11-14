@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ import { BACKGROUND_CONTEXT } from "../../src/adapters/driven/tools/vendor/pi-ha
 let dir: string | undefined;
 
 afterEach(() => {
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  if (dir) rmSyncWindowsSafe(dir);
   dir = undefined;
 });
 

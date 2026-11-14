@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -97,7 +98,7 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
       mkdirSync(path.join(root, "proj-b"), { recursive: true });
       expect(kgReadProjects(root)).toEqual([path.join(root, "proj-a")]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -111,7 +112,7 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
         path.join(root, "helix"),
       ]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -125,7 +126,7 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
       expect(existsSync(path.join(root, "helix", ".helix-kg", "kg.db"))).toBe(false);
       expect(existsSync(path.join(base, ".helix-kg", "kg.db"))).toBe(false);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -136,7 +137,7 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
       mkdirSync(base, { recursive: true });
       expect(kgReadProjects(base)).toEqual([]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 });

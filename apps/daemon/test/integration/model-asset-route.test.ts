@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
@@ -35,7 +36,7 @@ async function makeRig(): Promise<Rig> {
   });
   return { home, daemon, dispose: async () => {
     await daemon.shutdown();
-    rmSync(home, { recursive: true, force: true });
+    rmSyncWindowsSafe(home);
   } };
 }
 

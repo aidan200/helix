@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -107,7 +108,7 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
       expect(rebuilt.openTurn).not.toBeNull();
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -125,7 +126,7 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
       expect(await repo.restore("nope")).toBeUndefined();
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -221,7 +222,7 @@ describe("TP-CL8-2 I 半 + TP-CL8-3 + TP-CL4-10：daemon 落盘接线", () => {
       await daemon.shutdown();
       probe.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -269,7 +270,7 @@ describe("TP-CL8-9：domain_events 四维过滤查询", () => {
       expect(repo.queryEvents().length).toBe(6);
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -321,7 +322,7 @@ describe("TP-CL8-9：domain_events 四维过滤查询", () => {
       ).toEqual(["main", "agent-1", "agent-2"]);
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

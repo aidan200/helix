@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -131,8 +132,8 @@ describe("MCP deferred 懒加载全链（真组合根 + 剧本 LLM + 假 server�
 
     let daemon: Daemon | undefined;
     const cleanup = () => {
-      rmSync(home, { recursive: true, force: true });
-      rmSync(serverDir, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
+      rmSyncWindowsSafe(serverDir);
     };
     try {
       daemon = await createTestDaemon({

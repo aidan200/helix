@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,7 +135,7 @@ async function makeRig(): Promise<Rig> {
     dispose: async () => {
       await client.close();
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -263,7 +264,7 @@ describe("kill 命令链：WS agent.kill → port → SchedulerService.kill → 
     const closure = killed.payload["closure"] as Record<string, unknown>;
     expect(closure["status"]).toBe("failed"); // 单一终态（契约 §8-2）
     expect(closure["summary"]).toBe("已由用户终止（kill）");
-    expect(String(closure["reportPath"])).toMatch(/reports\/.*agent-[0-9a-f]+\.md$/); // kill 也产报告
+    expect(String(closure["reportPath"]).split("\\").join("/")).toMatch(/reports\/.*agent-[0-9a-f]+\.md$/); // kill 也产报告（win 反斜杠归一 posix 后断言）
     expect(closure["findings"]).toBeNull();
     expect(closure["taskId"]).toBeNull();
     expect(rig.runner.kills).toEqual([agentId]); // FB-3：子进程终止信号已发

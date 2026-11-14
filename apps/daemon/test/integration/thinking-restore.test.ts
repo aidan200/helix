@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +26,7 @@ function tmpHome(): string {
   return dir;
 }
 afterAll(() => {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots) rmSyncWindowsSafe(d);
 });
 
 function thinkingRows(home: string): Promise<readonly unknown[]> {

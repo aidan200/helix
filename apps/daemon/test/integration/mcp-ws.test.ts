@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,7 +135,7 @@ afterAll(() => {
   // 确定性泄漏回收：每用例一个 helix-mcp-ws-it-* 脚本目录（home 由各用例 finally
   // 回收），不回收会在 CI 单 job 串行布局里污染后续 e2e globalSetup 的 TMPDIR
   // 卫生审计面（fail-fast 拦截）。
-  for (const dir of fakeServerDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of fakeServerDirs) rmSyncWindowsSafe(dir);
 });
 
 /** mcp_server 表读面（config 瘦身批：声明面落 helix.db；只读连接零 DML）。 */
@@ -229,7 +230,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     } finally {
       await client?.close();
       await daemon?.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 
@@ -274,7 +275,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     } finally {
       await client?.close();
       await daemon?.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 
@@ -309,7 +310,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     } finally {
       await client?.close();
       await daemon?.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 
@@ -362,7 +363,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     } finally {
       await client?.close();
       await daemon?.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 
@@ -408,7 +409,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
     } finally {
       await client?.close();
       await daemon?.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
   test("⑫ builtin 技能差异行播种（缺省启停批）：真 builtin 源开箱 enabled=true + 重启持久化幂等 + 用户显式关闭不被覆盖", async () => {
@@ -450,7 +451,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       await client.close();
       await daemon.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 });

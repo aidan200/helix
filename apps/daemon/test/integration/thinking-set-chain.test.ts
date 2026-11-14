@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,7 +38,7 @@ function tmpHome(): string {
   return dir;
 }
 afterAll(() => {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots) rmSyncWindowsSafe(d);
 });
 
 /** 三档模型（tri fixture）：仅 low/medium/high 支持。 */

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * kg-update 写入口语义查重闸（批2 WP-C §5.1）I 层真 SQLite 测试。
  *
@@ -85,7 +86,7 @@ const stacks: Stack[] = [];
 afterAll(() => {
   for (const s of stacks) {
     s.database.closeAll();
-    rmSync(s.root, { recursive: true, force: true });
+    rmSyncWindowsSafe(s.root);
   }
   stacks.length = 0;
 });

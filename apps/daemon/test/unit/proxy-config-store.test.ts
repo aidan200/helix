@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ describe("ProxyConfigStore（KV proxy_config 单键）", () => {
     try {
       expect(new ProxyConfigStore(makeKv(dir)).current()).toEqual(OFF);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -40,7 +41,7 @@ describe("ProxyConfigStore（KV proxy_config 单键）", () => {
       await store.set(OFF);
       expect(store.current()).toEqual(OFF);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -53,7 +54,7 @@ describe("ProxyConfigStore（KV proxy_config 单键）", () => {
       expect(store.current()).toEqual(ON);
       await kv.set("proxy_config", "{bad");
       expect(store.current()).toEqual(OFF);
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally { rmSyncWindowsSafe(dir); }
   });
 
   test("脏数据回落：非 JSON / enabled 非布尔 / enabled=true 而 url 非法 → 缺省直连不抛错", async () => {
@@ -73,7 +74,7 @@ describe("ProxyConfigStore（KV proxy_config 单键）", () => {
       await kv.set("proxy_config", JSON.stringify({ enabled: true, url: "socks5://u:p@h:1080" }));
       expect(new ProxyConfigStore(kv).current()).toEqual(OFF);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

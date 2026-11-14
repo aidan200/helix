@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * main.ts --home 参数校验单测（评审 low #29）。
  *
@@ -48,7 +49,7 @@ describe("main.ts --home 参数校验（评审 low #29）", () => {
       expect(r.stderr).not.toContain("--home 参数非法");
       expect(readdirSync(dir)).toEqual([]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   }, 20_000);
 });

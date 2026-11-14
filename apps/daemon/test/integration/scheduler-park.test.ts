@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -107,7 +108,7 @@ function makeHarness(policy?: SchedulingPolicy, clock?: ClockPort): Harness {
     dispose: async () => {
       scheduler.stop();
       await writeQueue.close();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -156,7 +157,7 @@ afterEach(async () => {
 afterAll(() => {
   // 兜底回收：dispose 只随 current 逐用例清理，用例内多 harness 替换
   // （h→h2→h3）会漏中间目录——登记面统一 force 幂等清。
-  for (const home of harnessHomes) rmSync(home, { recursive: true, force: true });
+  for (const home of harnessHomes) rmSyncWindowsSafe(home);
 });
 
 describe("① park → parked（非终态：不写 closure、不收口、不注入主线）", () => {

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +32,7 @@ describe("SchedulingConfigStore（KV scheduling_config 单键）", () => {
       const store = makeStore(dir);
       expect(store.current()).toEqual({ maxConcurrent: 3, maxQueued: 8 });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -45,7 +46,7 @@ describe("SchedulingConfigStore（KV scheduling_config 单键）", () => {
       const revived = makeStore(dir);
       expect(revived.current()).toEqual({ maxConcurrent: 5, maxQueued: 12 });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -69,7 +70,7 @@ describe("SchedulingConfigStore（KV scheduling_config 单键）", () => {
         expect(store.current()).toEqual({ maxConcurrent: 3, maxQueued: 8 });
       }
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -86,7 +87,7 @@ describe("SchedulingConfigStore（KV scheduling_config 单键）", () => {
       await wq.close();
       expect(store.current()).toEqual({ maxConcurrent: 6, maxQueued: 9 });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -112,7 +113,7 @@ describe("KvConfigStore 收编语义（code-review 低危组7：四件同构骨�
       await kv.set("scheduling_config", JSON.stringify({ maxConcurrent: 2, maxQueued: 4 }));
       expect(store.current()).toEqual({ maxConcurrent: 2, maxQueued: 4 });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

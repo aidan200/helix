@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +23,7 @@ function configPath(content?: string): string {
 }
 
 afterAll(() => {
-  for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tmpRoots) rmSyncWindowsSafe(dir);
 });
 
 describe("config 瘦身批迁移读面（scheduling 字段）", () => {

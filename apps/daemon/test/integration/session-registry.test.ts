@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -99,7 +100,7 @@ async function makeRig(options: RigOptions = {}): Promise<Rig> {
     },
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -524,7 +525,7 @@ describe("T2.2 ⑥ 重启后全部会话元数据可见（restoreLatest 末位�
       expect(revived.session.entries.filter((e): e is (typeof e) & { role: string } => "role" in e).map((e) => e.role)).toEqual(["user", "assistant"]);
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 25000);
 });

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,7 +59,7 @@ describe("SqliteKnowledgeGraph 缺库守卫（读面不建库）", () => {
       // 核心断言：读面零副作用——库目录/文件不存在（未 mkdir、未建库）
       expect(existsSync(join(projectRoot, ".helix-kg"))).toBe(false);
     } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
+      rmSyncWindowsSafe(projectRoot);
     }
   });
 });

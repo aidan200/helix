@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,7 +49,7 @@ const workspaces: Workspace[] = [];
 afterAll(() => {
   for (const w of workspaces) {
     w.database.closeAll();
-    rmSync(w.root, { recursive: true, force: true });
+    rmSyncWindowsSafe(w.root);
   }
   workspaces.length = 0;
 });
@@ -240,7 +241,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
       expect(r.ok).toBe(true);
       expect(graphCalls).toBe(0);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -281,7 +282,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
       expect(r.ok).toBe(true);
       if (r.ok) expect(r.text).toBe("Successfully replaced 1 block(s) in quiet.ts.");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
     // (b) 挂点自身 reject：EditTool 侧吞咽，结果不受影响
     const ws = makeWorkspace();

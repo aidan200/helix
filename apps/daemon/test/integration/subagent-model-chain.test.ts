@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -107,7 +108,7 @@ describe("F1.3/T12 spawn 透传模型不作用子进程（真子进程 + 剧本�
       scheduler.stop();
       await launcher.dispose();
       await writeQueue.close();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     };
 
     // 首个直跑；后两个排队——三者 spawn 透传不同模型 id

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * node_vectors 存储面（批1 WP-B）I 层真 SQLite 测试。
  *
@@ -36,7 +37,7 @@ function freshProject(): { root: string; database: KgDatabase } {
   const database = new KgDatabase();
   disposers.push(() => {
     database.closeAll();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return { root, database };
 }

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -15,7 +16,7 @@ import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgData
 
 const dirs: string[] = [];
 afterAll(() => {
-  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs) rmSyncWindowsSafe(d);
 });
 
 function projectWithBrokenSchema(): string {

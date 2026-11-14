@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,7 +25,7 @@ describe("单例幂等锁（AG-17）", () => {
       expect(second.pid).toBe(process.pid);
       second.release();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -39,7 +40,7 @@ describe("单例幂等锁（AG-17）", () => {
       expect(lock.pid).toBe(process.pid);
       lock.release();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

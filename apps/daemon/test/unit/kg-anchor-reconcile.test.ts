@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * kg 锚收口对账脚本（批4 WP-G「收口锚对账点」机械面）单测——真 SQLite
  * tmp 库 + 被测写面建点/声明，物化锚行按布景直接 SQL 插入（不走被测写面，
@@ -48,7 +49,7 @@ function freshStack(): ReconcileStack {
   const stack = createReconcileStack(root);
   disposers.push(() => {
     stack.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return stack;
 }

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,7 +46,7 @@ describe("真 CLI 冒烟：被动构建 + 只读投影（环境依赖，§五-2�
 
   test("init 全量首建 → exportSymbols 非空（symbols/contains/files 三面齐）；二调走 sync 增量", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "helix-cg-smoke-"));
-    disposers.push(() => rmSync(root, { recursive: true, force: true }));
+    disposers.push(() => rmSyncWindowsSafe(root));
     writeFileSync(
       path.join(root, "app.ts"),
       [

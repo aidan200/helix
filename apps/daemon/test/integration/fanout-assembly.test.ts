@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -110,8 +111,8 @@ async function makeRig(): Promise<Rig> {
     engine,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
-      rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随 dispose 清
+      rmSyncWindowsSafe(home);
+      rmSyncWindowsSafe(builtinDir); // 泄漏修复：builtin 隔离目录随 dispose 清
     },
   };
 }
@@ -236,8 +237,8 @@ describe("TP-2.2c：resources.changed 事件通道边界（三负断言，架构
     } finally {
       probe.close();
     }
-    rmSync(home, { recursive: true, force: true });
-    rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随收尾清
+    rmSyncWindowsSafe(home);
+    rmSyncWindowsSafe(builtinDir); // 泄漏修复：builtin 隔离目录随收尾清
   });
 });
 
@@ -293,8 +294,8 @@ describe("stopped 状态变更只广播不落盘（R-停止事件冗余：sealAl
         probe.close();
       }
     } finally {
-      rmSync(home, { recursive: true, force: true });
-      rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随收尾清
+      rmSyncWindowsSafe(home);
+      rmSyncWindowsSafe(builtinDir); // 泄漏修复：builtin 隔离目录随收尾清
     }
   });
 });

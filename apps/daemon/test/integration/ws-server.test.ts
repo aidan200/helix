@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -162,7 +163,7 @@ async function makeRig(opts: { staticDir?: string; replies?: ScriptedTurn[]; see
     url: `ws://127.0.0.1:${daemon.ws.port}`,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -580,7 +581,7 @@ describe("TP-CL6-6：static-serve 前端产物", () => {
     } finally {
       await rig.dispose();
       await rigNoStatic.dispose();
-      rmSync(staticDir, { recursive: true, force: true });
+      rmSyncWindowsSafe(staticDir);
     }
   });
 });

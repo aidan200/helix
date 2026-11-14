@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +26,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
     try {
       expect(makeStore(dir).current()).toEqual({ enabled: false, extraRoots: [], autoApprove: false });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -39,7 +40,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
       await store.set({ enabled: false, extraRoots: [], autoApprove: false });
       expect(store.current()).toEqual({ enabled: false, extraRoots: [], autoApprove: false });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -56,7 +57,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
       await kv.set("sandbox_config", JSON.stringify({ enabled: true }));
       expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: true, extraRoots: [], autoApprove: false });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -68,7 +69,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
       expect(store.current()).toEqual({ enabled: true, extraRoots: ["/Users/x/.cache/uv", "/opt/tools"], autoApprove: false });
       expect(makeStore(dir).current()).toEqual({ enabled: true, extraRoots: ["/Users/x/.cache/uv", "/opt/tools"], autoApprove: false }); // 重启模拟
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -83,7 +84,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
       await kv.set("sandbox_config", JSON.stringify({ enabled: true, extraRoots: "nope" }));
       expect(new SandboxConfigStore(kv).current()).toEqual({ enabled: true, extraRoots: [], autoApprove: false });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -106,7 +107,7 @@ describe("SandboxConfigStore（KV sandbox_config 单键）", () => {
       await kv.set("sandbox_config", JSON.stringify({ enabled: true, extraRoots: [], autoApprove: 1 }));
       expect(new SandboxConfigStore(kv).current().autoApprove).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -126,7 +127,7 @@ describe("F2 #10：写未落盘期间 current() 不得用旧 KV 值覆盖刚写�
       await pending;
       expect(store.current().enabled).toBe(true);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -143,7 +144,7 @@ describe("KvConfigStore 读面出参解耦", () => {
       expect(store.current().extraRoots).toEqual([]);
       expect(store.current().enabled).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

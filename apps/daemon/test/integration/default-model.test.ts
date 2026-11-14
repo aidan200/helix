@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,7 +31,7 @@ function tmpHome(): string {
 }
 
 afterAll(() => {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots) rmSyncWindowsSafe(d);
 });
 
 /** 离线只读探针：表是否存在（独立连接，不经被测对象）。 */

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import type {
   CodegraphEnginePort,
@@ -151,7 +152,7 @@ describe("codegraph 工具：W-R2 worktree 读穿透（D8——查询路由主�
       expect(calls).toHaveLength(1);
       expect(calls[0]!.projectRoot).toBe(path.join(dir, "proj"));
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -213,7 +214,7 @@ describe("codegraph 工具：op → 查询请求映射", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]!.projectRoot).toBe(path.join(dir, "proj"));
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

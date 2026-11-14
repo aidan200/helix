@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +32,7 @@ const mkHome = (): string => {
   return dir;
 };
 afterAll(() => {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots) rmSyncWindowsSafe(d);
 });
 
 /** 宿主 rg（grep-contract.test.ts 同款前置——无 rg 即测试前置失败）。 */

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -206,7 +207,7 @@ async function makeRig(): Promise<Rig> {
     url: `ws://127.0.0.1:${daemon.ws.port}`,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }

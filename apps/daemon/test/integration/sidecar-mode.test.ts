@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 describe("daemon --sidecar 信号面（sidecar-lifecycle 契约）", () => {
   let home: string | undefined;
   afterEach(() => {
-    if (home) rmSync(home, { recursive: true, force: true });
+    if (home) rmSyncWindowsSafe(home);
     home = undefined;
   });
 

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,7 +52,7 @@ function freshKgStack(): KgStack {
   const query = new KgQueryService({ graph, projects: () => [proj] });
   disposers.push(() => {
     database.closeAll();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return { root, proj, database, write, query };
 }
@@ -366,7 +367,7 @@ describe("子进程接线层解析器（HELIX_DB_PATH + instanceId 同面惰性�
       await fn(dbPath, new TaskStore(queue));
     } finally {
       await queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   }
 

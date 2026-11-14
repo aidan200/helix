@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -119,7 +120,7 @@ let current: { launcher: SubagentLauncher; home: string } | undefined;
 afterEach(async () => {
   if (current) {
     await current.launcher.dispose();
-    rmSync(current.home, { recursive: true, force: true });
+    rmSyncWindowsSafe(current.home);
     current = undefined;
   }
 });

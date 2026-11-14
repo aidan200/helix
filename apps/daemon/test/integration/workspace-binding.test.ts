@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * workspace 绑定闭环 I 层（W1）：unbound boot 防御契约 + open 重绑效应 +
  * KV 持久化/重启 restore + 广播 + 活跃 agent 拒绝。
@@ -98,7 +99,7 @@ async function startRig(opts: { kgWorkspaceRoot?: string | null; engine?: FakeAg
   // 目录登记回收（rmSync force 幂等——213 行 rig2 复用 rig.home 会重复登记，安全）:
   // 不回收会在 CI 单 job 串行布局里泄漏到 e2e globalSetup 的 TMPDIR 卫生审计面。
   cleaners.push(() => {
-    for (const dir of [home, ws1, ws2]) rmSync(dir, { recursive: true, force: true });
+    for (const dir of [home, ws1, ws2]) rmSyncWindowsSafe(dir);
   });
   mkdirSync(path.join(ws1, "alpha"), { recursive: true });
   mkdirSync(path.join(ws1, "beta"), { recursive: true });
@@ -316,7 +317,7 @@ describe("workspace 绑定闭环（W1）I 层", () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-home-"));
     const ws1 = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-root-"));
     cleaners.push(() => {
-      for (const dir of [home, ws1]) rmSync(dir, { recursive: true, force: true });
+      for (const dir of [home, ws1]) rmSyncWindowsSafe(dir);
     });
     const calls: { env: Record<string, string | undefined> }[] = [];
     // 按实例 id 取捕获 env：不能按位置索引取（防御共享打桩串扰）。

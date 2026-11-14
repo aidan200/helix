@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -105,7 +106,7 @@ describe("system.shutdown 可重入防护（code-review M5）", () => {
       await daemon.shutdown();
       expect(browser.stopCalls).toBe(1);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

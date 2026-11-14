@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ describe("TP-CL6-4：dev-token 文件生成", () => {
       expect(written).toBe(token);
       expect(statSync(file).mode & 0o777).toBe(0o600);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -39,7 +40,7 @@ describe("TP-CL6-4：dev-token 文件生成", () => {
       expect(t1).not.toBe(t2);
       expect(readFileSync(file, "utf8")).toBe(t2);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

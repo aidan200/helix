@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -151,7 +152,7 @@ let current: { launcher: SubagentLauncher; home: string } | undefined;
 afterEach(async () => {
   if (current) {
     await current.launcher.dispose(); // 防孤儿：收尾 kill 全部存活子进程
-    rmSync(current.home, { recursive: true, force: true });
+    rmSyncWindowsSafe(current.home);
     current = undefined;
   }
 });
@@ -267,7 +268,7 @@ describe("C：closure 块缺 taskId → 回落 jobId（taskContext 机械注入�
         taskId: "job-1", // closure 块 taskId=null → 回落 taskContext.jobId
       });
     } finally {
-      rmSync(dbDir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dbDir);
     }
   }, 20000);
 });
@@ -459,7 +460,7 @@ describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", 
       expect(daemon.model.getDefault().model).toBe("anthropic/claude-sonnet-4-5");
     } finally {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
 
     const fakeHome = mkdtempSync(path.join(tmpdir(), "helix-t22-cont2-"));
@@ -475,7 +476,7 @@ describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", 
       expect(fake.subagentLauncher).toBeUndefined(); // engine 注入 = 测试 Fake 形态 → 占位替身（T2.3 判定）
     } finally {
       await fake.shutdown();
-      rmSync(fakeHome, { recursive: true, force: true });
+      rmSyncWindowsSafe(fakeHome);
     }
   }, 15000);
 });
@@ -573,8 +574,8 @@ async function runThinkingChild(opts: {
   } finally {
     await h.launcher.dispose();
     current = undefined;
-    rmSync(home, { recursive: true, force: true });
-    rmSync(h.home, { recursive: true, force: true }); // 泄漏修复：makeHarness 内层 t22-child 目录同清
+    rmSyncWindowsSafe(home);
+    rmSyncWindowsSafe(h.home); // 泄漏修复：makeHarness 内层 t22-child 目录同清
   }
 }
 
@@ -674,7 +675,7 @@ describe("⑧ F3.0 reportPath 经 env IPC 面传参 + 失败 summary 补齐", ()
         expect(calls[1]!.env["HELIX_REPORT_PATH"]).toBeUndefined(); // 未注入不传键（既有测试形态不变）
         // 不 dispose：fake pid 不对应真实进程（kill 负 pgid 有误伤风险，挂起桩随测试进程回收）
       } finally {
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       }
     } finally {
       restoreSpawn(real);
@@ -713,7 +714,7 @@ describe("⑧ F3.0 reportPath 经 env IPC 面传参 + 失败 summary 补齐", ()
         expect(closures[0]!.outcome.closure.summary.trim().length).toBeGreaterThan(0); // 非空补齐
         expect(closures[0]!.outcome.closure.summary).toContain("失败"); // 含失败关键词
       } finally {
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       }
     } finally {
       restoreSpawn(real);
@@ -750,7 +751,7 @@ describe("⑧ F3.0 reportPath 经 env IPC 面传参 + 失败 summary 补齐", ()
         await until(() => closures.length > 0, 3000, "closure 行到达");
         expect(closures[0]!.outcome.closure.summary).toBe("子进程自报失败叙述");
       } finally {
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       }
     } finally {
       restoreSpawn(real);
@@ -819,7 +820,7 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
         expect(warns.join("\n")).toContain("brief.missing-scope-clamp");
         expect(warns.join("\n")).toContain("brief.missing-completion-criteria");
       } finally {
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       }
     } finally {
       restoreSpawn(real);
@@ -839,7 +840,7 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
         expect(calls).toHaveLength(1);
         expect(warns).toEqual([]);
       } finally {
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       }
     } finally {
       restoreSpawn(real);
@@ -876,7 +877,7 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
       expect(warns[0]).toContain("report.missing-findings");
     } finally {
       restoreSpawn(real);
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -909,7 +910,7 @@ describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不�
       expect(warns).toEqual([]);
     } finally {
       restoreSpawn(real);
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * kg IO 韧性批（读面容错 + evict 自愈 + 定位短路）：
  *
@@ -65,7 +66,7 @@ describe("KgDatabase.evict（坏连接出缓存自愈）", () => {
       expect(c2).not.toBe(c1);
     } finally {
       db.closeAll();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

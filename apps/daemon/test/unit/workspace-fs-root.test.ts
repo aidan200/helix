@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,7 +24,7 @@ describe("createWorkspaceFs().isFsRoot", () => {
       expect(fs.isFsRoot(dir)).toBe(false);
       expect(fs.isFsRoot(path.join(dir, "sub"))).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
     expect(root).toBe("/");
   });

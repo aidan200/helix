@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,7 +48,7 @@ function withScriptFile(json: unknown, fn: (path: string) => void): void {
   try {
     fn(file);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSyncWindowsSafe(dir);
   }
 }
 

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -89,7 +90,7 @@ describe("① 装配统一：两域 fixture 的工具名集与 schema 逐字节�
       expect(chat.names).toEqual([...PLAN_TOOL_NAMES]);
     } finally {
       queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -124,7 +125,7 @@ describe("② 配给面：todo 双工具两域同构配给（SubAgent 子进程 
       stack.ledger.close();
     } finally {
       queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -217,7 +218,7 @@ afterEach(async () => {
     current.scheduler.stop();
     await current.launcher.dispose();
     await current.writeQueue.close();
-    rmSync(current.home, { recursive: true, force: true });
+    rmSyncWindowsSafe(current.home);
     current = undefined;
   }
 });

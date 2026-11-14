@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -163,7 +164,7 @@ describe("T2.4 ① running → failed 收口（AD-10：D-1 同构）", () => {
       expect(runner2.launched).toHaveLength(0); // 无复活 spawn
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -203,7 +204,7 @@ describe("T2.4 ①b parked → failed 收口（park/resume 批：重启矩阵补
       expect(runner2.launched).toHaveLength(0);
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -262,7 +263,7 @@ describe("T2.4 ② queued → cancelled（队列不落盘，重启清队；无 c
       expect(ids).not.toContain(next.agentId);
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -307,7 +308,7 @@ describe("T2.4 ③ done 终态实例卡片恢复 + closure 完整（R1 进程内
       expect(d2.session.getSnapshot().session.pendingSteer).toEqual([]);
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -384,7 +385,7 @@ describe("T2.4 ④ 混态重建一致性（注册表/账目/closure：快照字�
       expect(d2.session.getSnapshot().session.entries.length).toBeGreaterThanOrEqual(0);
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });

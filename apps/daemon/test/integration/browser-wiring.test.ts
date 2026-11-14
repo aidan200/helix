@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,7 +48,7 @@ describe("T2 组合根：BrowserPort 装配", () => {
       // shutdown 链含 browserPort.stop()（未连接 no-op 不阻塞优雅退出）
       await daemon.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

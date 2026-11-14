@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -41,7 +42,7 @@ function freshStack(): Stack {
   const verify = new KgVerifyService({ graph });
   disposers.push(() => {
     database.closeAll();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return { root, database, store, graph, write, verify };
 }

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -242,8 +243,8 @@ function makeRig(): Rig {
     database.closeAll();
     adapter.stop();
     await queue.close();
-    rmSync(workspace, { recursive: true, force: true });
-    rmSync(taskDir, { recursive: true, force: true });
+    rmSyncWindowsSafe(workspace);
+    rmSyncWindowsSafe(taskDir);
   };
   return { workspace, alpha, delta, taskStore, client, dispose };
 }

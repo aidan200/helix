@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -115,7 +116,7 @@ describe("TP-CL4-1：恢复后 mainAgent 引擎 transcript 回填", () => {
       expect(seen2[0]![3]!.text).toBe("第二个问题"); // 新 prompt
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });

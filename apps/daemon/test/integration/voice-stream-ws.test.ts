@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * 流式 TTS 批（V3b-2）voice.synthesize.stream / voice.synthesize.stop WS 全链
  * 集成——哑帧修复批验收用例：
@@ -170,7 +171,7 @@ async function makeRig(options: RigOptions = {}): Promise<Rig> {
     dispose: async () => {
       await client.close();
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }

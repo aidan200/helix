@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -83,7 +84,7 @@ describe("network proxy: real runtime, zero external network", () => {
       expect(seen).toEqual(["A", "B"]);
     } finally {
       child?.kill(); a.close(); b.close(); await queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   }, 7000);
 });

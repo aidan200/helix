@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * createDaemon 锁释放兜底单测（评审 low #30）。
  *
@@ -17,7 +18,7 @@ import { acquireSingletonLock } from "../../src/infrastructure/lifecycle";
 
 const tmpDirs: string[] = [];
 afterAll(() => {
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tmpDirs) rmSyncWindowsSafe(dir);
 });
 
 describe("createDaemon 装配前段失败：单例锁必须释放（评审 low #30）", () => {

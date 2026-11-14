@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -107,7 +108,7 @@ async function makeRig(engineOptions: { replies?: never[] } = {}): Promise<Rig> 
     daemon,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -256,7 +257,7 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
       daemon,
       dispose: async () => {
         await daemon.shutdown();
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       },
     };
     const rig = current;
@@ -466,7 +467,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       daemon,
       dispose: async () => {
         await daemon.shutdown();
-        rmSync(home, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
       },
     };
   }
@@ -566,7 +567,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       }
     } finally {
       database.closeAll();
-      rmSync(projectRoot, { recursive: true, force: true });
+      rmSyncWindowsSafe(projectRoot);
       await rig.dispose();
       current = undefined;
     }
@@ -684,7 +685,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       expect(closureRowOf(spawnC.agentId)).toMatchObject({ findings_file: null });
     } finally {
       await rig.dispose();
-      rmSync(projectRoot, { recursive: true, force: true });
+      rmSyncWindowsSafe(projectRoot);
       current = undefined;
     }
   }, 15000);
@@ -786,7 +787,7 @@ describe("⑧ F3.0 e2e：真子进程闭环 → 注入行含指针（真 Bun.spa
     } finally {
       await runner.dispose();
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 });

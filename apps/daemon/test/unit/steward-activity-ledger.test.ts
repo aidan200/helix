@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * 管家活动账（M3-d1 感知兑现批）单测——StewardActivityService + 真库 store。
  *
@@ -27,7 +28,7 @@ import type { StewardActivityPayload } from "@helix/protocol";
 // TR-152：tmpdir 登记回收
 const tmpDirs: string[] = [];
 afterAll(() => {
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tmpDirs) rmSyncWindowsSafe(dir);
 });
 
 const FIXED_NOW = 1_760_000_000_000;

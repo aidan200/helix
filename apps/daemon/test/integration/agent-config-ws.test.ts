@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { TOOL_PROMPT_SNIPPETS } from "../../src/adapters/driven/tools/ToolPromptSnippets";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -211,8 +212,8 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       url: `ws://127.0.0.1:${daemon.ws.port}`,
       dispose: async () => {
         await daemon.shutdown();
-        rmSync(home, { recursive: true, force: true });
-        rmSync(workspace, { recursive: true, force: true });
+        rmSyncWindowsSafe(home);
+        rmSyncWindowsSafe(workspace);
       },
     };
   }

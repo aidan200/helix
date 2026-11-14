@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,7 +63,7 @@ describe("TP-1.3a #4 SubagentLauncher.dispose kill 失败 → logger.warn", () =
       expect(msg!.includes("agent-9")).toBe(true);
       expect(msg!.includes("kill 信号失败（注入）")).toBe(true);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

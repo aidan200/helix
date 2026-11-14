@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,7 +41,7 @@ const stacks: Stack[] = [];
 afterAll(() => {
   for (const s of stacks) {
     s.database.closeAll();
-    rmSync(s.root, { recursive: true, force: true });
+    rmSyncWindowsSafe(s.root);
   }
   stacks.length = 0;
 });

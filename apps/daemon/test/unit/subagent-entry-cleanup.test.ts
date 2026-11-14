@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,7 +73,7 @@ describe("M21：children entry exit+closure 双落定后延迟清理", () => {
       await sleep(60);
       expect(priv.children.has("agent-1")).toBe(false);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -90,7 +91,7 @@ describe("M21：children entry exit+closure 双落定后延迟清理", () => {
       await sleep(60);
       expect(priv.children.has("agent-2")).toBe(false);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -104,7 +105,7 @@ describe("M21：children entry exit+closure 双落定后延迟清理", () => {
       await sleep(60);
       expect(priv.children.has("agent-3")).toBe(true);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

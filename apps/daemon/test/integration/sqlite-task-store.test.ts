@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -176,7 +177,7 @@ describe("任务四表建表 + 迁移幂等（CL-2-T1）", () => {
       probe.close();
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -214,7 +215,7 @@ describe("任务四表建表 + 迁移幂等（CL-2-T1）", () => {
       probe.close();
       await q2.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -242,7 +243,7 @@ describe("任务四表 RowMapper roundtrip", () => {
       expect(stage.artifact).not.toHaveProperty("body");
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -278,7 +279,7 @@ describe("任务四表 RowMapper roundtrip", () => {
       expect(stageNoBody.artifact).not.toHaveProperty("body");
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -360,7 +361,7 @@ describe("任务四表 RowMapper roundtrip", () => {
       ledgerDb.close();
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -411,7 +412,7 @@ describe("父进程写路径：TaskStore 写方法落库可查证 + 状态守卫
 
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -435,7 +436,7 @@ describe("父进程写路径：TaskStore 写方法落库可查证 + 状态守卫
 
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -485,7 +486,7 @@ describe("跨进程双连接（父/子）同库：WAL + busy_timeout 串行化",
       childDb.close();
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -558,7 +559,7 @@ describe("deleteJobCascade 级联删除 + work_item 关联清理", () => {
       ledgerDb.close();
       await queue.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

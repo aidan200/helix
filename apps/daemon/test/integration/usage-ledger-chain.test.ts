@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -211,7 +212,7 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       expect(view3.usage!.total.input).toBe(usage1.total.input);
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 30000);
 });

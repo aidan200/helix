@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +23,7 @@ import { ToolCallRecord } from "../../../src/domain/tools/ToolCallRecord";
  * 下兜住 CI TMPDIR 卫生审计（E 层 globalSetup 全前缀扫描 helix-*）。 */
 const tmpDirs: string[] = [];
 afterAll(() => {
-  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpDirs) rmSyncWindowsSafe(d);
 });
 
 function tmpDbPath(): string {

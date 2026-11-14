@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * 批E：编码 agent 记忆消费面工具化——组装链接线集成（container E2E）。
  *
@@ -157,7 +158,7 @@ async function makeRig(opts: { seedMemory?: boolean } = {}): Promise<Rig> {
     workspace,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
   rigs.push(rig);

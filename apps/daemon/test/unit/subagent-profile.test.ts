@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -175,6 +176,6 @@ describe("resolveConfigModel：config model 解析收束单点（T2.2，F-14）"
   });
 
   afterAll(() => {
-    for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+    for (const d of tmpDirs) rmSyncWindowsSafe(d);
   });
 });

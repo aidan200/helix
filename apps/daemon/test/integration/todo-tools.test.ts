@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +51,7 @@ afterAll(async () => {
   for (const f of fixtures) {
     f.ledger.close();
     await f.queue.close();
-    rmSync(f.dir, { recursive: true, force: true });
+    rmSyncWindowsSafe(f.dir);
   }
   fixtures.length = 0;
 });
@@ -260,7 +261,7 @@ describe("③ todo_read 实例作用域隔离", () => {
       ledgerB.close();
     } finally {
       await queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

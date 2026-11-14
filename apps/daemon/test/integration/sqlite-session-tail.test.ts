@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * readSessionTail 集成测试（会话内容级感知 M3：repo 层尾部投影读面）。
  *
@@ -54,7 +55,7 @@ describe("readSessionTail（repo 层尾部投影）", () => {
       expect((await repo.readSessionTail("sess-a", 99))!.length).toBe(5);
       queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -70,7 +71,7 @@ describe("readSessionTail（repo 层尾部投影）", () => {
       expect(tail![0]!.text.endsWith("…")).toBe(true);
       queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -85,7 +86,7 @@ describe("readSessionTail（repo 层尾部投影）", () => {
       expect(await repo.readSessionTail("sess-empty", 5)).toEqual([]);
       queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -98,7 +99,7 @@ describe("readSessionTail 参数化（maxEntryChars / entryOffset）", () => {
   /** TR-152：登记数组 + afterAll 幂等回收（finally 内 close 招错不得跳过 rm）。 */
   const homes: string[] = [];
   afterAll(() => {
-    for (const h of homes) rmSync(h, { recursive: true, force: true });
+    for (const h of homes) rmSyncWindowsSafe(h);
   });
 
   async function openRepo(): Promise<{ repo: SqliteSessionRepository; queue: WriteQueue }> {

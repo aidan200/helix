@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +34,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       expect(second.created).toBe(false);
       expect(loadConfig(file).config.staticDir).toBe("/tmp/x");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -48,7 +49,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       expect(round.config).toEqual({ staticDir: "/tmp/shell-dist", rgPath: "/opt/bin/rg" });
       expect(round.legacy).toEqual({});
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -60,7 +61,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
       expect(parsed).toEqual({});
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -85,7 +86,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       expect(round.legacy.maxQueued).toBe(12);
       expect(round.legacy.mcpServers?.map((s) => s.name)).toEqual(["s1"]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -99,7 +100,7 @@ describe("config.json 写入语义（AG-09 + config 瘦身批）", () => {
       writeFileSync(file, JSON.stringify({ mcpServers: [{ name: "s2", command: "npx", env: { TOKEN: "t" } }] }), "utf8");
       expect(loadConfig(file).legacy.mcpServers?.[0]?.env).toEqual({ TOKEN: "t" });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

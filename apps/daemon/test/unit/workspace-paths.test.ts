@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,7 +47,7 @@ describe("workspacePaths（workspace 运行物料根单点）", () => {
         path.join("/static/definitely-not-exist-helix-test/cwd", ".helix", "tool-cache", "uv"),
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 });

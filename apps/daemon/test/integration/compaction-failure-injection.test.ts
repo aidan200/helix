@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -327,7 +328,7 @@ describe("T5.3 CL-4 compaction 失败注入：场景① provider 拒绝（comple
       expect((rows[0]!.payload as UsageRecordedPayload).source).toBe("turn");
       await q.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -397,7 +398,7 @@ describe("T5.3 CL-4 compaction 失败注入：场景② 摘要过程异常（sto
       expect(sqlSources).toHaveLength(d.usageEvents.length); // 与订阅面等量
       await q.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,7 +96,7 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
       expect(snapAfter.toolCalls).toHaveLength(1); // 工具记录随恢复延续
       await d2.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });
@@ -170,7 +171,7 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
       expect(daemon.session.getSnapshot().session.entries.filter((e) => "role" in e).at(-1)!.text).toBe("强杀重启后的回复。");
       await daemon.shutdown();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 40000);
 });

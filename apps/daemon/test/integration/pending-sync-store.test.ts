@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,7 +74,7 @@ describe("W2-D pending_sync 持久化", () => {
       expect(repo.hasSuccessfulWriteToolCall("s-absent")).toBe(false);
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -98,7 +99,7 @@ describe("W2-D pending_sync 持久化", () => {
       ]);
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -120,7 +121,7 @@ describe("W2-D pending_sync 持久化", () => {
       expect(repo.queryUnnotifiedPendingSync("task:job-2", "job-2")).toEqual([]);
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -138,7 +139,7 @@ describe("W2-D pending_sync 持久化", () => {
       expect(repo.queryUnnotifiedPendingSync("s-del", "job-x")).toEqual([]);
       await queue.close();
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

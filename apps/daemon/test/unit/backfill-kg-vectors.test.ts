@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * 存量知识节点向量回填脚本（批1 WP-B）单测——真 store（tmp 库）+ fake
  * EmbeddingPort。
@@ -31,7 +32,7 @@ function freshProject(): { root: string; database: KgDatabase; store: SqliteKnow
   const store = new SqliteKnowledgeStore({ database });
   disposers.push(() => {
     database.closeAll();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return { root, database, store };
 }

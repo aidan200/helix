@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -199,7 +200,7 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
     } finally {
       await client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 15000);
 
@@ -234,7 +235,7 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
     } finally {
       await client.close();
       await rig2.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 15000);
 
@@ -303,7 +304,7 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
     } finally {
       await client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 15000);
 });

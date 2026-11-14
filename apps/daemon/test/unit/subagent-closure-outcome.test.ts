@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -182,7 +183,7 @@ describe("buildClosureOutcome（判定链新语义）", () => {
       expect(outcome.status).toBe("done");
       expect(outcome.reportPath).toBe(reportPath);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 

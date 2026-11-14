@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -113,7 +114,7 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
     } finally {
       scheduler.stop();
       await writeQueue.close();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }, 10000);
 });

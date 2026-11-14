@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -49,7 +50,7 @@ const fixtures: Fixture[] = [];
 afterAll(() => {
   for (const f of fixtures) {
     f.database.closeAll();
-    rmSync(f.root, { recursive: true, force: true });
+    rmSyncWindowsSafe(f.root);
   }
   fixtures.length = 0;
 });

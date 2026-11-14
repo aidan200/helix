@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +23,7 @@ function makeSandbox(): string {
 }
 
 afterAll(() => {
-  for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
+  for (const dir of sandboxes) rmSyncWindowsSafe(dir);
 });
 
 /** 宿主机 rg 定位（grep 为 rg 单后端：缺 rg 直接失败，不静默跳过）。 */

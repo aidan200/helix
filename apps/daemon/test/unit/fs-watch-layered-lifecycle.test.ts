@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -77,7 +78,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       expect(callsFor(doomed)).toHaveLength(1); // 初始遍历补挂
 
       // 删除子树：父 watcher 派发 rename（真实平台语义——子目录删除触发父 rename）
-      rmSync(doomed, { recursive: true, force: true });
+      rmSyncWindowsSafe(doomed);
       src.cb("rename", "doomed");
       expect(callsFor(doomed)[0]!.watcher.closed).toBe(true); // stale 摘除
 
@@ -90,7 +91,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       callsFor(doomed)[1]!.cb("change", "b.ts");
       expect(events.some((e) => e.path === path.join(doomed, "b.ts") && e.kind === "write")).toBe(true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -108,7 +109,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       expect(callsFor(b)).toHaveLength(1);
 
       // 整棵 src/a 删除：stale 摘除含前缀嵌套（a 与 a/b）
-      rmSync(a, { recursive: true, force: true });
+      rmSyncWindowsSafe(a);
       src.cb("rename", "a");
       expect(callsFor(a)[0]!.watcher.closed).toBe(true);
       expect(callsFor(b)[0]!.watcher.closed).toBe(true);
@@ -119,7 +120,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       expect(callsFor(a)).toHaveLength(2);
       expect(callsFor(b)).toHaveLength(2);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -137,7 +138,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       expect(calls.filter((c) => c.target === root)).toHaveLength(1);
       expect(calls.filter((c) => c.target === path.join(root, "src"))).toHaveLength(1);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 
@@ -152,7 +153,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       expect(callsFor(gone)).toHaveLength(1);
 
       // 目录删除以 error 形态到达（部分平台）：自闭合摘除
-      rmSync(gone, { recursive: true, force: true });
+      rmSyncWindowsSafe(gone);
       callsFor(gone)[0]!.watcher.errorHandlers[0]!(new Error("dir gone"));
       expect(callsFor(gone)[0]!.watcher.closed).toBe(true);
 
@@ -162,7 +163,7 @@ describe("layeredWatch：删除重建补挂与防环（seenTrees 覆盖记账）
       rootCall.cb("rename", "gone");
       expect(callsFor(gone)).toHaveLength(2);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     }
   });
 });

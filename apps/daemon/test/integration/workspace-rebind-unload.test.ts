@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * workspace 重绑旧会话债清偿 I 层（W4 Part A；评审挂账 W1R boundary）。
  *
@@ -187,9 +188,9 @@ describe("workspace 重绑旧会话卸载（W4 Part A 债清偿）I 层", () => 
     } finally {
       rig.dispose();
       await rig.daemon.shutdown();
-      rmSync(rig.home, { recursive: true, force: true });
-      rmSync(rig.ws1, { recursive: true, force: true });
-      rmSync(rig.ws2, { recursive: true, force: true });
+      rmSyncWindowsSafe(rig.home);
+      rmSyncWindowsSafe(rig.ws1);
+      rmSyncWindowsSafe(rig.ws2);
     }
   }, 30000);
 
@@ -210,9 +211,9 @@ describe("workspace 重绑旧会话卸载（W4 Part A 债清偿）I 层", () => 
     } finally {
       rig.dispose();
       await rig.daemon.shutdown();
-      rmSync(rig.home, { recursive: true, force: true });
-      rmSync(rig.ws1, { recursive: true, force: true });
-      rmSync(rig.ws2, { recursive: true, force: true });
+      rmSyncWindowsSafe(rig.home);
+      rmSyncWindowsSafe(rig.ws1);
+      rmSyncWindowsSafe(rig.ws2);
     }
   }, 20000);
 });

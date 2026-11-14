@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +26,7 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
       writeFileSync(file, JSON.stringify({ port: 7333, rgPath: "/opt/tools/rg" }), "utf8");
       expect(loadConfig(file).config.rgPath).toBe("/opt/tools/rg");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -38,7 +39,7 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
         expect(() => loadConfig(f), `rgPath=${JSON.stringify(bad)} 应 fail-fast`).toThrow(/rgPath/);
       }
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -55,7 +56,7 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
         rgPath: "/opt/tools/rg",
       });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -67,7 +68,7 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
       expect(parsed.rgPath).toBeUndefined();
       expect(parsed.staticDir).toBe("/tmp/s");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

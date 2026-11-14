@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +32,7 @@ interface FacadeRun {
 describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）", () => {
   let dir: string | undefined;
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) rmSyncWindowsSafe(dir);
     dir = undefined;
   });
 
@@ -163,7 +164,7 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
 describe("grep 截断字节口径", () => {
   let dir2: string | undefined;
   afterEach(() => {
-    if (dir2) rmSync(dir2, { recursive: true, force: true });
+    if (dir2) rmSyncWindowsSafe(dir2);
     dir2 = undefined;
   });
 

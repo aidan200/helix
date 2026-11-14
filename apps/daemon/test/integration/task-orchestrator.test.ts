@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -268,7 +269,7 @@ describe("T2.2 并发预算：共享池 ≤3 + 编排不占 SubAgent 预算（CL
       scheduler.stop();
       runner.dispose();
       await queue.close();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -392,7 +393,7 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
       orchestratorRef = undefined;
       scheduler.stop();
       runner.dispose();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   }
 

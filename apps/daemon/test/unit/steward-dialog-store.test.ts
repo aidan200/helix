@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * SqliteStewardDialogStore 真库单测（管家记忆 B6 消息落盘批——better-sqlite3
  * ":memory:" 零磁盘；损坏行用例经临时文件库直插脏 payload）。
@@ -24,7 +25,7 @@ import type { StewardHistoryRecord } from "@helix/protocol";
 // TR-152：tmpdir 登记回收（CI 单 job 串行泄漏链防御）
 const tmpDirs: string[] = [];
 afterAll(() => {
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tmpDirs) rmSyncWindowsSafe(dir);
 });
 
 function makeStore(): SqliteStewardDialogStore {

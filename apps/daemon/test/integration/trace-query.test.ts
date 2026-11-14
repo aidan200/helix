@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -294,7 +295,7 @@ describe("① trace.query roundtrip：结果帧形态与过滤语义（契约 v0
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -315,7 +316,7 @@ describe("① trace.query roundtrip：结果帧形态与过滤语义（契约 v0
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -367,7 +368,7 @@ describe("② 分页：id 游标遍历不重不漏 + hasMore 收口（契约 §4
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -424,7 +425,7 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -473,7 +474,7 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -534,7 +535,7 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -587,7 +588,7 @@ describe("⑤ 重启回填（F5.8 / F5.7 锚 3）：恢复实例 model 非缺失
         await rig2.daemon.shutdown();
       }
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -61,7 +62,7 @@ describe.skipIf(!isDarwin || !applicable)("Seatbelt 真机行为", () => {
   afterAll(() => {
     for (const dir of cleanupRoots) {
       try {
-        rmSync(dir, { recursive: true, force: true });
+        rmSyncWindowsSafe(dir);
       } catch {
         /* 兑底清理 */
       }

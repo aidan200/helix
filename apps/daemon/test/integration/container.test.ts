@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +66,7 @@ describe("createDaemon 组合根装配", () => {
       expect(readdirSync(home)).not.toContain("daemon.lock"); // 锁已释放
       expect(daemon.system.getStatus().running).toBe(false);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -86,7 +87,7 @@ describe("createDaemon 组合根装配", () => {
       expect(existsSync(path.join(home, "daemon.lock"))).toBe(true);
       await daemon.shutdown();
     } finally {
-      rmSync(base, { recursive: true, force: true });
+      rmSyncWindowsSafe(base);
     }
   });
 });

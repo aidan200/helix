@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,7 +41,7 @@ function freshStack(): Stack {
   const service = new KgWriteService({ store });
   disposers.push(() => {
     database.closeAll();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return { root, database, store, graph, service };
 }

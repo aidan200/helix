@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -515,8 +516,8 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     } finally {
       await client.close();
       await daemon.shutdown();
-      rmSync(workspace, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(workspace);
+      rmSyncWindowsSafe(home);
     }
   }, 20000);
 });

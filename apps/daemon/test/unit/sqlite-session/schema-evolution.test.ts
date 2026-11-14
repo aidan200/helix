@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +19,7 @@ import {
 // TR-152：tmpdir 登记数组 + afterEach 统一 force 幂等回收（CI 全前缀审计防泄漏）
 const tmpDirs: string[] = [];
 afterEach(() => {
-  for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tmpDirs.splice(0)) rmSyncWindowsSafe(dir);
 });
 
 function tmpDbPath(): string {

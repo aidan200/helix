@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
@@ -36,7 +37,7 @@ const disposers: Array<() => void> = [];
 
 function tmpDir(prefix: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
-  disposers.push(() => rmSync(dir, { recursive: true, force: true }));
+  disposers.push(() => rmSyncWindowsSafe(dir));
   return dir;
 }
 

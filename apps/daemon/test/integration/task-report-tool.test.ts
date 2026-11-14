@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -174,7 +175,7 @@ describe("① list：最近任务清单（摘要形状 + type/status 过滤 + li
         { jobId: "job-s", type: "kg-bootstrap", title: "任务 job-s", status: "done", updatedAt: "2026-01-01T01:00:00.000Z", hasReport: true },
       ]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -277,7 +278,7 @@ describe("② get { jobId }：artifacts（含 body）+ closure 摘要行 + findi
         },
       });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -317,7 +318,7 @@ describe("② get { jobId }：artifacts（含 body）+ closure 摘要行 + findi
       expect(receipt.findings).toEqual({ total: 6, byKind: { issue: 4, sediment: 2 } });
       expect(receipt.reports.findingsFiles).toEqual([f1, f2, dangling]); // 指针清单去重透传（悬空也列——read 时自见）
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 
@@ -340,7 +341,7 @@ describe("② get { jobId }：artifacts（含 body）+ closure 摘要行 + findi
       expect(receipt.reports.summaryExists).toBe(false);
       expect(receipt.reports.batchReports).toEqual([]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });
@@ -383,7 +384,7 @@ describe("③ 错误面（jobId 缺失/不存在 → task.not_found；op 非法�
       expect(result.isError).toBe(true);
       expect(result.content).toContain("task.not_found");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 

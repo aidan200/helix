@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * 语音播报 WS 集成（2026-10-08 白话播报重构后形态）：
  * - agent 级播报面整体退役（用户裁决：任务内 agent 状态零播报）——
@@ -135,7 +136,7 @@ async function makeRig(): Promise<Rig> {
       await client.close();
       await client2.close();
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -215,7 +216,7 @@ describe("voice.synthesize：试听合成命令", () => {
       await client.close();
     } finally {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 

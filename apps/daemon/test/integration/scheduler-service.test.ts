@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -151,7 +152,7 @@ function makeHarness(options: {
       scheduler.stop();
       runner.dispose();
       await writeQueue.close();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     },
   };
 }
@@ -481,7 +482,7 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
       for (let i = 4; i <= 6; i++) expect((await h.scheduler.spawn(SESSION_ID, `t${i}`)).status).toBe("queued");
       expect((await h.scheduler.spawn(SESSION_ID, "g")).status).toBe("rejected"); // 2 running + 4 queued
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

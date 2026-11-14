@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -194,7 +195,7 @@ describe("③ 错误透传（引擎 code 全量透传，薄壳零吞改）", () 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("task.type_unknown");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     }
   });
 });

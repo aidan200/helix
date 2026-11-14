@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 /**
  * 批E：编码 agent 记忆消费面工具化——memory_search 只读工具契约单测。
  *
@@ -109,7 +110,7 @@ function makeRig(config: Record<string, string> = {}): Rig {
     store,
     dispose: () => {
       store.close();
-      rmSync(root, { recursive: true, force: true });
+      rmSyncWindowsSafe(root);
     },
   };
   rigs.push(rig);
@@ -327,7 +328,7 @@ describe("memory_search 工具·降级面", () => {
   test("⑫ 检索异常（embedding 抛错）→ 降级文案不炸主链路（失败静默空结果）", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "memory-search-deg-"));
     const store = new SqliteVecMemoryStore(path.join(root, "memory.db"), getLoadablePath());
-    rigs.push({ service: {} as never, store, dispose: () => { store.close(); rmSync(root, { recursive: true, force: true }); } });
+    rigs.push({ service: {} as never, store, dispose: () => { store.close(); rmSyncWindowsSafe(root); } });
     const failingEmbedding: EmbeddingPort = {
       endpointLabel: () => "fake",
       async embed(): Promise<EmbeddingResult> {

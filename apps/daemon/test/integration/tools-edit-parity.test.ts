@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -40,7 +41,7 @@ function makeEnv(): { dir: string; env: NodeExecutionEnv } {
 }
 
 afterEach(() => {
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  if (dir) rmSyncWindowsSafe(dir);
   dir = undefined;
   env = undefined;
 });

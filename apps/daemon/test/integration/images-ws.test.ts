@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -136,7 +137,7 @@ describe("T9 图片上行 WS 集成（契约 v0.10）", () => {
     } finally {
       await client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 
@@ -166,7 +167,7 @@ describe("T9 图片上行 WS 集成（契约 v0.10）", () => {
     } finally {
       await client.close();
       await rig.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });
@@ -232,7 +233,7 @@ describe("T9 图片下行 WS 集成（工具截图展示）", () => {
     } finally {
       await client.close();
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     }
   });
 });

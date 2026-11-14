@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -345,5 +346,5 @@ describe("T9：screenshot → image 内容块 → tool.call.result images 全链
 });
 
 afterAll(() => {
-  for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
+  for (const dir of sandboxes) rmSyncWindowsSafe(dir);
 });

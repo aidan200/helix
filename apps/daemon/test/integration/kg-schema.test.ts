@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ function freshProject(): { root: string; database: KgDatabase } {
   const database = new KgDatabase();
   disposers.push(() => {
     database.closeAll();
-    rmSync(root, { recursive: true, force: true });
+    rmSyncWindowsSafe(root);
   });
   return { root, database };
 }
@@ -95,7 +96,7 @@ describe("change_log.iteration_id 可空演进（P0 ④：老库 NOT NULL → �
       "INSERT INTO change_log (iteration_id, op, node_id, ts) VALUES ('iter-old', 'createNode', 'TR-2', 't')",
     ).run();
     raw.close();
-    disposers.push(() => rmSync(root, { recursive: true, force: true }));
+    disposers.push(() => rmSyncWindowsSafe(root));
     return root;
   }
 

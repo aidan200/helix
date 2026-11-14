@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -128,7 +129,7 @@ async function makeRig(replies: ScriptedTurn[] = [], home?: string): Promise<Rig
     runner,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(homeDir, { recursive: true, force: true });
+      rmSyncWindowsSafe(homeDir);
     },
   };
   rigs.push(rig);
@@ -348,7 +349,7 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     const rig2 = await makeRig([], home);
     rig2.dispose = async () => {
       await rig2.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     };
     const after = instanceDtoOf(rig2.daemon, agentId);
     expect(after).toBeDefined();
@@ -383,7 +384,7 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     const rig2 = await makeRig([{ text: "恢复后回复" }], home);
     rig2.dispose = async () => {
       await rig2.daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
+      rmSyncWindowsSafe(home);
     };
     const restored = instanceDtoOf(rig2.daemon, agentId);
     expect(restored).toBeDefined();
