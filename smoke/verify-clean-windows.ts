@@ -338,6 +338,7 @@ async function runSmoke(): Promise<void> {
   const searchDir = join(tmp, "search-root");
   mkdirSync(join(home, "logs"), { recursive: true });
   mkdirSync(searchDir, { recursive: true });
+  mkdirSync(join(tmp, "tmp"), { recursive: true }); // TMP/TEMP 注入目标（净化 env 下 SQLite/log 写面依赖）
   writeFileSync(join(searchDir, "notes.txt"), `${SEARCH_TOKEN} 第一行命中\n第二行噪音\n`);
 
   const fake = startFakeLlm({ pattern: SEARCH_TOKEN, path: searchDir });
@@ -353,6 +354,13 @@ async function runSmoke(): Promise<void> {
       env: {
         PATH: SANITIZED_PATH,
         SYSTEMROOT: "C:\\Windows",
+        // 净化但不剥夺 win 进程基设（daemon 内 os.homedir()/SQLite tmp 依赖）——
+        // 全部指向 tmp（零碰真实用户目录，TR-TEST-4 同源）
+        USERPROFILE: join(tmp, "home"),
+        LOCALAPPDATA: join(tmp, "home", "AppData", "Local"),
+        APPDATA: join(tmp, "home", "AppData", "Roaming"),
+        TMP: join(tmp, "tmp"),
+        TEMP: join(tmp, "tmp"),
         HELIX_RG_PATH: RG_EXE,
         HELIX_VEC_PATH: VEC0_DLL,
         HELIX_CODEGRAPH_PATH: CODEGRAPH_CMD,
@@ -375,8 +383,19 @@ async function runSmoke(): Promise<void> {
         /* 进程已退出 */
       }
     })();
+    // 启动即退检测：exe 秒退（env 剥夺崩溃/单例锁拒绝）时端口探活会空转——
+    // 等待窗口内轮询退出码，退出即抛携 stderr 尾
+    {
+      const exitedEarly = await Promise.race([
+        daemon.exited.then(() => true),
+        new Promise<boolean>((r) => setTimeout(() => r(false), 3000)),
+      ]);
+      if (exitedEarly) {
+        throw new Error(`daemon 启动即退（exit ${daemon.exitCode}）stderr 尾：${stderrTail.slice(-600)}`);
+      }
+    }
 
-    const token = await fetchText(`http://127.0.0.1:${SMOKE_PORT}/helix-dev-token`, 45_000).catch((e) => {
+    const token = await fetchText(`http://127.0.0.1:${SMOKE_PORT}/helix-dev-token`, 90_000).catch((e) => {
       throw new Error(`dev-token 端点超时：${(e as Error).message}\nstderr 尾：${stderrTail.slice(-500)}`);
     });
     if (token.trim().length === 0) {
