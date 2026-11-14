@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { rmSyncWindowsSafe } from "./rm-safe";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Api, AssistantMessage, Context, JsonValue, Model, Models } from "@earendil-works/pi-ai";
@@ -408,11 +409,11 @@ export async function withOrchestratorEnv(
   try {
     await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, orchestratorLog, killLog, homeDir: dir, portOf: (jobId) => sessionPorts.get(jobId), childLedger: () => childLedger(dbPath), until, dispose: async () => {
       await queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     } });
   } finally {
     await queue.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSyncWindowsSafe(dir);
   }
 }
 

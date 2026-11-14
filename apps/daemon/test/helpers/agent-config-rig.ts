@@ -13,6 +13,7 @@ import { PassThrough } from "node:stream";
 import { createTestDaemon } from "./createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import { rmSyncWindowsSafe } from "./rm-safe";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 
 export interface Frame {
@@ -101,7 +102,7 @@ export function tmpHome(): string {
 
 /** 清空全部注册的 tmp 根（幂等；各测试文件 afterAll 调用）。 */
 export function cleanupAgentConfigTmp(): void {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const d of tmpRoots) rmSyncWindowsSafe(d);
 }
 
 export interface ProfileBlock {
@@ -157,8 +158,9 @@ export async function makeRig(): Promise<Rig> {
     url: `ws://127.0.0.1:${daemon.ws.port}`,
     dispose: async () => {
       await daemon.shutdown();
-      rmSync(home, { recursive: true, force: true });
-      rmSync(workspace, { recursive: true, force: true });
+      // Windows EBUSY 兜底（rm-safe：SQLite 句柄异步释放竞态，mac 零差异）
+      rmSyncWindowsSafe(home);
+      rmSyncWindowsSafe(workspace);
     },
   };
 }

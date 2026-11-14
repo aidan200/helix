@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { rmSyncWindowsSafe } from "./rm-safe";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { WriteQueue, openTaskLedgerDatabase } from "../../src/adapters/driven/sqlite-session/WriteQueue";
@@ -214,7 +215,7 @@ export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
     reportDirRemoved,
     dispose: async () => {
       await queue.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmSyncWindowsSafe(dir);
     },
   };
 }
