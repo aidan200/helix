@@ -3,6 +3,21 @@ import { globToRegExp } from "../contract";
 import type { GrepBackend, GrepMatch, GrepQuery } from "../contract";
 
 /**
+ * spawn argv 组装（TR-95 win 兼容面）：win32 上 .cmd/.bat 脚本不是可执行映像
+ * （CreateProcess 直起抛 ENOENT）——经 cmd.exe /d /s /c 包装（逐参双引号
+ * 包裹）。与 codegraph-engine 的 cliSpawnCmd 同源定式（各自模块内联——
+ * 两消费面分属不同域，抽公共工具模块引入跨域依赖不划算）。生产 rg 档
+ * 恒为真二进制（.exe/无扩展名）直通；仅测试 fixture 用 .cmd 形态。
+ */
+function rgSpawnCmd(rgPath: string, args: readonly string[]): string[] {
+  if (process.platform !== "win32" || !/\.(cmd|bat)$/i.test(rgPath)) {
+    return [rgPath, ...args];
+  }
+  const quote = (s: string): string => (/[ \t"&|^<>%]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  return ["cmd.exe", "/d", "/s", "/c", [quote(rgPath), ...args.map(quote)].join(" ")];
+}
+
+/**
  * rg 后端 + 行为归一适配层（CL-3/F3.1，AD-2，architecture §4.5/§6.3）。
  *
  * 经 resolve-rg 解析出的**注入路径** spawn 真 rg（本模块只接受注入
@@ -95,6 +110,9 @@ interface RgJsonMessage {
  * 对齐 TS readTextFile 解码失败跳过整文件的语义。
  * 路径投影归一：rg 对相对 rootPath（如 `.`）的输出带 `./` 前缀，剥除后
  * 与 TS relativeToCwd 产物同口径（`./src/a.ts` → `src/a.ts`）。
+ * win32 归一（TR-95 兼容面）：真 rg 在 Windows 输出 `.\\src\\a.ts` 形态
+ * （反斜杠分隔 + `.\\` 前缀）——分隔符归一为 posix `/` 且剥 `.` 前缀，
+ * 与 posix 输出同口径（工具面/测试断言零平台分岔）。
  * 行文本剥尾换行（rg lines.text 含行终止符；CRLF 一并剥除）。
  */
 export function parseRgJson(stdout: string, glob?: string): GrepMatch[] {
@@ -114,6 +132,8 @@ export function parseRgJson(stdout: string, glob?: string): GrepMatch[] {
     const lineNumber = msg.data?.line_number;
     if (pathText === undefined || lineText === undefined || typeof lineNumber !== "number") continue;
     let path = pathText;
+    // win32 归一（TR-95）：反斜杠分隔符 → posix；`.\\` / `./` 前缀剥除
+    path = path.split("\\").join("/");
     if (path.startsWith("./")) path = path.slice(2); // rg 相对 rootPath 的 ./ 前缀归一
     if (globRe !== undefined && !globRe.test(path)) continue;
     matches.push({ path, lineNumber, line: lineText.replace(/\r?\n$/, "") });
@@ -145,7 +165,7 @@ export function createRgBackend(
       }
       let proc: ReturnType<typeof Bun.spawn>;
       try {
-        proc = Bun.spawn([rgPath, ...buildRgArgv(query, rootPath)], {
+        proc = Bun.spawn(rgSpawnCmd(rgPath, buildRgArgv(query, rootPath)), {
           cwd: env.cwd,
           stdout: "pipe",
           stderr: "pipe",

@@ -112,9 +112,15 @@ describe("rg 后端 integration（真 rg + tmp fixture）", () => {
 
   test("非零退出（≥2）→ RgExecError（假 rg 脚本固定 exit 2，走真实 spawn）", async () => {
     dir = mkdtempSync(path.join(tmpdir(), "helix-rg-bad-"));
-    const fake = path.join(dir, "fake-rg");
-    writeFileSync(fake, "#!/bin/sh\necho boom >&2\nexit 2\n");
-    chmodSync(fake, 0o755);
+    // win32：.cmd 脚本（shebang 不能直 spawn）；posix：sh 脚本照旧
+    const fake =
+      process.platform === "win32" ? path.join(dir, "fake-rg.cmd") : path.join(dir, "fake-rg");
+    if (process.platform === "win32") {
+      writeFileSync(fake, "@echo boom 1>&2\r\n@exit /b 2\r\n");
+    } else {
+      writeFileSync(fake, "#!/bin/sh\necho boom >&2\nexit 2\n");
+      chmodSync(fake, 0o755);
+    }
     const env = new NodeExecutionEnv({ cwd: dir });
     const rg = createRgBackend(fake, env, ".", { timeoutMs: RG_TIMEOUT_MS });
     try {
@@ -136,9 +142,19 @@ describe("rg 后端 integration（真 rg + tmp fixture）", () => {
 
   test("超时 → kill 子进程并抛 RgTimeoutError（假 rg sleep 兜底；文案含收窄引导）", async () => {
     dir = mkdtempSync(path.join(tmpdir(), "helix-rg-slow-"));
-    const fake = path.join(dir, "slow-rg");
-    writeFileSync(fake, "#!/bin/sh\nexec sleep 30\n"); // exec：被 spawn 进程即 sleeper，kill 即生效（无孙进程持有管道）
-    chmodSync(fake, 0o755);
+    // win32：无扩展名 shebang 脚本不能直 spawn——慢 rg 用 cmd ping 延迟替代
+    //（timeout 300ms 面对任意慢命令都成立，命令本体非断言面）
+    const fake =
+      process.platform === "win32"
+        ? path.join(dir, "slow-rg.cmd")
+        : path.join(dir, "slow-rg");
+    if (process.platform === "win32") {
+      writeFileSync(fake, "@ping -n 30 127.0.0.1 > nul\r\n");
+    } else {
+      // exec：被 spawn 进程即 sleeper，kill 即生效（无孙进程持有管道）
+      writeFileSync(fake, "#!/bin/sh\nexec sleep 30\n");
+      chmodSync(fake, 0o755);
+    }
     const env = new NodeExecutionEnv({ cwd: dir });
     const rg = createRgBackend(fake, env, ".", { timeoutMs: 300 });
     try {

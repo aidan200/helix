@@ -109,12 +109,14 @@ describe("parseRgJson：rg --json 事件流 → GrepMatch[] 归一", () => {
     expect(parseRgJson(stdout)).toEqual([{ path: "a.ts", lineNumber: 5, line: "X" }]);
   });
 
-  test("路径/行内容含冒号、Windows 盘符路径：结构化字段免切分，原样保留", () => {
+  test("路径/行内容含冒号、Windows 盘符路径：结构化字段免切分；win 反斜杠归一 posix", () => {
     const stdout =
       jsonLine(matchEvent("dir:sub/f.ts", "hel:ix 内容", 2)) +
       jsonLine(matchEvent("C:\\src\\a.ts", "win HELIX", 42));
+    // win 反斜杠归一 posix（TR-95：真 rg win 输出 .\\src\\a.ts 形态——归一后
+    // 与 posix 输出同口径，工具面/断言零平台分岔；冒号免切分语义不变）
     expect(parseRgJson(stdout)).toEqual([
-      { path: "C:\\src\\a.ts", lineNumber: 42, line: "win HELIX" },
+      { path: "C:/src/a.ts", lineNumber: 42, line: "win HELIX" },
       { path: "dir:sub/f.ts", lineNumber: 2, line: "hel:ix 内容" },
     ]);
   });
