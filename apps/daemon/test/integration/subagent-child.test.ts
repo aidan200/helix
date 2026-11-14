@@ -366,7 +366,10 @@ describe("⑤ O-6 升级 kill（不可中断剧本 → SIGKILL 进程组 → 零
     // O-6 平台分岔（E-63）：escalated = 负 pgid SIGKILL（posix 专属）；
     // win 无进程组语义走直 pid SIGTERM→taskkill（TR-132 同裁决）——断言平台等价档
     expect(outcome).toBe(process.platform === "win32" ? "graceful" : "escalated");
-    expect(Date.now() - t0).toBeGreaterThan(300); // 确经 grace 等待而非立即强杀
+    // grace 等待时长断言仅 posix（win 直杀无 grace 等待档——E-63 平台语义）
+    if (process.platform !== "win32") {
+      expect(Date.now() - t0).toBeGreaterThan(300); // 确经 grace 等待而非立即强杀
+    }
 
     // 崩溃/强杀路径：无 closure → exit 非 0 → failed 上报
     await until(() => h.closures.length > 0, 5000, "等待强杀 failed 上报");

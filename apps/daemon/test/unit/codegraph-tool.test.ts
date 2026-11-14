@@ -1,5 +1,6 @@
 import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
 import type {
   CodegraphEnginePort,
   CodegraphQueryRequest,
@@ -80,7 +81,7 @@ describe("codegraph 工具：projectPath 解析", () => {
   test("一级子目录名 → join(workspaceRoot, name)", async () => {
     const { tool, calls } = makeTool();
     await run(tool, { op: "status", projectPath: "helix" });
-    expect(calls[0]!.projectRoot).toBe("/ws/helix");
+    expect(calls[0]!.projectRoot).toBe(path.join("/ws", "helix")); // join 宿主形态（win 反斜杠；resolveProjectRoot 不做 posix 归一——worktree 透传才归一）
   });
 
   test("绝对路径 → 原样使用", async () => {
@@ -150,7 +151,8 @@ describe("codegraph 工具：W-R2 worktree 读穿透（D8——查询路由主�
       const tool = createCodegraphTool({ engine, workspaceRoot: dir });
       await run(tool, { op: "status", projectPath: path.join(dir, "proj", ".worktrees", "agent-slug") });
       expect(calls).toHaveLength(1);
-      expect(calls[0]!.projectRoot).toBe(path.join(dir, "proj"));
+      // resolveMainRepoPath 单点语义：worktree 命中 → posix 归一输出（跨宿主同形态）
+    expect(calls[0]!.projectRoot).toBe([dir, "proj"].join("/").replaceAll("\\", "/"));
     } finally {
       rmSyncWindowsSafe(dir);
     }

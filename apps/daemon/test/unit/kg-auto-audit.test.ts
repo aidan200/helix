@@ -1,3 +1,4 @@
+import { rmSyncWindowsSafe } from "../helpers/rm-safe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,7 +29,7 @@ function makeRoot(): string {
   return root;
 }
 afterEach(() => {
-  while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
+  while (roots.length > 0) rmSyncWindowsSafe(roots.pop()!);
 });
 
 // ── ① port：真 sqlite 库（auto: 行过滤 + 最新在前） ──────────────────

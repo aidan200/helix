@@ -81,10 +81,10 @@ describe("W-R3 kg 读穿透：worktree workspaceRoot → 只读直读主仓 kg.d
     try {
       const hits = stack.queryService.search("handler");
       expect(hits.length).toBe(1);
-      expect(hits[0]!.project).toBe(f.proj); // project 伴随 = 主仓 projectRoot
+      expect(hits[0]!.project).toBe(f.proj.split("\\").join("/")); // 主仓 projectRoot（resolveMainRepoPath posix 归一形态）
       expect(hits[0]!.row.name).toBe("handler 幂等规则");
       const got = stack.queryService.get(tr1);
-      expect(got?.project).toBe(f.proj);
+      expect(got?.project).toBe(f.proj.split("\\").join("/")); // 同上 posix 归一形态
       expect(got?.detail.node.id).toBe(tr1);
     } finally {
       stack.dispose();
