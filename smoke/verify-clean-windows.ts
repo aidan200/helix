@@ -428,7 +428,24 @@ async function runSmoke(): Promise<void> {
       return;
     }
     const ws = new WsProbe();
-    const welcome = await ws.connect(`ws://127.0.0.1:${ready.port}`, token.trim(), PROBE_TIMEOUT_MS);
+    let welcome: Frame;
+    try {
+      welcome = await ws.connect(`ws://127.0.0.1:${ready.port}`, token.trim(), PROBE_TIMEOUT_MS);
+    } catch (e) {
+      // 握手失败全诊断：ready 行 token（进程 stdout）与 HTTP token 双通道值 +
+      // stderr 尾 + daemon 日志尾（握手拒绝/协议错误都会留痕）
+      let daemonLogTail = "";
+      try {
+        daemonLogTail = (await Bun.file(join(home, "logs", "daemon.log")).text()).slice(-600);
+      } catch {
+        daemonLogTail = "(无 daemon.log)";
+      }
+      throw new Error(
+        `WS 握手失败：${(e as Error).message}\n` +
+          `  ready 行 token：${ready.token.slice(0, 12)}…（HTTP token 一致性：${ready.token.trim() === token.trim() ? "一致" : "不一致"}）\n` +
+          `  stderr 尾：${stderrTail.slice(-300)}\n  daemon 日志尾：${daemonLogTail}`,
+      );
+    }
     if (welcome.type !== "connection.welcome") {
       fail("launch.handshake", `welcome 非预期：${welcome.type}`);
       ws.close();
