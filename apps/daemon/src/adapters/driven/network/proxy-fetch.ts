@@ -49,7 +49,10 @@ export function installProxyFetch(getConfig: () => ProxyConfig): () => void {
     if (i < 0) return;
     state.owners.splice(i, 1);
     if (state.owners.length !== 0) return;
-    if (globalThis.fetch === state.wrapped) globalThis.fetch = state.original;
+    // 无条件收尾（TR-95 win 兼容面）：fetch 现值 ≠ wrapped（测试 spy 覆盖等）
+    // 时条件收尾会残留 MARK——后续 install 只 push owner 不重包，wrapped
+    // 脱链、proxy 全失效。owners 空 = 无消费者语义下恢复 original 恒安全。
+    globalThis.fetch = state.original;
     if (globals[MARK] === state) delete globals[MARK];
   };
 }

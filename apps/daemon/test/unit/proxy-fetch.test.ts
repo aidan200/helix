@@ -1,9 +1,24 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { installProxyFetch } from "../../src/adapters/driven/network/proxy-fetch";
 import type { ProxyConfig } from "../../src/application/ports/outbound/ProxyConfigPort";
 
 const ON: ProxyConfig = { enabled: true, url: "http://127.0.0.1:7890" };
 const OFF: ProxyConfig = { enabled: false, url: "" };
+
+// 进程级 MARK 残留清场（TR-95 win 兼容面）：installProxyFetch 的安装是
+// process 单例（Symbol.for）；bun win 测试调度下若其它测试文件留下的
+// installation 未卸净（undo 仅在 fetch === wrapped 时收尾），本文件 spy
+// 装在其上、install 只 push owner 不重包 → wrapped 不在调用链 → 全文件红。
+// 清场：检测残留 → 恢复 original + delete MARK，本文件从零状态起步。
+beforeAll(() => {
+  const MARK = Symbol.for("helix.proxyFetch");
+  const globals = globalThis as typeof globalThis & { [MARK]?: { original: typeof fetch } };
+  const stale = globals[MARK];
+  if (stale !== undefined) {
+    globalThis.fetch = stale.original;
+    delete globals[MARK];
+  }
+});
 
 describe("proxy fetch routing and lifecycle", () => {
   const cleanups: (() => void)[] = [];
