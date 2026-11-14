@@ -42,6 +42,41 @@ function tmpDir(prefix: string): string {
 
 /** fake CLI 脚本（node 可执行）：按文件标记驱动行为，子命令逐行记入 calls.log。 */
 function makeFakeCli(dir: string): string {
+  // win32：无扩展名 shebang 脚本不能直 spawn（CreateProcess 只认 PE 映像）——
+  // 写 codegraph.js 本体 + codegraph.cmd 调度器（cmd /c 形态，
+  // CodegraphEngineAdapter.cliSpawnCmd 对 .cmd 自动包装，生产链同款）；
+  // posix：无扩展名 shebang 脚本照旧（mac/linux 零变化）
+  if (process.platform === "win32") {
+    const jsBody = [
+      'const fs = require("node:fs");',
+      'const path = require("node:path");',
+      "const dir = __dirname;",
+      'const sub = process.argv[2] || "";',
+      'const has = (m) => fs.existsSync(path.join(dir, m));',
+      'fs.appendFileSync(path.join(dir, "calls.log"), sub + "\\n");',
+      'if (has("hang-" + sub)) { setTimeout(() => {}, 60000); return; }',
+      'if (has("fail-" + sub)) { process.exit(1); }',
+      'if (sub === "status") {',
+      '  if (has("garbage")) { console.log("not json {"); process.exit(0); }',
+      '  if (!has("initialized")) { console.log(JSON.stringify({ initialized: false })); process.exit(0); }',
+      "  console.log(JSON.stringify({",
+      "    initialized: true,",
+      '    lastIndexed: "2026-08-25T10:00:00.000Z",',
+      '    index: { state: has("partial") ? "partial" : "complete", reindexRecommended: has("stale") },',
+      "  }));",
+      "  process.exit(0);",
+      "}",
+      'if (sub === "init") { fs.writeFileSync(path.join(dir, "initialized"), "1"); process.exit(0); }',
+      "process.exit(0);",
+      "",
+    ].join("\n");
+    const js = path.join(dir, "codegraph.js");
+    writeFileSync(js, jsBody);
+    const cmd = path.join(dir, "codegraph.cmd");
+    // @bun：runner/测试环境 bun 恒在 PATH（测试进程本身就是 bun）；%~dp0 带尾分隔符
+    writeFileSync(cmd, `@bun "%~dp0codegraph.js" %*\r\n`);
+    return cmd;
+  }
   const script = path.join(dir, "codegraph");
   writeFileSync(
     script,

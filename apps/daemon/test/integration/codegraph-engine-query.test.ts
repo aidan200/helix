@@ -32,6 +32,28 @@ afterAll(() => {
 
 /** fake CLI：逐行记录完整 argv（空格连接）；echo-<sub> 时回显固定 JSON；big 标记输出超 cap 文本。 */
 function makeFakeCli(dir: string): string {
+  // win32：无扩展名 shebang 脚本不能直 spawn——codegraph.js 本体 + .cmd 调度器
+  //（cliSpawnCmd 对 .cmd 自动 cmd /c 包装，生产链同款）；posix：shebang 照旧
+  if (process.platform === "win32") {
+    const jsBody = [
+      'const fs = require("node:fs");',
+      'const path = require("node:path");',
+      "const dir = __dirname;",
+      "const args = process.argv.slice(2);",
+      'const sub = args[0] || "";',
+      'const has = (m) => fs.existsSync(path.join(dir, m));',
+      'fs.appendFileSync(path.join(dir, "calls.log"), args.join(" ") + "\\n");',
+      'if (has("fail-" + sub)) { console.error("boom-" + sub); process.exit(1); }',
+      'if (has("big-" + sub)) { console.log("x".repeat(200000)); process.exit(0); }',
+      'console.log(JSON.stringify({ echo: sub }));',
+      "",
+    ].join("\n");
+    const js = path.join(dir, "codegraph.js");
+    writeFileSync(js, jsBody);
+    const cmd = path.join(dir, "codegraph.cmd");
+    writeFileSync(cmd, `@bun "%~dp0codegraph.js" %*\r\n`);
+    return cmd;
+  }
   const script = path.join(dir, "codegraph");
   writeFileSync(
     script,
