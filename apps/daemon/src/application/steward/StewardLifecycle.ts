@@ -109,6 +109,10 @@ export class StewardLifecycle {
       // 把用户补充话语对齐确认/取消/目标修正，对齐失败才按新指令；词表快路径
       //（TR-240）在 ask 入口先行，两者叠加不冲突）
       buildPendingProposalsSection(this.core.ledger.entries().map((e) => e.action)),
+      // 记忆装配条件化批：isAvailable 现值（开关 ∧ 默认端点在场 ∧ 存储已
+      // 装配）——false 时纪律段不拼，管家不再调 memory_search（与编码面
+      // skills+tools 成套装配同语义；工具注册面恒在，降级文案兜底）。
+      this.core.deps.memory?.isAvailable() === true,
     );
     if (this.core.engine === undefined) {
       const keepRecent = this.core.deps.compaction?.keepRecent ?? STEWARD_COMPACTION_KEEP_RECENT;

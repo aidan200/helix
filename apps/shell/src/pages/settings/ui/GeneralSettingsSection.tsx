@@ -185,6 +185,7 @@ const GeneralSettingsSection = function GeneralSettingsSection({
   const [memoryCfg, setMemoryCfg] = useState<{
     enabled: boolean;
     available: boolean;
+    degradedReasons?: readonly ("endpoint-missing" | "store-unavailable" | "disabled")[];
     judgeEndpoint: { id: string; name: string; model: string; hasApiKey: boolean } | null;
     entryCount: number;
     dim: number | null;
@@ -1310,7 +1311,19 @@ const GeneralSettingsSection = function GeneralSettingsSection({
         )}
         {memoryCfg !== null && memoryCfg.enabled && !memoryCfg.available && (
           <span className="ag-note" data-memory-pending>
-            {t("chat.settings.general.memoryPending")}
+            {/* 降级三因分文案（记忆装配条件化批）：按 degradedReasons 首因
+                分文案——endpoint-missing（端点未配）/ store-unavailable（存储
+                失败——Windows vec0 加载失败排障）/ disabled（服务未装配）。
+                旧 daemon 缺 degradedReasons（additive 缺省）→ 回退旧文案。 */}
+            {memoryCfg.degradedReasons !== undefined && memoryCfg.degradedReasons.length > 0
+              ? t(
+                  memoryCfg.degradedReasons.includes("store-unavailable")
+                    ? "chat.settings.general.memoryStoreUnavailable"
+                    : memoryCfg.degradedReasons.includes("disabled")
+                      ? "chat.settings.general.memoryDisabled"
+                      : "chat.settings.general.memoryPending",
+                )
+              : t("chat.settings.general.memoryPending")}
           </span>
         )}
         {memoryCfg?.enabled === true && (

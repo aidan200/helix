@@ -299,6 +299,12 @@ export interface StewardMemoryState {
   readonly enabled: boolean;
   /** 综合可用性（开关开 ∧ 默认端点在场 ∧ 条目完整 ∧ 存储已装配——召回/写入真实门槛）。 */
   readonly available: boolean;
+  /** 降级原因清单（记忆装配条件化批，三因分立）：仅 enabled=true 且
+   * available=false 时非空——开关未开不列（用户未启用非降级）。三因：
+   * endpoint-missing = 向量端点未配置（默认 embedding 端点缺席/悬空）；
+   * store-unavailable = 存储面缺席（vec0/SQLite 加载或开库失败）；
+   * disabled = 记忆服务整体未装配（栈级缺席——极端降级面）。UI 按因分文案。 */
+  readonly degradedReasons: readonly ("endpoint-missing" | "store-unavailable" | "disabled")[];
   /** 召回注入条数上限生效值（批B 配置驱动——非法 KV 回退缺省 5；可选 =
    *  旧壳缺席忽略，additive）。 */
   readonly recallTopK?: number;
@@ -389,9 +395,21 @@ export class StewardMemoryService implements StewardComponent {
   getMemoryState(): StewardMemoryState {
     const judgeRecord = this.judgeEndpointRecord();
     const recall = resolveMemoryRecallParams(this.deps.config, (m) => this.deps.logger?.warn(m));
+    const enabled = this.isEnabled();
+    // 降级三因（记忆装配条件化批）：enabled=true 且 available=false 时
+    // 按缺席面分因列出（可多因并存）；开关未开不列——未启用非降级。
+    // disabled 因不在本服务面生成（本服务已装配才走到这里——该因由
+    // 装配层缺席缺省态承载，见 StewardService.getConfig 的 ?? 兜底）。
+    const degradedReasons: StewardMemoryState["degradedReasons"] = !enabled
+      ? []
+      : [
+          ...(this.deps.embeddingConfig.resolveDefault() === null ? (["endpoint-missing"] as const) : []),
+          ...(this.deps.store === undefined ? (["store-unavailable"] as const) : []),
+        ];
     return {
-      enabled: this.isEnabled(),
+      enabled,
       available: this.isAvailable(),
+      degradedReasons,
       recallTopK: recall.topK,
       recallPool: recall.pool,
       recallMinScore: recall.minScore,

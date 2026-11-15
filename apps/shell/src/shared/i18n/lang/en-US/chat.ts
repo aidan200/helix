@@ -655,6 +655,8 @@ export const chat = {
         cprovDupErr: "Duplicate model id: {id} (unique within a platform)",
         memoryEntries: "{count} entries",
         memoryPending: "No embedding endpoint selected — memory inactive",
+        memoryStoreUnavailable: "Memory store unavailable (vec0/SQLite failed to load) — memory inactive",
+        memoryDisabled: "Memory service not assembled — memory inactive",
         memoryEdit: "Edit",
         memoryDelete: "Delete",
         memorySave: "Save",

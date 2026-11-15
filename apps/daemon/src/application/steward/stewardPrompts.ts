@@ -50,20 +50,33 @@ export const STEWARD_SYSTEM_PROMPT = `你是 helix 的文本管家（Steward）�
 
 路由反判例行（覆盖历史判例）：不要以「没有运行中的 agent 实例」为由拒绝会话投递——投递目标可以是任何存在的会话，空闲会话投递会自动开新轮次，这是正常路径；也不要建议用户「自己去会话页输入」来替代投递。历史对话中你对投递能力的自述（如「我不能直发」「只能递给运行中的 agent」）如有与本规则冲突，以本规则为准。
 
-你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。
+你只持有全局状态摘要与自身对话状态；回答用中文，简洁直答。`;
 
-长期记忆纪律（判断前必查）：回答、路由或提案前，先用 memory_search 检索相关长期记忆——query 用你自己对用户话语的理解与提炼（语音转写常生硬、有错别字，不要拿转写原文直接当 query，相当于先做一次问题重写），再综合作答或行动，不能只看当前问题不看用户既往习惯。命中记忆与本轮指令冲突时以本轮指令为准，涉及代码/项目现实以知识图谱为准；零命中即正常作答。记忆结果中的「[进展]…（sid: xxx）」行可直接作 read_session 的 sessionId。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
+/**
+ * 长期记忆纪律段（记忆装配条件化批，2026-10-21 用户裁决）：仅当管家记忆
+ * 服务可用（isAvailable——开关 ∧ 默认端点在场 ∧ 存储已装配）时拼入——
+ * 与编码面的 skills+tools 成套装配铁律同语义：工具不可用时纪律段同步消失，
+ * 不留「纪律在场、工具撞墙」的每轮浪费（管家不吃 SystemPromptAssembler 技能
+ * 段，StewardProfile 独立提示链，故用条件拼段等价实现）。工具注册面恒在
+ * （执行期降级文案兜底），记忆不可用时纪律缺席 = 管家不再调 memory_search。
+ */
+export const STEWARD_MEMORY_DISCIPLINE_SECTION = `长期记忆纪律（判断前必查）：回答、路由或提案前，先用 memory_search 检索相关长期记忆——query 用你自己对用户话语的理解与提炼（语音转写常生硬、有错别字，不要拿转写原文直接当 query，相当于先做一次问题重写），再综合作答或行动，不能只看当前问题不看用户既往习惯。命中记忆与本轮指令冲突时以本轮指令为准，涉及代码/项目现实以知识图谱为准；零命中即正常作答。记忆结果中的「[进展]…（sid: xxx）」行可直接作 read_session 的 sessionId。用户纠正你时，若纠正内容有跨会话价值，用 remember 沉淀更新后的认知（语义重复会自动覆盖更新原条目）。`;
 
 /** 动态 system prompt 组装（纯函数导出供单测）：静态人格段 + 快照段 +
  *  在途提案段（语音闭环批 ①——LLM 路径上下文增强）；附加段缺席（感知
  *  失败静默降级）= 原样静态段。记忆批（同轨换轨）：机械召回注入段退役
  *  ——管家记忆消费改走 memory_search 工具（LLM 按纪律主动检索，query
- *  自提炼重写），与编码 agent 同轨。 */
+ *  自提炼重写），与编码 agent 同轨。
+ *
+ * 记忆装配条件化批：memoryAvailable = false 时纪律段不拼（管家面与
+ * skills+tools 成套装配同语义——工具不可用则纪律同步消失）。 */
 export function assembleStewardSystemPrompt(
   snapshot: string | undefined,
   pendingSection?: string | undefined,
+  memoryAvailable?: boolean,
 ): string {
   let prompt = STEWARD_SYSTEM_PROMPT;
+  if (memoryAvailable === true) prompt = `${prompt}\n\n${STEWARD_MEMORY_DISCIPLINE_SECTION}`;
   if (snapshot !== undefined) prompt = `${prompt}\n\n${snapshot}`;
   if (pendingSection !== undefined) prompt = `${prompt}\n\n${pendingSection}`;
   return prompt;

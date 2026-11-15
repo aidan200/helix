@@ -217,6 +217,31 @@ describe("StewardMemoryService", () => {
     expect(config.kv.get(MEMORY_ENDPOINT_ID_KEY)).toBeUndefined(); // 退役键零写入
   });
 
+  // 记忆装配条件化批（2026-10-21 用户裁决）：降级三因分立——enabled=true 且
+  // available=false 时按缺席面列因（可多因并存），开关未开不列（未启用非降级）。
+  test("⑤b 降级三因（degradedReasons）：端点缺席 → [endpoint-missing]；存储缺席 → [store-unavailable]；双缺席 → 两因并存；开关未开 → 空清单；全在场 → 空", () => {
+    const mk = (over: { endpoint?: boolean; store?: boolean; enabled?: boolean }) =>
+      new StewardMemoryService({
+        config: fakeConfig(over.enabled === false ? undefined : ENABLED_KV),
+        embedding: fakeEmbedding(),
+        embeddingConfig: over.endpoint === false ? fakeLookup(null) : fakeLookup(),
+        ...(over.store === false ? {} : { store: fakeStore() }),
+      });
+    // 端点缺席（存储在场）
+    expect(mk({ endpoint: false }).getMemoryState().degradedReasons).toEqual(["endpoint-missing"]);
+    // 存储缺席（端点在场）
+    expect(mk({ store: false }).getMemoryState().degradedReasons).toEqual(["store-unavailable"]);
+    // 双缺席 → 两因并存
+    expect(mk({ endpoint: false, store: false }).getMemoryState().degradedReasons).toEqual([
+      "endpoint-missing",
+      "store-unavailable",
+    ]);
+    // 开关未开（即便全缺席）→ 空清单：未启用非降级
+    expect(mk({ endpoint: false, store: false, enabled: false }).getMemoryState().degradedReasons).toEqual([]);
+    // 全在场 → 空
+    expect(mk({}).getMemoryState().degradedReasons).toEqual([]);
+  });
+
   test("⑥ 凭据卫生（批1）：getMemoryState 不再回 endpoint（向量端点归全局默认，回执不回 endpointId）", () => {
     const svc = new StewardMemoryService({
       config: fakeConfig(ENABLED_KV),

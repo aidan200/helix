@@ -114,16 +114,28 @@ describe("SkillScanner（双源目录 → source 标签技能清单）", () => {
     });
     const result = await scanner.scan();
     expect(result.diagnostics).toEqual([]); // 随仓文件必须合法（frontmatter 合规）
-    // 随仓内置四技能——agent/ 层 web-access（行为技能；plan-workflow 已随
-    // plan 三工具改名 todo 双工具退役：触发判据内嵌 todo_write 工具描述）
-    // + task/ 层 kg-bootstrap/kg-review/code-review（任务类型 SOP，带 task 块）
-    expect(result.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "kg-triage", "web-access"]);
+    // 随仓内置五技能——agent/ 层 web-access + memory-discipline（记忆装配
+    // 条件化批：tools: [memory_search] 成套声明——记忆未启用时技能随工具
+    // 下线，skills+tools 成套装配）+ task/ 层 kg-bootstrap/kg-review/code-review/kg-triage
+    expect(result.skills.map((s) => s.name).sort()).toEqual([
+      "code-review",
+      "kg-bootstrap",
+      "kg-review",
+      "kg-triage",
+      "memory-discipline",
+      "web-access",
+    ]);
     const skill = result.skills.find((s) => s.name === "web-access")!;
     expect(skill.source).toBe("builtin");
     expect(skill.audience).toBe("agent");
     expect(skill.description.length).toBeGreaterThan(0);
     expect(skill.filePath).toBe(path.join(builtinSkillsDir(), "agent", "web-access", "SKILL.md"));
     expect(skill.tools).toBeUndefined(); // 未声明成套工具 = 恒列技能
+    // memory-discipline：成套工具声明（skills+tools 成套装配判据）
+    const memSkill = result.skills.find((s) => s.name === "memory-discipline")!;
+    expect(memSkill.source).toBe("builtin");
+    expect(memSkill.audience).toBe("agent");
+    expect(memSkill.tools).toEqual(["memory_search"]);
     // task/ 层三技能 audience = task（不进任何 agent 的技能清单）
     for (const name of ["kg-bootstrap", "kg-review", "code-review"]) {
       const t = result.skills.find((s) => s.name === name)!;

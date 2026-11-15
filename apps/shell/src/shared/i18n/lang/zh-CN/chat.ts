@@ -658,6 +658,8 @@ export const chat = {
         cprovDupErr: "模型 id 重复：{id}（同一平台内唯一）",
         memoryEntries: "已记 {count} 条",
         memoryPending: "向量端点未选择，记忆暂未生效",
+        memoryStoreUnavailable: "记忆存储不可用（vec0/SQLite 加载失败），记忆暂未生效",
+        memoryDisabled: "记忆服务未装配，记忆暂未生效",
         memoryEdit: "编辑",
         memoryDelete: "删除",
         memorySave: "保存",

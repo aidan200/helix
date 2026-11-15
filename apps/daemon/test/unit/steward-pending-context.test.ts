@@ -140,6 +140,24 @@ describe("① buildPendingProposalsSection（在途提案段纯函数）", () =>
     expect(two).toContain("pending_proposals");
     expect(two.startsWith(one.slice(0, 20))).toBe(true);
   });
+
+  // 记忆装配条件化批（2026-10-21 用户裁决）：memoryAvailable 第三参——
+  // false/缺席 = 纪律段不拼（管家不再调 memory_search，与编码面 skills+tools
+  // 成套装配同语义）；true = 纪律段拼入（人格段之后、快照段之前）。
+  test("记忆纪律段条件拼段（memoryAvailable 缺席 = 不含；true = 含且位序在快照前）", () => {
+    const withoutMemory = assembleStewardSystemPrompt("snap", "<pending_proposals>x</pending_proposals>");
+    expect(withoutMemory).not.toContain("长期记忆纪律");
+    const withMemory = assembleStewardSystemPrompt("snap", "<pending_proposals>x</pending_proposals>", true);
+    expect(withMemory).toContain("长期记忆纪律");
+    expect(withMemory).toContain("memory_search");
+    // 位序：人格段 → 记忆纪律段 → 快照段 → 在途提案段
+    const idxDiscipline = withMemory.indexOf("长期记忆纪律");
+    const idxSnap = withMemory.indexOf("snap");
+    const idxPending = withMemory.indexOf("pending_proposals");
+    expect(idxDiscipline).toBeGreaterThan(0);
+    expect(idxDiscipline).toBeLessThan(idxSnap);
+    expect(idxSnap).toBeLessThan(idxPending);
+  });
 });
 
 // ── 服务集成 ───────────────────────────────────────────

@@ -241,8 +241,8 @@ describe("向后兼容：无 task 块普通技能不受影响（CL-2-T9）", () 
     const registry = await loadRegistry();
     expect(registry.getTaskType("web-access")).toBeNull();
     const scanned = await builtinScanner().scan();
-    expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + kg-bootstrap + kg-review + kg-triage + code-review）零坏文件诊断
-    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "kg-triage", "web-access"]); // plan-workflow 已随 todo 改名批退役
+    expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + memory-discipline + kg-bootstrap + kg-review + kg-triage + code-review）零坏文件诊断
+    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "kg-triage", "memory-discipline", "web-access"]); // plan-workflow 已随 todo 改名批退役；memory-discipline 记忆装配条件化批新增
   });
 });
 

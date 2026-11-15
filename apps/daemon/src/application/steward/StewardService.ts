@@ -571,10 +571,13 @@ export class StewardService implements StewardComponent {
       // 总结配置组回显（summary.* 通用域生效值——所见即所得）
       summary: readSummaryConfig(this.core.deps.config),
       // 管家记忆 B1：记忆面现态（未装配 = 全降级缺省——开关关/零条目；批1：
-      //  endpoint 摘除——向量端点恒为全局默认端点，回执不回 endpointId）
+      //  endpoint 摘除——向量端点恒为全局默认端点，回执不回 endpointId）。
+      // 记忆装配条件化批：缺席缺省 degradedReasons = [disabled]（记忆服务
+      // 整体未装配——UI 按因分文案，区别于端点未配/存储失败两因）。
       memory: this.core.deps.memory?.getMemoryState() ?? {
         enabled: false,
         available: false,
+        degradedReasons: ["disabled"],
         judgeEndpoint: null,
         entryCount: 0,
         dim: null,

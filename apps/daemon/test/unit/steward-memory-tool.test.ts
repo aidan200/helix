@@ -79,6 +79,8 @@ function fakeMemory(
     getMemoryState: (): StewardMemoryState => ({
       enabled: true,
       available: opts.available ?? true,
+      // 记忆装配条件化批：fake 服务在场——降级清单空（available 由 opts 驱动）
+      degradedReasons: [],
       judgeEndpoint: null,
       entryCount: state.remembers.length,
       dim: 1024,
@@ -260,7 +262,9 @@ describe("管家记忆：remember 工具直写（换轨后保留面）", () => {
     // 未装配 → 降级缺省（批1：endpoint 摘除——回执不回 endpointId）
     const bare = makeService({ llm: fakeLlm([]) });
     const bareCfg = bare.svc.getConfig();
-    expect(bareCfg.memory).toEqual({ enabled: false, available: false, judgeEndpoint: null, entryCount: 0, dim: null });
+    // 记忆装配条件化批：缺席缺省 degradedReasons = [disabled]（三因分立的
+    // 服务未装配面——区别于端点未配/存储失败两因）
+    expect(bareCfg.memory).toEqual({ enabled: false, available: false, degradedReasons: ["disabled"], judgeEndpoint: null, entryCount: 0, dim: null });
     // 装配 → 真实现态透传
     const memory = fakeMemory();
     const { svc } = makeService({ llm: fakeLlm([]), memory });
