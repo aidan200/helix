@@ -38,4 +38,15 @@ describe("MarkdownMessage 换行渲染", () => {
     expect(pre).not.toBeNull();
     expect(pre!.textContent).toContain("code\nline2");
   });
+
+  it("GFM 表格渲染为 table/thead/th/td（remark-gfm 表格能力回归钉）", () => {
+    const { container } = render(
+      <MarkdownMessage text={"| 列A | 列B |\n| --- | --- |\n| 1 | 2 |"} />,
+    );
+    const table = container.querySelector(".md-body table");
+    expect(table).not.toBeNull();
+    expect(container.querySelectorAll(".md-body thead th").length).toBe(2);
+    expect(container.querySelectorAll(".md-body tbody td").length).toBe(2);
+    expect(table!.textContent).toContain("列A");
+  });
 });

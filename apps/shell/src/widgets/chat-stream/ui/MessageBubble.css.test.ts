@@ -62,3 +62,28 @@ describe("消息行对齐 CSS 纪律（user 右 / assistant 左 / 系统状态�
     expect(wbCss).toMatch(/\.skel-row\.user\s*\{[^}]*flex-direction:\s*row-reverse/);
   });
 });
+
+describe("气泡 md 表格 CSS 纪律（可辨性 + 宽表不撑破）", () => {
+  // 修复前：.bubble 作用域对 p/strong/ul/ol/code 齐备但 table 零样式——
+  // GFM 表格以浏览器默认样式渲染（无边框/无 padding/无表头区分），且
+  // .msg .col max-width:76% 下宽表溢出气泡不可读。
+  it("表格可辨：.bubble th/td 有边框与 padding", () => {
+    expect(appCss).toMatch(/\.bubble\s+th,\s*\.bubble\s+td\s*\{[^}]*border:/);
+    expect(appCss).toMatch(/\.bubble\s+th,\s*\.bubble\s+td\s*\{[^}]*padding:/);
+  });
+
+  it("表头区分：.bubble th 有背景色", () => {
+    expect(appCss).toMatch(/\.bubble\s+th\s*\{[^}]*background:/);
+  });
+
+  it("宽表不撑破气泡：.bubble table 块化 + max-width + 横向滚动", () => {
+    expect(appCss).toMatch(/\.bubble\s+table\s*\{[^}]*display:\s*block/);
+    expect(appCss).toMatch(/\.bubble\s+table\s*\{[^}]*max-width:\s*100%/);
+    expect(appCss).toMatch(/\.bubble\s+table\s*\{[^}]*overflow-x:\s*auto/);
+  });
+
+  it("steward 气泡同款表格样式（.stp-msg-steward 复用 MarkdownMessage）", () => {
+    expect(appCss).toMatch(/\.stp-msg-steward\s+table\s*\{[^}]*overflow-x:\s*auto/);
+    expect(appCss).toMatch(/\.stp-msg-steward\s+th,\s*\.stp-msg-steward\s+td\s*\{[^}]*border:/);
+  });
+});
