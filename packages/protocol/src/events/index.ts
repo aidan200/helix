@@ -104,12 +104,14 @@ import type {
   ConfigGetKgResultEvent,
   ConfigGetSummaryResultEvent,
   ConfigGetVoiceModelsResultEvent,
+  ConfigGetImageGenResultEvent,
   ConfigSetSandboxResultEvent,
   ConfigGetProxyResultEvent,
   ConfigSetProxyResultEvent,
   ConfigSetKgResultEvent,
   ConfigSetSummaryResultEvent,
   ConfigSetVoiceModelsResultEvent,
+  ConfigSetImageGenResultEvent,
 } from "./config";
 import type { TraceQueryResultEvent } from "./trace";
 import type { ThinkingChangedEvent } from "./thinking";
@@ -304,6 +306,8 @@ export type EventEnvelope =
   | ConfigSetSummaryResultEvent
   | ConfigGetVoiceModelsResultEvent
   | ConfigSetVoiceModelsResultEvent
+  | ConfigGetImageGenResultEvent
+  | ConfigSetImageGenResultEvent
   | AuthListResultEvent
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
@@ -474,6 +478,8 @@ export const EVENT_TYPES = [
   "config.set_summary.result",
   "config.get_voice_models.result",
   "config.set_voice_models.result",
+  "config.get_imagegen.result",
+  "config.set_imagegen.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -695,6 +701,8 @@ export const EVENT_CHANNELS = {
   "config.set_summary.result": "model",
   "config.get_voice_models.result": "model",
   "config.set_voice_models.result": "model",
+  "config.get_imagegen.result": "model",
+  "config.set_imagegen.result": "model",
   "auth.list.result": "model",
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",

@@ -123,3 +123,58 @@ export function imagesOfContent(content: unknown): string[] {
 }
 
 export { IMAGE_MIME_TYPES };
+
+// ── 图片魔数探测（jpg/png/gif/webp/bmp；多渠道生图批 v1 自 ReadTool 上移
+//    单源——read 工具与 generate_image 参考图解码共用；png 排除 aPNG——
+//    pi image.js 语义的简化面）────────────────────────────
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** 图片魔数探测（jpg/png/gif/webp/bmp；未知/动画格式 undefined）。 */
+export function detectImageMimeType(buffer: Uint8Array): string | undefined {
+  if (startsWith(buffer, [0xff, 0xd8, 0xff])) return buffer[3] === 0xf7 ? undefined : "image/jpeg";
+  if (startsWith(buffer, PNG_SIGNATURE) && readAscii(buffer, 12, 4) === "IHDR") {
+    return isAnimatedPng(buffer) ? undefined : "image/png";
+  }
+  const head = readAscii(buffer, 0, 6);
+  if (head === "GIF87a" || head === "GIF89a") return "image/gif";
+  if (readAscii(buffer, 0, 4) === "RIFF" && readAscii(buffer, 8, 4) === "WEBP") return "image/webp";
+  if (readAscii(buffer, 0, 2) === "BM" && buffer.length >= 26) return "image/bmp";
+  return undefined;
+}
+
+function startsWith(buffer: Uint8Array, prefix: number[]): boolean {
+  return prefix.every((byte, i) => buffer[i] === byte);
+}
+
+function readAscii(buffer: Uint8Array, offset: number, length: number): string {
+  let out = "";
+  for (let i = offset; i < offset + length && i < buffer.length; i++) {
+    out += String.fromCharCode(buffer[i]!);
+  }
+  return out;
+}
+
+/** aPNG 探测（acTL 块先于 IDAT 出现即动画）。 */
+function isAnimatedPng(buffer: Uint8Array): boolean {
+  let offset = PNG_SIGNATURE.length;
+  while (offset + 8 <= buffer.length) {
+    const chunkLength = readUint32BE(buffer, offset);
+    const chunkType = readAscii(buffer, offset + 4, 4);
+    if (chunkType === "acTL") return true;
+    if (chunkType === "IDAT") return false;
+    const next = offset + 8 + chunkLength + 4;
+    if (next <= offset || next > buffer.length) return false;
+    offset = next;
+  }
+  return false;
+}
+
+function readUint32BE(buffer: Uint8Array, offset: number): number {
+  return (
+    (buffer[offset] ?? 0) * 0x1000000 +
+    ((buffer[offset + 1] ?? 0) << 16) +
+    ((buffer[offset + 2] ?? 0) << 8) +
+    (buffer[offset + 3] ?? 0)
+  );
+}

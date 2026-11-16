@@ -46,6 +46,8 @@ import type {
   ConfigGetSummaryCommand,
   ConfigSetVoiceModelsCommand,
   ConfigGetVoiceModelsCommand,
+  ConfigSetImageGenCommand,
+  ConfigGetImageGenCommand,
   AuthListCommand,
   AuthSetKeyCommand,
   AuthDeleteKeyCommand,
@@ -199,6 +201,8 @@ export type CommandEnvelope =
   | ConfigGetSummaryCommand
   | ConfigSetVoiceModelsCommand
   | ConfigGetVoiceModelsCommand
+  | ConfigSetImageGenCommand
+  | ConfigGetImageGenCommand
   | AuthListCommand
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
@@ -402,6 +406,8 @@ export const COMMAND_TYPES = [
   "config.get_summary",
   "config.set_voice_models",
   "config.get_voice_models",
+  "config.set_imagegen",
+  "config.get_imagegen",
   "auth.list",
   "auth.set_key",
   "auth.delete_key",

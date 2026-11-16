@@ -458,11 +458,15 @@ describe("⑦ 定向 steer 路由（T2.3 契约 v0.3 §3.2，TP-CL3-2 U 半）",
     expect(entry).toMatchObject({ role: "user", text: "注意边界情况", isSteer: true, instanceId: "agent-1" });
     // 不入主 SteerQueue（目标是 SubAgent，不经主线 turn 边界 drain）
     expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
-    // ③ steer.queued 事件信封挂 instanceId=目标（payload 语义不变）
+    // ③ steer.queued 事件信封挂 instanceId=目标（payload 语义不变；快照合并
+    // 去重批：定向分支携带 ts = 落盘条目权威时间戳，Date.parse(createdAt)）
     const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
     expect(queued).toBeDefined();
     expect(queued!.instanceId).toBe("agent-1");
-    expect((queued!.payload as { entryId: string; text: string })).toEqual({ entryId: outcome.entryId, text: "注意边界情况" });
+    const queuedPayload = queued!.payload as { entryId: string; text: string; ts?: number };
+    expect(queuedPayload.entryId).toBe(outcome.entryId);
+    expect(queuedPayload.text).toBe("注意边界情况");
+    expect(queuedPayload.ts).toBe(Date.parse((entry as { createdAt: string }).createdAt));
     // 主线引擎零触碰（不驱动主实例 steer）、主生命周期不动
     expect(engine.queuedCount).toBe(0);
     expect(chat.agentState).toBe("idle");

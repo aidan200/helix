@@ -292,6 +292,40 @@ export const VOICE_MODEL_FIELDS = [
   "ttsStreamModel",
 ] as const;
 
+// ── config.imagegen 族（多渠道生图批 v1；命名辨析：与「图片压缩配置」
+//    config.get/set_image 互不相干）──
+
+/**
+ * config.set_imagegen 载荷：生图渠道配置（部分更新语义：携带项写入，
+ * 未携带项保留现值；空串 = 回落自动/渠道内置默认）。非 string 字段回执
+ * invalid_payload；defaultChannel 非 IMAGEGEN_CHANNEL_IDS 值且非空串回执
+ * invalid_payload（渠道 id 枚举单源在协议面——shell 下拉与 daemon 校验同源）。
+ */
+export interface ConfigSetImageGenPayload {
+  /** 缺省生图渠道（"" = 自动：注册序取首个可用；枚举 IMAGEGEN_CHANNEL_IDS）。 */
+  defaultChannel?: string;
+  /** openai 渠道默认模型 id（"" = 渠道内置默认 gpt-image-1.5）。 */
+  openaiModel?: string;
+  /** google 渠道默认模型 id（"" = 渠道内置默认 gemini-nano-banana-2.1）。 */
+  googleModel?: string;
+}
+export interface ConfigSetImageGenCommand extends CommandFrame<ConfigSetImageGenPayload> {
+  type: "config.set_imagegen";
+}
+
+/** config.get_imagegen 载荷：全局命令。 */
+export interface ConfigGetImageGenCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_imagegen";
+}
+
+/**
+ * 生图渠道 id 枚举（v1：openai/google；daemon 渠道注册表与 shell 下拉同源
+ * 消费。新渠道接入时此处追加 + daemon 落驱动实现，配置字段同步扩）。注意：
+ * 这是「协议面已知的渠道名清单」——渠道可用性（是否配了 key）是运行时
+ * 事实，不在此表达。
+ */
+export const IMAGEGEN_CHANNEL_IDS = ["openai", "google"] as const;
+
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
 /** auth.list 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */
@@ -392,3 +426,10 @@ export interface ThinkingSetCommand extends CommandFrame<ThinkingSetPayload> {
   type: "thinking.set";
 }
 
+
+/** 生图配置三字段（载荷字段名协议契约单源；daemon 配置域 import 消费）。 */
+export const IMAGEGEN_CONFIG_FIELDS = [
+  "defaultChannel",
+  "openaiModel",
+  "googleModel",
+] as const;

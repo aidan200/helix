@@ -236,3 +236,33 @@ export interface ConfigSetVoiceModelsResultEvent extends EventFrame<ConfigSetVoi
   channel?: "model";
   type: "config.set_voice_models.result";
 }
+
+// ── config.imagegen 族（多渠道生图批 v1：默认渠道 + 各渠道默认模型）──
+
+/**
+ * config.get_imagegen / config.set_imagegen 回执同形载荷（get = 现态读面；
+ * set = 校验通过写入后的新现态回读）。全量生效态（所见即所得，含默认填充）。
+ *
+ * 命名辨析：本族是「生图渠道配置」；config.get/set_image 是「图片压缩配置」
+ *（read/browser 下行图降采样总闸）——两族互不相干。
+ */
+export interface ImageGenConfigStatePayload {
+  /** 缺省生图渠道 id（"" = 自动：按渠道注册序取首个可用——注册序即优先级序）。 */
+  defaultChannel: string;
+  /** openai 渠道（gpt-image 系列）默认模型 id（"" = 渠道内置默认 gpt-image-1.5）。 */
+  openaiModel: string;
+  /** google 渠道（Nano Banana 系列）默认模型 id（"" = 渠道内置默认 gemini-nano-banana-2.1）。 */
+  googleModel: string;
+}
+export interface ConfigGetImageGenResultEvent extends EventFrame<ImageGenConfigStatePayload> {
+  channel?: "model";
+  type: "config.get_imagegen.result";
+}
+export interface ConfigSetImageGenResultPayload {
+  /** 写入后的新现态（与 get 同形）。 */
+  state: ImageGenConfigStatePayload;
+}
+export interface ConfigSetImageGenResultEvent extends EventFrame<ConfigSetImageGenResultPayload> {
+  channel?: "model";
+  type: "config.set_imagegen.result";
+}
