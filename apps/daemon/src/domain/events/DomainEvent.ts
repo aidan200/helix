@@ -116,6 +116,11 @@ export interface SteerPayload {
   readonly text: string;
   /** 注入来源（T11a：user/closure/progress；缺省 = 老事件按 user）。 */
   readonly source?: SteerSource;
+  /** daemon 落盘条目权威时间戳（ms；定向 steer 快照合并去重批）：
+   *  定向分支（steerInstance）携带——shell 侧对账面用 echo 行的 ts 换权威
+   *  值，快照重连合并（行身份 kind:text:ts 并集）去重生效。主线分支不携带
+   *  （主线队列坞 ts 不参与快照合并身份）。 */
+  readonly ts?: number;
 }
 
 /** steer.discarded：队列出账（非 drain 通道）——run 收口清账时残留离队的

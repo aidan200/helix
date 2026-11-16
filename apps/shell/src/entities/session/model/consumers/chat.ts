@@ -23,7 +23,7 @@
  * SubAgent delta 只更新卡片摘要尾窗与 channel 流式槽，不进主消息流。
  */
 import type { EntryDto, EventEnvelope, MessageEntryDto, SteerSource } from "@helix/protocol";
-import { channelOf, upsertChannelEntry } from "../channel";
+import { channelOf, withChannel, upsertChannelEntry } from "../channel";
 import { appendSummary, finalizeSummary } from "../instance-cards";
 import { upsertEntry } from "../entries";
 import { isMainChannel, LOCAL_PREFIX, type ChannelItem, type SessionState } from "../state";
@@ -61,7 +61,10 @@ function confirmSteerEcho(
   text: string | undefined,
   at: number | undefined,
 ): SessionState {
-  // 定向分支（entries echo；契约 §3.2 Q-3a）
+  // 定向分支（entries echo；契约 §3.2 Q-3a）——快照合并去重批：channel
+  // 侧 echo 同步对账（id + 权威 ts 补入），否则快照重连合并
+  // （mergeChannelItems 行身份 kind:text:ts 并集）把同一定向 steer 识别为
+  // 两行（本地 echo 客户端钟 ts ≠ daemon 落盘 ts）→ 双份渲染
   if (instanceId !== undefined) {
     const idx = s.entries.findIndex(
       (e) =>
@@ -70,11 +73,41 @@ function confirmSteerEcho(
         e.steerState === "queued" &&
         e.instanceId === instanceId,
     );
-    if (idx === -1) return s; // 无 echo（他端发送等场景）：等快照对账
+    const authoritativeTs = at ?? undefined;
+    if (idx === -1) {
+      // 无 echo（他端发送等场景）：快照对账 + channel 补入权威行（双处可见
+      // 语义——他端发送场景本地 channel 缺行，权威 id/ts 直接补入）；
+      // 权威 ts 缺席（旧 daemon）不补（时序无从对齐，维持旧行为）
+      if (authoritativeTs === undefined) return s;
+      return withChannel(s, instanceId, (next) => [
+        { kind: "steer-directed", seq: next(), text: text ?? "", ts: authoritativeTs, target: instanceId, id: entryId },
+      ]);
+    }
     const next = s.entries.slice();
     const echo = next[idx] as MessageEntryDto;
-    next[idx] = { ...echo, id: entryId, ...(source !== undefined ? { source } : {}) };
-    return { ...s, entries: next };
+    next[idx] = {
+      ...echo,
+      id: entryId,
+      ...(authoritativeTs !== undefined ? { ts: authoritativeTs } : {}),
+      ...(source !== undefined ? { source } : {}),
+    };
+    // channel 侧 echo 对账：同实例 channel 内未对账的定向 echo（LOCAL 阶段
+    // 无 id）补入权威 id（快照合并去重批：channelItemIdentity id 优先，
+    // ts 是否对齐不影响去重）；ts 仅权威值携带时对齐（旧 daemon 无 payload.ts
+    // → 保持客户端 ts，显示时间不变）。（匹配面：无 id 行——幂等，重复帧不双补）
+    const channelItems = channelOf(s.instanceChannels, instanceId).map((item) =>
+      item.kind === "steer-directed" &&
+      item.id === undefined &&
+      item.target === instanceId &&
+      item.text === (text ?? echo.content)
+        ? { ...item, id: entryId, ...(authoritativeTs !== undefined ? { ts: authoritativeTs } : {}) }
+        : item,
+    );
+    return {
+      ...s,
+      entries: next,
+      instanceChannels: { ...s.instanceChannels, [instanceId]: channelItems },
+    };
   }
   // 主线分支（队列坞 echo）：text 存在则**按文本对账**（create-if-no-echo 支持
   // 跨源注入——坞内可并存本端 user echo 与他源注入帧，FIFO 盲匹配会把他源
@@ -195,7 +228,9 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: numbe
       return { ...s, streaming: null, engineRetrying: null, currentTurnId: null };
     case "steer.queued": {
       // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省/主实例 id
-      //（kind 判别）= 主线 echo（队列坞对账 / create-if-no-echo 建条目）
+      //（kind 判别）= 主线 echo（队列坞对账 / create-if-no-echo 建条目）。
+      // 权威 ts（快照合并去重批）：payload.ts 优先；旧 daemon 缺席 → 信封到达
+      // 时间（dispatcher 注入）兑底（与旧行为同源，仅定向对账消费）
       const iid = event.instanceId;
       return confirmSteerEcho(
         s,
@@ -203,7 +238,7 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: numbe
         iid !== undefined && !isMainChannel(iid, s.mainInstanceId) ? iid : undefined,
         event.payload.source,
         event.payload.text,
-        ts,
+        event.payload.ts ?? ts,
       );
     }
     case "steer.drained":

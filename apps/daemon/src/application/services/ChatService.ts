@@ -410,7 +410,12 @@ export class ChatService implements ChatPort {
       throw new SteerTargetNotRunningError(outcome.detail);
     }
     const entry = this.session.applyDirectedSteer(text, instanceId, this.now());
-    this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text }, undefined, instanceId);
+    this.publish<SteerPayload>(
+      "steer.queued",
+      { entryId: entry.id, text, ts: Date.parse(entry.createdAt) },
+      undefined,
+      instanceId,
+    );
     return { entryId: entry.id };
   }
 

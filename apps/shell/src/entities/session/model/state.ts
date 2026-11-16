@@ -493,8 +493,11 @@ export type ChannelItem =
   | { kind: "steer"; seq: number; text: string; ts?: number }
   /** 定向 steer 标记（CL-3，契约 v0.3 §3.2 Q-3a 抽屉侧投影）：user+isSteer
    *  且 instanceId=本实例的干预条目——与时间轴侧同物种（violet 细条 +
-   *  「steer → {target}」chip + 正文）；target = 归属实例（= 本 channel）。 */
-  | { kind: "steer-directed"; seq: number; text: string; ts?: number; target: string }
+   *  「steer → {target}」chip + 正文）；target = 归属实例（= 本 channel）。
+   *  id（快照合并去重批）：daemon 落盘条目权威 entryId——本地 echo 无此位，
+   *  steer.queued 定向对账时补入（channelItemIdentity id 优先）；断连窄窗口
+   *  内未及对账的 echo 行由 mergeChannelItems 同 text+target 吸收。 */
+  | { kind: "steer-directed"; seq: number; text: string; ts?: number; target: string; id?: string }
   | { kind: "thinking-entry"; seq: number; entry: ThinkingEntryDto }
   | { kind: "tool"; seq: number; entry: ToolCallEntryDto }
   | { kind: "closure"; seq: number; closure: ClosureDto };

@@ -75,6 +75,14 @@ export interface SteerQueuedPayload {
   /** 注入来源（v0.11 批内补登 T11a）：user/closure/progress/steward；
    *  缺省 = 老事件按 user */
   source?: SteerSource;
+  /** daemon 落盘条目权威时间戳（ms；定向 steer 快照合并去重批）：
+   *  定向分支对账用——channel 侧本地 echo 的 ts 是客户端钟，与 daemon 落盘
+   *  ts 不同会使快照重连合并（mergeChannelItems 行身份并集）把同一条定向
+   *  steer 识别为两行（双份渲染，E 层 CL-3 抽屉 steer 偶发红根因）。携带
+   *  权威 ts 使对账面把 echo 行的 ts 换成权威值，行身份（kind:text:ts）
+   *  与快照重建行一致，去重生效。additive 可选位：旧 daemon 不携带 →
+   *  旧 shell 不消费，双向兼容。 */
+  ts?: number;
 }
 
 /** turn 边界 drain 注入（徽标转「已注入·本轮结束」依据） */

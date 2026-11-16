@@ -109,7 +109,7 @@ export function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | 
     case "message":
       if (entry.role === "user") {
         return entry.steerState !== undefined && entry.instanceId !== undefined
-          ? { kind: "steer-directed", seq, text: entry.content, ts: entry.ts, target: entry.instanceId }
+          ? { kind: "steer-directed", seq, text: entry.content, ts: entry.ts, target: entry.instanceId, id: entry.id }
           : { kind: "steer", seq, text: entry.content, ts: entry.ts };
       }
       return { kind: "message", seq, text: entry.content, ts: entry.ts };
@@ -199,6 +199,13 @@ export function channelItemIdentity(item: ChannelItem): string {
       return `lifecycle:${item.lc}:${item.ts ?? ""}`;
     case "closure":
       return "closure";
+    case "steer-directed":
+      // 快照合并去重批：权威 id 优先（对账后 echo 行与快照重建行同 id 去重）；
+      // 无 id（断连窄窗口内未及对账的 echo）回落三元组（同 text+target 吸收面
+      // 在 mergeChannelItems 单独处理）
+      return item.id !== undefined
+        ? `steer-directed:${item.id}`
+      : `steer-directed:${item.text}:${item.target}:${item.ts ?? ""}`;
     default:
       return `${item.kind}:${item.text}:${item.ts ?? ""}`;
   }
@@ -221,8 +228,23 @@ export function mergeChannelItems(
   nextSeq: number,
 ): { items: ChannelItem[]; nextSeq: number } {
   const snapById = new Map(snapshotItems.map((i) => [channelItemIdentity(i), i]));
-  const liveIds = new Set(liveItems.map(channelItemIdentity));
-  const out: ChannelItem[] = liveItems.map((live) => {
+  // 快照合并去重批：断连窄窗口内未及对账（steer.queued 未达）的本地 echo
+  // 定向 steer（无 id，ts 为客户端钟）——快照重建行必有 daemon 权威版本，
+  // 按 text+target 吸收（echo 行丢弃，权威行保留；无快照对应 = daemon 未落盘
+  // 的极窄窗口，echo 行保留——steer.queued 到达后对账面接手）
+  const snapDirectedByText = new Map(
+    snapshotItems
+      .filter((i): i is Extract<ChannelItem, { kind: "steer-directed" }> => i.kind === "steer-directed")
+      .map((i) => [`${i.target}\u0000${i.text}`, i]),
+  );
+  const liveItemsFiltered = liveItems.filter((live) => {
+    if (live.kind !== "steer-directed" || live.id !== undefined) return true;
+    // 快照有同 text+target 权威行 → echo 行吸收丢弃（无权威行的极窄窗口保留
+    // echo 行——steer.queued 到达后对账面接手）
+    return snapDirectedByText.get(`${live.target}\u0000${live.text}`) === undefined;
+  });
+  const liveIds = new Set(liveItemsFiltered.map(channelItemIdentity));
+  const out: ChannelItem[] = liveItemsFiltered.map((live) => {
     const snap = snapById.get(channelItemIdentity(live));
     return snap === undefined ? live : ({ ...snap, seq: live.seq } as ChannelItem);
   });

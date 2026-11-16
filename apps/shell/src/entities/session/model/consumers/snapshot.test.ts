@@ -81,3 +81,48 @@ describe("mergeChannelItems · 重连合入并集", () => {
     expect(items.map((i) => (i.kind === "message" ? i.text : i.kind))).toEqual(["第一", "第二", "第三", "第四"]);
   });
 });
+
+const directed = (
+  seq: number, text: string, ts: number, target: string, id?: string,
+): ChannelItem => ({ kind: "steer-directed", seq, text, ts, target, id } as never);
+
+describe("mergeChannelItems · 快照合并去重批（定向 steer echo 双份）", () => {
+  test("对账后（id + 权威 ts）→ 同身份去重单份", () => {
+    const IID = "agent-abc";
+    const EID = "e42";
+    const live: ChannelItem[] = [
+      lc(1, "spawned"), lc(2, "modelResolved"),
+      directed(3, "请检查路径", 1794794000123, IID, EID),
+    ];
+    const snap: ChannelItem[] = [
+      lc(1, "spawned"), lc(2, "modelResolved"),
+      directed(3, "请检查路径", 1794794000123, IID, EID),
+    ];
+    const { items } = mergeChannelItems(snap, live, 10);
+    expect(items.filter((i) => i.kind === "steer-directed")).toHaveLength(1);
+  });
+
+  test("未及对账的 echo（断连窄窗口，客户端 ts）→ 快照权威行吸收", () => {
+    const IID = "agent-abc";
+    const live: ChannelItem[] = [
+      lc(1, "spawned"), lc(2, "modelResolved"),
+      directed(3, "请检查路径", 1794794000000, IID),
+    ];
+    const snap: ChannelItem[] = [
+      lc(1, "spawned"), lc(2, "modelResolved"),
+      directed(3, "请检查路径", 1794794000123, IID, "e42"),
+    ];
+    const { items } = mergeChannelItems(snap, live, 10);
+    const rows = items.filter((i): i is Extract<ChannelItem, { kind: "steer-directed" }> => i.kind === "steer-directed");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe("e42");
+  });
+
+  test("daemon 未落盘的极窄窗口（快照无对应行）→ echo 行保留", () => {
+    const IID = "agent-abc";
+    const live: ChannelItem[] = [lc(1, "spawned"), directed(3, "飞行中注入", 1794794000000, IID)];
+    const snap: ChannelItem[] = [lc(1, "spawned")];
+    const { items } = mergeChannelItems(snap, live, 10);
+    expect(items.filter((i) => i.kind === "steer-directed")).toHaveLength(1);
+  });
+});

@@ -84,3 +84,74 @@ describe("applyChatEvent · steer.queued 主线 echo 对账", () => {
     expect(out.steerQueue[0]).toMatchObject({ id: "e-legacy", confirmed: true, text: "我的追问" });
   });
 });
+
+describe("applyChatEvent · steer.queued 定向 echo 对账（channel 侧）", () => {
+  const IID = "agent-xyz";
+  function directedState(): SessionState {
+    const s = baseState([]);
+    return {
+      ...s,
+      mainInstanceId: "agent-main",
+      // entries 本地 echo（ui/steer-instance 双投影之一）
+      entries: [
+        {
+          kind: "message",
+          id: "local:1",
+          role: "user",
+          content: "请复查构建",
+          ts: 111,
+          steerState: "queued",
+          instanceId: IID,
+        } as never,
+      ],
+      // channel 本地 echo（双投影之二）
+      instanceChannels: {
+        [IID]: [{ kind: "steer-directed", seq: 3, text: "请复查构建", ts: 111, target: IID }],
+      },
+    };
+  }
+  function directedEvent(payload: Record<string, unknown>): EventEnvelope {
+    return {
+      v,
+      sessionId: "s-1",
+      channel: "chat",
+      type: "steer.queued",
+      instanceId: IID,
+      payload,
+    } as unknown as EventEnvelope;
+  }
+
+  test("对账：entries echo 换权威 id + channel echo 补 id + ts 对齐权威值", () => {
+    const out = applyChatEvent(
+      directedState(),
+      directedEvent({ entryId: "e9", text: "请复查构建", ts: 1794794000123 }),
+    );
+    // entries：echo → 权威条目
+    expect(out.entries[0]).toMatchObject({ id: "e9", steerState: "queued", instanceId: IID, ts: 1794794000123 });
+    // channel：echo 行补权威 id + ts（快照合并去重的身份基）
+    const row = out.instanceChannels[IID]![0]!;
+    expect(row).toMatchObject({ kind: "steer-directed", text: "请复查构建", id: "e9", ts: 1794794000123, target: IID });
+  });
+
+  test("无 echo（他端发送）：payload.ts 携带 → channel 补入权威行", () => {
+    const s = directedState();
+    const noEcho = { ...s, entries: [], instanceChannels: { [IID]: [] } };
+    const out = applyChatEvent(
+      noEcho,
+      directedEvent({ entryId: "e9", text: "他端注入", ts: 1794794000123 }),
+    );
+    expect(out.instanceChannels[IID]).toHaveLength(1);
+    expect(out.instanceChannels[IID]![0]).toMatchObject({ kind: "steer-directed", text: "他端注入", id: "e9", ts: 1794794000123, target: IID });
+  });
+
+  test("旧 daemon（无 payload.ts）：entries 换 id，channel echo 补 id 但 ts 保持客户端值", () => {
+    const out = applyChatEvent(
+      directedState(),
+      directedEvent({ entryId: "e9", text: "请复查构建" }),
+    );
+    expect(out.entries[0]).toMatchObject({ id: "e9" });
+    // channel echo 补权威 id（去重身份 id 优先，ts 是否对齐不影响）；ts 无权威值
+    // 可对齐 → 保持客户端 ts（显示时间不变）
+    expect(out.instanceChannels[IID]![0]).toMatchObject({ kind: "steer-directed", text: "请复查构建", id: "e9", ts: 111 });
+  });
+});
